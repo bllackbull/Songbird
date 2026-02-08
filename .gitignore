@@ -1,5 +1,22 @@
-﻿client/node_modules
-client/dist
-server/node_modules
-data
-.vite
+﻿# Node
+node_modules/
+
+# Client build
+client/dist/
+
+# Server build / data
+server/node_modules/
+data/
+*.sqlite
+
+# Vite cache
+.vite/
+
+# Env
+.env
+.env.local
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
