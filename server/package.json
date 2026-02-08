@@ -1,0 +1,15 @@
+﻿{
+  "name": "songbird-server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch index.js",
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.21.2",
+    "sql.js": "^1.13.0"
+  }
+}

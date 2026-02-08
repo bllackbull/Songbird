@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  margin: 0;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  background-color: #ecfdf5;
+  overscroll-behavior: none;
+}
+
+::selection {
+  background: rgba(16, 185, 129, 0.35);
+  color: #0f172a;
+}
+
+.chat-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(16, 185, 129, 0.5) rgba(15, 23, 42, 0.08);
+  overscroll-behavior: contain;
+}
+
+.chat-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+
+.chat-scroll::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.08);
+  border-radius: 999px;
+}
+
+.chat-scroll::-webkit-scrollbar-thumb {
+  background: rgba(16, 185, 129, 0.45);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.chat-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(16, 185, 129, 0.7);
+}
+
+.dark .chat-scroll {
+  scrollbar-color: rgba(16, 185, 129, 0.6) rgba(15, 23, 42, 0.7);
+}
+
+.dark .chat-scroll::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.7);
+}
+
+.dark .chat-scroll::-webkit-scrollbar-thumb {
+  background: rgba(16, 185, 129, 0.6);
+}
+
+.dark .chat-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(16, 185, 129, 0.8);
+}

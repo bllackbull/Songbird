@@ -1,0 +1,14 @@
+﻿{
+  "name": "songbird",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "concurrently \"npm --prefix client run dev\" \"npm --prefix server run dev\"",
+    "build": "npm --prefix client run build",
+    "preview": "npm --prefix client run preview",
+    "start": "npm --prefix server run start"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
