@@ -17,6 +17,22 @@ body {
   font-family: 'DM Sans', system-ui, sans-serif;
   background-color: #ecfdf5;
   overscroll-behavior: none;
+  /* Prevent Safari zoom on input focus */
+  -webkit-font-smoothing: antialiased;
+  -webkit-touch-callout: none;
+}
+
+/* Prevent zoom on input focus for iOS Safari */
+input, textarea, select {
+  font-size: 16px !important;
+}
+
+/* Handle safe areas on notch devices */
+@supports (padding: max(0px)) {
+  body {
+    padding-left: max(0px, env(safe-area-inset-left));
+    padding-right: max(0px, env(safe-area-inset-right));
+  }
 }
 
 ::selection {

@@ -338,6 +338,10 @@ export function hideChatsForUser(userId, conversationIds = []) {
   })
 }
 
+export function unhideChat(userId, conversationId) {
+  run('DELETE FROM hidden_chats WHERE user_id = ? AND conversation_id = ?', [userId, conversationId])
+}
+
 export function createSession(userId, token) {
   run('INSERT INTO sessions (user_id, token) VALUES (?, ?)', [userId, token])
 }

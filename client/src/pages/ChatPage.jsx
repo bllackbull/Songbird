@@ -136,8 +136,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark }) {
         }
         const users = data.users || []
         setNewChatResults(users)
-        const exact = users.find((item) => item.username === newChatUsername.trim().toLowerCase())
-        setNewChatSelection(exact || null)
       } catch (err) {
         setNewChatError(err.message)
       } finally {
@@ -198,9 +196,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark }) {
   }, [activeConversationId])
 
   const activeId = activeConversationId ? Number(activeConversationId) : null
-  const visibleConversations = conversations.filter(
-    (conv) => conv.last_message || (activeId !== null && conv.id === activeId)
-  )
+  const visibleConversations = conversations
   const activeConversation =
     visibleConversations.find((conv) => conv.id === activeId) ||
     conversations.find((conv) => conv.id === activeId)
@@ -232,9 +228,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark }) {
   const peerIsOffline =
     !activeHeaderPeer ||
     peerPresence.status === 'invisible' ||
-    (lastSeenAt !== null && Date.now() - lastSeenAt > peerIdleThreshold) ||
-    lastSeenAt === null
-  const peerStatusLabel = peerIsOffline ? 'offline' : 'online'
+    (lastSeenAt !== null && Date.now() - lastSeenAt > peerIdleThreshold)
+  const peerStatusLabel = peerIsOffline ? 'offline' : peerPresence.status === 'invisible' ? 'invisible' : 'online'
 
   const toggleSelectChat = (chatId) => {
     setSelectedChats((prev) =>
@@ -270,6 +265,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark }) {
     }
     setSelectedChats([])
     setPendingDeleteIds([])
+    setEditMode(false)
     setConfirmDeleteOpen(false)
     await loadConversations()
   }
@@ -719,7 +715,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark }) {
   }
 
   return (
-    <div className="flex h-[100dvh] w-full flex-1 flex-col overflow-hidden md:h-screen md:flex-row md:gap-0">
+    <div className="flex h-[100dvh] w-full flex-1 flex-col overflow-hidden md:h-screen md:flex-row md:gap-0" style={{ paddingTop: 'max(0px, env(safe-area-inset-top))', paddingLeft: 'max(0px, env(safe-area-inset-left))', paddingRight: 'max(0px, env(safe-area-inset-right))' }}>
       <aside
         className={
           'relative flex h-full w-full flex-col overflow-hidden border border-emerald-100/70 bg-emerald-50/80 shadow-xl shadow-emerald-500/15 backdrop-blur dark:border-white/5 dark:bg-slate-900/80 md:w-[35%] ' +
@@ -728,9 +724,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark }) {
       >
         {/* Hide profile bar on mobile */}
         <div className="grid h-[72px] grid-cols-[1fr,auto,1fr] items-center border-b border-emerald-100/70 bg-emerald-50/90 px-6 py-4 dark:border-emerald-500/20 dark:bg-slate-950/70">
-          {mobileTab === 'settings' ? (
+          {mobileTab === 'settings' && (
             <div className="col-span-3 text-center text-lg font-semibold md:hidden">Settings</div>
-          ) : (
+          )}
+          {mobileTab !== 'settings' && (
             <>
               <div className="flex items-center gap-2">
                 {editMode ? (
@@ -981,7 +978,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark }) {
                         }`}
                       >
                         <span className={`h-2 w-2 rounded-full ${value === 'online' ? 'bg-emerald-400' : 'bg-slate-400'}`} />
-                        <span className="hidden sm:inline">{value.charAt(0).toUpperCase() + value.slice(1)}</span>
+                        <span>{value.charAt(0).toUpperCase() + value.slice(1)}</span>
                       </button>
                     ))}
                   </div>
@@ -1391,21 +1388,24 @@ export default function ChatPage({ user, setUser, isDark, setIsDark }) {
 
         {activeConversationId ? (
           <form
-            className="flex min-h-[72px] flex-row gap-3 border-t border-emerald-100/70 bg-emerald-50/90 px-6 py-3 dark:border-emerald-500/20 dark:bg-slate-950/70"
+            className="flex flex-col gap-3 border-t border-emerald-100/70 bg-emerald-50/90 px-4 py-3 dark:border-emerald-500/20 dark:bg-slate-950/70 sm:px-6"
+            style={{ paddingBottom: 'max(0.75rem, calc(env(safe-area-inset-bottom) + 0.75rem))' }}
             onSubmit={handleSend}
           >
-            <input
-              name="message"
-              type="text"
-              placeholder="Type a message"
-              className="flex-1 rounded-2xl border border-emerald-200 bg-white px-4 py-2 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
-            />
-            <button
-              type="submit"
-              className="inline-flex items-center justify-center rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:-translate-y-0.5 hover:bg-emerald-400 hover:shadow-emerald-500/40"
-            >
-              <SendIcon />
-            </button>
+            <div className="flex flex-row gap-3">
+              <input
+                name="message"
+                type="text"
+                placeholder="Type a message"
+                className="flex-1 rounded-2xl border border-emerald-200 bg-white px-4 py-2 text-base text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
+              />
+              <button
+                type="submit"
+                className="inline-flex items-center justify-center rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:-translate-y-0.5 hover:bg-emerald-400 hover:shadow-emerald-500/40"
+              >
+                <SendIcon />
+              </button>
+            </div>
           </form>
         ) : null}
         {activeConversationId && userScrolledUp ? (
@@ -1421,7 +1421,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark }) {
                 userScrolledUpRef.current = false
                 setUserScrolledUp(false)
               }}
-              className="absolute bottom-28 left-1/2 inline-flex h-11 w-11 -translate-x-1/2 items-center justify-center rounded-full border border-emerald-200 bg-white/90 text-emerald-700 shadow-lg transition hover:-translate-y-0.5 hover:border-emerald-300 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+              className="absolute inline-flex h-11 w-11 items-center justify-center rounded-full border border-emerald-200 bg-white/90 text-emerald-700 shadow-lg transition hover:-translate-y-0.5 hover:border-emerald-300 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+              style={{ bottom: 'max(100px + 0.75rem, calc(100px + env(safe-area-inset-bottom) + 0.75rem))', left: '50%', transform: 'translateX(-50%)' }}
               aria-label="Back to latest message"
             >
               <span className="text-lg leading-none">↓</span>
@@ -1440,12 +1441,16 @@ export default function ChatPage({ user, setUser, isDark, setIsDark }) {
         ) : null}
       </section>
 
-      {!(mobileTab === 'chat' && activeConversationId) ? (
-        <div className="fixed inset-x-0 bottom-4 z-30 px-6 md:hidden">
-          <div className="mx-auto flex max-w-sm items-center justify-between rounded-3xl border border-emerald-100/70 bg-white/90 p-2 shadow-lg shadow-emerald-500/10 backdrop-blur dark:border-emerald-500/30 dark:bg-slate-950/90">
+      <div className={`fixed inset-x-0 bottom-0 z-10 px-4 sm:px-6 md:hidden ${
+        mobileTab === 'chat' && activeConversationId ? 'hidden' : ''
+      }`} style={{ paddingBottom: 'max(1rem, calc(env(safe-area-inset-bottom) + 1rem))' }}>
+        <div className="mx-auto mb-4 flex max-w-sm items-center justify-between rounded-3xl border border-emerald-100/70 bg-white/90 p-2 shadow-lg shadow-emerald-500/10 backdrop-blur dark:border-emerald-500/30 dark:bg-slate-950/90">
             <button
               type="button"
-              onClick={() => setMobileTab('chats')}
+              onClick={() => {
+                setMobileTab('chats')
+                setSettingsPanel(null)
+              }}
               className={`relative flex flex-1 flex-col items-center gap-1 rounded-2xl px-3 py-2 text-[11px] font-semibold transition ${
                 mobileTab === 'chats' ? 'text-white' : 'text-emerald-700 dark:text-emerald-200'
               }`}
@@ -1473,9 +1478,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark }) {
               </span>
               <span className="relative z-10">Settings</span>
             </button>
-          </div>
         </div>
-      ) : null}
+      </div>
 
         {newChatOpen && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-6">
@@ -1523,11 +1527,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark }) {
                       setNewChatSelection(result)
                       setNewChatUsername(result.username)
                     }}
-                    className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-2 text-left text-sm transition ${
+                    className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left text-sm font-medium transition ${
                       newChatSelection?.username === result.username
-                        ? 'border-emerald-400 bg-emerald-100 text-emerald-900'
-                        : 'border-emerald-100/70 bg-white/80 text-slate-700 hover:border-emerald-200'
-                    } dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-100`}
+                        ? 'border-emerald-500 border-2 bg-emerald-50 text-emerald-900 shadow-md dark:border-emerald-400 dark:bg-emerald-500/20 dark:text-emerald-100'
+                        : 'border-emerald-100/70 bg-white/80 text-slate-700 hover:border-emerald-300 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900/50'
+                    }`}
                   >
                     {result.avatar_url ? (
                       <img
@@ -1634,13 +1638,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark }) {
                         {(profileForm.nickname || profileForm.username || 'S').slice(0, 1).toUpperCase()}
                       </div>
                     )}
-                    <div className="flex items-center gap-2">
+                    <div className="flex w-full items-center gap-2">
                       <label
                         htmlFor="profilePhotoInput"
-                        className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-md dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/20 dark:hover:shadow-md"
+                        className="flex cursor-pointer items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-2 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-md dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/20 dark:hover:shadow-md sm:px-4"
                       >
-                        <UploadIcon className="h-4 w-4" />
-                        Upload Photo
+                        <UploadIcon className="h-4 w-4 flex-shrink-0" />
+                        <span className="inline">Upload Photo</span>
                       </label>
                       <input
                         id="profilePhotoInput"

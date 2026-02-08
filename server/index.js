@@ -27,6 +27,7 @@ import {
   updateUserPassword,
   updateUserProfile,
   updateUserStatus,
+  unhideChat,
 } from './db.js'
 
 const app = express()
@@ -323,6 +324,9 @@ app.post('/api/conversations/dm', (req, res) => {
 
   const existingId = findDmConversation(fromUser.id, toUser.id)
   if (existingId) {
+    // Unhide the conversation for both users (in case it was previously deleted)
+    unhideChat(fromUser.id, existingId)
+    unhideChat(toUser.id, existingId)
     return res.json({ id: existingId })
   }
 

@@ -30,8 +30,8 @@ Update and install required packages:
 sudo apt update
 sudo apt install -y git curl build-essential nginx python3-certbot-nginx
 
-# Install Node.js (example uses NodeSource for Node 20)
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+# Install Node.js (example uses NodeSource for Node 24)
+curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
 sudo apt install -y nodejs
 ```
 
