@@ -1,6 +1,6 @@
 # <img src="./client/public/songbird-logo.svg"> Songbird
 
-> Lightweight self-hosted chat app (React + Vite frontend, Node/Express + sql.js backend)
+***Lightweight self-hosted chat app (React + Vite frontend, Node/Express + sql.js backend)***
 
 This repository contains the Songbird chat application. The server uses a file-backed SQLite database via `sql.js` and the client is built with React + Vite + Tailwind.
 
@@ -43,8 +43,10 @@ Choose a deployment directory (example: `/opt/songbird`):
 sudo mkdir -p /opt/songbird
 sudo chown $USER:$USER /opt/songbird
 cd /opt/songbird
-git clone https://github.com/bllackbull/Songbird.git
+git clone https://github.com/bllackbull/Songbird.git .
 ```
+
+**Important:** The `.` at the end clones the repository contents directly into `/opt/songbird` without creating a nested `Songbird/` directory. This keeps your paths clean.
 
 3) Install dependencies and build the client
 
@@ -77,7 +79,6 @@ After=network.target
 
 [Service]
 Type=simple
-User=www-data
 WorkingDirectory=/opt/songbird/server
 Environment=NODE_ENV=production
 Environment=PORT=5174
@@ -89,7 +90,8 @@ WantedBy=multi-user.target
 ```
 
 Notes:
-- Adjust `User=` if you prefer a different user (e.g., create a dedicated `songbird` user for separation).
+- Add `User=` if you prefer an specific user (e.g., create a dedicated `songbird` user for separation).
+- If you decided to create a dedicated user, make sure to change ownership with `sudo chown -R songbird:songbird /opt/songbird` (assuming the user is `songbird`).
 - If Node is installed somewhere else, update `ExecStart` accordingly (use full path to `node`).
 
 Enable and start the service:
@@ -113,7 +115,7 @@ server {
   index index.html;
 
   location /api/ {
-    proxy_pass http://127.0.0.1:5174/;
+    proxy_pass http://127.0.0.1:5174;
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection 'upgrade';
@@ -169,7 +171,34 @@ sudo ufw enable
 - Check Nginx error logs: `/var/log/nginx/error.log`
 - Ensure `client/dist` exists (the Nginx root) and `songbird.service` is running.
 
-11) (Optional) Running behind a domain + subpath
+11) Updating the deployed app (Pull & Rebuild)
+
+Update the Ubuntu deployment with:
+
+```bash
+cd /opt/songbird
+git pull origin main
+cd client
+npm install
+npm run build
+cd ../server
+npm install
+sudo systemctl restart songbird
+sudo systemctl reload nginx
+```
+
+**What each step does:**
+- `git pull` — Fetch and merge latest changes from GitHub
+- `npm install` (client & server) — Install any new dependencies
+- `npm run build` — Rebuild the React frontend into `client/dist`
+- `systemctl restart songbird` — Restart the Node server to pick up changes
+- `systemctl reload nginx` — Reload Nginx to serve the new build
+
+If you only changed frontend code (no `package.json` changes), you can skip the `npm install` steps.
+
+For zero-downtime deployments on larger projects, consider blue-green deployment or PM2, but for most updates the restart approach above is simple and sufficient.
+
+12) (Optional) Running behind a domain + subpath
 
 - If you plan to host the app at a subpath (e.g., `example.com/songbird/`) you will need to adjust Nginx configuration and set `base` in `client/index.html` or Vite build options accordingly.
 

@@ -193,24 +193,24 @@ export default function App() {
         <div
           className={
             isAuthRoute
-              ? 'mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6 pb-16 pt-10'
+              ? 'mx-auto flex min-h-screen w-full max-w-6xl flex-col overflow-y-auto px-4 pb-8 pt-6 sm:px-6 sm:pb-16 sm:pt-10'
               : 'flex min-h-screen w-full flex-col px-0 pb-0 pt-0'
           }
         >
           {isAuthRoute ? (
-            <header className="flex flex-wrap items-center justify-center gap-4 text-center">
+            <header className="flex flex-wrap items-center justify-center gap-3 text-center sm:gap-4">
               <div className="flex items-center gap-1 text-black dark:text-white">
-                <div className="flex h-9 w-9 items-center justify-center">
+                <div className="flex h-8 w-8 items-center justify-center sm:h-9 sm:w-9">
                   <SongBirdLogo />
                 </div>
                 <div>
-                  <p className="font-display text-2xl font-bold tracking-tight">Songbird</p>
+                  <p className="font-display text-xl font-bold tracking-tight sm:text-2xl">Songbird</p>
                 </div>
               </div>
             </header>
           ) : null}
 
-          <main className={isAuthRoute ? 'mt-10 flex flex-1 items-center justify-center' : 'flex flex-1'}>
+          <main className={isAuthRoute ? 'mt-6 flex flex-1 items-center justify-center sm:mt-10' : 'flex flex-1'}>
             {route === 'login' && (
               <LoginPage
                 isDark={isDark}
