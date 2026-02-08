@@ -1,0 +1,175 @@
+# <img src="./client/public/songbird-logo.svg"> Songbird
+
+> Lightweight self-hosted chat app (React + Vite frontend, Node/Express + sql.js backend)
+
+This repository contains the Songbird chat application. The server uses a file-backed SQLite database via `sql.js` and the client is built with React + Vite + Tailwind.
+
+## Repo layout
+
+- `client/` — React/Vite frontend
+- `server/` — Express API and `sql.js` database bootstrap
+- `data/` — application data directory (created automatically at runtime; `songbird.db` will be stored here)
+
+## Deploying on Ubuntu (production-ready, HTTPS via Certbot)
+
+This guide walks through deploying Songbird to an Ubuntu server, serving the built frontend with Nginx, running the Node server as a systemd service, and provisioning TLS with Certbot.
+
+Prerequisites (tested on Ubuntu 22.04+):
+
+- A domain name pointing to your server's public IP
+- An Ubuntu server with sudo access
+- Node.js (v18+ recommended) and `npm`
+- `nginx` and `certbot` (with `python3-certbot-nginx`)
+- `git`
+
+1) System setup
+
+Update and install required packages:
+
+```bash
+sudo apt update
+sudo apt install -y git curl build-essential nginx python3-certbot-nginx
+
+# Install Node.js (example uses NodeSource for Node 20)
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+```
+
+2) Clone repository
+
+Choose a deployment directory (example: `/opt/songbird`):
+
+```bash
+sudo mkdir -p /opt/songbird
+sudo chown $USER:$USER /opt/songbird
+cd /opt/songbird
+git clone https://github.com/bllackbull/Songbird.git
+```
+
+3) Install dependencies and build the client
+
+```bash
+# Install server deps
+cd /opt/songbird/server
+npm install
+
+# Install client deps and build static assets
+cd ../client
+npm install
+npm run build
+```
+
+The build will produce a `client/dist` folder which will be served by Nginx.
+
+4) Configure environment and app
+
+- The server reads `PORT` (default 5174) and `NODE_ENV` (use `production`) from environment variables. The server sets the session cookie `Secure` flag when `NODE_ENV=production`.
+- If you need to set environment variables for the app, you can create a systemd drop-in (see below) or an `.env` and a small wrapper script.
+
+5) Create systemd service for the Node server
+
+Create `/etc/systemd/system/songbird.service` with the following (use `sudo`):
+
+```ini
+[Unit]
+Description=Songbird server
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/songbird/server
+Environment=NODE_ENV=production
+Environment=PORT=5174
+ExecStart=/usr/bin/node index.js
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Notes:
+- Adjust `User=` if you prefer a different user (e.g., create a dedicated `songbird` user for separation).
+- If Node is installed somewhere else, update `ExecStart` accordingly (use full path to `node`).
+
+Enable and start the service:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now songbird.service
+sudo journalctl -u songbird -f
+```
+
+6) Configure Nginx to serve the frontend and proxy API
+
+Create an Nginx site file at `/etc/nginx/sites-available/songbird`:
+
+```nginx
+server {
+  listen 80;
+  server_name example.com www.example.com;
+
+  root /opt/songbird/client/dist;
+  index index.html;
+
+  location /api/ {
+    proxy_pass http://127.0.0.1:5174/;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection 'upgrade';
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_cache_bypass $http_upgrade;
+  }
+
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+}
+```
+
+Enable the site and test Nginx config:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/songbird /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+7) Obtain SSL certificate via Certbot
+
+Install Certbot plugin (already included in step 1 for `python3-certbot-nginx`) and run:
+
+```bash
+sudo certbot --nginx -d example.com -d www.example.com
+```
+
+Certbot will detect the Nginx configuration and can automatically update it to use HTTPS. Test auto-renewal:
+
+```bash
+sudo certbot renew --dry-run
+```
+
+8) Firewall (optional)
+
+```bash
+sudo ufw allow 'Nginx Full'
+sudo ufw enable
+```
+
+9) Note about the `data/` directory and DB
+
+- `data/` is created automatically by the server from the `server` working directory. When running the server from `/opt/songbird/server` the DB will be at `/opt/songbird/data/songbird.db`.
+
+10) Common troubleshooting
+
+- Check the Node server logs: `sudo journalctl -u songbird -f`
+- Check Nginx error logs: `/var/log/nginx/error.log`
+- Ensure `client/dist` exists (the Nginx root) and `songbird.service` is running.
+
+11) (Optional) Running behind a domain + subpath
+
+- If you plan to host the app at a subpath (e.g., `example.com/songbird/`) you will need to adjust Nginx configuration and set `base` in `client/index.html` or Vite build options accordingly.
+
