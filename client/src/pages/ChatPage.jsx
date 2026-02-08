@@ -225,11 +225,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark }) {
 
   const lastSeenAt = peerPresence.lastSeen ? new Date(peerPresence.lastSeen).getTime() : null
   const peerIdleThreshold = 90 * 1000
-  const peerIsOffline =
-    !activeHeaderPeer ||
-    peerPresence.status === 'invisible' ||
-    (lastSeenAt !== null && Date.now() - lastSeenAt > peerIdleThreshold)
-  const peerStatusLabel = peerIsOffline ? 'offline' : peerPresence.status === 'invisible' ? 'invisible' : 'online'
+  const isIdle = lastSeenAt !== null && Date.now() - lastSeenAt > peerIdleThreshold
+  const peerStatusLabel = !activeHeaderPeer ? 'offline' : isIdle ? 'offline' : peerPresence.status === 'invisible' ? 'invisible' : 'online'
 
   const toggleSelectChat = (chatId) => {
     setSelectedChats((prev) =>
@@ -1631,20 +1628,20 @@ export default function ChatPage({ user, setUser, isDark, setIsDark }) {
                       <img
                         src={avatarPreview}
                         alt={profileForm.nickname || profileForm.username}
-                        className="h-14 w-14 rounded-full object-cover"
+                        className="h-14 w-14 flex-shrink-0 rounded-full object-cover"
                       />
                     ) : (
-                      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500 text-white">
+                      <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white">
                         {(profileForm.nickname || profileForm.username || 'S').slice(0, 1).toUpperCase()}
                       </div>
                     )}
-                    <div className="flex w-full items-center gap-2">
+                    <div className="flex w-full flex-col items-start gap-2 sm:flex-row sm:items-center">
                       <label
                         htmlFor="profilePhotoInput"
-                        className="flex cursor-pointer items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-2 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-md dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/20 dark:hover:shadow-md sm:px-4"
+                        className="flex cursor-pointer items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-md dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/20 dark:hover:shadow-md"
                       >
                         <UploadIcon className="h-4 w-4 flex-shrink-0" />
-                        <span className="inline">Upload Photo</span>
+                        <span>Upload Photo</span>
                       </label>
                       <input
                         id="profilePhotoInput"
