@@ -1,6 +1,9 @@
 # <img src="./client/public/songbird-logo.svg"> Songbird
 
-***Lightweight self-hosted chat app (React + Vite frontend, Node/Express + sql.js backend)***
+[![License: MIT](https://img.shields.io/badge/License-MIT-red.svg)](https://opensource.org/licenses/MIT)
+[![Last commit](https://img.shields.io/github/last-commit/bllackbull/Songbird)](https://github.com/bllackbull/Songbird/commits/main/)
+
+**Lightweight self-hosted chat app (React + Vite frontend, Node/Express + sql.js backend)**
 
 This repository contains the Songbird chat application. The server uses a file-backed SQLite database via `sql.js` and the client is built with React + Vite + Tailwind.
 
@@ -10,11 +13,11 @@ This repository contains the Songbird chat application. The server uses a file-b
 - `server/` — Express API and `sql.js` database bootstrap
 - `data/` — application data directory (created automatically at runtime; `songbird.db` will be stored here)
 
-## Deploying on Ubuntu (production-ready, HTTPS via Certbot)
+## Deployment Guide
 
 This guide walks through deploying Songbird to an Ubuntu server, serving the built frontend with Nginx, running the Node server as a systemd service, and provisioning TLS with Certbot.
 
-Prerequisites (tested on Ubuntu 22.04+):
+**Prerequisites (tested on Ubuntu 22.04+):**
 
 - A domain name pointing to your server's public IP
 - An Ubuntu server with sudo access
@@ -22,7 +25,7 @@ Prerequisites (tested on Ubuntu 22.04+):
 - `nginx` and `certbot` (with `python3-certbot-nginx`)
 - `git`
 
-1) System setup
+### 1. System setup
 
 Update and install required packages:
 
@@ -35,7 +38,7 @@ curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
 sudo apt install -y nodejs
 ```
 
-2) Clone repository
+### 2. Clone repository
 
 Choose a deployment directory (example: `/opt/songbird`):
 
@@ -48,7 +51,7 @@ git clone https://github.com/bllackbull/Songbird.git .
 
 **Important:** The `.` at the end clones the repository contents directly into `/opt/songbird` without creating a nested `Songbird/` directory. This keeps your paths clean.
 
-3) Install dependencies and build the client
+### 3. Install dependencies and build the client
 
 ```bash
 # Install server deps
@@ -63,12 +66,12 @@ npm run build
 
 The build will produce a `client/dist` folder which will be served by Nginx.
 
-4) Configure environment and app
+### 4. Configure environment and app
 
 - The server reads `PORT` (default 5174) and `NODE_ENV` (use `production`) from environment variables. The server sets the session cookie `Secure` flag when `NODE_ENV=production`.
 - If you need to set environment variables for the app, you can create a systemd drop-in (see below) or an `.env` and a small wrapper script.
 
-5) Create systemd service for the Node server
+### 5. Create systemd service for the Node server
 
 Create `/etc/systemd/system/songbird.service` with the following (use `sudo`):
 
@@ -102,7 +105,7 @@ sudo systemctl enable --now songbird.service
 sudo journalctl -u songbird -f
 ```
 
-6) Configure Nginx to serve the frontend and proxy API
+### 6. Configure Nginx to serve the frontend and proxy API
 
 Create an Nginx site file at `/etc/nginx/sites-available/songbird`:
 
@@ -140,7 +143,7 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-7) Obtain SSL certificate via Certbot
+### 7. Obtain SSL certificate via Certbot
 
 Install Certbot plugin (already included in step 1 for `python3-certbot-nginx`) and run:
 
@@ -154,26 +157,22 @@ Certbot will detect the Nginx configuration and can automatically update it to u
 sudo certbot renew --dry-run
 ```
 
-8) Firewall (optional)
+### 8. Firewall (optional)
 
 ```bash
 sudo ufw allow 'Nginx Full'
 sudo ufw enable
 ```
 
-9) Note about the `data/` directory and DB
+> `data/` is created automatically by the server from the `server` working directory. When running the server from `/opt/songbird/server` the DB will be at `/opt/songbird/data/songbird.db`.
 
-- `data/` is created automatically by the server from the `server` working directory. When running the server from `/opt/songbird/server` the DB will be at `/opt/songbird/data/songbird.db`.
-
-10) Common troubleshooting
+## Common troubleshooting
 
 - Check the Node server logs: `sudo journalctl -u songbird -f`
 - Check Nginx error logs: `/var/log/nginx/error.log`
 - Ensure `client/dist` exists (the Nginx root) and `songbird.service` is running.
 
-11) Updating the deployed app (Pull & Rebuild)
-
-Update the Ubuntu deployment with:
+## Updating the deployed app
 
 ```bash
 cd /opt/songbird
@@ -194,11 +193,16 @@ sudo systemctl reload nginx
 - `systemctl restart songbird` — Restart the Node server to pick up changes
 - `systemctl reload nginx` — Reload Nginx to serve the new build
 
-If you only changed frontend code (no `package.json` changes), you can skip the `npm install` steps.
+If only the frontend code has changed (no `package.json` changes), you can skip the `npm install` steps.
 
-For zero-downtime deployments on larger projects, consider blue-green deployment or PM2, but for most updates the restart approach above is simple and sufficient.
 
-12) (Optional) Running behind a domain + subpath
+> For zero-downtime deployments on larger projects, consider blue-green deployment or PM2, but for most updates the restart approach above is simple and sufficient.
 
-- If you plan to host the app at a subpath (e.g., `example.com/songbird/`) you will need to adjust Nginx configuration and set `base` in `client/index.html` or Vite build options accordingly.
+## Running behind a domain + subpath
+
+If you plan to host the app at a subpath (e.g., `example.com/songbird/`) you will need to adjust Nginx configuration and set `base` in `client/index.html` or Vite build options accordingly.
+
+## License
+
+This project is licensed under the MIT License. See the see [LICENSE](LICENSE) file for details.
 
