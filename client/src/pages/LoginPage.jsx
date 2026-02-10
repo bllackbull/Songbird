@@ -1,4 +1,4 @@
-import { MoonIcon, SunIcon } from '../components/Icons.jsx'
+import { Moon, Sun } from "lucide-react";
 
 export default function LoginPage({ isDark, onToggleTheme, onLogin, onGoSignup, status }) {
   return (
@@ -19,7 +19,7 @@ export default function LoginPage({ isDark, onToggleTheme, onLogin, onGoSignup, 
           className="absolute right-0 top-0 flex h-8 w-8 items-center justify-center rounded-full border border-emerald-200 bg-white/80 text-emerald-700 transition hover:border-emerald-300 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 sm:h-10 sm:w-10"
           aria-label="Toggle dark mode"
         >
-          {isDark ? <SunIcon /> : <MoonIcon />}
+          {isDark ? <Sun size={18} /> : <Moon size={18} />}
         </button>
       </div>
 
