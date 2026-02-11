@@ -49,6 +49,25 @@ const staticLimiter = rateLimit({
   max: 1000,
 });
 
+const USER_COLORS = [
+  "#10b981",
+  "#0ea5e9",
+  "#f97316",
+  "#8b5cf6",
+  "#ef4444",
+  "#14b8a6",
+  "#f59e0b",
+  "#3b82f6",
+  "#84cc16",
+  "#ec4899",
+];
+const USERNAME_REGEX = /^[a-z0-9._-]+$/;
+
+function getRandomUserColor() {
+  const index = Math.floor(Math.random() * USER_COLORS.length);
+  return USER_COLORS[index];
+}
+
 function parseCookies(req) {
   const cookieHeader = req.headers.cookie;
   if (!cookieHeader) return {};
@@ -110,6 +129,12 @@ app.post("/api/register", (req, res) => {
       .status(400)
       .json({ error: "Username must be at least 3 characters." });
   }
+  if (!USERNAME_REGEX.test(trimmed)) {
+    return res.status(400).json({
+      error:
+        "Username can only include english letters, numbers, dot (.), underscore (_), and dash (-).",
+    });
+  }
   if (password.length < 6) {
     return res
       .status(400)
@@ -121,12 +146,14 @@ app.post("/api/register", (req, res) => {
     return res.status(409).json({ error: "Username already exists." });
   }
 
+  const assignedColor = getRandomUserColor();
   const passwordHash = bcrypt.hashSync(password, 10);
   const id = createUser(
     trimmed,
     passwordHash,
     nickname?.trim() || null,
     avatarUrl?.trim() || null,
+    assignedColor,
   );
   const token = crypto.randomBytes(24).toString("hex");
   createSession(id, token);
@@ -137,7 +164,7 @@ app.post("/api/register", (req, res) => {
     username: trimmed,
     nickname: nickname?.trim() || null,
     avatarUrl: avatarUrl?.trim() || null,
-    color: findUserById(id)?.color || null,
+    color: assignedColor,
     status: "online",
   });
 });
@@ -166,7 +193,7 @@ app.post("/api/login", (req, res) => {
     username: user.username,
     nickname: user.nickname || null,
     avatarUrl: user.avatar_url || null,
-    color: user.color || null,
+    color: user.color || "#10b981",
     status: user.status || "online",
   });
 });
@@ -181,7 +208,7 @@ app.get("/api/me", (req, res) => {
     username: session.username,
     nickname: session.nickname || null,
     avatarUrl: session.avatar_url || null,
-    color: session.color || null,
+    color: session.color || "#10b981",
     status: session.status || "online",
   });
 });
@@ -209,7 +236,7 @@ app.get("/api/profile", (req, res) => {
     username: user.username,
     nickname: user.nickname || null,
     avatarUrl: user.avatar_url || null,
-    color: user.color || null,
+    color: user.color || "#10b981",
     status: user.status || "online",
   });
 });
@@ -262,6 +289,12 @@ app.put("/api/profile", (req, res) => {
       .status(400)
       .json({ error: "Username must be at least 3 characters." });
   }
+  if (!USERNAME_REGEX.test(trimmed)) {
+    return res.status(400).json({
+      error:
+        "Username can only include english letters, numbers, dot (.), underscore (_), and dash (-).",
+    });
+  }
 
   if (trimmed !== currentUser.username) {
     const existing = findUserByUsername(trimmed);
@@ -283,7 +316,7 @@ app.put("/api/profile", (req, res) => {
     username: updated.username,
     nickname: updated.nickname || null,
     avatarUrl: updated.avatar_url || null,
-    color: updated.color || null,
+    color: updated.color || "#10b981",
     status: updated.status || "online",
   });
 });

@@ -321,6 +321,8 @@ export function listChatsForUser(userId) {
       (SELECT users.username FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id ORDER BY chat_messages.created_at DESC LIMIT 1) AS last_sender_username,
       (SELECT users.nickname FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id ORDER BY chat_messages.created_at DESC LIMIT 1) AS last_sender_nickname,
       (SELECT users.avatar_url FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id ORDER BY chat_messages.created_at DESC LIMIT 1) AS last_sender_avatar_url,
+      (SELECT read_at FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_message_read_at,
+      (SELECT read_by_user_id FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_message_read_by_user_id,
       (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id AND user_id != ? AND read_at IS NULL) AS unread_count
     FROM chats c
     JOIN chat_members m ON m.chat_id = c.id

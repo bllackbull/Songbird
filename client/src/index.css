@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -20,15 +22,21 @@ html, body, #root {
 body {
   margin: 0;
   font-family: 'DM Sans', system-ui, sans-serif;
-  background-color: #ecfdf5;
+  background-color: #ffffff;
   overscroll-behavior: none;
   /* Prevent Safari zoom on input focus */
   -webkit-font-smoothing: antialiased;
   -webkit-touch-callout: none;
 }
 
+:lang(fa),
+[lang="fa"],
+.font-fa {
+  font-family: 'Vazirmatn', 'DM Sans', system-ui, sans-serif;
+}
+
 html {
-  background-color: #ecfdf5;
+  background-color: #ffffff;
 }
 
 html.dark,
@@ -54,45 +62,59 @@ input, textarea, select {
   color: #0f172a;
 }
 
-.chat-scroll {
+.dark ::selection {
+  background: rgba(16, 185, 129, 0.45);
+  color: #f8fafc;
+}
+
+.chat-scroll,
+.app-scroll {
   scrollbar-width: thin;
   scrollbar-color: rgba(16, 185, 129, 0.5) rgba(15, 23, 42, 0.08);
   overscroll-behavior: contain;
 }
 
-.chat-scroll::-webkit-scrollbar {
+.chat-scroll::-webkit-scrollbar,
+.app-scroll::-webkit-scrollbar {
   width: 10px;
 }
 
-.chat-scroll::-webkit-scrollbar-track {
+.chat-scroll::-webkit-scrollbar-track,
+.app-scroll::-webkit-scrollbar-track {
   background: rgba(15, 23, 42, 0.08);
   border-radius: 999px;
 }
 
-.chat-scroll::-webkit-scrollbar-thumb {
+.chat-scroll::-webkit-scrollbar-thumb,
+.app-scroll::-webkit-scrollbar-thumb {
   background: rgba(16, 185, 129, 0.45);
   border-radius: 999px;
   border: 2px solid transparent;
   background-clip: content-box;
 }
 
-.chat-scroll::-webkit-scrollbar-thumb:hover {
+.chat-scroll::-webkit-scrollbar-thumb:hover,
+.app-scroll::-webkit-scrollbar-thumb:hover {
   background: rgba(16, 185, 129, 0.7);
 }
 
-.dark .chat-scroll {
+.dark .chat-scroll,
+.dark .app-scroll {
   scrollbar-color: rgba(16, 185, 129, 0.6) rgba(15, 23, 42, 0.7);
 }
 
-.dark .chat-scroll::-webkit-scrollbar-track {
+.dark .chat-scroll::-webkit-scrollbar-track,
+.dark .app-scroll::-webkit-scrollbar-track {
   background: rgba(15, 23, 42, 0.7);
 }
 
-.dark .chat-scroll::-webkit-scrollbar-thumb {
+.dark .chat-scroll::-webkit-scrollbar-thumb,
+.dark .app-scroll::-webkit-scrollbar-thumb {
   background: rgba(16, 185, 129, 0.6);
 }
 
-.dark .chat-scroll::-webkit-scrollbar-thumb:hover {
+.dark .chat-scroll::-webkit-scrollbar-thumb:hover,
+.dark .app-scroll::-webkit-scrollbar-thumb:hover {
   background: rgba(16, 185, 129, 0.8);
 }
 
@@ -101,4 +123,30 @@ input, textarea, select {
 .theme-switching *::after {
   transition: none !important;
   animation-duration: 0s !important;
+}
+
+@keyframes chat-wiggle-ios {
+  0% {
+    transform: translateX(0) rotate(0deg);
+  }
+  20% {
+    transform: translateX(-1.3px) rotate(-1.2deg);
+  }
+  40% {
+    transform: translateX(1.1px) rotate(1.1deg);
+  }
+  60% {
+    transform: translateX(-0.9px) rotate(-0.95deg);
+  }
+  80% {
+    transform: translateX(0.8px) rotate(0.8deg);
+  }
+  100% {
+    transform: translateX(0) rotate(0deg);
+  }
+}
+
+.animate-chat-wiggle-ios {
+  animation: chat-wiggle-ios 760ms ease-in-out infinite;
+  transform-origin: center;
 }

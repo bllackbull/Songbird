@@ -1,4 +1,6 @@
 import { X as Close } from "lucide-react";
+import { getAvatarStyle } from "../utils/avatarColor.js";
+import { hasPersian } from "../utils/fontUtils.js";
 
 export function NewChatModal({
   open,
@@ -26,7 +28,7 @@ export function NewChatModal({
           <button
             type="button"
             onClick={onClose}
-            className="flex items-center justify-center rounded-full border border-emerald-200 p-2 text-emerald-700 transition hover:-translate-y-0.5 hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+            className="flex items-center justify-center rounded-full border border-emerald-200 p-2 text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_16px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
           >
             <Close size={18} />
           </button>
@@ -50,7 +52,8 @@ export function NewChatModal({
           {newChatLoading ? (
             <p className="text-xs text-slate-500 dark:text-slate-400">Searching...</p>
           ) : newChatResults.length ? (
-            newChatResults.map((result) => (
+            <div className="app-scroll max-h-64 space-y-2 overflow-y-auto pr-1">
+              {newChatResults.slice(0, 5).map((result) => (
               <button
                 key={result.username}
                 type="button"
@@ -72,23 +75,24 @@ export function NewChatModal({
                   />
                 ) : (
                   <div
-                    className="flex h-8 w-8 items-center justify-center rounded-full text-white"
-                    style={{ backgroundColor: result.color || "#10b981" }}
+                    className={`flex h-8 w-8 items-center justify-center rounded-full ${hasPersian((result.nickname || result.username).slice(0, 1)) ? "font-fa" : ""}`}
+                    style={getAvatarStyle(result.color || "#10b981")}
                   >
                     {(result.nickname || result.username).slice(0, 1).toUpperCase()}
                   </div>
                 )}
                 <div>
-                  <p className="font-semibold">{result.nickname || result.username}</p>
+                  <p className={`font-semibold ${hasPersian(result.nickname || result.username) ? "font-fa" : ""}`}>{result.nickname || result.username}</p>
                   <p className="text-xs text-slate-500 dark:text-slate-400">@{result.username}</p>
                 </div>
               </button>
-            ))
+              ))}
+            </div>
           ) : newChatUsername.trim() ? (
             <p className="text-xs text-slate-500 dark:text-slate-400">No users found.</p>
           ) : null}
         </div>
-        {!newChatSelection && newChatUsername.trim() ? (
+        {!newChatSelection && newChatUsername.trim() && newChatResults.length > 0 ? (
           <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
             Select a user from the list to start chatting.
           </p>
@@ -102,7 +106,7 @@ export function NewChatModal({
           type="button"
           onClick={startDirectMessage}
           disabled={!canStartChat}
-          className="mt-4 w-full rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:-translate-y-0.5 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-4 w-full rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-[0_0_20px_rgba(16,185,129,0.4)] disabled:cursor-not-allowed disabled:opacity-60"
         >
           Start chat
         </button>
@@ -134,14 +138,14 @@ export function DeleteChatsModal({
           <button
             type="button"
             onClick={() => setConfirmDeleteOpen(false)}
-            className="rounded-full border border-emerald-200 bg-white px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:-translate-y-0.5 hover:border-emerald-300 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+            className="rounded-full border border-emerald-200 bg-white px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={confirmDeleteChats}
-            className="rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-600 transition hover:-translate-y-0.5 hover:border-rose-300 dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200"
+            className="rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:shadow-[0_0_14px_rgba(244,63,94,0.2)] dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200"
           >
             Delete
           </button>

@@ -16,12 +16,15 @@ import {
   MobileSettingsPanel,
   SettingsMenuPopover,
 } from "../components/SettingsPanel.jsx";
+import { getAvatarStyle } from "../utils/avatarColor.js";
+import { hasPersian } from "../utils/fontUtils.js";
 
 const API_BASE = "";
 
 
 export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme }) {
-  const [status, setStatus] = useState("");
+  const [profileError, setProfileError] = useState("");
+  const [passwordError, setPasswordError] = useState("");
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [loadingChats, setLoadingChats] = useState(true);
   const [chats, setChats] = useState([]);
@@ -142,7 +145,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         if (!res.ok) {
           throw new Error(data?.error || "Unable to search users.");
         }
-        const users = data.users || [];
+        const users = (data.users || []).slice(0, 5);
         setNewChatResults(users);
       } catch (err) {
         setNewChatError(err.message);
@@ -457,6 +460,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     return () => document.removeEventListener("mousedown", handleOutside);
   }, [showSettings]);
 
+  useEffect(() => {
+    if (settingsPanel !== "profile" && profileError) {
+      setProfileError("");
+    }
+    if (settingsPanel !== "security" && passwordError) {
+      setPasswordError("");
+    }
+  }, [settingsPanel, profileError, passwordError]);
+
   async function loadChats(options = {}) {
     if (!options.silent) {
       setLoadingChats(true);
@@ -483,10 +495,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         return bTime - aTime;
       });
       setChats(list);
-    } catch (err) {
-      if (!options.silent) {
-        setStatus(err.message);
-      }
+    } catch (_) {
+      // Keep sidebar usable even when polling fails.
     } finally {
       if (!options.silent) {
         setLoadingChats(false);
@@ -497,7 +507,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   async function loadMessages(chatId, options = {}) {
     if (!options.silent) {
       setLoadingMessages(true);
-      setStatus("");
     }
     try {
       const res = await fetch(
@@ -598,8 +607,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           body: JSON.stringify({ chatId, username: user.username }),
         });
       }
-    } catch (err) {
-      setStatus(err.message);
+    } catch (_) {
+      // Keep chat window free of transient fetch errors.
     } finally {
       if (!options.silent) {
         setLoadingMessages(false);
@@ -610,7 +619,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   async function handleSend(event) {
     event.preventDefault();
     if (!activeChatId) return;
-    setStatus("");
     userScrolledUpRef.current = false;
     setUserScrolledUp(false);
     isAtBottomRef.current = true;
@@ -641,9 +649,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       pendingScrollToBottomRef.current = true;
       await loadMessages(activeChatId, { forceBottom: true });
       await loadChats();
-    } catch (err) {
-      setStatus(err.message);
-    }
+    } catch (_) {}
   }
 
   async function startDirectMessage() {
@@ -697,9 +703,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }
       const nextUser = { ...user, status: data.status };
       setUser(nextUser);
-    } catch (err) {
-      setStatus(err.message);
-    }
+    } catch (_) {}
   }
 
   function handleAvatarChange(event) {
@@ -721,14 +725,25 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   async function handleProfileSave(event) {
     event.preventDefault();
-    setStatus("");
+    setProfileError("");
+    const trimmedUsername = profileForm.username.trim().toLowerCase();
+    if (trimmedUsername.length < 3) {
+      setProfileError("Username must be at least 3 characters.");
+      return;
+    }
+    if (!usernamePattern.test(trimmedUsername)) {
+      setProfileError(
+        "Username can only include english letters, numbers, dot (.), underscore (_), and dash (-).",
+      );
+      return;
+    }
     try {
       const res = await fetch(`${API_BASE}/api/profile`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           currentUsername: user.username,
-          username: profileForm.username,
+          username: trimmedUsername,
           nickname: profileForm.nickname,
           avatarUrl: profileForm.avatarUrl,
         }),
@@ -755,15 +770,21 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       setUser(updatedUser);
       setSettingsPanel(null);
     } catch (err) {
-      setStatus(err.message);
+      setProfileError(err.message);
     }
   }
 
   async function handlePasswordSave(event) {
     event.preventDefault();
-    setStatus("");
+    setPasswordError("");
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      setStatus("Passwords do not match.");
+      const message = "Passwords do not match.";
+      setPasswordError(message);
+      return;
+    }
+    if (passwordForm.newPassword.length < 6) {
+      const message = "Password must be at least 6 characters.";
+      setPasswordError(message);
       return;
     }
     try {
@@ -787,7 +808,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       });
       setSettingsPanel(null);
     } catch (err) {
-      setStatus(err.message);
+      setPasswordError(err.message);
     }
   }
 
@@ -840,12 +861,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     userScrolledUpRef.current = false;
     setUserScrolledUp(false);
   };
+  const usernamePattern = /^[a-z0-9._-]+$/;
 
   return (
     <div
-      className="flex h-full w-full flex-1 flex-col overflow-hidden md:flex-row md:gap-0"
+      className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden md:flex-row md:gap-0"
       style={{
-        height: "var(--app-height, 100dvh)",
+        height: "100%",
         paddingTop: "max(0px, env(safe-area-inset-top))",
         paddingLeft: "max(0px, env(safe-area-inset-left))",
         paddingRight: "max(0px, env(safe-area-inset-right))",
@@ -853,11 +875,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     >
       <aside
         className={
-          "relative flex h-full w-full flex-col overflow-hidden border border-emerald-100/70 bg-emerald-50 shadow-lg shadow-emerald-500/10 dark:border-white/5 dark:bg-slate-900 md:w-[35%] md:shadow-xl md:shadow-emerald-500/15 " +
+          "relative flex h-full min-h-0 w-full flex-col overflow-hidden border-x border-slate-300/80 bg-white shadow-lg shadow-emerald-500/10 dark:border-white/5 dark:bg-slate-900 md:border md:w-[35%] md:shadow-xl md:shadow-emerald-500/15 " +
           (mobileTab === "chat" ? "hidden md:block" : "block")
         }
       >
-        <div className="grid h-[72px] grid-cols-[1fr,auto,1fr] items-center border-b border-emerald-100/70 bg-emerald-50 px-6 py-4 dark:border-emerald-500/20 dark:bg-slate-900">
+        <div className="grid h-[72px] grid-cols-[1fr,auto,1fr] items-center border-b border-slate-300/80 bg-white px-6 py-4 dark:border-emerald-500/20 dark:bg-slate-900">
           {mobileTab === "settings" ? (
             <div className="col-span-3 text-center text-lg font-semibold md:hidden">Settings</div>
           ) : (
@@ -870,7 +892,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                       setEditMode(false);
                       setSelectedChats([]);
                     }}
-                    className="inline-flex items-center justify-center rounded-full border border-emerald-200 bg-white/80 p-2 text-emerald-700 transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+                    className="inline-flex items-center justify-center rounded-full border border-emerald-200 bg-white/80 p-2 text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
                     aria-label="Exit edit mode"
                   >
                     <Close size={18} />
@@ -878,8 +900,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                 ) : (
                   <button
                     type="button"
-                    onClick={() => setEditMode(true)}
-                    className="inline-flex items-center justify-center rounded-full border border-emerald-200 bg-white/80 p-2 text-emerald-700 transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+                    onClick={() => {
+                      if (!visibleChats.length) return;
+                      setEditMode(true);
+                    }}
+                    disabled={!visibleChats.length}
+                    className="inline-flex items-center justify-center rounded-full border border-emerald-200 bg-white/80 p-2 text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-emerald-200 disabled:hover:shadow-none dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
                     aria-label="Edit chat list"
                   >
                     <Pencil size={18} />
@@ -898,7 +924,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                     type="button"
                     onClick={() => requestDeleteChats(selectedChats)}
                     disabled={!selectedChats.length}
-                    className="inline-flex items-center justify-center rounded-full border border-rose-200 bg-rose-50 p-2 text-rose-600 transition hover:-translate-y-0.5 hover:border-rose-300 hover:shadow-md disabled:opacity-50 dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200"
+                    className="inline-flex items-center justify-center rounded-full border border-rose-200 bg-rose-50 p-2 text-rose-600 transition hover:border-rose-300 hover:shadow-[0_0_16px_rgba(244,63,94,0.22)] disabled:opacity-50 dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200"
                     aria-label="Delete chats"
                   >
                     <Trash size={18} />
@@ -907,7 +933,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                   <button
                     type="button"
                     onClick={() => setNewChatOpen(true)}
-                    className="inline-flex items-center justify-center rounded-full border border-emerald-200 bg-white/80 p-2 text-emerald-700 transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+                    className="inline-flex items-center justify-center rounded-full border border-emerald-200 bg-white/80 p-2 text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
                     aria-label="New chat"
                   >
                     <Plus size={18} />
@@ -929,37 +955,42 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         />
 
         <div
-          className="flex-1 overflow-y-auto overflow-x-hidden px-6 py-4 pb-[104px]"
+          className="min-h-0 flex-1 overflow-hidden py-4"
           style={{ overscrollBehavior: "contain" }}
         >
           {mobileTab === "settings" ? (
-            <MobileSettingsPanel
-              settingsPanel={settingsPanel}
-              user={user}
-              displayName={displayName}
-              statusDotClass={statusDotClass}
-              statusValue={statusValue}
-              setSettingsPanel={setSettingsPanel}
-              toggleTheme={toggleTheme}
-              setIsDark={setIsDark}
-              isDark={isDark}
-              handleLogout={handleLogout}
-              handleProfileSave={handleProfileSave}
-              avatarPreview={avatarPreview}
-              profileForm={profileForm}
-              handleAvatarChange={handleAvatarChange}
-              setAvatarPreview={setAvatarPreview}
-              setProfileForm={setProfileForm}
-              statusSelection={statusSelection}
-              setStatusSelection={setStatusSelection}
-              handlePasswordSave={handlePasswordSave}
-              passwordForm={passwordForm}
-              setPasswordForm={setPasswordForm}
-              userColor={userColor}
-            />
+            <div className="app-scroll h-full overflow-y-auto overflow-x-hidden px-6 pb-[104px] md:h-[calc(100dvh-72px-88px-env(safe-area-inset-top))]">
+              <MobileSettingsPanel
+                settingsPanel={settingsPanel}
+                user={user}
+                displayName={displayName}
+                statusDotClass={statusDotClass}
+                statusValue={statusValue}
+                setSettingsPanel={setSettingsPanel}
+                toggleTheme={toggleTheme}
+                setIsDark={setIsDark}
+                isDark={isDark}
+                handleLogout={handleLogout}
+                handleProfileSave={handleProfileSave}
+                avatarPreview={avatarPreview}
+                profileForm={profileForm}
+                handleAvatarChange={handleAvatarChange}
+                setAvatarPreview={setAvatarPreview}
+                setProfileForm={setProfileForm}
+                statusSelection={statusSelection}
+                setStatusSelection={setStatusSelection}
+                handlePasswordSave={handlePasswordSave}
+                passwordForm={passwordForm}
+                setPasswordForm={setPasswordForm}
+                userColor={userColor}
+                profileError={profileError}
+                passwordError={passwordError}
+              />
+            </div>
           ) : null}
 
-          <div className={mobileTab === "settings" ? "hidden" : "block"}>
+          <div className={mobileTab === "settings" ? "hidden min-h-0 h-full" : "block min-h-0 h-full"}>
+            <div className="app-scroll h-full overflow-y-auto overflow-x-hidden px-6 pb-[104px] md:h-[calc(100dvh-72px-88px-env(safe-area-inset-top))]">
             <ChatsListPanel
               loadingChats={loadingChats}
               visibleChats={visibleChats}
@@ -979,18 +1010,19 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               isAtBottomRef={isAtBottomRef}
               onOpenNewChat={() => setNewChatOpen(true)}
             />
+            </div>
           </div>
         </div>
 
-        <div className="absolute bottom-0 left-0 right-0 hidden h-[88px] border-t border-emerald-100/70 bg-emerald-50 px-6 py-4 dark:border-emerald-500/20 dark:bg-slate-900 md:block">
+        <div className="absolute bottom-0 left-0 right-0 hidden h-[88px] border-t border-slate-300/80 bg-white px-6 py-4 dark:border-emerald-500/20 dark:bg-slate-900 md:block">
           <div className="flex h-full items-center justify-between">
             <div className="flex items-center gap-3">
               {user.avatarUrl ? (
                 <img src={user.avatarUrl} alt={displayName} className="h-10 w-10 rounded-full object-cover" />
               ) : (
                 <div
-                  className="flex h-10 w-10 items-center justify-center rounded-full text-white"
-                  style={{ backgroundColor: userColor }}
+                  className={`flex h-10 w-10 items-center justify-center rounded-full ${hasPersian(displayName?.slice(0, 1)) ? "font-fa" : ""}`}
+                  style={getAvatarStyle(userColor)}
                 >
                   {displayName.slice(0, 1).toUpperCase()}
                 </div>
@@ -1006,7 +1038,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             <button
               type="button"
               onClick={() => setShowSettings((prev) => !prev)}
-              className="flex items-center justify-center rounded-full border border-emerald-200 bg-white/80 p-2 text-emerald-700 transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+              className="flex items-center justify-center rounded-full border border-emerald-200 bg-white/80 p-2 text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
               aria-label="Open settings"
               ref={settingsButtonRef}
             >
@@ -1034,7 +1066,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         userScrolledUp={userScrolledUp}
         unreadInChat={unreadInChat}
         onJumpToLatest={handleJumpToLatest}
-        status={status}
+        isDark={isDark}
       />
 
       <MobileTabMenu
@@ -1086,8 +1118,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           passwordForm={passwordForm}
           setPasswordForm={setPasswordForm}
           userColor={userColor}
+          profileError={profileError}
+          passwordError={passwordError}
         />
       ) : null}
     </div>
   );
 }
+
+

@@ -1,4 +1,6 @@
 import { ArrowDown, ArrowLeft, Check, CheckCheck, SendHorizonal as Send } from "lucide-react";
+import { getAvatarStyle } from "../utils/avatarColor.js";
+import { hasPersian } from "../utils/fontUtils.js";
 
 export default function ChatWindowPanel({
   mobileTab,
@@ -18,21 +20,51 @@ export default function ChatWindowPanel({
   userScrolledUp,
   unreadInChat,
   onJumpToLatest,
-  status,
+  isDark,
 }) {
   const activePeerColor = activeHeaderPeer?.color || "#10b981";
+  const urlPattern = /((?:https?:\/\/|www\.)[^\s<]+)/gi;
+  const hasUrlPattern = /(?:https?:\/\/|www\.)[^\s<]+/i;
+  const isUrlPattern = /^(?:https?:\/\/|www\.)[^\s<]+$/i;
+
+  const renderMessageBody = (body) => {
+    const text = body || "";
+    if (!hasUrlPattern.test(text)) {
+      return text;
+    }
+    const parts = text.split(urlPattern);
+    return parts.map((part, index) => {
+      if (!part) return null;
+      if (isUrlPattern.test(part)) {
+        const href = part.startsWith("http://") || part.startsWith("https://") ? part : `https://${part}`;
+        return (
+          <a
+            key={`msg-link-${index}`}
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="break-all text-sky-400 underline decoration-sky-400 underline-offset-2 [overflow-wrap:anywhere]"
+          >
+            {part}
+          </a>
+        );
+      }
+      return <span key={`msg-part-${index}`}>{part}</span>;
+    });
+  };
 
   return (
     <section
       className={
-        "absolute inset-0 top-0 z-20 md:relative md:inset-auto md:top-auto md:z-auto flex h-full flex-1 flex-col overflow-hidden border border-emerald-100/70 bg-emerald-50 shadow-xl shadow-emerald-500/10 dark:border-white/5 dark:bg-slate-900 md:w-[65%] md:shadow-2xl md:shadow-emerald-500/15 transition-transform duration-300 ease-out will-change-transform " +
+        "fixed inset-0 top-0 z-20 md:relative md:inset-auto md:top-auto md:z-auto flex h-full flex-1 flex-col overflow-hidden border-x border-slate-300/80 bg-white shadow-xl shadow-emerald-500/10 dark:border-white/5 dark:bg-slate-900 md:border md:w-[65%] md:shadow-2xl md:shadow-emerald-500/15 transition-transform duration-300 ease-out will-change-transform " +
         (mobileTab === "chat"
           ? "translate-x-0"
           : "translate-x-full md:translate-x-0")
       }
+      style={{ paddingTop: "max(0px, env(safe-area-inset-top))" }}
     >
       {activeChatId ? (
-        <div className="flex h-[72px] items-center justify-between gap-3 border-b border-emerald-100/70 bg-emerald-50 px-6 py-4 dark:border-emerald-500/20 dark:bg-slate-900">
+        <div className="sticky top-0 z-20 flex h-[72px] items-center justify-between gap-3 border-b border-slate-300/80 bg-white px-6 py-4 dark:border-emerald-500/20 dark:bg-slate-900">
           <button
             type="button"
             onClick={closeChat}
@@ -45,7 +77,9 @@ export default function ChatWindowPanel({
             {activeHeaderPeer ? (
               <>
                 <h2 className="text-center text-lg font-semibold">
-                  {activeFallbackTitle}
+                  <span className={hasPersian(activeFallbackTitle) ? "font-fa" : ""}>
+                    {activeFallbackTitle}
+                  </span>
                 </h2>
                 <p className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                   <span
@@ -67,8 +101,8 @@ export default function ChatWindowPanel({
               />
             ) : (
               <div
-                className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-white"
-                style={{ backgroundColor: activePeerColor }}
+                className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ${hasPersian((activeFallbackTitle || "S").slice(0, 1)) ? "font-fa" : ""}`}
+                style={getAvatarStyle(activePeerColor)}
               >
                 {(activeFallbackTitle || "S").slice(0, 1).toUpperCase()}
               </div>
@@ -82,10 +116,12 @@ export default function ChatWindowPanel({
         onScroll={onChatScroll}
         className="chat-scroll flex-1 space-y-3 overflow-y-auto px-6 py-6"
         style={{
-          backgroundImage:
-            "radial-gradient(circle at top right, rgba(16,185,129,0.14), transparent 45%), radial-gradient(circle at bottom left, rgba(14,116,144,0.14), transparent 40%)",
+          backgroundImage: isDark
+            ? "radial-gradient(circle at top right, rgba(16,185,129,0.22), transparent 48%), radial-gradient(circle at bottom left, rgba(16,185,129,0.20), transparent 44%)"
+            : "radial-gradient(circle at top right, rgba(16,185,129,0.10), transparent 45%), radial-gradient(circle at bottom left, rgba(16,185,129,0.09), transparent 40%)",
+          backgroundColor: isDark ? "#0b1320" : "#dcfce7",
           paddingBottom: activeChatId
-            ? "max(7rem, calc(env(safe-area-inset-bottom) + 7rem))"
+            ? "max(7rem, calc(env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px) + 7rem))"
             : undefined,
         }}
       >
@@ -145,21 +181,27 @@ export default function ChatWindowPanel({
                   <div
                     className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
                       isOwn
-                        ? "bg-emerald-600 text-white rounded-br-md"
-                        : "bg-white/90 text-slate-800 rounded-bl-md dark:bg-slate-950/70 dark:text-slate-100"
+                        ? "rounded-br-md bg-emerald-200 text-emerald-950 dark:bg-emerald-800 dark:text-white"
+                        : "bg-white/90 text-slate-800 rounded-bl-md dark:bg-slate-800/75 dark:text-slate-100"
                     }`}
                   >
-                    <p className="mt-1 whitespace-pre-wrap">{msg.body}</p>
+                    <p className={`mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${hasPersian(msg.body) ? "font-fa" : ""}`}>
+                      {renderMessageBody(msg.body)}
+                    </p>
                     <div
                       className={`mt-2 flex items-center gap-1 text-[10px] ${
-                        isOwn ? "text-emerald-50/80" : "text-slate-500 dark:text-slate-400"
+                        isOwn
+                          ? "text-emerald-900/80 dark:text-emerald-50/80"
+                          : "text-slate-500 dark:text-slate-400"
                       }`}
                     >
                       <span>{msg._timeLabel || formatTime(msg.created_at)}</span>
                       {isOwn ? (
                         <span
                           className={`inline-flex items-center ${
-                            isRead ? "text-sky-400" : "text-emerald-50/80"
+                            isRead
+                              ? "text-sky-400"
+                              : "text-emerald-900/80 dark:text-emerald-50/80"
                           }`}
                         >
                           {isRead ? (
@@ -176,14 +218,19 @@ export default function ChatWindowPanel({
             );
           })
         ) : (
-          <p className="text-sm text-slate-500 dark:text-slate-400">No messages yet.</p>
+          <div className="flex h-full items-center justify-center">
+            <div className="rounded-full border border-emerald-200 bg-white/80 px-4 py-2 text-sm font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200">
+              Say something to start
+            </div>
+          </div>
         )}
       </div>
 
       {activeChatId ? (
         <form
-          className="absolute inset-x-0 bottom-0 z-30 flex flex-col gap-3 border-t border-emerald-100/70 bg-emerald-50 px-4 py-3 dark:border-emerald-500/20 dark:bg-slate-900 sm:px-6"
+          className="absolute inset-x-0 bottom-0 z-30 flex flex-col gap-3 border-t border-slate-300/80 bg-white px-4 py-3 dark:border-emerald-500/20 dark:bg-slate-900 sm:px-6"
           style={{
+            bottom: "var(--mobile-bottom-offset, 0px)",
             paddingBottom: "max(0.75rem, calc(env(safe-area-inset-bottom) + 0.5rem))",
           }}
           onSubmit={handleSend}
@@ -211,7 +258,7 @@ export default function ChatWindowPanel({
           onClick={onJumpToLatest}
           className="absolute inline-flex h-11 w-11 items-center justify-center rounded-full border border-emerald-200 bg-white/90 text-emerald-700 shadow-lg transition hover:border-emerald-300 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
           style={{
-            bottom: "max(80px + 0.05rem, calc(80px + env(safe-area-inset-bottom) + 0.05rem))",
+            bottom: "max(80px + 0.05rem, calc(80px + env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px) + 0.05rem))",
             right: "0.85rem",
             transform: "none",
           }}
@@ -228,11 +275,6 @@ export default function ChatWindowPanel({
         </button>
       ) : null}
 
-      {status ? (
-        <div className="border-t border-rose-200/60 bg-rose-50 px-6 py-3 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200">
-          {status}
-        </div>
-      ) : null}
     </section>
   );
 }

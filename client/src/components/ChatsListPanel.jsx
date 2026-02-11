@@ -1,4 +1,6 @@
-import { Check, Minus, Plus } from "lucide-react";
+import { Check, CheckCheck, Minus, Plus } from "lucide-react";
+import { getAvatarStyle } from "../utils/avatarColor.js";
+import { hasPersian } from "../utils/fontUtils.js";
 
 export default function ChatsListPanel({
   loadingChats,
@@ -19,13 +21,16 @@ export default function ChatsListPanel({
   isAtBottomRef,
   onOpenNewChat,
 }) {
+  const wiggleDurations = [640, 700, 760, 820, 880, 940];
+  const wiggleDelays = [-80, -170, -260, -120, -220, -320];
+
   return (
     <div className="mt-3 space-y-2">
       {loadingChats && !visibleChats.length ? (
         Array.from({ length: 6 }).map((_, index) => (
           <div
             key={`chat-skeleton-${index}`}
-            className="w-full animate-pulse rounded-2xl border border-emerald-100/70 bg-white/70 px-3 py-3 dark:border-emerald-500/20 dark:bg-slate-950/50"
+            className="w-full animate-pulse rounded-2xl border border-slate-300/80 bg-white/70 px-3 py-3 dark:border-emerald-500/20 dark:bg-slate-950/50"
           >
             <div className="flex items-center gap-3">
               <div className="h-9 w-9 rounded-full bg-emerald-100 dark:bg-emerald-900/40" />
@@ -37,7 +42,7 @@ export default function ChatsListPanel({
           </div>
         ))
       ) : visibleChats.length ? (
-        visibleChats.map((conv) => {
+        visibleChats.map((conv, index) => {
           const members = conv.members || [];
           const other =
             conv.type === "dm"
@@ -48,60 +53,90 @@ export default function ChatsListPanel({
               ? other?.nickname || other?.username || "Direct message"
               : conv.name || "Chat";
           const avatarColor = other?.color || "#10b981";
+          const wiggleStyle = editMode
+            ? {
+                animationDuration: `${wiggleDurations[index % 6]}ms`,
+                animationDelay: `${wiggleDelays[index % 6]}ms`,
+              }
+            : undefined;
+          const isOwnLastMessage =
+            Boolean(conv.last_message) &&
+            conv.last_sender_username === user.username;
+          const isOwnLastMessageSeen = Boolean(conv.last_message_read_at);
           const card = (
             <div
               className={`w-full rounded-2xl border px-3 py-3 text-left text-sm transition ${
                 activeChatId === conv.id
                   ? "border-emerald-400 bg-emerald-100 text-emerald-900 dark:border-emerald-400/60 dark:bg-emerald-500/20 dark:text-emerald-100"
-                  : "border-emerald-100/70 bg-white/80 text-slate-700 hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-sm dark:border-emerald-500/20 dark:bg-slate-950/60 dark:text-slate-200"
-              }`}
+                  : "border-slate-300/80 bg-white/90 text-slate-700 hover:border-emerald-300 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] dark:border-emerald-500/20 dark:bg-slate-950/60 dark:text-slate-200"
+              } ${editMode ? "animate-chat-wiggle-ios shadow-[0_0_0_1px_rgba(16,185,129,0.35),0_0_16px_rgba(16,185,129,0.22)]" : ""}`}
+              style={wiggleStyle}
             >
-              <div className="flex items-center gap-3">
+              <div className="flex items-start gap-3">
                 {other?.avatar_url ? (
                   <img
                     src={other.avatar_url}
                     alt={name}
-                    className="h-9 w-9 rounded-full object-cover"
+                    className="h-9 w-9 flex-shrink-0 rounded-full object-cover"
                   />
                 ) : (
                   <div
-                    className="flex h-9 w-9 items-center justify-center rounded-full text-white"
-                    style={{ backgroundColor: avatarColor }}
+                    className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ${hasPersian(name.slice(0, 1)) ? "font-fa" : ""}`}
+                    style={getAvatarStyle(avatarColor)}
                   >
                     {name.slice(0, 1).toUpperCase()}
                   </div>
                 )}
-                <div className="flex-1">
-                  <p className="font-semibold">{name}</p>
-                  <p className="mt-1 line-clamp-1 text-xs text-slate-500 dark:text-slate-400">
+                <div className="min-w-0 flex-1">
+                  <p className={`font-semibold ${hasPersian(name) ? "font-fa" : ""}`}>{name}</p>
+                  <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">
                     {conv.last_message ? (
                       conv.last_sender_username === user.username ? (
                         <span>
                           <span className="font-semibold text-slate-600 dark:text-slate-300">
                             You:
                           </span>{" "}
-                          {conv.last_message}
+                          <span className={hasPersian(conv.last_message) ? "font-fa" : ""}>
+                            {conv.last_message}
+                          </span>
                         </span>
                       ) : (
-                        conv.last_message
+                        <span className={hasPersian(conv.last_message) ? "font-fa" : ""}>
+                          {conv.last_message}
+                        </span>
                       )
-                    ) : (
-                      "No messages yet"
-                    )}
+                    ) : null}
                   </p>
                 </div>
-                {!editMode ? (
-                  <div className="ml-auto flex flex-col items-end gap-1">
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                      {conv.last_time ? formatTime(conv.last_time) : ""}
-                    </p>
-                    {conv.unread_count > 0 ? (
-                      <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-emerald-500 px-2 text-[10px] font-bold text-white">
-                        {conv.unread_count}
+                <div className="ml-auto flex min-w-[68px] flex-shrink-0 flex-col items-end gap-1 self-start">
+                  <div className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
+                    {isOwnLastMessage ? (
+                      <span
+                        className={`inline-flex items-center ${
+                          isOwnLastMessageSeen
+                            ? "text-sky-400"
+                            : "text-slate-500 dark:text-slate-400"
+                        } -translate-y-[1px]`}
+                      >
+                        {isOwnLastMessageSeen ? (
+                          <CheckCheck size={13} strokeWidth={2.4} aria-hidden="true" />
+                        ) : (
+                          <Check size={13} strokeWidth={2.4} aria-hidden="true" />
+                        )}
                       </span>
                     ) : null}
+                    <p>{conv.last_time ? formatTime(conv.last_time) : ""}</p>
                   </div>
-                ) : null}
+                  {conv.unread_count > 0 ? (
+                    <span
+                      className={`inline-flex items-center justify-center rounded-full bg-emerald-500 px-2 font-bold text-white ${
+                        editMode ? "h-4 min-w-[18px] text-[9px]" : "h-5 min-w-[20px] text-[10px]"
+                      }`}
+                    >
+                      {conv.unread_count}
+                    </span>
+                  ) : null}
+                </div>
               </div>
             </div>
           );
@@ -139,7 +174,7 @@ export default function ChatsListPanel({
                   setUnreadInChat(0);
                   lastMessageIdRef.current = null;
                 }}
-                className={`flex-1 ${editMode ? "pointer-events-none" : ""}`}
+                className={`min-w-0 flex-1 ${editMode ? "pointer-events-none" : ""}`}
               >
                 {card}
               </button>
@@ -168,7 +203,7 @@ export default function ChatsListPanel({
           <button
             type="button"
             onClick={onOpenNewChat}
-            className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:-translate-y-0.5 hover:bg-emerald-400 hover:shadow-emerald-500/40"
+            className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-[0_0_22px_rgba(16,185,129,0.45)]"
           >
             <Plus size={18} />
             New chat

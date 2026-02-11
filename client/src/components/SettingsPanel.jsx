@@ -1,6 +1,18 @@
-import { ArrowLeft, X as Close, LogOut, Moon, ShieldCheck, Sun, Trash, Upload, User } from "lucide-react";
+import { AlertCircle, ArrowLeft, X as Close, LogOut, Moon, ShieldCheck, Sun, Trash, Upload, User } from "lucide-react";
+import { getAvatarStyle } from "../utils/avatarColor.js";
+import { hasPersian } from "../utils/fontUtils.js";
 
-function ThemeButton({ isDark, toggleTheme, setIsDark }) {
+function InlineError({ message }) {
+  if (!message) return null;
+  return (
+    <p className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200">
+      <AlertCircle size={14} className="shrink-0 self-center" />
+      <span>{message}</span>
+    </p>
+  );
+}
+
+function ThemeButton({ isDark, toggleTheme, setIsDark, thick = false }) {
   return (
     <button
       type="button"
@@ -11,7 +23,9 @@ function ThemeButton({ isDark, toggleTheme, setIsDark }) {
           setIsDark((prev) => !prev);
         }
       }}
-      className="mt-1 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-emerald-700 transition hover:bg-emerald-50 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+      className={`mt-1 flex w-full items-center gap-2 rounded-xl border border-transparent px-3 text-left text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 ${
+        thick ? "py-3 text-base font-medium" : "py-2 text-sm"
+      }`}
     >
       {isDark ? <Sun size={18} /> : <Moon size={18} />}
       {isDark ? "Light mode" : "Dark mode"}
@@ -38,7 +52,7 @@ export function SettingsMenuPopover({
       <button
         type="button"
         onClick={() => setSettingsPanel("profile")}
-        className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-emerald-700 transition hover:bg-emerald-50 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+        className="flex w-full items-center gap-2 rounded-xl border border-transparent px-3 py-2 text-left text-sm text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
       >
         <User size={18} />
         Edit profile
@@ -46,7 +60,7 @@ export function SettingsMenuPopover({
       <button
         type="button"
         onClick={() => setSettingsPanel("security")}
-        className="mt-1 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-emerald-700 transition hover:bg-emerald-50 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+        className="mt-1 flex w-full items-center gap-2 rounded-xl border border-transparent px-3 py-2 text-left text-sm text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
       >
         <ShieldCheck size={18} />
         Security
@@ -55,7 +69,7 @@ export function SettingsMenuPopover({
       <button
         type="button"
         onClick={handleLogout}
-        className="mt-2 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-rose-600 transition hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
+        className="mt-2 flex w-full items-center gap-2 rounded-xl border border-transparent px-3 py-2 text-left text-sm text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-[0_0_18px_rgba(244,63,94,0.18)] dark:text-rose-300 dark:hover:border-rose-500/30 dark:hover:bg-rose-500/10"
       >
         <LogOut size={18} />
         Log out
@@ -87,6 +101,8 @@ export function MobileSettingsPanel({
   passwordForm,
   setPasswordForm,
   userColor,
+  profileError,
+  passwordError,
 }) {
   const resolvedUserColor = userColor || "#10b981";
   return (
@@ -99,8 +115,8 @@ export function MobileSettingsPanel({
                 <img src={user.avatarUrl} alt={displayName} className="h-10 w-10 rounded-full object-cover" />
               ) : (
                 <div
-                  className="flex h-10 w-10 items-center justify-center rounded-full text-white"
-                  style={{ backgroundColor: resolvedUserColor }}
+                  className={`flex h-10 w-10 items-center justify-center rounded-full ${hasPersian(displayName?.slice(0, 1)) ? "font-fa" : ""}`}
+                  style={getAvatarStyle(resolvedUserColor)}
                 >
                   {displayName.slice(0, 1).toUpperCase()}
                 </div>
@@ -118,7 +134,7 @@ export function MobileSettingsPanel({
             <button
               type="button"
               onClick={() => setSettingsPanel("profile")}
-              className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-emerald-700 transition hover:bg-emerald-50 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+              className="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-3 text-left text-base font-medium text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
             >
               <User size={18} />
               Edit profile
@@ -126,16 +142,16 @@ export function MobileSettingsPanel({
             <button
               type="button"
               onClick={() => setSettingsPanel("security")}
-              className="mt-1 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-emerald-700 transition hover:bg-emerald-50 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+              className="mt-1 flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-3 text-left text-base font-medium text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
             >
               <ShieldCheck size={18} />
               Security
             </button>
-            <ThemeButton isDark={isDark} toggleTheme={toggleTheme} setIsDark={setIsDark} />
+            <ThemeButton isDark={isDark} toggleTheme={toggleTheme} setIsDark={setIsDark} thick />
             <button
               type="button"
               onClick={handleLogout}
-              className="mt-2 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-rose-600 transition hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
+              className="mt-2 flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-3 text-left text-base font-medium text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-[0_0_18px_rgba(244,63,94,0.18)] dark:text-rose-300 dark:hover:border-rose-500/30 dark:hover:bg-rose-500/10"
             >
               <LogOut size={18} />
               Log out
@@ -169,8 +185,8 @@ export function MobileSettingsPanel({
                   />
                 ) : (
                   <div
-                    className="flex h-12 w-12 items-center justify-center rounded-full text-white"
-                    style={{ backgroundColor: resolvedUserColor }}
+                    className={`flex h-12 w-12 items-center justify-center rounded-full ${hasPersian((profileForm.nickname || profileForm.username || "S").slice(0, 1)) ? "font-fa" : ""}`}
+                    style={getAvatarStyle(resolvedUserColor)}
                   >
                     {(profileForm.nickname || profileForm.username || "S").slice(0, 1).toUpperCase()}
                   </div>
@@ -214,6 +230,9 @@ export function MobileSettingsPanel({
               <input
                 value={profileForm.username}
                 onChange={(event) => setProfileForm((prev) => ({ ...prev, username: event.target.value }))}
+                pattern="[a-zA-Z0-9._-]+"
+                title="Use english letters, numbers, dot (.), underscore (_), and dash (-)."
+                autoCapitalize="none"
                 className="mt-2 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
               />
             </label>
@@ -239,10 +258,11 @@ export function MobileSettingsPanel({
             </div>
             <button
               type="submit"
-              className="w-full rounded-xl bg-emerald-500 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:-translate-y-0.5 hover:bg-emerald-400"
+              className="w-full rounded-xl bg-emerald-500 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-[0_0_20px_rgba(16,185,129,0.4)]"
             >
               Save profile
             </button>
+            <InlineError message={profileError} />
           </form>
         </div>
       ) : null}
@@ -290,10 +310,11 @@ export function MobileSettingsPanel({
             </label>
             <button
               type="submit"
-              className="w-full rounded-xl bg-emerald-500 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:-translate-y-0.5 hover:bg-emerald-400"
+              className="w-full rounded-xl bg-emerald-500 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-[0_0_20px_rgba(16,185,129,0.4)]"
             >
               Update password
             </button>
+            <InlineError message={passwordError} />
           </form>
         </div>
       ) : null}
@@ -316,6 +337,8 @@ export function DesktopSettingsModal({
   passwordForm,
   setPasswordForm,
   userColor,
+  profileError,
+  passwordError,
 }) {
   if (!settingsPanel) return null;
   const resolvedUserColor = userColor || "#10b981";
@@ -330,7 +353,7 @@ export function DesktopSettingsModal({
           <button
             type="button"
             onClick={() => setSettingsPanel(null)}
-            className="flex items-center justify-center rounded-full border border-emerald-200 p-2 text-emerald-700 transition hover:-translate-y-0.5 hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+            className="flex items-center justify-center rounded-full border border-emerald-200 p-2 text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_16px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
           >
             <Close size={18} />
           </button>
@@ -349,8 +372,8 @@ export function DesktopSettingsModal({
                   />
                 ) : (
                   <div
-                    className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full text-white"
-                    style={{ backgroundColor: resolvedUserColor }}
+                    className={`flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full ${hasPersian((profileForm.nickname || profileForm.username || "S").slice(0, 1)) ? "font-fa" : ""}`}
+                    style={getAvatarStyle(resolvedUserColor)}
                   >
                     {(profileForm.nickname || profileForm.username || "S").slice(0, 1).toUpperCase()}
                   </div>
@@ -393,6 +416,9 @@ export function DesktopSettingsModal({
               <input
                 value={profileForm.username}
                 onChange={(event) => setProfileForm((prev) => ({ ...prev, username: event.target.value }))}
+                pattern="[a-zA-Z0-9._-]+"
+                title="Use english letters, numbers, dot (.), underscore (_), and dash (-)."
+                autoCapitalize="none"
                 className="mt-2 w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
               />
             </label>
@@ -418,10 +444,11 @@ export function DesktopSettingsModal({
             </div>
             <button
               type="submit"
-              className="w-full rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:-translate-y-0.5 hover:bg-emerald-400"
+              className="w-full rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-[0_0_20px_rgba(16,185,129,0.4)]"
             >
               Save profile
             </button>
+            <InlineError message={profileError} />
           </form>
         ) : null}
 
@@ -456,10 +483,11 @@ export function DesktopSettingsModal({
             </label>
             <button
               type="submit"
-              className="w-full rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:-translate-y-0.5 hover:bg-emerald-400"
+              className="w-full rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-[0_0_20px_rgba(16,185,129,0.4)]"
             >
               Update password
             </button>
+            <InlineError message={passwordError} />
           </form>
         ) : null}
       </div>

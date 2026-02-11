@@ -1,4 +1,4 @@
-import { LoaderCircle, Moon, Sun } from "lucide-react";
+import { AlertCircle, LoaderCircle, Moon, Sun } from "lucide-react";
 
 export default function AuthCard({
   mode,
@@ -13,7 +13,7 @@ export default function AuthCard({
   const isLogin = mode === "login";
 
   return (
-    <section className="relative w-full max-w-md rounded-3xl border border-white/60 bg-white/80 p-6 shadow-2xl shadow-emerald-500/10 backdrop-blur dark:border-white/5 dark:bg-slate-900/80 sm:p-8">
+    <section className="app-scroll relative my-auto w-full max-w-md max-h-[calc(100dvh-5.5rem)] overflow-y-auto rounded-3xl border border-emerald-200/70 bg-white/80 p-6 shadow-2xl shadow-emerald-500/10 backdrop-blur dark:border-white/5 dark:bg-slate-900/80 sm:max-h-none sm:overflow-visible sm:p-8">
       <div className="relative text-center">
         <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-600 dark:text-emerald-300 sm:text-sm">
           {isLogin ? "Sign in" : "Create account"}
@@ -60,6 +60,9 @@ export default function AuthCard({
             name="username"
             type="text"
             required
+            pattern="[a-zA-Z0-9._-]+"
+            title="Use english letters, numbers, dot (.), underscore (_), and dash (-)."
+            autoCapitalize="none"
             placeholder="songbird.sage"
             className="mt-1 w-full rounded-2xl border border-emerald-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-100 sm:mt-2 sm:px-4 sm:py-3 sm:text-sm"
           />
@@ -98,7 +101,7 @@ export default function AuthCard({
         <button
           type="submit"
           disabled={loading}
-          className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:-translate-y-0.5 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-70 sm:px-4 sm:py-3 sm:text-sm"
+          className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-[0_0_20px_rgba(16,185,129,0.4)] disabled:cursor-not-allowed disabled:opacity-70 sm:px-4 sm:py-3 sm:text-sm"
         >
           {loading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
           {isLogin ? "Sign in" : "Create account"}
@@ -106,8 +109,9 @@ export default function AuthCard({
       </form>
 
       {status ? (
-        <p className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200 sm:mt-4 sm:px-4 sm:py-3 sm:text-sm">
-          {status}
+        <p className="mt-3 flex items-start gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200 sm:mt-4 sm:px-4 sm:py-3 sm:text-sm">
+          <AlertCircle size={16} className="shrink-0 self-center" />
+          <span>{status}</span>
         </p>
       ) : null}
 
@@ -118,7 +122,7 @@ export default function AuthCard({
         <button
           type="button"
           onClick={onSwitchMode}
-          className="mt-2 w-full rounded-2xl border border-emerald-300 bg-white/80 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:-translate-y-0.5 hover:border-emerald-400 hover:shadow-md dark:border-emerald-500/40 dark:bg-slate-900/60 dark:text-emerald-200 sm:px-4 sm:py-2 sm:text-sm"
+          className="mt-2 w-full rounded-2xl border border-emerald-300 bg-white/80 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:border-emerald-400 hover:shadow-[0_0_18px_rgba(16,185,129,0.24)] dark:border-emerald-500/40 dark:bg-slate-900/60 dark:text-emerald-200 sm:px-4 sm:py-2 sm:text-sm"
         >
           {isLogin ? "Create new account" : "Back to sign in"}
         </button>

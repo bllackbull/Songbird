@@ -13,10 +13,10 @@ export default function MobileTabMenu({
       }`}
       style={{
         paddingBottom:
-          "max(1rem, calc(env(safe-area-inset-bottom) + var(--vv-bottom-offset, 0px) + 1rem))",
+          "max(0.5rem, calc(env(safe-area-inset-bottom) + var(--vv-bottom-offset, 0px) + 0.5rem))",
       }}
     >
-      <div className="mx-auto mb-4 flex max-w-sm items-center justify-between rounded-3xl border border-emerald-100/70 bg-white/90 p-2 shadow-lg shadow-emerald-500/10 backdrop-blur-none dark:border-emerald-500/30 dark:bg-slate-950/90 md:backdrop-blur">
+      <div className="mx-auto mb-2 flex max-w-sm items-center justify-between rounded-3xl bg-white/90 p-2 shadow-lg shadow-emerald-500/10 backdrop-blur-none dark:bg-slate-900/90 md:backdrop-blur">
         <button
           type="button"
           onClick={onChats}
