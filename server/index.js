@@ -4,20 +4,20 @@ import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import {
-  addConversationMember,
-  createConversation,
+  addChatMember,
+  createChat,
   createMessage,
   createSession,
   deleteSession,
   createUser,
-  findDmConversation,
+  findDmChat,
   findUserById,
   findUserByUsername,
   getMessages,
   getSession,
   isMember,
-  listConversationMembers,
-  listConversationsForUser,
+  listChatMembers,
+  listChatsForUser,
   listUsers,
   searchUsers,
   touchSession,
@@ -137,6 +137,7 @@ app.post("/api/register", (req, res) => {
     username: trimmed,
     nickname: nickname?.trim() || null,
     avatarUrl: avatarUrl?.trim() || null,
+    color: findUserById(id)?.color || null,
     status: "online",
   });
 });
@@ -165,6 +166,7 @@ app.post("/api/login", (req, res) => {
     username: user.username,
     nickname: user.nickname || null,
     avatarUrl: user.avatar_url || null,
+    color: user.color || null,
     status: user.status || "online",
   });
 });
@@ -179,6 +181,7 @@ app.get("/api/me", (req, res) => {
     username: session.username,
     nickname: session.nickname || null,
     avatarUrl: session.avatar_url || null,
+    color: session.color || null,
     status: session.status || "online",
   });
 });
@@ -206,6 +209,7 @@ app.get("/api/profile", (req, res) => {
     username: user.username,
     nickname: user.nickname || null,
     avatarUrl: user.avatar_url || null,
+    color: user.color || null,
     status: user.status || "online",
   });
 });
@@ -279,6 +283,7 @@ app.put("/api/profile", (req, res) => {
     username: updated.username,
     nickname: updated.nickname || null,
     avatarUrl: updated.avatar_url || null,
+    color: updated.color || null,
     status: updated.status || "online",
   });
 });
@@ -333,7 +338,7 @@ app.get("/api/users", (req, res) => {
   res.json({ users });
 });
 
-app.get("/api/conversations", (req, res) => {
+app.get("/api/chats", (req, res) => {
   const username = req.query.username?.toString();
   if (!username) {
     return res.status(400).json({ error: "Username is required." });
@@ -343,15 +348,15 @@ app.get("/api/conversations", (req, res) => {
     return res.status(404).json({ error: "User not found." });
   }
 
-  const conversations = listConversationsForUser(user.id).map((conv) => {
-    const members = listConversationMembers(conv.id);
+  const chats = listChatsForUser(user.id).map((conv) => {
+    const members = listChatMembers(conv.id);
     return { ...conv, members };
   });
 
-  res.json({ conversations });
+  res.json({ chats });
 });
 
-app.post("/api/conversations/dm", (req, res) => {
+app.post("/api/chats/dm", (req, res) => {
   const { from, to } = req.body || {};
   if (!from || !to) {
     return res.status(400).json({ error: "Both users are required." });
@@ -363,25 +368,25 @@ app.post("/api/conversations/dm", (req, res) => {
     return res.status(404).json({ error: "User not found." });
   }
 
-  const existingId = findDmConversation(fromUser.id, toUser.id);
+  const existingId = findDmChat(fromUser.id, toUser.id);
   if (existingId) {
-    // Unhide the conversation for both users (in case it was previously deleted)
+    // Unhide the chat for both users (in case it was previously deleted)
     unhideChat(fromUser.id, existingId);
     unhideChat(toUser.id, existingId);
     return res.json({ id: existingId });
   }
 
-  const convoId = createConversation(null, "dm");
-  if (!convoId) {
-    return res.status(500).json({ error: "Failed to create conversation." });
+  const chatId = createChat(null, "dm");
+  if (!chatId) {
+    return res.status(500).json({ error: "Failed to create chat." });
   }
-  addConversationMember(convoId, fromUser.id, "owner");
-  addConversationMember(convoId, toUser.id, "member");
+  addChatMember(chatId, fromUser.id, "owner");
+  addChatMember(chatId, toUser.id, "member");
 
-  res.json({ id: convoId });
+  res.json({ id: chatId });
 });
 
-app.post("/api/conversations", (req, res) => {
+app.post("/api/chats", (req, res) => {
   const { name, type, members = [], creator } = req.body || {};
   if (!creator) {
     return res.status(400).json({ error: "Creator is required." });
@@ -393,9 +398,9 @@ app.post("/api/conversations", (req, res) => {
   }
 
   const normalizedType = type === "channel" ? "channel" : "group";
-  const convoId = createConversation(name || "Untitled", normalizedType);
+  const chatId = createChat(name || "Untitled", normalizedType);
 
-  addConversationMember(convoId, creatorUser.id, "owner");
+  addChatMember(chatId, creatorUser.id, "owner");
 
   const memberSet = new Set(
     members.map((value) => value.toString().toLowerCase()),
@@ -405,20 +410,20 @@ app.post("/api/conversations", (req, res) => {
   memberSet.forEach((username) => {
     const member = findUserByUsername(username);
     if (member) {
-      addConversationMember(convoId, member.id, "member");
+      addChatMember(chatId, member.id, "member");
     }
   });
 
-  res.json({ id: convoId });
+  res.json({ id: chatId });
 });
 
 app.get("/api/messages", (req, res) => {
-  const conversationId = Number(req.query.conversationId);
+  const chatId = Number(req.query.chatId);
   const username = req.query.username?.toString();
-  if (!conversationId || !username) {
+  if (!chatId || !username) {
     return res
       .status(400)
-      .json({ error: "Conversation and username are required." });
+      .json({ error: "Chat and username are required." });
   }
 
   const user = findUserByUsername(username.toLowerCase());
@@ -426,42 +431,42 @@ app.get("/api/messages", (req, res) => {
     return res.status(404).json({ error: "User not found." });
   }
 
-  if (!isMember(conversationId, user.id)) {
+  if (!isMember(chatId, user.id)) {
     return res
       .status(403)
-      .json({ error: "Not a member of this conversation." });
+      .json({ error: "Not a member of this chat." });
   }
 
-  const messages = getMessages(conversationId);
-  res.json({ conversationId, messages });
+  const messages = getMessages(chatId);
+  res.json({ chatId, messages });
 });
 
 app.post("/api/messages/read", (req, res) => {
-  const { conversationId, username } = req.body || {};
-  if (!conversationId || !username) {
+  const { chatId, username } = req.body || {};
+  if (!chatId || !username) {
     return res
       .status(400)
-      .json({ error: "Conversation and username are required." });
+      .json({ error: "Chat and username are required." });
   }
   const user = findUserByUsername(username.toLowerCase());
   if (!user) {
     return res.status(404).json({ error: "User not found." });
   }
-  if (!isMember(Number(conversationId), user.id)) {
+  if (!isMember(Number(chatId), user.id)) {
     return res
       .status(403)
-      .json({ error: "Not a member of this conversation." });
+      .json({ error: "Not a member of this chat." });
   }
-  markMessagesRead(Number(conversationId), user.id);
+  markMessagesRead(Number(chatId), user.id);
   res.json({ ok: true });
 });
 
 app.post("/api/chats/hide", (req, res) => {
-  const { username, conversationIds = [] } = req.body || {};
-  if (!username || !Array.isArray(conversationIds) || !conversationIds.length) {
+  const { username, chatIds = [] } = req.body || {};
+  if (!username || !Array.isArray(chatIds) || !chatIds.length) {
     return res
       .status(400)
-      .json({ error: "Username and conversationIds are required." });
+      .json({ error: "Username and chatIds are required." });
   }
   const user = findUserByUsername(username.toLowerCase());
   if (!user) {
@@ -469,16 +474,16 @@ app.post("/api/chats/hide", (req, res) => {
   }
   hideChatsForUser(
     user.id,
-    conversationIds.map((id) => Number(id)).filter(Boolean),
+    chatIds.map((id) => Number(id)).filter(Boolean),
   );
   res.json({ ok: true });
 });
 
 app.post("/api/messages", (req, res) => {
-  const { conversationId, username, body } = req.body || {};
-  if (!conversationId || !username || !body) {
+  const { chatId, username, body } = req.body || {};
+  if (!chatId || !username || !body) {
     return res.status(400).json({
-      error: "Conversation, username, and message body are required.",
+      error: "Chat, username, and message body are required.",
     });
   }
 
@@ -487,13 +492,13 @@ app.post("/api/messages", (req, res) => {
     return res.status(404).json({ error: "User not found." });
   }
 
-  if (!isMember(Number(conversationId), user.id)) {
+  if (!isMember(Number(chatId), user.id)) {
     return res
       .status(403)
-      .json({ error: "Not a member of this conversation." });
+      .json({ error: "Not a member of this chat." });
   }
 
-  const id = createMessage(Number(conversationId), user.id, body);
+  const id = createMessage(Number(chatId), user.id, body);
 
   res.json({ id });
 });

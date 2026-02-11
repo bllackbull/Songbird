@@ -2,6 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --vv-bottom-offset: 0px;
+  --mobile-bottom-offset: 0px;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -20,6 +25,15 @@ body {
   /* Prevent Safari zoom on input focus */
   -webkit-font-smoothing: antialiased;
   -webkit-touch-callout: none;
+}
+
+html {
+  background-color: #ecfdf5;
+}
+
+html.dark,
+html.dark body {
+  background-color: #020617;
 }
 
 /* Prevent zoom on input focus for iOS Safari */
@@ -80,4 +94,11 @@ input, textarea, select {
 
 .dark .chat-scroll::-webkit-scrollbar-thumb:hover {
   background: rgba(16, 185, 129, 0.8);
+}
+
+.theme-switching *,
+.theme-switching *::before,
+.theme-switching *::after {
+  transition: none !important;
+  animation-duration: 0s !important;
 }

@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
 import logo from './assets/songbird-logo.svg'
 import ChatPage from './pages/ChatPage.jsx'
-import LoginPage from './pages/LoginPage.jsx'
-import SignupPage from './pages/SignupPage.jsx'
+import AuthPage from './pages/AuthPage.jsx'
 
 const API_BASE = ''
 
@@ -23,17 +22,73 @@ export default function App() {
   const [user, setUser] = useState(null)
   const [authStatus, setAuthStatus] = useState('')
   const [authChecked, setAuthChecked] = useState(false)
+  const [authLoading, setAuthLoading] = useState(false)
 
-  useEffect(() => {
+  function applyTheme(nextIsDark) {
     const root = document.documentElement
-    if (isDark) {
+    root.classList.add('theme-switching')
+    if (nextIsDark) {
       root.classList.add('dark')
       localStorage.setItem('songbird-theme', 'dark')
     } else {
       root.classList.remove('dark')
       localStorage.setItem('songbird-theme', 'light')
     }
+
+    const themeColor = nextIsDark ? '#020617' : '#ecfdf5'
+    document.documentElement.style.backgroundColor = themeColor
+    document.body.style.backgroundColor = themeColor
+
+    let themeColorMeta = document.querySelector('meta[name="theme-color"]')
+    if (!themeColorMeta) {
+      themeColorMeta = document.createElement('meta')
+      themeColorMeta.setAttribute('name', 'theme-color')
+      document.head.appendChild(themeColorMeta)
+    }
+    themeColorMeta.setAttribute('content', themeColor)
+    window.setTimeout(() => {
+      root.classList.remove('theme-switching')
+    }, 120)
+  }
+
+  function toggleTheme() {
+    setIsDark((prev) => !prev)
+  }
+
+  useEffect(() => {
+    applyTheme(isDark)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDark])
+
+  useEffect(() => {
+    const root = document.documentElement
+    const viewport = window.visualViewport
+    if (!viewport) {
+      root.style.setProperty('--app-height', `${window.innerHeight}px`)
+      root.style.setProperty('--vv-bottom-offset', '0px')
+      root.style.setProperty('--mobile-bottom-offset', '0px')
+      return
+    }
+
+    const updateViewportOffset = () => {
+      const appHeight = Math.max(320, Math.round(viewport.height))
+      const offset = Math.max(0, Math.round(window.innerHeight - (viewport.height + viewport.offsetTop)))
+      root.style.setProperty('--app-height', `${appHeight}px`)
+      root.style.setProperty('--vv-bottom-offset', `${offset}px`)
+      root.style.setProperty('--mobile-bottom-offset', `${offset}px`)
+    }
+
+    updateViewportOffset()
+    viewport.addEventListener('resize', updateViewportOffset)
+    viewport.addEventListener('scroll', updateViewportOffset)
+    window.addEventListener('orientationchange', updateViewportOffset)
+
+    return () => {
+      viewport.removeEventListener('resize', updateViewportOffset)
+      viewport.removeEventListener('scroll', updateViewportOffset)
+      window.removeEventListener('orientationchange', updateViewportOffset)
+    }
+  }, [])
 
   useEffect(() => {
     let isMounted = true
@@ -50,6 +105,7 @@ export default function App() {
             username: data.username,
             nickname: data.nickname || null,
             avatarUrl: data.avatarUrl || null,
+            color: data.color || null,
             status: data.status || 'online',
           })
         }
@@ -83,6 +139,7 @@ export default function App() {
   }, [route])
 
   useEffect(() => {
+    if (authLoading) return
     if (!authChecked) return
     if (user && route !== 'chat') {
       navigate('/chat', true)
@@ -92,7 +149,7 @@ export default function App() {
     if (!user && route === 'chat') {
       navigate('/login', true)
     }
-  }, [user, route, authChecked])
+  }, [user, route, authChecked, authLoading])
 
   function navigate(path, replace = false) {
     if (replace) {
@@ -106,6 +163,7 @@ export default function App() {
   async function handleLogin(event) {
     event.preventDefault()
     setAuthStatus('')
+    setAuthLoading(true)
     const form = event.currentTarget
     const formData = new FormData(form)
     const payload = {
@@ -129,18 +187,22 @@ export default function App() {
         username: data.username,
         nickname: data.nickname || null,
         avatarUrl: data.avatarUrl || null,
+        color: data.color || null,
         status: data.status || 'online',
       }
       setUser(nextUser)
-      navigate('/chat')
+      navigate('/chat', true)
     } catch (err) {
       setAuthStatus(err.message)
+    } finally {
+      setAuthLoading(false)
     }
   }
 
   async function handleSignup(event) {
     event.preventDefault()
     setAuthStatus('')
+    setAuthLoading(true)
     const form = event.currentTarget
     const formData = new FormData(form)
     const password = formData.get('password')?.toString() || ''
@@ -148,6 +210,7 @@ export default function App() {
 
     if (password !== confirmPassword) {
       setAuthStatus('Passwords do not match.')
+      setAuthLoading(false)
       return
     }
 
@@ -173,22 +236,32 @@ export default function App() {
         username: data.username,
         nickname: data.nickname || null,
         avatarUrl: data.avatarUrl || null,
+        color: data.color || null,
         status: data.status || 'online',
       }
       setUser(nextUser)
-      navigate('/chat')
+      navigate('/chat', true)
     } catch (err) {
       setAuthStatus(err.message)
+    } finally {
+      setAuthLoading(false)
     }
   }
 
   const isAuthRoute = route === 'login' || route === 'signup'
+  const appShellClass = isAuthRoute
+    ? 'min-h-screen bg-gradient-to-b from-emerald-100 via-emerald-200 to-green-300 text-slate-900 transition-colors duration-300 dark:from-emerald-950 dark:via-slate-950 dark:to-slate-900 dark:text-slate-100'
+    : 'min-h-screen bg-emerald-50 text-slate-900 transition-colors duration-300 dark:bg-slate-950 dark:text-slate-100'
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-emerald-100 via-emerald-200 to-green-300 text-slate-900 transition-colors duration-300 dark:from-emerald-950 dark:via-slate-950 dark:to-slate-900 dark:text-slate-100">
+    <div className={appShellClass}>
       <div className="relative min-h-screen overflow-hidden">
-        <div className="pointer-events-none absolute -top-40 left-1/2 h-96 w-96 -translate-x-1/2 rounded-full bg-emerald-400/30 blur-[130px] dark:bg-emerald-500/20" />
-        <div className="pointer-events-none absolute bottom-0 right-0 h-80 w-80 translate-x-1/3 rounded-full bg-lime-400/40 blur-[120px] dark:bg-lime-500/20" />
+        {isAuthRoute ? (
+          <>
+            <div className="pointer-events-none absolute -top-40 left-1/2 h-96 w-96 -translate-x-1/2 rounded-full bg-emerald-400/30 blur-[130px] dark:bg-emerald-500/20" />
+            <div className="pointer-events-none absolute bottom-0 right-0 h-80 w-80 translate-x-1/3 rounded-full bg-lime-400/40 blur-[120px] dark:bg-lime-500/20" />
+          </>
+        ) : null}
 
         <div
           className={
@@ -212,31 +285,37 @@ export default function App() {
 
           <main className={isAuthRoute ? 'mt-6 flex flex-1 items-center justify-center sm:mt-10' : 'flex flex-1'}>
             {route === 'login' && (
-              <LoginPage
+              <AuthPage
+                mode="login"
                 isDark={isDark}
-                onToggleTheme={() => setIsDark((prev) => !prev)}
-                onLogin={handleLogin}
-                onGoSignup={() => {
+                onToggleTheme={toggleTheme}
+                onSubmit={handleLogin}
+                onSwitchMode={() => {
                   setAuthStatus('')
                   navigate('/signup')
                 }}
                 status={authStatus}
+                loading={authLoading}
+                showSigningOverlay={authLoading}
               />
             )}
             {route === 'signup' && (
-              <SignupPage
+              <AuthPage
+                mode="signup"
                 isDark={isDark}
-                onToggleTheme={() => setIsDark((prev) => !prev)}
-                onSignup={handleSignup}
-                onGoLogin={() => {
+                onToggleTheme={toggleTheme}
+                onSubmit={handleSignup}
+                onSwitchMode={() => {
                   setAuthStatus('')
                   navigate('/login')
                 }}
                 status={authStatus}
+                loading={authLoading}
+                showSigningOverlay={false}
               />
             )}
             {route === 'chat' && user ? (
-              <ChatPage user={user} setUser={setUser} isDark={isDark} setIsDark={setIsDark} />
+              <ChatPage user={user} setUser={setUser} isDark={isDark} setIsDark={setIsDark} toggleTheme={toggleTheme} />
             ) : null}
           </main>
         </div>

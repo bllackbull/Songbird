@@ -1,7 +1,11 @@
+<div align="center">
+
 # <img src="./client/public/songbird-logo.svg"> Songbird
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-red.svg)](https://opensource.org/licenses/MIT)
 [![Last commit](https://img.shields.io/github/last-commit/bllackbull/Songbird)](https://github.com/bllackbull/Songbird/commits/main/)
+
+</div>
 
 **Lightweight self-hosted chat app (React + Vite frontend, Node/Express + sql.js backend)**
 
@@ -93,6 +97,7 @@ WantedBy=multi-user.target
 ```
 
 Notes:
+
 - Add `User=` if you prefer an specific user (e.g., create a dedicated `songbird` user for separation).
 - If you decided to create a dedicated user, make sure to change ownership with `sudo chown -R songbird:songbird /opt/songbird` (assuming the user is `songbird`).
 - If Node is installed somewhere else, update `ExecStart` accordingly (use full path to `node`).
@@ -187,6 +192,7 @@ sudo systemctl reload nginx
 ```
 
 **What each step does:**
+
 - `git pull` — Fetch and merge latest changes from GitHub
 - `npm install` (client & server) — Install any new dependencies
 - `npm run build` — Rebuild the React frontend into `client/dist`
@@ -194,7 +200,6 @@ sudo systemctl reload nginx
 - `systemctl reload nginx` — Reload Nginx to serve the new build
 
 If only the frontend code has changed (no `package.json` changes), you can skip the `npm install` steps.
-
 
 > For zero-downtime deployments on larger projects, consider blue-green deployment or PM2, but for most updates the restart approach above is simple and sufficient.
 
@@ -205,4 +210,3 @@ If you plan to host the app at a subpath (e.g., `example.com/songbird/`) you wil
 ## License
 
 This project is licensed under the MIT License. See the see [LICENSE](LICENSE) file for details.
-
