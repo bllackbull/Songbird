@@ -1,7 +1,13 @@
+<div align="center">
+
 # <img src="./client/public/songbird-logo.svg"> Songbird
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-red.svg)](https://opensource.org/licenses/MIT)
+[![Version](https://img.shields.io/github/v/release/bllackbull/Songbird?label=version&color=blue)](https://github.com/bllackbull/Songbird/releases)
+![Build](https://img.shields.io/github/actions/workflow/status/bllackbull/Songbird/build.yml)
 [![Last commit](https://img.shields.io/github/last-commit/bllackbull/Songbird)](https://github.com/bllackbull/Songbird/commits/main/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-red.svg)](https://opensource.org/licenses/MIT)
+
+</div>
 
 **Lightweight self-hosted chat app (React + Vite frontend, Node/Express + sql.js backend)**
 
@@ -93,6 +99,7 @@ WantedBy=multi-user.target
 ```
 
 Notes:
+
 - Add `User=` if you prefer an specific user (e.g., create a dedicated `songbird` user for separation).
 - If you decided to create a dedicated user, make sure to change ownership with `sudo chown -R songbird:songbird /opt/songbird` (assuming the user is `songbird`).
 - If Node is installed somewhere else, update `ExecStart` accordingly (use full path to `node`).
@@ -172,6 +179,35 @@ sudo ufw enable
 - Check Nginx error logs: `/var/log/nginx/error.log`
 - Ensure `client/dist` exists (the Nginx root) and `songbird.service` is running.
 
+## Database backups and versioned migrations
+
+Songbird now uses schema versioning.
+
+- Backup command (from `server/`): `npm run backup:db`
+- Migration command (from `server/`): `npm run migrate`
+- Backup location: `data/backups/`
+
+Recommended production flow:
+
+1. Backup DB
+2. Pull latest code
+3. Install dependencies
+4. Build frontend
+5. Run migrations
+6. Restart services
+
+### Adding a new migration
+
+1. Create a new file in `server/migrations/` named like `003-your-change.js`.
+2. Export an object with:
+   - `version`: next integer (must be unique and increasing)
+   - `up(context)`: migration logic
+3. Add the migration to `server/migrations/index.js`.
+4. Run:
+   - `npm run backup:db`
+   - `npm run migrate`
+5. Start the server and verify app behavior against existing data.
+
 ## Updating the deployed app
 
 ```bash
@@ -182,19 +218,23 @@ npm install
 npm run build
 cd ../server
 npm install
+npm run backup:db
+npm run migrate
 sudo systemctl restart songbird
 sudo systemctl reload nginx
 ```
 
 **What each step does:**
-- `git pull` — Fetch and merge latest changes from GitHub
-- `npm install` (client & server) — Install any new dependencies
-- `npm run build` — Rebuild the React frontend into `client/dist`
-- `systemctl restart songbird` — Restart the Node server to pick up changes
-- `systemctl reload nginx` — Reload Nginx to serve the new build
+
+- git pull - Fetch and merge latest changes from GitHub
+- npm install (client & server) - Install any new dependencies
+- npm run build - Rebuild the React frontend into client/dist
+- npm run backup:db - Create a timestamped backup of data/songbird.db
+- npm run migrate - Apply versioned schema migrations without dropping data
+- systemctl restart songbird - Restart the Node server to pick up changes
+- systemctl reload nginx - Reload Nginx to serve the new build
 
 If only the frontend code has changed (no `package.json` changes), you can skip the `npm install` steps.
-
 
 > For zero-downtime deployments on larger projects, consider blue-green deployment or PM2, but for most updates the restart approach above is simple and sufficient.
 

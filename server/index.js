@@ -4,20 +4,20 @@ import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import {
-  addConversationMember,
-  createConversation,
+  addChatMember,
+  createChat,
   createMessage,
   createSession,
   deleteSession,
   createUser,
-  findDmConversation,
+  findDmChat,
   findUserById,
   findUserByUsername,
   getMessages,
   getSession,
   isMember,
-  listConversationMembers,
-  listConversationsForUser,
+  listChatMembers,
+  listChatsForUser,
   listUsers,
   searchUsers,
   touchSession,
@@ -48,6 +48,65 @@ const staticLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 1000,
 });
+
+const USER_COLORS = [
+  "#10b981",
+  "#0ea5e9",
+  "#f97316",
+  "#8b5cf6",
+  "#ef4444",
+  "#14b8a6",
+  "#f59e0b",
+  "#3b82f6",
+  "#84cc16",
+  "#ec4899",
+];
+const USERNAME_REGEX = /^[a-z0-9._-]+$/;
+const sseClientsByUsername = new Map();
+
+function addSseClient(username, res) {
+  const key = username.toLowerCase();
+  const clients = sseClientsByUsername.get(key) || new Set();
+  clients.add(res);
+  sseClientsByUsername.set(key, clients);
+}
+
+function removeSseClient(username, res) {
+  const key = username.toLowerCase();
+  const clients = sseClientsByUsername.get(key);
+  if (!clients) return;
+  clients.delete(res);
+  if (!clients.size) {
+    sseClientsByUsername.delete(key);
+  }
+}
+
+function emitSseEvent(username, payload) {
+  const key = username.toLowerCase();
+  const clients = sseClientsByUsername.get(key);
+  if (!clients?.size) return;
+  const message = `data: ${JSON.stringify(payload)}\n\n`;
+  clients.forEach((client) => {
+    try {
+      client.write(message);
+    } catch (_) {
+      // connection cleanup is handled on close
+    }
+  });
+}
+
+function emitChatEvent(chatId, payload) {
+  const members = listChatMembers(Number(chatId));
+  members.forEach((member) => {
+    if (!member?.username) return;
+    emitSseEvent(member.username, payload);
+  });
+}
+
+function getRandomUserColor() {
+  const index = Math.floor(Math.random() * USER_COLORS.length);
+  return USER_COLORS[index];
+}
 
 function parseCookies(req) {
   const cookieHeader = req.headers.cookie;
@@ -96,6 +155,34 @@ app.get("/api/health", (req, res) => {
   res.json({ ok: true });
 });
 
+app.get("/api/events", (req, res) => {
+  const username = req.query.username?.toString()?.toLowerCase();
+  if (!username) {
+    return res.status(400).json({ error: "Username is required." });
+  }
+  const user = findUserByUsername(username);
+  if (!user) {
+    return res.status(404).json({ error: "User not found." });
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+
+  addSseClient(username, res);
+  res.write(`data: ${JSON.stringify({ type: "connected" })}\n\n`);
+
+  const keepAlive = setInterval(() => {
+    res.write(`: ping\n\n`);
+  }, 25000);
+
+  req.on("close", () => {
+    clearInterval(keepAlive);
+    removeSseClient(username, res);
+  });
+});
+
 app.post("/api/register", (req, res) => {
   const { username, password, nickname, avatarUrl } = req.body || {};
   if (!username || !password) {
@@ -110,6 +197,12 @@ app.post("/api/register", (req, res) => {
       .status(400)
       .json({ error: "Username must be at least 3 characters." });
   }
+  if (!USERNAME_REGEX.test(trimmed)) {
+    return res.status(400).json({
+      error:
+        "Username can only include english letters, numbers, dot (.), underscore (_), and dash (-).",
+    });
+  }
   if (password.length < 6) {
     return res
       .status(400)
@@ -121,12 +214,14 @@ app.post("/api/register", (req, res) => {
     return res.status(409).json({ error: "Username already exists." });
   }
 
+  const assignedColor = getRandomUserColor();
   const passwordHash = bcrypt.hashSync(password, 10);
   const id = createUser(
     trimmed,
     passwordHash,
     nickname?.trim() || null,
     avatarUrl?.trim() || null,
+    assignedColor,
   );
   const token = crypto.randomBytes(24).toString("hex");
   createSession(id, token);
@@ -137,6 +232,7 @@ app.post("/api/register", (req, res) => {
     username: trimmed,
     nickname: nickname?.trim() || null,
     avatarUrl: avatarUrl?.trim() || null,
+    color: assignedColor,
     status: "online",
   });
 });
@@ -165,6 +261,7 @@ app.post("/api/login", (req, res) => {
     username: user.username,
     nickname: user.nickname || null,
     avatarUrl: user.avatar_url || null,
+    color: user.color || "#10b981",
     status: user.status || "online",
   });
 });
@@ -179,6 +276,7 @@ app.get("/api/me", (req, res) => {
     username: session.username,
     nickname: session.nickname || null,
     avatarUrl: session.avatar_url || null,
+    color: session.color || "#10b981",
     status: session.status || "online",
   });
 });
@@ -206,6 +304,7 @@ app.get("/api/profile", (req, res) => {
     username: user.username,
     nickname: user.nickname || null,
     avatarUrl: user.avatar_url || null,
+    color: user.color || "#10b981",
     status: user.status || "online",
   });
 });
@@ -258,6 +357,12 @@ app.put("/api/profile", (req, res) => {
       .status(400)
       .json({ error: "Username must be at least 3 characters." });
   }
+  if (!USERNAME_REGEX.test(trimmed)) {
+    return res.status(400).json({
+      error:
+        "Username can only include english letters, numbers, dot (.), underscore (_), and dash (-).",
+    });
+  }
 
   if (trimmed !== currentUser.username) {
     const existing = findUserByUsername(trimmed);
@@ -279,6 +384,7 @@ app.put("/api/profile", (req, res) => {
     username: updated.username,
     nickname: updated.nickname || null,
     avatarUrl: updated.avatar_url || null,
+    color: updated.color || "#10b981",
     status: updated.status || "online",
   });
 });
@@ -333,7 +439,7 @@ app.get("/api/users", (req, res) => {
   res.json({ users });
 });
 
-app.get("/api/conversations", (req, res) => {
+app.get("/api/chats", (req, res) => {
   const username = req.query.username?.toString();
   if (!username) {
     return res.status(400).json({ error: "Username is required." });
@@ -343,15 +449,15 @@ app.get("/api/conversations", (req, res) => {
     return res.status(404).json({ error: "User not found." });
   }
 
-  const conversations = listConversationsForUser(user.id).map((conv) => {
-    const members = listConversationMembers(conv.id);
+  const chats = listChatsForUser(user.id).map((conv) => {
+    const members = listChatMembers(conv.id);
     return { ...conv, members };
   });
 
-  res.json({ conversations });
+  res.json({ chats });
 });
 
-app.post("/api/conversations/dm", (req, res) => {
+app.post("/api/chats/dm", (req, res) => {
   const { from, to } = req.body || {};
   if (!from || !to) {
     return res.status(400).json({ error: "Both users are required." });
@@ -363,25 +469,25 @@ app.post("/api/conversations/dm", (req, res) => {
     return res.status(404).json({ error: "User not found." });
   }
 
-  const existingId = findDmConversation(fromUser.id, toUser.id);
+  const existingId = findDmChat(fromUser.id, toUser.id);
   if (existingId) {
-    // Unhide the conversation for both users (in case it was previously deleted)
+    // Unhide the chat for both users (in case it was previously deleted)
     unhideChat(fromUser.id, existingId);
     unhideChat(toUser.id, existingId);
     return res.json({ id: existingId });
   }
 
-  const convoId = createConversation(null, "dm");
-  if (!convoId) {
-    return res.status(500).json({ error: "Failed to create conversation." });
+  const chatId = createChat(null, "dm");
+  if (!chatId) {
+    return res.status(500).json({ error: "Failed to create chat." });
   }
-  addConversationMember(convoId, fromUser.id, "owner");
-  addConversationMember(convoId, toUser.id, "member");
+  addChatMember(chatId, fromUser.id, "owner");
+  addChatMember(chatId, toUser.id, "member");
 
-  res.json({ id: convoId });
+  res.json({ id: chatId });
 });
 
-app.post("/api/conversations", (req, res) => {
+app.post("/api/chats", (req, res) => {
   const { name, type, members = [], creator } = req.body || {};
   if (!creator) {
     return res.status(400).json({ error: "Creator is required." });
@@ -393,9 +499,9 @@ app.post("/api/conversations", (req, res) => {
   }
 
   const normalizedType = type === "channel" ? "channel" : "group";
-  const convoId = createConversation(name || "Untitled", normalizedType);
+  const chatId = createChat(name || "Untitled", normalizedType);
 
-  addConversationMember(convoId, creatorUser.id, "owner");
+  addChatMember(chatId, creatorUser.id, "owner");
 
   const memberSet = new Set(
     members.map((value) => value.toString().toLowerCase()),
@@ -405,20 +511,20 @@ app.post("/api/conversations", (req, res) => {
   memberSet.forEach((username) => {
     const member = findUserByUsername(username);
     if (member) {
-      addConversationMember(convoId, member.id, "member");
+      addChatMember(chatId, member.id, "member");
     }
   });
 
-  res.json({ id: convoId });
+  res.json({ id: chatId });
 });
 
 app.get("/api/messages", (req, res) => {
-  const conversationId = Number(req.query.conversationId);
+  const chatId = Number(req.query.chatId);
   const username = req.query.username?.toString();
-  if (!conversationId || !username) {
+  if (!chatId || !username) {
     return res
       .status(400)
-      .json({ error: "Conversation and username are required." });
+      .json({ error: "Chat and username are required." });
   }
 
   const user = findUserByUsername(username.toLowerCase());
@@ -426,42 +532,47 @@ app.get("/api/messages", (req, res) => {
     return res.status(404).json({ error: "User not found." });
   }
 
-  if (!isMember(conversationId, user.id)) {
+  if (!isMember(chatId, user.id)) {
     return res
       .status(403)
-      .json({ error: "Not a member of this conversation." });
+      .json({ error: "Not a member of this chat." });
   }
 
-  const messages = getMessages(conversationId);
-  res.json({ conversationId, messages });
+  const messages = getMessages(chatId);
+  res.json({ chatId, messages });
 });
 
 app.post("/api/messages/read", (req, res) => {
-  const { conversationId, username } = req.body || {};
-  if (!conversationId || !username) {
+  const { chatId, username } = req.body || {};
+  if (!chatId || !username) {
     return res
       .status(400)
-      .json({ error: "Conversation and username are required." });
+      .json({ error: "Chat and username are required." });
   }
   const user = findUserByUsername(username.toLowerCase());
   if (!user) {
     return res.status(404).json({ error: "User not found." });
   }
-  if (!isMember(Number(conversationId), user.id)) {
+  if (!isMember(Number(chatId), user.id)) {
     return res
       .status(403)
-      .json({ error: "Not a member of this conversation." });
+      .json({ error: "Not a member of this chat." });
   }
-  markMessagesRead(Number(conversationId), user.id);
+  markMessagesRead(Number(chatId), user.id);
+  emitChatEvent(Number(chatId), {
+    type: "chat_read",
+    chatId: Number(chatId),
+    username: user.username,
+  });
   res.json({ ok: true });
 });
 
 app.post("/api/chats/hide", (req, res) => {
-  const { username, conversationIds = [] } = req.body || {};
-  if (!username || !Array.isArray(conversationIds) || !conversationIds.length) {
+  const { username, chatIds = [] } = req.body || {};
+  if (!username || !Array.isArray(chatIds) || !chatIds.length) {
     return res
       .status(400)
-      .json({ error: "Username and conversationIds are required." });
+      .json({ error: "Username and chatIds are required." });
   }
   const user = findUserByUsername(username.toLowerCase());
   if (!user) {
@@ -469,16 +580,16 @@ app.post("/api/chats/hide", (req, res) => {
   }
   hideChatsForUser(
     user.id,
-    conversationIds.map((id) => Number(id)).filter(Boolean),
+    chatIds.map((id) => Number(id)).filter(Boolean),
   );
   res.json({ ok: true });
 });
 
 app.post("/api/messages", (req, res) => {
-  const { conversationId, username, body } = req.body || {};
-  if (!conversationId || !username || !body) {
+  const { chatId, username, body } = req.body || {};
+  if (!chatId || !username || !body) {
     return res.status(400).json({
-      error: "Conversation, username, and message body are required.",
+      error: "Chat, username, and message body are required.",
     });
   }
 
@@ -487,13 +598,19 @@ app.post("/api/messages", (req, res) => {
     return res.status(404).json({ error: "User not found." });
   }
 
-  if (!isMember(Number(conversationId), user.id)) {
+  if (!isMember(Number(chatId), user.id)) {
     return res
       .status(403)
-      .json({ error: "Not a member of this conversation." });
+      .json({ error: "Not a member of this chat." });
   }
 
-  const id = createMessage(Number(conversationId), user.id, body);
+  const id = createMessage(Number(chatId), user.id, body);
+  emitChatEvent(Number(chatId), {
+    type: "chat_message",
+    chatId: Number(chatId),
+    messageId: Number(id),
+    username: user.username,
+  });
 
   res.json({ id });
 });
