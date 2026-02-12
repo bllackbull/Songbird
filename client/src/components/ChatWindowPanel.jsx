@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowLeft, Check, CheckCheck, SendHorizonal as Send } from "lucide-react";
+import { ArrowDown, ArrowLeft, Check, CheckCheck, LoaderCircle, SendHorizonal as Send } from "lucide-react";
 import { getAvatarStyle } from "../utils/avatarColor.js";
 import { hasPersian } from "../utils/fontUtils.js";
 
@@ -20,6 +20,7 @@ export default function ChatWindowPanel({
   userScrolledUp,
   unreadInChat,
   onJumpToLatest,
+  isConnected,
   isDark,
 }) {
   const activePeerColor = activeHeaderPeer?.color || "#10b981";
@@ -82,12 +83,21 @@ export default function ChatWindowPanel({
                   </span>
                 </h2>
                 <p className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                  <span
-                    className={`h-2 w-2 rounded-full ${
-                      peerStatusLabel === "online" ? "bg-emerald-400" : "bg-slate-400"
-                    }`}
-                  />
-                  {peerStatusLabel}
+                  {!isConnected ? (
+                    <>
+                      <LoaderCircle className="h-4 w-4 animate-spin text-emerald-500" />
+                      Connecting...
+                    </>
+                  ) : (
+                    <>
+                      <span
+                        className={`h-2 w-2 rounded-full ${
+                          peerStatusLabel === "online" ? "bg-emerald-400" : "bg-slate-400"
+                        }`}
+                      />
+                      {peerStatusLabel}
+                    </>
+                  )}
                 </p>
               </>
             ) : null}

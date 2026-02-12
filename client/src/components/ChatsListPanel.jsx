@@ -129,9 +129,7 @@ export default function ChatsListPanel({
                   </div>
                   {conv.unread_count > 0 ? (
                     <span
-                      className={`inline-flex items-center justify-center rounded-full bg-emerald-500 px-2 font-bold text-white ${
-                        editMode ? "h-4 min-w-[18px] text-[9px]" : "h-5 min-w-[20px] text-[10px]"
-                      }`}
+                      className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-emerald-500 px-2 text-[10px] font-bold text-white"
                     >
                       {conv.unread_count}
                     </span>

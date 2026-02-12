@@ -54,6 +54,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const pendingScrollToBottomRef = useRef(false);
   const pendingScrollToUnreadRef = useRef(null);
   const unreadMarkerIdRef = useRef(null);
+  const openingHadUnreadRef = useRef(false);
   const shouldAutoMarkReadRef = useRef(true);
   const openingChatRef = useRef(false);
   const [profileForm, setProfileForm] = useState({
@@ -122,7 +123,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }
     };
     ping();
-    const interval = setInterval(ping, 20000);
+    const interval = setInterval(ping, 5000);
     return () => clearInterval(interval);
   }, [user]);
 
@@ -173,7 +174,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }
     };
     checkHealth();
-    const interval = setInterval(checkHealth, 8000);
+    const interval = setInterval(checkHealth, 3000);
     return () => {
       isMounted = false;
       clearInterval(interval);
@@ -182,6 +183,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   useEffect(() => {
     if (user && activeChatId) {
+      const openedChatId = Number(activeChatId);
+      const openedChat = chats.find((chat) => chat.id === openedChatId);
+      openingHadUnreadRef.current = Boolean((openedChat?.unread_count || 0) > 0);
       isAtBottomRef.current = true;
       setIsAtBottom(true);
       setLoadingMessages(true);
@@ -196,7 +200,20 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       shouldAutoMarkReadRef.current = true;
       openingChatRef.current = true;
       pendingScrollToBottomRef.current = true;
-      void loadMessages(Number(activeChatId), { initialLoad: true });
+      setChats((prev) =>
+        prev.map((chat) =>
+            chat.id === openedChatId ? { ...chat, unread_count: 0 } : chat,
+        ),
+      );
+      void (async () => {
+        await loadMessages(openedChatId, { initialLoad: true });
+        await fetch(`${API_BASE}/api/messages/read`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chatId: openedChatId, username: user.username }),
+        }).catch(() => null);
+        await loadChats({ silent: true });
+      })();
     }
   }, [user, activeChatId]);
 
@@ -241,18 +258,28 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         ? "bg-emerald-400"
         : "";
 
+  const parsePresenceDate = (value) => {
+    if (!value) return null;
+    if (typeof value === "string") {
+      const normalized = value.includes("T") ? value : value.replace(" ", "T");
+      return normalized.endsWith("Z")
+        ? new Date(normalized)
+        : new Date(`${normalized}Z`);
+    }
+    return new Date(value);
+  };
   const lastSeenAt = peerPresence.lastSeen
-    ? new Date(peerPresence.lastSeen).getTime()
+    ? parsePresenceDate(peerPresence.lastSeen)?.getTime() || null
     : null;
-  const peerIdleThreshold = 90 * 1000;
+  const effectivePeerIdleThreshold = 12 * 1000;
   const isIdle =
-    lastSeenAt !== null && Date.now() - lastSeenAt > peerIdleThreshold;
+    lastSeenAt !== null && Date.now() - lastSeenAt > effectivePeerIdleThreshold;
   const peerStatusLabel = !activeHeaderPeer
     ? "offline"
     : isIdle
       ? "offline"
       : peerPresence.status === "invisible"
-        ? "invisible"
+        ? "offline"
         : "online";
 
   const toggleSelectChat = (chatId) => {
@@ -389,7 +416,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }
     };
     fetchPresence();
-    const interval = setInterval(fetchPresence, 5000);
+    const interval = setInterval(fetchPresence, 3000);
     return () => {
       isMounted = false;
       clearInterval(interval);
@@ -553,25 +580,43 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       lastMessageIdRef.current = lastId;
 
       if (openingChatRef.current) {
-        const firstUnread = nextMessages.find(
-          (msg) => msg.username !== user.username && !msg.read_at,
-        );
-        if (firstUnread) {
-          setUnreadMarkerId(firstUnread.id);
-          unreadMarkerIdRef.current = firstUnread.id;
-          pendingScrollToUnreadRef.current = firstUnread.id;
-          pendingScrollToBottomRef.current = false;
-          shouldAutoMarkReadRef.current = false;
-          userScrolledUpRef.current = true;
-          setUserScrolledUp(true);
-          isAtBottomRef.current = false;
-          setIsAtBottom(false);
+        if (openingHadUnreadRef.current) {
+          const firstUnread = nextMessages.find(
+            (msg) => msg.username !== user.username && !msg.read_at,
+          );
+          if (firstUnread) {
+            setUnreadMarkerId(firstUnread.id);
+            unreadMarkerIdRef.current = firstUnread.id;
+            pendingScrollToUnreadRef.current = firstUnread.id;
+            pendingScrollToBottomRef.current = false;
+            shouldAutoMarkReadRef.current = false;
+            userScrolledUpRef.current = true;
+            setUserScrolledUp(true);
+            isAtBottomRef.current = false;
+            setIsAtBottom(false);
+          } else {
+            setUnreadMarkerId(null);
+            unreadMarkerIdRef.current = null;
+            pendingScrollToUnreadRef.current = null;
+            shouldAutoMarkReadRef.current = true;
+            pendingScrollToBottomRef.current = true;
+            userScrolledUpRef.current = false;
+            setUserScrolledUp(false);
+            isAtBottomRef.current = true;
+            setIsAtBottom(true);
+          }
         } else {
           setUnreadMarkerId(null);
           unreadMarkerIdRef.current = null;
+          pendingScrollToUnreadRef.current = null;
           shouldAutoMarkReadRef.current = true;
           pendingScrollToBottomRef.current = true;
+          userScrolledUpRef.current = false;
+          setUserScrolledUp(false);
+          isAtBottomRef.current = true;
+          setIsAtBottom(true);
         }
+        openingHadUnreadRef.current = false;
         openingChatRef.current = false;
       }
 
@@ -881,7 +926,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       >
         <div className="grid h-[72px] grid-cols-[1fr,auto,1fr] items-center border-b border-slate-300/80 bg-white px-6 py-4 dark:border-emerald-500/20 dark:bg-slate-900">
           {mobileTab === "settings" ? (
-            <div className="col-span-3 text-center text-lg font-semibold md:hidden">Settings</div>
+            <div className="col-span-3 text-center text-lg font-semibold md:hidden">
+                <span className="inline-flex items-center gap-2">
+                {!isConnected ? (
+                  <LoaderCircle className="h-5 w-5 animate-spin text-emerald-500" />
+                ) : null}
+                {isConnected ? "Settings" : "Connecting..."}
+              </span>
+            </div>
           ) : (
             <>
               <div className="flex items-center gap-2">
@@ -914,7 +966,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               </div>
               <h2 className="text-center text-lg font-semibold">
                 <span className="inline-flex items-center gap-2">
-                  {!editMode && !isConnected ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+                  {!editMode && !isConnected ? (
+                    <LoaderCircle className="h-5 w-5 animate-spin text-emerald-500" />
+                  ) : null}
                   {editMode ? "Edit" : isConnected ? "Chats" : "Connecting..."}
                 </span>
               </h2>
@@ -1066,6 +1120,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         userScrolledUp={userScrolledUp}
         unreadInChat={unreadInChat}
         onJumpToLatest={handleJumpToLatest}
+        isConnected={isConnected}
         isDark={isDark}
       />
 
