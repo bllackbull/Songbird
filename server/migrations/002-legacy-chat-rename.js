@@ -105,6 +105,10 @@ export const migration002LegacyChatRename = {
       db.run('ALTER TABLE chat_messages ADD COLUMN read_by_user_id INTEGER')
     }
 
+    if (hasColumn('chat_messages', 'chat_id')) {
+      db.run('CREATE INDEX IF NOT EXISTS idx_messages_chat_time ON chat_messages(chat_id, created_at)')
+    }
+
     const usersMissingColor = getAll("SELECT id FROM users WHERE color IS NULL OR TRIM(color) = ''")
     usersMissingColor.forEach((row) => {
       db.run('UPDATE users SET color = ? WHERE id = ?', [getRandomUserColor(), row.id])

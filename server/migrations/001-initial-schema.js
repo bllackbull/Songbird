@@ -1,6 +1,6 @@
 export const migration001InitialSchema = {
   version: 1,
-  up: ({ db }) => {
+  up: ({ db, hasColumn }) => {
     const schemaSql = `
       CREATE TABLE IF NOT EXISTS meta (
         key TEXT PRIMARY KEY,
@@ -65,7 +65,6 @@ export const migration001InitialSchema = {
         FOREIGN KEY (user_id) REFERENCES users (id)
       );
 
-      CREATE INDEX IF NOT EXISTS idx_messages_chat_time ON chat_messages(chat_id, created_at);
       CREATE INDEX IF NOT EXISTS idx_members_user ON chat_members(user_id);
       CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
     `
@@ -76,5 +75,11 @@ export const migration001InitialSchema = {
       .map((statement) => statement.trim())
       .filter(Boolean)
       .forEach((statement) => db.run(statement))
+
+    // Legacy installs can still have conversation_id at v1. Only create this
+    // index when chat_id already exists to avoid aborting before v2 migration.
+    if (hasColumn('chat_messages', 'chat_id')) {
+      db.run('CREATE INDEX IF NOT EXISTS idx_messages_chat_time ON chat_messages(chat_id, created_at)')
+    }
   },
 }
