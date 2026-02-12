@@ -1,6 +1,7 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import initSqlJs from 'sql.js'
+import { migrations } from './migrations/index.js'
 
 const dataDir = path.resolve(process.cwd(), '..', 'data')
 const dbPath = path.join(dataDir, 'songbird.db')
@@ -62,6 +63,15 @@ function hasColumn(tableName, columnName) {
   return getAll(`PRAGMA table_info('${tableName}')`).some((col) => col.name === columnName)
 }
 
+function getSchemaVersion() {
+  const row = getRow('PRAGMA user_version')
+  return Number(row?.user_version || 0)
+}
+
+function setSchemaVersion(version) {
+  db.run(`PRAGMA user_version = ${Number(version) || 0}`)
+}
+
 const USER_COLORS = [
   '#10b981',
   '#0ea5e9',
@@ -80,138 +90,30 @@ function getRandomUserColor() {
   return USER_COLORS[index]
 }
 
-function resetLegacySchemaIfNeeded() {
-  const legacyConversations = tableExists('conversations') || tableExists('conversation_members')
-  const messagesNeedsRename = tableExists('chat_messages') && !hasColumn('chat_messages', 'chat_id')
-  const hiddenNeedsRename = tableExists('hidden_chats') && !hasColumn('hidden_chats', 'chat_id')
-
-  if (!legacyConversations && !messagesNeedsRename && !hiddenNeedsRename) {
-    return
+function runDatabaseMigrations() {
+  const migrationContext = {
+    db,
+    getAll,
+    tableExists,
+    hasColumn,
+    getRandomUserColor,
   }
+  const orderedMigrations = [...migrations].sort((a, b) => a.version - b.version)
 
-  ;[
-    'hidden_chats',
-    'chat_messages',
-    'chat_members',
-    'chats',
-    'sessions',
-    'users',
-    'meta',
-    'conversation_members',
-    'conversations',
-  ].forEach((table) => {
-    db.run(`DROP TABLE IF EXISTS ${table}`)
+  orderedMigrations.forEach((migration) => {
+    if (getSchemaVersion() >= migration.version) return
+    migration.up(migrationContext)
+    setSchemaVersion(migration.version)
   })
-
-  saveDatabase()
 }
 
-resetLegacySchemaIfNeeded()
-
-const initSql = `
-  CREATE TABLE IF NOT EXISTS meta (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE NOT NULL,
-    nickname TEXT,
-    avatar_url TEXT,
-    color TEXT,
-    status TEXT NOT NULL DEFAULT 'online',
-    password_hash TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    last_seen TEXT
-  );
-
-  CREATE TABLE IF NOT EXISTS chats (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT,
-    type TEXT NOT NULL DEFAULT 'dm',
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-
-  CREATE TABLE IF NOT EXISTS chat_members (
-    chat_id INTEGER NOT NULL,
-    user_id INTEGER NOT NULL,
-    role TEXT NOT NULL DEFAULT 'member',
-    PRIMARY KEY (chat_id, user_id),
-    FOREIGN KEY (chat_id) REFERENCES chats (id),
-    FOREIGN KEY (user_id) REFERENCES users (id)
-  );
-
-  CREATE TABLE IF NOT EXISTS chat_messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    chat_id INTEGER NOT NULL,
-    user_id INTEGER NOT NULL,
-    body TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    read_at TEXT,
-    read_by_user_id INTEGER,
-    FOREIGN KEY (chat_id) REFERENCES chats (id),
-    FOREIGN KEY (user_id) REFERENCES users (id)
-  );
-
-  CREATE TABLE IF NOT EXISTS hidden_chats (
-    user_id INTEGER NOT NULL,
-    chat_id INTEGER NOT NULL,
-    hidden_at TEXT NOT NULL DEFAULT (datetime('now')),
-    PRIMARY KEY (user_id, chat_id),
-    FOREIGN KEY (user_id) REFERENCES users (id),
-    FOREIGN KEY (chat_id) REFERENCES chats (id)
-  );
-
-  CREATE TABLE IF NOT EXISTS sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    token TEXT UNIQUE NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    last_seen TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (user_id) REFERENCES users (id)
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_messages_chat_time ON chat_messages(chat_id, created_at);
-  CREATE INDEX IF NOT EXISTS idx_members_user ON chat_members(user_id);
-  CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
-`
-
-initSql
-  .trim()
-  .split(';')
-  .map((statement) => statement.trim())
-  .filter(Boolean)
-  .forEach((statement) => db.run(statement))
-
-if (!hasColumn('users', 'nickname')) {
-  db.run('ALTER TABLE users ADD COLUMN nickname TEXT')
-}
-if (!hasColumn('users', 'avatar_url')) {
-  db.run('ALTER TABLE users ADD COLUMN avatar_url TEXT')
-}
-if (!hasColumn('users', 'color')) {
-  db.run('ALTER TABLE users ADD COLUMN color TEXT')
-}
-if (!hasColumn('users', 'status')) {
-  db.run("ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'online'")
-}
-if (!hasColumn('users', 'last_seen')) {
-  db.run("ALTER TABLE users ADD COLUMN last_seen TEXT")
-}
-if (!hasColumn('chat_messages', 'read_at')) {
-  db.run("ALTER TABLE chat_messages ADD COLUMN read_at TEXT")
-}
-if (!hasColumn('chat_messages', 'read_by_user_id')) {
-  db.run('ALTER TABLE chat_messages ADD COLUMN read_by_user_id INTEGER')
-}
-
-const usersMissingColor = getAll("SELECT id FROM users WHERE color IS NULL OR TRIM(color) = ''")
-usersMissingColor.forEach((row) => {
-  run('UPDATE users SET color = ? WHERE id = ?', [getRandomUserColor(), row.id])
-})
+runDatabaseMigrations()
 
 saveDatabase()
+
+export function getCurrentSchemaVersion() {
+  return getSchemaVersion()
+}
 
 export function findUserByUsername(username) {
   return getRow(

@@ -62,6 +62,46 @@ const USER_COLORS = [
   "#ec4899",
 ];
 const USERNAME_REGEX = /^[a-z0-9._-]+$/;
+const sseClientsByUsername = new Map();
+
+function addSseClient(username, res) {
+  const key = username.toLowerCase();
+  const clients = sseClientsByUsername.get(key) || new Set();
+  clients.add(res);
+  sseClientsByUsername.set(key, clients);
+}
+
+function removeSseClient(username, res) {
+  const key = username.toLowerCase();
+  const clients = sseClientsByUsername.get(key);
+  if (!clients) return;
+  clients.delete(res);
+  if (!clients.size) {
+    sseClientsByUsername.delete(key);
+  }
+}
+
+function emitSseEvent(username, payload) {
+  const key = username.toLowerCase();
+  const clients = sseClientsByUsername.get(key);
+  if (!clients?.size) return;
+  const message = `data: ${JSON.stringify(payload)}\n\n`;
+  clients.forEach((client) => {
+    try {
+      client.write(message);
+    } catch (_) {
+      // connection cleanup is handled on close
+    }
+  });
+}
+
+function emitChatEvent(chatId, payload) {
+  const members = listChatMembers(Number(chatId));
+  members.forEach((member) => {
+    if (!member?.username) return;
+    emitSseEvent(member.username, payload);
+  });
+}
 
 function getRandomUserColor() {
   const index = Math.floor(Math.random() * USER_COLORS.length);
@@ -113,6 +153,34 @@ function getSessionFromRequest(req) {
 
 app.get("/api/health", (req, res) => {
   res.json({ ok: true });
+});
+
+app.get("/api/events", (req, res) => {
+  const username = req.query.username?.toString()?.toLowerCase();
+  if (!username) {
+    return res.status(400).json({ error: "Username is required." });
+  }
+  const user = findUserByUsername(username);
+  if (!user) {
+    return res.status(404).json({ error: "User not found." });
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+
+  addSseClient(username, res);
+  res.write(`data: ${JSON.stringify({ type: "connected" })}\n\n`);
+
+  const keepAlive = setInterval(() => {
+    res.write(`: ping\n\n`);
+  }, 25000);
+
+  req.on("close", () => {
+    clearInterval(keepAlive);
+    removeSseClient(username, res);
+  });
 });
 
 app.post("/api/register", (req, res) => {
@@ -491,6 +559,11 @@ app.post("/api/messages/read", (req, res) => {
       .json({ error: "Not a member of this chat." });
   }
   markMessagesRead(Number(chatId), user.id);
+  emitChatEvent(Number(chatId), {
+    type: "chat_read",
+    chatId: Number(chatId),
+    username: user.username,
+  });
   res.json({ ok: true });
 });
 
@@ -532,6 +605,12 @@ app.post("/api/messages", (req, res) => {
   }
 
   const id = createMessage(Number(chatId), user.id, body);
+  emitChatEvent(Number(chatId), {
+    type: "chat_message",
+    chatId: Number(chatId),
+    messageId: Number(id),
+    username: user.username,
+  });
 
   res.json({ id });
 });

@@ -1,6 +1,7 @@
 import { X as Close } from "lucide-react";
 import { getAvatarStyle } from "../utils/avatarColor.js";
 import { hasPersian } from "../utils/fontUtils.js";
+import { getAvatarInitials } from "../utils/avatarInitials.js";
 
 export function NewChatModal({
   open,
@@ -49,11 +50,12 @@ export function NewChatModal({
           />
         </div>
         <div className="mt-3 space-y-2">
-          {newChatLoading ? (
-            <p className="text-xs text-slate-500 dark:text-slate-400">Searching...</p>
-          ) : newChatResults.length ? (
+          {newChatResults.length ? (
             <div className="app-scroll max-h-64 space-y-2 overflow-y-auto pr-1">
-              {newChatResults.slice(0, 5).map((result) => (
+              {newChatResults.slice(0, 5).map((result) => {
+                const label = result.nickname || result.username;
+                const avatarInitials = getAvatarInitials(label);
+                return (
               <button
                 key={result.username}
                 type="button"
@@ -75,21 +77,27 @@ export function NewChatModal({
                   />
                 ) : (
                   <div
-                    className={`flex h-8 w-8 items-center justify-center rounded-full ${hasPersian((result.nickname || result.username).slice(0, 1)) ? "font-fa" : ""}`}
+                    className={`flex h-8 w-8 items-center justify-center rounded-full ${hasPersian(avatarInitials) ? "font-fa" : ""}`}
                     style={getAvatarStyle(result.color || "#10b981")}
                   >
-                    {(result.nickname || result.username).slice(0, 1).toUpperCase()}
+                    {avatarInitials}
                   </div>
                 )}
                 <div>
-                  <p className={`font-semibold ${hasPersian(result.nickname || result.username) ? "font-fa" : ""}`}>{result.nickname || result.username}</p>
+                  <p className={`font-semibold ${hasPersian(label) ? "font-fa" : ""}`}>{label}</p>
                   <p className="text-xs text-slate-500 dark:text-slate-400">@{result.username}</p>
                 </div>
               </button>
-              ))}
+                );
+              })}
             </div>
+          ) : newChatLoading ? (
+            <p className="text-xs text-slate-500 dark:text-slate-400">Searching...</p>
           ) : newChatUsername.trim() ? (
             <p className="text-xs text-slate-500 dark:text-slate-400">No users found.</p>
+          ) : null}
+          {newChatLoading && newChatResults.length ? (
+            <p className="text-xs text-slate-500 dark:text-slate-400">Searching...</p>
           ) : null}
         </div>
         {!newChatSelection && newChatUsername.trim() && newChatResults.length > 0 ? (

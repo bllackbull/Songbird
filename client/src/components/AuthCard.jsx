@@ -1,4 +1,5 @@
-import { AlertCircle, LoaderCircle, Moon, Sun } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { AlertCircle, Eye, EyeOff, LoaderCircle, Moon, Sun } from "lucide-react";
 
 export default function AuthCard({
   mode,
@@ -11,6 +12,18 @@ export default function AuthCard({
   showSigningOverlay = false,
 }) {
   const isLogin = mode === "login";
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [themeToggleAnimating, setThemeToggleAnimating] = useState(false);
+  const themeAnimTimeoutRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (themeAnimTimeoutRef.current) {
+        clearTimeout(themeAnimTimeoutRef.current);
+      }
+    };
+  }, []);
 
   return (
     <section className="app-scroll relative my-auto w-full max-w-md max-h-[calc(100dvh-5.5rem)] overflow-y-auto rounded-3xl border border-emerald-200/70 bg-white/80 p-6 shadow-2xl shadow-emerald-500/10 backdrop-blur dark:border-white/5 dark:bg-slate-900/80 sm:max-h-none sm:overflow-visible sm:p-8">
@@ -18,21 +31,37 @@ export default function AuthCard({
         <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-600 dark:text-emerald-300 sm:text-sm">
           {isLogin ? "Sign in" : "Create account"}
         </p>
-        <h1 className="mt-2 font-display text-2xl font-bold sm:mt-3 sm:text-3xl">
+        <h1 className="mt-2 text-2xl font-bold sm:mt-3 sm:text-3xl">
           {isLogin ? "Welcome" : "Join the flock"}
         </h1>
-        <p className="mt-2 text-xs text-slate-600 dark:text-slate-300 sm:mt-3 sm:text-sm">
-          {isLogin
-            ? "Use your unique username and password."
-            : "Choose a unique username, nickname, and password."}
-        </p>
         <button
           type="button"
-          onClick={onToggleTheme}
+          onClick={() => {
+            setThemeToggleAnimating(true);
+            if (themeAnimTimeoutRef.current) {
+              clearTimeout(themeAnimTimeoutRef.current);
+            }
+            onToggleTheme();
+            themeAnimTimeoutRef.current = setTimeout(() => {
+              setThemeToggleAnimating(false);
+            }, 520);
+          }}
           className="absolute right-0 top-0 flex h-8 w-8 items-center justify-center rounded-full border border-emerald-200 bg-white/80 text-emerald-700 transition hover:border-emerald-300 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 sm:h-10 sm:w-10"
           aria-label="Toggle dark mode"
         >
-          {isDark ? <Sun size={18} /> : <Moon size={18} />}
+          {isDark ? (
+            <Sun
+              key="theme-sun"
+              size={18}
+              className={`icon-anim-spin-dir ${themeToggleAnimating ? "icon-theme-enter-sun" : ""}`}
+            />
+          ) : (
+            <Moon
+              key="theme-moon"
+              size={18}
+              className={`icon-anim-spin-left ${themeToggleAnimating ? "icon-theme-enter-moon" : ""}`}
+            />
+          )}
         </button>
       </div>
 
@@ -72,14 +101,24 @@ export default function AuthCard({
           <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 sm:text-sm">
             Password
           </span>
-          <input
-            name="password"
-            type="password"
-            required
-            minLength={isLogin ? undefined : 6}
-            placeholder="********"
-            className="mt-1 w-full rounded-2xl border border-emerald-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-100 sm:mt-2 sm:px-4 sm:py-3 sm:text-sm"
-          />
+          <div className="relative mt-1 sm:mt-2">
+            <input
+              name="password"
+              type={showPassword ? "text" : "password"}
+              required
+              minLength={isLogin ? undefined : 6}
+              placeholder={showPassword ? "12345678" : "********"}
+              className="w-full rounded-2xl border border-emerald-200 bg-white px-3 py-2 pr-16 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-100 sm:px-4 sm:py-3 sm:pr-20 sm:text-sm"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((prev) => !prev)}
+              className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 sm:h-9 sm:w-9"
+              aria-label={showPassword ? "Hide password" : "Show password"}
+            >
+              {showPassword ? <EyeOff size={16} className="icon-anim-peek" /> : <Eye size={16} className="icon-anim-peek" />}
+            </button>
+          </div>
         </label>
 
         {!isLogin ? (
@@ -87,14 +126,24 @@ export default function AuthCard({
             <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 sm:text-sm">
               Confirm password
             </span>
-            <input
-              name="confirmPassword"
-              type="password"
-              required
-              minLength={6}
-              placeholder="********"
-              className="mt-1 w-full rounded-2xl border border-emerald-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-100 sm:mt-2 sm:px-4 sm:py-3 sm:text-sm"
-            />
+            <div className="relative mt-1 sm:mt-2">
+              <input
+                name="confirmPassword"
+                type={showConfirmPassword ? "text" : "password"}
+                required
+                minLength={6}
+                placeholder={showConfirmPassword ? "12345678" : "********"}
+                className="w-full rounded-2xl border border-emerald-200 bg-white px-3 py-2 pr-16 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-100 sm:px-4 sm:py-3 sm:pr-20 sm:text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword((prev) => !prev)}
+                className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 sm:h-9 sm:w-9"
+                aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
+              >
+                {showConfirmPassword ? <EyeOff size={16} className="icon-anim-peek" /> : <Eye size={16} className="icon-anim-peek" />}
+              </button>
+            </div>
           </label>
         ) : null}
 
@@ -138,4 +187,3 @@ export default function AuthCard({
     </section>
   );
 }
-

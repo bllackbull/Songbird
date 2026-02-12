@@ -1,6 +1,7 @@
 import { ArrowDown, ArrowLeft, Check, CheckCheck, LoaderCircle, SendHorizonal as Send } from "lucide-react";
 import { getAvatarStyle } from "../utils/avatarColor.js";
 import { hasPersian } from "../utils/fontUtils.js";
+import { getAvatarInitials } from "../utils/avatarInitials.js";
 
 export default function ChatWindowPanel({
   mobileTab,
@@ -24,6 +25,7 @@ export default function ChatWindowPanel({
   isDark,
 }) {
   const activePeerColor = activeHeaderPeer?.color || "#10b981";
+  const activePeerInitials = getAvatarInitials(activeFallbackTitle || "S");
   const urlPattern = /((?:https?:\/\/|www\.)[^\s<]+)/gi;
   const hasUrlPattern = /(?:https?:\/\/|www\.)[^\s<]+/i;
   const isUrlPattern = /^(?:https?:\/\/|www\.)[^\s<]+$/i;
@@ -111,10 +113,10 @@ export default function ChatWindowPanel({
               />
             ) : (
               <div
-                className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ${hasPersian((activeFallbackTitle || "S").slice(0, 1)) ? "font-fa" : ""}`}
+                className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ${hasPersian(activePeerInitials) ? "font-fa" : ""}`}
                 style={getAvatarStyle(activePeerColor)}
               >
-                {(activeFallbackTitle || "S").slice(0, 1).toUpperCase()}
+                {activePeerInitials}
               </div>
             )
           ) : null}
@@ -256,7 +258,7 @@ export default function ChatWindowPanel({
               type="submit"
               className="inline-flex items-center justify-center rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-emerald-500/40"
             >
-              <Send />
+              <Send className="icon-anim-slide" />
             </button>
           </div>
         </form>
@@ -275,7 +277,7 @@ export default function ChatWindowPanel({
           aria-label="Back to latest message"
         >
           <span className="text-lg leading-none">
-            <ArrowDown size={18} />
+            <ArrowDown size={18} className="icon-anim-bob" />
           </span>
           {unreadInChat > 0 ? (
             <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-emerald-500 px-2 text-[10px] font-bold text-white">

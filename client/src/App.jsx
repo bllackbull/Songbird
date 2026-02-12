@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import logo from './assets/songbird-logo.svg'
 import ChatPage from './pages/ChatPage.jsx'
 import AuthPage from './pages/AuthPage.jsx'
@@ -23,6 +23,70 @@ export default function App() {
   const [authStatus, setAuthStatus] = useState('')
   const [authChecked, setAuthChecked] = useState(false)
   const [authLoading, setAuthLoading] = useState(false)
+  const isIOSSafari =
+    /iP(ad|hone|od)/i.test(navigator.userAgent) &&
+    /Safari/i.test(navigator.userAgent) &&
+    !/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo/i.test(navigator.userAgent)
+  const themeRefreshTimersRef = useRef([])
+
+  function clearThemeRefreshTimers() {
+    themeRefreshTimersRef.current.forEach((timer) => window.clearTimeout(timer))
+    themeRefreshTimersRef.current = []
+  }
+
+  function ensureThemeColorMeta() {
+    let meta = document.querySelector('meta[name="theme-color"]:not([media])')
+    if (!meta) {
+      meta = document.createElement('meta')
+      meta.setAttribute('name', 'theme-color')
+      document.head.appendChild(meta)
+    }
+    return meta
+  }
+
+  function commitThemeColor(color) {
+    document.documentElement.style.backgroundColor = color
+    document.body.style.backgroundColor = color
+    const meta = ensureThemeColorMeta()
+    meta.setAttribute('content', color)
+    const mediaThemeMetas = document.querySelectorAll('meta[name="theme-color"][media]')
+    mediaThemeMetas.forEach((node) => node.setAttribute('content', color))
+  }
+
+  function refreshThemeColorForSafari(color) {
+    clearThemeRefreshTimers()
+    const nudgeColor = color === '#ffffff' ? '#fefefe' : '#0e1728'
+    commitThemeColor(nudgeColor)
+    window.requestAnimationFrame(() => commitThemeColor(color))
+
+    // Safari sometimes ignores same-value updates for bottom browser chrome.
+    ;[40, 120, 240, 420, 700, 1100, 1600].forEach((delay) => {
+      const timer = window.setTimeout(() => {
+        const current = document.querySelector('meta[name="theme-color"]:not([media])')
+        if (current?.parentNode) {
+          const replacement = current.cloneNode(true)
+          replacement.setAttribute('content', color)
+          current.parentNode.replaceChild(replacement, current)
+        } else {
+          ensureThemeColorMeta().setAttribute('content', color)
+        }
+        commitThemeColor(color)
+      }, delay)
+      themeRefreshTimersRef.current.push(timer)
+    })
+
+    // Force Safari toolbar/theme-color recalc without waiting for manual touch.
+    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent)
+    if (isIOS) {
+      const y = window.scrollY || 0
+      try {
+        window.scrollTo(0, y + 1)
+        window.scrollTo(0, y)
+      } catch (_) {
+        // ignore
+      }
+    }
+  }
 
   function getThemeColor(nextIsDark, nextRoute = route) {
     const onChatRoute = nextRoute === 'chat'
@@ -46,20 +110,7 @@ export default function App() {
 
     const themeColor = getThemeColor(nextIsDark, nextRoute)
     document.documentElement.style.setProperty('--safe-area-theme-color', themeColor)
-    document.documentElement.style.backgroundColor = themeColor
-    document.body.style.backgroundColor = themeColor
-
-    const existingThemeMetas = document.querySelectorAll('meta[name="theme-color"]')
-    existingThemeMetas.forEach((node) => node.remove())
-    const themeColorMeta = document.createElement('meta')
-    themeColorMeta.setAttribute('name', 'theme-color')
-    themeColorMeta.setAttribute('content', themeColor)
-    document.head.appendChild(themeColorMeta)
-    ;[0, 60, 180].forEach((delay) => {
-      window.setTimeout(() => {
-        themeColorMeta.setAttribute('content', themeColor)
-      }, delay)
-    })
+    refreshThemeColorForSafari(themeColor)
     ;['safe-area-top-fill', 'safe-area-bottom-fill'].forEach((id) => {
       const el = document.getElementById(id)
       if (el) {
@@ -67,13 +118,6 @@ export default function App() {
       }
     })
 
-    let appleStatusMeta = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')
-    if (!appleStatusMeta) {
-      appleStatusMeta = document.createElement('meta')
-      appleStatusMeta.setAttribute('name', 'apple-mobile-web-app-status-bar-style')
-      document.head.appendChild(appleStatusMeta)
-    }
-    appleStatusMeta.setAttribute('content', nextIsDark ? 'black' : 'default')
     window.setTimeout(() => {
       root.classList.remove('theme-switching')
     }, 120)
@@ -91,6 +135,29 @@ export default function App() {
     applyTheme(isDark, route)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDark, route])
+
+  useEffect(() => {
+    const refreshTheme = () => applyTheme(isDark, route)
+    window.addEventListener('pageshow', refreshTheme)
+    window.addEventListener('focus', refreshTheme)
+    window.addEventListener('resize', refreshTheme)
+    window.addEventListener('orientationchange', refreshTheme)
+    document.addEventListener('visibilitychange', refreshTheme)
+    return () => {
+      window.removeEventListener('pageshow', refreshTheme)
+      window.removeEventListener('focus', refreshTheme)
+      window.removeEventListener('resize', refreshTheme)
+      window.removeEventListener('orientationchange', refreshTheme)
+      document.removeEventListener('visibilitychange', refreshTheme)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDark, route])
+
+  useEffect(() => {
+    return () => {
+      clearThemeRefreshTimers()
+    }
+  }, [])
 
   useEffect(() => {
     const root = document.documentElement
@@ -295,6 +362,7 @@ export default function App() {
 
   const isAuthRoute = route === 'login' || route === 'signup'
   const safeAreaKey = `${route}-${isDark ? 'dark' : 'light'}`
+  const safeAreaThemeColor = getThemeColor(isDark, route)
   const appShellClass = isAuthRoute
     ? 'min-h-screen bg-gradient-to-b from-white via-emerald-50/70 to-white text-slate-900 transition-colors duration-300 dark:bg-gradient-to-b dark:from-emerald-950 dark:via-slate-950 dark:to-slate-900 dark:text-slate-100'
     : 'h-[100dvh] bg-white text-slate-900 transition-colors duration-300 dark:bg-slate-950 dark:text-slate-100'
@@ -304,13 +372,24 @@ export default function App() {
       <div className={isAuthRoute ? 'relative min-h-screen overflow-hidden' : 'relative h-full min-h-0 overflow-hidden'}>
         {!isAuthRoute ? (
           <>
+            {isIOSSafari ? (
+              <div
+                id="safe-area-bottom-ios-mask"
+                key={`ios-mask-${safeAreaKey}`}
+                className="pointer-events-none fixed inset-x-0 bottom-0 z-0 md:hidden"
+                style={{
+                  height: 'max(76px, calc(env(safe-area-inset-bottom) + var(--vv-bottom-offset, 0px) + 76px))',
+                  backgroundColor: safeAreaThemeColor,
+                }}
+              />
+            ) : null}
             <div
               id="safe-area-top-fill"
               key={`top-${safeAreaKey}`}
               className="pointer-events-none fixed inset-x-0 top-0 z-30"
               style={{
                 height: 'calc(env(safe-area-inset-top) + 1px)',
-                backgroundColor: 'var(--safe-area-theme-color)',
+                backgroundColor: safeAreaThemeColor,
               }}
             />
             <div
@@ -319,7 +398,16 @@ export default function App() {
               className="pointer-events-none fixed inset-x-0 bottom-0 z-30"
               style={{
                 height: 'calc(env(safe-area-inset-bottom) + var(--vv-bottom-offset, 0px) + 1px)',
-                backgroundColor: 'var(--safe-area-theme-color)',
+                backgroundColor: safeAreaThemeColor,
+              }}
+            />
+            <div
+              id="safe-area-bottom-cover"
+              key={`cover-${safeAreaKey}`}
+              className="pointer-events-none fixed inset-x-0 bottom-0 z-0 md:hidden"
+              style={{
+                height: 'max(76px, calc(env(safe-area-inset-bottom) + var(--vv-bottom-offset, 0px) + 76px))',
+                backgroundColor: safeAreaThemeColor,
               }}
             />
           </>
@@ -335,7 +423,7 @@ export default function App() {
           className={
             isAuthRoute
               ? 'app-scroll mx-auto flex min-h-screen w-full max-w-6xl flex-col overflow-y-auto px-4 pb-8 pt-6 sm:px-6 sm:pb-16 sm:pt-10'
-              : 'flex h-full min-h-0 w-full flex-col px-0 pb-0 pt-0'
+              : 'relative z-10 flex h-full min-h-0 w-full flex-col px-0 pb-0 pt-0'
           }
         >
           {isAuthRoute ? (
@@ -345,7 +433,7 @@ export default function App() {
                   <SongBirdLogo />
                 </div>
                 <div>
-                  <p className="font-display text-xl font-bold tracking-tight sm:text-2xl">Songbird</p>
+                  <p className="text-xl font-bold tracking-tight sm:text-2xl">Songbird</p>
                 </div>
               </div>
             </header>

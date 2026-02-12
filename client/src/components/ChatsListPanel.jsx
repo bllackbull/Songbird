@@ -1,6 +1,7 @@
 import { Check, CheckCheck, Minus, Plus } from "lucide-react";
 import { getAvatarStyle } from "../utils/avatarColor.js";
 import { hasPersian } from "../utils/fontUtils.js";
+import { getAvatarInitials } from "../utils/avatarInitials.js";
 
 export default function ChatsListPanel({
   loadingChats,
@@ -23,9 +24,10 @@ export default function ChatsListPanel({
 }) {
   const wiggleDurations = [640, 700, 760, 820, 880, 940];
   const wiggleDelays = [-80, -170, -260, -120, -220, -320];
+  const isEmptyState = !loadingChats && !visibleChats.length;
 
   return (
-    <div className="mt-3 space-y-2">
+    <div className={isEmptyState ? "h-full" : "mt-3 space-y-2"}>
       {loadingChats && !visibleChats.length ? (
         Array.from({ length: 6 }).map((_, index) => (
           <div
@@ -53,6 +55,7 @@ export default function ChatsListPanel({
               ? other?.nickname || other?.username || "Direct message"
               : conv.name || "Chat";
           const avatarColor = other?.color || "#10b981";
+          const avatarInitials = getAvatarInitials(name);
           const wiggleStyle = editMode
             ? {
                 animationDuration: `${wiggleDurations[index % 6]}ms`,
@@ -81,10 +84,10 @@ export default function ChatsListPanel({
                   />
                 ) : (
                   <div
-                    className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ${hasPersian(name.slice(0, 1)) ? "font-fa" : ""}`}
+                    className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ${hasPersian(avatarInitials) ? "font-fa" : ""}`}
                     style={getAvatarStyle(avatarColor)}
                   >
-                    {name.slice(0, 1).toUpperCase()}
+                    {avatarInitials}
                   </div>
                 )}
                 <div className="min-w-0 flex-1">
@@ -197,13 +200,13 @@ export default function ChatsListPanel({
           );
         })
       ) : (
-        <div className="flex h-[40vh] items-center justify-center">
+        <div className="flex h-full items-center justify-center">
           <button
             type="button"
             onClick={onOpenNewChat}
             className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-[0_0_22px_rgba(16,185,129,0.45)]"
           >
-            <Plus size={18} />
+            <Plus size={18} className="icon-anim-pop" />
             New chat
           </button>
         </div>

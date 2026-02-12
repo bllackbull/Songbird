@@ -1,6 +1,8 @@
-import { AlertCircle, ArrowLeft, X as Close, LogOut, Moon, ShieldCheck, Sun, Trash, Upload, User } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { AlertCircle, ArrowLeft, X as Close, Eye, EyeOff, LogOut, Moon, ShieldCheck, Sun, Trash, Upload, User } from "lucide-react";
 import { getAvatarStyle } from "../utils/avatarColor.js";
 import { hasPersian } from "../utils/fontUtils.js";
+import { getAvatarInitials } from "../utils/avatarInitials.js";
 
 function InlineError({ message }) {
   if (!message) return null;
@@ -13,21 +15,51 @@ function InlineError({ message }) {
 }
 
 function ThemeButton({ isDark, toggleTheme, setIsDark, thick = false }) {
+  const [themeToggleAnimating, setThemeToggleAnimating] = useState(false);
+  const themeAnimTimeoutRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (themeAnimTimeoutRef.current) {
+        clearTimeout(themeAnimTimeoutRef.current);
+      }
+    };
+  }, []);
+
   return (
     <button
       type="button"
       onClick={() => {
+        setThemeToggleAnimating(true);
+        if (themeAnimTimeoutRef.current) {
+          clearTimeout(themeAnimTimeoutRef.current);
+        }
         if (toggleTheme) {
           toggleTheme();
         } else {
           setIsDark((prev) => !prev);
         }
+        themeAnimTimeoutRef.current = setTimeout(() => {
+          setThemeToggleAnimating(false);
+        }, 520);
       }}
       className={`mt-1 flex w-full items-center gap-2 rounded-xl border border-transparent px-3 text-left text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 ${
         thick ? "py-3 text-base font-medium" : "py-2 text-sm"
       }`}
     >
-      {isDark ? <Sun size={18} /> : <Moon size={18} />}
+      {isDark ? (
+        <Sun
+          key="theme-sun"
+          size={18}
+          className={`icon-anim-spin-dir ${themeToggleAnimating ? "icon-theme-enter-sun" : ""}`}
+        />
+      ) : (
+        <Moon
+          key="theme-moon"
+          size={18}
+          className={`icon-anim-spin-left ${themeToggleAnimating ? "icon-theme-enter-moon" : ""}`}
+        />
+      )}
       {isDark ? "Light mode" : "Dark mode"}
     </button>
   );
@@ -54,7 +86,7 @@ export function SettingsMenuPopover({
         onClick={() => setSettingsPanel("profile")}
         className="flex w-full items-center gap-2 rounded-xl border border-transparent px-3 py-2 text-left text-sm text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
       >
-        <User size={18} />
+        <User size={18} className="icon-anim-sway" />
         Edit profile
       </button>
       <button
@@ -62,7 +94,7 @@ export function SettingsMenuPopover({
         onClick={() => setSettingsPanel("security")}
         className="mt-1 flex w-full items-center gap-2 rounded-xl border border-transparent px-3 py-2 text-left text-sm text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
       >
-        <ShieldCheck size={18} />
+        <ShieldCheck size={18} className="icon-anim-sway" />
         Security
       </button>
       <ThemeButton isDark={isDark} toggleTheme={toggleTheme} setIsDark={setIsDark} />
@@ -71,7 +103,7 @@ export function SettingsMenuPopover({
         onClick={handleLogout}
         className="mt-2 flex w-full items-center gap-2 rounded-xl border border-transparent px-3 py-2 text-left text-sm text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-[0_0_18px_rgba(244,63,94,0.18)] dark:text-rose-300 dark:hover:border-rose-500/30 dark:hover:bg-rose-500/10"
       >
-        <LogOut size={18} />
+        <LogOut size={18} className="icon-anim-slide" />
         Log out
       </button>
     </div>
@@ -105,20 +137,26 @@ export function MobileSettingsPanel({
   passwordError,
 }) {
   const resolvedUserColor = userColor || "#10b981";
+  const displayInitials = getAvatarInitials(displayName);
+  const profileIdentity = profileForm.nickname || profileForm.username || "S";
+  const profileInitials = getAvatarInitials(profileIdentity);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   return (
     <>
       {!settingsPanel ? (
         <div className="space-y-4 md:hidden">
-          <div className="rounded-2xl border border-emerald-100/70 bg-white/80 p-4 text-slate-700 dark:border-emerald-500/30 dark:bg-slate-950/60 dark:text-slate-200">
+          <div className="rounded-2xl border border-slate-300/80 bg-white/90 p-4 text-slate-700 dark:border-emerald-500/20 dark:bg-slate-950/60 dark:text-slate-200">
             <div className="flex items-center gap-3">
               {user.avatarUrl ? (
                 <img src={user.avatarUrl} alt={displayName} className="h-10 w-10 rounded-full object-cover" />
               ) : (
                 <div
-                  className={`flex h-10 w-10 items-center justify-center rounded-full ${hasPersian(displayName?.slice(0, 1)) ? "font-fa" : ""}`}
+                  className={`flex h-10 w-10 items-center justify-center rounded-full ${hasPersian(displayInitials) ? "font-fa" : ""}`}
                   style={getAvatarStyle(resolvedUserColor)}
                 >
-                  {displayName.slice(0, 1).toUpperCase()}
+                  {displayInitials}
                 </div>
               )}
               <div>
@@ -130,13 +168,13 @@ export function MobileSettingsPanel({
               </div>
             </div>
           </div>
-          <div className="rounded-2xl border border-emerald-100/70 bg-white/80 p-2 text-sm shadow-sm dark:border-emerald-500/30 dark:bg-slate-950/60">
+          <div className="rounded-2xl border border-slate-300/80 bg-white/90 p-2 text-sm shadow-sm dark:border-emerald-500/20 dark:bg-slate-950/60">
             <button
               type="button"
               onClick={() => setSettingsPanel("profile")}
               className="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-3 text-left text-base font-medium text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
             >
-              <User size={18} />
+              <User size={18} className="icon-anim-sway" />
               Edit profile
             </button>
             <button
@@ -144,7 +182,7 @@ export function MobileSettingsPanel({
               onClick={() => setSettingsPanel("security")}
               className="mt-1 flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-3 text-left text-base font-medium text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
             >
-              <ShieldCheck size={18} />
+              <ShieldCheck size={18} className="icon-anim-sway" />
               Security
             </button>
             <ThemeButton isDark={isDark} toggleTheme={toggleTheme} setIsDark={setIsDark} thick />
@@ -153,7 +191,7 @@ export function MobileSettingsPanel({
               onClick={handleLogout}
               className="mt-2 flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-3 text-left text-base font-medium text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-[0_0_18px_rgba(244,63,94,0.18)] dark:text-rose-300 dark:hover:border-rose-500/30 dark:hover:bg-rose-500/10"
             >
-              <LogOut size={18} />
+              <LogOut size={18} className="icon-anim-slide" />
               Log out
             </button>
           </div>
@@ -185,10 +223,10 @@ export function MobileSettingsPanel({
                   />
                 ) : (
                   <div
-                    className={`flex h-12 w-12 items-center justify-center rounded-full ${hasPersian((profileForm.nickname || profileForm.username || "S").slice(0, 1)) ? "font-fa" : ""}`}
+                    className={`flex h-12 w-12 items-center justify-center rounded-full ${hasPersian(profileInitials) ? "font-fa" : ""}`}
                     style={getAvatarStyle(resolvedUserColor)}
                   >
-                    {(profileForm.nickname || profileForm.username || "S").slice(0, 1).toUpperCase()}
+                    {profileInitials}
                   </div>
                 )}
                 <div className="flex items-center gap-2">
@@ -196,8 +234,8 @@ export function MobileSettingsPanel({
                     htmlFor="profilePhotoInput2"
                     className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-md dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/20"
                   >
-                    <Upload size={18} />
-                    <span className="hidden sm:inline">Upload</span>
+                    <Upload size={18} className="icon-anim-lift" />
+                    <span>Upload Photo</span>
                   </label>
                   <input id="profilePhotoInput2" type="file" accept="image/*" onChange={handleAvatarChange} className="sr-only" />
                   {avatarPreview ? (
@@ -210,7 +248,7 @@ export function MobileSettingsPanel({
                       className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-rose-200 bg-rose-50 text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-md dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200 dark:hover:bg-rose-800/50"
                       aria-label="Remove photo"
                     >
-                      <Trash size={18} />
+                      <Trash size={18} className="icon-anim-sway" />
                     </button>
                   ) : null}
                 </div>
@@ -283,30 +321,63 @@ export function MobileSettingsPanel({
           <form className="space-y-4" onSubmit={handlePasswordSave}>
             <label className="block">
               <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">Current password</span>
-              <input
-                type="password"
-                value={passwordForm.currentPassword}
-                onChange={(event) => setPasswordForm((prev) => ({ ...prev, currentPassword: event.target.value }))}
-                className="mt-2 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
-              />
+              <div className="relative mt-2">
+                <input
+                  type={showCurrentPassword ? "text" : "password"}
+                  value={passwordForm.currentPassword}
+                  onChange={(event) => setPasswordForm((prev) => ({ ...prev, currentPassword: event.target.value }))}
+                  placeholder={showCurrentPassword ? "12345678" : "********"}
+                  className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 pr-16 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowCurrentPassword((prev) => !prev)}
+                  className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+                  aria-label={showCurrentPassword ? "Hide current password" : "Show current password"}
+                >
+                  {showCurrentPassword ? <EyeOff size={16} className="icon-anim-peek" /> : <Eye size={16} className="icon-anim-peek" />}
+                </button>
+              </div>
             </label>
             <label className="block">
               <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">New password</span>
-              <input
-                type="password"
-                value={passwordForm.newPassword}
-                onChange={(event) => setPasswordForm((prev) => ({ ...prev, newPassword: event.target.value }))}
-                className="mt-2 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
-              />
+              <div className="relative mt-2">
+                <input
+                  type={showNewPassword ? "text" : "password"}
+                  value={passwordForm.newPassword}
+                  onChange={(event) => setPasswordForm((prev) => ({ ...prev, newPassword: event.target.value }))}
+                  placeholder={showNewPassword ? "12345678" : "********"}
+                  className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 pr-16 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPassword((prev) => !prev)}
+                  className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+                  aria-label={showNewPassword ? "Hide new password" : "Show new password"}
+                >
+                  {showNewPassword ? <EyeOff size={16} className="icon-anim-peek" /> : <Eye size={16} className="icon-anim-peek" />}
+                </button>
+              </div>
             </label>
             <label className="block">
               <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">Confirm new password</span>
-              <input
-                type="password"
-                value={passwordForm.confirmPassword}
-                onChange={(event) => setPasswordForm((prev) => ({ ...prev, confirmPassword: event.target.value }))}
-                className="mt-2 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
-              />
+              <div className="relative mt-2">
+                <input
+                  type={showConfirmPassword ? "text" : "password"}
+                  value={passwordForm.confirmPassword}
+                  onChange={(event) => setPasswordForm((prev) => ({ ...prev, confirmPassword: event.target.value }))}
+                  placeholder={showConfirmPassword ? "12345678" : "********"}
+                  className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 pr-16 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword((prev) => !prev)}
+                  className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+                  aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
+                >
+                  {showConfirmPassword ? <EyeOff size={16} className="icon-anim-peek" /> : <Eye size={16} className="icon-anim-peek" />}
+                </button>
+              </div>
             </label>
             <button
               type="submit"
@@ -342,6 +413,11 @@ export function DesktopSettingsModal({
 }) {
   if (!settingsPanel) return null;
   const resolvedUserColor = userColor || "#10b981";
+  const profileIdentity = profileForm.nickname || profileForm.username || "S";
+  const profileInitials = getAvatarInitials(profileIdentity);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-6">
@@ -355,7 +431,7 @@ export function DesktopSettingsModal({
             onClick={() => setSettingsPanel(null)}
             className="flex items-center justify-center rounded-full border border-emerald-200 p-2 text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_16px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
           >
-            <Close size={18} />
+            <Close size={18} className="icon-anim-sway" />
           </button>
         </div>
 
@@ -372,10 +448,10 @@ export function DesktopSettingsModal({
                   />
                 ) : (
                   <div
-                    className={`flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full ${hasPersian((profileForm.nickname || profileForm.username || "S").slice(0, 1)) ? "font-fa" : ""}`}
+                    className={`flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full ${hasPersian(profileInitials) ? "font-fa" : ""}`}
                     style={getAvatarStyle(resolvedUserColor)}
                   >
-                    {(profileForm.nickname || profileForm.username || "S").slice(0, 1).toUpperCase()}
+                    {profileInitials}
                   </div>
                 )}
                 <div className="flex w-full flex-col items-start gap-2 sm:flex-row sm:items-center">
@@ -383,7 +459,7 @@ export function DesktopSettingsModal({
                     htmlFor="profilePhotoInput"
                     className="flex cursor-pointer items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-md dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/20 dark:hover:shadow-md"
                   >
-                    <Upload size={18} />
+                    <Upload size={18} className="icon-anim-lift" />
                     <span>Upload Photo</span>
                   </label>
                   <input id="profilePhotoInput" type="file" accept="image/*" onChange={handleAvatarChange} className="sr-only" />
@@ -397,7 +473,7 @@ export function DesktopSettingsModal({
                       className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-rose-200 bg-rose-50 text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-md dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200 dark:hover:bg-rose-800/50"
                       aria-label="Remove photo"
                     >
-                      <Trash size={18} />
+                      <Trash size={18} className="icon-anim-sway" />
                     </button>
                   ) : null}
                 </div>
@@ -456,30 +532,63 @@ export function DesktopSettingsModal({
           <form className="mt-4 space-y-4" onSubmit={handlePasswordSave}>
             <label className="block">
               <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Current password</span>
-              <input
-                type="password"
-                value={passwordForm.currentPassword}
-                onChange={(event) => setPasswordForm((prev) => ({ ...prev, currentPassword: event.target.value }))}
-                className="mt-2 w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
-              />
+              <div className="relative mt-2">
+                <input
+                  type={showCurrentPassword ? "text" : "password"}
+                  value={passwordForm.currentPassword}
+                  onChange={(event) => setPasswordForm((prev) => ({ ...prev, currentPassword: event.target.value }))}
+                  placeholder={showCurrentPassword ? "12345678" : "********"}
+                  className="w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-20 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowCurrentPassword((prev) => !prev)}
+                  className="absolute right-3 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+                  aria-label={showCurrentPassword ? "Hide current password" : "Show current password"}
+                >
+                  {showCurrentPassword ? <EyeOff size={16} className="icon-anim-peek" /> : <Eye size={16} className="icon-anim-peek" />}
+                </button>
+              </div>
             </label>
             <label className="block">
               <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">New password</span>
-              <input
-                type="password"
-                value={passwordForm.newPassword}
-                onChange={(event) => setPasswordForm((prev) => ({ ...prev, newPassword: event.target.value }))}
-                className="mt-2 w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
-              />
+              <div className="relative mt-2">
+                <input
+                  type={showNewPassword ? "text" : "password"}
+                  value={passwordForm.newPassword}
+                  onChange={(event) => setPasswordForm((prev) => ({ ...prev, newPassword: event.target.value }))}
+                  placeholder={showNewPassword ? "12345678" : "********"}
+                  className="w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-20 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPassword((prev) => !prev)}
+                  className="absolute right-3 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+                  aria-label={showNewPassword ? "Hide new password" : "Show new password"}
+                >
+                  {showNewPassword ? <EyeOff size={16} className="icon-anim-peek" /> : <Eye size={16} className="icon-anim-peek" />}
+                </button>
+              </div>
             </label>
             <label className="block">
               <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Confirm new password</span>
-              <input
-                type="password"
-                value={passwordForm.confirmPassword}
-                onChange={(event) => setPasswordForm((prev) => ({ ...prev, confirmPassword: event.target.value }))}
-                className="mt-2 w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
-              />
+              <div className="relative mt-2">
+                <input
+                  type={showConfirmPassword ? "text" : "password"}
+                  value={passwordForm.confirmPassword}
+                  onChange={(event) => setPasswordForm((prev) => ({ ...prev, confirmPassword: event.target.value }))}
+                  placeholder={showConfirmPassword ? "12345678" : "********"}
+                  className="w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-20 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword((prev) => !prev)}
+                  className="absolute right-3 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+                  aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
+                >
+                  {showConfirmPassword ? <EyeOff size={16} className="icon-anim-peek" /> : <Eye size={16} className="icon-anim-peek" />}
+                </button>
+              </div>
             </label>
             <button
               type="submit"

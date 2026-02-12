@@ -18,6 +18,7 @@ import {
 } from "../components/SettingsPanel.jsx";
 import { getAvatarStyle } from "../utils/avatarColor.js";
 import { hasPersian } from "../utils/fontUtils.js";
+import { getAvatarInitials } from "../utils/avatarInitials.js";
 
 const API_BASE = "";
 
@@ -77,9 +78,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     status: "offline",
     lastSeen: null,
   });
+  const [isAppActive, setIsAppActive] = useState(
+    document.visibilityState === "visible" && document.hasFocus(),
+  );
 
   const settingsMenuRef = useRef(null);
   const settingsButtonRef = useRef(null);
+  const activeChatIdRef = useRef(null);
+  const sseReconnectRef = useRef(null);
+  const isMarkingReadRef = useRef(false);
 
   useEffect(() => {
     if (user) {
@@ -105,7 +112,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (!user) return;
     const interval = setInterval(() => {
       void loadChats({ silent: true });
-    }, 5000);
+    }, 20000);
     return () => clearInterval(interval);
   }, [user]);
 
@@ -174,7 +181,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }
     };
     checkHealth();
-    const interval = setInterval(checkHealth, 3000);
+    const interval = setInterval(checkHealth, 10000);
     return () => {
       isMounted = false;
       clearInterval(interval);
@@ -223,6 +230,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
   }, [activeChatId]);
 
+  useEffect(() => {
+    activeChatIdRef.current = activeChatId ? Number(activeChatId) : null;
+  }, [activeChatId]);
+
   const activeId = activeChatId ? Number(activeChatId) : null;
   const visibleChats = chats;
   const activeChat =
@@ -249,6 +260,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const userColor = user?.color || "#10b981";
 
   const displayName = user.nickname || user.username;
+  const displayInitials = getAvatarInitials(displayName);
   const statusValueRaw = user.status || "online";
   const statusValue = statusValueRaw === "idle" ? "online" : statusValueRaw;
   const statusDotClass =
@@ -378,7 +390,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (!user || !activeChatId) return;
     const interval = setInterval(() => {
       void loadMessages(Number(activeChatId), { silent: true });
-    }, 5000);
+    }, 20000);
     return () => clearInterval(interval);
   }, [user, activeChatId]);
 
@@ -488,6 +500,100 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, [showSettings]);
 
   useEffect(() => {
+    const syncActiveState = () => {
+      setIsAppActive(
+        document.visibilityState === "visible" && document.hasFocus(),
+      );
+    };
+    syncActiveState();
+    document.addEventListener("visibilitychange", syncActiveState);
+    window.addEventListener("focus", syncActiveState);
+    window.addEventListener("blur", syncActiveState);
+    return () => {
+      document.removeEventListener("visibilitychange", syncActiveState);
+      window.removeEventListener("focus", syncActiveState);
+      window.removeEventListener("blur", syncActiveState);
+    };
+  }, []);
+
+  useEffect(() => {
+    const activeId = activeChatIdRef.current;
+    if (
+      !activeId ||
+      !user?.username ||
+      isMarkingReadRef.current ||
+      !isAppActive
+    ) {
+      return;
+    }
+    const hasUnreadFromOthers = messages.some(
+      (msg) => msg.username !== user.username && !msg.read_at,
+    );
+    if (!hasUnreadFromOthers) return;
+
+    isMarkingReadRef.current = true;
+    fetch(`${API_BASE}/api/messages/read`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chatId: activeId, username: user.username }),
+    })
+      .catch(() => null)
+      .finally(() => {
+        isMarkingReadRef.current = false;
+      });
+  }, [messages, user?.username, isAppActive]);
+
+  useEffect(() => {
+    if (!user?.username) return;
+    let source = null;
+    let isMounted = true;
+
+    const connect = () => {
+      if (!isMounted) return;
+      source = new EventSource(
+        `${API_BASE}/api/events?username=${encodeURIComponent(user.username)}`,
+      );
+
+      source.onmessage = (event) => {
+        let payload = null;
+        try {
+          payload = JSON.parse(event.data);
+        } catch (_) {
+          return;
+        }
+        if (!payload?.type) return;
+        if (payload.type !== "chat_message" && payload.type !== "chat_read") {
+          return;
+        }
+        void loadChats({ silent: true });
+        const currentActiveId = activeChatIdRef.current;
+        if (currentActiveId && Number(payload.chatId) === currentActiveId) {
+          void loadMessages(currentActiveId, { silent: true });
+        }
+      };
+
+      source.onerror = () => {
+        source?.close();
+        if (!isMounted) return;
+        if (sseReconnectRef.current) {
+          clearTimeout(sseReconnectRef.current);
+        }
+        sseReconnectRef.current = setTimeout(connect, 2000);
+      };
+    };
+
+    connect();
+
+    return () => {
+      isMounted = false;
+      source?.close();
+      if (sseReconnectRef.current) {
+        clearTimeout(sseReconnectRef.current);
+      }
+    };
+  }, [user?.username]);
+
+  useEffect(() => {
     if (settingsPanel !== "profile" && profileError) {
       setProfileError("");
     }
@@ -570,6 +676,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       });
       const lastMsg = nextMessages[nextMessages.length - 1];
       const lastId = lastMsg?.id || null;
+      const hasUnreadFromOthers = nextMessages.some(
+        (msg) => msg.username !== user.username && !msg.read_at,
+      );
       const prevCount = messages.length;
       const newCount = nextMessages.length - prevCount;
       const hasNew =
@@ -643,14 +752,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }
       if (
         activeChat?.type === "dm" &&
-        shouldAutoMarkReadRef.current &&
-        (!userScrolledUpRef.current || newFromSelf)
+        hasUnreadFromOthers &&
+        isAppActive &&
+        (shouldAutoMarkReadRef.current || options.initialLoad)
       ) {
         await fetch(`${API_BASE}/api/messages/read`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ chatId, username: user.username }),
-        });
+        }).catch(() => null);
       }
     } catch (_) {
       // Keep chat window free of transient fetch errors.
@@ -947,7 +1057,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                     className="inline-flex items-center justify-center rounded-full border border-emerald-200 bg-white/80 p-2 text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
                     aria-label="Exit edit mode"
                   >
-                    <Close size={18} />
+                    <Close size={18} className="icon-anim-sway" />
                   </button>
                 ) : (
                   <button
@@ -960,7 +1070,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                     className="inline-flex items-center justify-center rounded-full border border-emerald-200 bg-white/80 p-2 text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-emerald-200 disabled:hover:shadow-none dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
                     aria-label="Edit chat list"
                   >
-                    <Pencil size={18} />
+                    <Pencil size={18} className="icon-anim-sway" />
                   </button>
                 )}
               </div>
@@ -981,7 +1091,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                     className="inline-flex items-center justify-center rounded-full border border-rose-200 bg-rose-50 p-2 text-rose-600 transition hover:border-rose-300 hover:shadow-[0_0_16px_rgba(244,63,94,0.22)] disabled:opacity-50 dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200"
                     aria-label="Delete chats"
                   >
-                    <Trash size={18} />
+                    <Trash size={18} className="icon-anim-slide" />
                   </button>
                 ) : (
                   <button
@@ -990,7 +1100,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                     className="inline-flex items-center justify-center rounded-full border border-emerald-200 bg-white/80 p-2 text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
                     aria-label="New chat"
                   >
-                    <Plus size={18} />
+                    <Plus size={18} className="icon-anim-pop" />
                   </button>
                 )}
               </div>
@@ -1075,10 +1185,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                 <img src={user.avatarUrl} alt={displayName} className="h-10 w-10 rounded-full object-cover" />
               ) : (
                 <div
-                  className={`flex h-10 w-10 items-center justify-center rounded-full ${hasPersian(displayName?.slice(0, 1)) ? "font-fa" : ""}`}
+                  className={`flex h-10 w-10 items-center justify-center rounded-full ${hasPersian(displayInitials) ? "font-fa" : ""}`}
                   style={getAvatarStyle(userColor)}
                 >
-                  {displayName.slice(0, 1).toUpperCase()}
+                  {displayInitials}
                 </div>
               )}
               <div>
@@ -1096,7 +1206,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               aria-label="Open settings"
               ref={settingsButtonRef}
             >
-              <Settings size={18} />
+              <Settings size={18} className="icon-anim-spin-dir" />
             </button>
           </div>
         </div>

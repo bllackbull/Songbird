@@ -13,7 +13,9 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch index.js",
-    "start": "node index.js"
+    "start": "node index.js",
+    "backup:db": "node scripts/backup-db.js",
+    "migrate": "node scripts/migrate.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

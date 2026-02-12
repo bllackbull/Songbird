@@ -29,10 +29,17 @@ body {
   -webkit-touch-callout: none;
 }
 
-:lang(fa),
-[lang="fa"],
-.font-fa {
-  font-family: 'Vazirmatn', 'DM Sans', system-ui, sans-serif;
+@layer base {
+  :lang(fa),
+  [lang="fa"] {
+    font-family: 'Vazirmatn', 'DM Sans', system-ui, sans-serif;
+  }
+}
+
+@layer utilities {
+  .font-fa {
+    font-family: 'Vazirmatn', 'DM Sans', system-ui, sans-serif;
+  }
 }
 
 html {
@@ -123,6 +130,221 @@ input, textarea, select {
 .theme-switching *::after {
   transition: none !important;
   animation-duration: 0s !important;
+}
+
+@keyframes icon-spin-lg {
+  0% {
+    transform: rotate(0deg);
+  }
+  30% {
+    transform: rotate(26deg);
+  }
+  58% {
+    transform: rotate(-18deg);
+  }
+  82% {
+    transform: rotate(12deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes icon-sway {
+  0% {
+    transform: rotate(0deg);
+  }
+  35% {
+    transform: rotate(-10deg);
+  }
+  70% {
+    transform: rotate(8deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes icon-bob {
+  0% {
+    transform: translateY(0);
+  }
+  35% {
+    transform: translateY(-2px);
+  }
+  70% {
+    transform: translateY(1px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes icon-slide {
+  0% {
+    transform: translateX(0);
+  }
+  30% {
+    transform: translateX(2px);
+  }
+  65% {
+    transform: translateX(-1px);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+@keyframes icon-pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.16);
+  }
+  70% {
+    transform: scale(0.94);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes icon-peek {
+  0% {
+    transform: scale(1);
+  }
+  30% {
+    transform: scale(1.1) translateY(-1px);
+  }
+  60% {
+    transform: scale(1.02);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes icon-lift {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+  45% {
+    transform: translateY(-3px) scale(1.06);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+.icon-anim-spin-lg,
+.icon-anim-spin-dir,
+.icon-anim-spin-left,
+.icon-anim-sway,
+.icon-anim-bob,
+.icon-anim-slide,
+.icon-anim-pop,
+.icon-anim-peek,
+.icon-anim-lift {
+  transform-origin: center;
+  transition: transform 220ms ease;
+}
+
+.icon-anim-spin-dir {
+  transition: transform 340ms cubic-bezier(0.22, 0.95, 0.24, 1);
+}
+
+.icon-anim-spin-left {
+  transition: transform 320ms cubic-bezier(0.22, 0.95, 0.24, 1);
+}
+
+button:hover .icon-anim-spin-dir,
+button:focus-visible .icon-anim-spin-dir,
+label:hover .icon-anim-spin-dir {
+  transform: rotate(120deg);
+}
+
+button:hover .icon-anim-spin-left,
+button:focus-visible .icon-anim-spin-left,
+label:hover .icon-anim-spin-left {
+  transform: rotate(45deg);
+}
+
+@keyframes theme-icon-enter-right {
+  0% {
+    transform: rotate(0deg);
+  }
+  65% {
+    transform: rotate(110deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes theme-icon-enter-left {
+  0% {
+    opacity: 0.2;
+    transform: rotate(-140deg) scale(0.9);
+  }
+  70% {
+    opacity: 1;
+    transform: rotate(45deg);
+  }
+  100% {
+    opacity: 1;
+    transform: rotate(45deg);
+  }
+}
+
+.icon-theme-enter-sun {
+  animation: theme-icon-enter-right 320ms cubic-bezier(0.22, 0.95, 0.24, 1) 1;
+}
+
+.icon-theme-enter-moon {
+  animation: theme-icon-enter-left 440ms cubic-bezier(0.22, 0.95, 0.24, 1) 1;
+}
+
+button:hover .icon-anim-spin-lg,
+button:focus-visible .icon-anim-spin-lg,
+label:hover .icon-anim-spin-lg {
+  animation: icon-spin-lg 460ms cubic-bezier(0.22, 0.95, 0.24, 1) 1 both;
+}
+
+button:hover .icon-anim-sway,
+button:focus-visible .icon-anim-sway,
+label:hover .icon-anim-sway {
+  animation: icon-sway 340ms ease-out 1 both;
+}
+
+button:hover .icon-anim-bob,
+button:focus-visible .icon-anim-bob,
+label:hover .icon-anim-bob {
+  animation: icon-bob 320ms ease-out 1 both;
+}
+
+button:hover .icon-anim-slide,
+button:focus-visible .icon-anim-slide,
+label:hover .icon-anim-slide {
+  animation: icon-slide 340ms ease-out 1 both;
+}
+
+button:hover .icon-anim-pop,
+button:focus-visible .icon-anim-pop,
+label:hover .icon-anim-pop {
+  animation: icon-pop 300ms ease-out 1 both;
+}
+
+button:hover .icon-anim-peek,
+button:focus-visible .icon-anim-peek,
+label:hover .icon-anim-peek {
+  animation: icon-peek 280ms ease-out 1 both;
+}
+
+button:hover .icon-anim-lift,
+button:focus-visible .icon-anim-lift,
+label:hover .icon-anim-lift {
+  animation: icon-lift 300ms ease-out 1 both;
 }
 
 @keyframes chat-wiggle-ios {
