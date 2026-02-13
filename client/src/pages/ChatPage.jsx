@@ -21,7 +21,7 @@ import { hasPersian } from "../utils/fontUtils.js";
 import { getAvatarInitials } from "../utils/avatarInitials.js";
 
 const API_BASE = "";
-const PENDING_MESSAGE_TIMEOUT_MS = 2 * 60 * 1000;
+const PENDING_MESSAGE_TIMEOUT_MS = 5 * 60 * 1000;
 const PENDING_RETRY_INTERVAL_MS = 4000;
 
 
