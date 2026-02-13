@@ -37,8 +37,14 @@ export default function ChatWindowPanel({
   const [floatingDayLabel, setFloatingDayLabel] = useState(null);
   const [showFloatingDayChip, setShowFloatingDayChip] = useState(false);
   const [isHoveringFloatingDayChip, setIsHoveringFloatingDayChip] = useState(false);
+  const [scrollbarWidth, setScrollbarWidth] = useState(0);
   const isHoveringFloatingDayChipRef = useRef(false);
   const scrollIdleTimeoutRef = useRef(null);
+  const touchStartXRef = useRef(0);
+  const touchStartYRef = useRef(0);
+  const touchDxRef = useRef(0);
+  const touchDyRef = useRef(0);
+  const trackingSwipeRef = useRef(false);
 
   const updateFloatingDayLabel = useCallback(() => {
     const container = chatScrollRef?.current;
@@ -116,6 +122,18 @@ export default function ChatWindowPanel({
     return () => media.removeListener(update);
   }, []);
 
+  useEffect(() => {
+    const container = chatScrollRef?.current;
+    if (!container) return;
+    const update = () => {
+      const width = Math.max(0, container.offsetWidth - container.clientWidth);
+      setScrollbarWidth(width);
+    };
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [chatScrollRef, activeChatId, messages.length]);
+
   const handlePanelScroll = (event) => {
     onChatScroll?.(event);
     updateFloatingDayLabel();
@@ -141,7 +159,7 @@ export default function ChatWindowPanel({
     const containerRect = container.getBoundingClientRect();
     const chipRect = targetChip.getBoundingClientRect();
     const top =
-      container.scrollTop + (chipRect.top - containerRect.top) - 20;
+      container.scrollTop + (chipRect.top - containerRect.top);
     container.scrollTo({
       top: Math.max(top, 0),
       behavior: "smooth",
@@ -165,6 +183,37 @@ export default function ChatWindowPanel({
         setShowFloatingDayChip(false);
       }
     }, 1500);
+  };
+
+  const handleTouchStart = (event) => {
+    if (!activeChatId) return;
+    if (isDesktop) return;
+    const touch = event.touches?.[0];
+    if (!touch) return;
+    // Start near left edge to avoid interfering with message scroll/swipes.
+    trackingSwipeRef.current = touch.clientX <= 40;
+    touchStartXRef.current = touch.clientX;
+    touchStartYRef.current = touch.clientY;
+    touchDxRef.current = 0;
+    touchDyRef.current = 0;
+  };
+
+  const handleTouchMove = (event) => {
+    if (!trackingSwipeRef.current) return;
+    const touch = event.touches?.[0];
+    if (!touch) return;
+    touchDxRef.current = touch.clientX - touchStartXRef.current;
+    touchDyRef.current = touch.clientY - touchStartYRef.current;
+  };
+
+  const handleTouchEnd = () => {
+    if (!trackingSwipeRef.current) return;
+    const dx = touchDxRef.current;
+    const dy = Math.abs(touchDyRef.current);
+    trackingSwipeRef.current = false;
+    if (dx > 80 && dy < 70) {
+      closeChat?.();
+    }
   };
 
   const renderMessageBody = (body) => {
@@ -202,6 +251,9 @@ export default function ChatWindowPanel({
           : "translate-x-full md:translate-x-0")
       }
       style={{ paddingTop: "max(0px, env(safe-area-inset-top))" }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
     >
       {activeChatId ? (
         <div className="sticky top-0 z-20 flex h-[72px] items-center justify-between gap-3 border-b border-slate-300/80 bg-white px-6 py-4 dark:border-emerald-500/20 dark:bg-slate-900">
@@ -265,9 +317,9 @@ export default function ChatWindowPanel({
           className="pointer-events-none absolute left-1/2 z-20 -translate-x-1/2"
           style={{ top: "calc(env(safe-area-inset-top) + 80px)" }}
         >
-          <div className="inline-flex items-center gap-1.5 rounded-full border border-rose-300/80 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 dark:border-rose-500/40 dark:bg-rose-900/25 dark:text-rose-200">
-            <AlertCircle size={13} />
-            Connection is not secure.
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-rose-300/80 bg-rose-50 px-3 py-1 text-xs font-semibold leading-none text-rose-700 dark:border-rose-500/40 dark:bg-rose-900/25 dark:text-rose-200">
+            <AlertCircle className="h-[13px] w-[13px] shrink-0 -translate-y-[0.5px]" />
+            <span className="leading-none">Connection is not secure.</span>
           </div>
         </div>
       ) : null}
@@ -320,7 +372,7 @@ export default function ChatWindowPanel({
               : undefined,
           marginBottom:
             activeChatId && !isDesktop
-              ? "calc(env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px) + 4.75rem)"
+              ? "calc(env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px) + 4.25rem - 1px)"
               : undefined,
           paddingBottom: activeChatId
             ? "max(1rem, calc(env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px) + 1rem))"
@@ -368,7 +420,10 @@ export default function ChatWindowPanel({
                 {isNewDay ? (
                   <div
                     className="relative my-3 h-6"
-                    style={{ width: "calc(100% + 3rem)", marginLeft: "-1.5rem" }}
+                    style={{
+                      width: "calc(100% + 3rem)",
+                      marginLeft: `calc(-1.5rem + ${scrollbarWidth / 2}px)`,
+                    }}
                   >
                     <div
                       data-day-chip={dayLabel}
