@@ -21,6 +21,8 @@ import { hasPersian } from "../utils/fontUtils.js";
 import { getAvatarInitials } from "../utils/avatarInitials.js";
 
 const API_BASE = "";
+const PENDING_MESSAGE_TIMEOUT_MS = 2 * 60 * 1000;
+const PENDING_RETRY_INTERVAL_MS = 4000;
 
 
 export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme }) {
@@ -87,6 +89,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const activeChatIdRef = useRef(null);
   const sseReconnectRef = useRef(null);
   const isMarkingReadRef = useRef(false);
+  const sendingClientIdsRef = useRef(new Set());
 
   useEffect(() => {
     if (user) {
@@ -290,9 +293,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     ? "offline"
     : isIdle
       ? "offline"
-      : peerPresence.status === "invisible"
+      : peerPresence.status === "invisible" || peerPresence.status === "offline"
         ? "offline"
-        : "online";
+        : peerPresence.status === "online"
+          ? "online"
+          : "offline";
 
   const toggleSelectChat = (chatId) => {
     setSelectedChats((prev) =>
@@ -406,6 +411,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   useEffect(() => {
     if (!activeHeaderPeer?.username) return;
     let isMounted = true;
+    setPeerPresence({ status: "offline", lastSeen: null });
     const fetchPresence = async () => {
       try {
         const res = await fetch(
@@ -593,6 +599,95 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     };
   }, [user?.username]);
 
+  const sendPendingMessage = async (pendingMessage) => {
+    if (!pendingMessage || pendingMessage._delivery !== "sending") return;
+    if (!isConnected) return;
+
+    const clientId = pendingMessage._clientId;
+    if (!clientId || sendingClientIdsRef.current.has(clientId)) return;
+
+    sendingClientIdsRef.current.add(clientId);
+    try {
+      const targetChatId = Number(pendingMessage._chatId || activeChatId);
+      if (!targetChatId) return;
+
+      const res = await fetch(`${API_BASE}/api/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: user.username,
+          body: pendingMessage.body,
+          chatId: targetChatId,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || "Unable to send message.");
+      }
+
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg._clientId === clientId
+            ? {
+                ...msg,
+                id: Number(data.id) || msg.id,
+                _delivery: "sent",
+              }
+            : msg,
+        ),
+      );
+      pendingScrollToBottomRef.current = true;
+      await loadChats({ silent: true });
+      await loadMessages(targetChatId, { silent: true, forceBottom: true });
+    } catch (_) {
+      // Keep message in pending state and retry after reconnection.
+    } finally {
+      sendingClientIdsRef.current.delete(clientId);
+    }
+  };
+
+  useEffect(() => {
+    if (!isConnected || !activeChatId) return;
+    const pending = messages.filter((msg) => msg._delivery === "sending");
+    if (!pending.length) return;
+    pending.forEach((msg) => {
+      void sendPendingMessage(msg);
+    });
+  }, [isConnected, activeChatId, messages]);
+
+  useEffect(() => {
+    if (!activeChatId) return;
+    const interval = setInterval(() => {
+      setMessages((prev) => {
+        const now = Date.now();
+        let changed = false;
+        const next = prev.map((msg) => {
+          if (msg._delivery !== "sending") return msg;
+          const queuedAt = Number(msg._queuedAt || 0);
+          if (!queuedAt || now - queuedAt < PENDING_MESSAGE_TIMEOUT_MS) {
+            return msg;
+          }
+          changed = true;
+          return { ...msg, _delivery: "failed" };
+        });
+        return changed ? next : prev;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [activeChatId]);
+
+  useEffect(() => {
+    if (!isConnected || !activeChatId) return;
+    const interval = setInterval(() => {
+      const pending = messages.filter((msg) => msg._delivery === "sending");
+      if (!pending.length) return;
+      pending.forEach((msg) => {
+        void sendPendingMessage(msg);
+      });
+    }, PENDING_RETRY_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [isConnected, activeChatId, messages]);
+
   useEffect(() => {
     if (settingsPanel !== "profile" && profileError) {
       setProfileError("");
@@ -662,9 +757,17 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         };
       });
       setMessages((prev) => {
+        const pendingLocal = prev.filter(
+          (msg) =>
+            (msg._delivery === "sending" || msg._delivery === "failed") &&
+            Number(msg._chatId || chatId) === Number(chatId),
+        );
+        const mergedNext = pendingLocal.length
+          ? [...nextMessages, ...pendingLocal]
+          : nextMessages;
         if (prev.length === nextMessages.length) {
           const prevLast = prev[prev.length - 1];
-          const nextLast = nextMessages[nextMessages.length - 1];
+          const nextLast = mergedNext[mergedNext.length - 1];
           if (
             prevLast?.id === nextLast?.id &&
             prevLast?.read_at === nextLast?.read_at
@@ -672,7 +775,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             return prev;
           }
         }
-        return nextMessages;
+        return mergedNext;
       });
       const lastMsg = nextMessages[nextMessages.length - 1];
       const lastId = lastMsg?.id || null;
@@ -784,27 +887,48 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const form = event.currentTarget;
     const formData = new FormData(form);
     const body = formData.get("message")?.toString() || "";
-    if (!body.trim()) return;
+    const trimmedBody = body.trim();
+    if (!trimmedBody) return;
 
-    try {
-      const res = await fetch(`${API_BASE}/api/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: user.username,
-          body,
-          chatId: activeChatId,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data?.error || "Unable to send message.");
-      }
-      form.reset();
-      pendingScrollToBottomRef.current = true;
-      await loadMessages(activeChatId, { forceBottom: true });
-      await loadChats();
-    } catch (_) {}
+    const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const createdAt = new Date().toISOString();
+    const queuedAt = Date.now();
+    const pendingDate = parseServerDate(createdAt);
+    const pendingDayKey = `${pendingDate.getFullYear()}-${pendingDate.getMonth()}-${pendingDate.getDate()}`;
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: tempId,
+        username: user.username,
+        body: trimmedBody,
+        created_at: createdAt,
+        read_at: null,
+        read_by_user_id: null,
+        _clientId: tempId,
+        _chatId: Number(activeChatId),
+        _queuedAt: queuedAt,
+        _delivery: "sending",
+        _dayKey: pendingDayKey,
+        _dayLabel: formatDayLabel(createdAt),
+        _timeLabel: formatTime(createdAt),
+      },
+    ]);
+    form.reset();
+    pendingScrollToBottomRef.current = true;
+
+    if (!isConnected) {
+      return;
+    }
+
+    const pendingMessage = {
+      _clientId: tempId,
+      _chatId: Number(activeChatId),
+      _queuedAt: queuedAt,
+      _delivery: "sending",
+      body: trimmedBody,
+    };
+    await sendPendingMessage(pendingMessage);
   }
 
   async function startDirectMessage() {
@@ -1123,7 +1247,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           style={{ overscrollBehavior: "contain" }}
         >
           {mobileTab === "settings" ? (
-            <div className="app-scroll h-full overflow-y-auto overflow-x-hidden px-6 pb-[104px] md:h-[calc(100dvh-72px-88px-env(safe-area-inset-top))]">
+            <div className="app-scroll h-full overflow-y-auto overflow-x-hidden px-6 pb-[104px] md:h-[calc(100%-88px)] md:pb-4">
               <MobileSettingsPanel
                 settingsPanel={settingsPanel}
                 user={user}
@@ -1154,7 +1278,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           ) : null}
 
           <div className={mobileTab === "settings" ? "hidden min-h-0 h-full" : "block min-h-0 h-full"}>
-            <div className="app-scroll h-full overflow-y-auto overflow-x-hidden px-6 pb-[104px] md:h-[calc(100dvh-72px-88px-env(safe-area-inset-top))]">
+            <div className="app-scroll h-full overflow-y-auto overflow-x-hidden px-6 pb-[104px] md:h-[calc(100%-88px)] md:pb-4">
             <ChatsListPanel
               loadingChats={loadingChats}
               visibleChats={visibleChats}
@@ -1232,6 +1356,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         onJumpToLatest={handleJumpToLatest}
         isConnected={isConnected}
         isDark={isDark}
+        insecureConnection={
+          typeof window !== "undefined" && window.location.protocol !== "https:"
+        }
       />
 
       <MobileTabMenu
