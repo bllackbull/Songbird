@@ -228,7 +228,15 @@ WantedBy=multi-user.target
 >```
 >
 
-**Recommended: Create a dedicated user:**
+- Add `User=` if you prefer an specific user (e.g., create a dedicated `songbird` user for separation).
+- If you decided to create a dedicated user, make sure to create system user and change ownership:
+
+```bash
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin songbird
+sudo chown -R songbird:songbird /opt/songbird
+```
+
+- If Node is installed somewhere else, update `ExecStart` accordingly (use full path to `node`).
 
 > **NOTE:** Skip this step if you installed Node.js using nvm or volta.
 
@@ -396,68 +404,6 @@ nano .env
 ```
 
 ### Configurable values:
-
-| Variable | Type | Default | Description |
-|---|---|---:|---|
-| `PORT` | `integer` | `5174` | API server port. Use the same value in Nginx `proxy_pass`. |
-| `APP_ENV` | `string` | `production` | Server runtime mode (`production` recommended/default). |
-| `APP_DEBUG` | `boolean` | `false` | Enable verbose server debug logs in terminal/stdout (`[app-debug]` lines for message send/upload/transcode/metadata events). |
-| `FILE_UPLOAD` | `boolean` | `true` | Enable/disable all uploads globally (chat files + avatars). |
-| `FILE_UPLOAD_MAX_SIZE` | `integer` | `26214400` | Per-file upload max size (bytes). |
-| `FILE_UPLOAD_MAX_TOTAL_SIZE` | `integer` | `78643200` | Per-message total upload size cap (bytes). |
-| `FILE_UPLOAD_MAX_FILES` | `integer` | `10` | Max uploaded files in one message. |
-| `FILE_UPLOAD_TRANSCODE_VIDEOS` | `boolean` | `true` | Convert uploaded videos to H.264/AAC MP4 and keep only the converted file. Requires `ffmpeg`. |
-| `MESSAGE_FILE_RETENTION` | `integer` | `7` | Auto-delete uploaded message files after N days (`0` disables). |
-| `CHAT_PENDING_TEXT_TIMEOUT` | `integer` | `300000` | Mark pending text message as failed after this timeout (milliseconds). |
-| `CHAT_PENDING_FILE_TIMEOUT` | `integer` | `1200000` | Mark pending file message as failed / XHR timeout for uploads (milliseconds). |
-| `CHAT_PENDING_RETRY_INTERVAL` | `integer` | `4000` | Retry cadence for pending sends while connected (milliseconds). |
-| `CHAT_PENDING_STATUS_CHECK_INTERVAL` | `integer` | `1000` | How often pending messages are checked for timeout (milliseconds). |
-| `CHAT_MESSAGE_FETCH_LIMIT` | `integer` | `300` | Max messages requested per chat fetch (initial/latest window). |
-| `CHAT_MESSAGE_PAGE_SIZE` | `integer` | `60` | Page size for loading older messages when scrolling to top. |
-| `CHAT_LIST_REFRESH_INTERVAL` | `integer` | `20000` | Chats list background refresh interval (milliseconds). |
-| `CHAT_PRESENCE_PING_INTERVAL` | `integer` | `5000` | Presence heartbeat interval (milliseconds). |
-| `CHAT_PEER_PRESENCE_POLL_INTERVAL` | `integer` | `3000` | Active peer presence poll interval (milliseconds). |
-| `CHAT_HEALTH_CHECK_INTERVAL` | `integer` | `10000` | Connection health check interval (milliseconds). |
-| `CHAT_SSE_RECONNECT_DELAY` | `integer` | `2000` | Delay before reconnecting SSE after error (milliseconds). |
-| `CHAT_SEARCH_MAX_RESULTS` | `integer` | `5` | Max users shown in New Chat search results. |
-
-### Apply Changes:
-
-**1. Docker deployment:**
-
-```bash
-cd /opt/songbird
-# Apply updated runtime env vars from .env
-docker compose -f docker-compose.yaml up -d --force-recreate songbird
-```
-
-If your change affects build-time client values, rebuild the image too:
-
-```bash
-cd /opt/songbird
-docker compose -f docker-compose.yaml up -d --build --force-recreate songbird
-```
-
-**2. Manual (systemd) deployment:**
-
-Rebuild client:
-
-```bash
-cd /opt/songbird/client
-npm run build
-```
-
-Restart systemd service:
-
-```bash
-sudo systemctl restart songbird
-```
-
-**3. Reload Nginx:**
-
-```bash
-sudo systemctl reload nginx
-```
 
 ## Updating the deployed app
 

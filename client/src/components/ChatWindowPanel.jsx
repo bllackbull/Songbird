@@ -1,23 +1,5 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  AlertCircle,
-  ArrowDown,
-  ArrowLeft,
-  Check,
-  CheckCheck,
-  Clock12,
-  Download,
-  File,
-  Image as ImageIcon,
-  LoaderCircle,
-  Pause,
-  Paperclip,
-  Play,
-  SendHorizonal as Send,
-  Volume2,
-  VolumeX,
-  X as Close,
-} from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AlertCircle, ArrowDown, ArrowLeft, Check, CheckCheck, Clock12, LoaderCircle, SendHorizonal as Send } from "lucide-react";
 import { getAvatarStyle } from "../utils/avatarColor.js";
 import { hasPersian } from "../utils/fontUtils.js";
 import { getAvatarInitials } from "../utils/avatarInitials.js";
@@ -46,114 +28,89 @@ export default function ChatWindowPanel({
   isConnected,
   isDark,
   insecureConnection,
-  pendingUploadFiles,
-  pendingUploadType,
-  uploadError,
-  activeUploadProgress,
-  onMessageMediaLoaded,
-  onUploadFilesSelected,
-  onRemovePendingUpload,
-  onClearPendingUploads,
-  onUserScrollIntent,
-  fileUploadEnabled = true,
-  fileUploadInProgress = false,
 }) {
-  const VIDEO_POSTER_CACHE_KEY = "chat-video-posters-v2";
   const [isDesktop, setIsDesktop] = useState(
     typeof window !== "undefined" ? window.matchMedia("(min-width: 768px)").matches : false,
-  );
-  const [isMobileTouchDevice, setIsMobileTouchDevice] = useState(
-    typeof window !== "undefined"
-      ? window.matchMedia("(max-width: 767px) and (pointer: coarse)").matches
-      : false,
   );
   const activePeerColor = activeHeaderPeer?.color || "#10b981";
   const activePeerInitials = getAvatarInitials(activeFallbackTitle || "S");
   const urlPattern = /((?:https?:\/\/|www\.)[^\s<]+)/gi;
   const hasUrlPattern = /(?:https?:\/\/|www\.)[^\s<]+/i;
   const isUrlPattern = /^(?:https?:\/\/|www\.)[^\s<]+$/i;
-  const [loadedMediaThumbs, setLoadedMediaThumbs] = useState(() => {
-    if (typeof window === "undefined") return new Set();
-    try {
-      const raw = window.sessionStorage.getItem("chat-media-thumbs");
-      const parsed = raw ? JSON.parse(raw) : [];
-      if (!Array.isArray(parsed)) return new Set();
-      return new Set(parsed.map((item) => String(item)));
-    } catch (_) {
-      return new Set();
-    }
-  });
-  const [focusedMedia, setFocusedMedia] = useState(null);
-  const [focusVisible, setFocusVisible] = useState(false);
+  const [floatingDayLabel, setFloatingDayLabel] = useState(null);
+  const [showFloatingDayChip, setShowFloatingDayChip] = useState(false);
+  const [isHoveringFloatingDayChip, setIsHoveringFloatingDayChip] = useState(false);
+  const [scrollbarWidth, setScrollbarWidth] = useState(0);
+  const isHoveringFloatingDayChipRef = useRef(false);
+  const scrollIdleTimeoutRef = useRef(null);
   const touchStartXRef = useRef(0);
   const touchStartYRef = useRef(0);
   const touchDxRef = useRef(0);
   const touchDyRef = useRef(0);
   const trackingSwipeRef = useRef(false);
-  const uploadMenuRef = useRef(null);
-  const mediaInputRef = useRef(null);
-  const documentInputRef = useRef(null);
-  const focusedVideoRef = useRef(null);
-  const focusUnmountTimerRef = useRef(null);
-  const focusEnterRafRef = useRef(null);
-  const focusSwipeStartRef = useRef({ x: 0, y: 0, tracking: false });
-  const focusedVideoHintTimerRef = useRef(null);
-  const [showUploadMenu, setShowUploadMenu] = useState(false);
-  const [mediaAspectByKey, setMediaAspectByKey] = useState(() => ({}));
-  const [videoPosterByUrl, setVideoPosterByUrl] = useState(() => {
-    if (typeof window === "undefined") return {};
-    try {
-      const raw = window.sessionStorage.getItem(VIDEO_POSTER_CACHE_KEY);
-      const parsed = raw ? JSON.parse(raw) : {};
-      return parsed && typeof parsed === "object" ? parsed : {};
-    } catch (_) {
-      return {};
-    }
-  });
-  const [focusedVideoPlaying, setFocusedVideoPlaying] = useState(false);
-  const [focusedVideoMuted, setFocusedVideoMuted] = useState(false);
-  const [focusedVideoTime, setFocusedVideoTime] = useState(0);
-  const [focusedVideoDuration, setFocusedVideoDuration] = useState(0);
-  const [focusedVideoHint, setFocusedVideoHint] = useState(null);
-  const [focusedMediaLoaded, setFocusedMediaLoaded] = useState(false);
-  const [focusedVideoDecodeIssue, setFocusedVideoDecodeIssue] = useState("");
-  const [focusNowMs, setFocusNowMs] = useState(Date.now());
-  const [floatingDay, setFloatingDay] = useState({ key: "", label: "" });
-  const [isTimelineScrollable, setIsTimelineScrollable] = useState(false);
-  const uploadBusy = !fileUploadEnabled || fileUploadInProgress;
-  const floatingChipRef = useRef(null);
-  const floatingDayLockUntilRef = useRef(0);
-  const floatingDayLockByClickRef = useRef(false);
-  const floatingChipAlignTimerRef = useRef(null);
-  const timelineBottomSpacerPx = 4;
-  const groupedMessages = useMemo(() => {
-    const groups = [];
-    messages.forEach((msg) => {
-      const dayKey = msg?._dayKey || getMessageDayLabel(msg);
-      const dayLabel = getMessageDayLabel(msg);
-      const lastGroup = groups[groups.length - 1];
-      if (!lastGroup || lastGroup.dayKey !== dayKey) {
-        groups.push({
-          dayKey,
-          dayLabel,
-          items: [msg],
-        });
-      } else {
-        lastGroup.items.push(msg);
-      }
-    });
-    return groups;
-  }, [messages]);
 
-  const refreshTimelineScrollable = useCallback(() => {
-    const scroller = chatScrollRef?.current;
-    if (!scroller || !activeChatId) {
-      setIsTimelineScrollable(false);
+  const updateFloatingDayLabel = useCallback(() => {
+    const container = chatScrollRef?.current;
+    if (!container || !activeChatId || !messages.length) {
+      setFloatingDayLabel(null);
       return;
     }
-    const canScroll = scroller.scrollHeight - scroller.clientHeight > 2;
-    setIsTimelineScrollable(canScroll);
-  }, [activeChatId, chatScrollRef]);
+
+    const scrollTop = container.scrollTop;
+    const containerPaddingTop =
+      Number.parseFloat(window.getComputedStyle(container).paddingTop || "0") || 0;
+    const messageNodes = Array.from(container.querySelectorAll("[data-msg-day]"));
+    const dayChips = Array.from(container.querySelectorAll("[data-day-chip]"));
+    if (!messageNodes.length || !dayChips.length) {
+      setFloatingDayLabel(null);
+      return;
+    }
+
+    const anchorTop = scrollTop + containerPaddingTop + 8;
+    const firstVisibleMessage =
+      messageNodes.find(
+        (node) => node.offsetTop + node.offsetHeight >= anchorTop,
+      ) || messageNodes[messageNodes.length - 1];
+    const currentLabel = firstVisibleMessage?.getAttribute("data-msg-day") || null;
+    if (!currentLabel) {
+      setFloatingDayLabel(null);
+      return;
+    }
+
+    const matchingChips = dayChips.filter(
+      (chip) => chip.getAttribute("data-day-chip") === currentLabel,
+    );
+    if (!matchingChips.length) {
+      setFloatingDayLabel(currentLabel);
+      return;
+    }
+
+    let currentChip = matchingChips[0];
+    for (let index = 0; index < matchingChips.length; index += 1) {
+      const chip = matchingChips[index];
+      if (chip.offsetTop <= firstVisibleMessage.offsetTop + 1) {
+        currentChip = chip;
+      } else {
+        break;
+      }
+    }
+
+    const chipTop = currentChip.offsetTop;
+    const chipBottom = chipTop + currentChip.offsetHeight;
+    const viewportTop = scrollTop + containerPaddingTop + 8;
+    const viewportBottom = scrollTop + container.clientHeight - 8;
+    const inlineChipVisible =
+      chipBottom >= viewportTop && chipTop <= viewportBottom;
+    setFloatingDayLabel(inlineChipVisible ? null : currentLabel);
+  }, [activeChatId, chatScrollRef, messages]);
+
+  useEffect(() => {
+    updateFloatingDayLabel();
+  }, [messages, activeChatId, loadingMessages, updateFloatingDayLabel]);
+
+  useEffect(() => {
+    setShowFloatingDayChip(false);
+  }, [activeChatId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -169,409 +126,67 @@ export default function ChatWindowPanel({
   }, []);
 
   useEffect(() => {
-    const last = messages[messages.length - 1];
-    if (!last) {
-      setFloatingDay({ key: "", label: "" });
-      return;
-    }
-    const key = last?._dayKey || "";
-    const label = getMessageDayLabel(last);
-    if (key && label) {
-      setFloatingDay({ key, label });
-    }
-  }, [messages]);
-
-  const startReachedLockRef = useRef(false);
-  const handlePanelScroll = useCallback((event) => {
-    onChatScroll?.(event);
-    const target = event?.currentTarget;
-    if (target) {
-      const isNearBottom =
-        target.scrollHeight - (target.scrollTop + target.clientHeight) <= 4;
-      if (isNearBottom && floatingDayLockByClickRef.current) {
-        floatingDayLockByClickRef.current = false;
-        floatingDayLockUntilRef.current = 0;
-      }
-      const canScroll = target.scrollHeight - target.clientHeight > 2;
-      if (canScroll !== isTimelineScrollable) {
-        setIsTimelineScrollable(canScroll);
-      }
-      if (
-        floatingDayLockByClickRef.current ||
-        Date.now() < Number(floatingDayLockUntilRef.current || 0)
-      ) {
-        return;
-      }
-      const scrollerRect = target.getBoundingClientRect();
-      const floatingRect = floatingChipRef.current?.getBoundingClientRect();
-      const targetTop = floatingRect
-        ? floatingRect.top + (floatingRect.height / 2)
-        : scrollerRect.top + 108;
-      const groups = Array.from(target.querySelectorAll("[id^='day-group-']"));
-      if (groups.length) {
-        let chosen = groups[0];
-        groups.forEach((groupNode) => {
-          if (groupNode.getBoundingClientRect().top <= targetTop + 1) {
-            chosen = groupNode;
-          }
-        });
-        const key = (chosen.id || "").replace(/^day-group-/, "");
-        const labelNode = chosen.querySelector("[data-day-chip]");
-        const label = labelNode?.textContent?.trim() || "";
-        if (key && label) {
-          setFloatingDay((prev) =>
-            prev.key === key && prev.label === label ? prev : { key, label },
-          );
-        }
-      }
-    }
-    if (
-      !target ||
-      !hasOlderMessages ||
-      loadingOlderMessages ||
-      !onStartReached ||
-      startReachedLockRef.current
-    ) {
-      return;
-    }
-    if (target.scrollTop <= 80) {
-      startReachedLockRef.current = true;
-      Promise.resolve(onStartReached())
-        .catch(() => null)
-        .finally(() => {
-          window.setTimeout(() => {
-            startReachedLockRef.current = false;
-          }, 120);
-        });
-    }
-  }, [onChatScroll, hasOlderMessages, loadingOlderMessages, onStartReached, isTimelineScrollable]);
-
-  const handleScrollIntent = useCallback(() => {
-    floatingDayLockByClickRef.current = false;
-    floatingDayLockUntilRef.current = 0;
-    onUserScrollIntent?.();
-  }, [onUserScrollIntent]);
-
-  useEffect(() => {
-    if (!activeChatId || !pendingUploadFiles?.length) return;
-    const scrollToBottomInstant = () => {
-      const container = chatScrollRef?.current;
-      if (!container) return;
-      container.scrollTo({ top: container.scrollHeight + 1000, behavior: "auto" });
+    const container = chatScrollRef?.current;
+    if (!container) return;
+    const update = () => {
+      const width = Math.max(0, container.offsetWidth - container.clientWidth);
+      setScrollbarWidth(width);
     };
-    const raf = requestAnimationFrame(scrollToBottomInstant);
-    return () => cancelAnimationFrame(raf);
-  }, [activeChatId, pendingUploadFiles?.length, messages.length, chatScrollRef]);
-
-  useEffect(() => {
-    if (!activeChatId) {
-      setIsTimelineScrollable(false);
-      return;
-    }
-    const run = () => refreshTimelineScrollable();
-    const raf1 = requestAnimationFrame(run);
-    const raf2 = requestAnimationFrame(run);
-    const timer = window.setTimeout(run, 120);
-    window.addEventListener("resize", run);
-    return () => {
-      cancelAnimationFrame(raf1);
-      cancelAnimationFrame(raf2);
-      window.clearTimeout(timer);
-      window.removeEventListener("resize", run);
-    };
-  }, [
-    activeChatId,
-    messages.length,
-    groupedMessages.length,
-    pendingUploadFiles?.length,
-    activeUploadProgress,
-    loadingMessages,
-    refreshTimelineScrollable,
-  ]);
-
-  useEffect(() => {
-    if (isDesktop || !activeChatId) return;
-    let firstVideoUrl = null;
-    for (let i = 0; i < messages.length; i += 1) {
-      const files = Array.isArray(messages[i]?.files) ? messages[i].files : [];
-      const videoFile = files.find((file) => getFileRenderType(file) === "video" && file?.url);
-      if (videoFile?.url) {
-        firstVideoUrl = videoFile.url;
-        break;
-      }
-    }
-    if (!firstVideoUrl) return;
-    const warmupVideo = document.createElement("video");
-    warmupVideo.preload = "auto";
-    warmupVideo.muted = true;
-    warmupVideo.playsInline = true;
-    warmupVideo.src = firstVideoUrl;
-    warmupVideo.load();
-    return () => {
-      warmupVideo.removeAttribute("src");
-      warmupVideo.load();
-    };
-  }, [isDesktop, activeChatId, messages]);
-
-  useEffect(() => {
-    if (!showUploadMenu) return;
-    const handleOutside = (event) => {
-      if (uploadMenuRef.current?.contains(event.target)) return;
-      setShowUploadMenu(false);
-    };
-    document.addEventListener("mousedown", handleOutside);
-    return () => document.removeEventListener("mousedown", handleOutside);
-  }, [showUploadMenu]);
-
-  useEffect(() => {
-    if (!uploadBusy) return;
-    setShowUploadMenu(false);
-  }, [uploadBusy]);
-
-  useEffect(() => {
-    setFocusedMedia(null);
-    setFocusVisible(false);
-  }, [activeChatId]);
-
-  useEffect(() => {
-    setLoadedMediaThumbs(new Set());
-    setMediaAspectByKey({});
-  }, [activeChatId]);
-
-  useEffect(() => {
-    const video = focusedVideoRef.current;
-    if (!video || focusedMedia?.type !== "video") return undefined;
-    const handleLoaded = () => setFocusedVideoDuration(video.duration || 0);
-    const handlePlay = () => setFocusedVideoPlaying(true);
-    const handlePause = () => setFocusedVideoPlaying(false);
-    const handleTimeUpdate = () => setFocusedVideoTime(video.currentTime || 0);
-    const handleEnded = () => setFocusedVideoPlaying(false);
-    const handleDurationChange = () => setFocusedVideoDuration(video.duration || 0);
-    video.addEventListener("loadedmetadata", handleLoaded);
-    video.addEventListener("play", handlePlay);
-    video.addEventListener("pause", handlePause);
-    video.addEventListener("timeupdate", handleTimeUpdate);
-    video.addEventListener("ended", handleEnded);
-    video.addEventListener("durationchange", handleDurationChange);
-    setFocusedVideoMuted(video.muted);
-    return () => {
-      video.removeEventListener("loadedmetadata", handleLoaded);
-      video.removeEventListener("play", handlePlay);
-      video.removeEventListener("pause", handlePause);
-      video.removeEventListener("timeupdate", handleTimeUpdate);
-      video.removeEventListener("ended", handleEnded);
-      video.removeEventListener("durationchange", handleDurationChange);
-    };
-  }, [focusedMedia]);
-
-  useEffect(() => {
-    if (focusedMedia?.type !== "video" || !focusVisible) return;
-    const video = focusedVideoRef.current;
-    if (!video) return;
-    video.muted = false;
-    setFocusedVideoMuted(false);
-    const tryPlay = () => {
-      const playPromise = video.play?.();
-      if (playPromise && typeof playPromise.catch === "function") {
-        playPromise.catch(() => {
-          // user gesture may be required on some devices
-        });
-      }
-    };
-    const raf = requestAnimationFrame(tryPlay);
-    return () => cancelAnimationFrame(raf);
-  }, [focusedMedia, focusVisible]);
-
-  useEffect(() => {
-    return () => {
-      if (floatingChipAlignTimerRef.current) {
-        window.clearTimeout(floatingChipAlignTimerRef.current);
-        floatingChipAlignTimerRef.current = null;
-      }
-      if (focusedVideoHintTimerRef.current) {
-        clearTimeout(focusedVideoHintTimerRef.current);
-      }
-      if (focusUnmountTimerRef.current) {
-        clearTimeout(focusUnmountTimerRef.current);
-      }
-      if (focusEnterRafRef.current) {
-        cancelAnimationFrame(focusEnterRafRef.current);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const media = window.matchMedia("(max-width: 767px) and (pointer: coarse)");
-    const update = () => setIsMobileTouchDevice(media.matches);
     update();
-    if (media.addEventListener) {
-      media.addEventListener("change", update);
-      return () => media.removeEventListener("change", update);
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [chatScrollRef, activeChatId, messages.length]);
+
+  const handlePanelScroll = (event) => {
+    onChatScroll?.(event);
+    updateFloatingDayLabel();
+    setShowFloatingDayChip(true);
+    if (scrollIdleTimeoutRef.current) {
+      clearTimeout(scrollIdleTimeoutRef.current);
     }
-    media.addListener(update);
-    return () => media.removeListener(update);
-  }, []);
+    scrollIdleTimeoutRef.current = setTimeout(() => {
+      if (!isHoveringFloatingDayChipRef.current) {
+        setShowFloatingDayChip(false);
+      }
+    }, 1500);
+  };
+
+  const handleFloatingDayChipClick = () => {
+    if (!floatingDayLabel || !chatScrollRef?.current) return;
+    const container = chatScrollRef.current;
+    const dayChips = Array.from(container.querySelectorAll("[data-day-chip]"));
+    const targetChip = dayChips.find(
+      (chip) => chip.getAttribute("data-day-chip") === floatingDayLabel,
+    );
+    if (!targetChip) return;
+    const containerRect = container.getBoundingClientRect();
+    const chipRect = targetChip.getBoundingClientRect();
+    const top =
+      container.scrollTop + (chipRect.top - containerRect.top);
+    container.scrollTo({
+      top: Math.max(top, 0),
+      behavior: "smooth",
+    });
+  };
 
   useEffect(() => {
-    if (!focusedMedia?.expiresAt) return undefined;
-    setFocusNowMs(Date.now());
-    const timer = window.setInterval(() => {
-      setFocusNowMs(Date.now());
-    }, 60 * 1000);
-    return () => window.clearInterval(timer);
-  }, [focusedMedia?.expiresAt]);
+    return () => {
+      if (scrollIdleTimeoutRef.current) {
+        clearTimeout(scrollIdleTimeoutRef.current);
+      }
+    };
+  }, []);
 
-  function getMessageDayLabel(msg) {
-    if (msg?._dayLabel) return msg._dayLabel;
-    if (msg?._dayKey) return msg._dayKey;
-    if (!msg?.created_at) return "";
-    const date = new Date(msg.created_at);
-    if (Number.isNaN(date.getTime())) return "";
-    return date.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  }
-
-  const renderMessageItem = (msg, options = {}) => {
-    const { isFirstInGroup = false } = options;
-    const isOwn = msg.username === user.username;
-    const isRead = Boolean(msg.read_at);
-    const hasFiles = Array.isArray(msg.files) && msg.files.length > 0;
-    const hasUploadInProgress =
-      Array.isArray(msg._files) &&
-      msg._files.length > 0 &&
-      Number(msg._uploadProgress ?? 100) < 100;
-    const isSending = msg._delivery === "sending" || hasUploadInProgress || Boolean(msg._processingPending);
-    const isFailed = msg._delivery === "failed";
-    const dayLabel = getMessageDayLabel(msg);
-
-    return (
-      <div
-        id={`message-${msg.id}`}
-        data-msg-day={dayLabel}
-        data-msg-day-key={msg?._dayKey || ""}
-        className={`w-full max-w-full overflow-x-hidden px-0 pb-3 md:px-3 ${isFirstInGroup ? "pt-2" : ""}`}
-      >
-        {Number(unreadMarkerId) === Number(msg.id) ? (
-          <div
-            id={`unread-divider-${msg.id}`}
-            className="flex items-center gap-3 py-3"
-            style={{ scrollMarginTop: "96px" }}
-          >
-            <span className="h-px flex-1 bg-emerald-200/70 dark:bg-emerald-500/30" />
-            <span className="rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200">
-              Unread Messages
-            </span>
-            <span className="h-px flex-1 bg-emerald-200/70 dark:bg-emerald-500/30" />
-          </div>
-        ) : null}
-        <div
-          className={`flex w-full max-w-full px-3 md:px-0 ${
-            isOwn ? "justify-end" : "justify-start"
-          }`}
-        >
-          <div
-            className={`rounded-2xl px-4 py-3 text-sm shadow-sm ${
-              hasFiles
-                ? "w-[min(52vw,18rem)] max-w-[68%] md:w-[min(44vw,22rem)] md:max-w-[62%] md:min-w-[12rem]"
-                : "max-w-[82%] md:max-w-[75%]"
-            } ${
-              isOwn
-                ? "rounded-br-md bg-emerald-200 text-emerald-950 dark:bg-emerald-800 dark:text-white"
-                : "bg-white/90 text-slate-800 rounded-bl-md dark:bg-slate-800/75 dark:text-slate-100"
-            }`}
-          >
-            {renderMessageFiles(msg.files || [])}
-            {!(
-              (msg.files || []).length &&
-              /^Sent (a media file|a document|\d+ files)$/i.test((msg.body || "").trim())
-            ) ? (
-              <p className={`mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${hasPersian(msg.body) ? "font-fa" : ""}`}>
-                {renderMessageBody(msg.body)}
-              </p>
-            ) : null}
-            <div
-              className={`mt-2 flex items-center gap-1 text-[10px] ${
-                isOwn
-                  ? "text-emerald-900/80 dark:text-emerald-50/80"
-                  : "text-slate-500 dark:text-slate-400"
-              }`}
-            >
-              <span>{msg._timeLabel || formatTime(msg.created_at)}</span>
-              {isOwn ? (
-                <span
-                  className={`inline-flex items-center ${
-                    isSending
-                      ? "text-emerald-900/80 dark:text-emerald-50/80"
-                      : isFailed
-                        ? "text-rose-500"
-                        : isRead
-                          ? "text-sky-400"
-                          : "text-emerald-900/80 dark:text-emerald-50/80"
-                  }`}
-                >
-                  {isSending ? (
-                    <Clock12
-                      size={15}
-                      strokeWidth={2.4}
-                      className="animate-spin"
-                      aria-hidden="true"
-                    />
-                  ) : isFailed ? (
-                    <AlertCircle size={15} strokeWidth={2.4} aria-hidden="true" />
-                  ) : isRead ? (
-                    <CheckCheck size={15} strokeWidth={2.5} aria-hidden="true" />
-                  ) : (
-                    <Check size={15} strokeWidth={2.5} aria-hidden="true" />
-                  )}
-                </span>
-              ) : null}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const handleGroupChipClick = (groupIndex) => {
-    const dayKey = groupedMessages[groupIndex]?.dayKey;
-    if (!dayKey) return;
-    const node = document.getElementById(`day-group-${dayKey}`);
-    if (node && typeof node.scrollIntoView === "function") {
-      node.scrollIntoView({ block: "start", behavior: "smooth" });
+  const scheduleFloatingChipHide = () => {
+    if (scrollIdleTimeoutRef.current) {
+      clearTimeout(scrollIdleTimeoutRef.current);
     }
+    scrollIdleTimeoutRef.current = setTimeout(() => {
+      if (!isHoveringFloatingDayChipRef.current) {
+        setShowFloatingDayChip(false);
+      }
+    }, 1500);
   };
-
-  const chatScrollStyle = useMemo(
-    () => ({
-      backgroundImage: isDark
-        ? "radial-gradient(circle at top right, rgba(16,185,129,0.22), transparent 48%), radial-gradient(circle at bottom left, rgba(16,185,129,0.20), transparent 44%)"
-        : "radial-gradient(circle at top right, rgba(16,185,129,0.10), transparent 45%), radial-gradient(circle at bottom left, rgba(16,185,129,0.09), transparent 40%)",
-      backgroundColor: isDark ? "#0b1320" : "#dcfce7",
-      scrollbarGutter: "stable both-edges",
-      paddingTop:
-        activeChatId && insecureConnection
-          ? insecureConnection
-            ? "1.25rem"
-            : "0.75rem"
-          : undefined,
-      paddingBottom: activeChatId
-        ? `max(1rem, calc(env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px) + ${
-            isDesktop ? "1rem" : "1rem"
-          }))`
-        : undefined,
-      overflowAnchor: "none",
-    }),
-    [
-      activeChatId,
-      insecureConnection,
-      isDark,
-      isDesktop,
-    ],
-  );
 
   const handleTouchStart = (event) => {
     if (!activeChatId) return;
@@ -1294,99 +909,71 @@ export default function ChatWindowPanel({
 
       {insecureConnection && activeChatId ? (
         <div
-          className="pointer-events-none absolute left-1/2 z-[1] -translate-x-1/2"
-          style={{ top: "calc(env(safe-area-inset-top) + 122px)" }}
+          className="pointer-events-none absolute left-1/2 z-20 -translate-x-1/2"
+          style={{ top: "calc(env(safe-area-inset-top) + 80px)" }}
         >
-          <div className="inline-flex items-center gap-1.5 rounded-full border border-rose-300 bg-rose-100 px-3 py-1 text-xs font-semibold leading-none text-rose-700 dark:border-rose-500 dark:bg-rose-900 dark:text-rose-100">
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-rose-300/80 bg-rose-50 px-3 py-1 text-xs font-semibold leading-none text-rose-700 dark:border-rose-500/40 dark:bg-rose-900/25 dark:text-rose-200">
             <AlertCircle className="h-[13px] w-[13px] shrink-0 -translate-y-[0.5px]" />
             <span className="leading-none">Connection is not secure.</span>
           </div>
         </div>
       ) : null}
 
-      <div className="flex-1 min-h-0">
-        {activeChatId && floatingDay.key && isTimelineScrollable ? (
-          <div
-            className="absolute left-1/2 z-[3] -translate-x-1/2"
-            style={{ top: "calc(env(safe-area-inset-top) + 84px)" }}
+      {activeChatId && floatingDayLabel && showFloatingDayChip ? (
+        <div
+          className="absolute left-1/2 z-20 -translate-x-1/2"
+          style={{
+            top: insecureConnection
+              ? "calc(env(safe-area-inset-top) + 116px)"
+              : "calc(env(safe-area-inset-top) + 80px)",
+          }}
+        >
+          <button
+            type="button"
+            onClick={handleFloatingDayChipClick}
+            onMouseEnter={() => {
+              isHoveringFloatingDayChipRef.current = true;
+              setIsHoveringFloatingDayChip(true);
+              if (scrollIdleTimeoutRef.current) {
+                clearTimeout(scrollIdleTimeoutRef.current);
+              }
+            }}
+            onMouseLeave={() => {
+              isHoveringFloatingDayChipRef.current = false;
+              setIsHoveringFloatingDayChip(false);
+              scheduleFloatingChipHide();
+            }}
+            className="rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
           >
-            <button
-              ref={floatingChipRef}
-              type="button"
-              onClick={(event) => {
-                const node = document.getElementById(`day-group-${floatingDay.key}`);
-                const scroller = chatScrollRef?.current;
-                if (!node || !scroller) return;
-                const floatingChip = event.currentTarget;
-                const currentKey = floatingDay.key;
-                const currentLabel = floatingDay.label;
-                floatingDayLockByClickRef.current = true;
-                floatingDayLockUntilRef.current = Date.now() + 1800;
-                setFloatingDay({ key: currentKey, label: currentLabel });
-                if (floatingChipAlignTimerRef.current) {
-                  window.clearTimeout(floatingChipAlignTimerRef.current);
-                  floatingChipAlignTimerRef.current = null;
-                }
+            {floatingDayLabel}
+          </button>
+        </div>
+      ) : null}
 
-                const stickyChip =
-                  node.querySelector("[data-day-chip]")?.parentElement || node;
-                const stickyRect = stickyChip.getBoundingClientRect();
-                const floatingRect = floatingChip.getBoundingClientRect();
-                // Device-specific alignment nudge tuned to match visual chip overlap.
-                const alignOffsetPx = isDesktop ? 0 : -1;
-                const desiredStickyTopInViewport = floatingRect.top + alignOffsetPx;
-                const delta = stickyRect.top - desiredStickyTopInViewport;
-                const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-                const targetTop = Math.max(
-                  0,
-                  Math.min(maxTop, scroller.scrollTop + delta),
-                );
-
-                scroller.scrollTo({ top: targetTop, behavior: "smooth" });
-
-                const runFinalAlign = (releaseLock = false) => {
-                  const nextStickyChip =
-                    node.querySelector("[data-day-chip]")?.parentElement || node;
-                  const nextStickyRect = nextStickyChip.getBoundingClientRect();
-                  const nextFloatingRect = floatingChip.getBoundingClientRect();
-                  const nextDesiredTop = nextFloatingRect.top + alignOffsetPx;
-                  const nextDelta = nextStickyRect.top - nextDesiredTop;
-                  if (Math.abs(nextDelta) > 0.5) {
-                    const finalMaxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-                    const finalTop = Math.max(
-                      0,
-                      Math.min(finalMaxTop, scroller.scrollTop + nextDelta),
-                    );
-                    scroller.scrollTo({ top: finalTop, behavior: "auto" });
-                  }
-                  if (releaseLock) {
-                    floatingDayLockByClickRef.current = false;
-                    floatingDayLockUntilRef.current = Date.now() + 120;
-                  }
-                };
-
-                if (isDesktop) {
-                  // Desktop: no post-correction jump; just unlock after smooth scroll finishes.
-                  floatingChipAlignTimerRef.current = window.setTimeout(() => {
-                    floatingDayLockByClickRef.current = false;
-                    floatingDayLockUntilRef.current = Date.now() + 120;
-                    floatingChipAlignTimerRef.current = null;
-                  }, 420);
-                } else {
-                  // Mobile: one final correction removes the tiny residual offset.
-                  floatingChipAlignTimerRef.current = window.setTimeout(() => {
-                    runFinalAlign(true);
-                    floatingChipAlignTimerRef.current = null;
-                  }, 380);
-                }
-              }}
-              className="inline-flex items-center justify-center rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
-            >
-              <span className="leading-none">{floatingDay.label}</span>
-            </button>
-          </div>
-        ) : null}
-
+      <div
+        ref={chatScrollRef}
+        onScroll={handlePanelScroll}
+        className="chat-scroll flex-1 space-y-3 overflow-y-auto overflow-x-hidden px-6 py-6"
+        style={{
+          backgroundImage: isDark
+            ? "radial-gradient(circle at top right, rgba(16,185,129,0.22), transparent 48%), radial-gradient(circle at bottom left, rgba(16,185,129,0.20), transparent 44%)"
+            : "radial-gradient(circle at top right, rgba(16,185,129,0.10), transparent 45%), radial-gradient(circle at bottom left, rgba(16,185,129,0.09), transparent 40%)",
+          backgroundColor: isDark ? "#0b1320" : "#dcfce7",
+          paddingTop:
+            activeChatId && (insecureConnection || floatingDayLabel)
+              ? insecureConnection
+                ? "6.5rem"
+                : "4.5rem"
+              : undefined,
+          marginBottom:
+            activeChatId && !isDesktop
+              ? "calc(env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px) + 4.25rem - 1px)"
+              : undefined,
+          paddingBottom: activeChatId
+            ? "max(1rem, calc(env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px) + 1rem))"
+            : undefined,
+        }}
+      >
         {!activeChatId ? (
           <div
             ref={chatScrollRef}
@@ -1398,12 +985,7 @@ export default function ChatWindowPanel({
             </div>
           </div>
         ) : loadingMessages || (!isConnected && messages.length === 0) ? (
-          <div
-            ref={chatScrollRef}
-            className="chat-scroll h-full space-y-3 overflow-y-auto overflow-x-hidden px-6 py-6"
-            onScroll={handlePanelScroll}
-            style={chatScrollStyle}
-          >
+          <div className="space-y-3">
             {Array.from({ length: 7 }).map((_, index) => {
               const own = index % 2 === 0;
               return (
@@ -1423,17 +1005,92 @@ export default function ChatWindowPanel({
             })}
           </div>
         ) : messages.length ? (
-          <div
-            ref={chatScrollRef}
-            onScroll={handlePanelScroll}
-            onTouchStartCapture={handleScrollIntent}
-            onWheelCapture={handleScrollIntent}
-            className="chat-scroll h-full overflow-y-auto overflow-x-hidden px-0 pb-3 pt-1 md:px-2"
-            style={chatScrollStyle}
-          >
-            {loadingOlderMessages ? (
-              <div className="px-3 pb-3 pt-1 md:px-0">
-                <div className="mx-auto h-10 w-40 animate-pulse rounded-2xl bg-white/80 dark:bg-slate-800/80" />
+          messages.map((msg, index) => {
+            const isOwn = msg.username === user.username;
+            const isRead = Boolean(msg.read_at);
+            const isSending = msg._delivery === "sending";
+            const isFailed = msg._delivery === "failed";
+            const currentDayKey = msg._dayKey || "";
+            const prevDayKey = index > 0 ? messages[index - 1]?._dayKey || "" : "";
+            const isNewDay = !prevDayKey || currentDayKey !== prevDayKey;
+            const dayLabel = msg._dayLabel || "";
+            return (
+              <div key={msg.id} id={`message-${msg.id}`} data-msg-day={dayLabel}>
+                {isNewDay ? (
+                  <div
+                    className="relative my-3 h-6"
+                    style={{
+                      width: "calc(100% + 3rem)",
+                      marginLeft: `calc(-1.5rem + ${scrollbarWidth / 2}px)`,
+                    }}
+                  >
+                    <div
+                      data-day-chip={dayLabel}
+                      className="absolute left-1/2 top-1/2 inline-flex w-max -translate-x-1/2 -translate-y-1/2 rounded-full border border-emerald-200/60 bg-white/80 px-3 py-1 text-[11px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+                    >
+                      {dayLabel}
+                    </div>
+                  </div>
+                ) : null}
+                {unreadMarkerId === msg.id ? (
+                  <div className="my-3 flex items-center gap-3">
+                    <span className="h-px flex-1 bg-emerald-200/70 dark:bg-emerald-500/30" />
+                    <span className="rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200">
+                      Unread Messages
+                    </span>
+                    <span className="h-px flex-1 bg-emerald-200/70 dark:bg-emerald-500/30" />
+                  </div>
+                ) : null}
+                <div className={`flex ${isOwn ? "justify-end" : "justify-start"}`}>
+                  <div
+                    className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
+                      isOwn
+                        ? "rounded-br-md bg-emerald-200 text-emerald-950 dark:bg-emerald-800 dark:text-white"
+                        : "bg-white/90 text-slate-800 rounded-bl-md dark:bg-slate-800/75 dark:text-slate-100"
+                    }`}
+                  >
+                    <p className={`mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${hasPersian(msg.body) ? "font-fa" : ""}`}>
+                      {renderMessageBody(msg.body)}
+                    </p>
+                    <div
+                      className={`mt-2 flex items-center gap-1 text-[10px] ${
+                        isOwn
+                          ? "text-emerald-900/80 dark:text-emerald-50/80"
+                          : "text-slate-500 dark:text-slate-400"
+                      }`}
+                    >
+                      <span>{msg._timeLabel || formatTime(msg.created_at)}</span>
+                      {isOwn ? (
+                        <span
+                          className={`inline-flex items-center ${
+                            isSending
+                              ? "text-emerald-900/80 dark:text-emerald-50/80"
+                              : isFailed
+                                ? "text-rose-500"
+                              : isRead
+                                ? "text-sky-400"
+                                : "text-emerald-900/80 dark:text-emerald-50/80"
+                          }`}
+                        >
+                          {isSending ? (
+                            <Clock12
+                              size={15}
+                              strokeWidth={2.4}
+                              className="animate-spin"
+                              aria-hidden="true"
+                            />
+                          ) : isFailed ? (
+                            <AlertCircle size={15} strokeWidth={2.4} aria-hidden="true" />
+                          ) : isRead ? (
+                            <CheckCheck size={15} strokeWidth={2.5} aria-hidden="true" />
+                          ) : (
+                            <Check size={15} strokeWidth={2.5} aria-hidden="true" />
+                          )}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
               </div>
             ) : null}
             {groupedMessages.map((group, groupIndex) => (
@@ -1474,9 +1131,9 @@ export default function ChatWindowPanel({
 
       {activeChatId ? (
         <form
-          className="sticky bottom-0 z-30 flex flex-col gap-3 border-t border-slate-300/80 bg-white px-4 py-3 dark:border-emerald-500/20 dark:bg-slate-900 sm:px-6 md:static md:mt-auto md:shrink-0"
+          className="absolute inset-x-0 bottom-0 z-30 flex flex-col gap-3 border-t border-slate-300/80 bg-white px-4 py-3 dark:border-emerald-500/20 dark:bg-slate-900 sm:px-6 md:static md:mt-auto md:shrink-0"
           style={{
-            bottom: isDesktop ? undefined : "max(0px, var(--mobile-bottom-offset, 0px))",
+            bottom: isDesktop ? undefined : "var(--mobile-bottom-offset, 0px)",
             paddingBottom: isDesktop
               ? "0.75rem"
               : "max(0.75rem, calc(env(safe-area-inset-bottom) + 0.5rem))",
