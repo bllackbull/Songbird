@@ -1,9 +1,11 @@
 import path from 'node:path'
 import fs from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import initSqlJs from 'sql.js'
 import { migrations } from './migrations/index.js'
 
-const dataDir = path.resolve(process.cwd(), '..', 'data')
+const serverDir = path.dirname(fileURLToPath(import.meta.url))
+const dataDir = path.resolve(serverDir, '..', 'data')
 const dbPath = path.join(dataDir, 'songbird.db')
 
 if (!fs.existsSync(dataDir)) {
@@ -11,7 +13,7 @@ if (!fs.existsSync(dataDir)) {
 }
 
 const SQL = await initSqlJs({
-  locateFile: (file) => path.resolve(process.cwd(), 'node_modules', 'sql.js', 'dist', file),
+  locateFile: (file) => path.resolve(serverDir, 'node_modules', 'sql.js', 'dist', file),
 })
 
 const fileExists = fs.existsSync(dbPath)
@@ -239,7 +241,31 @@ export function listChatsForUser(userId) {
 
 export function createMessage(chatId, userId, body) {
   run('INSERT INTO chat_messages (chat_id, user_id, body) VALUES (?, ?, ?)', [chatId, userId, body])
-  return getLastInsertId()
+  const id = getLastInsertId()
+  if (id) return id
+  const fallback = getRow(
+    'SELECT id FROM chat_messages WHERE chat_id = ? AND user_id = ? ORDER BY id DESC LIMIT 1',
+    [chatId, userId]
+  )
+  return fallback?.id || null
+}
+
+export function createMessageFiles(messageId, files = []) {
+  if (!messageId) return
+  files.forEach((file) => {
+    run(
+      `INSERT INTO chat_message_files (message_id, kind, original_name, stored_name, mime_type, size_bytes)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        messageId,
+        file.kind,
+        file.originalName,
+        file.storedName,
+        file.mimeType,
+        Number(file.sizeBytes || 0),
+      ]
+    )
+  })
 }
 
 export function getMessages(chatId) {
@@ -254,6 +280,20 @@ export function getMessages(chatId) {
     LIMIT 200
   `,
     [chatId]
+  )
+}
+
+export function listMessageFilesByMessageIds(messageIds = []) {
+  if (!Array.isArray(messageIds) || !messageIds.length) return []
+  const placeholders = messageIds.map(() => '?').join(', ')
+  return getAll(
+    `
+      SELECT id, message_id, kind, original_name, stored_name, mime_type, size_bytes, created_at
+      FROM chat_message_files
+      WHERE message_id IN (${placeholders})
+      ORDER BY id ASC
+    `,
+    messageIds
   )
 }
 

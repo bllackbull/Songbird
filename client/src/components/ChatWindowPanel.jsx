@@ -1,5 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertCircle, ArrowDown, ArrowLeft, Check, CheckCheck, Clock12, LoaderCircle, SendHorizonal as Send } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowDown,
+  ArrowLeft,
+  Check,
+  CheckCheck,
+  Clock12,
+  Download,
+  File,
+  Image as ImageIcon,
+  LoaderCircle,
+  Pause,
+  Paperclip,
+  Play,
+  SendHorizonal as Send,
+  Volume2,
+  VolumeX,
+  Video,
+  X as Close,
+} from "lucide-react";
 import { getAvatarStyle } from "../utils/avatarColor.js";
 import { hasPersian } from "../utils/fontUtils.js";
 import { getAvatarInitials } from "../utils/avatarInitials.js";
@@ -25,9 +44,20 @@ export default function ChatWindowPanel({
   isConnected,
   isDark,
   insecureConnection,
+  pendingUploadFiles,
+  pendingUploadType,
+  uploadError,
+  onUploadFilesSelected,
+  onRemovePendingUpload,
+  onClearPendingUploads,
 }) {
   const [isDesktop, setIsDesktop] = useState(
     typeof window !== "undefined" ? window.matchMedia("(min-width: 768px)").matches : false,
+  );
+  const [isMobileTouchDevice, setIsMobileTouchDevice] = useState(
+    typeof window !== "undefined"
+      ? window.matchMedia("(max-width: 767px) and (pointer: coarse)").matches
+      : false,
   );
   const activePeerColor = activeHeaderPeer?.color || "#10b981";
   const activePeerInitials = getAvatarInitials(activeFallbackTitle || "S");
@@ -38,6 +68,8 @@ export default function ChatWindowPanel({
   const [showFloatingDayChip, setShowFloatingDayChip] = useState(false);
   const [isHoveringFloatingDayChip, setIsHoveringFloatingDayChip] = useState(false);
   const [scrollbarWidth, setScrollbarWidth] = useState(0);
+  const [focusedMedia, setFocusedMedia] = useState(null);
+  const [focusVisible, setFocusVisible] = useState(false);
   const isHoveringFloatingDayChipRef = useRef(false);
   const scrollIdleTimeoutRef = useRef(null);
   const touchStartXRef = useRef(0);
@@ -45,6 +77,22 @@ export default function ChatWindowPanel({
   const touchDxRef = useRef(0);
   const touchDyRef = useRef(0);
   const trackingSwipeRef = useRef(false);
+  const uploadMenuRef = useRef(null);
+  const mediaInputRef = useRef(null);
+  const documentInputRef = useRef(null);
+  const focusedVideoRef = useRef(null);
+  const focusUnmountTimerRef = useRef(null);
+  const focusEnterRafRef = useRef(null);
+  const focusSwipeStartRef = useRef({ x: 0, y: 0, tracking: false });
+  const focusedVideoRafRef = useRef(null);
+  const focusedVideoHintTimerRef = useRef(null);
+  const [showUploadMenu, setShowUploadMenu] = useState(false);
+  const [focusedVideoPlaying, setFocusedVideoPlaying] = useState(false);
+  const [focusedVideoMuted, setFocusedVideoMuted] = useState(false);
+  const [focusedVideoTime, setFocusedVideoTime] = useState(0);
+  const [focusedVideoDuration, setFocusedVideoDuration] = useState(0);
+  const [focusedVideoHint, setFocusedVideoHint] = useState(null);
+  const previewExtraOffset = pendingUploadFiles?.length ? (isDesktop ? 170 : 190) : 0;
 
   const updateFloatingDayLabel = useCallback(() => {
     const container = chatScrollRef?.current;
@@ -174,6 +222,91 @@ export default function ChatWindowPanel({
     };
   }, []);
 
+  useEffect(() => {
+    if (!showUploadMenu) return;
+    const handleOutside = (event) => {
+      if (uploadMenuRef.current?.contains(event.target)) return;
+      setShowUploadMenu(false);
+    };
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [showUploadMenu]);
+
+  useEffect(() => {
+    setFocusedMedia(null);
+    setFocusVisible(false);
+  }, [activeChatId]);
+
+  useEffect(() => {
+    const video = focusedVideoRef.current;
+    if (!video || focusedMedia?.type !== "video") return undefined;
+    const handleLoaded = () => setFocusedVideoDuration(video.duration || 0);
+    const handlePlay = () => setFocusedVideoPlaying(true);
+    const handlePause = () => setFocusedVideoPlaying(false);
+    video.addEventListener("loadedmetadata", handleLoaded);
+    video.addEventListener("play", handlePlay);
+    video.addEventListener("pause", handlePause);
+    setFocusedVideoMuted(video.muted);
+    return () => {
+      video.removeEventListener("loadedmetadata", handleLoaded);
+      video.removeEventListener("play", handlePlay);
+      video.removeEventListener("pause", handlePause);
+    };
+  }, [focusedMedia]);
+
+  useEffect(() => {
+    if (!focusedVideoPlaying) {
+      if (focusedVideoRafRef.current) {
+        cancelAnimationFrame(focusedVideoRafRef.current);
+        focusedVideoRafRef.current = null;
+      }
+      return undefined;
+    }
+    const tick = () => {
+      const video = focusedVideoRef.current;
+      if (!video) return;
+      setFocusedVideoTime(video.currentTime || 0);
+      focusedVideoRafRef.current = requestAnimationFrame(tick);
+    };
+    focusedVideoRafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (focusedVideoRafRef.current) {
+        cancelAnimationFrame(focusedVideoRafRef.current);
+        focusedVideoRafRef.current = null;
+      }
+    };
+  }, [focusedVideoPlaying]);
+
+  useEffect(() => {
+    return () => {
+      if (focusedVideoHintTimerRef.current) {
+        clearTimeout(focusedVideoHintTimerRef.current);
+      }
+      if (focusedVideoRafRef.current) {
+        cancelAnimationFrame(focusedVideoRafRef.current);
+      }
+      if (focusUnmountTimerRef.current) {
+        clearTimeout(focusUnmountTimerRef.current);
+      }
+      if (focusEnterRafRef.current) {
+        cancelAnimationFrame(focusEnterRafRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(max-width: 767px) and (pointer: coarse)");
+    const update = () => setIsMobileTouchDevice(media.matches);
+    update();
+    if (media.addEventListener) {
+      media.addEventListener("change", update);
+      return () => media.removeEventListener("change", update);
+    }
+    media.addListener(update);
+    return () => media.removeListener(update);
+  }, []);
+
   const scheduleFloatingChipHide = () => {
     if (scrollIdleTimeoutRef.current) {
       clearTimeout(scrollIdleTimeoutRef.current);
@@ -240,6 +373,182 @@ export default function ChatWindowPanel({
       }
       return <span key={`msg-part-${index}`}>{part}</span>;
     });
+  };
+
+  const getFileRenderType = (file) => {
+    const mimeType = String(file?.mimeType || "").toLowerCase();
+    const name = String(file?.name || "").toLowerCase();
+    if (mimeType.startsWith("image/")) return "image";
+    if (mimeType.startsWith("video/")) return "video";
+    if (/\.(gif|png|jpe?g|webp|bmp|svg)$/.test(name)) return "image";
+    if (/\.(mp4|mov|webm|mkv|avi|m4v)$/.test(name)) return "video";
+    return "document";
+  };
+
+  const renderMessageFiles = (files = []) => {
+    if (!files.length) return null;
+    return (
+      <div className="mt-1 space-y-2">
+        {files.map((file) => {
+          const renderType = getFileRenderType(file);
+          const isImage = renderType === "image";
+          const isVideo = renderType === "video";
+          const key = file.id || `${file.name}-${file.sizeBytes || 0}`;
+          if (isImage && file.url) {
+            return (
+              <button
+                type="button"
+                key={key}
+                onClick={() => openFocusMedia({ url: file.url, name: file.name, type: "image" })}
+                className="block overflow-hidden rounded-xl border border-emerald-200/70 bg-white/70 dark:border-emerald-500/30 dark:bg-slate-900/50"
+              >
+                <img src={file.url} alt={file.name || "image"} className="max-h-52 w-full object-cover" />
+              </button>
+            );
+          }
+          if (isVideo && file.url) {
+            return (
+              <button
+                type="button"
+                key={key}
+                onClick={() => openFocusMedia({ url: file.url, name: file.name, type: "video" })}
+                className="relative block w-full overflow-hidden rounded-xl border border-emerald-200/70 bg-black/60 dark:border-emerald-500/30"
+                aria-label={`Open video ${file.name || ""}`.trim()}
+              >
+                <video
+                  muted
+                  playsInline
+                  src={file.url}
+                  className="max-h-56 w-full object-cover"
+                />
+                <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/40 bg-black/45 text-white">
+                    <Play size={18} className="translate-x-[1px]" />
+                  </span>
+                </span>
+              </button>
+            );
+          }
+          return (
+            file.url ? (
+              <a
+                key={key}
+                href={file.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group flex items-center gap-2 rounded-xl border border-emerald-200/70 bg-white/70 px-3 py-2 text-xs text-slate-700 transition hover:border-emerald-300 hover:bg-white hover:shadow-[0_0_16px_rgba(16,185,129,0.18)] dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200 dark:hover:bg-slate-900/70 dark:hover:shadow-[0_0_16px_rgba(16,185,129,0.14)]"
+              >
+                <span className="relative inline-flex h-4 w-4 shrink-0 items-center justify-center">
+                  <File size={15} className="absolute text-emerald-600 transition-opacity duration-150 group-hover:opacity-0 dark:text-emerald-300" />
+                  <Download size={15} className="absolute text-emerald-600 opacity-0 transition-opacity duration-150 group-hover:opacity-100 dark:text-emerald-300" />
+                </span>
+                <span className="min-w-0 flex-1 truncate">{file.name || "document"}</span>
+              </a>
+            ) : (
+              <div
+                key={key}
+                className="flex items-center gap-2 rounded-xl border border-emerald-200/70 bg-white/70 px-3 py-2 text-xs text-slate-700 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200"
+              >
+                <File size={15} className="shrink-0 text-emerald-600 dark:text-emerald-300" />
+                <span className="min-w-0 flex-1 truncate">{file.name || "document"}</span>
+              </div>
+            )
+          );
+        })}
+      </div>
+    );
+  };
+
+  const toggleFocusedVideoPlay = () => {
+    const video = focusedVideoRef.current;
+    if (!video) return;
+    if (video.paused) {
+      void video.play();
+      setFocusedVideoHint("play");
+    } else {
+      video.pause();
+      setFocusedVideoHint("pause");
+    }
+    if (focusedVideoHintTimerRef.current) {
+      clearTimeout(focusedVideoHintTimerRef.current);
+    }
+    focusedVideoHintTimerRef.current = setTimeout(() => {
+      setFocusedVideoHint(null);
+    }, 420);
+  };
+
+  const toggleFocusedVideoMute = () => {
+    const video = focusedVideoRef.current;
+    if (!video) return;
+    video.muted = !video.muted;
+    setFocusedVideoMuted(video.muted);
+  };
+
+  const seekFocusedVideo = (nextValue) => {
+    const video = focusedVideoRef.current;
+    if (!video) return;
+    const value = Number(nextValue || 0);
+    video.currentTime = value;
+    setFocusedVideoTime(value);
+  };
+
+  const formatSeconds = (seconds) => {
+    const safe = Math.max(0, Math.floor(Number(seconds || 0)));
+    const mins = Math.floor(safe / 60);
+    const secs = safe % 60;
+    return `${mins}:${String(secs).padStart(2, "0")}`;
+  };
+
+  const openFocusMedia = (media) => {
+    if (focusUnmountTimerRef.current) {
+      clearTimeout(focusUnmountTimerRef.current);
+      focusUnmountTimerRef.current = null;
+    }
+    if (focusEnterRafRef.current) {
+      cancelAnimationFrame(focusEnterRafRef.current);
+      focusEnterRafRef.current = null;
+    }
+    setFocusedMedia(media);
+    setFocusVisible(false);
+    focusEnterRafRef.current = requestAnimationFrame(() => {
+      setFocusVisible(true);
+    });
+  };
+
+  const closeFocusMedia = () => {
+    if (!focusedMedia) return;
+    setFocusVisible(false);
+    if (focusUnmountTimerRef.current) {
+      clearTimeout(focusUnmountTimerRef.current);
+    }
+    focusUnmountTimerRef.current = setTimeout(() => {
+      setFocusedMedia(null);
+      focusUnmountTimerRef.current = null;
+    }, 230);
+  };
+
+  const handleFocusTouchStart = (event) => {
+    if (isDesktop || !isMobileTouchDevice) return;
+    const touch = event.touches?.[0];
+    if (!touch) return;
+    focusSwipeStartRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      tracking: true,
+    };
+  };
+
+  const handleFocusTouchEnd = (event) => {
+    if (isDesktop || !isMobileTouchDevice) return;
+    const start = focusSwipeStartRef.current;
+    if (!start.tracking) return;
+    const touch = event.changedTouches?.[0];
+    if (!touch) return;
+    const dx = Math.abs(touch.clientX - start.x);
+    const dy = touch.clientY - start.y;
+    if (dy > 120 && dx < 90) {
+      closeFocusMedia();
+    }
   };
 
   return (
@@ -375,7 +684,7 @@ export default function ChatWindowPanel({
               ? "calc(env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px) + 4.25rem - 1px)"
               : undefined,
           paddingBottom: activeChatId
-            ? "max(1rem, calc(env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px) + 1rem))"
+            ? `max(1rem, calc(env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px) + 1rem + ${!isDesktop ? previewExtraOffset : 0}px))`
             : undefined,
         }}
       >
@@ -450,9 +759,15 @@ export default function ChatWindowPanel({
                         : "bg-white/90 text-slate-800 rounded-bl-md dark:bg-slate-800/75 dark:text-slate-100"
                     }`}
                   >
-                    <p className={`mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${hasPersian(msg.body) ? "font-fa" : ""}`}>
-                      {renderMessageBody(msg.body)}
-                    </p>
+                    {renderMessageFiles(msg.files || [])}
+                    {!(
+                      (msg.files || []).length &&
+                      /^Sent (a media file|a document|\d+ files)$/i.test((msg.body || "").trim())
+                    ) ? (
+                      <p className={`mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${hasPersian(msg.body) ? "font-fa" : ""}`}>
+                        {renderMessageBody(msg.body)}
+                      </p>
+                    ) : null}
                     <div
                       className={`mt-2 flex items-center gap-1 text-[10px] ${
                         isOwn
@@ -515,12 +830,136 @@ export default function ChatWindowPanel({
           }}
           onSubmit={handleSend}
         >
+          {pendingUploadFiles?.length ? (
+            <div className="rounded-2xl border border-emerald-200/80 bg-emerald-50/70 p-2 dark:border-emerald-500/30 dark:bg-slate-950/70">
+              <div className="mb-2 flex items-center justify-between px-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-200">
+                <span>{pendingUploadType === "media" ? "Photo or Video" : "Document"} ({pendingUploadFiles.length})</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (pendingUploadType === "media") {
+                        mediaInputRef.current?.click();
+                      } else {
+                        documentInputRef.current?.click();
+                      }
+                    }}
+                    className="inline-flex items-center gap-1 rounded-full border border-emerald-200/70 px-2 py-0.5 text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:border-emerald-500/30 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                  >
+                    <Paperclip size={12} />
+                    Add
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onClearPendingUploads}
+                    className="inline-flex items-center gap-1 rounded-full border border-rose-200/70 px-2 py-0.5 text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 dark:border-rose-500/30 dark:text-rose-300 dark:hover:bg-rose-900/30"
+                  >
+                    <Close size={12} />
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <div className="grid max-h-40 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
+                {pendingUploadFiles.map((item) => {
+                  const isImage = item.mimeType?.startsWith("image/");
+                  const isVideo = item.mimeType?.startsWith("video/");
+                  return (
+                    <div
+                      key={item.id}
+                      className="relative overflow-hidden rounded-xl border border-emerald-200/70 bg-white/90 p-2 text-[11px] dark:border-emerald-500/30 dark:bg-slate-900/70"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => onRemovePendingUpload(item.id)}
+                        className="absolute right-1 top-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 bg-white/90 text-slate-600 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300"
+                        aria-label="Remove file"
+                      >
+                        <Close size={11} />
+                      </button>
+                      {isImage ? (
+                        <img src={item.previewUrl} alt={item.name} className="mb-1 h-20 w-full rounded-md object-contain bg-slate-100 dark:bg-slate-800" />
+                      ) : isVideo ? (
+                        <div className="mb-1 flex h-20 w-full items-center justify-center rounded-md bg-slate-900/70 text-emerald-200">
+                          <Video size={16} />
+                        </div>
+                      ) : (
+                        <div className="mb-1 flex h-20 w-full items-center justify-center rounded-md bg-slate-100 text-emerald-700 dark:bg-slate-800 dark:text-emerald-200">
+                          <File size={16} />
+                        </div>
+                      )}
+                      <p className="truncate pr-5 text-slate-700 dark:text-slate-200">{item.name}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+          {uploadError ? (
+            <p className="text-xs text-rose-600 dark:text-rose-300">{uploadError}</p>
+          ) : null}
           <div className="flex flex-row gap-3">
+            <div className="relative" ref={uploadMenuRef}>
+              <button
+                type="button"
+                onClick={() => setShowUploadMenu((prev) => !prev)}
+                className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-transparent bg-transparent text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+                aria-label="Attach file"
+              >
+                <Paperclip size={18} className="icon-anim-sway" />
+              </button>
+              {showUploadMenu ? (
+                <div className="absolute bottom-12 left-0 z-40 w-44 rounded-xl border border-emerald-200/80 bg-white p-1.5 shadow-lg dark:border-emerald-500/30 dark:bg-slate-950">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      mediaInputRef.current?.click();
+                      setShowUploadMenu(false);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-left text-xs text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+                  >
+                    <ImageIcon size={15} className="icon-anim-sway" />
+                    Photo or Video
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      documentInputRef.current?.click();
+                      setShowUploadMenu(false);
+                    }}
+                    className="mt-1 flex w-full items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-left text-xs text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+                  >
+                    <File size={15} className="icon-anim-lift" />
+                    Document
+                  </button>
+                </div>
+              ) : null}
+              <input
+                ref={mediaInputRef}
+                type="file"
+                accept="image/*,video/*"
+                multiple
+                className="sr-only"
+                onChange={(event) => {
+                  onUploadFilesSelected(event.target.files, "media", pendingUploadType === "media");
+                  event.target.value = "";
+                }}
+              />
+              <input
+                ref={documentInputRef}
+                type="file"
+                multiple
+                className="sr-only"
+                onChange={(event) => {
+                  onUploadFilesSelected(event.target.files, "document", pendingUploadType === "document");
+                  event.target.value = "";
+                }}
+              />
+            </div>
             <input
               name="message"
               type="text"
               placeholder="Type a message"
-              className="flex-1 rounded-2xl border border-emerald-200 bg-white px-4 py-2 text-base text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
+              className="min-w-0 flex-1 rounded-2xl border border-emerald-200 bg-white px-4 py-2 text-base text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
             />
             <button
               type="submit"
@@ -553,6 +992,152 @@ export default function ChatWindowPanel({
             </span>
           ) : null}
         </button>
+      ) : null}
+
+      {focusedMedia ? (
+        <div
+          className={`fixed inset-0 z-[70] transition-opacity duration-200 ${isDesktop ? "bg-black/80" : "bg-black"} ${focusVisible ? "opacity-100" : "opacity-0"}`}
+          onClick={() => {
+            if (isDesktop) {
+              closeFocusMedia();
+            }
+          }}
+        >
+          {!isDesktop ? (
+            <div
+              className={`absolute left-0 right-0 z-10 flex items-center justify-between px-6 py-4 transition-all duration-200 ${focusVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-1"}`}
+              style={{ top: "max(0px, env(safe-area-inset-top))" }}
+            >
+              <button
+                type="button"
+                onClick={closeFocusMedia}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/30 bg-black/40 text-white transition hover:border-white/50 hover:bg-black/55"
+                aria-label="Close"
+              >
+                <Close size={18} className="icon-anim-sway" />
+              </button>
+              <a
+                href={focusedMedia.url}
+                download={focusedMedia.name || "media"}
+                className="group inline-flex h-9 items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-[0_0_22px_rgba(16,185,129,0.45)]"
+              >
+                <Download size={15} className="icon-anim-drop" />
+                Save
+              </a>
+            </div>
+          ) : null}
+          {isDesktop ? (
+            <>
+              <div className={`absolute left-6 top-4 z-10 transition-all duration-200 ${focusVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-1"}`}>
+                <button
+                  type="button"
+                  onClick={closeFocusMedia}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/30 bg-black/40 text-white transition hover:border-white/50 hover:bg-black/55"
+                  aria-label="Close"
+                >
+                  <Close size={18} className="icon-anim-sway" />
+                </button>
+              </div>
+              <div className={`absolute right-6 top-4 z-10 transition-all duration-200 ${focusVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-1"}`}>
+              <a
+                href={focusedMedia.url}
+                download={focusedMedia.name || "media"}
+                className="group inline-flex h-9 items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-[0_0_22px_rgba(16,185,129,0.45)]"
+              >
+                <Download size={15} className="icon-anim-drop" />
+                Save
+              </a>
+            </div>
+            </>
+          ) : null}
+          <div
+            className="flex h-full items-center justify-center p-3 md:p-6"
+            onClick={(event) => {
+              if (!isDesktop) {
+                event.stopPropagation();
+              }
+            }}
+          >
+            <div
+              className={`mx-auto transition-all duration-200 ${focusVisible ? "translate-y-0 scale-100 opacity-100" : "translate-y-2 scale-95 opacity-0"}`}
+              onClick={(event) => event.stopPropagation()}
+              style={{
+                width: "fit-content",
+                maxWidth: "min(92vw, 1100px)",
+                maxHeight: isDesktop ? "min(86vh, 820px)" : "calc(100vh - 1.5rem)",
+              }}
+            >
+              {focusedMedia.type === "video" ? (
+                <div
+                  className="relative w-full"
+                  onTouchStart={isMobileTouchDevice && !isDesktop ? handleFocusTouchStart : undefined}
+                  onTouchEnd={isMobileTouchDevice && !isDesktop ? handleFocusTouchEnd : undefined}
+                >
+                  <video
+                    ref={focusedVideoRef}
+                    autoPlay
+                    playsInline
+                    src={focusedMedia.url}
+                    onClick={toggleFocusedVideoPlay}
+                    className="max-h-[72vh] w-full cursor-pointer rounded-2xl bg-black object-contain md:max-h-[78vh]"
+                  />
+                  {focusedVideoHint ? (
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                      <span className="inline-flex h-14 w-14 items-center justify-center rounded-full border border-white/40 bg-black/45 text-white">
+                        {focusedVideoHint === "play" ? (
+                          <Play size={24} className="translate-x-[1px]" />
+                        ) : (
+                          <Pause size={24} />
+                        )}
+                      </span>
+                    </div>
+                  ) : null}
+                  <div className="mt-2 rounded-xl bg-black/70 p-2 text-white">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={toggleFocusedVideoPlay}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/30 bg-white/10"
+                        aria-label={focusedVideoPlaying ? "Pause" : "Play"}
+                      >
+                        {focusedVideoPlaying ? <Pause size={15} /> : <Play size={15} />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={toggleFocusedVideoMute}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/30 bg-white/10"
+                        aria-label={focusedVideoMuted ? "Unmute" : "Mute"}
+                      >
+                        {focusedVideoMuted ? <VolumeX size={15} /> : <Volume2 size={15} />}
+                      </button>
+                      <input
+                        type="range"
+                        min={0}
+                        max={Math.max(focusedVideoDuration, 0)}
+                        step={0.1}
+                        value={Math.min(focusedVideoTime, focusedVideoDuration || 0)}
+                        onChange={(event) => seekFocusedVideo(event.target.value)}
+                        className="h-1.5 flex-1 accent-emerald-400"
+                        aria-label="Seek video"
+                      />
+                      <span className="w-20 text-right text-[11px]">
+                        {formatSeconds(focusedVideoTime)} / {formatSeconds(focusedVideoDuration)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <img
+                  src={focusedMedia.url}
+                  alt={focusedMedia.name || "media"}
+                  className="mx-auto max-h-[78vh] w-auto max-w-full rounded-2xl object-contain"
+                  onTouchStart={isMobileTouchDevice && !isDesktop ? handleFocusTouchStart : undefined}
+                  onTouchEnd={isMobileTouchDevice && !isDesktop ? handleFocusTouchEnd : undefined}
+                />
+              )}
+            </div>
+          </div>
+        </div>
       ) : null}
 
     </section>

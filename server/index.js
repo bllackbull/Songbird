@@ -1,11 +1,15 @@
 import express from "express";
 import path from "node:path";
+import fs from "node:fs";
 import crypto from "node:crypto";
+import { fileURLToPath } from "node:url";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
+import multer from "multer";
 import {
   addChatMember,
   createChat,
+  createMessageFiles,
   createMessage,
   createSession,
   deleteSession,
@@ -14,6 +18,7 @@ import {
   findUserById,
   findUserByUsername,
   getMessages,
+  listMessageFilesByMessageIds,
   getSession,
   isMember,
   listChatMembers,
@@ -34,6 +39,7 @@ import {
 const app = express();
 const port = process.env.PORT || 5174;
 const isProduction = process.env.NODE_ENV === "production";
+const serverDir = path.dirname(fileURLToPath(import.meta.url));
 
 app.set("trust proxy", 1);
 
@@ -63,6 +69,35 @@ const USER_COLORS = [
 ];
 const USERNAME_REGEX = /^[a-z0-9._-]+$/;
 const sseClientsByUsername = new Map();
+const dataDir = path.resolve(serverDir, "..", "data");
+const uploadRootDir = path.join(dataDir, "uploads", "messages");
+const MESSAGE_FILE_LIMITS = {
+  maxFiles: 10,
+  maxFileSizeBytes: 25 * 1024 * 1024,
+  maxTotalBytes: 75 * 1024 * 1024,
+};
+
+if (!fs.existsSync(uploadRootDir)) {
+  fs.mkdirSync(uploadRootDir, { recursive: true });
+}
+
+app.use("/uploads/messages", express.static(uploadRootDir));
+
+const uploadStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, uploadRootDir),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname || "").toLowerCase();
+    cb(null, `${Date.now()}-${crypto.randomBytes(8).toString("hex")}${ext}`);
+  },
+});
+
+const uploadFiles = multer({
+  storage: uploadStorage,
+  limits: {
+    fileSize: MESSAGE_FILE_LIMITS.maxFileSizeBytes,
+    files: MESSAGE_FILE_LIMITS.maxFiles,
+  },
+});
 
 function addSseClient(username, res) {
   const key = username.toLowerCase();
@@ -106,6 +141,60 @@ function emitChatEvent(chatId, payload) {
 function getRandomUserColor() {
   const index = Math.floor(Math.random() * USER_COLORS.length);
   return USER_COLORS[index];
+}
+
+function getUploadKind(uploadType, mimeType = "") {
+  const type = String(mimeType || "").toLowerCase();
+  if (uploadType === "media") {
+    if (type.startsWith("image/") || type.startsWith("video/")) {
+      return "media";
+    }
+    return null;
+  }
+  if (uploadType === "document") {
+    return "document";
+  }
+  return null;
+}
+
+function decodeOriginalFilename(name = "") {
+  try {
+    return Buffer.from(String(name), "latin1").toString("utf8");
+  } catch (_) {
+    return String(name || "file");
+  }
+}
+
+function inferMimeFromFilename(name = "") {
+  const ext = path.extname(String(name || "")).toLowerCase();
+  const map = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".bmp": "image/bmp",
+    ".svg": "image/svg+xml",
+    ".mp4": "video/mp4",
+    ".mov": "video/quicktime",
+    ".webm": "video/webm",
+    ".mkv": "video/x-matroska",
+    ".avi": "video/x-msvideo",
+    ".m4v": "video/mp4",
+  };
+  return map[ext] || "";
+}
+
+function removeUploadedFiles(files = []) {
+  files.forEach((file) => {
+    try {
+      if (file?.path && fs.existsSync(file.path)) {
+        fs.unlinkSync(file.path);
+      }
+    } catch (_) {
+      // best effort cleanup
+    }
+  });
 }
 
 function parseCookies(req) {
@@ -539,7 +628,26 @@ app.get("/api/messages", (req, res) => {
   }
 
   const messages = getMessages(chatId);
-  res.json({ chatId, messages });
+  const messageIds = messages.map((message) => Number(message.id)).filter(Boolean);
+  const files = listMessageFilesByMessageIds(messageIds);
+  const filesByMessageId = files.reduce((acc, file) => {
+    const messageId = Number(file.message_id);
+    if (!acc[messageId]) acc[messageId] = [];
+    acc[messageId].push({
+      id: Number(file.id),
+      kind: file.kind,
+      name: file.original_name,
+      mimeType: file.mime_type,
+      sizeBytes: Number(file.size_bytes || 0),
+      url: `/uploads/messages/${file.stored_name}`,
+    });
+    return acc;
+  }, {});
+  const enriched = messages.map((message) => ({
+    ...message,
+    files: filesByMessageId[Number(message.id)] || [],
+  }));
+  res.json({ chatId, messages: enriched });
 });
 
 app.post("/api/messages/read", (req, res) => {
@@ -585,6 +693,88 @@ app.post("/api/chats/hide", (req, res) => {
   res.json({ ok: true });
 });
 
+app.post("/api/messages/upload", uploadFiles.array("files", MESSAGE_FILE_LIMITS.maxFiles), (req, res) => {
+  const uploadedFiles = req.files || [];
+  try {
+    const chatId = Number(req.body?.chatId);
+    const username = req.body?.username?.toString();
+    const uploadType = req.body?.uploadType?.toString();
+    const body = req.body?.body?.toString() || "";
+    const trimmedBody = body.trim();
+
+    if (!chatId || !username) {
+      removeUploadedFiles(uploadedFiles);
+      return res.status(400).json({ error: "Chat and username are required." });
+    }
+    if (!uploadedFiles.length) {
+      return res.status(400).json({ error: "At least one file is required." });
+    }
+    if (uploadedFiles.length > MESSAGE_FILE_LIMITS.maxFiles) {
+      removeUploadedFiles(uploadedFiles);
+      return res.status(400).json({ error: `Maximum ${MESSAGE_FILE_LIMITS.maxFiles} files per message.` });
+    }
+
+    const user = findUserByUsername(username.toLowerCase());
+    if (!user) {
+      removeUploadedFiles(uploadedFiles);
+      return res.status(404).json({ error: "User not found." });
+    }
+    if (!isMember(chatId, user.id)) {
+      removeUploadedFiles(uploadedFiles);
+      return res.status(403).json({ error: "Not a member of this chat." });
+    }
+
+    const totalBytes = uploadedFiles.reduce((sum, file) => sum + Number(file.size || 0), 0);
+    if (totalBytes > MESSAGE_FILE_LIMITS.maxTotalBytes) {
+      removeUploadedFiles(uploadedFiles);
+      return res.status(400).json({
+        error: `Total upload size cannot exceed ${Math.round(MESSAGE_FILE_LIMITS.maxTotalBytes / (1024 * 1024))} MB.`,
+      });
+    }
+
+    const normalizedFiles = uploadedFiles.map((file) => {
+      const originalName = decodeOriginalFilename(file.originalname || "file");
+      const inferredMime = inferMimeFromFilename(originalName);
+      const mimeType = (file.mimetype || inferredMime || "application/octet-stream").toLowerCase();
+      const kind = getUploadKind(uploadType, mimeType);
+      if (!kind) {
+        throw new Error("Invalid file type for selected upload option.");
+      }
+      return {
+        kind,
+        originalName,
+        storedName: path.basename(file.filename),
+        mimeType,
+        sizeBytes: Number(file.size || 0),
+      };
+    });
+
+    const fallbackBody =
+      trimmedBody ||
+      (normalizedFiles.length === 1
+        ? `Sent ${normalizedFiles[0].kind === "media" ? "a media file" : "a document"}`
+        : `Sent ${normalizedFiles.length} files`);
+
+    const messageId = createMessage(chatId, user.id, fallbackBody);
+    if (!messageId) {
+      throw new Error("Unable to create message.");
+    }
+    createMessageFiles(messageId, normalizedFiles);
+
+    emitChatEvent(chatId, {
+      type: "chat_message",
+      chatId,
+      messageId: Number(messageId),
+      username: user.username,
+    });
+
+    return res.json({ id: Number(messageId) });
+  } catch (error) {
+    removeUploadedFiles(uploadedFiles);
+    return res.status(400).json({ error: error.message || "Unable to upload files." });
+  }
+});
+
 app.post("/api/messages", (req, res) => {
   const { chatId, username, body } = req.body || {};
   if (!chatId || !username || !body) {
@@ -605,6 +795,9 @@ app.post("/api/messages", (req, res) => {
   }
 
   const id = createMessage(Number(chatId), user.id, body);
+  if (!id) {
+    return res.status(500).json({ error: "Unable to create message." });
+  }
   emitChatEvent(Number(chatId), {
     type: "chat_message",
     chatId: Number(chatId),
@@ -619,12 +812,29 @@ if (isProduction) {
   app.use("/api", apiLimiter);
   app.use(staticLimiter);
 
-  const clientDist = path.resolve(process.cwd(), "..", "client", "dist");
+  const clientDist = path.resolve(serverDir, "..", "client", "dist");
   app.use(express.static(clientDist));
   app.get("*", (req, res) => {
     res.sendFile(path.join(clientDist, "index.html"));
   });
 }
+
+app.use((err, _req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === "LIMIT_FILE_SIZE") {
+      return res
+        .status(400)
+        .json({ error: `Each file must be smaller than ${Math.round(MESSAGE_FILE_LIMITS.maxFileSizeBytes / (1024 * 1024))} MB.` });
+    }
+    if (err.code === "LIMIT_FILE_COUNT") {
+      return res
+        .status(400)
+        .json({ error: `Maximum ${MESSAGE_FILE_LIMITS.maxFiles} files per message.` });
+    }
+    return res.status(400).json({ error: err.message });
+  }
+  return next(err);
+});
 
 app.listen(port, () => {
   console.log(`Songbird server running on http://localhost:${port}`);
