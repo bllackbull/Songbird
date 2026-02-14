@@ -445,6 +445,30 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (!activeChatId) return;
     const container = chatScrollRef.current;
     if (!container) return;
+    const snapToBottom = () => {
+      const rafIds = [];
+      const applyBottom = () => {
+        const el = chatScrollRef.current;
+        if (!el) return;
+        el.scrollTop = el.scrollHeight + 1000;
+      };
+      applyBottom();
+      rafIds.push(
+        requestAnimationFrame(() => {
+          applyBottom();
+          rafIds.push(
+            requestAnimationFrame(() => {
+              applyBottom();
+            }),
+          );
+        }),
+      );
+      const timeoutId = window.setTimeout(applyBottom, 90);
+      return () => {
+        rafIds.forEach((id) => cancelAnimationFrame(id));
+        window.clearTimeout(timeoutId);
+      };
+    };
     if (pendingScrollToUnreadRef.current) {
       const target = document.getElementById(
         `message-${pendingScrollToUnreadRef.current}`,
@@ -467,8 +491,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     ) {
       return;
     }
-    container.scrollTop = container.scrollHeight;
+    const cleanupSnap = snapToBottom();
     pendingScrollToBottomRef.current = false;
+    return cleanupSnap;
   }, [messages, activeChatId, loadingMessages]);
 
   useEffect(() => {

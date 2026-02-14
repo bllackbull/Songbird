@@ -11,7 +11,7 @@
 
 **Lightweight self-hosted chat app (React + Vite frontend, Node/Express + sql.js backend)**
 
-This repository contains the Songbird chat application. The server uses a file-backed SQLite database via `sql.js` and the client is built with React + Vite + Tailwind.
+This repository contains the Songbird chat application. The server uses a file-backed SQLite database via sql.js and the client is built with React + Vite.
 
 ## Repo layout
 
@@ -106,6 +106,7 @@ Notes:
 ```bash
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin songbird
 sudo chown -R songbird:songbird /opt/songbird
+git config --global --add safe.directory /opt/songbird
 ```
 
 - If Node is installed somewhere else, update `ExecStart` accordingly (use full path to `node`).
