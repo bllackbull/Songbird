@@ -1,4 +1,5 @@
-import { ArrowDown, ArrowLeft, Check, CheckCheck, LoaderCircle, SendHorizonal as Send } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AlertCircle, ArrowDown, ArrowLeft, Check, CheckCheck, Clock12, LoaderCircle, SendHorizonal as Send } from "lucide-react";
 import { getAvatarStyle } from "../utils/avatarColor.js";
 import { hasPersian } from "../utils/fontUtils.js";
 import { getAvatarInitials } from "../utils/avatarInitials.js";
@@ -23,12 +24,197 @@ export default function ChatWindowPanel({
   onJumpToLatest,
   isConnected,
   isDark,
+  insecureConnection,
 }) {
+  const [isDesktop, setIsDesktop] = useState(
+    typeof window !== "undefined" ? window.matchMedia("(min-width: 768px)").matches : false,
+  );
   const activePeerColor = activeHeaderPeer?.color || "#10b981";
   const activePeerInitials = getAvatarInitials(activeFallbackTitle || "S");
   const urlPattern = /((?:https?:\/\/|www\.)[^\s<]+)/gi;
   const hasUrlPattern = /(?:https?:\/\/|www\.)[^\s<]+/i;
   const isUrlPattern = /^(?:https?:\/\/|www\.)[^\s<]+$/i;
+  const [floatingDayLabel, setFloatingDayLabel] = useState(null);
+  const [showFloatingDayChip, setShowFloatingDayChip] = useState(false);
+  const [isHoveringFloatingDayChip, setIsHoveringFloatingDayChip] = useState(false);
+  const [scrollbarWidth, setScrollbarWidth] = useState(0);
+  const isHoveringFloatingDayChipRef = useRef(false);
+  const scrollIdleTimeoutRef = useRef(null);
+  const touchStartXRef = useRef(0);
+  const touchStartYRef = useRef(0);
+  const touchDxRef = useRef(0);
+  const touchDyRef = useRef(0);
+  const trackingSwipeRef = useRef(false);
+
+  const updateFloatingDayLabel = useCallback(() => {
+    const container = chatScrollRef?.current;
+    if (!container || !activeChatId || !messages.length) {
+      setFloatingDayLabel(null);
+      return;
+    }
+
+    const scrollTop = container.scrollTop;
+    const containerPaddingTop =
+      Number.parseFloat(window.getComputedStyle(container).paddingTop || "0") || 0;
+    const messageNodes = Array.from(container.querySelectorAll("[data-msg-day]"));
+    const dayChips = Array.from(container.querySelectorAll("[data-day-chip]"));
+    if (!messageNodes.length || !dayChips.length) {
+      setFloatingDayLabel(null);
+      return;
+    }
+
+    const anchorTop = scrollTop + containerPaddingTop + 8;
+    const firstVisibleMessage =
+      messageNodes.find(
+        (node) => node.offsetTop + node.offsetHeight >= anchorTop,
+      ) || messageNodes[messageNodes.length - 1];
+    const currentLabel = firstVisibleMessage?.getAttribute("data-msg-day") || null;
+    if (!currentLabel) {
+      setFloatingDayLabel(null);
+      return;
+    }
+
+    const matchingChips = dayChips.filter(
+      (chip) => chip.getAttribute("data-day-chip") === currentLabel,
+    );
+    if (!matchingChips.length) {
+      setFloatingDayLabel(currentLabel);
+      return;
+    }
+
+    let currentChip = matchingChips[0];
+    for (let index = 0; index < matchingChips.length; index += 1) {
+      const chip = matchingChips[index];
+      if (chip.offsetTop <= firstVisibleMessage.offsetTop + 1) {
+        currentChip = chip;
+      } else {
+        break;
+      }
+    }
+
+    const chipTop = currentChip.offsetTop;
+    const chipBottom = chipTop + currentChip.offsetHeight;
+    const viewportTop = scrollTop + containerPaddingTop + 8;
+    const viewportBottom = scrollTop + container.clientHeight - 8;
+    const inlineChipVisible =
+      chipBottom >= viewportTop && chipTop <= viewportBottom;
+    setFloatingDayLabel(inlineChipVisible ? null : currentLabel);
+  }, [activeChatId, chatScrollRef, messages]);
+
+  useEffect(() => {
+    updateFloatingDayLabel();
+  }, [messages, activeChatId, loadingMessages, updateFloatingDayLabel]);
+
+  useEffect(() => {
+    setShowFloatingDayChip(false);
+  }, [activeChatId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(min-width: 768px)");
+    const update = () => setIsDesktop(media.matches);
+    update();
+    if (media.addEventListener) {
+      media.addEventListener("change", update);
+      return () => media.removeEventListener("change", update);
+    }
+    media.addListener(update);
+    return () => media.removeListener(update);
+  }, []);
+
+  useEffect(() => {
+    const container = chatScrollRef?.current;
+    if (!container) return;
+    const update = () => {
+      const width = Math.max(0, container.offsetWidth - container.clientWidth);
+      setScrollbarWidth(width);
+    };
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [chatScrollRef, activeChatId, messages.length]);
+
+  const handlePanelScroll = (event) => {
+    onChatScroll?.(event);
+    updateFloatingDayLabel();
+    setShowFloatingDayChip(true);
+    if (scrollIdleTimeoutRef.current) {
+      clearTimeout(scrollIdleTimeoutRef.current);
+    }
+    scrollIdleTimeoutRef.current = setTimeout(() => {
+      if (!isHoveringFloatingDayChipRef.current) {
+        setShowFloatingDayChip(false);
+      }
+    }, 1500);
+  };
+
+  const handleFloatingDayChipClick = () => {
+    if (!floatingDayLabel || !chatScrollRef?.current) return;
+    const container = chatScrollRef.current;
+    const dayChips = Array.from(container.querySelectorAll("[data-day-chip]"));
+    const targetChip = dayChips.find(
+      (chip) => chip.getAttribute("data-day-chip") === floatingDayLabel,
+    );
+    if (!targetChip) return;
+    const containerRect = container.getBoundingClientRect();
+    const chipRect = targetChip.getBoundingClientRect();
+    const top =
+      container.scrollTop + (chipRect.top - containerRect.top);
+    container.scrollTo({
+      top: Math.max(top, 0),
+      behavior: "smooth",
+    });
+  };
+
+  useEffect(() => {
+    return () => {
+      if (scrollIdleTimeoutRef.current) {
+        clearTimeout(scrollIdleTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const scheduleFloatingChipHide = () => {
+    if (scrollIdleTimeoutRef.current) {
+      clearTimeout(scrollIdleTimeoutRef.current);
+    }
+    scrollIdleTimeoutRef.current = setTimeout(() => {
+      if (!isHoveringFloatingDayChipRef.current) {
+        setShowFloatingDayChip(false);
+      }
+    }, 1500);
+  };
+
+  const handleTouchStart = (event) => {
+    if (!activeChatId) return;
+    if (isDesktop) return;
+    const touch = event.touches?.[0];
+    if (!touch) return;
+    // Start near left edge to avoid interfering with message scroll/swipes.
+    trackingSwipeRef.current = touch.clientX <= 40;
+    touchStartXRef.current = touch.clientX;
+    touchStartYRef.current = touch.clientY;
+    touchDxRef.current = 0;
+    touchDyRef.current = 0;
+  };
+
+  const handleTouchMove = (event) => {
+    if (!trackingSwipeRef.current) return;
+    const touch = event.touches?.[0];
+    if (!touch) return;
+    touchDxRef.current = touch.clientX - touchStartXRef.current;
+    touchDyRef.current = touch.clientY - touchStartYRef.current;
+  };
+
+  const handleTouchEnd = () => {
+    if (!trackingSwipeRef.current) return;
+    const dx = touchDxRef.current;
+    const dy = Math.abs(touchDyRef.current);
+    trackingSwipeRef.current = false;
+    if (dx > 80 && dy < 70) {
+      closeChat?.();
+    }
+  };
 
   const renderMessageBody = (body) => {
     const text = body || "";
@@ -65,13 +251,16 @@ export default function ChatWindowPanel({
           : "translate-x-full md:translate-x-0")
       }
       style={{ paddingTop: "max(0px, env(safe-area-inset-top))" }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
     >
       {activeChatId ? (
         <div className="sticky top-0 z-20 flex h-[72px] items-center justify-between gap-3 border-b border-slate-300/80 bg-white px-6 py-4 dark:border-emerald-500/20 dark:bg-slate-900">
           <button
             type="button"
             onClick={closeChat}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white/80 text-emerald-700 transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 md:hidden"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white/80 text-emerald-700 transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 md:invisible md:pointer-events-none"
             aria-label="Back to chats"
           >
             <ArrowLeft size={18} />
@@ -123,17 +312,70 @@ export default function ChatWindowPanel({
         </div>
       ) : null}
 
+      {insecureConnection && activeChatId ? (
+        <div
+          className="pointer-events-none absolute left-1/2 z-20 -translate-x-1/2"
+          style={{ top: "calc(env(safe-area-inset-top) + 80px)" }}
+        >
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-rose-300/80 bg-rose-50 px-3 py-1 text-xs font-semibold leading-none text-rose-700 dark:border-rose-500/40 dark:bg-rose-900/25 dark:text-rose-200">
+            <AlertCircle className="h-[13px] w-[13px] shrink-0 -translate-y-[0.5px]" />
+            <span className="leading-none">Connection is not secure.</span>
+          </div>
+        </div>
+      ) : null}
+
+      {activeChatId && floatingDayLabel && showFloatingDayChip ? (
+        <div
+          className="absolute left-1/2 z-20 -translate-x-1/2"
+          style={{
+            top: insecureConnection
+              ? "calc(env(safe-area-inset-top) + 116px)"
+              : "calc(env(safe-area-inset-top) + 80px)",
+          }}
+        >
+          <button
+            type="button"
+            onClick={handleFloatingDayChipClick}
+            onMouseEnter={() => {
+              isHoveringFloatingDayChipRef.current = true;
+              setIsHoveringFloatingDayChip(true);
+              if (scrollIdleTimeoutRef.current) {
+                clearTimeout(scrollIdleTimeoutRef.current);
+              }
+            }}
+            onMouseLeave={() => {
+              isHoveringFloatingDayChipRef.current = false;
+              setIsHoveringFloatingDayChip(false);
+              scheduleFloatingChipHide();
+            }}
+            className="rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+          >
+            {floatingDayLabel}
+          </button>
+        </div>
+      ) : null}
+
       <div
         ref={chatScrollRef}
-        onScroll={onChatScroll}
-        className="chat-scroll flex-1 space-y-3 overflow-y-auto px-6 py-6"
+        onScroll={handlePanelScroll}
+        className="chat-scroll flex-1 space-y-3 overflow-y-auto overflow-x-hidden px-6 py-6"
         style={{
           backgroundImage: isDark
             ? "radial-gradient(circle at top right, rgba(16,185,129,0.22), transparent 48%), radial-gradient(circle at bottom left, rgba(16,185,129,0.20), transparent 44%)"
             : "radial-gradient(circle at top right, rgba(16,185,129,0.10), transparent 45%), radial-gradient(circle at bottom left, rgba(16,185,129,0.09), transparent 40%)",
           backgroundColor: isDark ? "#0b1320" : "#dcfce7",
+          paddingTop:
+            activeChatId && (insecureConnection || floatingDayLabel)
+              ? insecureConnection
+                ? "6.5rem"
+                : "4.5rem"
+              : undefined,
+          marginBottom:
+            activeChatId && !isDesktop
+              ? "calc(env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px) + 4.25rem - 1px)"
+              : undefined,
           paddingBottom: activeChatId
-            ? "max(7rem, calc(env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px) + 7rem))"
+            ? "max(1rem, calc(env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px) + 1rem))"
             : undefined,
         }}
       >
@@ -143,7 +385,7 @@ export default function ChatWindowPanel({
               Select a chat to start
             </div>
           </div>
-        ) : loadingMessages ? (
+        ) : loadingMessages || (!isConnected && messages.length === 0) ? (
           <div className="space-y-3">
             {Array.from({ length: 7 }).map((_, index) => {
               const own = index % 2 === 0;
@@ -167,15 +409,26 @@ export default function ChatWindowPanel({
           messages.map((msg, index) => {
             const isOwn = msg.username === user.username;
             const isRead = Boolean(msg.read_at);
+            const isSending = msg._delivery === "sending";
+            const isFailed = msg._delivery === "failed";
             const currentDayKey = msg._dayKey || "";
             const prevDayKey = index > 0 ? messages[index - 1]?._dayKey || "" : "";
             const isNewDay = !prevDayKey || currentDayKey !== prevDayKey;
             const dayLabel = msg._dayLabel || "";
             return (
-              <div key={msg.id} id={`message-${msg.id}`}>
+              <div key={msg.id} id={`message-${msg.id}`} data-msg-day={dayLabel}>
                 {isNewDay ? (
-                  <div className="my-3 flex justify-center">
-                    <div className="rounded-full border border-emerald-200/60 bg-white/80 px-3 py-1 text-[11px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200">
+                  <div
+                    className="relative my-3 h-6"
+                    style={{
+                      width: "calc(100% + 3rem)",
+                      marginLeft: `calc(-1.5rem + ${scrollbarWidth / 2}px)`,
+                    }}
+                  >
+                    <div
+                      data-day-chip={dayLabel}
+                      className="absolute left-1/2 top-1/2 inline-flex w-max -translate-x-1/2 -translate-y-1/2 rounded-full border border-emerald-200/60 bg-white/80 px-3 py-1 text-[11px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+                    >
                       {dayLabel}
                     </div>
                   </div>
@@ -211,12 +464,25 @@ export default function ChatWindowPanel({
                       {isOwn ? (
                         <span
                           className={`inline-flex items-center ${
-                            isRead
-                              ? "text-sky-400"
-                              : "text-emerald-900/80 dark:text-emerald-50/80"
+                            isSending
+                              ? "text-emerald-900/80 dark:text-emerald-50/80"
+                              : isFailed
+                                ? "text-rose-500"
+                              : isRead
+                                ? "text-sky-400"
+                                : "text-emerald-900/80 dark:text-emerald-50/80"
                           }`}
                         >
-                          {isRead ? (
+                          {isSending ? (
+                            <Clock12
+                              size={15}
+                              strokeWidth={2.4}
+                              className="animate-spin"
+                              aria-hidden="true"
+                            />
+                          ) : isFailed ? (
+                            <AlertCircle size={15} strokeWidth={2.4} aria-hidden="true" />
+                          ) : isRead ? (
                             <CheckCheck size={15} strokeWidth={2.5} aria-hidden="true" />
                           ) : (
                             <Check size={15} strokeWidth={2.5} aria-hidden="true" />
@@ -240,10 +506,12 @@ export default function ChatWindowPanel({
 
       {activeChatId ? (
         <form
-          className="absolute inset-x-0 bottom-0 z-30 flex flex-col gap-3 border-t border-slate-300/80 bg-white px-4 py-3 dark:border-emerald-500/20 dark:bg-slate-900 sm:px-6"
+          className="absolute inset-x-0 bottom-0 z-30 flex flex-col gap-3 border-t border-slate-300/80 bg-white px-4 py-3 dark:border-emerald-500/20 dark:bg-slate-900 sm:px-6 md:static md:mt-auto md:shrink-0"
           style={{
-            bottom: "var(--mobile-bottom-offset, 0px)",
-            paddingBottom: "max(0.75rem, calc(env(safe-area-inset-bottom) + 0.5rem))",
+            bottom: isDesktop ? undefined : "var(--mobile-bottom-offset, 0px)",
+            paddingBottom: isDesktop
+              ? "0.75rem"
+              : "max(0.75rem, calc(env(safe-area-inset-bottom) + 0.5rem))",
           }}
           onSubmit={handleSend}
         >

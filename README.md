@@ -11,7 +11,7 @@
 
 **Lightweight self-hosted chat app (React + Vite frontend, Node/Express + sql.js backend)**
 
-This repository contains the Songbird chat application. The server uses a file-backed SQLite database via `sql.js` and the client is built with React + Vite + Tailwind.
+This repository contains the Songbird chat application. The server uses a file-backed SQLite database via sql.js and the client is built with React + Vite.
 
 ## Repo layout
 
@@ -101,7 +101,14 @@ WantedBy=multi-user.target
 Notes:
 
 - Add `User=` if you prefer an specific user (e.g., create a dedicated `songbird` user for separation).
-- If you decided to create a dedicated user, make sure to change ownership with `sudo chown -R songbird:songbird /opt/songbird` (assuming the user is `songbird`).
+- If you decided to create a dedicated user, make sure to create system user and change ownership:
+
+```bash
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin songbird
+sudo chown -R songbird:songbird /opt/songbird
+git config --global --add safe.directory /opt/songbird
+```
+
 - If Node is installed somewhere else, update `ExecStart` accordingly (use full path to `node`).
 
 Enable and start the service:
@@ -195,18 +202,6 @@ Recommended production flow:
 4. Build frontend
 5. Run migrations
 6. Restart services
-
-### Adding a new migration
-
-1. Create a new file in `server/migrations/` named like `003-your-change.js`.
-2. Export an object with:
-   - `version`: next integer (must be unique and increasing)
-   - `up(context)`: migration logic
-3. Add the migration to `server/migrations/index.js`.
-4. Run:
-   - `npm run backup:db`
-   - `npm run migrate`
-5. Start the server and verify app behavior against existing data.
 
 ## Updating the deployed app
 

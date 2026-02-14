@@ -169,7 +169,9 @@ export default function ChatsListPanel({
                         )
                       : null;
                   setActivePeer(nextOther || null);
-                  setMobileTab("chat");
+                  if (window.matchMedia("(max-width: 767px)").matches) {
+                    setMobileTab("chat");
+                  }
                   isAtBottomRef.current = true;
                   setIsAtBottom(true);
                   setUnreadInChat(0);
