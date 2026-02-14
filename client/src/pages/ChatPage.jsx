@@ -554,41 +554,58 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   useLayoutEffect(() => {
     if (!activeChatId) return;
-    const pendingUnread = pendingScrollToUnreadRef.current;
-    if (pendingUnread === null || pendingUnread === undefined) return;
-    if (loadingMessages || messages.length === 0) return;
-
-    requestAnimationFrame(() => {
-      const unreadId = Number(pendingUnread);
-      const scroller = chatScrollRef.current;
-      if (scroller) {
-        scheduleUnreadAnchorAlignment(unreadId);
+    const container = chatScrollRef.current;
+    if (!container) return;
+    const snapToBottom = () => {
+      const rafIds = [];
+      const applyBottom = () => {
+        const el = chatScrollRef.current;
+        if (!el) return;
+        el.scrollTop = el.scrollHeight + 1000;
+      };
+      applyBottom();
+      rafIds.push(
+        requestAnimationFrame(() => {
+          applyBottom();
+          rafIds.push(
+            requestAnimationFrame(() => {
+              applyBottom();
+            }),
+          );
+        }),
+      );
+      const timeoutId = window.setTimeout(applyBottom, 90);
+      return () => {
+        rafIds.forEach((id) => cancelAnimationFrame(id));
+        window.clearTimeout(timeoutId);
+      };
+    };
+    if (pendingScrollToUnreadRef.current) {
+      const target = document.getElementById(
+        `message-${pendingScrollToUnreadRef.current}`,
+      );
+      if (target) {
+        const top = target.offsetTop - container.offsetTop - 24;
+        container.scrollTop = Math.max(top, 0);
+        pendingScrollToUnreadRef.current = null;
       }
-      pendingScrollToUnreadRef.current = null;
-      pendingScrollToBottomRef.current = false;
-      isAtBottomRef.current = false;
-      setIsAtBottom(false);
-      userScrolledUpRef.current = true;
-      setUserScrolledUp(true);
-      unreadAnchorLockUntilRef.current = Date.now() + 4000;
-    });
-  }, [activeChatId, messages, loadingMessages]);
-
-  useLayoutEffect(() => {
-    if (!activeChatId) return;
-    if (!pendingScrollToBottomRef.current) return;
-    if (loadingMessages && messages.length === 0) return;
-    requestAnimationFrame(() => {
-      scrollChatToBottom("auto");
-      requestAnimationFrame(() => {
-        scrollChatToBottom("auto");
-      });
-      window.setTimeout(() => {
-        scrollChatToBottom("auto");
-      }, 120);
-      pendingScrollToBottomRef.current = false;
-    });
-  }, [activeChatId, messages, loadingMessages]);
+      return;
+    }
+    const shouldScroll =
+      pendingScrollToBottomRef.current ||
+      (!userScrolledUpRef.current && isAtBottomRef.current);
+    if (!shouldScroll) return;
+    if (
+      pendingScrollToBottomRef.current &&
+      loadingMessages &&
+      messages.length === 0
+    ) {
+      return;
+    }
+    const cleanupSnap = snapToBottom();
+    pendingScrollToBottomRef.current = false;
+    return cleanupSnap;
+  }, [messages, activeChatId, loadingMessages]);
 
   useEffect(() => {
     if (!activeChatId) return;
