@@ -327,3 +327,210 @@ export function touchSession(token) {
 export function deleteSession(token) {
   run('DELETE FROM sessions WHERE token = ?', [token])
 }
+
+export function createMailMessage({
+  senderUserId = null,
+  senderEmail,
+  senderName = null,
+  recipientUserId,
+  recipientEmail,
+  subject = '',
+  body,
+  source = 'internal',
+}) {
+  run(
+    `
+    INSERT INTO mail_messages (
+      sender_user_id, sender_email, sender_name, recipient_user_id, recipient_email, subject, body, source
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `,
+    [senderUserId, senderEmail, senderName, recipientUserId, recipientEmail, subject, body, source]
+  )
+  return getLastInsertId()
+}
+
+export function listMailMessagesForUser(userId, folder = 'inbox', limit = 100) {
+  const safeLimit = Math.max(1, Number(limit) || 100)
+  let whereClause = 'm.recipient_user_id = ? AND m.deleted_by_recipient = 0'
+  let params = [userId, safeLimit]
+
+  if (folder === 'sent') {
+    whereClause = 'm.sender_user_id = ? AND m.deleted_by_sender = 0'
+    params = [userId, safeLimit]
+  } else if (folder === 'trash') {
+    whereClause =
+      '((m.recipient_user_id = ? AND m.deleted_by_recipient = 1) OR (m.sender_user_id = ? AND m.deleted_by_sender = 1))'
+    params = [userId, userId, safeLimit]
+  }
+
+  return getAll(
+    `
+    SELECT
+      m.id,
+      m.sender_email,
+      m.sender_name,
+      m.recipient_email,
+      m.subject,
+      m.body,
+      m.source,
+      m.received_at,
+      m.read_at,
+      m.sender_user_id,
+      m.recipient_user_id,
+      su.username AS sender_username,
+      su.nickname AS sender_nickname,
+      su.avatar_url AS sender_avatar_url,
+      su.color AS sender_color,
+      ru.username AS recipient_username,
+      ru.nickname AS recipient_nickname,
+      ru.avatar_url AS recipient_avatar_url,
+      ru.color AS recipient_color
+    FROM mail_messages m
+    LEFT JOIN users su ON su.id = m.sender_user_id
+    LEFT JOIN users ru ON ru.id = m.recipient_user_id
+    WHERE ${whereClause}
+    ORDER BY m.received_at DESC
+    LIMIT ?
+  `,
+    params
+  ).map((row) => {
+    const isSent = Number(row.sender_user_id) === Number(userId)
+    const peerName = isSent
+      ? row.recipient_nickname || row.recipient_username || row.recipient_email
+      : row.sender_name || row.sender_nickname || row.sender_username || row.sender_email
+    const peerEmail = isSent ? row.recipient_email : row.sender_email
+    const peerAvatarUrl = isSent ? row.recipient_avatar_url : row.sender_avatar_url
+    const peerColor = isSent ? row.recipient_color : row.sender_color
+    return {
+      ...row,
+      direction: isSent ? 'sent' : 'inbox',
+      peer_name: peerName,
+      peer_email: peerEmail,
+      peer_avatar_url: peerAvatarUrl,
+      peer_color: peerColor || '#10b981',
+    }
+  })
+}
+
+export function getMailMessageForUser(userId, mailId) {
+  return getRow(
+    `
+    SELECT
+      m.id,
+      m.sender_email,
+      m.sender_name,
+      m.recipient_email,
+      m.subject,
+      m.body,
+      m.source,
+      m.received_at,
+      m.read_at,
+      m.sender_user_id,
+      m.recipient_user_id,
+      su.username AS sender_username,
+      su.nickname AS sender_nickname,
+      su.avatar_url AS sender_avatar_url,
+      su.color AS sender_color,
+      ru.username AS recipient_username,
+      ru.nickname AS recipient_nickname,
+      ru.avatar_url AS recipient_avatar_url,
+      ru.color AS recipient_color
+    FROM mail_messages m
+    LEFT JOIN users ru ON ru.id = m.recipient_user_id
+    LEFT JOIN users su ON su.id = m.sender_user_id
+    WHERE m.id = ?
+      AND (
+        m.recipient_user_id = ?
+        OR m.sender_user_id = ?
+      )
+    LIMIT 1
+  `,
+    [mailId, userId, userId]
+  )
+}
+
+export function markMailMessageReadForUser(userId, mailId) {
+  run(
+    `
+    UPDATE mail_messages
+    SET read_at = datetime('now')
+    WHERE id = ? AND recipient_user_id = ? AND deleted_by_recipient = 0 AND read_at IS NULL
+  `,
+    [mailId, userId]
+  )
+}
+
+export function deleteMailMessageForUser(userId, mailId) {
+  run(
+    `
+    UPDATE mail_messages
+    SET deleted_by_sender = 1
+    WHERE id = ? AND sender_user_id = ?
+  `,
+    [mailId, userId]
+  )
+  run(
+    `
+    UPDATE mail_messages
+    SET deleted_by_recipient = 1
+    WHERE id = ? AND recipient_user_id = ?
+  `,
+    [mailId, userId]
+  )
+}
+
+export function restoreMailMessageForUser(userId, mailId) {
+  run(
+    `
+    UPDATE mail_messages
+    SET deleted_by_sender = 0
+    WHERE id = ? AND sender_user_id = ?
+  `,
+    [mailId, userId]
+  )
+  run(
+    `
+    UPDATE mail_messages
+    SET deleted_by_recipient = 0
+    WHERE id = ? AND recipient_user_id = ?
+  `,
+    [mailId, userId]
+  )
+}
+
+export function purgeOldTrashedMailForUser(userId, days = 7) {
+  run(
+    `
+    DELETE FROM mail_messages
+    WHERE received_at < datetime('now', ?)
+      AND (
+        (recipient_user_id = ? AND deleted_by_recipient = 1)
+        OR (sender_user_id = ? AND deleted_by_sender = 1)
+      )
+  `,
+    [`-${Number(days) || 7} days`, userId, userId]
+  )
+}
+
+export function deleteAllTrashForUser(userId) {
+  run(
+    `
+    DELETE FROM mail_messages
+    WHERE (recipient_user_id = ? AND deleted_by_recipient = 1)
+       OR (sender_user_id = ? AND deleted_by_sender = 1)
+  `,
+    [userId, userId]
+  )
+}
+
+export function countUnreadMailForUser(userId) {
+  const row = getRow(
+    `
+    SELECT COUNT(*) AS unread_count
+    FROM mail_messages
+    WHERE recipient_user_id = ? AND deleted_by_recipient = 0 AND read_at IS NULL
+  `,
+    [userId]
+  )
+  return Number(row?.unread_count || 0)
+}

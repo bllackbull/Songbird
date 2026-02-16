@@ -76,6 +76,9 @@ The build will produce a `client/dist` folder which will be served by Nginx.
 
 - The server reads `PORT` (default 5174) and `NODE_ENV` (use `production`) from environment variables. The server sets the session cookie `Secure` flag when `NODE_ENV=production`.
 - If you need to set environment variables for the app, you can create a systemd drop-in (see below) or an `.env` and a small wrapper script.
+- Mail-related variables:
+  - `MAIL_DOMAIN` (optional): mailbox domain used for user addresses (example: `example.com` -> `username@example.com`). If omitted, the server derives it from request host (for `chat.example.com` it resolves to `example.com`).
+  - `MAIL_INBOUND_TOKEN` (optional, required for external inbound): enables `/api/mail/inbound` webhook for your SMTP/email provider and secures it via `x-inbound-token`.
 
 ### 5. Create systemd service for the Node server
 

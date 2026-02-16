@@ -5,20 +5,29 @@ import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import {
   addChatMember,
+  countUnreadMailForUser,
   createChat,
+  createMailMessage,
   createMessage,
   createSession,
   deleteSession,
+  deleteAllTrashForUser,
+  deleteMailMessageForUser,
   createUser,
   findDmChat,
   findUserById,
   findUserByUsername,
+  getMailMessageForUser,
   getMessages,
   getSession,
   isMember,
+  listMailMessagesForUser,
   listChatMembers,
   listChatsForUser,
   listUsers,
+  markMailMessageReadForUser,
+  purgeOldTrashedMailForUser,
+  restoreMailMessageForUser,
   searchUsers,
   touchSession,
   updateLastSeen,
@@ -62,7 +71,44 @@ const USER_COLORS = [
   "#ec4899",
 ];
 const USERNAME_REGEX = /^[a-z0-9._-]+$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAIL_INBOUND_TOKEN = process.env.MAIL_INBOUND_TOKEN || "";
+const MAIL_DOMAIN_OVERRIDE = process.env.MAIL_DOMAIN?.toLowerCase() || "";
 const sseClientsByUsername = new Map();
+
+function getMailDomain(req) {
+  if (MAIL_DOMAIN_OVERRIDE) return MAIL_DOMAIN_OVERRIDE;
+  const hostRaw = (req.headers["x-forwarded-host"] || req.headers.host || "")
+    .toString()
+    .split(",")[0]
+    .trim()
+    .toLowerCase();
+  const host = hostRaw.replace(/:\d+$/, "");
+  if (!host || host === "localhost") return "localhost";
+  const parts = host.split(".");
+  if (parts.length >= 3) {
+    return parts.slice(1).join(".");
+  }
+  return host;
+}
+
+function getUserMailAddress(req, username) {
+  return `${username.toLowerCase()}@${getMailDomain(req)}`;
+}
+
+function normalizeRecipientValues(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return value
+      .flatMap((entry) => `${entry}`.split(/[,\s]+/))
+      .map((entry) => entry.trim().toLowerCase())
+      .filter(Boolean);
+  }
+  return `${value}`
+    .split(/[,\s]+/)
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+}
 
 function addSseClient(username, res) {
   const key = username.toLowerCase();
@@ -101,6 +147,11 @@ function emitChatEvent(chatId, payload) {
     if (!member?.username) return;
     emitSseEvent(member.username, payload);
   });
+}
+
+function emitMailEvent(username, payload) {
+  if (!username) return;
+  emitSseEvent(username, payload);
 }
 
 function getRandomUserColor() {
@@ -279,6 +330,214 @@ app.get("/api/me", (req, res) => {
     color: session.color || "#10b981",
     status: session.status || "online",
   });
+});
+
+app.get("/api/mail", (req, res) => {
+  const username = req.query.username?.toString()?.toLowerCase();
+  const limit = Number(req.query.limit) || 100;
+  const folderRaw = req.query.folder?.toString()?.toLowerCase() || "inbox";
+  const folder = ["inbox", "sent", "trash"].includes(folderRaw)
+    ? folderRaw
+    : "inbox";
+  if (!username) {
+    return res.status(400).json({ error: "Username is required." });
+  }
+  const user = findUserByUsername(username);
+  if (!user) {
+    return res.status(404).json({ error: "User not found." });
+  }
+  if (folder === "trash") {
+    purgeOldTrashedMailForUser(user.id, 7);
+  }
+  const mails = listMailMessagesForUser(
+    user.id,
+    folder,
+    Math.min(Math.max(limit, 1), 200),
+  );
+  const unreadCount = countUnreadMailForUser(user.id);
+  res.json({
+    address: getUserMailAddress(req, user.username),
+    folder,
+    unreadCount,
+    mails,
+  });
+});
+
+app.get("/api/mail/:id", (req, res) => {
+  const username = req.query.username?.toString()?.toLowerCase();
+  const mailId = Number(req.params.id);
+  if (!username || !mailId) {
+    return res.status(400).json({ error: "Username and mail id are required." });
+  }
+  const user = findUserByUsername(username);
+  if (!user) {
+    return res.status(404).json({ error: "User not found." });
+  }
+  const mail = getMailMessageForUser(user.id, mailId);
+  if (!mail) {
+    return res.status(404).json({ error: "Mail not found." });
+  }
+  res.json({ mail });
+});
+
+app.post("/api/mail", (req, res) => {
+  const { fromUsername, toUsername, subject, body } = req.body || {};
+  if (!fromUsername || !toUsername || !body) {
+    return res.status(400).json({
+      error: "fromUsername, toUsername, and body are required.",
+    });
+  }
+  const fromUser = findUserByUsername(fromUsername.toLowerCase());
+  if (!fromUser) {
+    return res.status(404).json({ error: "Sender not found." });
+  }
+  const toUser = findUserByUsername(toUsername.toLowerCase());
+  if (!toUser) {
+    return res.status(404).json({ error: "Recipient not found." });
+  }
+  const createdId = createMailMessage({
+    senderUserId: fromUser.id,
+    senderEmail: getUserMailAddress(req, fromUser.username),
+    senderName: fromUser.nickname || fromUser.username,
+    recipientUserId: toUser.id,
+    recipientEmail: getUserMailAddress(req, toUser.username),
+    subject: subject?.toString()?.trim() || "",
+    body: body?.toString() || "",
+    source: "internal",
+  });
+  emitMailEvent(toUser.username, {
+    type: "mail_updated",
+    username: toUser.username,
+    mailId: Number(createdId),
+  });
+  emitMailEvent(fromUser.username, {
+    type: "mail_updated",
+    username: fromUser.username,
+    mailId: Number(createdId),
+  });
+  res.json({ id: createdId });
+});
+
+app.post("/api/mail/:id/read", (req, res) => {
+  const { username } = req.body || {};
+  const mailId = Number(req.params.id);
+  if (!username || !mailId) {
+    return res.status(400).json({ error: "Username and mail id are required." });
+  }
+  const user = findUserByUsername(username.toLowerCase());
+  if (!user) {
+    return res.status(404).json({ error: "User not found." });
+  }
+  markMailMessageReadForUser(user.id, mailId);
+  res.json({ ok: true });
+});
+
+app.delete("/api/mail/:id", (req, res) => {
+  const username = req.query.username?.toString()?.toLowerCase();
+  const mailId = Number(req.params.id);
+  if (!username || !mailId) {
+    return res.status(400).json({ error: "Username and mail id are required." });
+  }
+  const user = findUserByUsername(username);
+  if (!user) {
+    return res.status(404).json({ error: "User not found." });
+  }
+  deleteMailMessageForUser(user.id, mailId);
+  emitMailEvent(user.username, {
+    type: "mail_updated",
+    username: user.username,
+    mailId,
+  });
+  res.json({ ok: true });
+});
+
+app.post("/api/mail/:id/restore", (req, res) => {
+  const { username } = req.body || {};
+  const mailId = Number(req.params.id);
+  if (!username || !mailId) {
+    return res.status(400).json({ error: "Username and mail id are required." });
+  }
+  const user = findUserByUsername(username.toLowerCase());
+  if (!user) {
+    return res.status(404).json({ error: "User not found." });
+  }
+  restoreMailMessageForUser(user.id, mailId);
+  emitMailEvent(user.username, {
+    type: "mail_updated",
+    username: user.username,
+    mailId,
+  });
+  res.json({ ok: true });
+});
+
+app.delete("/api/mail/actions/trash-all", (req, res) => {
+  const username = req.query.username?.toString()?.toLowerCase();
+  if (!username) {
+    return res.status(400).json({ error: "Username is required." });
+  }
+  const user = findUserByUsername(username);
+  if (!user) {
+    return res.status(404).json({ error: "User not found." });
+  }
+  deleteAllTrashForUser(user.id);
+  emitMailEvent(user.username, {
+    type: "mail_updated",
+    username: user.username,
+  });
+  res.json({ ok: true });
+});
+
+app.post("/api/mail/inbound", (req, res) => {
+  if (!MAIL_INBOUND_TOKEN) {
+    return res.status(503).json({ error: "Inbound mail is not configured." });
+  }
+  const token = req.headers["x-inbound-token"]?.toString() || "";
+  if (token !== MAIL_INBOUND_TOKEN) {
+    return res.status(401).json({ error: "Unauthorized inbound token." });
+  }
+
+  const recipients = normalizeRecipientValues(req.body?.to || req.body?.recipient || req.body?.envelopeTo);
+  if (!recipients.length) {
+    return res.status(400).json({ error: "No recipient address provided." });
+  }
+  const senderEmail = req.body?.from?.toString()?.trim()?.toLowerCase();
+  if (!senderEmail || !EMAIL_REGEX.test(senderEmail)) {
+    return res.status(400).json({ error: "A valid sender email is required." });
+  }
+  const senderName = req.body?.senderName?.toString()?.trim() || null;
+  const subject = req.body?.subject?.toString()?.trim() || "";
+  const body = req.body?.text?.toString() || req.body?.body?.toString() || req.body?.html?.toString() || "";
+  if (!body.trim()) {
+    return res.status(400).json({ error: "Mail body is required." });
+  }
+
+  let delivered = 0;
+  recipients.forEach((recipientAddress) => {
+    const [localPart] = recipientAddress.split("@");
+    if (!localPart) return;
+    const recipient = findUserByUsername(localPart);
+    if (!recipient) return;
+    createMailMessage({
+      senderUserId: null,
+      senderEmail,
+      senderName,
+      recipientUserId: recipient.id,
+      recipientEmail: getUserMailAddress(req, recipient.username),
+      subject,
+      body,
+      source: "external",
+    });
+    emitMailEvent(recipient.username, {
+      type: "mail_updated",
+      username: recipient.username,
+    });
+    delivered += 1;
+  });
+
+  if (!delivered) {
+    return res.status(404).json({ error: "No matching recipients found." });
+  }
+  res.json({ ok: true, delivered });
 });
 
 app.post("/api/logout", (req, res) => {
