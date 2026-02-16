@@ -1,5 +1,15 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowLeft,
+  ChevronDown,
+  Forward,
+  Inbox,
+  Mail,
+  MessageCircle as Chat,
+  RotateCcw,
+  Reply,
+  RefreshCw,
+  SendHorizonal as Send,
   Settings,
   X as Close,
   Plus,
@@ -19,6 +29,7 @@ import {
 import { getAvatarStyle } from "../utils/avatarColor.js";
 import { hasPersian } from "../utils/fontUtils.js";
 import { getAvatarInitials } from "../utils/avatarInitials.js";
+import { markdownToHtml } from "../utils/markdown.js";
 
 const API_BASE = "";
 const PENDING_MESSAGE_TIMEOUT_MS = 5 * 60 * 1000;
@@ -35,6 +46,24 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [messages, setMessages] = useState([]);
   const [showSettings, setShowSettings] = useState(false);
   const [mobileTab, setMobileTab] = useState("chats");
+  const [isDesktop, setIsDesktop] = useState(
+    typeof window !== "undefined" ? window.matchMedia("(min-width: 768px)").matches : false,
+  );
+  const [desktopMode, setDesktopMode] = useState("chats");
+  const [mailUnreadCount, setMailUnreadCount] = useState(0);
+  const [mailAddress, setMailAddress] = useState("");
+  const [mailFolder, setMailFolder] = useState("inbox");
+  const [showMailFolderMenu, setShowMailFolderMenu] = useState(false);
+  const [mailLoadingDesktop, setMailLoadingDesktop] = useState(false);
+  const [mailErrorDesktop, setMailErrorDesktop] = useState("");
+  const [mailItemsDesktop, setMailItemsDesktop] = useState([]);
+  const [selectedMailIdDesktop, setSelectedMailIdDesktop] = useState(null);
+  const [composeDesktopOpen, setComposeDesktopOpen] = useState(false);
+  const [composeDesktopTo, setComposeDesktopTo] = useState("");
+  const [composeDesktopSubject, setComposeDesktopSubject] = useState("");
+  const [composeDesktopBody, setComposeDesktopBody] = useState("");
+  const [composeDesktopSending, setComposeDesktopSending] = useState(false);
+  const [confirmDeleteMailOpen, setConfirmDeleteMailOpen] = useState(false);
   const [settingsPanel, setSettingsPanel] = useState(null);
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [newChatUsername, setNewChatUsername] = useState("");
@@ -86,10 +115,17 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const settingsMenuRef = useRef(null);
   const settingsButtonRef = useRef(null);
+  const mailFolderMenuRef = useRef(null);
+  const mailFolderButtonRef = useRef(null);
   const activeChatIdRef = useRef(null);
   const sseReconnectRef = useRef(null);
   const isMarkingReadRef = useRef(false);
   const sendingClientIdsRef = useRef(new Set());
+  const mailTouchStartXRef = useRef(0);
+  const mailTouchStartYRef = useRef(0);
+  const mailTouchDxRef = useRef(0);
+  const mailTouchDyRef = useRef(0);
+  const trackingMailSwipeRef = useRef(false);
 
   useEffect(() => {
     if (user) {
@@ -118,6 +154,28 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }, 20000);
     return () => clearInterval(interval);
   }, [user]);
+
+  useEffect(() => {
+    if (!user?.username) return;
+    const loadMailBadge = async () => {
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/mail?username=${encodeURIComponent(user.username)}&limit=1`,
+        );
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data?.error || "Unable to load mailbox badge.");
+        }
+        setMailUnreadCount(Number(data?.unreadCount || 0));
+        setMailAddress(data?.address || "");
+      } catch (_) {
+        // ignore badge failures
+      }
+    };
+    void loadMailBadge();
+    const interval = setInterval(loadMailBadge, 20000);
+    return () => clearInterval(interval);
+  }, [user?.username]);
 
   useEffect(() => {
     if (!user) return;
@@ -192,6 +250,19 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(min-width: 768px)");
+    const update = () => setIsDesktop(media.matches);
+    update();
+    if (media.addEventListener) {
+      media.addEventListener("change", update);
+      return () => media.removeEventListener("change", update);
+    }
+    media.addListener(update);
+    return () => media.removeListener(update);
+  }, []);
+
+  useEffect(() => {
     if (user && activeChatId) {
       const openedChatId = Number(activeChatId);
       const openedChat = chats.find((chat) => chat.id === openedChatId);
@@ -261,6 +332,24 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     activeHeaderPeer?.nickname || activeHeaderPeer?.username || "Select a chat";
   const canStartChat = Boolean(newChatSelection);
   const userColor = user?.color || "#10b981";
+  const selectedDesktopMail =
+    mailItemsDesktop.find((entry) => Number(entry.id) === Number(selectedMailIdDesktop)) || null;
+  const selectedMailDisplayName =
+    selectedDesktopMail?.peer_name ||
+    selectedDesktopMail?.sender_name ||
+    selectedDesktopMail?.sender_nickname ||
+    selectedDesktopMail?.sender_username ||
+    selectedDesktopMail?.sender_email ||
+    "Unknown sender";
+  const selectedMailDisplayEmail =
+    selectedDesktopMail?.peer_email ||
+    (selectedDesktopMail?.direction === "sent"
+      ? selectedDesktopMail?.recipient_email
+      : selectedDesktopMail?.sender_email) ||
+    "";
+  const selectedMailInitials = getAvatarInitials(selectedMailDisplayName);
+  const isDesktopMailMode = isDesktop && desktopMode === "mail";
+  const isMobileMailMode = !isDesktop && (mobileTab === "mail" || mobileTab === "mail-view");
 
   const displayName = user.nickname || user.username;
   const displayInitials = getAvatarInitials(displayName);
@@ -391,6 +480,45 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       hour12: false,
     });
 
+  const formatMailDate = (value) =>
+    parseServerDate(value).toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  const mailFolderTitle =
+    mailFolder === "sent" ? "Sent" : mailFolder === "trash" ? "Trash" : "Inbox";
+
+  const loadDesktopMails = async ({ silent = false } = {}) => {
+    if (!user?.username) return;
+    if (!silent) setMailLoadingDesktop(true);
+    setMailErrorDesktop("");
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/mail?username=${encodeURIComponent(user.username)}&folder=${encodeURIComponent(mailFolder)}`,
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || "Unable to load mailbox.");
+      }
+      const nextItems = data.mails || [];
+      setMailItemsDesktop(nextItems);
+      setMailAddress(data.address || "");
+      setMailUnreadCount(Number(data.unreadCount || 0));
+      setSelectedMailIdDesktop((prev) => {
+        if (prev && nextItems.some((entry) => Number(entry.id) === Number(prev))) {
+          return prev;
+        }
+        return null;
+      });
+    } catch (err) {
+      setMailErrorDesktop(err.message);
+    } finally {
+      if (!silent) setMailLoadingDesktop(false);
+    }
+  };
+
   useEffect(() => {
     if (!user || !activeChatId) return;
     const interval = setInterval(() => {
@@ -399,12 +527,45 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     return () => clearInterval(interval);
   }, [user, activeChatId]);
 
+  useEffect(() => {
+    if (!(isDesktopMailMode || isMobileMailMode) || !user?.username) return;
+    void loadDesktopMails();
+    const interval = setInterval(() => {
+      void loadDesktopMails({ silent: true });
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [isDesktopMailMode, isMobileMailMode, user?.username, mailFolder]);
+
+  useEffect(() => {
+    if (!(isDesktopMailMode || isMobileMailMode) || mailFolder !== "inbox" || !selectedDesktopMail || selectedDesktopMail.read_at) return;
+    fetch(`${API_BASE}/api/mail/${selectedDesktopMail.id}/read`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: user.username }),
+    }).catch(() => null);
+    setMailItemsDesktop((prev) =>
+      prev.map((entry) =>
+        Number(entry.id) === Number(selectedDesktopMail.id)
+          ? { ...entry, read_at: new Date().toISOString() }
+          : entry,
+      ),
+    );
+    setMailUnreadCount((prev) => Math.max(0, prev - 1));
+  }, [isDesktopMailMode, isMobileMailMode, selectedDesktopMail?.id, mailFolder]);
+
   // Helper to close conversation after mobile slide animation completes
   const closeChat = () => {
     setMobileTab("chats");
     setTimeout(() => {
       setActiveChatId(null);
       setActivePeer(null);
+    }, 340);
+  };
+
+  const closeMobileMailView = () => {
+    setMobileTab("mail");
+    setTimeout(() => {
+      setSelectedMailIdDesktop(null);
     }, 340);
   };
 
@@ -531,6 +692,18 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, [showSettings]);
 
   useEffect(() => {
+    if (!showMailFolderMenu) return;
+    const handleOutside = (event) => {
+      const target = event.target;
+      if (mailFolderMenuRef.current && mailFolderMenuRef.current.contains(target)) return;
+      if (mailFolderButtonRef.current && mailFolderButtonRef.current.contains(target)) return;
+      setShowMailFolderMenu(false);
+    };
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [showMailFolderMenu]);
+
+  useEffect(() => {
     const syncActiveState = () => {
       setIsAppActive(
         document.visibilityState === "visible" && document.hasFocus(),
@@ -593,7 +766,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           return;
         }
         if (!payload?.type) return;
-        if (payload.type !== "chat_message" && payload.type !== "chat_read") {
+        if (
+          payload.type !== "chat_message" &&
+          payload.type !== "chat_read" &&
+          payload.type !== "mail_updated"
+        ) {
+          return;
+        }
+        if (payload.type === "mail_updated") {
+          void loadDesktopMails({ silent: true });
           return;
         }
         void loadChats({ silent: true });
@@ -1124,6 +1305,149 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setUser(null);
     setShowSettings(false);
     setMobileTab("chats");
+    setMailUnreadCount(0);
+    setMailAddress("");
+  }
+
+  async function handleDesktopMailSend(event) {
+    event.preventDefault();
+    if (!composeDesktopTo.trim() || !composeDesktopBody.trim()) return;
+    setComposeDesktopSending(true);
+    setMailErrorDesktop("");
+    try {
+      const res = await fetch(`${API_BASE}/api/mail`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fromUsername: user.username,
+          toUsername: composeDesktopTo.trim().toLowerCase(),
+          subject: composeDesktopSubject.trim(),
+          body: composeDesktopBody.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || "Unable to send mail.");
+      }
+      setComposeDesktopTo("");
+      setComposeDesktopSubject("");
+      setComposeDesktopBody("");
+      setComposeDesktopOpen(false);
+      setMailFolder("sent");
+      if (!isDesktop) {
+        setMobileTab("mail");
+      }
+      setSelectedMailIdDesktop(null);
+      await loadDesktopMails({ silent: true });
+    } catch (err) {
+      setMailErrorDesktop(err.message);
+    } finally {
+      setComposeDesktopSending(false);
+    }
+  }
+
+  async function handleDesktopMailDelete() {
+    if (!selectedDesktopMail) return;
+    setConfirmDeleteMailOpen(false);
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/mail/${selectedDesktopMail.id}?username=${encodeURIComponent(
+          user.username,
+        )}`,
+        { method: "DELETE" },
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || "Unable to delete mail.");
+      }
+      setMailItemsDesktop((prev) =>
+        prev.filter((entry) => Number(entry.id) !== Number(selectedDesktopMail.id)),
+      );
+      if (!isDesktop) {
+        closeMobileMailView();
+      } else {
+        setSelectedMailIdDesktop((prev) =>
+          Number(prev) === Number(selectedDesktopMail.id) ? null : prev,
+        );
+      }
+    } catch (err) {
+      setMailErrorDesktop(err.message);
+    }
+  }
+
+  function requestDeleteMail() {
+    if (!selectedDesktopMail) return;
+    setConfirmDeleteMailOpen(true);
+  }
+
+  function openReplyComposer() {
+    if (!selectedDesktopMail) return;
+    const fallbackTo = selectedDesktopMail.sender_email?.split("@")?.[0] || "";
+    setComposeDesktopTo((selectedDesktopMail.sender_username || fallbackTo || "").toLowerCase());
+    setComposeDesktopSubject((prev) => {
+      const base = selectedDesktopMail.subject || "";
+      return base.toLowerCase().startsWith("re:") ? base : `Re: ${base}`;
+    });
+    setComposeDesktopBody(`\n\n---\n${selectedDesktopMail.body || ""}`);
+    setComposeDesktopOpen(true);
+  }
+
+  function openForwardComposer() {
+    if (!selectedDesktopMail) return;
+    const base = selectedDesktopMail.subject || "";
+    const subject = base.toLowerCase().startsWith("fwd:") ? base : `Fwd: ${base}`;
+    setComposeDesktopTo("");
+    setComposeDesktopSubject(subject);
+    setComposeDesktopBody(`\n\n--- Forwarded message ---\nFrom: ${selectedMailDisplayName} <${selectedMailDisplayEmail}>\nDate: ${formatMailDate(selectedDesktopMail.received_at)}\nSubject: ${selectedDesktopMail.subject || "(no subject)"}\n\n${selectedDesktopMail.body || ""}`);
+    setComposeDesktopOpen(true);
+  }
+
+  function openNewMailComposer() {
+    setComposeDesktopTo("");
+    setComposeDesktopSubject("");
+    setComposeDesktopBody("");
+    setComposeDesktopOpen(true);
+  }
+
+  async function handleRestoreMail() {
+    if (!selectedDesktopMail) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/mail/${selectedDesktopMail.id}/restore`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: user.username }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || "Unable to restore mail.");
+      }
+      setMailFolder("inbox");
+      if (!isDesktop) {
+        closeMobileMailView();
+      } else {
+        setSelectedMailIdDesktop(null);
+      }
+      await loadDesktopMails({ silent: true });
+    } catch (err) {
+      setMailErrorDesktop(err.message);
+    }
+  }
+
+  async function handleDeleteTrashNow() {
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/mail/actions/trash-all?username=${encodeURIComponent(user.username)}`,
+        { method: "DELETE" },
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || "Unable to delete trash mails.");
+      }
+      setSelectedMailIdDesktop(null);
+      await loadDesktopMails({ silent: true });
+    } catch (err) {
+      setMailErrorDesktop(err.message);
+    }
   }
 
   const closeNewChatModal = () => {
@@ -1165,7 +1489,43 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     userScrolledUpRef.current = false;
     setUserScrolledUp(false);
   };
+
+  const handleMailTouchStart = (event) => {
+    if (isDesktop || mobileTab !== "mail-view") return;
+    const touch = event.touches?.[0];
+    if (!touch) return;
+    trackingMailSwipeRef.current = touch.clientX <= 40;
+    mailTouchStartXRef.current = touch.clientX;
+    mailTouchStartYRef.current = touch.clientY;
+    mailTouchDxRef.current = 0;
+    mailTouchDyRef.current = 0;
+  };
+
+  const handleMailTouchMove = (event) => {
+    if (!trackingMailSwipeRef.current) return;
+    const touch = event.touches?.[0];
+    if (!touch) return;
+    mailTouchDxRef.current = touch.clientX - mailTouchStartXRef.current;
+    mailTouchDyRef.current = touch.clientY - mailTouchStartYRef.current;
+  };
+
+  const handleMailTouchEnd = () => {
+    if (!trackingMailSwipeRef.current) return;
+    const dx = mailTouchDxRef.current;
+    const dy = Math.abs(mailTouchDyRef.current);
+    trackingMailSwipeRef.current = false;
+    if (dx > 80 && dy < 70) {
+      closeMobileMailView();
+    }
+  };
+
   const usernamePattern = /^[a-z0-9._-]+$/;
+
+  useEffect(() => {
+    if (!isDesktopMailMode) {
+      setComposeDesktopOpen(false);
+    }
+  }, [isDesktopMailMode]);
 
   return (
     <div
@@ -1180,17 +1540,102 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       <aside
         className={
           "relative flex h-full min-h-0 w-full flex-col overflow-hidden border-x border-slate-300/80 bg-white shadow-lg shadow-emerald-500/10 dark:border-white/5 dark:bg-slate-900 md:border md:w-[35%] md:shadow-xl md:shadow-emerald-500/15 " +
-          (mobileTab === "chat" ? "hidden md:block" : "block")
+          (mobileTab === "chat" || mobileTab === "mail-view" ? "hidden md:block" : "block")
         }
       >
         <div className="grid h-[72px] grid-cols-[1fr,auto,1fr] items-center border-b border-slate-300/80 bg-white px-6 py-4 dark:border-emerald-500/20 dark:bg-slate-900">
-          {mobileTab === "settings" ? (
+          {isDesktopMailMode || mobileTab === "mail" ? (
+            <>
+              <div className="flex items-center gap-2 justify-start">
+                <button
+                  type="button"
+                  onClick={() => void loadDesktopMails()}
+                  className="inline-flex items-center justify-center rounded-full border border-emerald-200 bg-white/80 p-2 text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+                  aria-label="Refresh mail"
+                >
+                  <RefreshCw size={18} className="icon-anim-spin-dir" />
+                </button>
+              </div>
+              <div className="relative text-center">
+                <button
+                  ref={mailFolderButtonRef}
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setShowMailFolderMenu((prev) => !prev);
+                  }}
+                  className="inline-flex items-center gap-1 text-lg font-semibold"
+                >
+                  <span>{mailFolderTitle}</span>
+                  <ChevronDown
+                    size={16}
+                    className={`transition ${showMailFolderMenu ? "rotate-180" : ""}`}
+                  />
+                </button>
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                  {isConnected ? (mailAddress || "Loading...") : "Connecting..."}
+                </p>
+                {showMailFolderMenu ? (
+                  <div
+                    ref={mailFolderMenuRef}
+                    className="absolute left-1/2 top-full z-20 mt-2 w-44 -translate-x-1/2 overflow-hidden rounded-2xl border border-emerald-100/70 bg-white p-2 text-sm shadow-xl transition-all duration-200 dark:border-emerald-500/30 dark:bg-slate-950"
+                    onMouseDown={(event) => event.stopPropagation()}
+                  >
+                    {[
+                      { key: "inbox", label: "Inbox", icon: Inbox, iconClass: "icon-anim-bob" },
+                      { key: "sent", label: "Sent", icon: Send, iconClass: "icon-anim-slide" },
+                      { key: "trash", label: "Trash", icon: Trash, iconClass: "icon-anim-slide" },
+                    ].map((option) => (
+                      <button
+                        key={option.key}
+                        type="button"
+                        onClick={() => {
+                          setMailFolder(option.key);
+                          setSelectedMailIdDesktop(null);
+                          setShowMailFolderMenu(false);
+                          if (!isDesktop && mobileTab === "mail-view") {
+                            setMobileTab("mail");
+                            setSelectedMailIdDesktop(null);
+                          }
+                        }}
+                        className={`mt-1 first:mt-0 flex w-full items-center gap-2 rounded-xl border border-transparent px-3 py-2 text-left text-sm transition ${
+                          mailFolder === option.key
+                            ? "border-2 border-emerald-300 bg-emerald-100 text-emerald-700 shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200"
+                            : "text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+                        }`}
+                      >
+                        <option.icon size={18} className={option.iconClass} />
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={openNewMailComposer}
+                  className="inline-flex items-center justify-center rounded-full border border-emerald-200 bg-white/80 p-2 text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+                  aria-label="Compose mail"
+                >
+                  <Plus size={18} className="icon-anim-pop" />
+                </button>
+              </div>
+            </>
+          ) : mobileTab === "settings" ? (
             <div className="col-span-3 text-center text-lg font-semibold md:hidden">
                 <span className="inline-flex items-center gap-2">
                 {!isConnected ? (
                   <LoaderCircle className="h-5 w-5 animate-spin text-emerald-500" />
                 ) : null}
                 {isConnected ? "Settings" : "Connecting..."}
+              </span>
+            </div>
+          ) : mobileTab === "mail" ? (
+            <div className="col-span-3 text-center text-lg font-semibold md:hidden">
+              <span className="inline-flex items-center gap-2">
+                <Mail className="h-5 w-5 text-emerald-500" />
+                Mail
               </span>
             </div>
           ) : (
@@ -1302,29 +1747,121 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             </div>
           ) : null}
 
-          <div className={mobileTab === "settings" ? "hidden min-h-0 h-full" : "block min-h-0 h-full"}>
-            <div className="app-scroll h-full overflow-y-auto overflow-x-hidden px-6 pb-[104px] md:h-[calc(100%-88px)] md:pb-4">
-            <ChatsListPanel
-              loadingChats={loadingChats}
-              visibleChats={visibleChats}
-              user={user}
-              editMode={editMode}
-              activeChatId={activeChatId}
-              selectedChats={selectedChats}
-              formatTime={formatTime}
-              requestDeleteChats={requestDeleteChats}
-              toggleSelectChat={toggleSelectChat}
-              setActiveChatId={setActiveChatId}
-              setActivePeer={setActivePeer}
-              setMobileTab={setMobileTab}
-              setIsAtBottom={setIsAtBottom}
-              setUnreadInChat={setUnreadInChat}
-              lastMessageIdRef={lastMessageIdRef}
-              isAtBottomRef={isAtBottomRef}
-              onOpenNewChat={() => setNewChatOpen(true)}
-            />
+          {isDesktopMailMode || (!isDesktop && mobileTab === "mail") ? (
+            <div className="min-h-0 h-full">
+              <div className="app-scroll h-full overflow-y-auto overflow-x-hidden px-6 pb-[104px] md:h-[calc(100%-88px)] md:pb-4">
+                {mailFolder === "trash" && mailItemsDesktop.length > 0 ? (
+                  <div className="mb-3 rounded-2xl border border-slate-300/80 bg-white/80 p-3 text-xs text-slate-600 dark:border-emerald-500/20 dark:bg-slate-950/50 dark:text-slate-300">
+                    <p>Trash mails are automatically deleted after 7 days.</p>
+                    <div className="mt-2 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={handleDeleteTrashNow}
+                        className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-[11px] font-semibold text-rose-600 transition hover:border-rose-300 dark:border-rose-500/30 dark:bg-rose-900/30 dark:text-rose-200"
+                      >
+                        Delete now
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+                {mailLoadingDesktop ? (
+                  <p className="py-3 text-sm text-slate-500 dark:text-slate-400">Loading mailbox...</p>
+                ) : mailItemsDesktop.length ? (
+                  mailItemsDesktop.map((entry) => (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedMailIdDesktop(entry.id);
+                        if (!isDesktop) {
+                          setMobileTab("mail-view");
+                        }
+                      }}
+                      className={`relative mb-2 block w-full rounded-2xl border px-4 py-3 text-left transition ${
+                        Number(selectedMailIdDesktop) === Number(entry.id)
+                          ? "border-emerald-300 bg-emerald-50/80 dark:border-emerald-500/40 dark:bg-emerald-900/20"
+                          : "border-slate-300/80 bg-white/90 hover:border-emerald-300 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] dark:border-emerald-500/20 dark:bg-slate-950/60"
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        {entry.peer_avatar_url ? (
+                          <img
+                            src={entry.peer_avatar_url}
+                            alt={entry.peer_name || "Mail user"}
+                            className="h-10 w-10 rounded-full object-cover"
+                          />
+                        ) : (
+                          <div
+                            className={`flex h-10 w-10 items-center justify-center rounded-full ${hasPersian(getAvatarInitials(entry.peer_name || "M")) ? "font-fa" : ""}`}
+                            style={getAvatarStyle(entry.peer_color || "#10b981")}
+                          >
+                            {getAvatarInitials(entry.peer_name || "M")}
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
+                              {entry.peer_name || entry.peer_email}
+                            </p>
+                            <span className="shrink-0 text-[11px] text-slate-500 dark:text-slate-400">
+                              {formatMailDate(entry.received_at)}
+                            </span>
+                          </div>
+                          <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">
+                            {entry.subject || "(no subject)"}
+                          </p>
+                        </div>
+                      </div>
+                      {!entry.read_at && mailFolder === "inbox" ? (
+                        <span className="absolute bottom-3 right-4 h-2 w-2 rounded-full bg-emerald-500" />
+                      ) : null}
+                    </button>
+                  ))
+                ) : (
+                  <div className="flex h-full items-center justify-center">
+                    {mailFolder === "trash" ? (
+                      <span className="rounded-full border border-slate-300/80 bg-white px-4 py-2 text-xs font-semibold text-slate-500 dark:border-emerald-500/20 dark:bg-slate-900 dark:text-slate-400">
+                        Trash is empty
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={openNewMailComposer}
+                        className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-[0_0_22px_rgba(16,185,129,0.45)]"
+                      >
+                        <Plus size={18} className="icon-anim-pop" />
+                        New mail
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className={mobileTab === "settings" || mobileTab === "mail" || mobileTab === "mail-view" ? "hidden min-h-0 h-full" : "block min-h-0 h-full"}>
+              <div className="app-scroll h-full overflow-y-auto overflow-x-hidden px-6 pb-[104px] md:h-[calc(100%-88px)] md:pb-4">
+                <ChatsListPanel
+                  loadingChats={loadingChats}
+                  visibleChats={visibleChats}
+                  user={user}
+                  editMode={editMode}
+                  activeChatId={activeChatId}
+                  selectedChats={selectedChats}
+                  formatTime={formatTime}
+                  requestDeleteChats={requestDeleteChats}
+                  toggleSelectChat={toggleSelectChat}
+                  setActiveChatId={setActiveChatId}
+                  setActivePeer={setActivePeer}
+                  setMobileTab={setMobileTab}
+                  setIsAtBottom={setIsAtBottom}
+                  setUnreadInChat={setUnreadInChat}
+                  lastMessageIdRef={lastMessageIdRef}
+                  isAtBottomRef={isAtBottomRef}
+                  onOpenNewChat={() => setNewChatOpen(true)}
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="absolute bottom-0 left-0 right-0 hidden h-[88px] border-t border-slate-300/80 bg-white px-6 py-4 dark:border-emerald-500/20 dark:bg-slate-900 md:block">
@@ -1348,52 +1885,309 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                 </p>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowSettings((prev) => !prev)}
-              className="flex items-center justify-center rounded-full border border-emerald-200 bg-white/80 p-2 text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
-              aria-label="Open settings"
-              ref={settingsButtonRef}
-            >
-              <Settings size={18} className="icon-anim-spin-dir" />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (isDesktop) {
+                    setDesktopMode((prev) => (prev === "mail" ? "chats" : "mail"));
+                    setSelectedMailIdDesktop(null);
+                  } else {
+                    setMobileTab("mail");
+                    setSelectedMailIdDesktop(null);
+                  }
+                  setShowSettings(false);
+                  setSettingsPanel(null);
+                }}
+                className="flex items-center justify-center rounded-full border border-emerald-200 bg-white/80 p-2 text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+                aria-label={isDesktopMailMode ? "Switch to chats" : "Open mail"}
+                title={mailAddress || "Mail"}
+              >
+                <span className="relative">
+                  {isDesktopMailMode ? (
+                    <Chat size={18} className="icon-anim-bob" />
+                  ) : (
+                    <Mail size={18} className="icon-anim-peek" />
+                  )}
+                  {mailUnreadCount > 0 && !isDesktopMailMode ? (
+                    <span className="absolute -right-2 -top-2 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-emerald-500 px-1.5 text-[10px] font-bold text-white">
+                      {mailUnreadCount > 99 ? "99+" : mailUnreadCount}
+                    </span>
+                  ) : null}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowSettings((prev) => !prev)}
+                className="flex items-center justify-center rounded-full border border-emerald-200 bg-white/80 p-2 text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+                aria-label="Open settings"
+                ref={settingsButtonRef}
+              >
+                <Settings size={18} className="icon-anim-spin-dir" />
+              </button>
+            </div>
           </div>
         </div>
       </aside>
 
-      <ChatWindowPanel
-        mobileTab={mobileTab}
-        activeChatId={activeChatId}
-        closeChat={closeChat}
-        activeHeaderPeer={activeHeaderPeer}
-        activeFallbackTitle={activeFallbackTitle}
-        peerStatusLabel={peerStatusLabel}
-        chatScrollRef={chatScrollRef}
-        onChatScroll={handleChatScroll}
-        messages={messages}
-        user={user}
-        formatTime={formatTime}
-        unreadMarkerId={unreadMarkerId}
-        loadingMessages={loadingMessages}
-        handleSend={handleSend}
-        userScrolledUp={userScrolledUp}
-        unreadInChat={unreadInChat}
-        onJumpToLatest={handleJumpToLatest}
-        isConnected={isConnected}
-        isDark={isDark}
-        insecureConnection={
-          typeof window !== "undefined" && window.location.protocol !== "https:"
-        }
-      />
+      {!isDesktop ? (
+        <ChatWindowPanel
+          mobileTab={mobileTab}
+          activeChatId={activeChatId}
+          closeChat={closeChat}
+          activeHeaderPeer={activeHeaderPeer}
+          activeFallbackTitle={activeFallbackTitle}
+          peerStatusLabel={peerStatusLabel}
+          chatScrollRef={chatScrollRef}
+          onChatScroll={handleChatScroll}
+          messages={messages}
+          user={user}
+          formatTime={formatTime}
+          unreadMarkerId={unreadMarkerId}
+          loadingMessages={loadingMessages}
+          handleSend={handleSend}
+          userScrolledUp={userScrolledUp}
+          unreadInChat={unreadInChat}
+          onJumpToLatest={handleJumpToLatest}
+          isConnected={isConnected}
+          isDark={isDark}
+          insecureConnection={
+            typeof window !== "undefined" && window.location.protocol !== "https:"
+          }
+        />
+      ) : null}
+
+      {isDesktopMailMode || !isDesktop ? (
+        <section
+          className={
+            "fixed inset-0 top-0 z-20 md:relative md:inset-auto md:top-auto md:z-auto flex h-full flex-1 flex-col overflow-hidden border-x border-slate-300/80 bg-white shadow-xl shadow-emerald-500/10 dark:border-white/5 dark:bg-slate-900 md:border md:w-[65%] md:shadow-2xl md:shadow-emerald-500/15 transition-transform duration-300 ease-out will-change-transform " +
+            (mobileTab === "mail-view"
+              ? "translate-x-0"
+              : "translate-x-full md:translate-x-0")
+          }
+          style={{ paddingTop: "max(0px, env(safe-area-inset-top))" }}
+          onTouchStart={handleMailTouchStart}
+          onTouchMove={handleMailTouchMove}
+          onTouchEnd={handleMailTouchEnd}
+        >
+          {!isDesktop || selectedDesktopMail ? (
+            <div className="sticky top-0 z-20 flex h-[72px] items-center justify-between gap-3 border-b border-slate-300/80 bg-white px-6 py-4 dark:border-emerald-500/20 dark:bg-slate-900">
+              <button
+                type="button"
+                onClick={closeMobileMailView}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white/80 text-emerald-700 transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 md:invisible md:pointer-events-none"
+                aria-label="Back to inbox"
+              >
+                <ArrowLeft size={18} />
+              </button>
+              <h2 className="text-center text-lg font-semibold">Mail</h2>
+              <button
+                type="button"
+                onClick={mailFolder === "trash" ? handleRestoreMail : requestDeleteMail}
+                disabled={!selectedDesktopMail}
+                className={`inline-flex h-9 w-9 items-center justify-center rounded-full p-2 transition disabled:opacity-50 ${
+                  mailFolder === "trash"
+                    ? "border border-emerald-200 bg-white/80 text-emerald-700 hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+                    : "border border-rose-200 bg-rose-50 text-rose-600 hover:border-rose-300 hover:shadow-[0_0_16px_rgba(244,63,94,0.22)] dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200"
+                }`}
+                aria-label={mailFolder === "trash" ? "Restore mail" : "Delete mail"}
+              >
+                {mailFolder === "trash" ? (
+                  <RotateCcw size={18} className="icon-anim-spin-dir" />
+                ) : (
+                  <Trash size={18} className="icon-anim-slide" />
+                )}
+              </button>
+            </div>
+          ) : null}
+
+          {!selectedDesktopMail ? (
+            <div
+              className="chat-scroll flex-1 space-y-3 overflow-y-auto overflow-x-hidden px-6 py-6"
+              style={{
+                backgroundImage: isDark
+                  ? "radial-gradient(circle at top right, rgba(16,185,129,0.22), transparent 48%), radial-gradient(circle at bottom left, rgba(16,185,129,0.20), transparent 44%)"
+                  : "radial-gradient(circle at top right, rgba(16,185,129,0.10), transparent 45%), radial-gradient(circle at bottom left, rgba(16,185,129,0.09), transparent 40%)",
+                backgroundColor: isDark ? "#0b1320" : "#dcfce7",
+              }}
+            >
+              <div className="flex h-full items-center justify-center">
+                <div className="rounded-full border border-emerald-200 bg-white/80 px-4 py-2 text-sm font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200">
+                  Select a mail to start
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="app-scroll flex-1 overflow-y-auto overflow-x-hidden px-6 py-6 pb-28">
+              <article className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-emerald-500/20 dark:bg-slate-950/30">
+                <div className="border-b border-slate-200 px-4 py-4 dark:border-emerald-500/20">
+                  <div className="flex items-start gap-3">
+                    {selectedDesktopMail.peer_avatar_url ? (
+                      <img
+                        src={selectedDesktopMail.peer_avatar_url}
+                        alt={selectedMailDisplayName}
+                        className="h-10 w-10 rounded-full object-cover"
+                      />
+                    ) : (
+                      <div
+                        className={`flex h-10 w-10 items-center justify-center rounded-full ${hasPersian(selectedMailInitials) ? "font-fa" : ""}`}
+                        style={getAvatarStyle(selectedDesktopMail.peer_color || "#10b981")}
+                      >
+                        {selectedMailInitials}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+                        {selectedMailDisplayName}
+                      </p>
+                      <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+                        {selectedMailDisplayEmail}
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-slate-800 dark:text-slate-200">
+                        {selectedDesktopMail.subject || "(no subject)"}
+                      </p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        {formatMailDate(selectedDesktopMail.received_at)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div
+                  className="prose prose-sm max-w-none px-4 py-4 dark:prose-invert"
+                  dangerouslySetInnerHTML={{
+                    __html: markdownToHtml(selectedDesktopMail.body || ""),
+                  }}
+                />
+              </article>
+            </div>
+          )}
+          {selectedDesktopMail ? (
+            <div
+              className="absolute inset-x-0 bottom-0 z-30 px-4 pb-3 md:px-6 md:pb-4"
+              style={{
+                paddingBottom:
+                  !isDesktop
+                    ? "max(0.75rem, calc(env(safe-area-inset-bottom) + 0.5rem))"
+                    : undefined,
+              }}
+            >
+              <div className="mx-auto flex w-full max-w-sm items-center justify-between rounded-3xl border border-slate-300/90 bg-white/95 p-2 shadow-lg shadow-emerald-500/10 dark:border-emerald-500/35 dark:bg-slate-900/95">
+                <button
+                  type="button"
+                  onClick={openReplyComposer}
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400"
+                >
+                  <Reply size={14} className="icon-anim-slide" />
+                  Reply
+                </button>
+                <button
+                  type="button"
+                  onClick={openForwardComposer}
+                  className="ml-2 inline-flex flex-1 items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-white px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200"
+                >
+                  <Forward size={14} className="icon-anim-slide" />
+                  Forward
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </section>
+      ) : isDesktop ? (
+        <ChatWindowPanel
+          mobileTab={mobileTab}
+          activeChatId={activeChatId}
+          closeChat={closeChat}
+          activeHeaderPeer={activeHeaderPeer}
+          activeFallbackTitle={activeFallbackTitle}
+          peerStatusLabel={peerStatusLabel}
+          chatScrollRef={chatScrollRef}
+          onChatScroll={handleChatScroll}
+          messages={messages}
+          user={user}
+          formatTime={formatTime}
+          unreadMarkerId={unreadMarkerId}
+          loadingMessages={loadingMessages}
+          handleSend={handleSend}
+          userScrolledUp={userScrolledUp}
+          unreadInChat={unreadInChat}
+          onJumpToLatest={handleJumpToLatest}
+          isConnected={isConnected}
+          isDark={isDark}
+          insecureConnection={
+            typeof window !== "undefined" && window.location.protocol !== "https:"
+          }
+        />
+      ) : null}
+
+      {composeDesktopOpen ? (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-slate-900/50 p-4">
+          <form
+            onSubmit={handleDesktopMailSend}
+            className="w-full max-w-xl space-y-3 rounded-2xl border border-emerald-200 bg-white p-4 shadow-xl dark:border-emerald-500/25 dark:bg-slate-950"
+          >
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-semibold text-emerald-800 dark:text-emerald-200">
+                New Mail
+              </div>
+              <button
+                type="button"
+                onClick={() => setComposeDesktopOpen(false)}
+                className="inline-flex items-center justify-center rounded-full border border-emerald-200 bg-white/80 p-2 text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+                aria-label="Close compose window"
+              >
+                <Close size={18} className="icon-anim-sway" />
+              </button>
+            </div>
+            <input
+              value={composeDesktopTo}
+              onChange={(event) => setComposeDesktopTo(event.target.value)}
+              placeholder="To username (inside Songbird)"
+              className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-emerald-400 dark:border-emerald-500/25 dark:bg-slate-900"
+            />
+            <input
+              value={composeDesktopSubject}
+              onChange={(event) => setComposeDesktopSubject(event.target.value)}
+              placeholder="Subject"
+              className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-emerald-400 dark:border-emerald-500/25 dark:bg-slate-900"
+            />
+            <textarea
+              value={composeDesktopBody}
+              onChange={(event) => setComposeDesktopBody(event.target.value)}
+              placeholder="Write your mail..."
+              rows={6}
+              className="w-full resize-y rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-emerald-400 dark:border-emerald-500/25 dark:bg-slate-900"
+            />
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                disabled={composeDesktopSending}
+                className="inline-flex items-center justify-center rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-emerald-500/40 disabled:opacity-60"
+              >
+                <Send className="icon-anim-slide" />
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
 
       <MobileTabMenu
-        hidden={mobileTab === "chat" && activeChatId}
+        hidden={(mobileTab === "chat" && activeChatId) || mobileTab === "mail-view"}
         mobileTab={mobileTab}
-        onChats={() => {
-          setMobileTab("chats");
+        mailUnreadCount={mailUnreadCount}
+        onMail={() => {
+          setMobileTab("mail");
+          setSelectedMailIdDesktop(null);
           setSettingsPanel(null);
         }}
-        onSettings={() => setMobileTab("settings")}
+        onChats={() => {
+          setMobileTab("chats");
+          setSelectedMailIdDesktop(null);
+          setSettingsPanel(null);
+        }}
+        onSettings={() => {
+          setMobileTab("settings");
+          setSelectedMailIdDesktop(null);
+        }}
       />
 
       <NewChatModal
@@ -1410,6 +2204,33 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         startDirectMessage={startDirectMessage}
         onClose={closeNewChatModal}
       />
+
+      {confirmDeleteMailOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6">
+          <div className="w-full max-w-sm rounded-2xl border border-rose-100/70 bg-white p-6 shadow-xl dark:border-rose-500/30 dark:bg-slate-950">
+            <h3 className="text-lg font-semibold text-rose-600 dark:text-rose-300">Delete mail</h3>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+              Are you sure you want to move this mail to trash?
+            </p>
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteMailOpen(false)}
+                className="rounded-full border border-emerald-200 bg-white px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDesktopMailDelete}
+                className="rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:shadow-[0_0_14px_rgba(244,63,94,0.2)] dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <DeleteChatsModal
         open={confirmDeleteOpen}
