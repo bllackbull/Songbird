@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   ArrowDown,
@@ -16,7 +16,6 @@ import {
   SendHorizonal as Send,
   Volume2,
   VolumeX,
-  Video,
   X as Close,
 } from "lucide-react";
 import { getAvatarStyle } from "../utils/avatarColor.js";
@@ -47,6 +46,8 @@ export default function ChatWindowPanel({
   pendingUploadFiles,
   pendingUploadType,
   uploadError,
+  activeUploadProgress,
+  onMessageMediaLoaded,
   onUploadFilesSelected,
   onRemovePendingUpload,
   onClearPendingUploads,
@@ -68,10 +69,12 @@ export default function ChatWindowPanel({
   const [showFloatingDayChip, setShowFloatingDayChip] = useState(false);
   const [isHoveringFloatingDayChip, setIsHoveringFloatingDayChip] = useState(false);
   const [scrollbarWidth, setScrollbarWidth] = useState(0);
+  const [loadedMediaThumbs, setLoadedMediaThumbs] = useState(() => new Set());
   const [focusedMedia, setFocusedMedia] = useState(null);
   const [focusVisible, setFocusVisible] = useState(false);
   const isHoveringFloatingDayChipRef = useRef(false);
   const scrollIdleTimeoutRef = useRef(null);
+  const scrollLabelRafRef = useRef(null);
   const touchStartXRef = useRef(0);
   const touchStartYRef = useRef(0);
   const touchDxRef = useRef(0);
@@ -93,6 +96,7 @@ export default function ChatWindowPanel({
   const [focusedVideoDuration, setFocusedVideoDuration] = useState(0);
   const [focusedVideoHint, setFocusedVideoHint] = useState(null);
   const previewExtraOffset = pendingUploadFiles?.length ? (isDesktop ? 170 : 190) : 0;
+  const mobileUploadProgressOffset = !isDesktop && activeUploadProgress !== null ? 76 : 0;
 
   const updateFloatingDayLabel = useCallback(() => {
     const container = chatScrollRef?.current;
@@ -182,9 +186,15 @@ export default function ChatWindowPanel({
     return () => window.removeEventListener("resize", update);
   }, [chatScrollRef, activeChatId, messages.length]);
 
-  const handlePanelScroll = (event) => {
+  const handlePanelScroll = useCallback((event) => {
     onChatScroll?.(event);
-    updateFloatingDayLabel();
+    if (scrollLabelRafRef.current) {
+      cancelAnimationFrame(scrollLabelRafRef.current);
+    }
+    scrollLabelRafRef.current = requestAnimationFrame(() => {
+      scrollLabelRafRef.current = null;
+      updateFloatingDayLabel();
+    });
     setShowFloatingDayChip(true);
     if (scrollIdleTimeoutRef.current) {
       clearTimeout(scrollIdleTimeoutRef.current);
@@ -194,7 +204,7 @@ export default function ChatWindowPanel({
         setShowFloatingDayChip(false);
       }
     }, 1500);
-  };
+  }, [onChatScroll, updateFloatingDayLabel]);
 
   const handleFloatingDayChipClick = () => {
     if (!floatingDayLabel || !chatScrollRef?.current) return;
@@ -219,8 +229,35 @@ export default function ChatWindowPanel({
       if (scrollIdleTimeoutRef.current) {
         clearTimeout(scrollIdleTimeoutRef.current);
       }
+      if (scrollLabelRafRef.current) {
+        cancelAnimationFrame(scrollLabelRafRef.current);
+      }
     };
   }, []);
+
+  useEffect(() => {
+    if (isDesktop || !activeChatId) return;
+    let firstVideoUrl = null;
+    for (let i = 0; i < messages.length; i += 1) {
+      const files = Array.isArray(messages[i]?.files) ? messages[i].files : [];
+      const videoFile = files.find((file) => getFileRenderType(file) === "video" && file?.url);
+      if (videoFile?.url) {
+        firstVideoUrl = videoFile.url;
+        break;
+      }
+    }
+    if (!firstVideoUrl) return;
+    const warmupVideo = document.createElement("video");
+    warmupVideo.preload = "auto";
+    warmupVideo.muted = true;
+    warmupVideo.playsInline = true;
+    warmupVideo.src = firstVideoUrl;
+    warmupVideo.load();
+    return () => {
+      warmupVideo.removeAttribute("src");
+      warmupVideo.load();
+    };
+  }, [isDesktop, activeChatId, messages]);
 
   useEffect(() => {
     if (!showUploadMenu) return;
@@ -235,6 +272,10 @@ export default function ChatWindowPanel({
   useEffect(() => {
     setFocusedMedia(null);
     setFocusVisible(false);
+  }, [activeChatId]);
+
+  useEffect(() => {
+    setLoadedMediaThumbs(new Set());
   }, [activeChatId]);
 
   useEffect(() => {
@@ -253,6 +294,24 @@ export default function ChatWindowPanel({
       video.removeEventListener("pause", handlePause);
     };
   }, [focusedMedia]);
+
+  useEffect(() => {
+    if (focusedMedia?.type !== "video" || !focusVisible) return;
+    const video = focusedVideoRef.current;
+    if (!video) return;
+    video.muted = false;
+    setFocusedVideoMuted(false);
+    const tryPlay = () => {
+      const playPromise = video.play?.();
+      if (playPromise && typeof playPromise.catch === "function") {
+        playPromise.catch(() => {
+          // Autoplay with sound can be blocked depending on browser policy.
+        });
+      }
+    };
+    const raf = requestAnimationFrame(tryPlay);
+    return () => cancelAnimationFrame(raf);
+  }, [focusedMedia, focusVisible]);
 
   useEffect(() => {
     if (!focusedVideoPlaying) {
@@ -318,6 +377,35 @@ export default function ChatWindowPanel({
     }, 1500);
   };
 
+  const chatScrollStyle = useMemo(
+    () => ({
+      backgroundImage: isDark
+        ? "radial-gradient(circle at top right, rgba(16,185,129,0.22), transparent 48%), radial-gradient(circle at bottom left, rgba(16,185,129,0.20), transparent 44%)"
+        : "radial-gradient(circle at top right, rgba(16,185,129,0.10), transparent 45%), radial-gradient(circle at bottom left, rgba(16,185,129,0.09), transparent 40%)",
+      backgroundColor: isDark ? "#0b1320" : "#dcfce7",
+      paddingTop:
+        activeChatId && insecureConnection
+          ? insecureConnection
+            ? "6.5rem"
+            : "4.5rem"
+          : undefined,
+      paddingBottom: activeChatId
+        ? `max(1rem, calc(env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px) + ${
+            isDesktop ? "1rem" : "5.1rem"
+          } + ${!isDesktop ? previewExtraOffset + mobileUploadProgressOffset : 0}px))`
+        : undefined,
+      overflowAnchor: "none",
+    }),
+    [
+      activeChatId,
+      insecureConnection,
+      isDark,
+      isDesktop,
+      mobileUploadProgressOffset,
+      previewExtraOffset,
+    ],
+  );
+
   const handleTouchStart = (event) => {
     if (!activeChatId) return;
     if (isDesktop) return;
@@ -376,6 +464,13 @@ export default function ChatWindowPanel({
   };
 
   const getFileRenderType = (file) => {
+    const explicitKind = String(file?.kind || "").toLowerCase();
+    if (explicitKind === "document") return "document";
+    if (explicitKind === "media") {
+      const explicitMime = String(file?.mimeType || "").toLowerCase();
+      if (explicitMime.startsWith("image/")) return "image";
+      if (explicitMime.startsWith("video/")) return "video";
+    }
     const mimeType = String(file?.mimeType || "").toLowerCase();
     const name = String(file?.name || "").toLowerCase();
     if (mimeType.startsWith("image/")) return "image";
@@ -385,24 +480,112 @@ export default function ChatWindowPanel({
     return "document";
   };
 
+  const getMediaAspectRatio = (file) => {
+    const width = Number(file?.width);
+    const height = Number(file?.height);
+    if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
+    if (width <= 0 || height <= 0) return null;
+    const ratio = width / height;
+    // Clamp extreme values to keep bubble layout usable.
+    return Math.min(2.4, Math.max(0.42, ratio));
+  };
+
+  const formatFileSize = (sizeBytes) => {
+    const bytes = Number(sizeBytes || 0);
+    if (!Number.isFinite(bytes) || bytes <= 0) return "";
+    const kb = 1024;
+    const mb = kb * 1024;
+    const gb = mb * 1024;
+    if (bytes >= gb) return `${(bytes / gb).toFixed(2)} GB`;
+    if (bytes >= mb) return `${(bytes / mb).toFixed(2)} MB`;
+    return `${Math.max(1, Math.round(bytes / kb))} KB`;
+  };
+
   const renderMessageFiles = (files = []) => {
     if (!files.length) return null;
+    const markMediaThumbLoaded = (thumbKey) => {
+      setLoadedMediaThumbs((prev) => {
+        if (prev.has(thumbKey)) return prev;
+        const next = new Set(prev);
+        next.add(thumbKey);
+        return next;
+      });
+      onMessageMediaLoaded?.();
+    };
+    const handleVideoThumbReady = (event, thumbKey) => {
+      handleVideoThumbLoadedMetadata(event);
+      const video = event.currentTarget;
+      if (!video) return;
+      // Mobile Safari sometimes paints first frame only after a decode/play step.
+      if (!isDesktop) {
+        const playPromise = video.play?.();
+        if (playPromise && typeof playPromise.then === "function") {
+          playPromise
+            .then(() => {
+              video.pause?.();
+              markMediaThumbLoaded(thumbKey);
+            })
+            .catch(() => {
+              markMediaThumbLoaded(thumbKey);
+            });
+          return;
+        }
+      }
+      markMediaThumbLoaded(thumbKey);
+    };
     return (
       <div className="mt-1 space-y-2">
-        {files.map((file) => {
+        {files.map((file, fileIndex) => {
           const renderType = getFileRenderType(file);
           const isImage = renderType === "image";
           const isVideo = renderType === "video";
           const key = file.id || `${file.name}-${file.sizeBytes || 0}`;
+          const thumbKey = `thumb-${key}`;
+          const thumbLoaded = loadedMediaThumbs.has(thumbKey);
+          const mediaAspectRatio = getMediaAspectRatio(file);
+          const mediaFrameStyle = mediaAspectRatio
+            ? { aspectRatio: `${mediaAspectRatio}` }
+            : { minHeight: isDesktop ? "190px" : "160px" };
+          const mobileImageFrameClass = "relative flex w-full items-center justify-center overflow-hidden";
+          const desktopImageFrameClass = "relative flex w-full items-center justify-center overflow-hidden";
+          const imageFrameClass = isDesktop ? desktopImageFrameClass : mobileImageFrameClass;
+          const imageClass = isDesktop
+            ? `absolute inset-0 block h-full w-full object-cover transition-opacity duration-150 ${
+                thumbLoaded ? "opacity-100" : "opacity-0"
+              }`
+            : "absolute inset-0 block h-full w-full object-cover";
+          const mobileVideoFrameClass = "relative flex w-full items-center justify-center overflow-hidden";
+          const desktopVideoFrameClass = "relative flex w-full items-center justify-center overflow-hidden";
+          const videoFrameClass = isDesktop ? desktopVideoFrameClass : mobileVideoFrameClass;
+          const videoClass = isDesktop
+            ? `absolute inset-0 block h-full w-full object-cover transition-opacity duration-150 ${
+                thumbLoaded ? "opacity-100" : "opacity-0"
+              }`
+            : "absolute inset-0 block h-full w-full object-cover";
           if (isImage && file.url) {
             return (
               <button
                 type="button"
                 key={key}
                 onClick={() => openFocusMedia({ url: file.url, name: file.name, type: "image" })}
-                className="block overflow-hidden rounded-xl border border-emerald-200/70 bg-white/70 dark:border-emerald-500/30 dark:bg-slate-900/50"
+                className="relative block w-full overflow-hidden rounded-xl border border-emerald-200/70 bg-white/70 dark:border-emerald-500/30 dark:bg-slate-900/50"
               >
-                <img src={file.url} alt={file.name || "image"} className="max-h-52 w-full object-cover" />
+                <div className={imageFrameClass} style={mediaFrameStyle}>
+                  <img
+                    src={file.url}
+                    alt={file.name || "image"}
+                    onLoad={() => markMediaThumbLoaded(thumbKey)}
+                    loading="lazy"
+                    decoding="async"
+                    className={imageClass}
+                  />
+                  {isDesktop && !thumbLoaded ? (
+                    <div className="pointer-events-none absolute inset-0 animate-pulse bg-emerald-100/70 dark:bg-slate-800/80" />
+                  ) : null}
+                  {!mediaAspectRatio ? (
+                    <div className="pointer-events-none w-full animate-pulse bg-emerald-100/70 dark:bg-slate-800/80" style={{ height: "180px" }} />
+                  ) : null}
+                </div>
               </button>
             );
           }
@@ -415,12 +598,23 @@ export default function ChatWindowPanel({
                 className="relative block w-full overflow-hidden rounded-xl border border-emerald-200/70 bg-black/60 dark:border-emerald-500/30"
                 aria-label={`Open video ${file.name || ""}`.trim()}
               >
-                <video
-                  muted
-                  playsInline
-                  src={file.url}
-                  className="max-h-56 w-full object-cover"
-                />
+                <div className={videoFrameClass} style={mediaFrameStyle}>
+                  <video
+                    muted
+                    playsInline
+                    preload={isDesktop ? (fileIndex < 2 ? "auto" : "metadata") : "auto"}
+                    onLoadedMetadata={(event) => handleVideoThumbReady(event, thumbKey)}
+                    onLoadedData={(event) => handleVideoThumbReady(event, thumbKey)}
+                    src={file.url}
+                    className={videoClass}
+                  />
+                  {isDesktop && !thumbLoaded ? (
+                    <div className="pointer-events-none absolute inset-0 animate-pulse bg-slate-800/80" />
+                  ) : null}
+                  {!mediaAspectRatio ? (
+                    <div className="pointer-events-none w-full animate-pulse bg-slate-800/80" style={{ height: "180px" }} />
+                  ) : null}
+                </div>
                 <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
                   <span className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/40 bg-black/45 text-white">
                     <Play size={18} className="translate-x-[1px]" />
@@ -436,21 +630,31 @@ export default function ChatWindowPanel({
                 href={file.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="group flex items-center gap-2 rounded-xl border border-emerald-200/70 bg-white/70 px-3 py-2 text-xs text-slate-700 transition hover:border-emerald-300 hover:bg-white hover:shadow-[0_0_16px_rgba(16,185,129,0.18)] dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200 dark:hover:bg-slate-900/70 dark:hover:shadow-[0_0_16px_rgba(16,185,129,0.14)]"
+                className="group flex items-center gap-2 rounded-xl border border-emerald-200/70 bg-white/70 px-3 py-2.5 text-xs text-slate-700 transition hover:border-emerald-300 hover:bg-white hover:shadow-[0_0_16px_rgba(16,185,129,0.18)] dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200 dark:hover:bg-slate-900/70 dark:hover:shadow-[0_0_16px_rgba(16,185,129,0.14)]"
               >
-                <span className="relative inline-flex h-4 w-4 shrink-0 items-center justify-center">
-                  <File size={15} className="absolute text-emerald-600 transition-opacity duration-150 group-hover:opacity-0 dark:text-emerald-300" />
-                  <Download size={15} className="absolute text-emerald-600 opacity-0 transition-opacity duration-150 group-hover:opacity-100 dark:text-emerald-300" />
+                <span className="relative inline-flex h-5 w-5 shrink-0 items-center justify-center">
+                  <File size={18} className="absolute text-emerald-600 transition-opacity duration-150 group-hover:opacity-0 dark:text-emerald-300" />
+                  <Download size={18} className="absolute text-emerald-600 opacity-0 transition-opacity duration-150 group-hover:opacity-100 dark:text-emerald-300" />
                 </span>
-                <span className="min-w-0 flex-1 truncate">{file.name || "document"}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{file.name || "document"}</span>
+                  <span className="mt-0.5 block text-[10px] text-slate-500 dark:text-slate-400">
+                    {formatFileSize(file.sizeBytes)}
+                  </span>
+                </span>
               </a>
             ) : (
               <div
                 key={key}
-                className="flex items-center gap-2 rounded-xl border border-emerald-200/70 bg-white/70 px-3 py-2 text-xs text-slate-700 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200"
+                className="flex items-center gap-2 rounded-xl border border-emerald-200/70 bg-white/70 px-3 py-2.5 text-xs text-slate-700 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200"
               >
-                <File size={15} className="shrink-0 text-emerald-600 dark:text-emerald-300" />
-                <span className="min-w-0 flex-1 truncate">{file.name || "document"}</span>
+                <File size={18} className="shrink-0 text-emerald-600 dark:text-emerald-300" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{file.name || "document"}</span>
+                  <span className="mt-0.5 block text-[10px] text-slate-500 dark:text-slate-400">
+                    {formatFileSize(file.sizeBytes)}
+                  </span>
+                </span>
               </div>
             )
           );
@@ -492,11 +696,55 @@ export default function ChatWindowPanel({
     setFocusedVideoTime(value);
   };
 
+  const handleFocusedVideoLoadedData = () => {
+    const video = focusedVideoRef.current;
+    if (!video) return;
+    setFocusedVideoDuration(video.duration || 0);
+    setFocusedVideoTime(video.currentTime || 0);
+    if (!focusVisible) return;
+    const playPromise = video.play?.();
+    if (playPromise && typeof playPromise.catch === "function") {
+      playPromise.catch(() => {
+        // browser policy can block autoplay with audio
+      });
+    }
+  };
+
+  const handleFocusedVideoLoadedMetadata = () => {
+    const video = focusedVideoRef.current;
+    if (!video) return;
+    setFocusedVideoDuration(video.duration || 0);
+    // Force first decodable frame, helps black-video issue on some desktop renderers.
+    try {
+      const duration = Number(video.duration || 0);
+      if (Number.isFinite(duration) && duration > 0 && video.currentTime < 0.05) {
+        video.currentTime = Math.min(0.08, Math.max(duration * 0.02, 0.02));
+      }
+    } catch (_) {
+      // ignore
+    }
+  };
+
   const formatSeconds = (seconds) => {
     const safe = Math.max(0, Math.floor(Number(seconds || 0)));
     const mins = Math.floor(safe / 60);
     const secs = safe % 60;
     return `${mins}:${String(secs).padStart(2, "0")}`;
+  };
+
+  const handleVideoThumbLoadedMetadata = (event) => {
+    const video = event.currentTarget;
+    try {
+      const duration = Number(video.duration || 0);
+      if (!Number.isFinite(duration) || duration <= 0) return;
+      // iOS/Safari can render blank/solid thumbnail at t=0.
+      const target = Math.min(0.12, Math.max(duration * 0.02, 0.02));
+      if (video.currentTime < target) {
+        video.currentTime = target;
+      }
+    } catch (_) {
+      // no-op
+    }
   };
 
   const openFocusMedia = (media) => {
@@ -626,7 +874,7 @@ export default function ChatWindowPanel({
           className="pointer-events-none absolute left-1/2 z-20 -translate-x-1/2"
           style={{ top: "calc(env(safe-area-inset-top) + 80px)" }}
         >
-          <div className="inline-flex items-center gap-1.5 rounded-full border border-rose-300/80 bg-rose-50 px-3 py-1 text-xs font-semibold leading-none text-rose-700 dark:border-rose-500/40 dark:bg-rose-900/25 dark:text-rose-200">
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-rose-300 bg-rose-100 px-3 py-1 text-xs font-semibold leading-none text-rose-700 dark:border-rose-500 dark:bg-rose-900 dark:text-rose-100">
             <AlertCircle className="h-[13px] w-[13px] shrink-0 -translate-y-[0.5px]" />
             <span className="leading-none">Connection is not secure.</span>
           </div>
@@ -664,38 +912,24 @@ export default function ChatWindowPanel({
         </div>
       ) : null}
 
-      <div
-        ref={chatScrollRef}
-        onScroll={handlePanelScroll}
-        className="chat-scroll flex-1 space-y-3 overflow-y-auto overflow-x-hidden px-6 py-6"
-        style={{
-          backgroundImage: isDark
-            ? "radial-gradient(circle at top right, rgba(16,185,129,0.22), transparent 48%), radial-gradient(circle at bottom left, rgba(16,185,129,0.20), transparent 44%)"
-            : "radial-gradient(circle at top right, rgba(16,185,129,0.10), transparent 45%), radial-gradient(circle at bottom left, rgba(16,185,129,0.09), transparent 40%)",
-          backgroundColor: isDark ? "#0b1320" : "#dcfce7",
-          paddingTop:
-            activeChatId && (insecureConnection || floatingDayLabel)
-              ? insecureConnection
-                ? "6.5rem"
-                : "4.5rem"
-              : undefined,
-          marginBottom:
-            activeChatId && !isDesktop
-              ? "calc(env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px) + 4.25rem - 1px)"
-              : undefined,
-          paddingBottom: activeChatId
-            ? `max(1rem, calc(env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px) + 1rem + ${!isDesktop ? previewExtraOffset : 0}px))`
-            : undefined,
-        }}
-      >
+      <div className="flex-1 min-h-0">
         {!activeChatId ? (
-          <div className="flex h-full items-center justify-center">
+          <div
+            ref={chatScrollRef}
+            className="chat-scroll flex h-full items-center justify-center overflow-y-auto overflow-x-hidden px-6 py-6"
+            style={chatScrollStyle}
+          >
             <div className="rounded-full border border-emerald-200 bg-white/80 px-4 py-2 text-sm font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200">
               Select a chat to start
             </div>
           </div>
         ) : loadingMessages || (!isConnected && messages.length === 0) ? (
-          <div className="space-y-3">
+          <div
+            ref={chatScrollRef}
+            className="chat-scroll h-full space-y-3 overflow-y-auto overflow-x-hidden px-6 py-6"
+            onScroll={handlePanelScroll}
+            style={chatScrollStyle}
+          >
             {Array.from({ length: 7 }).map((_, index) => {
               const own = index % 2 === 0;
               return (
@@ -715,103 +949,126 @@ export default function ChatWindowPanel({
             })}
           </div>
         ) : messages.length ? (
-          messages.map((msg, index) => {
-            const isOwn = msg.username === user.username;
-            const isRead = Boolean(msg.read_at);
-            const isSending = msg._delivery === "sending";
-            const isFailed = msg._delivery === "failed";
-            const currentDayKey = msg._dayKey || "";
-            const prevDayKey = index > 0 ? messages[index - 1]?._dayKey || "" : "";
-            const isNewDay = !prevDayKey || currentDayKey !== prevDayKey;
-            const dayLabel = msg._dayLabel || "";
-            return (
-              <div key={msg.id} id={`message-${msg.id}`} data-msg-day={dayLabel}>
-                {isNewDay ? (
-                  <div
-                    className="relative my-3 h-6"
-                    style={{
-                      width: "calc(100% + 3rem)",
-                      marginLeft: `calc(-1.5rem + ${scrollbarWidth / 2}px)`,
-                    }}
-                  >
+          <div
+            ref={chatScrollRef}
+            onScroll={handlePanelScroll}
+            className="chat-scroll h-full space-y-3 overflow-y-auto overflow-x-hidden px-6 py-6"
+            style={chatScrollStyle}
+          >
+            {messages.map((msg, index) => {
+              const isOwn = msg.username === user.username;
+              const isRead = Boolean(msg.read_at);
+              const hasFiles = Array.isArray(msg.files) && msg.files.length > 0;
+              const hasUploadInProgress =
+                Array.isArray(msg._files) &&
+                msg._files.length > 0 &&
+                Number(msg._uploadProgress ?? 100) < 100;
+              const isSending = msg._delivery === "sending" || hasUploadInProgress;
+              const isFailed = msg._delivery === "failed";
+              const currentDayKey = msg._dayKey || "";
+              const prevDayKey = index > 0 ? messages[index - 1]?._dayKey || "" : "";
+              const isNewDay = !prevDayKey || currentDayKey !== prevDayKey;
+              const dayLabel = msg._dayLabel || "";
+              return (
+                <div
+                  key={msg.id}
+                  id={`message-${msg.id}`}
+                  data-msg-day={dayLabel}
+                >
+                  {isNewDay ? (
                     <div
-                      data-day-chip={dayLabel}
-                      className="absolute left-1/2 top-1/2 inline-flex w-max -translate-x-1/2 -translate-y-1/2 rounded-full border border-emerald-200/60 bg-white/80 px-3 py-1 text-[11px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+                      className="relative my-3 h-6"
+                      style={{
+                        width: "calc(100% + 3rem)",
+                        marginLeft: `calc(-1.5rem + ${scrollbarWidth / 2}px)`,
+                      }}
                     >
-                      {dayLabel}
+                      <div
+                        data-day-chip={dayLabel}
+                        className="absolute left-1/2 top-1/2 inline-flex w-max -translate-x-1/2 -translate-y-1/2 rounded-full border border-emerald-200/60 bg-white/80 px-3 py-1 text-[11px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+                      >
+                        {dayLabel}
+                      </div>
                     </div>
-                  </div>
-                ) : null}
-                {unreadMarkerId === msg.id ? (
-                  <div className="my-3 flex items-center gap-3">
-                    <span className="h-px flex-1 bg-emerald-200/70 dark:bg-emerald-500/30" />
-                    <span className="rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200">
-                      Unread Messages
-                    </span>
-                    <span className="h-px flex-1 bg-emerald-200/70 dark:bg-emerald-500/30" />
-                  </div>
-                ) : null}
-                <div className={`flex ${isOwn ? "justify-end" : "justify-start"}`}>
-                  <div
-                    className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
-                      isOwn
-                        ? "rounded-br-md bg-emerald-200 text-emerald-950 dark:bg-emerald-800 dark:text-white"
-                        : "bg-white/90 text-slate-800 rounded-bl-md dark:bg-slate-800/75 dark:text-slate-100"
-                    }`}
-                  >
-                    {renderMessageFiles(msg.files || [])}
-                    {!(
-                      (msg.files || []).length &&
-                      /^Sent (a media file|a document|\d+ files)$/i.test((msg.body || "").trim())
-                    ) ? (
-                      <p className={`mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${hasPersian(msg.body) ? "font-fa" : ""}`}>
-                        {renderMessageBody(msg.body)}
-                      </p>
-                    ) : null}
+                  ) : null}
+                  {unreadMarkerId === msg.id ? (
+                    <div className="my-3 flex items-center gap-3">
+                      <span className="h-px flex-1 bg-emerald-200/70 dark:bg-emerald-500/30" />
+                      <span className="rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200">
+                        Unread Messages
+                      </span>
+                      <span className="h-px flex-1 bg-emerald-200/70 dark:bg-emerald-500/30" />
+                    </div>
+                  ) : null}
+                  <div className={`flex ${isOwn ? "justify-end" : "justify-start"}`}>
                     <div
-                      className={`mt-2 flex items-center gap-1 text-[10px] ${
+                      className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
+                        hasFiles ? "min-w-[13rem] sm:min-w-[16rem]" : ""
+                      } ${
                         isOwn
-                          ? "text-emerald-900/80 dark:text-emerald-50/80"
-                          : "text-slate-500 dark:text-slate-400"
+                          ? "rounded-br-md bg-emerald-200 text-emerald-950 dark:bg-emerald-800 dark:text-white"
+                          : "bg-white/90 text-slate-800 rounded-bl-md dark:bg-slate-800/75 dark:text-slate-100"
                       }`}
                     >
-                      <span>{msg._timeLabel || formatTime(msg.created_at)}</span>
-                      {isOwn ? (
-                        <span
-                          className={`inline-flex items-center ${
-                            isSending
-                              ? "text-emerald-900/80 dark:text-emerald-50/80"
-                              : isFailed
-                                ? "text-rose-500"
-                              : isRead
-                                ? "text-sky-400"
-                                : "text-emerald-900/80 dark:text-emerald-50/80"
-                          }`}
-                        >
-                          {isSending ? (
-                            <Clock12
-                              size={15}
-                              strokeWidth={2.4}
-                              className="animate-spin"
-                              aria-hidden="true"
-                            />
-                          ) : isFailed ? (
-                            <AlertCircle size={15} strokeWidth={2.4} aria-hidden="true" />
-                          ) : isRead ? (
-                            <CheckCheck size={15} strokeWidth={2.5} aria-hidden="true" />
-                          ) : (
-                            <Check size={15} strokeWidth={2.5} aria-hidden="true" />
-                          )}
-                        </span>
+                      {renderMessageFiles(msg.files || [])}
+                      {!(
+                        (msg.files || []).length &&
+                        /^Sent (a media file|a document|\d+ files)$/i.test((msg.body || "").trim())
+                      ) ? (
+                        <p className={`mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${hasPersian(msg.body) ? "font-fa" : ""}`}>
+                          {renderMessageBody(msg.body)}
+                        </p>
                       ) : null}
+                      <div
+                        className={`mt-2 flex items-center gap-1 text-[10px] ${
+                          isOwn
+                            ? "text-emerald-900/80 dark:text-emerald-50/80"
+                            : "text-slate-500 dark:text-slate-400"
+                        }`}
+                      >
+                        <span>{msg._timeLabel || formatTime(msg.created_at)}</span>
+                        {isOwn ? (
+                          <span
+                            className={`inline-flex items-center ${
+                              isSending
+                                ? "text-emerald-900/80 dark:text-emerald-50/80"
+                                : isFailed
+                                  ? "text-rose-500"
+                                : isRead
+                                  ? "text-sky-400"
+                                  : "text-emerald-900/80 dark:text-emerald-50/80"
+                            }`}
+                          >
+                            {isSending ? (
+                              <Clock12
+                                size={15}
+                                strokeWidth={2.4}
+                                className="animate-spin"
+                                aria-hidden="true"
+                              />
+                            ) : isFailed ? (
+                              <AlertCircle size={15} strokeWidth={2.4} aria-hidden="true" />
+                            ) : isRead ? (
+                              <CheckCheck size={15} strokeWidth={2.5} aria-hidden="true" />
+                            ) : (
+                              <Check size={15} strokeWidth={2.5} aria-hidden="true" />
+                            )}
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            );
-          })
+              );
+            })}
+          </div>
         ) : (
-          <div className="flex h-full items-center justify-center">
+          <div
+            ref={chatScrollRef}
+            className="chat-scroll flex h-full items-center justify-center overflow-y-auto overflow-x-hidden px-6 py-6"
+            onScroll={handlePanelScroll}
+            style={chatScrollStyle}
+          >
             <div className="rounded-full border border-emerald-200 bg-white/80 px-4 py-2 text-sm font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200">
               Say something to start
             </div>
@@ -861,8 +1118,9 @@ export default function ChatWindowPanel({
               </div>
               <div className="grid max-h-40 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
                 {pendingUploadFiles.map((item) => {
-                  const isImage = item.mimeType?.startsWith("image/");
-                  const isVideo = item.mimeType?.startsWith("video/");
+                  const forceDocPreview = pendingUploadType === "document";
+                  const isImage = !forceDocPreview && item.mimeType?.startsWith("image/");
+                  const isVideo = !forceDocPreview && item.mimeType?.startsWith("video/");
                   return (
                     <div
                       key={item.id}
@@ -877,13 +1135,31 @@ export default function ChatWindowPanel({
                         <Close size={11} />
                       </button>
                       {isImage ? (
-                        <img src={item.previewUrl} alt={item.name} className="mb-1 h-20 w-full rounded-md object-contain bg-slate-100 dark:bg-slate-800" />
+                        <div className="mb-1 flex h-24 items-center justify-center rounded-md">
+                          <img
+                            src={item.previewUrl}
+                            alt={item.name}
+                            className="h-24 w-auto max-w-full rounded-md object-contain"
+                          />
+                        </div>
                       ) : isVideo ? (
-                        <div className="mb-1 flex h-20 w-full items-center justify-center rounded-md bg-slate-900/70 text-emerald-200">
-                          <Video size={16} />
+                        <div className="relative mb-1 flex h-24 items-center justify-center rounded-md">
+                          <video
+                            src={item.previewUrl}
+                            muted
+                            playsInline
+                            preload="metadata"
+                            onLoadedMetadata={handleVideoThumbLoadedMetadata}
+                            className="h-24 w-auto max-w-full rounded-md object-contain"
+                          />
+                          <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/40 bg-black/45 text-white">
+                              <Play size={14} className="translate-x-[1px]" />
+                            </span>
+                          </span>
                         </div>
                       ) : (
-                        <div className="mb-1 flex h-20 w-full items-center justify-center rounded-md bg-slate-100 text-emerald-700 dark:bg-slate-800 dark:text-emerald-200">
+                        <div className="mb-1 flex h-24 w-full items-center justify-center rounded-md bg-slate-100 text-emerald-700 dark:bg-slate-800 dark:text-emerald-200">
                           <File size={16} />
                         </div>
                       )}
@@ -896,6 +1172,20 @@ export default function ChatWindowPanel({
           ) : null}
           {uploadError ? (
             <p className="text-xs text-rose-600 dark:text-rose-300">{uploadError}</p>
+          ) : null}
+          {activeUploadProgress !== null ? (
+            <div className="rounded-xl border border-emerald-200/70 bg-emerald-50/60 px-3 py-2 dark:border-emerald-500/30 dark:bg-slate-950/70">
+              <div className="mb-1 flex items-center justify-between text-[11px] font-semibold text-emerald-700 dark:text-emerald-200">
+                <span>Uploading files...</span>
+                <span>{Math.round(activeUploadProgress)}%</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-emerald-100 dark:bg-slate-800">
+                <div
+                  className="h-full rounded-full bg-emerald-500 transition-[width] duration-150"
+                  style={{ width: `${activeUploadProgress}%` }}
+                />
+              </div>
+            </div>
           ) : null}
           <div className="flex flex-row gap-3">
             <div className="relative" ref={uploadMenuRef}>
@@ -1059,27 +1349,39 @@ export default function ChatWindowPanel({
             }}
           >
             <div
-              className={`mx-auto transition-all duration-200 ${focusVisible ? "translate-y-0 scale-100 opacity-100" : "translate-y-2 scale-95 opacity-0"}`}
-              onClick={(event) => event.stopPropagation()}
+              className={`mx-auto transition-all duration-200 ${
+                isDesktop
+                  ? focusVisible
+                    ? "opacity-100"
+                    : "opacity-0"
+                  : focusVisible
+                    ? "translate-y-0 scale-100 opacity-100"
+                    : "translate-y-2 scale-95 opacity-0"
+              }`}
               style={{
                 width: "fit-content",
-                maxWidth: "min(92vw, 1100px)",
+                maxWidth: "92vw",
                 maxHeight: isDesktop ? "min(86vh, 820px)" : "calc(100vh - 1.5rem)",
               }}
             >
               {focusedMedia.type === "video" ? (
                 <div
-                  className="relative w-full"
+                  className="relative mx-auto flex w-fit max-w-full flex-col items-center"
+                  onClick={(event) => event.stopPropagation()}
                   onTouchStart={isMobileTouchDevice && !isDesktop ? handleFocusTouchStart : undefined}
                   onTouchEnd={isMobileTouchDevice && !isDesktop ? handleFocusTouchEnd : undefined}
                 >
                   <video
+                    key={focusedMedia.url}
                     ref={focusedVideoRef}
                     autoPlay
                     playsInline
+                    preload="auto"
                     src={focusedMedia.url}
                     onClick={toggleFocusedVideoPlay}
-                    className="max-h-[72vh] w-full cursor-pointer rounded-2xl bg-black object-contain md:max-h-[78vh]"
+                    onLoadedMetadata={handleFocusedVideoLoadedMetadata}
+                    onLoadedData={handleFocusedVideoLoadedData}
+                    className="mx-auto block max-h-[72vh] w-auto max-w-full cursor-pointer rounded-2xl bg-transparent object-contain md:max-h-[78vh] md:[transform:translateZ(0)] md:[backface-visibility:hidden]"
                   />
                   {focusedVideoHint ? (
                     <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -1092,7 +1394,7 @@ export default function ChatWindowPanel({
                       </span>
                     </div>
                   ) : null}
-                  <div className="mt-2 rounded-xl bg-black/70 p-2 text-white">
+                  <div className="mt-2 w-full rounded-xl bg-black/70 p-2 text-white">
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
@@ -1131,6 +1433,7 @@ export default function ChatWindowPanel({
                   src={focusedMedia.url}
                   alt={focusedMedia.name || "media"}
                   className="mx-auto max-h-[78vh] w-auto max-w-full rounded-2xl object-contain"
+                  onClick={(event) => event.stopPropagation()}
                   onTouchStart={isMobileTouchDevice && !isDesktop ? handleFocusTouchStart : undefined}
                   onTouchEnd={isMobileTouchDevice && !isDesktop ? handleFocusTouchEnd : undefined}
                 />

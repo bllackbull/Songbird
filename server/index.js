@@ -81,7 +81,21 @@ if (!fs.existsSync(uploadRootDir)) {
   fs.mkdirSync(uploadRootDir, { recursive: true });
 }
 
-app.use("/uploads/messages", express.static(uploadRootDir));
+app.use(
+  "/uploads/messages",
+  express.static(uploadRootDir, {
+    etag: true,
+    lastModified: true,
+    maxAge: "365d",
+    immutable: true,
+    setHeaders: (res) => {
+      // Uploaded message files are content-addressed by generated filename.
+      // They can be cached aggressively by browsers and CDNs.
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      res.setHeader("Vary", "Accept-Encoding");
+    },
+  }),
+);
 
 const uploadStorage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadRootDir),
@@ -195,6 +209,30 @@ function removeUploadedFiles(files = []) {
       // best effort cleanup
     }
   });
+}
+
+function parseUploadFileMetadata(rawValue) {
+  if (!rawValue) return [];
+  try {
+    const parsed = JSON.parse(String(rawValue));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function sanitizePositiveInt(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  if (n <= 0) return null;
+  return Math.round(n);
+}
+
+function sanitizeDurationSeconds(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  if (n < 0) return null;
+  return Math.round(n * 1000) / 1000;
 }
 
 function parseCookies(req) {
@@ -542,8 +580,34 @@ app.get("/api/chats", (req, res) => {
     const members = listChatMembers(conv.id);
     return { ...conv, members };
   });
+  const lastMessageIds = chats
+    .map((chat) => Number(chat.last_message_id || 0))
+    .filter(Boolean);
+  const lastFiles = listMessageFilesByMessageIds(lastMessageIds);
+  const filesByMessageId = lastFiles.reduce((acc, file) => {
+    const messageId = Number(file.message_id);
+    if (!acc[messageId]) acc[messageId] = [];
+    acc[messageId].push({
+      id: Number(file.id),
+      kind: file.kind,
+      name: file.original_name,
+      mimeType: file.mime_type,
+      sizeBytes: Number(file.size_bytes || 0),
+      width: Number.isFinite(Number(file.width_px)) ? Number(file.width_px) : null,
+      height: Number.isFinite(Number(file.height_px)) ? Number(file.height_px) : null,
+      durationSeconds: Number.isFinite(Number(file.duration_seconds))
+        ? Number(file.duration_seconds)
+        : null,
+      url: `/uploads/messages/${file.stored_name}`,
+    });
+    return acc;
+  }, {});
+  const enrichedChats = chats.map((chat) => ({
+    ...chat,
+    last_message_files: filesByMessageId[Number(chat.last_message_id || 0)] || [],
+  }));
 
-  res.json({ chats });
+  res.json({ chats: enrichedChats });
 });
 
 app.post("/api/chats/dm", (req, res) => {
@@ -610,6 +674,11 @@ app.post("/api/chats", (req, res) => {
 app.get("/api/messages", (req, res) => {
   const chatId = Number(req.query.chatId);
   const username = req.query.username?.toString();
+  const beforeId = Number(req.query.beforeId || 0);
+  const limitRaw = Number(req.query.limit || 50);
+  const limit = Number.isFinite(limitRaw)
+    ? Math.max(1, Math.min(200, limitRaw))
+    : 50;
   if (!chatId || !username) {
     return res
       .status(400)
@@ -627,7 +696,10 @@ app.get("/api/messages", (req, res) => {
       .json({ error: "Not a member of this chat." });
   }
 
-  const messages = getMessages(chatId);
+  const { messages, hasMore, totalCount } = getMessages(chatId, {
+    beforeId: beforeId > 0 ? beforeId : null,
+    limit,
+  });
   const messageIds = messages.map((message) => Number(message.id)).filter(Boolean);
   const files = listMessageFilesByMessageIds(messageIds);
   const filesByMessageId = files.reduce((acc, file) => {
@@ -639,6 +711,11 @@ app.get("/api/messages", (req, res) => {
       name: file.original_name,
       mimeType: file.mime_type,
       sizeBytes: Number(file.size_bytes || 0),
+      width: Number.isFinite(Number(file.width_px)) ? Number(file.width_px) : null,
+      height: Number.isFinite(Number(file.height_px)) ? Number(file.height_px) : null,
+      durationSeconds: Number.isFinite(Number(file.duration_seconds))
+        ? Number(file.duration_seconds)
+        : null,
       url: `/uploads/messages/${file.stored_name}`,
     });
     return acc;
@@ -647,7 +724,7 @@ app.get("/api/messages", (req, res) => {
     ...message,
     files: filesByMessageId[Number(message.id)] || [],
   }));
-  res.json({ chatId, messages: enriched });
+  res.json({ chatId, messages: enriched, hasMore, totalCount });
 });
 
 app.post("/api/messages/read", (req, res) => {
@@ -699,6 +776,7 @@ app.post("/api/messages/upload", uploadFiles.array("files", MESSAGE_FILE_LIMITS.
     const chatId = Number(req.body?.chatId);
     const username = req.body?.username?.toString();
     const uploadType = req.body?.uploadType?.toString();
+    const fileMeta = parseUploadFileMetadata(req.body?.fileMeta);
     const body = req.body?.body?.toString() || "";
     const trimmedBody = body.trim();
 
@@ -732,7 +810,7 @@ app.post("/api/messages/upload", uploadFiles.array("files", MESSAGE_FILE_LIMITS.
       });
     }
 
-    const normalizedFiles = uploadedFiles.map((file) => {
+    const normalizedFiles = uploadedFiles.map((file, index) => {
       const originalName = decodeOriginalFilename(file.originalname || "file");
       const inferredMime = inferMimeFromFilename(originalName);
       const mimeType = (file.mimetype || inferredMime || "application/octet-stream").toLowerCase();
@@ -740,12 +818,16 @@ app.post("/api/messages/upload", uploadFiles.array("files", MESSAGE_FILE_LIMITS.
       if (!kind) {
         throw new Error("Invalid file type for selected upload option.");
       }
+      const meta = fileMeta[index] || {};
       return {
         kind,
         originalName,
         storedName: path.basename(file.filename),
         mimeType,
         sizeBytes: Number(file.size || 0),
+        widthPx: sanitizePositiveInt(meta.width),
+        heightPx: sanitizePositiveInt(meta.height),
+        durationSeconds: sanitizeDurationSeconds(meta.durationSeconds),
       };
     });
 

@@ -98,18 +98,15 @@ Restart=on-failure
 WantedBy=multi-user.target
 ```
 
-Notes:
-
-- Add `User=` if you prefer an specific user (e.g., create a dedicated `songbird` user for separation).
-- If you decided to create a dedicated user, make sure to create system user and change ownership:
-
-```bash
-sudo useradd --system --no-create-home --shell /usr/sbin/nologin songbird
-sudo chown -R songbird:songbird /opt/songbird
-git config --global --add safe.directory /opt/songbird
-```
-
-- If Node is installed somewhere else, update `ExecStart` accordingly (use full path to `node`).
+> **Notes:**
+> - Add `User=` if you prefer an specific user (e.g., create a dedicated `songbird` user for separation).
+> - If you decided to create a dedicated user, make sure to create system user and change ownership:
+> ```bash
+> sudo useradd --system --no-create-home --shell /usr/sbin/nologin songbird
+> sudo chown -R songbird:songbird /opt/songbird
+> git config --global --add safe.directory /opt/songbird
+> ```
+> - If Node is installed somewhere else, update `ExecStart` accordingly (use full path to `node`).
 
 Enable and start the service:
 
@@ -141,6 +138,15 @@ server {
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_cache_bypass $http_upgrade;
+  }
+
+  location /uploads/messages/ {
+    proxy_pass http://127.0.0.1:5174;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
   }
 
   location / {
@@ -178,20 +184,20 @@ sudo ufw allow 'Nginx Full'
 sudo ufw enable
 ```
 
-> `data/` is created automatically by the server from the `server` working directory. When running the server from `/opt/songbird/server` the DB will be at `/opt/songbird/data/songbird.db`.
-
 ## Common troubleshooting
 
 - Check the Node server logs: `sudo journalctl -u songbird -f`
 - Check Nginx error logs: `/var/log/nginx/error.log`
 - Ensure `client/dist` exists (the Nginx root) and `songbird.service` is running.
 
-## Database backups and versioned migrations
+## Database commands
 
 Songbird now uses schema versioning.
 
-- Backup command (from `server/`): `npm run backup:db`
-- Migration command (from `server/`): `npm run migrate`
+- Reset DB command (from `server/`): `npm run db:reset`
+- Delete DB command (from `server/`): `npm run db:delete`
+- Backup command (from `server/`): `npm run db:backup`
+- Migration command (from `server/`): `npm run db:migrate`
 - Backup location: `data/backups/`
 
 Recommended production flow:
@@ -213,8 +219,8 @@ npm install
 npm run build
 cd ../server
 npm install
-npm run backup:db
-npm run migrate
+npm run db:backup
+npm run db:migrate
 sudo systemctl restart songbird
 sudo systemctl reload nginx
 ```
@@ -224,14 +230,64 @@ sudo systemctl reload nginx
 - git pull - Fetch and merge latest changes from GitHub
 - npm install (client & server) - Install any new dependencies
 - npm run build - Rebuild the React frontend into client/dist
-- npm run backup:db - Create a timestamped backup of data/songbird.db
-- npm run migrate - Apply versioned schema migrations without dropping data
+- npm run db:backup - Create a timestamped backup of data/songbird.db
+- npm run db:migrate - Apply versioned schema migrations without dropping data
+- npm run db:backfill - Fill missing media dimensions for existing uploaded files
 - systemctl restart songbird - Restart the Node server to pick up changes
 - systemctl reload nginx - Reload Nginx to serve the new build
 
 If only the frontend code has changed (no `package.json` changes), you can skip the `npm install` steps.
 
-> For zero-downtime deployments on larger projects, consider blue-green deployment or PM2, but for most updates the restart approach above is simple and sufficient.
+> **Note:** <br>
+For zero-downtime deployments on larger projects, consider blue-green deployment or PM2, but for most updates the restart approach above is simple and sufficient.
+
+## Chat page tuning (client env)
+
+You can customize some key values of the app based on your on preferences.
+
+> **Important**:
+> - These are **client build-time** variables.
+> - After changing them, rebuild the frontend: `cd client && npm run build`.
+> - You can set them in `client/.env`, `client/.env.production`, CI/CD env, or any build service config that exports env vars before `npm run build`.
+
+Available keys:
+
+| Variable | Default | Description |
+|---|---:|---|
+| `CHAT_PENDING_TEXT_TIMEOUT_MS` | `300000` | Mark pending text message as failed after this timeout. |
+| `CHAT_PENDING_FILE_TIMEOUT_MS` | `1200000` | Mark pending file message as failed / XHR timeout for uploads. |
+| `CHAT_PENDING_RETRY_INTERVAL_MS` | `4000` | Retry cadence for pending sends while connected. |
+| `CHAT_PENDING_STATUS_CHECK_INTERVAL_MS` | `1000` | How often pending messages are checked for timeout. |
+| `CHAT_MESSAGE_FETCH_LIMIT` | `5000` | Max messages requested per chat fetch. |
+| `CHAT_UPLOAD_MAX_FILES` | `10` | Max files per single message. |
+| `CHAT_UPLOAD_MAX_FILE_SIZE_BYTES` | `26214400` | Per-file max size. |
+| `CHAT_UPLOAD_MAX_TOTAL_BYTES` | `78643200` | Total size cap for all files in one message. |
+| `CHAT_LIST_REFRESH_INTERVAL_MS` | `20000` | Chats list background refresh interval. |
+| `CHAT_PRESENCE_PING_INTERVAL_MS` | `5000` | Presence heartbeat interval (`/api/presence` POST). |
+| `CHAT_PEER_PRESENCE_POLL_INTERVAL_MS` | `3000` | Active peer presence poll interval. |
+| `CHAT_HEALTH_CHECK_INTERVAL_MS` | `10000` | Connection health check interval. |
+| `CHAT_SSE_RECONNECT_DELAY_MS` | `2000` | Delay before reconnecting SSE after error. |
+| `CHAT_NEW_CHAT_SEARCH_MAX_RESULTS` | `5` | Max users shown in New Chat search results. |
+
+Example (`client/.env.production`):
+
+```bash
+CHAT_PENDING_TEXT_TIMEOUT_MS=180000
+CHAT_PENDING_FILE_TIMEOUT_MS=900000
+CHAT_PENDING_RETRY_INTERVAL_MS=2500
+CHAT_UPLOAD_MAX_FILES=8
+CHAT_UPLOAD_MAX_FILE_SIZE_BYTES=15728640
+CHAT_UPLOAD_MAX_TOTAL_BYTES=52428800
+```
+
+Example (build service / CI env):
+
+```bash
+export CHAT_PENDING_TEXT_TIMEOUT_MS=180000
+export CHAT_LIST_REFRESH_INTERVAL_MS=15000
+cd /opt/songbird/client
+npm run build
+```
 
 ## Running behind a domain + subpath
 

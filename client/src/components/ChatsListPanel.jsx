@@ -1,4 +1,4 @@
-import { Check, CheckCheck, Minus, Plus } from "lucide-react";
+import { Check, CheckCheck, File, Image as ImageIcon, Minus, Plus, Video } from "lucide-react";
 import { getAvatarStyle } from "../utils/avatarColor.js";
 import { hasPersian } from "../utils/fontUtils.js";
 import { getAvatarInitials } from "../utils/avatarInitials.js";
@@ -25,6 +25,59 @@ export default function ChatsListPanel({
   const wiggleDurations = [640, 700, 760, 820, 880, 940];
   const wiggleDelays = [-80, -170, -260, -120, -220, -320];
   const isEmptyState = !loadingChats && !visibleChats.length;
+  const fallbackUploadTextPattern = /^Sent (a media file|a document|\d+ files)$/i;
+
+  const formatLastMessagePreview = (conv) => {
+    const files = Array.isArray(conv.last_message_files) ? conv.last_message_files : [];
+    const body = String(conv.last_message || "").trim();
+    if (!files.length) {
+      return {
+        icon: null,
+        text: body,
+      };
+    }
+
+    const videoCount = files.filter((file) =>
+      String(file.mimeType || "").toLowerCase().startsWith("video/"),
+    ).length;
+    const imageCount = files.filter((file) =>
+      String(file.mimeType || "").toLowerCase().startsWith("image/"),
+    ).length;
+    const docCount = Math.max(0, files.length - videoCount - imageCount);
+
+    const isFileOnlyBody = !body || fallbackUploadTextPattern.test(body);
+    if (!isFileOnlyBody) {
+      const icon =
+        videoCount > 0 ? "video" : imageCount > 0 ? "image" : "document";
+      return { icon, text: body };
+    }
+
+    if (files.length === 1) {
+      if (videoCount === 1) return { icon: "video", text: "Sent a video" };
+      if (imageCount === 1) return { icon: "image", text: "Sent a photo" };
+      return { icon: "document", text: "Sent a document" };
+    }
+
+    if (videoCount > 0 && imageCount === 0 && docCount === 0) {
+      return {
+        icon: "video",
+        text: `Sent ${videoCount} video${videoCount > 1 ? "s" : ""}`,
+      };
+    }
+    if (imageCount > 0 && videoCount === 0 && docCount === 0) {
+      return {
+        icon: "image",
+        text: `Sent ${imageCount} photo${imageCount > 1 ? "s" : ""}`,
+      };
+    }
+    if (docCount > 0 && imageCount === 0 && videoCount === 0) {
+      return {
+        icon: "document",
+        text: `Sent ${docCount} document${docCount > 1 ? "s" : ""}`,
+      };
+    }
+    return { icon: "document", text: `Sent ${files.length} files` };
+  };
 
   return (
     <div className={isEmptyState ? "h-full" : "mt-3 space-y-2"}>
@@ -66,6 +119,7 @@ export default function ChatsListPanel({
             Boolean(conv.last_message) &&
             conv.last_sender_username === user.username;
           const isOwnLastMessageSeen = Boolean(conv.last_message_read_at);
+          const lastPreview = formatLastMessagePreview(conv);
           const card = (
             <div
               className={`w-full rounded-2xl border px-3 py-3 text-left text-sm transition ${
@@ -93,19 +147,37 @@ export default function ChatsListPanel({
                 <div className="min-w-0 flex-1">
                   <p className={`font-semibold ${hasPersian(name) ? "font-fa" : ""}`}>{name}</p>
                   <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">
-                    {conv.last_message ? (
+                    {conv.last_message || (conv.last_message_files || []).length ? (
                       conv.last_sender_username === user.username ? (
-                        <span>
-                          <span className="font-semibold text-slate-600 dark:text-slate-300">
+                        <span className="inline-flex min-w-0 items-center gap-1 align-middle leading-none">
+                          <span className="font-semibold text-slate-500 dark:text-slate-400">
                             You:
-                          </span>{" "}
-                          <span className={hasPersian(conv.last_message) ? "font-fa" : ""}>
-                            {conv.last_message}
+                          </span>
+                          <span className="inline-flex min-w-0 items-center gap-1">
+                            {lastPreview.icon === "video" ? (
+                              <Video size={12} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                            ) : lastPreview.icon === "image" ? (
+                              <ImageIcon size={12} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                            ) : lastPreview.icon === "document" ? (
+                              <File size={12} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                            ) : null}
+                            <span className={`min-w-0 truncate ${hasPersian(lastPreview.text) ? "font-fa" : ""}`}>
+                              {lastPreview.text}
+                            </span>
                           </span>
                         </span>
                       ) : (
-                        <span className={hasPersian(conv.last_message) ? "font-fa" : ""}>
-                          {conv.last_message}
+                        <span className="inline-flex min-w-0 items-center gap-1 align-middle leading-none">
+                          {lastPreview.icon === "video" ? (
+                            <Video size={12} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                          ) : lastPreview.icon === "image" ? (
+                            <ImageIcon size={12} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                          ) : lastPreview.icon === "document" ? (
+                            <File size={12} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                          ) : null}
+                          <span className={`min-w-0 truncate ${hasPersian(lastPreview.text) ? "font-fa" : ""}`}>
+                            {lastPreview.text}
+                          </span>
                         </span>
                       )
                     ) : null}

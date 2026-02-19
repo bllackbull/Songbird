@@ -219,6 +219,7 @@ export function listChatsForUser(userId) {
   return getAll(
     `
     SELECT c.id, c.name, c.type,
+      (SELECT id FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_message_id,
       (SELECT body FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_message,
       (SELECT created_at FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_time,
       (SELECT user_id FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_sender_id,
@@ -254,8 +255,9 @@ export function createMessageFiles(messageId, files = []) {
   if (!messageId) return
   files.forEach((file) => {
     run(
-      `INSERT INTO chat_message_files (message_id, kind, original_name, stored_name, mime_type, size_bytes)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO chat_message_files (
+        message_id, kind, original_name, stored_name, mime_type, size_bytes, width_px, height_px, duration_seconds
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         messageId,
         file.kind,
@@ -263,24 +265,44 @@ export function createMessageFiles(messageId, files = []) {
         file.storedName,
         file.mimeType,
         Number(file.sizeBytes || 0),
+        Number.isFinite(Number(file.widthPx)) ? Number(file.widthPx) : null,
+        Number.isFinite(Number(file.heightPx)) ? Number(file.heightPx) : null,
+        Number.isFinite(Number(file.durationSeconds)) ? Number(file.durationSeconds) : null,
       ]
     )
   })
 }
 
-export function getMessages(chatId) {
-  return getAll(
+export function getMessages(chatId, options = {}) {
+  const limitRaw = Number(options.limit || 50)
+  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(200, limitRaw)) : 50
+  const beforeIdRaw = Number(options.beforeId || 0)
+  const hasBefore = Number.isFinite(beforeIdRaw) && beforeIdRaw > 0
+  const whereSql = hasBefore
+    ? 'WHERE chat_messages.chat_id = ? AND chat_messages.id < ?'
+    : 'WHERE chat_messages.chat_id = ?'
+  const params = hasBefore ? [chatId, beforeIdRaw, limit + 1] : [chatId, limit + 1]
+  const rowsDesc = getAll(
     `
     SELECT chat_messages.id, chat_messages.body, chat_messages.created_at, chat_messages.read_at, chat_messages.read_by_user_id,
       users.username, users.nickname, users.avatar_url, users.color
     FROM chat_messages
     JOIN users ON users.id = chat_messages.user_id
-    WHERE chat_messages.chat_id = ?
-    ORDER BY chat_messages.created_at ASC
-    LIMIT 200
+    ${whereSql}
+    ORDER BY chat_messages.id DESC
+    LIMIT ?
   `,
-    [chatId]
+    params
   )
+  const hasMore = rowsDesc.length > limit
+  const rows = rowsDesc.slice(0, limit).reverse()
+  const totalRow = getRow('SELECT COUNT(*) AS total FROM chat_messages WHERE chat_id = ?', [chatId])
+  const totalCount = Number(totalRow?.total || 0)
+  return {
+    messages: rows,
+    hasMore,
+    totalCount,
+  }
 }
 
 export function listMessageFilesByMessageIds(messageIds = []) {
@@ -288,12 +310,52 @@ export function listMessageFilesByMessageIds(messageIds = []) {
   const placeholders = messageIds.map(() => '?').join(', ')
   return getAll(
     `
-      SELECT id, message_id, kind, original_name, stored_name, mime_type, size_bytes, created_at
+      SELECT id, message_id, kind, original_name, stored_name, mime_type, size_bytes, width_px, height_px, duration_seconds, created_at
       FROM chat_message_files
       WHERE message_id IN (${placeholders})
       ORDER BY id ASC
     `,
     messageIds
+  )
+}
+
+export function listMessageFilesNeedingMetadata(limit = 10000) {
+  const safeLimit = Math.max(1, Math.min(200000, Number(limit) || 10000))
+  return getAll(
+    `
+      SELECT id, stored_name, mime_type, width_px, height_px, duration_seconds
+      FROM chat_message_files
+      WHERE (
+        mime_type LIKE 'image/%'
+        OR mime_type LIKE 'video/%'
+      ) AND (
+        width_px IS NULL
+        OR height_px IS NULL
+        OR (mime_type LIKE 'video/%' AND duration_seconds IS NULL)
+      )
+      ORDER BY id ASC
+      LIMIT ?
+    `,
+    [safeLimit]
+  )
+}
+
+export function updateMessageFileMetadata(fileId, metadata = {}) {
+  run(
+    `
+      UPDATE chat_message_files
+      SET
+        width_px = COALESCE(?, width_px),
+        height_px = COALESCE(?, height_px),
+        duration_seconds = COALESCE(?, duration_seconds)
+      WHERE id = ?
+    `,
+    [
+      Number.isFinite(Number(metadata.widthPx)) ? Number(metadata.widthPx) : null,
+      Number.isFinite(Number(metadata.heightPx)) ? Number(metadata.heightPx) : null,
+      Number.isFinite(Number(metadata.durationSeconds)) ? Number(metadata.durationSeconds) : null,
+      Number(fileId),
+    ]
   )
 }
 

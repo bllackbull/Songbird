@@ -21,13 +21,99 @@ import { hasPersian } from "../utils/fontUtils.js";
 import { getAvatarInitials } from "../utils/avatarInitials.js";
 
 const API_BASE = "";
-const PENDING_MESSAGE_TIMEOUT_MS = 5 * 60 * 1000;
-const PENDING_RETRY_INTERVAL_MS = 4000;
-const MESSAGE_UPLOAD_LIMITS = {
-  maxFiles: 10,
-  maxFileSizeBytes: 25 * 1024 * 1024,
-  maxTotalBytes: 75 * 1024 * 1024,
+const readEnvNumber = (key, fallback, options = {}) => {
+  const keys = Array.isArray(key) ? key : [key];
+  const raw = keys
+    .map((name) => import.meta.env[name])
+    .find((value) => value !== undefined && value !== null && value !== "");
+  if (raw === undefined || raw === null || raw === "") return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return fallback;
+  const integer = options.integer ? Math.trunc(parsed) : parsed;
+  if (options.min !== undefined && integer < options.min) return fallback;
+  if (options.max !== undefined && integer > options.max) return fallback;
+  return integer;
 };
+
+const CHAT_PAGE_CONFIG = {
+  pendingTextTimeoutMs: readEnvNumber("CHAT_PENDING_TEXT_TIMEOUT_MS", 5 * 60 * 1000, {
+    integer: true,
+    min: 1000,
+  }),
+  pendingFileTimeoutMs: readEnvNumber(
+    "CHAT_PENDING_FILE_TIMEOUT_MS",
+    20 * 60 * 1000,
+    { integer: true, min: 1000 },
+  ),
+  pendingRetryIntervalMs: readEnvNumber(
+    "CHAT_PENDING_RETRY_INTERVAL_MS",
+    4000,
+    { integer: true, min: 250 },
+  ),
+  pendingStatusCheckIntervalMs: readEnvNumber("CHAT_PENDING_STATUS_CHECK_INTERVAL_MS", 1000, {
+    integer: true,
+    min: 250,
+  }),
+  messageFetchLimit: readEnvNumber("CHAT_MESSAGE_FETCH_LIMIT", 5000, {
+    integer: true,
+    min: 1,
+  }),
+  maxFilesPerMessage: readEnvNumber("CHAT_UPLOAD_MAX_FILES", 10, {
+    integer: true,
+    min: 1,
+  }),
+  maxFileSizeBytes: readEnvNumber(
+    "CHAT_UPLOAD_MAX_FILE_SIZE_BYTES",
+    25 * 1024 * 1024,
+    {
+      integer: true,
+      min: 1024,
+    },
+  ),
+  maxTotalUploadBytes: readEnvNumber(
+    "CHAT_UPLOAD_MAX_TOTAL_BYTES",
+    75 * 1024 * 1024,
+    {
+      integer: true,
+      min: 1024,
+    },
+  ),
+  chatsRefreshIntervalMs: readEnvNumber("CHAT_LIST_REFRESH_INTERVAL_MS", 20000, {
+    integer: true,
+    min: 1000,
+  }),
+  presencePingIntervalMs: readEnvNumber("CHAT_PRESENCE_PING_INTERVAL_MS", 5000, {
+    integer: true,
+    min: 1000,
+  }),
+  newChatSearchMaxResults: readEnvNumber("CHAT_NEW_CHAT_SEARCH_MAX_RESULTS", 5, {
+    integer: true,
+    min: 1,
+  }),
+  healthCheckIntervalMs: readEnvNumber("CHAT_HEALTH_CHECK_INTERVAL_MS", 10000, {
+    integer: true,
+    min: 1000,
+  }),
+  peerPresencePollIntervalMs: readEnvNumber("CHAT_PEER_PRESENCE_POLL_INTERVAL_MS", 3000, {
+    integer: true,
+    min: 500,
+  }),
+  sseReconnectDelayMs: readEnvNumber("CHAT_SSE_RECONNECT_DELAY_MS", 2000, {
+    integer: true,
+    min: 250,
+  }),
+};
+
+const NEW_CHAT_SEARCH_DEBOUNCE_MS = 300;
+const MOBILE_CLOSE_ANIMATION_MS = 340;
+const SCROLL_BOTTOM_SNAP_TIMEOUT_MS = 90;
+const UPLOAD_PROGRESS_HIDE_DELAY_MS = 600;
+const CHAT_BOTTOM_THRESHOLD_PX = 120;
+const JUMP_TO_LATEST_SECOND_SNAP_DELAY_MS = 320;
+const JUMP_TO_LATEST_SECOND_SNAP_THRESHOLD_PX = 24;
+const MEDIA_LOAD_SNAP_DEBOUNCE_MS = 110;
+
+const formatBytesAsMb = (bytes) => `${Math.round(bytes / (1024 * 1024))} MB`;
 
 
 export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme }) {
@@ -58,6 +144,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [pendingUploadFiles, setPendingUploadFiles] = useState([]);
   const [pendingUploadType, setPendingUploadType] = useState("");
   const [uploadError, setUploadError] = useState("");
+  const [activeUploadProgress, setActiveUploadProgress] = useState(null);
   const chatScrollRef = useRef(null);
   const lastMessageIdRef = useRef(null);
   const isAtBottomRef = useRef(true);
@@ -69,6 +156,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const shouldAutoMarkReadRef = useRef(true);
   const openingChatRef = useRef(false);
   const pendingUploadFilesRef = useRef([]);
+  const prevUploadProgressRef = useRef(null);
+  const mediaLoadSnapTimerRef = useRef(null);
   const [profileForm, setProfileForm] = useState({
     nickname: user?.nickname || "",
     username: user?.username || "",
@@ -99,6 +188,16 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const sseReconnectRef = useRef(null);
   const isMarkingReadRef = useRef(false);
   const sendingClientIdsRef = useRef(new Set());
+
+  const setPendingUploadProgress = (clientId, progress) => {
+    const nextProgress = Math.max(0, Math.min(100, Number(progress || 0)));
+    setActiveUploadProgress(nextProgress);
+    setMessages((prev) =>
+      prev.map((msg) =>
+        msg._clientId === clientId ? { ...msg, _uploadProgress: nextProgress } : msg,
+      ),
+    );
+  };
 
   useEffect(() => {
     pendingUploadFilesRef.current = pendingUploadFiles;
@@ -135,10 +234,18 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, [user]);
 
   useEffect(() => {
+    return () => {
+      if (mediaLoadSnapTimerRef.current) {
+        window.clearTimeout(mediaLoadSnapTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (!user) return;
     const interval = setInterval(() => {
       void loadChats({ silent: true });
-    }, 20000);
+    }, CHAT_PAGE_CONFIG.chatsRefreshIntervalMs);
     return () => clearInterval(interval);
   }, [user]);
 
@@ -156,7 +263,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }
     };
     ping();
-    const interval = setInterval(ping, 5000);
+    const interval = setInterval(ping, CHAT_PAGE_CONFIG.presencePingIntervalMs);
     return () => clearInterval(interval);
   }, [user]);
 
@@ -179,14 +286,17 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         if (!res.ok) {
           throw new Error(data?.error || "Unable to search users.");
         }
-        const users = (data.users || []).slice(0, 5);
+        const users = (data.users || []).slice(
+          0,
+          CHAT_PAGE_CONFIG.newChatSearchMaxResults,
+        );
         setNewChatResults(users);
       } catch (err) {
         setNewChatError(err.message);
       } finally {
         setNewChatLoading(false);
       }
-    }, 300);
+    }, NEW_CHAT_SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(handle);
   }, [newChatUsername, newChatOpen, user.username]);
 
@@ -207,7 +317,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }
     };
     checkHealth();
-    const interval = setInterval(checkHealth, 10000);
+    const interval = setInterval(
+      checkHealth,
+      CHAT_PAGE_CONFIG.healthCheckIntervalMs,
+    );
     return () => {
       isMounted = false;
       clearInterval(interval);
@@ -262,8 +375,33 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   useEffect(() => {
     clearPendingUploads();
+    setActiveUploadProgress(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeChatId]);
+
+  useEffect(() => {
+    const prev = prevUploadProgressRef.current;
+    const now = activeUploadProgress;
+    // When upload bar closes, force a final snap to bottom.
+    if (activeChatId && prev !== null && now === null) {
+      pendingScrollToBottomRef.current = true;
+      userScrolledUpRef.current = false;
+      setUserScrolledUp(false);
+      isAtBottomRef.current = true;
+      setIsAtBottom(true);
+      requestAnimationFrame(() => {
+        const container = chatScrollRef.current;
+        if (!container) return;
+        container.scrollTop = container.scrollHeight + 1000;
+        requestAnimationFrame(() => {
+          const next = chatScrollRef.current;
+          if (!next) return;
+          next.scrollTop = next.scrollHeight + 1000;
+        });
+      });
+    }
+    prevUploadProgressRef.current = now;
+  }, [activeUploadProgress, activeChatId]);
 
   const activeId = activeChatId ? Number(activeChatId) : null;
   const visibleChats = chats;
@@ -364,7 +502,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       setTimeout(() => {
         setActiveChatId(null);
         setActivePeer(null);
-      }, 340);
+      }, MOBILE_CLOSE_ANIMATION_MS);
     }
     setSelectedChats([]);
     setPendingDeleteIds([]);
@@ -419,13 +557,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       hour12: false,
     });
 
-  useEffect(() => {
-    if (!user || !activeChatId) return;
-    const interval = setInterval(() => {
-      void loadMessages(Number(activeChatId), { silent: true });
-    }, 20000);
-    return () => clearInterval(interval);
-  }, [user, activeChatId]);
+  // Messages are updated via SSE events and explicit send/read actions.
+  // Avoid periodic full message fetches to reduce unnecessary reflows/fetches.
 
   // Helper to close conversation after mobile slide animation completes
   const closeChat = () => {
@@ -433,7 +566,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setTimeout(() => {
       setActiveChatId(null);
       setActivePeer(null);
-    }, 340);
+    }, MOBILE_CLOSE_ANIMATION_MS);
   };
 
   useEffect(() => {
@@ -462,7 +595,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }
     };
     fetchPresence();
-    const interval = setInterval(fetchPresence, 3000);
+    const interval = setInterval(
+      fetchPresence,
+      CHAT_PAGE_CONFIG.peerPresencePollIntervalMs,
+    );
     return () => {
       isMounted = false;
       clearInterval(interval);
@@ -491,7 +627,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           );
         }),
       );
-      const timeoutId = window.setTimeout(applyBottom, 90);
+      const timeoutId = window.setTimeout(applyBottom, SCROLL_BOTTOM_SNAP_TIMEOUT_MS);
       return () => {
         rafIds.forEach((id) => cancelAnimationFrame(id));
         window.clearTimeout(timeoutId);
@@ -627,7 +763,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         void loadChats({ silent: true });
         const currentActiveId = activeChatIdRef.current;
         if (currentActiveId && Number(payload.chatId) === currentActiveId) {
-          void loadMessages(currentActiveId, { silent: true });
+          void loadMessages(currentActiveId, {
+            silent: true,
+            preserveHistory: true,
+          });
         }
       };
 
@@ -637,7 +776,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         if (sseReconnectRef.current) {
           clearTimeout(sseReconnectRef.current);
         }
-        sseReconnectRef.current = setTimeout(connect, 2000);
+        sseReconnectRef.current = setTimeout(
+          connect,
+          CHAT_PAGE_CONFIG.sseReconnectDelayMs,
+        );
       };
     };
 
@@ -652,6 +794,61 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     };
   }, [user?.username]);
 
+  const uploadPendingMessageWithProgress = (pendingMessage, targetChatId) =>
+    new Promise((resolve, reject) => {
+      const form = new FormData();
+      form.append("username", user.username);
+      form.append("chatId", String(targetChatId));
+      form.append("body", pendingMessage.body || "");
+      form.append("uploadType", pendingMessage._uploadType || "document");
+      const fileMeta = [];
+      pendingMessage._files.forEach((item) => {
+        if (item?.file instanceof File) {
+          form.append("files", item.file, item.name || item.file.name);
+          fileMeta.push({
+            width: Number.isFinite(Number(item.width)) ? Number(item.width) : null,
+            height: Number.isFinite(Number(item.height)) ? Number(item.height) : null,
+            durationSeconds: Number.isFinite(Number(item.durationSeconds))
+              ? Number(item.durationSeconds)
+              : null,
+          });
+        }
+      });
+      form.append("fileMeta", JSON.stringify(fileMeta));
+
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${API_BASE}/api/messages/upload`);
+      xhr.timeout = CHAT_PAGE_CONFIG.pendingFileTimeoutMs;
+
+      xhr.upload.onprogress = (event) => {
+        if (!event.lengthComputable) return;
+        const percent = Math.max(
+          0,
+          Math.min(100, Math.round((event.loaded / event.total) * 100)),
+        );
+        setPendingUploadProgress(pendingMessage._clientId, percent);
+      };
+
+      xhr.onerror = () => reject(new Error("Network error during file upload."));
+      xhr.ontimeout = () => reject(new Error("Upload timed out."));
+      xhr.onload = async () => {
+        const data = (() => {
+          try {
+            return JSON.parse(xhr.responseText || "{}");
+          } catch (_) {
+            return {};
+          }
+        })();
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(data);
+          return;
+        }
+        reject(new Error(data?.error || "Unable to send message."));
+      };
+
+      xhr.send(form);
+    });
+
   const sendPendingMessage = async (pendingMessage) => {
     if (!pendingMessage || pendingMessage._delivery !== "sending") return;
     if (!isConnected) return;
@@ -664,35 +861,24 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       const targetChatId = Number(pendingMessage._chatId || activeChatId);
       if (!targetChatId) return;
       const hasFiles = Array.isArray(pendingMessage._files) && pendingMessage._files.length > 0;
-      const res = hasFiles
-        ? await (async () => {
-            const form = new FormData();
-            form.append("username", user.username);
-            form.append("chatId", String(targetChatId));
-            form.append("body", pendingMessage.body || "");
-            form.append("uploadType", pendingMessage._uploadType || "document");
-            pendingMessage._files.forEach((item) => {
-              if (item?.file instanceof File) {
-                form.append("files", item.file, item.name || item.file.name);
-              }
-            });
-            return fetch(`${API_BASE}/api/messages/upload`, {
-              method: "POST",
-              body: form,
-            });
-          })()
-        : await fetch(`${API_BASE}/api/messages`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              username: user.username,
-              body: pendingMessage.body,
-              chatId: targetChatId,
-            }),
-          });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data?.error || "Unable to send message.");
+      let data = null;
+      if (hasFiles) {
+        setActiveUploadProgress(0);
+        data = await uploadPendingMessageWithProgress(pendingMessage, targetChatId);
+      } else {
+        const res = await fetch(`${API_BASE}/api/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: user.username,
+            body: pendingMessage.body,
+            chatId: targetChatId,
+          }),
+        });
+        data = await res.json();
+        if (!res.ok) {
+          throw new Error(data?.error || "Unable to send message.");
+        }
       }
 
       setMessages((prev) =>
@@ -702,14 +888,25 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                 ...msg,
                 id: Number(data.id) || msg.id,
                 _delivery: "sent",
+                _uploadProgress: 100,
               }
             : msg,
         ),
       );
+      if (hasFiles) {
+        setActiveUploadProgress(100);
+        setTimeout(() => setActiveUploadProgress(null), UPLOAD_PROGRESS_HIDE_DELAY_MS);
+      }
       pendingScrollToBottomRef.current = true;
       await loadChats({ silent: true });
-      await loadMessages(targetChatId, { silent: true, forceBottom: true });
+      await loadMessages(targetChatId, {
+        silent: true,
+        forceBottom: true,
+      });
     } catch (_) {
+      if (hasFiles) {
+        setActiveUploadProgress(null);
+      }
       // Keep message in pending state and retry after reconnection.
     } finally {
       sendingClientIdsRef.current.delete(clientId);
@@ -734,7 +931,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         const next = prev.map((msg) => {
           if (msg._delivery !== "sending") return msg;
           const queuedAt = Number(msg._queuedAt || 0);
-          if (!queuedAt || now - queuedAt < PENDING_MESSAGE_TIMEOUT_MS) {
+          const isFileMessage =
+            Array.isArray(msg._files) && msg._files.length > 0;
+          const timeoutMs = isFileMessage
+            ? CHAT_PAGE_CONFIG.pendingFileTimeoutMs
+            : CHAT_PAGE_CONFIG.pendingTextTimeoutMs;
+          if (!queuedAt || now - queuedAt < timeoutMs) {
             return msg;
           }
           changed = true;
@@ -742,7 +944,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         });
         return changed ? next : prev;
       });
-    }, 1000);
+    }, CHAT_PAGE_CONFIG.pendingStatusCheckIntervalMs);
     return () => clearInterval(interval);
   }, [activeChatId]);
 
@@ -754,7 +956,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       pending.forEach((msg) => {
         void sendPendingMessage(msg);
       });
-    }, PENDING_RETRY_INTERVAL_MS);
+    }, CHAT_PAGE_CONFIG.pendingRetryIntervalMs);
     return () => clearInterval(interval);
   }, [isConnected, activeChatId, messages]);
 
@@ -807,10 +1009,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       setLoadingMessages(true);
     }
     try {
+      const query = new URLSearchParams({
+        chatId: String(chatId),
+        username: user.username,
+        limit: String(CHAT_PAGE_CONFIG.messageFetchLimit),
+      });
       const res = await fetch(
-        `${API_BASE}/api/messages?chatId=${chatId}&username=${encodeURIComponent(
-          user.username,
-        )}`,
+        `${API_BASE}/api/messages?${query.toString()}`,
       );
       const data = await res.json();
       if (!res.ok) {
@@ -827,14 +1032,65 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         };
       });
       setMessages((prev) => {
+        const isPendingMessageAcknowledged = (pending, serverMessages) => {
+          if (!pending || !serverMessages.length) return false;
+          const pendingHasFiles = Array.isArray(pending.files) && pending.files.length > 0;
+          const pendingProgress = Number(pending._uploadProgress ?? 100);
+          if (
+            pending._delivery === "sending" &&
+            pendingHasFiles &&
+            pendingProgress < 100
+          ) {
+            return false;
+          }
+          const pendingCreatedAt = parseServerDate(
+            pending.created_at || new Date().toISOString(),
+          ).getTime();
+          const pendingFiles = Array.isArray(pending.files) ? pending.files : [];
+          return serverMessages.some((serverMsg) => {
+            if (serverMsg.username !== pending.username) return false;
+            if ((serverMsg.body || "") !== (pending.body || "")) return false;
+            const serverFiles = Array.isArray(serverMsg.files) ? serverMsg.files : [];
+            if (serverFiles.length !== pendingFiles.length) return false;
+            const serverCreatedAt = parseServerDate(serverMsg.created_at).getTime();
+            return Math.abs(serverCreatedAt - pendingCreatedAt) < 2 * 60 * 1000;
+          });
+        };
+
+        const isServerMessageShadowedByPendingUpload = (
+          serverMsg,
+          pendingMessages,
+        ) => {
+          return pendingMessages.some((pending) => {
+            if (!pending || pending._delivery !== "sending") return false;
+            const pendingFiles = Array.isArray(pending.files) ? pending.files : [];
+            if (!pendingFiles.length) return false;
+            const pendingProgress = Number(pending._uploadProgress || 0);
+            if (pendingProgress >= 100) return false;
+            if (serverMsg.username !== pending.username) return false;
+            if ((serverMsg.body || "") !== (pending.body || "")) return false;
+            const serverFiles = Array.isArray(serverMsg.files) ? serverMsg.files : [];
+            if (serverFiles.length !== pendingFiles.length) return false;
+            const pendingCreatedAt = parseServerDate(
+              pending.created_at || new Date().toISOString(),
+            ).getTime();
+            const serverCreatedAt = parseServerDate(serverMsg.created_at).getTime();
+            return Math.abs(serverCreatedAt - pendingCreatedAt) < 2 * 60 * 1000;
+          });
+        };
+
         const pendingLocal = prev.filter(
           (msg) =>
             (msg._delivery === "sending" || msg._delivery === "failed") &&
-            Number(msg._chatId || chatId) === Number(chatId),
+            Number(msg._chatId || chatId) === Number(chatId) &&
+            !isPendingMessageAcknowledged(msg, nextMessages),
+        );
+        const nextMessagesVisible = nextMessages.filter(
+          (msg) => !isServerMessageShadowedByPendingUpload(msg, pendingLocal),
         );
         const mergedNext = pendingLocal.length
-          ? [...nextMessages, ...pendingLocal]
-          : nextMessages;
+          ? [...nextMessagesVisible, ...pendingLocal]
+          : nextMessagesVisible;
         const hasLocalTransient = prev.some(
           (msg) => msg._clientId || msg._delivery || msg._files,
         );
@@ -861,7 +1117,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         lastId &&
         lastMessageIdRef.current &&
         lastId !== lastMessageIdRef.current;
-      const newFromSelf = lastMsg?.username === user.username;
+      const newFromSelf = hasNew && lastMsg?.username === user.username;
       lastMessageIdRef.current = lastId;
 
       if (openingChatRef.current) {
@@ -978,7 +1234,57 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     });
   }
 
-  function handleUploadFilesSelected(fileList, uploadType, append = false) {
+  function getMediaFileMetadata(file) {
+    const mimeType = String(file?.type || "").toLowerCase();
+    if (mimeType.startsWith("image/")) {
+      return new Promise((resolve) => {
+        const objectUrl = URL.createObjectURL(file);
+        const image = new Image();
+        image.onload = () => {
+          resolve({
+            width: image.naturalWidth || null,
+            height: image.naturalHeight || null,
+            durationSeconds: null,
+          });
+          URL.revokeObjectURL(objectUrl);
+        };
+        image.onerror = () => {
+          resolve({ width: null, height: null, durationSeconds: null });
+          URL.revokeObjectURL(objectUrl);
+        };
+        image.src = objectUrl;
+      });
+    }
+    if (mimeType.startsWith("video/")) {
+      return new Promise((resolve) => {
+        const objectUrl = URL.createObjectURL(file);
+        const video = document.createElement("video");
+        video.preload = "metadata";
+        video.onloadedmetadata = () => {
+          resolve({
+            width: video.videoWidth || null,
+            height: video.videoHeight || null,
+            durationSeconds: Number.isFinite(Number(video.duration))
+              ? Number(video.duration)
+              : null,
+          });
+          video.removeAttribute("src");
+          video.load();
+          URL.revokeObjectURL(objectUrl);
+        };
+        video.onerror = () => {
+          resolve({ width: null, height: null, durationSeconds: null });
+          video.removeAttribute("src");
+          video.load();
+          URL.revokeObjectURL(objectUrl);
+        };
+        video.src = objectUrl;
+      });
+    }
+    return Promise.resolve({ width: null, height: null, durationSeconds: null });
+  }
+
+  async function handleUploadFilesSelected(fileList, uploadType, append = false) {
     const incoming = Array.from(fileList || []);
     if (!incoming.length) return;
     setUploadError("");
@@ -993,15 +1299,21 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const existing = append ? pendingUploadFiles : [];
     const combinedCount = existing.length + incoming.length;
 
-    if (combinedCount > MESSAGE_UPLOAD_LIMITS.maxFiles) {
-      setUploadError(`Maximum ${MESSAGE_UPLOAD_LIMITS.maxFiles} files per message.`);
+    if (combinedCount > CHAT_PAGE_CONFIG.maxFilesPerMessage) {
+      setUploadError(
+        `Maximum ${CHAT_PAGE_CONFIG.maxFilesPerMessage} files per message.`,
+      );
       return;
     }
     const oversize = incoming.find(
-      (file) => Number(file.size || 0) > MESSAGE_UPLOAD_LIMITS.maxFileSizeBytes,
+      (file) => Number(file.size || 0) > CHAT_PAGE_CONFIG.maxFileSizeBytes,
     );
     if (oversize) {
-      setUploadError("Each file must be smaller than 25 MB.");
+      setUploadError(
+        `Each file must be smaller than ${formatBytesAsMb(
+          CHAT_PAGE_CONFIG.maxFileSizeBytes,
+        )}.`,
+      );
       return;
     }
     const existingBytes = existing.reduce(
@@ -1010,8 +1322,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     );
     const incomingBytes = incoming.reduce((sum, file) => sum + Number(file.size || 0), 0);
     const totalBytes = existingBytes + incomingBytes;
-    if (totalBytes > MESSAGE_UPLOAD_LIMITS.maxTotalBytes) {
-      setUploadError("Total upload size cannot exceed 75 MB.");
+    if (totalBytes > CHAT_PAGE_CONFIG.maxTotalUploadBytes) {
+      setUploadError(
+        `Total upload size cannot exceed ${formatBytesAsMb(
+          CHAT_PAGE_CONFIG.maxTotalUploadBytes,
+        )}.`,
+      );
       return;
     }
     if (uploadType === "media") {
@@ -1030,12 +1346,18 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       clearPendingUploads();
     }
 
-    const nextItems = incoming.map((file) => ({
+    const metadata = await Promise.all(
+      incoming.map((file) => getMediaFileMetadata(file)),
+    );
+    const nextItems = incoming.map((file, index) => ({
       id: `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       file,
       name: file.name,
       mimeType: file.type || "application/octet-stream",
       sizeBytes: Number(file.size || 0),
+      width: metadata[index]?.width || null,
+      height: metadata[index]?.height || null,
+      durationSeconds: metadata[index]?.durationSeconds ?? null,
       previewUrl:
         String(file.type || "").startsWith("image/") ||
         String(file.type || "").startsWith("video/")
@@ -1086,10 +1408,21 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const pendingFiles = hasPendingFiles
       ? pendingUploadFiles.map((item) => ({
           id: item.id,
+          kind: pendingUploadType === "document" ? "document" : "media",
           name: item.name,
           mimeType: item.mimeType,
           sizeBytes: item.sizeBytes,
-          url: null,
+          width: Number.isFinite(Number(item.width)) ? Number(item.width) : null,
+          height: Number.isFinite(Number(item.height)) ? Number(item.height) : null,
+          durationSeconds: Number.isFinite(Number(item.durationSeconds))
+            ? Number(item.durationSeconds)
+            : null,
+          url:
+            item.file instanceof File &&
+            (String(item.mimeType || "").startsWith("image/") ||
+              String(item.mimeType || "").startsWith("video/"))
+              ? URL.createObjectURL(item.file)
+              : item.previewUrl || null,
           file: item.file,
         }))
       : [];
@@ -1112,11 +1445,16 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         _timeLabel: formatTime(createdAt),
         _uploadType: pendingUploadType,
         _files: pendingFiles,
+        _uploadProgress: hasPendingFiles ? 0 : null,
         files: pendingFiles.map((file) => ({
           id: file.id,
+          kind: file.kind,
           name: file.name,
           mimeType: file.mimeType,
           sizeBytes: file.sizeBytes,
+          width: file.width,
+          height: file.height,
+          durationSeconds: file.durationSeconds,
           url: file.url,
         })),
       },
@@ -1321,7 +1659,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const handleChatScroll = (event) => {
     const target = event.currentTarget;
-    const threshold = 120;
+    const threshold = CHAT_BOTTOM_THRESHOLD_PX;
     const atBottom =
       target.scrollHeight - target.scrollTop - target.clientHeight < threshold;
     if (isAtBottomRef.current !== atBottom) {
@@ -1331,6 +1669,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (userScrolledUpRef.current === atBottom) {
       userScrolledUpRef.current = !atBottom;
       setUserScrolledUp(!atBottom);
+      if (!atBottom && mediaLoadSnapTimerRef.current) {
+        window.clearTimeout(mediaLoadSnapTimerRef.current);
+        mediaLoadSnapTimerRef.current = null;
+      }
     }
     if (atBottom) {
       setUnreadInChat(0);
@@ -1339,16 +1681,57 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const handleJumpToLatest = () => {
     if (chatScrollRef.current) {
-      chatScrollRef.current.scrollTo({
-        top: chatScrollRef.current.scrollHeight,
+      const container = chatScrollRef.current;
+      container.scrollTo({
+        top: container.scrollHeight + 1000,
         behavior: "smooth",
       });
+      window.setTimeout(() => {
+        const next = chatScrollRef.current;
+        if (!next) return;
+        const distance = next.scrollHeight - (next.scrollTop + next.clientHeight);
+        if (distance > JUMP_TO_LATEST_SECOND_SNAP_THRESHOLD_PX) {
+          next.scrollTo({
+            top: next.scrollHeight + 1000,
+            behavior: "smooth",
+          });
+        }
+      }, JUMP_TO_LATEST_SECOND_SNAP_DELAY_MS);
     }
     setUnreadInChat(0);
     isAtBottomRef.current = true;
     setIsAtBottom(true);
     userScrolledUpRef.current = false;
     setUserScrolledUp(false);
+  };
+  const handleMessageMediaLoaded = () => {
+    if (!activeChatId) return;
+    if (userScrolledUpRef.current) return;
+    const shouldStickToBottom =
+      pendingScrollToBottomRef.current ||
+      isAtBottomRef.current ||
+      activeUploadProgress !== null;
+    if (!shouldStickToBottom) return;
+    if (mediaLoadSnapTimerRef.current) {
+      window.clearTimeout(mediaLoadSnapTimerRef.current);
+    }
+    mediaLoadSnapTimerRef.current = window.setTimeout(() => {
+      if (userScrolledUpRef.current) {
+        mediaLoadSnapTimerRef.current = null;
+        return;
+      }
+      pendingScrollToBottomRef.current = true;
+      userScrolledUpRef.current = false;
+      setUserScrolledUp(false);
+      isAtBottomRef.current = true;
+      setIsAtBottom(true);
+      requestAnimationFrame(() => {
+        const container = chatScrollRef.current;
+        if (!container) return;
+        container.scrollTop = container.scrollHeight + 1000;
+      });
+      mediaLoadSnapTimerRef.current = null;
+    }, MEDIA_LOAD_SNAP_DEBOUNCE_MS);
   };
   const usernamePattern = /^[a-z0-9._-]+$/;
 
@@ -1572,6 +1955,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         pendingUploadFiles={pendingUploadFiles}
         pendingUploadType={pendingUploadType}
         uploadError={uploadError}
+        activeUploadProgress={activeUploadProgress}
+        onMessageMediaLoaded={handleMessageMediaLoaded}
         onUploadFilesSelected={handleUploadFilesSelected}
         onRemovePendingUpload={removePendingUpload}
         onClearPendingUploads={clearPendingUploads}

@@ -14,8 +14,11 @@
   "scripts": {
     "dev": "node --watch index.js",
     "start": "node index.js",
-    "backup:db": "node scripts/backup-db.js",
-    "migrate": "node scripts/migrate.js"
+    "db:delete": "node scripts/delete-db.js",
+    "db:reset": "node scripts/reset-db.js",
+    "db:backup": "node scripts/backup-db.js",
+    "db:migrate": "node scripts/migrate.js",
+    "db:backfill": "node scripts/backfill-message-file-metadata.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

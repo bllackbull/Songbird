@@ -53,7 +53,7 @@ export default function App() {
     mediaThemeMetas.forEach((node) => node.setAttribute('content', color))
   }
 
-  function refreshThemeColorForSafari(color) {
+  function refreshThemeColorForSafari(color, allowScrollNudge = true) {
     clearThemeRefreshTimers()
     const nudgeColor = color === '#ffffff' ? '#fefefe' : '#0e1728'
     commitThemeColor(nudgeColor)
@@ -77,7 +77,7 @@ export default function App() {
 
     // Force Safari toolbar/theme-color recalc without waiting for manual touch.
     const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent)
-    if (isIOS) {
+    if (isIOS && allowScrollNudge) {
       const y = window.scrollY || 0
       try {
         window.scrollTo(0, y + 1)
@@ -110,7 +110,7 @@ export default function App() {
 
     const themeColor = getThemeColor(nextIsDark, nextRoute)
     document.documentElement.style.setProperty('--safe-area-theme-color', themeColor)
-    refreshThemeColorForSafari(themeColor)
+    refreshThemeColorForSafari(themeColor, nextRoute !== 'chat')
     ;['safe-area-top-fill', 'safe-area-bottom-fill'].forEach((id) => {
       const el = document.getElementById(id)
       if (el) {
