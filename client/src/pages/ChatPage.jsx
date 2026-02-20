@@ -146,6 +146,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [uploadError, setUploadError] = useState("");
   const [activeUploadProgress, setActiveUploadProgress] = useState(null);
   const chatScrollRef = useRef(null);
+  const virtuosoRef = useRef(null);
   const lastMessageIdRef = useRef(null);
   const isAtBottomRef = useRef(true);
   const userScrolledUpRef = useRef(false);
@@ -153,6 +154,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const pendingScrollToUnreadRef = useRef(null);
   const unreadMarkerIdRef = useRef(null);
   const openingHadUnreadRef = useRef(false);
+  const suppressScrolledUpRef = useRef(false);
   const shouldAutoMarkReadRef = useRef(true);
   const openingChatRef = useRef(false);
   const pendingUploadFilesRef = useRef([]);
@@ -188,6 +190,23 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const sseReconnectRef = useRef(null);
   const isMarkingReadRef = useRef(false);
   const sendingClientIdsRef = useRef(new Set());
+
+  const scrollChatToBottom = (behavior = "auto") => {
+    if (virtuosoRef.current?.scrollToIndex && messages.length > 0) {
+      virtuosoRef.current.scrollToIndex({
+        index: Math.max(0, messages.length - 1),
+        align: "end",
+        behavior,
+      });
+      return;
+    }
+    const container = chatScrollRef.current;
+    if (!container) return;
+    container.scrollTo({
+      top: container.scrollHeight + 1000,
+      behavior,
+    });
+  };
 
   const setPendingUploadProgress = (clientId, progress) => {
     const nextProgress = Math.max(0, Math.min(100, Number(progress || 0)));
@@ -346,6 +365,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       shouldAutoMarkReadRef.current = true;
       openingChatRef.current = true;
       pendingScrollToBottomRef.current = true;
+      suppressScrolledUpRef.current = true;
       setChats((prev) =>
         prev.map((chat) =>
             chat.id === openedChatId ? { ...chat, unread_count: 0 } : chat,
@@ -390,13 +410,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       isAtBottomRef.current = true;
       setIsAtBottom(true);
       requestAnimationFrame(() => {
-        const container = chatScrollRef.current;
-        if (!container) return;
-        container.scrollTop = container.scrollHeight + 1000;
+        scrollChatToBottom("auto");
         requestAnimationFrame(() => {
-          const next = chatScrollRef.current;
-          if (!next) return;
-          next.scrollTop = next.scrollHeight + 1000;
+          scrollChatToBottom("auto");
         });
       });
     }
@@ -605,60 +621,26 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     };
   }, [activeHeaderPeer?.username]);
 
+  useEffect(() => {
+    if (!activeChatId) return;
+    pendingScrollToUnreadRef.current = null;
+  }, [activeChatId]);
+
   useLayoutEffect(() => {
     if (!activeChatId) return;
-    const container = chatScrollRef.current;
-    if (!container) return;
-    const snapToBottom = () => {
-      const rafIds = [];
-      const applyBottom = () => {
-        const el = chatScrollRef.current;
-        if (!el) return;
-        el.scrollTop = el.scrollHeight + 1000;
-      };
-      applyBottom();
-      rafIds.push(
-        requestAnimationFrame(() => {
-          applyBottom();
-          rafIds.push(
-            requestAnimationFrame(() => {
-              applyBottom();
-            }),
-          );
-        }),
-      );
-      const timeoutId = window.setTimeout(applyBottom, SCROLL_BOTTOM_SNAP_TIMEOUT_MS);
-      return () => {
-        rafIds.forEach((id) => cancelAnimationFrame(id));
-        window.clearTimeout(timeoutId);
-      };
-    };
-    if (pendingScrollToUnreadRef.current) {
-      const target = document.getElementById(
-        `message-${pendingScrollToUnreadRef.current}`,
-      );
-      if (target) {
-        const top = target.offsetTop - container.offsetTop - 24;
-        container.scrollTop = Math.max(top, 0);
-        pendingScrollToUnreadRef.current = null;
-      }
-      return;
-    }
-    const shouldScroll =
-      pendingScrollToBottomRef.current ||
-      (!userScrolledUpRef.current && isAtBottomRef.current);
-    if (!shouldScroll) return;
-    if (
-      pendingScrollToBottomRef.current &&
-      loadingMessages &&
-      messages.length === 0
-    ) {
-      return;
-    }
-    const cleanupSnap = snapToBottom();
-    pendingScrollToBottomRef.current = false;
-    return cleanupSnap;
-  }, [messages, activeChatId, loadingMessages, pendingUploadFiles.length]);
+    if (!pendingScrollToBottomRef.current) return;
+    if (loadingMessages && messages.length === 0) return;
+    requestAnimationFrame(() => {
+      scrollChatToBottom("auto");
+      requestAnimationFrame(() => {
+        scrollChatToBottom("auto");
+      });
+      window.setTimeout(() => {
+        scrollChatToBottom("auto");
+      }, 120);
+      pendingScrollToBottomRef.current = false;
+    });
+  }, [activeChatId, messages, loadingMessages]);
 
   useEffect(() => {
     if (!activeChatId) return;
@@ -984,6 +966,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       const list = (data.chats || []).map((conv) => ({
         ...conv,
         id: Number(conv.id),
+        message_count: Number(conv.message_count || 0),
         members: (conv.members || []).map((member) => ({
           ...member,
           id: Number(member.id),
@@ -994,7 +977,52 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         const bTime = b.last_time ? parseServerDate(b.last_time).getTime() : 0;
         return bTime - aTime;
       });
-      setChats(list);
+      const deduped = [];
+      const dmByPeer = new Map();
+      list.forEach((chat) => {
+        if (chat.type !== "dm") {
+          deduped.push(chat);
+          return;
+        }
+        const peer = (chat.members || []).find(
+          (member) => member.username !== user.username,
+        );
+        const peerKey = (peer?.username || "").toLowerCase();
+        if (!peerKey) {
+          deduped.push(chat);
+          return;
+        }
+        const existing = dmByPeer.get(peerKey);
+        if (!existing) {
+          dmByPeer.set(peerKey, chat);
+          return;
+        }
+        const existingCount = Number(existing.message_count || 0);
+        const nextCount = Number(chat.message_count || 0);
+        if (nextCount !== existingCount) {
+          if (nextCount > existingCount) {
+            dmByPeer.set(peerKey, chat);
+          }
+          return;
+        }
+        const existingTime = existing.last_time
+          ? parseServerDate(existing.last_time).getTime()
+          : 0;
+        const nextTime = chat.last_time
+          ? parseServerDate(chat.last_time).getTime()
+          : 0;
+        if (nextTime > existingTime || (nextTime === existingTime && chat.id > existing.id)) {
+          dmByPeer.set(peerKey, chat);
+        }
+      });
+      const dmList = Array.from(dmByPeer.values());
+      const merged = [...deduped, ...dmList];
+      merged.sort((a, b) => {
+        const aTime = a.last_time ? parseServerDate(a.last_time).getTime() : 0;
+        const bTime = b.last_time ? parseServerDate(b.last_time).getTime() : 0;
+        return bTime - aTime;
+      });
+      setChats(merged);
     } catch (_) {
       // Keep sidebar usable even when polling fails.
     } finally {
@@ -1121,42 +1149,17 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       lastMessageIdRef.current = lastId;
 
       if (openingChatRef.current) {
-        if (openingHadUnreadRef.current) {
-          const firstUnread = nextMessages.find(
-            (msg) => msg.username !== user.username && !msg.read_at,
-          );
-          if (firstUnread) {
-            setUnreadMarkerId(firstUnread.id);
-            unreadMarkerIdRef.current = firstUnread.id;
-            pendingScrollToUnreadRef.current = firstUnread.id;
-            pendingScrollToBottomRef.current = false;
-            shouldAutoMarkReadRef.current = false;
-            userScrolledUpRef.current = true;
-            setUserScrolledUp(true);
-            isAtBottomRef.current = false;
-            setIsAtBottom(false);
-          } else {
-            setUnreadMarkerId(null);
-            unreadMarkerIdRef.current = null;
-            pendingScrollToUnreadRef.current = null;
-            shouldAutoMarkReadRef.current = true;
-            pendingScrollToBottomRef.current = true;
-            userScrolledUpRef.current = false;
-            setUserScrolledUp(false);
-            isAtBottomRef.current = true;
-            setIsAtBottom(true);
-          }
-        } else {
-          setUnreadMarkerId(null);
-          unreadMarkerIdRef.current = null;
-          pendingScrollToUnreadRef.current = null;
-          shouldAutoMarkReadRef.current = true;
-          pendingScrollToBottomRef.current = true;
-          userScrolledUpRef.current = false;
-          setUserScrolledUp(false);
-          isAtBottomRef.current = true;
-          setIsAtBottom(true);
-        }
+        // In virtualized mode, always open at latest message.
+        // Unread anchoring to a middle item can cause persistent snap fights.
+        setUnreadMarkerId(null);
+        unreadMarkerIdRef.current = null;
+        pendingScrollToUnreadRef.current = null;
+        shouldAutoMarkReadRef.current = true;
+        pendingScrollToBottomRef.current = true;
+        userScrolledUpRef.current = false;
+        setUserScrolledUp(false);
+        isAtBottomRef.current = true;
+        setIsAtBottom(true);
         openingHadUnreadRef.current = false;
         openingChatRef.current = false;
       }
@@ -1181,6 +1184,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         setIsAtBottom(true);
         userScrolledUpRef.current = false;
         setUserScrolledUp(false);
+      } else if (hasNew && !userScrolledUpRef.current) {
+        pendingScrollToBottomRef.current = true;
+        isAtBottomRef.current = true;
+        setIsAtBottom(true);
       }
       if (
         activeChat?.type === "dm" &&
@@ -1666,38 +1673,48 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       isAtBottomRef.current = atBottom;
       setIsAtBottom(atBottom);
     }
-    if (userScrolledUpRef.current === atBottom) {
-      userScrolledUpRef.current = !atBottom;
-      setUserScrolledUp(!atBottom);
-      if (!atBottom && mediaLoadSnapTimerRef.current) {
-        window.clearTimeout(mediaLoadSnapTimerRef.current);
-        mediaLoadSnapTimerRef.current = null;
+    if (atBottom) {
+      suppressScrolledUpRef.current = false;
+      if (userScrolledUpRef.current) {
+        userScrolledUpRef.current = false;
+        setUserScrolledUp(false);
+      }
+    } else {
+      if (event?.isTrusted) {
+        suppressScrolledUpRef.current = false;
+      }
+      if (suppressScrolledUpRef.current) {
+        return;
+      }
+      if (!userScrolledUpRef.current) {
+        pendingScrollToBottomRef.current = false;
+        pendingScrollToUnreadRef.current = null;
+        userScrolledUpRef.current = true;
+        setUserScrolledUp(true);
+        if (mediaLoadSnapTimerRef.current) {
+          window.clearTimeout(mediaLoadSnapTimerRef.current);
+          mediaLoadSnapTimerRef.current = null;
+        }
       }
     }
     if (atBottom) {
+      pendingScrollToBottomRef.current = false;
       setUnreadInChat(0);
     }
   };
 
   const handleJumpToLatest = () => {
-    if (chatScrollRef.current) {
-      const container = chatScrollRef.current;
-      container.scrollTo({
-        top: container.scrollHeight + 1000,
-        behavior: "smooth",
-      });
-      window.setTimeout(() => {
-        const next = chatScrollRef.current;
-        if (!next) return;
-        const distance = next.scrollHeight - (next.scrollTop + next.clientHeight);
-        if (distance > JUMP_TO_LATEST_SECOND_SNAP_THRESHOLD_PX) {
-          next.scrollTo({
-            top: next.scrollHeight + 1000,
-            behavior: "smooth",
-          });
-        }
-      }, JUMP_TO_LATEST_SECOND_SNAP_DELAY_MS);
-    }
+    pendingScrollToUnreadRef.current = null;
+    suppressScrolledUpRef.current = true;
+    scrollChatToBottom("smooth");
+    window.setTimeout(() => {
+      const next = chatScrollRef.current;
+      if (!next) return;
+      const distance = next.scrollHeight - (next.scrollTop + next.clientHeight);
+      if (distance > JUMP_TO_LATEST_SECOND_SNAP_THRESHOLD_PX) {
+        scrollChatToBottom("smooth");
+      }
+    }, JUMP_TO_LATEST_SECOND_SNAP_DELAY_MS);
     setUnreadInChat(0);
     isAtBottomRef.current = true;
     setIsAtBottom(true);
@@ -1706,32 +1723,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   };
   const handleMessageMediaLoaded = () => {
     if (!activeChatId) return;
-    if (userScrolledUpRef.current) return;
-    const shouldStickToBottom =
-      pendingScrollToBottomRef.current ||
-      isAtBottomRef.current ||
-      activeUploadProgress !== null;
-    if (!shouldStickToBottom) return;
+    // Disable auto-snap on media load in virtualized mode; it causes scroll fights.
     if (mediaLoadSnapTimerRef.current) {
       window.clearTimeout(mediaLoadSnapTimerRef.current);
-    }
-    mediaLoadSnapTimerRef.current = window.setTimeout(() => {
-      if (userScrolledUpRef.current) {
-        mediaLoadSnapTimerRef.current = null;
-        return;
-      }
-      pendingScrollToBottomRef.current = true;
-      userScrolledUpRef.current = false;
-      setUserScrolledUp(false);
-      isAtBottomRef.current = true;
-      setIsAtBottom(true);
-      requestAnimationFrame(() => {
-        const container = chatScrollRef.current;
-        if (!container) return;
-        container.scrollTop = container.scrollHeight + 1000;
-      });
       mediaLoadSnapTimerRef.current = null;
-    }, MEDIA_LOAD_SNAP_DEBOUNCE_MS);
+    }
   };
   const usernamePattern = /^[a-z0-9._-]+$/;
 
@@ -1937,6 +1933,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         activeFallbackTitle={activeFallbackTitle}
         peerStatusLabel={peerStatusLabel}
         chatScrollRef={chatScrollRef}
+        virtuosoRef={virtuosoRef}
         onChatScroll={handleChatScroll}
         messages={messages}
         user={user}

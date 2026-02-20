@@ -172,6 +172,10 @@ export function findDmChat(userId, otherUserId) {
     JOIN chat_members m1 ON m1.chat_id = c.id AND m1.user_id = ?
     JOIN chat_members m2 ON m2.chat_id = c.id AND m2.user_id = ?
     WHERE c.type = 'dm'
+    ORDER BY
+      (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) DESC,
+      (SELECT id FROM chat_messages WHERE chat_id = c.id ORDER BY id DESC LIMIT 1) DESC,
+      c.id DESC
     LIMIT 1
   `,
     [userId, otherUserId]
@@ -222,6 +226,7 @@ export function listChatsForUser(userId) {
       (SELECT id FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_message_id,
       (SELECT body FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_message,
       (SELECT created_at FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_time,
+      (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) AS message_count,
       (SELECT user_id FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_sender_id,
       (SELECT users.username FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id ORDER BY chat_messages.created_at DESC LIMIT 1) AS last_sender_username,
       (SELECT users.nickname FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id ORDER BY chat_messages.created_at DESC LIMIT 1) AS last_sender_nickname,

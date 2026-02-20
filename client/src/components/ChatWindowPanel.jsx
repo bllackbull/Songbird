@@ -18,6 +18,7 @@ import {
   VolumeX,
   X as Close,
 } from "lucide-react";
+import { Virtuoso } from "react-virtuoso";
 import { getAvatarStyle } from "../utils/avatarColor.js";
 import { hasPersian } from "../utils/fontUtils.js";
 import { getAvatarInitials } from "../utils/avatarInitials.js";
@@ -30,6 +31,7 @@ export default function ChatWindowPanel({
   activeFallbackTitle,
   peerStatusLabel,
   chatScrollRef,
+  virtuosoRef,
   onChatScroll,
   messages,
   user,
@@ -68,7 +70,6 @@ export default function ChatWindowPanel({
   const [floatingDayLabel, setFloatingDayLabel] = useState(null);
   const [showFloatingDayChip, setShowFloatingDayChip] = useState(false);
   const [isHoveringFloatingDayChip, setIsHoveringFloatingDayChip] = useState(false);
-  const [scrollbarWidth, setScrollbarWidth] = useState(0);
   const [loadedMediaThumbs, setLoadedMediaThumbs] = useState(() => new Set());
   const [focusedMedia, setFocusedMedia] = useState(null);
   const [focusVisible, setFocusVisible] = useState(false);
@@ -95,10 +96,9 @@ export default function ChatWindowPanel({
   const [focusedVideoTime, setFocusedVideoTime] = useState(0);
   const [focusedVideoDuration, setFocusedVideoDuration] = useState(0);
   const [focusedVideoHint, setFocusedVideoHint] = useState(null);
-  const previewExtraOffset = pendingUploadFiles?.length ? (isDesktop ? 170 : 190) : 0;
-  const mobileUploadProgressOffset = !isDesktop && activeUploadProgress !== null ? 76 : 0;
+  const virtuosoBottomSpacerPx = 8;
 
-  const updateFloatingDayLabel = useCallback(() => {
+  const updateFloatingDayLabel = useCallback((preferVisibleLabel = false) => {
     const container = chatScrollRef?.current;
     if (!container || !activeChatId || !messages.length) {
       setFloatingDayLabel(null);
@@ -110,7 +110,7 @@ export default function ChatWindowPanel({
       Number.parseFloat(window.getComputedStyle(container).paddingTop || "0") || 0;
     const messageNodes = Array.from(container.querySelectorAll("[data-msg-day]"));
     const dayChips = Array.from(container.querySelectorAll("[data-day-chip]"));
-    if (!messageNodes.length || !dayChips.length) {
+    if (!messageNodes.length) {
       setFloatingDayLabel(null);
       return;
     }
@@ -120,9 +120,20 @@ export default function ChatWindowPanel({
       messageNodes.find(
         (node) => node.offsetTop + node.offsetHeight >= anchorTop,
       ) || messageNodes[messageNodes.length - 1];
-    const currentLabel = firstVisibleMessage?.getAttribute("data-msg-day") || null;
+    let currentLabel = firstVisibleMessage?.getAttribute("data-msg-day") || null;
+    if (!currentLabel) {
+      const fallbackNode =
+        messageNodes.find((node) => node.getAttribute("data-msg-day")) ||
+        messageNodes[messageNodes.length - 1];
+      currentLabel = fallbackNode?.getAttribute("data-msg-day") || null;
+    }
     if (!currentLabel) {
       setFloatingDayLabel(null);
+      return;
+    }
+
+    if (!dayChips.length) {
+      setFloatingDayLabel(currentLabel);
       return;
     }
 
@@ -150,7 +161,7 @@ export default function ChatWindowPanel({
     const viewportBottom = scrollTop + container.clientHeight - 8;
     const inlineChipVisible =
       chipBottom >= viewportTop && chipTop <= viewportBottom;
-    setFloatingDayLabel(inlineChipVisible ? null : currentLabel);
+    setFloatingDayLabel(inlineChipVisible && !preferVisibleLabel ? null : currentLabel);
   }, [activeChatId, chatScrollRef, messages]);
 
   useEffect(() => {
@@ -174,26 +185,15 @@ export default function ChatWindowPanel({
     return () => media.removeListener(update);
   }, []);
 
-  useEffect(() => {
-    const container = chatScrollRef?.current;
-    if (!container) return;
-    const update = () => {
-      const width = Math.max(0, container.offsetWidth - container.clientWidth);
-      setScrollbarWidth(width);
-    };
-    update();
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
-  }, [chatScrollRef, activeChatId, messages.length]);
-
   const handlePanelScroll = useCallback((event) => {
     onChatScroll?.(event);
+    updateFloatingDayLabel(true);
     if (scrollLabelRafRef.current) {
       cancelAnimationFrame(scrollLabelRafRef.current);
     }
     scrollLabelRafRef.current = requestAnimationFrame(() => {
       scrollLabelRafRef.current = null;
-      updateFloatingDayLabel();
+      updateFloatingDayLabel(true);
     });
     setShowFloatingDayChip(true);
     if (scrollIdleTimeoutRef.current) {
@@ -206,8 +206,39 @@ export default function ChatWindowPanel({
     }, 1500);
   }, [onChatScroll, updateFloatingDayLabel]);
 
+  useEffect(() => {
+    if (isDesktop || !activeChatId || !pendingUploadFiles?.length) return;
+    const scrollToBottomInstant = () => {
+      if (virtuosoRef?.current?.scrollToIndex && messages.length > 0) {
+        virtuosoRef.current.scrollToIndex({
+          index: Math.max(0, messages.length - 1),
+          align: "end",
+          behavior: "auto",
+        });
+        return;
+      }
+      const container = chatScrollRef?.current;
+      if (!container) return;
+      container.scrollTo({ top: container.scrollHeight + 1000, behavior: "auto" });
+    };
+    const raf = requestAnimationFrame(scrollToBottomInstant);
+    return () => cancelAnimationFrame(raf);
+  }, [isDesktop, activeChatId, pendingUploadFiles?.length, virtuosoRef, messages.length, chatScrollRef]);
+
   const handleFloatingDayChipClick = () => {
-    if (!floatingDayLabel || !chatScrollRef?.current) return;
+    if (!floatingDayLabel) return;
+    const firstIndexForDay = messages.findIndex(
+      (msg) => getMessageDayLabel(msg) === floatingDayLabel,
+    );
+    if (firstIndexForDay >= 0 && virtuosoRef?.current?.scrollToIndex) {
+      virtuosoRef.current.scrollToIndex({
+        index: firstIndexForDay,
+        align: "start",
+        behavior: "smooth",
+      });
+      return;
+    }
+    if (!chatScrollRef?.current) return;
     const container = chatScrollRef.current;
     const dayChips = Array.from(container.querySelectorAll("[data-day-chip]"));
     const targetChip = dayChips.find(
@@ -216,12 +247,8 @@ export default function ChatWindowPanel({
     if (!targetChip) return;
     const containerRect = container.getBoundingClientRect();
     const chipRect = targetChip.getBoundingClientRect();
-    const top =
-      container.scrollTop + (chipRect.top - containerRect.top);
-    container.scrollTo({
-      top: Math.max(top, 0),
-      behavior: "smooth",
-    });
+    const top = container.scrollTop + (chipRect.top - containerRect.top);
+    container.scrollTo({ top: Math.max(top, 0), behavior: "smooth" });
   };
 
   useEffect(() => {
@@ -377,6 +404,127 @@ export default function ChatWindowPanel({
     }, 1500);
   };
 
+  const getMessageDayLabel = (msg) => {
+    if (msg?._dayLabel) return msg._dayLabel;
+    if (msg?._dayKey) return msg._dayKey;
+    if (!msg?.created_at) return "";
+    const date = new Date(msg.created_at);
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  };
+
+  const renderMessageItem = (msg, index) => {
+    const isOwn = msg.username === user.username;
+    const isRead = Boolean(msg.read_at);
+    const hasFiles = Array.isArray(msg.files) && msg.files.length > 0;
+    const hasUploadInProgress =
+      Array.isArray(msg._files) &&
+      msg._files.length > 0 &&
+      Number(msg._uploadProgress ?? 100) < 100;
+    const isSending = msg._delivery === "sending" || hasUploadInProgress;
+    const isFailed = msg._delivery === "failed";
+    const currentDayKey = msg._dayKey || "";
+    const prevDayKey = index > 0 ? messages[index - 1]?._dayKey || "" : "";
+    const isNewDay = !prevDayKey || currentDayKey !== prevDayKey;
+    const dayLabel = getMessageDayLabel(msg);
+
+    return (
+      <div
+        id={`message-${msg.id}`}
+        data-msg-day={dayLabel}
+        className="w-full max-w-full overflow-x-hidden px-0 pb-3 md:px-3"
+      >
+        {isNewDay ? (
+          <div className="my-3 flex w-full items-center justify-center">
+            <div
+              data-day-chip={dayLabel}
+              className="inline-flex w-max rounded-full border border-emerald-200/60 bg-white/80 px-3 py-1 text-[11px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+            >
+              {dayLabel}
+            </div>
+          </div>
+        ) : null}
+        {unreadMarkerId === msg.id ? (
+          <div className="my-3 flex items-center gap-3">
+            <span className="h-px flex-1 bg-emerald-200/70 dark:bg-emerald-500/30" />
+            <span className="rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200">
+              Unread Messages
+            </span>
+            <span className="h-px flex-1 bg-emerald-200/70 dark:bg-emerald-500/30" />
+          </div>
+        ) : null}
+        <div
+          className={`flex w-full max-w-full px-3 md:px-0 ${
+            isOwn ? "justify-end" : "justify-start"
+          }`}
+        >
+          <div
+            className={`rounded-2xl px-4 py-3 text-sm shadow-sm ${
+              hasFiles
+                ? "w-[min(52vw,18rem)] max-w-[68%] md:w-[min(44vw,22rem)] md:max-w-[62%] md:min-w-[12rem]"
+                : "max-w-[82%] md:max-w-[75%]"
+            } ${
+              isOwn
+                ? "rounded-br-md bg-emerald-200 text-emerald-950 dark:bg-emerald-800 dark:text-white"
+                : "bg-white/90 text-slate-800 rounded-bl-md dark:bg-slate-800/75 dark:text-slate-100"
+            }`}
+          >
+            {renderMessageFiles(msg.files || [])}
+            {!(
+              (msg.files || []).length &&
+              /^Sent (a media file|a document|\d+ files)$/i.test((msg.body || "").trim())
+            ) ? (
+              <p className={`mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${hasPersian(msg.body) ? "font-fa" : ""}`}>
+                {renderMessageBody(msg.body)}
+              </p>
+            ) : null}
+            <div
+              className={`mt-2 flex items-center gap-1 text-[10px] ${
+                isOwn
+                  ? "text-emerald-900/80 dark:text-emerald-50/80"
+                  : "text-slate-500 dark:text-slate-400"
+              }`}
+            >
+              <span>{msg._timeLabel || formatTime(msg.created_at)}</span>
+              {isOwn ? (
+                <span
+                  className={`inline-flex items-center ${
+                    isSending
+                      ? "text-emerald-900/80 dark:text-emerald-50/80"
+                      : isFailed
+                        ? "text-rose-500"
+                        : isRead
+                          ? "text-sky-400"
+                          : "text-emerald-900/80 dark:text-emerald-50/80"
+                  }`}
+                >
+                  {isSending ? (
+                    <Clock12
+                      size={15}
+                      strokeWidth={2.4}
+                      className="animate-spin"
+                      aria-hidden="true"
+                    />
+                  ) : isFailed ? (
+                    <AlertCircle size={15} strokeWidth={2.4} aria-hidden="true" />
+                  ) : isRead ? (
+                    <CheckCheck size={15} strokeWidth={2.5} aria-hidden="true" />
+                  ) : (
+                    <Check size={15} strokeWidth={2.5} aria-hidden="true" />
+                  )}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const chatScrollStyle = useMemo(
     () => ({
       backgroundImage: isDark
@@ -391,8 +539,8 @@ export default function ChatWindowPanel({
           : undefined,
       paddingBottom: activeChatId
         ? `max(1rem, calc(env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px) + ${
-            isDesktop ? "1rem" : "5.1rem"
-          } + ${!isDesktop ? previewExtraOffset + mobileUploadProgressOffset : 0}px))`
+            isDesktop ? "1rem" : "1rem"
+          }))`
         : undefined,
       overflowAnchor: "none",
     }),
@@ -401,9 +549,14 @@ export default function ChatWindowPanel({
       insecureConnection,
       isDark,
       isDesktop,
-      mobileUploadProgressOffset,
-      previewExtraOffset,
     ],
+  );
+
+  const virtuosoComponents = useMemo(
+    () => ({
+      Footer: () => <div style={{ height: `${virtuosoBottomSpacerPx}px` }} />,
+    }),
+    [virtuosoBottomSpacerPx],
   );
 
   const handleTouchStart = (event) => {
@@ -949,119 +1102,24 @@ export default function ChatWindowPanel({
             })}
           </div>
         ) : messages.length ? (
-          <div
-            ref={chatScrollRef}
+          <Virtuoso
+            ref={virtuosoRef}
+            data={messages}
+            scrollerRef={(el) => {
+              chatScrollRef.current = el;
+            }}
             onScroll={handlePanelScroll}
-            className="chat-scroll h-full space-y-3 overflow-y-auto overflow-x-hidden px-6 py-6"
+            className="chat-scroll h-full overflow-x-hidden px-0 py-6 md:pl-1 md:pr-4"
             style={chatScrollStyle}
-          >
-            {messages.map((msg, index) => {
-              const isOwn = msg.username === user.username;
-              const isRead = Boolean(msg.read_at);
-              const hasFiles = Array.isArray(msg.files) && msg.files.length > 0;
-              const hasUploadInProgress =
-                Array.isArray(msg._files) &&
-                msg._files.length > 0 &&
-                Number(msg._uploadProgress ?? 100) < 100;
-              const isSending = msg._delivery === "sending" || hasUploadInProgress;
-              const isFailed = msg._delivery === "failed";
-              const currentDayKey = msg._dayKey || "";
-              const prevDayKey = index > 0 ? messages[index - 1]?._dayKey || "" : "";
-              const isNewDay = !prevDayKey || currentDayKey !== prevDayKey;
-              const dayLabel = msg._dayLabel || "";
-              return (
-                <div
-                  key={msg.id}
-                  id={`message-${msg.id}`}
-                  data-msg-day={dayLabel}
-                >
-                  {isNewDay ? (
-                    <div
-                      className="relative my-3 h-6"
-                      style={{
-                        width: "calc(100% + 3rem)",
-                        marginLeft: `calc(-1.5rem + ${scrollbarWidth / 2}px)`,
-                      }}
-                    >
-                      <div
-                        data-day-chip={dayLabel}
-                        className="absolute left-1/2 top-1/2 inline-flex w-max -translate-x-1/2 -translate-y-1/2 rounded-full border border-emerald-200/60 bg-white/80 px-3 py-1 text-[11px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
-                      >
-                        {dayLabel}
-                      </div>
-                    </div>
-                  ) : null}
-                  {unreadMarkerId === msg.id ? (
-                    <div className="my-3 flex items-center gap-3">
-                      <span className="h-px flex-1 bg-emerald-200/70 dark:bg-emerald-500/30" />
-                      <span className="rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200">
-                        Unread Messages
-                      </span>
-                      <span className="h-px flex-1 bg-emerald-200/70 dark:bg-emerald-500/30" />
-                    </div>
-                  ) : null}
-                  <div className={`flex ${isOwn ? "justify-end" : "justify-start"}`}>
-                    <div
-                      className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
-                        hasFiles ? "min-w-[13rem] sm:min-w-[16rem]" : ""
-                      } ${
-                        isOwn
-                          ? "rounded-br-md bg-emerald-200 text-emerald-950 dark:bg-emerald-800 dark:text-white"
-                          : "bg-white/90 text-slate-800 rounded-bl-md dark:bg-slate-800/75 dark:text-slate-100"
-                      }`}
-                    >
-                      {renderMessageFiles(msg.files || [])}
-                      {!(
-                        (msg.files || []).length &&
-                        /^Sent (a media file|a document|\d+ files)$/i.test((msg.body || "").trim())
-                      ) ? (
-                        <p className={`mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${hasPersian(msg.body) ? "font-fa" : ""}`}>
-                          {renderMessageBody(msg.body)}
-                        </p>
-                      ) : null}
-                      <div
-                        className={`mt-2 flex items-center gap-1 text-[10px] ${
-                          isOwn
-                            ? "text-emerald-900/80 dark:text-emerald-50/80"
-                            : "text-slate-500 dark:text-slate-400"
-                        }`}
-                      >
-                        <span>{msg._timeLabel || formatTime(msg.created_at)}</span>
-                        {isOwn ? (
-                          <span
-                            className={`inline-flex items-center ${
-                              isSending
-                                ? "text-emerald-900/80 dark:text-emerald-50/80"
-                                : isFailed
-                                  ? "text-rose-500"
-                                : isRead
-                                  ? "text-sky-400"
-                                  : "text-emerald-900/80 dark:text-emerald-50/80"
-                            }`}
-                          >
-                            {isSending ? (
-                              <Clock12
-                                size={15}
-                                strokeWidth={2.4}
-                                className="animate-spin"
-                                aria-hidden="true"
-                              />
-                            ) : isFailed ? (
-                              <AlertCircle size={15} strokeWidth={2.4} aria-hidden="true" />
-                            ) : isRead ? (
-                              <CheckCheck size={15} strokeWidth={2.5} aria-hidden="true" />
-                            ) : (
-                              <Check size={15} strokeWidth={2.5} aria-hidden="true" />
-                            )}
-                          </span>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+            overscan={140}
+            components={virtuosoComponents}
+            followOutput={userScrolledUp ? false : "smooth"}
+            initialTopMostItemIndex={messages.length > 0 ? messages.length - 1 : 0}
+            computeItemKey={(index, msg) =>
+              String(msg.id ?? `${msg.created_at || "na"}-${msg.username || "na"}-${index}`)
+            }
+            itemContent={(index, msg) => renderMessageItem(msg, index)}
+          />
         ) : (
           <div
             ref={chatScrollRef}
@@ -1078,9 +1136,9 @@ export default function ChatWindowPanel({
 
       {activeChatId ? (
         <form
-          className="absolute inset-x-0 bottom-0 z-30 flex flex-col gap-3 border-t border-slate-300/80 bg-white px-4 py-3 dark:border-emerald-500/20 dark:bg-slate-900 sm:px-6 md:static md:mt-auto md:shrink-0"
+          className="sticky bottom-0 z-30 flex flex-col gap-3 border-t border-slate-300/80 bg-white px-4 py-3 dark:border-emerald-500/20 dark:bg-slate-900 sm:px-6 md:static md:mt-auto md:shrink-0"
           style={{
-            bottom: isDesktop ? undefined : "var(--mobile-bottom-offset, 0px)",
+            bottom: isDesktop ? undefined : "max(0px, var(--mobile-bottom-offset, 0px))",
             paddingBottom: isDesktop
               ? "0.75rem"
               : "max(0.75rem, calc(env(safe-area-inset-bottom) + 0.5rem))",
@@ -1265,7 +1323,7 @@ export default function ChatWindowPanel({
         <button
           type="button"
           onClick={onJumpToLatest}
-          className="absolute inline-flex h-11 w-11 items-center justify-center rounded-full border border-emerald-200 bg-white/90 text-emerald-700 shadow-lg transition hover:border-emerald-300 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+          className="absolute inline-flex h-11 w-11 items-center justify-center rounded-full border border-emerald-200 bg-white text-emerald-700 shadow-lg transition hover:border-emerald-300 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
           style={{
             bottom: "max(80px + 0.05rem, calc(80px + env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px) + 0.05rem))",
             right: "0.85rem",

@@ -19,7 +19,8 @@
   "dependencies": {
     "lucide-react": "^0.563.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "react-virtuoso": "^4.18.1"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.1.0",
