@@ -54,9 +54,14 @@ const CHAT_PAGE_CONFIG = {
     integer: true,
     min: 250,
   }),
-  messageFetchLimit: readEnvNumber("CHAT_MESSAGE_FETCH_LIMIT", 5000, {
+  messageFetchLimit: readEnvNumber("CHAT_MESSAGE_FETCH_LIMIT", 300, {
     integer: true,
     min: 1,
+  }),
+  messagePageSize: readEnvNumber("CHAT_MESSAGE_PAGE_SIZE", 60, {
+    integer: true,
+    min: 10,
+    max: 500,
   }),
   maxFilesPerMessage: readEnvNumber("CHAT_UPLOAD_MAX_FILES", 10, {
     integer: true,
@@ -124,6 +129,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [chats, setChats] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [hasOlderMessages, setHasOlderMessages] = useState(false);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [mobileTab, setMobileTab] = useState("chats");
   const [settingsPanel, setSettingsPanel] = useState(null);
@@ -146,7 +153,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [uploadError, setUploadError] = useState("");
   const [activeUploadProgress, setActiveUploadProgress] = useState(null);
   const chatScrollRef = useRef(null);
-  const virtuosoRef = useRef(null);
   const lastMessageIdRef = useRef(null);
   const isAtBottomRef = useRef(true);
   const userScrolledUpRef = useRef(false);
@@ -154,6 +160,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const pendingScrollToUnreadRef = useRef(null);
   const unreadMarkerIdRef = useRef(null);
   const openingHadUnreadRef = useRef(false);
+  const openingUnreadCountRef = useRef(0);
+  const allowStartReachedRef = useRef(false);
+  const unreadAnchorLockUntilRef = useRef(0);
+  const unreadAlignTimersRef = useRef([]);
   const suppressScrolledUpRef = useRef(false);
   const shouldAutoMarkReadRef = useRef(true);
   const openingChatRef = useRef(false);
@@ -166,6 +176,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     avatarUrl: user?.avatarUrl || "",
   });
   const [avatarPreview, setAvatarPreview] = useState(user?.avatarUrl || "");
+  const [pendingAvatarFile, setPendingAvatarFile] = useState(null);
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: "",
     newPassword: "",
@@ -183,6 +194,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [isAppActive, setIsAppActive] = useState(
     document.visibilityState === "visible" && document.hasFocus(),
   );
+  const [isMobileViewport, setIsMobileViewport] = useState(
+    typeof window !== "undefined"
+      ? window.matchMedia("(max-width: 767px)").matches
+      : false,
+  );
 
   const settingsMenuRef = useRef(null);
   const settingsButtonRef = useRef(null);
@@ -192,20 +208,40 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const sendingClientIdsRef = useRef(new Set());
 
   const scrollChatToBottom = (behavior = "auto") => {
-    if (virtuosoRef.current?.scrollToIndex && messages.length > 0) {
-      virtuosoRef.current.scrollToIndex({
-        index: Math.max(0, messages.length - 1),
-        align: "end",
-        behavior,
-      });
-      return;
-    }
     const container = chatScrollRef.current;
     if (!container) return;
     container.scrollTo({
       top: container.scrollHeight + 1000,
       behavior,
     });
+  };
+
+  const clearUnreadAlignTimers = () => {
+    unreadAlignTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    unreadAlignTimersRef.current = [];
+  };
+
+  const scheduleUnreadAnchorAlignment = (unreadId) => {
+    clearUnreadAlignTimers();
+    const attempt = () => {
+      const divider =
+        document.getElementById(`unread-divider-${unreadId}`) ||
+        document.getElementById(`message-${unreadId}`);
+      if (!divider) return false;
+      if (typeof divider.scrollIntoView === "function") {
+        divider.scrollIntoView({ block: "start", behavior: "auto" });
+      }
+      return true;
+    };
+    attempt();
+    for (let i = 1; i <= 12; i += 1) {
+      const timer = window.setTimeout(() => {
+        if (Date.now() > Number(unreadAnchorLockUntilRef.current || 0)) return;
+        if (userScrolledUpRef.current === false) return;
+        attempt();
+      }, i * 80);
+      unreadAlignTimersRef.current.push(timer);
+    }
   };
 
   const setPendingUploadProgress = (clientId, progress) => {
@@ -229,11 +265,16 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           URL.revokeObjectURL(file.previewUrl);
         }
       });
+      clearUnreadAlignTimers();
     };
   }, []);
 
   useEffect(() => {
     if (user) {
+      if (pendingAvatarFile?.previewUrl) {
+        URL.revokeObjectURL(pendingAvatarFile.previewUrl);
+      }
+      setPendingAvatarFile(null);
       setProfileForm({
         nickname: user.nickname || "",
         username: user.username || "",
@@ -347,14 +388,30 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsMobileViewport(media.matches);
+    update();
+    if (media.addEventListener) {
+      media.addEventListener("change", update);
+      return () => media.removeEventListener("change", update);
+    }
+    media.addListener(update);
+    return () => media.removeListener(update);
+  }, []);
+
+  useEffect(() => {
     if (user && activeChatId) {
       const openedChatId = Number(activeChatId);
       const openedChat = chats.find((chat) => chat.id === openedChatId);
       openingHadUnreadRef.current = Boolean((openedChat?.unread_count || 0) > 0);
+      openingUnreadCountRef.current = Number(openedChat?.unread_count || 0);
       isAtBottomRef.current = true;
       setIsAtBottom(true);
       setLoadingMessages(true);
       setMessages([]);
+      setHasOlderMessages(false);
+      setLoadingOlderMessages(false);
       lastMessageIdRef.current = null;
       setUnreadInChat(0);
       userScrolledUpRef.current = false;
@@ -362,17 +419,29 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       setUnreadMarkerId(null);
       unreadMarkerIdRef.current = null;
       pendingScrollToUnreadRef.current = null;
+      allowStartReachedRef.current = false;
+      unreadAnchorLockUntilRef.current = 0;
       shouldAutoMarkReadRef.current = true;
       openingChatRef.current = true;
-      pendingScrollToBottomRef.current = true;
+      pendingScrollToBottomRef.current = false;
       suppressScrolledUpRef.current = true;
       setChats((prev) =>
         prev.map((chat) =>
             chat.id === openedChatId ? { ...chat, unread_count: 0 } : chat,
         ),
       );
+      const unreadCount = Number(openedChat?.unread_count || 0);
+      const mobileFloor = isMobileViewport ? 10000 : CHAT_PAGE_CONFIG.messageFetchLimit;
+      const initialLimit = Math.min(
+        10000,
+        Math.max(
+          CHAT_PAGE_CONFIG.messageFetchLimit,
+          mobileFloor,
+          unreadCount > 0 ? unreadCount + 120 : 0,
+        ),
+      );
       void (async () => {
-        await loadMessages(openedChatId, { initialLoad: true });
+        await loadMessages(openedChatId, { initialLoad: true, limit: initialLimit });
         await fetch(`${API_BASE}/api/messages/read`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -381,7 +450,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         await loadChats({ silent: true });
       })();
     }
-  }, [user, activeChatId]);
+  }, [user, activeChatId, isMobileViewport]);
 
   useEffect(() => {
     if (!activeChatId) {
@@ -531,7 +600,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (!value) return new Date();
     if (typeof value === "string") {
       const normalized = value.includes("T") ? value : value.replace(" ", "T");
-      return normalized.endsWith("Z")
+      const hasExplicitTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized);
+      return hasExplicitTimezone
         ? new Date(normalized)
         : new Date(`${normalized}Z`);
     }
@@ -624,7 +694,30 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   useEffect(() => {
     if (!activeChatId) return;
     pendingScrollToUnreadRef.current = null;
+    clearUnreadAlignTimers();
   }, [activeChatId]);
+
+  useLayoutEffect(() => {
+    if (!activeChatId) return;
+    const pendingUnread = pendingScrollToUnreadRef.current;
+    if (pendingUnread === null || pendingUnread === undefined) return;
+    if (loadingMessages || messages.length === 0) return;
+
+    requestAnimationFrame(() => {
+      const unreadId = Number(pendingUnread);
+      const scroller = chatScrollRef.current;
+      if (scroller) {
+        scheduleUnreadAnchorAlignment(unreadId);
+      }
+      pendingScrollToUnreadRef.current = null;
+      pendingScrollToBottomRef.current = false;
+      isAtBottomRef.current = false;
+      setIsAtBottom(false);
+      userScrolledUpRef.current = true;
+      setUserScrolledUp(true);
+      unreadAnchorLockUntilRef.current = Date.now() + 4000;
+    });
+  }, [activeChatId, messages, loadingMessages]);
 
   useLayoutEffect(() => {
     if (!activeChatId) return;
@@ -745,6 +838,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         void loadChats({ silent: true });
         const currentActiveId = activeChatIdRef.current;
         if (currentActiveId && Number(payload.chatId) === currentActiveId) {
+          if (userScrolledUpRef.current) {
+            return;
+          }
           void loadMessages(currentActiveId, {
             silent: true,
             preserveHistory: true,
@@ -868,8 +964,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           msg._clientId === clientId
             ? {
                 ...msg,
-                id: Number(data.id) || msg.id,
+                _serverId: Number(data.id) || msg._serverId || null,
                 _delivery: "sent",
+                _awaitingServerEcho: true,
                 _uploadProgress: 100,
               }
             : msg,
@@ -879,12 +976,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         setActiveUploadProgress(100);
         setTimeout(() => setActiveUploadProgress(null), UPLOAD_PROGRESS_HIDE_DELAY_MS);
       }
-      pendingScrollToBottomRef.current = true;
+      pendingScrollToBottomRef.current = false;
       await loadChats({ silent: true });
-      await loadMessages(targetChatId, {
-        silent: true,
-        forceBottom: true,
-      });
+      // Keep optimistic row stable and rely on SSE/polling for server echo.
+      // Immediate forced refetch here can race and cause first-message flicker.
     } catch (_) {
       if (hasFiles) {
         setActiveUploadProgress(null);
@@ -1037,11 +1132,18 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       setLoadingMessages(true);
     }
     try {
+      const fetchLimit = Number(options.limit || CHAT_PAGE_CONFIG.messageFetchLimit);
       const query = new URLSearchParams({
         chatId: String(chatId),
         username: user.username,
-        limit: String(CHAT_PAGE_CONFIG.messageFetchLimit),
+        limit: String(fetchLimit),
       });
+      if (options.beforeId) {
+        query.set("beforeId", String(options.beforeId));
+      }
+      if (options.beforeCreatedAt) {
+        query.set("beforeCreatedAt", String(options.beforeCreatedAt));
+      }
       const res = await fetch(
         `${API_BASE}/api/messages?${query.toString()}`,
       );
@@ -1049,6 +1151,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (!res.ok) {
         throw new Error(data?.error || "Failed to load messages.");
       }
+      setHasOlderMessages((prev) =>
+        options.prepend
+          ? Boolean(data?.hasMore)
+          : options.preserveHistory
+            ? prev || Boolean(data?.hasMore)
+            : Boolean(data?.hasMore),
+      );
       const nextMessages = (data.messages || []).map((msg) => {
         const date = parseServerDate(msg.created_at);
         const dayKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
@@ -1059,7 +1168,60 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           _timeLabel: formatTime(msg.created_at),
         };
       });
+      if (options.prepend) {
+        setMessages((prev) => {
+          const seen = new Set(prev.map((msg) => Number(msg.id)));
+          const older = nextMessages.filter((msg) => !seen.has(Number(msg.id)));
+          return older.length ? [...older, ...prev] : prev;
+        });
+        return;
+      }
       setMessages((prev) => {
+        const prevByServerId = new Map(
+          prev
+            .filter((msg) => Number.isFinite(Number(msg._serverId || msg.id)))
+            .map((msg) => [Number(msg._serverId || msg.id), msg]),
+        );
+        const prevLocalCandidates = prev.filter((msg) => Boolean(msg?._clientId));
+        const nextMessagesWithLocalIdentity = nextMessages.map((serverMsg) => {
+          let existingLocal = prevByServerId.get(Number(serverMsg.id));
+          if (!existingLocal) {
+            existingLocal = prevLocalCandidates.find((localMsg) => {
+              if (!localMsg?._clientId) return false;
+              if ((localMsg.username || "") !== (serverMsg.username || "")) return false;
+              if ((localMsg.body || "") !== (serverMsg.body || "")) return false;
+              const localFiles = Array.isArray(localMsg.files) ? localMsg.files : [];
+              const serverFiles = Array.isArray(serverMsg.files) ? serverMsg.files : [];
+              if (localFiles.length !== serverFiles.length) return false;
+              const localTime = parseServerDate(localMsg.created_at).getTime();
+              const serverTime = parseServerDate(serverMsg.created_at).getTime();
+              return Math.abs(localTime - serverTime) < 2 * 60 * 1000;
+            });
+          }
+          if (!existingLocal?._clientId) return serverMsg;
+          return {
+            ...serverMsg,
+            _clientId: existingLocal._clientId,
+            _serverId: Number(serverMsg.id),
+            _chatId: existingLocal._chatId,
+            _delivery: undefined,
+            _awaitingServerEcho: false,
+          };
+        });
+
+        if (
+          nextMessages.length === 0 &&
+          prev.some((msg) => {
+            if (Number(msg._chatId || chatId) !== Number(chatId)) return false;
+            return Boolean(
+              msg._clientId || msg._awaitingServerEcho || msg._delivery,
+            );
+          })
+        ) {
+          // Prevent one-frame disappearance when first local message exists
+          // and a transient fetch returns empty before server echo settles.
+          return prev;
+        }
         const isPendingMessageAcknowledged = (pending, serverMessages) => {
           if (!pending || !serverMessages.length) return false;
           const pendingHasFiles = Array.isArray(pending.files) && pending.files.length > 0;
@@ -1113,14 +1275,58 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             Number(msg._chatId || chatId) === Number(chatId) &&
             !isPendingMessageAcknowledged(msg, nextMessages),
         );
-        const nextMessagesVisible = nextMessages.filter(
+        const optimisticSentLocal = prev.filter((msg) => {
+          if (!msg?._awaitingServerEcho) return false;
+          if (Number(msg._chatId || chatId) !== Number(chatId)) return false;
+          return !nextMessagesWithLocalIdentity.some(
+            (serverMsg) =>
+              Number(serverMsg.id) === Number(msg._serverId || msg.id),
+          );
+        });
+        const nextMessagesVisible = nextMessagesWithLocalIdentity.filter(
           (msg) => !isServerMessageShadowedByPendingUpload(msg, pendingLocal),
         );
-        const mergedNext = pendingLocal.length
-          ? [...nextMessagesVisible, ...pendingLocal]
-          : nextMessagesVisible;
+        const compareMessages = (left, right) => {
+          const leftTime = parseServerDate(left?.created_at).getTime();
+          const rightTime = parseServerDate(right?.created_at).getTime();
+          if (leftTime !== rightTime) {
+            return leftTime - rightTime;
+          }
+          const leftId = Number(left?.id);
+          const rightId = Number(right?.id);
+          const leftHasNumericId = Number.isFinite(leftId);
+          const rightHasNumericId = Number.isFinite(rightId);
+          if (leftHasNumericId && rightHasNumericId) {
+            return leftId - rightId;
+          }
+          return String(left?._clientId || "").localeCompare(String(right?._clientId || ""));
+        };
+
+        let mergedNext = [
+          ...nextMessagesVisible,
+          ...optimisticSentLocal,
+          ...pendingLocal,
+        ].sort(compareMessages);
+
+        if (options.preserveHistory) {
+          const mergedById = new Map();
+          mergedNext.forEach((msg) => {
+            const key = Number(msg?._serverId || msg?.id);
+            if (Number.isFinite(key)) {
+              mergedById.set(key, msg);
+            }
+          });
+          const carriedOlder = prev.filter((msg) => {
+            const key = Number(msg?._serverId || msg?.id);
+            if (!Number.isFinite(key)) return false;
+            return !mergedById.has(key);
+          });
+          if (carriedOlder.length) {
+            mergedNext = [...carriedOlder, ...mergedNext].sort(compareMessages);
+          }
+        }
         const hasLocalTransient = prev.some(
-          (msg) => msg._clientId || msg._delivery || msg._files,
+          (msg) => msg._clientId || msg._delivery || msg._files || msg._awaitingServerEcho,
         );
         if (!hasLocalTransient && prev.length === nextMessages.length) {
           const prevLast = prev[prev.length - 1];
@@ -1149,18 +1355,44 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       lastMessageIdRef.current = lastId;
 
       if (openingChatRef.current) {
-        // In virtualized mode, always open at latest message.
-        // Unread anchoring to a middle item can cause persistent snap fights.
-        setUnreadMarkerId(null);
-        unreadMarkerIdRef.current = null;
-        pendingScrollToUnreadRef.current = null;
+        const unreadCount = Number(openingUnreadCountRef.current || 0);
+        let firstUnreadMessage = null;
+        if (unreadCount > 0 && nextMessages.length > 0) {
+          const boundaryIndex = Math.max(0, nextMessages.length - unreadCount);
+          firstUnreadMessage = nextMessages[boundaryIndex] || null;
+        } else {
+          const firstUnreadIndex = nextMessages.findIndex(
+            (msg) => msg.username !== user.username && !msg.read_at,
+          );
+          firstUnreadMessage =
+            firstUnreadIndex >= 0 ? nextMessages[firstUnreadIndex] : null;
+        }
+
         shouldAutoMarkReadRef.current = true;
-        pendingScrollToBottomRef.current = true;
-        userScrolledUpRef.current = false;
-        setUserScrolledUp(false);
-        isAtBottomRef.current = true;
-        setIsAtBottom(true);
+        pendingScrollToUnreadRef.current = null;
+
+        if (firstUnreadMessage?.id) {
+          const unreadId = Number(firstUnreadMessage.id);
+          setUnreadMarkerId(unreadId);
+          unreadMarkerIdRef.current = unreadId;
+          pendingScrollToUnreadRef.current = unreadId;
+          pendingScrollToBottomRef.current = false;
+          userScrolledUpRef.current = false;
+          setUserScrolledUp(false);
+          isAtBottomRef.current = false;
+          setIsAtBottom(false);
+        } else {
+          setUnreadMarkerId(null);
+          unreadMarkerIdRef.current = null;
+          pendingScrollToBottomRef.current = true;
+          userScrolledUpRef.current = false;
+          setUserScrolledUp(false);
+          isAtBottomRef.current = true;
+          setIsAtBottom(true);
+        }
+
         openingHadUnreadRef.current = false;
+        openingUnreadCountRef.current = 0;
         openingChatRef.current = false;
       }
 
@@ -1178,16 +1410,26 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         setUnreadInChat((prev) => prev + Math.max(newCount, 1));
       }
 
-      if (newFromSelf) {
-        pendingScrollToBottomRef.current = true;
-        isAtBottomRef.current = true;
-        setIsAtBottom(true);
-        userScrolledUpRef.current = false;
-        setUserScrolledUp(false);
-      } else if (hasNew && !userScrolledUpRef.current) {
-        pendingScrollToBottomRef.current = true;
-        isAtBottomRef.current = true;
-        setIsAtBottom(true);
+      const keepUnreadAnchor =
+        Boolean(options.initialLoad) &&
+        (pendingScrollToUnreadRef.current !== null ||
+          unreadMarkerIdRef.current !== null ||
+          Number(openingUnreadCountRef.current || 0) > 0);
+      const unreadAnchorLocked =
+        unreadMarkerIdRef.current !== null &&
+        Date.now() < Number(unreadAnchorLockUntilRef.current || 0);
+      if (!keepUnreadAnchor && !unreadAnchorLocked) {
+        if (newFromSelf) {
+          pendingScrollToBottomRef.current = true;
+          isAtBottomRef.current = true;
+          setIsAtBottom(true);
+          userScrolledUpRef.current = false;
+          setUserScrolledUp(false);
+        } else if (hasNew && !userScrolledUpRef.current) {
+          pendingScrollToBottomRef.current = true;
+          isAtBottomRef.current = true;
+          setIsAtBottom(true);
+        }
       }
       if (
         activeChat?.type === "dm" &&
@@ -1453,6 +1695,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         _uploadType: pendingUploadType,
         _files: pendingFiles,
         _uploadProgress: hasPendingFiles ? 0 : null,
+        _awaitingServerEcho: false,
         files: pendingFiles.map((file) => ({
           id: file.id,
           kind: file.kind,
@@ -1540,21 +1783,44 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     } catch (_) {}
   }
 
-  function handleAvatarChange(event) {
+  async function handleAvatarChange(event) {
     const file = event.target.files?.[0];
     if (!file) {
-      setProfileForm((prev) => ({ ...prev, avatarUrl: "" }));
-      setAvatarPreview("");
+      return;
+    }
+    if (!String(file.type || "").toLowerCase().startsWith("image/")) {
+      setProfileError("Profile photo must be an image file.");
+      event.target.value = "";
+      return;
+    }
+    if (Number(file.size || 0) > CHAT_PAGE_CONFIG.maxFileSizeBytes) {
+      setProfileError(
+        `Profile photo must be smaller than ${formatBytesAsMb(
+          CHAT_PAGE_CONFIG.maxFileSizeBytes,
+        )}.`,
+      );
+      event.target.value = "";
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === "string" ? reader.result : "";
-      setProfileForm((prev) => ({ ...prev, avatarUrl: result }));
-      setAvatarPreview(result);
-    };
-    reader.readAsDataURL(file);
+    const previewUrl = URL.createObjectURL(file);
+    setProfileError("");
+    if (pendingAvatarFile?.previewUrl) {
+      URL.revokeObjectURL(pendingAvatarFile.previewUrl);
+    }
+    setPendingAvatarFile({ file, previewUrl });
+    setAvatarPreview(previewUrl);
+    event.target.value = "";
+  }
+
+  function handleAvatarRemove() {
+    setProfileError("");
+    if (pendingAvatarFile?.previewUrl) {
+      URL.revokeObjectURL(pendingAvatarFile.previewUrl);
+    }
+    setPendingAvatarFile(null);
+    setAvatarPreview("");
+    setProfileForm((prev) => ({ ...prev, avatarUrl: "" }));
   }
 
   async function handleProfileSave(event) {
@@ -1572,6 +1838,21 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       return;
     }
     try {
+      let avatarUrlToSave = profileForm.avatarUrl;
+      if (pendingAvatarFile?.file) {
+        const payload = new FormData();
+        payload.append("avatar", pendingAvatarFile.file);
+        payload.append("currentUsername", user.username);
+        const uploadRes = await fetch(`${API_BASE}/api/profile/avatar`, {
+          method: "POST",
+          body: payload,
+        });
+        const uploadData = await uploadRes.json();
+        if (!uploadRes.ok) {
+          throw new Error(uploadData?.error || "Unable to upload profile photo.");
+        }
+        avatarUrlToSave = uploadData.avatarUrl || "";
+      }
       const res = await fetch(`${API_BASE}/api/profile`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -1579,7 +1860,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           currentUsername: user.username,
           username: trimmedUsername,
           nickname: profileForm.nickname,
-          avatarUrl: profileForm.avatarUrl,
+          avatarUrl: avatarUrlToSave,
         }),
       });
       const data = await res.json();
@@ -1602,6 +1883,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }
 
       setUser(updatedUser);
+      if (pendingAvatarFile?.previewUrl) {
+        URL.revokeObjectURL(pendingAvatarFile.previewUrl);
+      }
+      setPendingAvatarFile(null);
       setSettingsPanel(null);
     } catch (err) {
       setProfileError(err.message);
@@ -1675,6 +1960,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
     if (atBottom) {
       suppressScrolledUpRef.current = false;
+      unreadAnchorLockUntilRef.current = 0;
+      clearUnreadAlignTimers();
       if (userScrolledUpRef.current) {
         userScrolledUpRef.current = false;
         setUserScrolledUp(false);
@@ -1682,6 +1969,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     } else {
       if (event?.isTrusted) {
         suppressScrolledUpRef.current = false;
+        unreadAnchorLockUntilRef.current = 0;
+        clearUnreadAlignTimers();
       }
       if (suppressScrolledUpRef.current) {
         return;
@@ -1728,6 +2017,57 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       window.clearTimeout(mediaLoadSnapTimerRef.current);
       mediaLoadSnapTimerRef.current = null;
     }
+  };
+
+  const handleStartReached = async () => {
+    if (isMobileViewport) return;
+    if (!activeChatId || loadingMessages || loadingOlderMessages || !hasOlderMessages) return;
+    if (!allowStartReachedRef.current) return;
+    const oldestMessage = messages[0];
+    const oldestId = Number(oldestMessage?.id || 0);
+    const oldestCreatedAt = oldestMessage?.created_at || "";
+    if (!oldestId || !oldestCreatedAt) return;
+    const scroller = chatScrollRef.current;
+    let anchorId = "";
+    let anchorOffset = 0;
+    if (scroller) {
+      const scrollerTop = scroller.getBoundingClientRect().top;
+      const messageNodes = Array.from(
+        scroller.querySelectorAll("[id^='message-']"),
+      );
+      const firstVisible = messageNodes.find(
+        (node) => node.getBoundingClientRect().bottom > scrollerTop + 1,
+      );
+      const anchorNode = firstVisible || messageNodes[0];
+      if (anchorNode) {
+        anchorId = anchorNode.id;
+        anchorOffset = anchorNode.getBoundingClientRect().top - scrollerTop;
+      }
+    }
+    setLoadingOlderMessages(true);
+    try {
+      await loadMessages(activeChatId, {
+        silent: true,
+        prepend: true,
+        beforeId: oldestId,
+        beforeCreatedAt: oldestCreatedAt,
+        limit: CHAT_PAGE_CONFIG.messagePageSize,
+      });
+      requestAnimationFrame(() => {
+        if (!scroller || !anchorId) return;
+        const sameNode = document.getElementById(anchorId);
+        if (!sameNode) return;
+        const scrollerTop = scroller.getBoundingClientRect().top;
+        const nextOffset = sameNode.getBoundingClientRect().top - scrollerTop;
+        scroller.scrollTop += nextOffset - anchorOffset;
+      });
+    } finally {
+      setLoadingOlderMessages(false);
+    }
+  };
+
+  const handleUserScrollIntent = () => {
+    allowStartReachedRef.current = true;
   };
   const usernamePattern = /^[a-z0-9._-]+$/;
 
@@ -1852,6 +2192,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                 avatarPreview={avatarPreview}
                 profileForm={profileForm}
                 handleAvatarChange={handleAvatarChange}
+                handleAvatarRemove={handleAvatarRemove}
                 setAvatarPreview={setAvatarPreview}
                 setProfileForm={setProfileForm}
                 statusSelection={statusSelection}
@@ -1933,13 +2274,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         activeFallbackTitle={activeFallbackTitle}
         peerStatusLabel={peerStatusLabel}
         chatScrollRef={chatScrollRef}
-        virtuosoRef={virtuosoRef}
         onChatScroll={handleChatScroll}
+        onStartReached={handleStartReached}
         messages={messages}
         user={user}
         formatTime={formatTime}
         unreadMarkerId={unreadMarkerId}
         loadingMessages={loadingMessages}
+        loadingOlderMessages={loadingOlderMessages}
+        hasOlderMessages={hasOlderMessages}
         handleSend={handleSend}
         userScrolledUp={userScrolledUp}
         unreadInChat={unreadInChat}
@@ -1957,6 +2300,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         onUploadFilesSelected={handleUploadFilesSelected}
         onRemovePendingUpload={removePendingUpload}
         onClearPendingUploads={clearPendingUploads}
+        onUserScrollIntent={handleUserScrollIntent}
       />
 
       <MobileTabMenu
@@ -2000,6 +2344,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           avatarPreview={avatarPreview}
           profileForm={profileForm}
           handleAvatarChange={handleAvatarChange}
+          handleAvatarRemove={handleAvatarRemove}
           setAvatarPreview={setAvatarPreview}
           setProfileForm={setProfileForm}
           statusSelection={statusSelection}

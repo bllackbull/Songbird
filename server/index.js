@@ -8,6 +8,10 @@ import rateLimit from "express-rate-limit";
 import multer from "multer";
 import {
   addChatMember,
+  adminGetAll,
+  adminGetRow,
+  adminRun,
+  adminSave,
   createChat,
   createMessageFiles,
   createMessage,
@@ -40,6 +44,11 @@ const app = express();
 const port = process.env.PORT || 5174;
 const isProduction = process.env.NODE_ENV === "production";
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
+const parseEnvInt = (value, fallback) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.trunc(parsed);
+};
 
 app.set("trust proxy", 1);
 
@@ -71,14 +80,25 @@ const USERNAME_REGEX = /^[a-z0-9._-]+$/;
 const sseClientsByUsername = new Map();
 const dataDir = path.resolve(serverDir, "..", "data");
 const uploadRootDir = path.join(dataDir, "uploads", "messages");
+const avatarUploadRootDir = path.join(dataDir, "uploads", "avatars");
+const SHARED_MAX_FILE_SIZE_BYTES = parseEnvInt(
+  process.env.CHAT_UPLOAD_MAX_FILE_SIZE_BYTES,
+  25 * 1024 * 1024,
+);
 const MESSAGE_FILE_LIMITS = {
   maxFiles: 10,
-  maxFileSizeBytes: 25 * 1024 * 1024,
+  maxFileSizeBytes: SHARED_MAX_FILE_SIZE_BYTES,
   maxTotalBytes: 75 * 1024 * 1024,
+};
+const AVATAR_FILE_LIMITS = {
+  maxFileSizeBytes: SHARED_MAX_FILE_SIZE_BYTES,
 };
 
 if (!fs.existsSync(uploadRootDir)) {
   fs.mkdirSync(uploadRootDir, { recursive: true });
+}
+if (!fs.existsSync(avatarUploadRootDir)) {
+  fs.mkdirSync(avatarUploadRootDir, { recursive: true });
 }
 
 app.use(
@@ -97,6 +117,19 @@ app.use(
   }),
 );
 
+app.use(
+  "/uploads/avatars",
+  express.static(avatarUploadRootDir, {
+    etag: true,
+    lastModified: true,
+    maxAge: "30d",
+    setHeaders: (res) => {
+      res.setHeader("Cache-Control", "public, max-age=2592000");
+      res.setHeader("Vary", "Accept-Encoding");
+    },
+  }),
+);
+
 const uploadStorage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadRootDir),
   filename: (_req, file, cb) => {
@@ -110,6 +143,22 @@ const uploadFiles = multer({
   limits: {
     fileSize: MESSAGE_FILE_LIMITS.maxFileSizeBytes,
     files: MESSAGE_FILE_LIMITS.maxFiles,
+  },
+});
+
+const avatarUploadStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, avatarUploadRootDir),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname || "").toLowerCase();
+    cb(null, `avatar-${Date.now()}-${crypto.randomBytes(6).toString("hex")}${ext}`);
+  },
+});
+
+const uploadAvatar = multer({
+  storage: avatarUploadStorage,
+  limits: {
+    fileSize: AVATAR_FILE_LIMITS.maxFileSizeBytes,
+    files: 1,
   },
 });
 
@@ -209,6 +258,264 @@ function removeUploadedFiles(files = []) {
       // best effort cleanup
     }
   });
+}
+
+function removeStoredFileNames(storedNames = []) {
+  storedNames.forEach((storedName) => {
+    try {
+      const safeName = path.basename(String(storedName || '').trim())
+      if (!safeName) return
+      const filePath = path.join(uploadRootDir, safeName)
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath)
+      }
+    } catch (_) {
+      // best effort cleanup
+    }
+  })
+}
+
+function removeAvatarByUrl(avatarUrl = "") {
+  try {
+    const raw = String(avatarUrl || "").trim();
+    if (!raw.startsWith("/uploads/avatars/")) return;
+    const safeName = path.basename(raw);
+    if (!safeName) return;
+    const filePath = path.join(avatarUploadRootDir, safeName);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch (_) {
+    // best effort cleanup
+  }
+}
+
+function resolveAvatarDiskPath(avatarUrl = "") {
+  const raw = String(avatarUrl || "").trim();
+  if (!raw.startsWith("/uploads/avatars/")) return null;
+  const safeName = path.basename(raw);
+  if (!safeName) return null;
+  return path.join(avatarUploadRootDir, safeName);
+}
+
+function ensureAvatarExists(userId, avatarUrl) {
+  const value = String(avatarUrl || "").trim();
+  if (!value) return null;
+  const diskPath = resolveAvatarDiskPath(value);
+  if (!diskPath) return value;
+  if (fs.existsSync(diskPath)) return value;
+  if (Number.isFinite(Number(userId)) && Number(userId) > 0) {
+    adminRun("UPDATE users SET avatar_url = NULL WHERE id = ?", [Number(userId)]);
+    adminSave();
+  }
+  return null;
+}
+
+function chunkIds(ids = [], size = 500) {
+  const out = [];
+  for (let i = 0; i < ids.length; i += size) {
+    out.push(ids.slice(i, i + size));
+  }
+  return out;
+}
+
+function cleanupMissingMessageFilesForMessageIds(messageIds = []) {
+  const normalized = Array.from(
+    new Set(
+      (Array.isArray(messageIds) ? messageIds : [])
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id) && id > 0),
+    ),
+  );
+  if (!normalized.length) return { deletedMessageIds: [], changed: false };
+
+  const rows = listMessageFilesByMessageIds(normalized);
+  if (!rows.length) return { deletedMessageIds: [], changed: false };
+
+  const missingMessageIds = new Set();
+  rows.forEach((row) => {
+    const stored = path.basename(String(row.stored_name || "").trim());
+    if (!stored) return;
+    const filePath = path.join(uploadRootDir, stored);
+    if (!fs.existsSync(filePath)) {
+      missingMessageIds.add(Number(row.message_id));
+    }
+  });
+
+  if (!missingMessageIds.size) {
+    return { deletedMessageIds: [], changed: false };
+  }
+
+  const targetMessageIds = Array.from(missingMessageIds);
+  const placeholders = targetMessageIds.map(() => "?").join(", ");
+  const allFilesRows = adminGetAll(
+    `SELECT stored_name FROM chat_message_files WHERE message_id IN (${placeholders})`,
+    targetMessageIds,
+  );
+  const storedNames = allFilesRows.map((row) => row.stored_name);
+
+  adminRun("BEGIN");
+  try {
+    chunkIds(targetMessageIds, 500).forEach((chunk) => {
+      const chunkPlaceholders = chunk.map(() => "?").join(", ");
+      adminRun(
+        `DELETE FROM chat_message_files WHERE message_id IN (${chunkPlaceholders})`,
+        chunk,
+      );
+      adminRun(`DELETE FROM chat_messages WHERE id IN (${chunkPlaceholders})`, chunk);
+    });
+    adminRun("COMMIT");
+  } catch (error) {
+    adminRun("ROLLBACK");
+    throw error;
+  }
+
+  removeStoredFileNames(storedNames);
+  adminSave();
+  return { deletedMessageIds: targetMessageIds, changed: true };
+}
+
+function getDiskUsageInfo() {
+  try {
+    if (typeof fs.statfsSync !== "function") return null;
+    const stat = fs.statfsSync(dataDir);
+    const blockSize = Number(stat.bsize || 0);
+    const blocks = Number(stat.blocks || 0);
+    const freeBlocks = Number(stat.bavail || stat.bfree || 0);
+    const totalBytes = blockSize * blocks;
+    const freeBytes = blockSize * freeBlocks;
+    const usedBytes = Math.max(0, totalBytes - freeBytes);
+    const usedPercent = totalBytes > 0 ? (usedBytes / totalBytes) * 100 : 0;
+    return {
+      totalBytes,
+      usedBytes,
+      freeBytes,
+      usedPercent,
+      freePercent: Math.max(0, 100 - usedPercent),
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function buildInspectSnapshot(kind = "all", limit = 25) {
+  const safeLimit = Math.max(1, Math.min(1000, Number(limit) || 25));
+  const mode = String(kind || "all").toLowerCase();
+  const counts = {
+    users: Number(adminGetRow("SELECT COUNT(*) AS n FROM users")?.n || 0),
+    chats: Number(adminGetRow("SELECT COUNT(*) AS n FROM chats")?.n || 0),
+    messages: Number(adminGetRow("SELECT COUNT(*) AS n FROM chat_messages")?.n || 0),
+    files: Number(adminGetRow("SELECT COUNT(*) AS n FROM chat_message_files")?.n || 0),
+  };
+  const snapshot = {
+    kind: mode,
+    limit: safeLimit,
+    counts,
+    disk: getDiskUsageInfo(),
+  };
+
+  if (mode === "all" || mode === "user") {
+    snapshot.users = adminGetAll(
+      `SELECT id, username, nickname, status, avatar_url, created_at
+       FROM users
+       ORDER BY id ASC
+       LIMIT ?`,
+      [safeLimit],
+    );
+  }
+  if (mode === "all" || mode === "chat") {
+    snapshot.chats = adminGetAll(
+      `SELECT c.id, c.type, c.name,
+              (SELECT COUNT(*) FROM chat_members cm WHERE cm.chat_id = c.id) AS members,
+              (SELECT COUNT(*) FROM chat_messages m WHERE m.chat_id = c.id) AS messages,
+              c.created_at
+       FROM chats c
+       ORDER BY c.id ASC
+       LIMIT ?`,
+      [safeLimit],
+    );
+  }
+  if (mode === "all" || mode === "file") {
+    snapshot.messageFiles = adminGetAll(
+      `SELECT cmf.id, cmf.message_id, cm.chat_id, cm.user_id, cmf.kind, cmf.original_name, cmf.stored_name, cmf.mime_type, cmf.size_bytes, cmf.created_at
+       FROM chat_message_files cmf
+       JOIN chat_messages cm ON cm.id = cmf.message_id
+       ORDER BY cmf.id ASC
+       LIMIT ?`,
+      [safeLimit],
+    );
+    snapshot.avatarFiles = adminGetAll(
+      `SELECT id AS user_id, username, nickname, avatar_url
+       FROM users
+       WHERE avatar_url IS NOT NULL AND avatar_url != ''
+       ORDER BY id ASC
+       LIMIT ?`,
+      [safeLimit],
+    );
+    snapshot.fileStorage = {
+      messageFilesBytes: Number(
+        adminGetRow("SELECT COALESCE(SUM(size_bytes), 0) AS n FROM chat_message_files")?.n || 0,
+      ),
+    };
+  }
+  return snapshot;
+}
+
+function removeAllMessageUploads() {
+  try {
+    if (fs.existsSync(uploadRootDir)) {
+      fs.rmSync(uploadRootDir, { recursive: true, force: true })
+    }
+    fs.mkdirSync(uploadRootDir, { recursive: true })
+  } catch (_) {
+    // ignore
+  }
+}
+
+function chunkArray(items = [], size = 500) {
+  const chunks = []
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size))
+  }
+  return chunks
+}
+
+function buildTimestampSchedule(count, daysBack) {
+  const days = Math.max(1, daysBack)
+  const today = new Date()
+  const startDay = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  startDay.setDate(startDay.getDate() - (days - 1))
+
+  const perDay = new Array(days).fill(0)
+  for (let i = 0; i < count; i += 1) {
+    perDay[i % days] += 1
+  }
+
+  const stamps = []
+  for (let dayIndex = 0; dayIndex < days; dayIndex += 1) {
+    const messagesInDay = perDay[dayIndex]
+    if (!messagesInDay) continue
+    const dayStart = new Date(startDay)
+    dayStart.setDate(startDay.getDate() + dayIndex)
+    const seconds = []
+    for (let i = 0; i < messagesInDay; i += 1) {
+      seconds.push(Math.floor(Math.random() * 86400))
+    }
+    seconds.sort((a, b) => a - b)
+    for (let i = 0; i < seconds.length; i += 1) {
+      stamps.push(new Date(dayStart.getTime() + seconds[i] * 1000).toISOString())
+    }
+  }
+  return stamps
+}
+
+function isLoopbackRequest(req) {
+  const source = String(req.ip || req.socket?.remoteAddress || '')
+  return (
+    source === '::1' ||
+    source === '127.0.0.1' ||
+    source === '::ffff:127.0.0.1'
+  )
 }
 
 function parseUploadFileMetadata(rawValue) {
@@ -358,7 +665,7 @@ app.post("/api/register", (req, res) => {
     id,
     username: trimmed,
     nickname: nickname?.trim() || null,
-    avatarUrl: avatarUrl?.trim() || null,
+    avatarUrl: ensureAvatarExists(id, avatarUrl?.trim()) || null,
     color: assignedColor,
     status: "online",
   });
@@ -387,7 +694,7 @@ app.post("/api/login", (req, res) => {
     id: user.id,
     username: user.username,
     nickname: user.nickname || null,
-    avatarUrl: user.avatar_url || null,
+    avatarUrl: ensureAvatarExists(user.id, user.avatar_url) || null,
     color: user.color || "#10b981",
     status: user.status || "online",
   });
@@ -402,7 +709,7 @@ app.get("/api/me", (req, res) => {
     id: session.id,
     username: session.username,
     nickname: session.nickname || null,
-    avatarUrl: session.avatar_url || null,
+    avatarUrl: ensureAvatarExists(session.id, session.avatar_url) || null,
     color: session.color || "#10b981",
     status: session.status || "online",
   });
@@ -430,7 +737,7 @@ app.get("/api/profile", (req, res) => {
     id: user.id,
     username: user.username,
     nickname: user.nickname || null,
-    avatarUrl: user.avatar_url || null,
+    avatarUrl: ensureAvatarExists(user.id, user.avatar_url) || null,
     color: user.color || "#10b981",
     status: user.status || "online",
   });
@@ -498,11 +805,17 @@ app.put("/api/profile", (req, res) => {
     }
   }
 
+  const nextAvatarUrl = String(avatarUrl || "").trim() || null;
+  const currentAvatarUrl = String(currentUser.avatar_url || "").trim() || null;
+  if (currentAvatarUrl && currentAvatarUrl !== nextAvatarUrl) {
+    removeAvatarByUrl(currentAvatarUrl);
+  }
+
   updateUserProfile(
     currentUser.id,
     trimmed,
     nickname?.trim() || null,
-    avatarUrl?.trim() || null,
+    nextAvatarUrl,
   );
   const updated = findUserById(currentUser.id);
 
@@ -510,9 +823,42 @@ app.put("/api/profile", (req, res) => {
     id: updated.id,
     username: updated.username,
     nickname: updated.nickname || null,
-    avatarUrl: updated.avatar_url || null,
+    avatarUrl: ensureAvatarExists(updated.id, updated.avatar_url) || null,
     color: updated.color || "#10b981",
     status: updated.status || "online",
+  });
+});
+
+app.post("/api/profile/avatar", uploadAvatar.single("avatar"), (req, res) => {
+  const currentUsername = String(req.body?.currentUsername || "").trim().toLowerCase();
+  const file = req.file;
+
+  if (!currentUsername) {
+    removeUploadedFiles(file ? [file] : []);
+    return res.status(400).json({ error: "Current username is required." });
+  }
+  const user = findUserByUsername(currentUsername);
+  if (!user) {
+    removeUploadedFiles(file ? [file] : []);
+    return res.status(404).json({ error: "User not found." });
+  }
+  if (!file) {
+    return res.status(400).json({ error: "Avatar file is required." });
+  }
+  if (!String(file.mimetype || "").toLowerCase().startsWith("image/")) {
+    removeUploadedFiles([file]);
+    return res.status(400).json({ error: "Avatar must be an image file." });
+  }
+
+  const avatarUrl = `/uploads/avatars/${file.filename}`;
+  if (String(user.avatar_url || "").trim() && user.avatar_url !== avatarUrl) {
+    removeAvatarByUrl(user.avatar_url);
+  }
+
+  return res.json({
+    avatarUrl,
+    sizeBytes: Number(file.size || 0),
+    maxFileSizeBytes: AVATAR_FILE_LIMITS.maxFileSizeBytes,
   });
 });
 
@@ -563,7 +909,12 @@ app.get("/api/users", (req, res) => {
   const users = query
     ? searchUsers(query.toLowerCase(), exclude)
     : listUsers(exclude);
-  res.json({ users });
+  res.json({
+    users: users.map((item) => ({
+      ...item,
+      avatar_url: ensureAvatarExists(item.id, item.avatar_url),
+    })),
+  });
 });
 
 app.get("/api/chats", (req, res) => {
@@ -576,10 +927,26 @@ app.get("/api/chats", (req, res) => {
     return res.status(404).json({ error: "User not found." });
   }
 
-  const chats = listChatsForUser(user.id).map((conv) => {
-    const members = listChatMembers(conv.id);
+  let chats = listChatsForUser(user.id).map((conv) => {
+    const members = listChatMembers(conv.id).map((member) => ({
+      ...member,
+      avatar_url: ensureAvatarExists(member.id, member.avatar_url),
+    }));
     return { ...conv, members };
   });
+  const initialLastMessageIds = chats
+    .map((chat) => Number(chat.last_message_id || 0))
+    .filter(Boolean);
+  const cleanup = cleanupMissingMessageFilesForMessageIds(initialLastMessageIds);
+  if (cleanup.changed) {
+    chats = listChatsForUser(user.id).map((conv) => {
+      const members = listChatMembers(conv.id).map((member) => ({
+        ...member,
+        avatar_url: ensureAvatarExists(member.id, member.avatar_url),
+      }));
+      return { ...conv, members };
+    });
+  }
   const lastMessageIds = chats
     .map((chat) => Number(chat.last_message_id || 0))
     .filter(Boolean);
@@ -675,9 +1042,10 @@ app.get("/api/messages", (req, res) => {
   const chatId = Number(req.query.chatId);
   const username = req.query.username?.toString();
   const beforeId = Number(req.query.beforeId || 0);
+  const beforeCreatedAt = req.query.beforeCreatedAt?.toString() || "";
   const limitRaw = Number(req.query.limit || 50);
   const limit = Number.isFinite(limitRaw)
-    ? Math.max(1, Math.min(200, limitRaw))
+    ? Math.max(1, Math.min(10000, limitRaw))
     : 50;
   if (!chatId || !username) {
     return res
@@ -696,11 +1064,29 @@ app.get("/api/messages", (req, res) => {
       .json({ error: "Not a member of this chat." });
   }
 
-  const { messages, hasMore, totalCount } = getMessages(chatId, {
+  let { messages, hasMore, totalCount } = getMessages(chatId, {
     beforeId: beforeId > 0 ? beforeId : null,
+    beforeCreatedAt: beforeCreatedAt || null,
     limit,
   });
-  const messageIds = messages.map((message) => Number(message.id)).filter(Boolean);
+  const cleanup = cleanupMissingMessageFilesForMessageIds(
+    messages.map((message) => Number(message.id)).filter(Boolean),
+  );
+  if (cleanup.changed) {
+    const refreshed = getMessages(chatId, {
+      beforeId: beforeId > 0 ? beforeId : null,
+      beforeCreatedAt: beforeCreatedAt || null,
+      limit,
+    });
+    messages = refreshed.messages;
+    hasMore = refreshed.hasMore;
+    totalCount = refreshed.totalCount;
+  }
+  const normalizedMessages = messages.map((message) => ({
+    ...message,
+    avatar_url: ensureAvatarExists(message.user_id, message.avatar_url),
+  }));
+  const messageIds = normalizedMessages.map((message) => Number(message.id)).filter(Boolean);
   const files = listMessageFilesByMessageIds(messageIds);
   const filesByMessageId = files.reduce((acc, file) => {
     const messageId = Number(file.message_id);
@@ -720,7 +1106,7 @@ app.get("/api/messages", (req, res) => {
     });
     return acc;
   }, {});
-  const enriched = messages.map((message) => ({
+  const enriched = normalizedMessages.map((message) => ({
     ...message,
     files: filesByMessageId[Number(message.id)] || [],
   }));
@@ -890,6 +1276,426 @@ app.post("/api/messages", (req, res) => {
   res.json({ id });
 });
 
+app.post('/api/admin/db-tools', async (req, res) => {
+  if (!isLoopbackRequest(req)) {
+    return res.status(403).json({ error: 'Forbidden' })
+  }
+
+  const expectedToken = process.env.ADMIN_API_TOKEN
+  if (expectedToken) {
+    const provided = String(req.headers['x-songbird-admin-token'] || '')
+    if (!provided || provided !== expectedToken) {
+      return res.status(401).json({ error: 'Invalid admin token.' })
+    }
+  }
+
+  const action = String(req.body?.action || '').trim().toLowerCase()
+  const payload = req.body?.payload || {}
+
+  try {
+    if (action === 'delete_chats') {
+      let chatIds = Array.isArray(payload.chatIds)
+        ? payload.chatIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)
+        : []
+      if (!chatIds.length) {
+        chatIds = adminGetAll('SELECT id FROM chats ORDER BY id ASC')
+          .map((row) => Number(row.id))
+          .filter((id) => Number.isFinite(id) && id > 0)
+      }
+
+      if (!chatIds.length) {
+        return res.json({ ok: true, result: { removedChats: 0, removedFiles: 0 } })
+      }
+
+      const placeholders = chatIds.map(() => '?').join(', ')
+      const fileRows = adminGetAll(
+        `SELECT cmf.stored_name
+         FROM chat_message_files cmf
+         JOIN chat_messages cm ON cm.id = cmf.message_id
+         WHERE cm.chat_id IN (${placeholders})`,
+        chatIds,
+      )
+      const storedNames = fileRows.map((row) => row.stored_name)
+
+      adminRun('BEGIN')
+      try {
+        chunkArray(chatIds, 500).forEach((chunk) => {
+          const chunkPlaceholders = chunk.map(() => '?').join(', ')
+          adminRun(
+            `DELETE FROM chat_message_files WHERE message_id IN (
+              SELECT id FROM chat_messages WHERE chat_id IN (${chunkPlaceholders})
+            )`,
+            chunk,
+          )
+          adminRun(`DELETE FROM chat_messages WHERE chat_id IN (${chunkPlaceholders})`, chunk)
+          adminRun(`DELETE FROM chat_members WHERE chat_id IN (${chunkPlaceholders})`, chunk)
+          adminRun(`DELETE FROM hidden_chats WHERE chat_id IN (${chunkPlaceholders})`, chunk)
+          adminRun(`DELETE FROM chats WHERE id IN (${chunkPlaceholders})`, chunk)
+        })
+        adminRun('COMMIT')
+      } catch (error) {
+        adminRun('ROLLBACK')
+        throw error
+      }
+
+      removeStoredFileNames(storedNames)
+      adminSave()
+      return res.json({ ok: true, result: { removedChats: chatIds.length, removedFiles: storedNames.length } })
+    }
+
+    if (action === 'delete_users') {
+      const selectors = Array.isArray(payload.selectors) ? payload.selectors : []
+      let userIds = []
+      selectors.forEach((selector) => {
+        const raw = String(selector || '').trim()
+        if (!raw) return
+        const numeric = Number(raw)
+        if (Number.isFinite(numeric) && numeric > 0) {
+          userIds.push(Math.trunc(numeric))
+          return
+        }
+        const row = adminGetRow('SELECT id FROM users WHERE username = ?', [raw])
+        if (row?.id) userIds.push(Number(row.id))
+      })
+
+      if (!userIds.length) {
+        userIds = adminGetAll('SELECT id FROM users ORDER BY id ASC')
+          .map((row) => Number(row.id))
+          .filter((id) => Number.isFinite(id) && id > 0)
+      }
+
+      userIds = Array.from(new Set(userIds))
+      if (!userIds.length) {
+        return res.json({ ok: true, result: { removedUsers: 0, removedFiles: 0, removedChats: 0 } })
+      }
+
+      const userPlaceholders = userIds.map(() => '?').join(', ')
+      const fileRows = adminGetAll(
+        `SELECT cmf.stored_name
+         FROM chat_message_files cmf
+         JOIN chat_messages cm ON cm.id = cmf.message_id
+         WHERE cm.user_id IN (${userPlaceholders})`,
+        userIds,
+      )
+      const storedNames = fileRows.map((row) => row.stored_name)
+
+      adminRun('BEGIN')
+      try {
+        chunkArray(userIds, 500).forEach((chunk) => {
+          const chunkPlaceholders = chunk.map(() => '?').join(', ')
+          adminRun(`DELETE FROM sessions WHERE user_id IN (${chunkPlaceholders})`, chunk)
+          adminRun(`DELETE FROM hidden_chats WHERE user_id IN (${chunkPlaceholders})`, chunk)
+          adminRun(`UPDATE chat_messages SET read_by_user_id = NULL WHERE read_by_user_id IN (${chunkPlaceholders})`, chunk)
+          adminRun(
+            `DELETE FROM chat_message_files WHERE message_id IN (
+              SELECT id FROM chat_messages WHERE user_id IN (${chunkPlaceholders})
+            )`,
+            chunk,
+          )
+          adminRun(`DELETE FROM chat_messages WHERE user_id IN (${chunkPlaceholders})`, chunk)
+          adminRun(`DELETE FROM chat_members WHERE user_id IN (${chunkPlaceholders})`, chunk)
+          adminRun(`DELETE FROM users WHERE id IN (${chunkPlaceholders})`, chunk)
+        })
+
+        const orphanRows = adminGetAll(`
+          SELECT c.id
+          FROM chats c
+          LEFT JOIN chat_members cm ON cm.chat_id = c.id
+          GROUP BY c.id
+          HAVING COUNT(cm.user_id) = 0
+        `)
+        const orphanChatIds = orphanRows
+          .map((row) => Number(row.id))
+          .filter((id) => Number.isFinite(id) && id > 0)
+
+        if (orphanChatIds.length) {
+          chunkArray(orphanChatIds, 500).forEach((chunk) => {
+            const chunkPlaceholders = chunk.map(() => '?').join(', ')
+            const orphanFiles = adminGetAll(
+              `SELECT cmf.stored_name
+               FROM chat_message_files cmf
+               JOIN chat_messages cm ON cm.id = cmf.message_id
+               WHERE cm.chat_id IN (${chunkPlaceholders})`,
+              chunk,
+            )
+            storedNames.push(...orphanFiles.map((row) => row.stored_name))
+            adminRun(
+              `DELETE FROM chat_message_files WHERE message_id IN (
+                SELECT id FROM chat_messages WHERE chat_id IN (${chunkPlaceholders})
+              )`,
+              chunk,
+            )
+            adminRun(`DELETE FROM chat_messages WHERE chat_id IN (${chunkPlaceholders})`, chunk)
+            adminRun(`DELETE FROM hidden_chats WHERE chat_id IN (${chunkPlaceholders})`, chunk)
+            adminRun(`DELETE FROM chats WHERE id IN (${chunkPlaceholders})`, chunk)
+          })
+        }
+
+        adminRun('COMMIT')
+      } catch (error) {
+        adminRun('ROLLBACK')
+        throw error
+      }
+
+      removeStoredFileNames(storedNames)
+      adminSave()
+      return res.json({ ok: true, result: { removedUsers: userIds.length, removedFiles: storedNames.length } })
+    }
+
+    if (action === 'create_user') {
+      const nickname = String(payload.nickname || '').trim()
+      const username = String(payload.username || '').trim().toLowerCase()
+      const password = String(payload.password || '')
+      if (!username || !password) {
+        return res.status(400).json({ error: 'username and password are required.' })
+      }
+      if (!USERNAME_REGEX.test(username)) {
+        return res.status(400).json({ error: 'Invalid username format.' })
+      }
+      const existing = findUserByUsername(username)
+      if (existing) {
+        return res.status(409).json({ error: 'Username already exists.' })
+      }
+      const passwordHash = await bcrypt.hash(password, 10)
+      const id = createUser(username, passwordHash, nickname || username)
+      return res.json({ ok: true, result: { id, username, nickname: nickname || username } })
+    }
+
+    if (action === 'generate_users') {
+      const count = Math.max(1, Math.min(5000, Number(payload.count || 0) || 10))
+      const password = String(payload.password || 'Passw0rd!')
+      const nicknamePrefix = String(payload.nicknamePrefix || 'User')
+      const usernamePrefix = String(payload.usernamePrefix || 'user')
+
+      const randomToken = (length = 8) => {
+        const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
+        let out = ''
+        for (let i = 0; i < length; i += 1) {
+          out += chars[Math.floor(Math.random() * chars.length)]
+        }
+        return out
+      }
+
+      const passwordHash = await bcrypt.hash(password, 10)
+      let created = 0
+      for (let i = 0; i < count; i += 1) {
+        let username = ''
+        do {
+          username = `${usernamePrefix}_${randomToken(8)}`.toLowerCase()
+        } while (findUserByUsername(username))
+        createUser(username, passwordHash, `${nicknamePrefix} ${i + 1}`)
+        created += 1
+      }
+      return res.json({ ok: true, result: { created, password } })
+    }
+
+    if (action === 'generate_chat_messages') {
+      const chatId = Number(payload.chatId)
+      const count = Math.max(1, Math.min(10000, Number(payload.count || 0) || 100))
+      const days = Math.max(1, Math.min(365, Number(payload.days || 0) || 7))
+      const userASelector = String(payload.userA || '').trim()
+      const userBSelector = String(payload.userB || '').trim()
+
+      if (!chatId || !userASelector || !userBSelector) {
+        return res.status(400).json({ error: 'chatId, userA, and userB are required.' })
+      }
+
+      const resolveUserId = (selector) => {
+        const numeric = Number(selector)
+        if (Number.isFinite(numeric) && numeric > 0) {
+          const row = findUserById(Number(numeric))
+          return row?.id ? Number(row.id) : null
+        }
+        const row = findUserByUsername(String(selector).toLowerCase())
+        return row?.id ? Number(row.id) : null
+      }
+
+      const userAId = resolveUserId(userASelector)
+      const userBId = resolveUserId(userBSelector)
+      if (!userAId || !userBId || userAId === userBId) {
+        return res.status(400).json({ error: 'Invalid users for message generation.' })
+      }
+      if (!adminGetRow('SELECT id FROM chats WHERE id = ?', [chatId])) {
+        return res.status(404).json({ error: 'Chat not found.' })
+      }
+      addChatMember(chatId, userAId)
+      addChatMember(chatId, userBId)
+
+      const samples = [
+        'Hello there',
+        'How are you doing?',
+        'Sounds good',
+        'I will check and reply',
+        'Can you send details?',
+        'Sure, one second',
+        'Thanks',
+        'Got it',
+        'Let us do it',
+        'Looks great',
+        'See you soon',
+      ]
+      const timestamps = buildTimestampSchedule(count, days)
+      for (let i = 0; i < count; i += 1) {
+        const senderId = i % 2 === 0 ? userAId : userBId
+        const body = `${samples[i % samples.length]} #${i + 1}`
+        adminRun(
+          'INSERT INTO chat_messages (chat_id, user_id, body, created_at, read_at, read_by_user_id) VALUES (?, ?, ?, ?, NULL, NULL)',
+          [chatId, senderId, body, timestamps[i]],
+        )
+      }
+      adminSave()
+      return res.json({ ok: true, result: { created: count, chatId } })
+    }
+
+    if (action === 'inspect_db') {
+      const kind = String(payload.kind || 'all').toLowerCase()
+      const limit = Math.max(1, Math.min(1000, Number(payload.limit || 25) || 25))
+      return res.json({ ok: true, result: buildInspectSnapshot(kind, limit) })
+    }
+
+    if (action === 'delete_files') {
+      const selectors = Array.isArray(payload.selectors)
+        ? payload.selectors.map((value) => String(value || '').trim()).filter(Boolean)
+        : []
+      const deleteAll = selectors.length === 0
+
+      let targetMessageIds = []
+      let messageStoredNames = []
+      let targetAvatarUsers = []
+
+      if (deleteAll) {
+        targetMessageIds = adminGetAll(
+          'SELECT DISTINCT message_id FROM chat_message_files ORDER BY message_id ASC',
+        )
+          .map((row) => Number(row.message_id))
+          .filter((id) => Number.isFinite(id) && id > 0)
+        messageStoredNames = adminGetAll('SELECT stored_name FROM chat_message_files').map(
+          (row) => row.stored_name,
+        )
+        targetAvatarUsers = adminGetAll(
+          `SELECT id, avatar_url FROM users WHERE avatar_url LIKE '/uploads/avatars/%'`,
+        )
+      } else {
+        const numericIds = selectors
+          .map((value) => Number(value))
+          .filter((id) => Number.isFinite(id) && id > 0)
+        const named = selectors.map((value) => path.basename(value)).filter(Boolean)
+
+        const byIdRows = numericIds.length
+          ? adminGetAll(
+              `SELECT id, message_id, stored_name FROM chat_message_files WHERE id IN (${numericIds
+                .map(() => '?')
+                .join(', ')})`,
+              numericIds,
+            )
+          : []
+        const byNameRows = named.length
+          ? adminGetAll(
+              `SELECT id, message_id, stored_name FROM chat_message_files WHERE stored_name IN (${named
+                .map(() => '?')
+                .join(', ')})`,
+              named,
+            )
+          : []
+        const fileRows = [...byIdRows, ...byNameRows]
+        targetMessageIds = Array.from(
+          new Set(
+            fileRows
+              .map((row) => Number(row.message_id))
+              .filter((id) => Number.isFinite(id) && id > 0),
+          ),
+        )
+        if (targetMessageIds.length) {
+          messageStoredNames = adminGetAll(
+            `SELECT stored_name FROM chat_message_files WHERE message_id IN (${targetMessageIds
+              .map(() => '?')
+              .join(', ')})`,
+            targetMessageIds,
+          ).map((row) => row.stored_name)
+        }
+        if (named.length) {
+          targetAvatarUsers = adminGetAll(
+            `SELECT id, avatar_url FROM users WHERE avatar_url LIKE '/uploads/avatars/%'`,
+          ).filter((row) => named.includes(path.basename(String(row.avatar_url || ''))))
+        }
+      }
+
+      adminRun('BEGIN')
+      try {
+        if (targetMessageIds.length) {
+          chunkArray(targetMessageIds, 500).forEach((chunk) => {
+            const placeholders = chunk.map(() => '?').join(', ')
+            adminRun(`DELETE FROM chat_message_files WHERE message_id IN (${placeholders})`, chunk)
+            adminRun(`DELETE FROM chat_messages WHERE id IN (${placeholders})`, chunk)
+          })
+        }
+        if (targetAvatarUsers.length) {
+          chunkArray(
+            targetAvatarUsers.map((row) => Number(row.id)).filter(Boolean),
+            500,
+          ).forEach((chunk) => {
+            const placeholders = chunk.map(() => '?').join(', ')
+            adminRun(`UPDATE users SET avatar_url = NULL WHERE id IN (${placeholders})`, chunk)
+          })
+        }
+        adminRun('COMMIT')
+      } catch (error) {
+        adminRun('ROLLBACK')
+        throw error
+      }
+
+      removeStoredFileNames(messageStoredNames)
+      const avatarNames = targetAvatarUsers.map((row) =>
+        path.basename(String(row.avatar_url || '').trim()),
+      )
+      avatarNames.forEach((name) => {
+        try {
+          const filePath = path.join(avatarUploadRootDir, name)
+          if (name && fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath)
+          }
+        } catch (_) {
+          // best effort cleanup
+        }
+      })
+
+      adminSave()
+      return res.json({
+        ok: true,
+        result: {
+          removedMessages: targetMessageIds.length,
+          removedMessageFiles: messageStoredNames.length,
+          removedAvatars: targetAvatarUsers.length,
+        },
+      })
+    }
+
+    if (action === 'reset_db' || action === 'delete_db') {
+      adminRun('BEGIN')
+      try {
+        adminRun('DELETE FROM chat_message_files')
+        adminRun('DELETE FROM chat_messages')
+        adminRun('DELETE FROM hidden_chats')
+        adminRun('DELETE FROM chat_members')
+        adminRun('DELETE FROM chats')
+        adminRun('DELETE FROM sessions')
+        adminRun('DELETE FROM users')
+        adminRun('COMMIT')
+      } catch (error) {
+        adminRun('ROLLBACK')
+        throw error
+      }
+      removeAllMessageUploads()
+      adminSave()
+      return res.json({ ok: true, result: { cleared: true } })
+    }
+
+    return res.status(400).json({ error: 'Unknown admin action.' })
+  } catch (error) {
+    return res.status(500).json({ error: error?.message || 'Admin action failed.' })
+  }
+})
+
 if (isProduction) {
   app.use("/api", apiLimiter);
   app.use(staticLimiter);
@@ -901,9 +1707,14 @@ if (isProduction) {
   });
 }
 
-app.use((err, _req, res, next) => {
+app.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     if (err.code === "LIMIT_FILE_SIZE") {
+      if (req.path === "/api/profile/avatar") {
+        return res
+          .status(400)
+          .json({ error: `Profile photo must be smaller than ${Math.round(AVATAR_FILE_LIMITS.maxFileSizeBytes / (1024 * 1024))} MB.` });
+      }
       return res
         .status(400)
         .json({ error: `Each file must be smaller than ${Math.round(MESSAGE_FILE_LIMITS.maxFileSizeBytes / (1024 * 1024))} MB.` });

@@ -150,7 +150,7 @@ export default function ChatsListPanel({
                     {conv.last_message || (conv.last_message_files || []).length ? (
                       conv.last_sender_username === user.username ? (
                         <span className="inline-flex min-w-0 items-center gap-1 align-middle leading-none">
-                          <span className="font-semibold text-slate-500 dark:text-slate-400">
+                          <span className="font-bold text-slate-500 dark:text-slate-400">
                             You:
                           </span>
                           <span className="inline-flex min-w-0 items-center gap-1">

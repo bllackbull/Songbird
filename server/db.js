@@ -52,6 +52,13 @@ function run(sql, params = []) {
   saveDatabase()
 }
 
+function runWithoutSave(sql, params = []) {
+  const stmt = db.prepare(sql)
+  stmt.bind(params)
+  stmt.step()
+  stmt.free()
+}
+
 function getLastInsertId() {
   const row = getRow('SELECT last_insert_rowid() AS id')
   return row?.id
@@ -174,7 +181,7 @@ export function findDmChat(userId, otherUserId) {
     WHERE c.type = 'dm'
     ORDER BY
       (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) DESC,
-      (SELECT id FROM chat_messages WHERE chat_id = c.id ORDER BY id DESC LIMIT 1) DESC,
+      (SELECT id FROM chat_messages WHERE chat_id = c.id ORDER BY julianday(created_at) DESC, id DESC LIMIT 1) DESC,
       c.id DESC
     LIMIT 1
   `,
@@ -184,7 +191,12 @@ export function findDmChat(userId, otherUserId) {
 }
 
 export function createChat(name, type = 'dm') {
-  run('INSERT INTO chats (name, type) VALUES (?, ?)', [name || null, type])
+  const normalizedType = String(type || 'dm')
+  const normalizedName =
+    normalizedType === 'dm'
+      ? (String(name || '').trim() || 'dm')
+      : (String(name || '').trim() || null)
+  run('INSERT INTO chats (name, type) VALUES (?, ?)', [normalizedName, normalizedType])
   const id = getLastInsertId()
   if (id) return id
   const fallback = getRow('SELECT id FROM chats ORDER BY id DESC LIMIT 1')
@@ -223,16 +235,16 @@ export function listChatsForUser(userId) {
   return getAll(
     `
     SELECT c.id, c.name, c.type,
-      (SELECT id FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_message_id,
-      (SELECT body FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_message,
-      (SELECT created_at FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_time,
+      (SELECT id FROM chat_messages WHERE chat_id = c.id ORDER BY julianday(created_at) DESC, id DESC LIMIT 1) AS last_message_id,
+      (SELECT body FROM chat_messages WHERE chat_id = c.id ORDER BY julianday(created_at) DESC, id DESC LIMIT 1) AS last_message,
+      (SELECT created_at FROM chat_messages WHERE chat_id = c.id ORDER BY julianday(created_at) DESC, id DESC LIMIT 1) AS last_time,
       (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) AS message_count,
-      (SELECT user_id FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_sender_id,
-      (SELECT users.username FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id ORDER BY chat_messages.created_at DESC LIMIT 1) AS last_sender_username,
-      (SELECT users.nickname FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id ORDER BY chat_messages.created_at DESC LIMIT 1) AS last_sender_nickname,
-      (SELECT users.avatar_url FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id ORDER BY chat_messages.created_at DESC LIMIT 1) AS last_sender_avatar_url,
-      (SELECT read_at FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_message_read_at,
-      (SELECT read_by_user_id FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_message_read_by_user_id,
+      (SELECT user_id FROM chat_messages WHERE chat_id = c.id ORDER BY julianday(created_at) DESC, id DESC LIMIT 1) AS last_sender_id,
+      (SELECT users.username FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id ORDER BY julianday(chat_messages.created_at) DESC, chat_messages.id DESC LIMIT 1) AS last_sender_username,
+      (SELECT users.nickname FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id ORDER BY julianday(chat_messages.created_at) DESC, chat_messages.id DESC LIMIT 1) AS last_sender_nickname,
+      (SELECT users.avatar_url FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id ORDER BY julianday(chat_messages.created_at) DESC, chat_messages.id DESC LIMIT 1) AS last_sender_avatar_url,
+      (SELECT read_at FROM chat_messages WHERE chat_id = c.id ORDER BY julianday(created_at) DESC, id DESC LIMIT 1) AS last_message_read_at,
+      (SELECT read_by_user_id FROM chat_messages WHERE chat_id = c.id ORDER BY julianday(created_at) DESC, id DESC LIMIT 1) AS last_message_read_by_user_id,
       (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id AND user_id != ? AND read_at IS NULL) AS unread_count
     FROM chats c
     JOIN chat_members m ON m.chat_id = c.id
@@ -280,21 +292,33 @@ export function createMessageFiles(messageId, files = []) {
 
 export function getMessages(chatId, options = {}) {
   const limitRaw = Number(options.limit || 50)
-  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(200, limitRaw)) : 50
+  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(10000, limitRaw)) : 50
   const beforeIdRaw = Number(options.beforeId || 0)
-  const hasBefore = Number.isFinite(beforeIdRaw) && beforeIdRaw > 0
+  const beforeCreatedAtRaw = String(options.beforeCreatedAt || '').trim()
+  const hasBeforeId = Number.isFinite(beforeIdRaw) && beforeIdRaw > 0
+  const hasBeforeCreatedAt = Boolean(beforeCreatedAtRaw)
+  const hasBefore = hasBeforeId && hasBeforeCreatedAt
   const whereSql = hasBefore
-    ? 'WHERE chat_messages.chat_id = ? AND chat_messages.id < ?'
+    ? `WHERE chat_messages.chat_id = ?
+       AND (
+         julianday(chat_messages.created_at) < julianday(?)
+         OR (
+           julianday(chat_messages.created_at) = julianday(?)
+           AND chat_messages.id < ?
+         )
+       )`
     : 'WHERE chat_messages.chat_id = ?'
-  const params = hasBefore ? [chatId, beforeIdRaw, limit + 1] : [chatId, limit + 1]
+  const params = hasBefore
+    ? [chatId, beforeCreatedAtRaw, beforeCreatedAtRaw, beforeIdRaw, limit + 1]
+    : [chatId, limit + 1]
   const rowsDesc = getAll(
     `
     SELECT chat_messages.id, chat_messages.body, chat_messages.created_at, chat_messages.read_at, chat_messages.read_by_user_id,
-      users.username, users.nickname, users.avatar_url, users.color
+      users.id AS user_id, users.username, users.nickname, users.avatar_url, users.color
     FROM chat_messages
     JOIN users ON users.id = chat_messages.user_id
     ${whereSql}
-    ORDER BY chat_messages.id DESC
+    ORDER BY julianday(chat_messages.created_at) DESC, chat_messages.id DESC
     LIMIT ?
   `,
     params
@@ -433,4 +457,21 @@ export function touchSession(token) {
 
 export function deleteSession(token) {
   run('DELETE FROM sessions WHERE token = ?', [token])
+}
+
+// Internal admin helpers for server-side DB tooling endpoints.
+export function adminGetRow(sql, params = []) {
+  return getRow(sql, params)
+}
+
+export function adminGetAll(sql, params = []) {
+  return getAll(sql, params)
+}
+
+export function adminRun(sql, params = []) {
+  runWithoutSave(sql, params)
+}
+
+export function adminSave() {
+  saveDatabase()
 }

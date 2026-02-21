@@ -181,21 +181,21 @@ export default function App() {
           activeEl.isContentEditable)
       const keyboardLikelyOpen =
         focusedEditable || window.innerHeight - viewport.height > 120
-      const offset = keyboardLikelyOpen ? 0 : Math.min(rawOffset, 56)
+      // Do not react to Safari toolbar/bottom chrome movement while scrolling.
+      // Only apply offset adjustments while an editable field is focused.
+      const offset = focusedEditable && keyboardLikelyOpen ? 0 : 0
       root.style.setProperty('--vv-bottom-offset', `${offset}px`)
       root.style.setProperty('--mobile-bottom-offset', `${offset}px`)
     }
 
     updateViewportOffset()
     viewport.addEventListener('resize', updateViewportOffset)
-    viewport.addEventListener('scroll', updateViewportOffset)
     window.addEventListener('orientationchange', updateViewportOffset)
     window.addEventListener('focusin', updateViewportOffset)
     window.addEventListener('focusout', updateViewportOffset)
 
     return () => {
       viewport.removeEventListener('resize', updateViewportOffset)
-      viewport.removeEventListener('scroll', updateViewportOffset)
       window.removeEventListener('orientationchange', updateViewportOffset)
       window.removeEventListener('focusin', updateViewportOffset)
       window.removeEventListener('focusout', updateViewportOffset)

@@ -192,13 +192,86 @@ sudo ufw enable
 
 ## Database commands
 
-Songbird now uses schema versioning.
-
-- Reset DB command (from `server/`): `npm run db:reset`
-- Delete DB command (from `server/`): `npm run db:delete`
-- Backup command (from `server/`): `npm run db:backup`
-- Migration command (from `server/`): `npm run db:migrate`
+- Backup DB: `npm run db:backup`
+- Run migrations: `npm run db:migrate`
+- Reset DB: `npm run db:reset`
+- Delete DB: `npm run db:delete`
+- Delete chats (all or selected ids): `npm run db:chat:delete`
+- Delete files (all or selected ids/filenames): `npm run db:file:delete`
+- Delete users (all or selected ids/usernames): `npm run db:user:delete`
+- Create one user: `npm run db:user:create`
+- Generate random users: `npm run db:user:generate`
+- Generate random chat messages for a chat between two users: `npm run db:message:generate`
+- Inspect all summary: `npm run db:inspect`
+- Inspect chats only: `npm run db:chat:inspect`
+- Inspect users only: `npm run db:user:inspect`
+- Inspect files only: `npm run db:file:inspect`
 - Backup location: `data/backups/`
+
+### Safety confirmation and `-y`
+
+Destructive commands ask for safety confirmation by default.
+
+- Interactive mode: type `y/yes` or `n/no`.
+- Non-interactive mode: pass force flag.
+- Supported force flags: `-y` and `--yes`.
+
+Examples:
+
+```bash
+cd server
+npm run db:reset -y
+npm run db:delete --yes
+npm run db:chat:delete 12 -y
+npm run db:file:delete -y
+npm run db:file:delete 42 -y
+npm run db:file:delete FILE_NAME -y
+npm run db:user:delete songbird.sage -y
+```
+
+DB admin scripts now support both modes:
+- If server is running on `127.0.0.1:${PORT:-5174}`, scripts execute through server admin API.
+- If server is not running, scripts operate directly on the DB file.
+
+### Admin script usage examples
+
+Create a user:
+
+```bash
+cd server
+npm run db:user:create -- --nickname "Songbird Sage" --username songbird.sage --password "12345678"
+# positional alternative:
+npm run db:user:create -- "Songbird Sage" songbird.sage "12345678"
+```
+
+Generate random users:
+
+```bash
+cd server
+npm run db:user:generate -- --count 50 --password "12345678"
+```
+
+Generate random messages in one chat between two users:
+
+```bash
+cd server
+npm run db:message:generate -- 1 songbird.sage songbird.sage2 300 7
+# users can also be ids:
+npm run db:message:generate -- 1 2 5 300 7
+# named-arg alternative (avoid --user-a/--user-b because npm may rewrite them):
+npm run db:message:generate -- --chatId 1 --userA songbird.sage --userB songbird.sage2 --count 300 --days 7
+```
+
+Inspect database summary:
+
+```bash
+cd server
+npm run db:inspect
+npm run db:inspect -- 50
+npm run db:chat:inspect
+npm run db:user:inspect
+npm run db:file:inspect
+```
 
 Recommended production flow:
 
@@ -258,7 +331,8 @@ Available keys:
 | `CHAT_PENDING_FILE_TIMEOUT_MS` | `1200000` | Mark pending file message as failed / XHR timeout for uploads. |
 | `CHAT_PENDING_RETRY_INTERVAL_MS` | `4000` | Retry cadence for pending sends while connected. |
 | `CHAT_PENDING_STATUS_CHECK_INTERVAL_MS` | `1000` | How often pending messages are checked for timeout. |
-| `CHAT_MESSAGE_FETCH_LIMIT` | `5000` | Max messages requested per chat fetch. |
+| `CHAT_MESSAGE_FETCH_LIMIT` | `300` | Max messages requested per chat fetch (initial/latest window). |
+| `CHAT_MESSAGE_PAGE_SIZE` | `60` | Page size for loading older messages when scrolling to top. |
 | `CHAT_UPLOAD_MAX_FILES` | `10` | Max files per single message. |
 | `CHAT_UPLOAD_MAX_FILE_SIZE_BYTES` | `26214400` | Per-file max size. |
 | `CHAT_UPLOAD_MAX_TOTAL_BYTES` | `78643200` | Total size cap for all files in one message. |
@@ -275,6 +349,7 @@ Example (`client/.env.production`):
 CHAT_PENDING_TEXT_TIMEOUT_MS=180000
 CHAT_PENDING_FILE_TIMEOUT_MS=900000
 CHAT_PENDING_RETRY_INTERVAL_MS=2500
+CHAT_MESSAGE_PAGE_SIZE=80
 CHAT_UPLOAD_MAX_FILES=8
 CHAT_UPLOAD_MAX_FILE_SIZE_BYTES=15728640
 CHAT_UPLOAD_MAX_TOTAL_BYTES=52428800
@@ -285,6 +360,7 @@ Example (build service / CI env):
 ```bash
 export CHAT_PENDING_TEXT_TIMEOUT_MS=180000
 export CHAT_LIST_REFRESH_INTERVAL_MS=15000
+export CHAT_MESSAGE_PAGE_SIZE=80
 cd /opt/songbird/client
 npm run build
 ```

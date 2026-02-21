@@ -18,7 +18,6 @@ import {
   VolumeX,
   X as Close,
 } from "lucide-react";
-import { Virtuoso } from "react-virtuoso";
 import { getAvatarStyle } from "../utils/avatarColor.js";
 import { hasPersian } from "../utils/fontUtils.js";
 import { getAvatarInitials } from "../utils/avatarInitials.js";
@@ -31,13 +30,15 @@ export default function ChatWindowPanel({
   activeFallbackTitle,
   peerStatusLabel,
   chatScrollRef,
-  virtuosoRef,
   onChatScroll,
+  onStartReached,
   messages,
   user,
   formatTime,
   unreadMarkerId,
   loadingMessages,
+  loadingOlderMessages,
+  hasOlderMessages,
   handleSend,
   userScrolledUp,
   unreadInChat,
@@ -53,6 +54,7 @@ export default function ChatWindowPanel({
   onUploadFilesSelected,
   onRemovePendingUpload,
   onClearPendingUploads,
+  onUserScrollIntent,
 }) {
   const [isDesktop, setIsDesktop] = useState(
     typeof window !== "undefined" ? window.matchMedia("(min-width: 768px)").matches : false,
@@ -67,15 +69,9 @@ export default function ChatWindowPanel({
   const urlPattern = /((?:https?:\/\/|www\.)[^\s<]+)/gi;
   const hasUrlPattern = /(?:https?:\/\/|www\.)[^\s<]+/i;
   const isUrlPattern = /^(?:https?:\/\/|www\.)[^\s<]+$/i;
-  const [floatingDayLabel, setFloatingDayLabel] = useState(null);
-  const [showFloatingDayChip, setShowFloatingDayChip] = useState(false);
-  const [isHoveringFloatingDayChip, setIsHoveringFloatingDayChip] = useState(false);
   const [loadedMediaThumbs, setLoadedMediaThumbs] = useState(() => new Set());
   const [focusedMedia, setFocusedMedia] = useState(null);
   const [focusVisible, setFocusVisible] = useState(false);
-  const isHoveringFloatingDayChipRef = useRef(false);
-  const scrollIdleTimeoutRef = useRef(null);
-  const scrollLabelRafRef = useRef(null);
   const touchStartXRef = useRef(0);
   const touchStartYRef = useRef(0);
   const touchDxRef = useRef(0);
@@ -91,86 +87,47 @@ export default function ChatWindowPanel({
   const focusedVideoRafRef = useRef(null);
   const focusedVideoHintTimerRef = useRef(null);
   const [showUploadMenu, setShowUploadMenu] = useState(false);
+  const [mediaAspectByKey, setMediaAspectByKey] = useState(() => ({}));
   const [focusedVideoPlaying, setFocusedVideoPlaying] = useState(false);
   const [focusedVideoMuted, setFocusedVideoMuted] = useState(false);
   const [focusedVideoTime, setFocusedVideoTime] = useState(0);
   const [focusedVideoDuration, setFocusedVideoDuration] = useState(0);
   const [focusedVideoHint, setFocusedVideoHint] = useState(null);
-  const virtuosoBottomSpacerPx = 8;
-
-  const updateFloatingDayLabel = useCallback((preferVisibleLabel = false) => {
-    const container = chatScrollRef?.current;
-    if (!container || !activeChatId || !messages.length) {
-      setFloatingDayLabel(null);
-      return;
-    }
-
-    const scrollTop = container.scrollTop;
-    const containerPaddingTop =
-      Number.parseFloat(window.getComputedStyle(container).paddingTop || "0") || 0;
-    const messageNodes = Array.from(container.querySelectorAll("[data-msg-day]"));
-    const dayChips = Array.from(container.querySelectorAll("[data-day-chip]"));
-    if (!messageNodes.length) {
-      setFloatingDayLabel(null);
-      return;
-    }
-
-    const anchorTop = scrollTop + containerPaddingTop + 8;
-    const firstVisibleMessage =
-      messageNodes.find(
-        (node) => node.offsetTop + node.offsetHeight >= anchorTop,
-      ) || messageNodes[messageNodes.length - 1];
-    let currentLabel = firstVisibleMessage?.getAttribute("data-msg-day") || null;
-    if (!currentLabel) {
-      const fallbackNode =
-        messageNodes.find((node) => node.getAttribute("data-msg-day")) ||
-        messageNodes[messageNodes.length - 1];
-      currentLabel = fallbackNode?.getAttribute("data-msg-day") || null;
-    }
-    if (!currentLabel) {
-      setFloatingDayLabel(null);
-      return;
-    }
-
-    if (!dayChips.length) {
-      setFloatingDayLabel(currentLabel);
-      return;
-    }
-
-    const matchingChips = dayChips.filter(
-      (chip) => chip.getAttribute("data-day-chip") === currentLabel,
-    );
-    if (!matchingChips.length) {
-      setFloatingDayLabel(currentLabel);
-      return;
-    }
-
-    let currentChip = matchingChips[0];
-    for (let index = 0; index < matchingChips.length; index += 1) {
-      const chip = matchingChips[index];
-      if (chip.offsetTop <= firstVisibleMessage.offsetTop + 1) {
-        currentChip = chip;
+  const [floatingDay, setFloatingDay] = useState({ key: "", label: "" });
+  const [isTimelineScrollable, setIsTimelineScrollable] = useState(false);
+  const floatingChipRef = useRef(null);
+  const floatingDayLockUntilRef = useRef(0);
+  const floatingDayLockByClickRef = useRef(false);
+  const floatingChipAlignTimerRef = useRef(null);
+  const timelineBottomSpacerPx = 4;
+  const groupedMessages = useMemo(() => {
+    const groups = [];
+    messages.forEach((msg) => {
+      const dayKey = msg?._dayKey || getMessageDayLabel(msg);
+      const dayLabel = getMessageDayLabel(msg);
+      const lastGroup = groups[groups.length - 1];
+      if (!lastGroup || lastGroup.dayKey !== dayKey) {
+        groups.push({
+          dayKey,
+          dayLabel,
+          items: [msg],
+        });
       } else {
-        break;
+        lastGroup.items.push(msg);
       }
+    });
+    return groups;
+  }, [messages]);
+
+  const refreshTimelineScrollable = useCallback(() => {
+    const scroller = chatScrollRef?.current;
+    if (!scroller || !activeChatId) {
+      setIsTimelineScrollable(false);
+      return;
     }
-
-    const chipTop = currentChip.offsetTop;
-    const chipBottom = chipTop + currentChip.offsetHeight;
-    const viewportTop = scrollTop + containerPaddingTop + 8;
-    const viewportBottom = scrollTop + container.clientHeight - 8;
-    const inlineChipVisible =
-      chipBottom >= viewportTop && chipTop <= viewportBottom;
-    setFloatingDayLabel(inlineChipVisible && !preferVisibleLabel ? null : currentLabel);
-  }, [activeChatId, chatScrollRef, messages]);
-
-  useEffect(() => {
-    updateFloatingDayLabel();
-  }, [messages, activeChatId, loadingMessages, updateFloatingDayLabel]);
-
-  useEffect(() => {
-    setShowFloatingDayChip(false);
-  }, [activeChatId]);
+    const canScroll = scroller.scrollHeight - scroller.clientHeight > 2;
+    setIsTimelineScrollable(canScroll);
+  }, [activeChatId, chatScrollRef]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -185,82 +142,126 @@ export default function ChatWindowPanel({
     return () => media.removeListener(update);
   }, []);
 
+  useEffect(() => {
+    const last = messages[messages.length - 1];
+    if (!last) {
+      setFloatingDay({ key: "", label: "" });
+      return;
+    }
+    const key = last?._dayKey || "";
+    const label = getMessageDayLabel(last);
+    if (key && label) {
+      setFloatingDay({ key, label });
+    }
+  }, [messages]);
+
+  const startReachedLockRef = useRef(false);
   const handlePanelScroll = useCallback((event) => {
     onChatScroll?.(event);
-    updateFloatingDayLabel(true);
-    if (scrollLabelRafRef.current) {
-      cancelAnimationFrame(scrollLabelRafRef.current);
-    }
-    scrollLabelRafRef.current = requestAnimationFrame(() => {
-      scrollLabelRafRef.current = null;
-      updateFloatingDayLabel(true);
-    });
-    setShowFloatingDayChip(true);
-    if (scrollIdleTimeoutRef.current) {
-      clearTimeout(scrollIdleTimeoutRef.current);
-    }
-    scrollIdleTimeoutRef.current = setTimeout(() => {
-      if (!isHoveringFloatingDayChipRef.current) {
-        setShowFloatingDayChip(false);
+    const target = event?.currentTarget;
+    if (target) {
+      const isNearBottom =
+        target.scrollHeight - (target.scrollTop + target.clientHeight) <= 4;
+      if (isNearBottom && floatingDayLockByClickRef.current) {
+        floatingDayLockByClickRef.current = false;
+        floatingDayLockUntilRef.current = 0;
       }
-    }, 1500);
-  }, [onChatScroll, updateFloatingDayLabel]);
+      const canScroll = target.scrollHeight - target.clientHeight > 2;
+      if (canScroll !== isTimelineScrollable) {
+        setIsTimelineScrollable(canScroll);
+      }
+      if (
+        floatingDayLockByClickRef.current ||
+        Date.now() < Number(floatingDayLockUntilRef.current || 0)
+      ) {
+        return;
+      }
+      const scrollerRect = target.getBoundingClientRect();
+      const floatingRect = floatingChipRef.current?.getBoundingClientRect();
+      const targetTop = floatingRect
+        ? floatingRect.top + (floatingRect.height / 2)
+        : scrollerRect.top + 108;
+      const groups = Array.from(target.querySelectorAll("[id^='day-group-']"));
+      if (groups.length) {
+        let chosen = groups[0];
+        groups.forEach((groupNode) => {
+          if (groupNode.getBoundingClientRect().top <= targetTop + 1) {
+            chosen = groupNode;
+          }
+        });
+        const key = (chosen.id || "").replace(/^day-group-/, "");
+        const labelNode = chosen.querySelector("[data-day-chip]");
+        const label = labelNode?.textContent?.trim() || "";
+        if (key && label) {
+          setFloatingDay((prev) =>
+            prev.key === key && prev.label === label ? prev : { key, label },
+          );
+        }
+      }
+    }
+    if (
+      !target ||
+      !hasOlderMessages ||
+      loadingOlderMessages ||
+      !onStartReached ||
+      startReachedLockRef.current
+    ) {
+      return;
+    }
+    if (target.scrollTop <= 80) {
+      startReachedLockRef.current = true;
+      Promise.resolve(onStartReached())
+        .catch(() => null)
+        .finally(() => {
+          window.setTimeout(() => {
+            startReachedLockRef.current = false;
+          }, 120);
+        });
+    }
+  }, [onChatScroll, hasOlderMessages, loadingOlderMessages, onStartReached, isTimelineScrollable]);
+
+  const handleScrollIntent = useCallback(() => {
+    floatingDayLockByClickRef.current = false;
+    floatingDayLockUntilRef.current = 0;
+    onUserScrollIntent?.();
+  }, [onUserScrollIntent]);
 
   useEffect(() => {
     if (isDesktop || !activeChatId || !pendingUploadFiles?.length) return;
     const scrollToBottomInstant = () => {
-      if (virtuosoRef?.current?.scrollToIndex && messages.length > 0) {
-        virtuosoRef.current.scrollToIndex({
-          index: Math.max(0, messages.length - 1),
-          align: "end",
-          behavior: "auto",
-        });
-        return;
-      }
       const container = chatScrollRef?.current;
       if (!container) return;
       container.scrollTo({ top: container.scrollHeight + 1000, behavior: "auto" });
     };
     const raf = requestAnimationFrame(scrollToBottomInstant);
     return () => cancelAnimationFrame(raf);
-  }, [isDesktop, activeChatId, pendingUploadFiles?.length, virtuosoRef, messages.length, chatScrollRef]);
-
-  const handleFloatingDayChipClick = () => {
-    if (!floatingDayLabel) return;
-    const firstIndexForDay = messages.findIndex(
-      (msg) => getMessageDayLabel(msg) === floatingDayLabel,
-    );
-    if (firstIndexForDay >= 0 && virtuosoRef?.current?.scrollToIndex) {
-      virtuosoRef.current.scrollToIndex({
-        index: firstIndexForDay,
-        align: "start",
-        behavior: "smooth",
-      });
-      return;
-    }
-    if (!chatScrollRef?.current) return;
-    const container = chatScrollRef.current;
-    const dayChips = Array.from(container.querySelectorAll("[data-day-chip]"));
-    const targetChip = dayChips.find(
-      (chip) => chip.getAttribute("data-day-chip") === floatingDayLabel,
-    );
-    if (!targetChip) return;
-    const containerRect = container.getBoundingClientRect();
-    const chipRect = targetChip.getBoundingClientRect();
-    const top = container.scrollTop + (chipRect.top - containerRect.top);
-    container.scrollTo({ top: Math.max(top, 0), behavior: "smooth" });
-  };
+  }, [isDesktop, activeChatId, pendingUploadFiles?.length, messages.length, chatScrollRef]);
 
   useEffect(() => {
+    if (!activeChatId) {
+      setIsTimelineScrollable(false);
+      return;
+    }
+    const run = () => refreshTimelineScrollable();
+    const raf1 = requestAnimationFrame(run);
+    const raf2 = requestAnimationFrame(run);
+    const timer = window.setTimeout(run, 120);
+    window.addEventListener("resize", run);
     return () => {
-      if (scrollIdleTimeoutRef.current) {
-        clearTimeout(scrollIdleTimeoutRef.current);
-      }
-      if (scrollLabelRafRef.current) {
-        cancelAnimationFrame(scrollLabelRafRef.current);
-      }
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      window.clearTimeout(timer);
+      window.removeEventListener("resize", run);
     };
-  }, []);
+  }, [
+    activeChatId,
+    messages.length,
+    groupedMessages.length,
+    pendingUploadFiles?.length,
+    activeUploadProgress,
+    loadingMessages,
+    refreshTimelineScrollable,
+  ]);
 
   useEffect(() => {
     if (isDesktop || !activeChatId) return;
@@ -303,6 +304,7 @@ export default function ChatWindowPanel({
 
   useEffect(() => {
     setLoadedMediaThumbs(new Set());
+    setMediaAspectByKey({});
   }, [activeChatId]);
 
   useEffect(() => {
@@ -365,6 +367,10 @@ export default function ChatWindowPanel({
 
   useEffect(() => {
     return () => {
+      if (floatingChipAlignTimerRef.current) {
+        window.clearTimeout(floatingChipAlignTimerRef.current);
+        floatingChipAlignTimerRef.current = null;
+      }
       if (focusedVideoHintTimerRef.current) {
         clearTimeout(focusedVideoHintTimerRef.current);
       }
@@ -393,18 +399,7 @@ export default function ChatWindowPanel({
     return () => media.removeListener(update);
   }, []);
 
-  const scheduleFloatingChipHide = () => {
-    if (scrollIdleTimeoutRef.current) {
-      clearTimeout(scrollIdleTimeoutRef.current);
-    }
-    scrollIdleTimeoutRef.current = setTimeout(() => {
-      if (!isHoveringFloatingDayChipRef.current) {
-        setShowFloatingDayChip(false);
-      }
-    }, 1500);
-  };
-
-  const getMessageDayLabel = (msg) => {
+  function getMessageDayLabel(msg) {
     if (msg?._dayLabel) return msg._dayLabel;
     if (msg?._dayKey) return msg._dayKey;
     if (!msg?.created_at) return "";
@@ -415,9 +410,10 @@ export default function ChatWindowPanel({
       day: "numeric",
       year: "numeric",
     });
-  };
+  }
 
-  const renderMessageItem = (msg, index) => {
+  const renderMessageItem = (msg, options = {}) => {
+    const { isFirstInGroup = false } = options;
     const isOwn = msg.username === user.username;
     const isRead = Boolean(msg.read_at);
     const hasFiles = Array.isArray(msg.files) && msg.files.length > 0;
@@ -427,29 +423,21 @@ export default function ChatWindowPanel({
       Number(msg._uploadProgress ?? 100) < 100;
     const isSending = msg._delivery === "sending" || hasUploadInProgress;
     const isFailed = msg._delivery === "failed";
-    const currentDayKey = msg._dayKey || "";
-    const prevDayKey = index > 0 ? messages[index - 1]?._dayKey || "" : "";
-    const isNewDay = !prevDayKey || currentDayKey !== prevDayKey;
     const dayLabel = getMessageDayLabel(msg);
 
     return (
       <div
         id={`message-${msg.id}`}
         data-msg-day={dayLabel}
-        className="w-full max-w-full overflow-x-hidden px-0 pb-3 md:px-3"
+        data-msg-day-key={msg?._dayKey || ""}
+        className={`w-full max-w-full overflow-x-hidden px-0 pb-3 md:px-3 ${isFirstInGroup ? "pt-2" : ""}`}
       >
-        {isNewDay ? (
-          <div className="my-3 flex w-full items-center justify-center">
-            <div
-              data-day-chip={dayLabel}
-              className="inline-flex w-max rounded-full border border-emerald-200/60 bg-white/80 px-3 py-1 text-[11px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
-            >
-              {dayLabel}
-            </div>
-          </div>
-        ) : null}
-        {unreadMarkerId === msg.id ? (
-          <div className="my-3 flex items-center gap-3">
+        {Number(unreadMarkerId) === Number(msg.id) ? (
+          <div
+            id={`unread-divider-${msg.id}`}
+            className="flex items-center gap-3 py-3"
+            style={{ scrollMarginTop: "96px" }}
+          >
             <span className="h-px flex-1 bg-emerald-200/70 dark:bg-emerald-500/30" />
             <span className="rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200">
               Unread Messages
@@ -525,17 +513,27 @@ export default function ChatWindowPanel({
     );
   };
 
+  const handleGroupChipClick = (groupIndex) => {
+    const dayKey = groupedMessages[groupIndex]?.dayKey;
+    if (!dayKey) return;
+    const node = document.getElementById(`day-group-${dayKey}`);
+    if (node && typeof node.scrollIntoView === "function") {
+      node.scrollIntoView({ block: "start", behavior: "smooth" });
+    }
+  };
+
   const chatScrollStyle = useMemo(
     () => ({
       backgroundImage: isDark
         ? "radial-gradient(circle at top right, rgba(16,185,129,0.22), transparent 48%), radial-gradient(circle at bottom left, rgba(16,185,129,0.20), transparent 44%)"
         : "radial-gradient(circle at top right, rgba(16,185,129,0.10), transparent 45%), radial-gradient(circle at bottom left, rgba(16,185,129,0.09), transparent 40%)",
       backgroundColor: isDark ? "#0b1320" : "#dcfce7",
+      scrollbarGutter: "stable both-edges",
       paddingTop:
         activeChatId && insecureConnection
           ? insecureConnection
-            ? "6.5rem"
-            : "4.5rem"
+            ? "1.25rem"
+            : "0.75rem"
           : undefined,
       paddingBottom: activeChatId
         ? `max(1rem, calc(env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px) + ${
@@ -550,13 +548,6 @@ export default function ChatWindowPanel({
       isDark,
       isDesktop,
     ],
-  );
-
-  const virtuosoComponents = useMemo(
-    () => ({
-      Footer: () => <div style={{ height: `${virtuosoBottomSpacerPx}px` }} />,
-    }),
-    [virtuosoBottomSpacerPx],
   );
 
   const handleTouchStart = (event) => {
@@ -634,13 +625,34 @@ export default function ChatWindowPanel({
   };
 
   const getMediaAspectRatio = (file) => {
+    const key = file?.id || `${file?.name || ""}-${file?.sizeBytes || 0}`;
+    const cached = Number(mediaAspectByKey[key]);
+    if (Number.isFinite(cached) && cached > 0) {
+      return Math.min(2.4, Math.max(0.42, cached));
+    }
     const width = Number(file?.width);
     const height = Number(file?.height);
-    if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
-    if (width <= 0 || height <= 0) return null;
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      const renderType = getFileRenderType(file);
+      // Stable fallback boxes on mobile to avoid layout shifts while media metadata loads.
+      return renderType === "video" ? 16 / 9 : 1;
+    }
     const ratio = width / height;
     // Clamp extreme values to keep bubble layout usable.
     return Math.min(2.4, Math.max(0.42, ratio));
+  };
+
+  const cacheMediaAspectRatio = (file, width, height) => {
+    if (isMobileTouchDevice) return;
+    const w = Number(width);
+    const h = Number(height);
+    if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return;
+    const ratio = Math.min(2.4, Math.max(0.42, w / h));
+    const key = file?.id || `${file?.name || ""}-${file?.sizeBytes || 0}`;
+    setMediaAspectByKey((prev) => {
+      if (prev[key] === ratio) return prev;
+      return { ...prev, [key]: ratio };
+    });
   };
 
   const formatFileSize = (sizeBytes) => {
@@ -727,7 +739,14 @@ export default function ChatWindowPanel({
                   <img
                     src={file.url}
                     alt={file.name || "image"}
-                    onLoad={() => markMediaThumbLoaded(thumbKey)}
+                    onLoad={(event) => {
+                      cacheMediaAspectRatio(
+                        file,
+                        event.currentTarget?.naturalWidth,
+                        event.currentTarget?.naturalHeight,
+                      );
+                      markMediaThumbLoaded(thumbKey);
+                    }}
                     loading="lazy"
                     decoding="async"
                     className={imageClass}
@@ -756,7 +775,14 @@ export default function ChatWindowPanel({
                     muted
                     playsInline
                     preload={isDesktop ? (fileIndex < 2 ? "auto" : "metadata") : "auto"}
-                    onLoadedMetadata={(event) => handleVideoThumbReady(event, thumbKey)}
+                    onLoadedMetadata={(event) => {
+                      cacheMediaAspectRatio(
+                        file,
+                        event.currentTarget?.videoWidth,
+                        event.currentTarget?.videoHeight,
+                      );
+                      handleVideoThumbReady(event, thumbKey);
+                    }}
                     onLoadedData={(event) => handleVideoThumbReady(event, thumbKey)}
                     src={file.url}
                     className={videoClass}
@@ -1024,8 +1050,8 @@ export default function ChatWindowPanel({
 
       {insecureConnection && activeChatId ? (
         <div
-          className="pointer-events-none absolute left-1/2 z-20 -translate-x-1/2"
-          style={{ top: "calc(env(safe-area-inset-top) + 80px)" }}
+          className="pointer-events-none absolute left-1/2 z-[1] -translate-x-1/2"
+          style={{ top: "calc(env(safe-area-inset-top) + 122px)" }}
         >
           <div className="inline-flex items-center gap-1.5 rounded-full border border-rose-300 bg-rose-100 px-3 py-1 text-xs font-semibold leading-none text-rose-700 dark:border-rose-500 dark:bg-rose-900 dark:text-rose-100">
             <AlertCircle className="h-[13px] w-[13px] shrink-0 -translate-y-[0.5px]" />
@@ -1034,38 +1060,89 @@ export default function ChatWindowPanel({
         </div>
       ) : null}
 
-      {activeChatId && floatingDayLabel && showFloatingDayChip ? (
-        <div
-          className="absolute left-1/2 z-20 -translate-x-1/2"
-          style={{
-            top: insecureConnection
-              ? "calc(env(safe-area-inset-top) + 116px)"
-              : "calc(env(safe-area-inset-top) + 80px)",
-          }}
-        >
-          <button
-            type="button"
-            onClick={handleFloatingDayChipClick}
-            onMouseEnter={() => {
-              isHoveringFloatingDayChipRef.current = true;
-              setIsHoveringFloatingDayChip(true);
-              if (scrollIdleTimeoutRef.current) {
-                clearTimeout(scrollIdleTimeoutRef.current);
-              }
-            }}
-            onMouseLeave={() => {
-              isHoveringFloatingDayChipRef.current = false;
-              setIsHoveringFloatingDayChip(false);
-              scheduleFloatingChipHide();
-            }}
-            className="rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
-          >
-            {floatingDayLabel}
-          </button>
-        </div>
-      ) : null}
-
       <div className="flex-1 min-h-0">
+        {activeChatId && floatingDay.key && isTimelineScrollable ? (
+          <div
+            className="absolute left-1/2 z-[3] -translate-x-1/2"
+            style={{ top: "calc(env(safe-area-inset-top) + 84px)" }}
+          >
+            <button
+              ref={floatingChipRef}
+              type="button"
+              onClick={(event) => {
+                const node = document.getElementById(`day-group-${floatingDay.key}`);
+                const scroller = chatScrollRef?.current;
+                if (!node || !scroller) return;
+                const floatingChip = event.currentTarget;
+                const currentKey = floatingDay.key;
+                const currentLabel = floatingDay.label;
+                floatingDayLockByClickRef.current = true;
+                floatingDayLockUntilRef.current = Date.now() + 1800;
+                setFloatingDay({ key: currentKey, label: currentLabel });
+                if (floatingChipAlignTimerRef.current) {
+                  window.clearTimeout(floatingChipAlignTimerRef.current);
+                  floatingChipAlignTimerRef.current = null;
+                }
+
+                const stickyChip =
+                  node.querySelector("[data-day-chip]")?.parentElement || node;
+                const stickyRect = stickyChip.getBoundingClientRect();
+                const floatingRect = floatingChip.getBoundingClientRect();
+                // Device-specific alignment nudge tuned to match visual chip overlap.
+                const alignOffsetPx = isDesktop ? 0 : -1;
+                const desiredStickyTopInViewport = floatingRect.top + alignOffsetPx;
+                const delta = stickyRect.top - desiredStickyTopInViewport;
+                const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+                const targetTop = Math.max(
+                  0,
+                  Math.min(maxTop, scroller.scrollTop + delta),
+                );
+
+                scroller.scrollTo({ top: targetTop, behavior: "smooth" });
+
+                const runFinalAlign = (releaseLock = false) => {
+                  const nextStickyChip =
+                    node.querySelector("[data-day-chip]")?.parentElement || node;
+                  const nextStickyRect = nextStickyChip.getBoundingClientRect();
+                  const nextFloatingRect = floatingChip.getBoundingClientRect();
+                  const nextDesiredTop = nextFloatingRect.top + alignOffsetPx;
+                  const nextDelta = nextStickyRect.top - nextDesiredTop;
+                  if (Math.abs(nextDelta) > 0.5) {
+                    const finalMaxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+                    const finalTop = Math.max(
+                      0,
+                      Math.min(finalMaxTop, scroller.scrollTop + nextDelta),
+                    );
+                    scroller.scrollTo({ top: finalTop, behavior: "auto" });
+                  }
+                  if (releaseLock) {
+                    floatingDayLockByClickRef.current = false;
+                    floatingDayLockUntilRef.current = Date.now() + 120;
+                  }
+                };
+
+                if (isDesktop) {
+                  // Desktop: no post-correction jump; just unlock after smooth scroll finishes.
+                  floatingChipAlignTimerRef.current = window.setTimeout(() => {
+                    floatingDayLockByClickRef.current = false;
+                    floatingDayLockUntilRef.current = Date.now() + 120;
+                    floatingChipAlignTimerRef.current = null;
+                  }, 420);
+                } else {
+                  // Mobile: one final correction removes the tiny residual offset.
+                  floatingChipAlignTimerRef.current = window.setTimeout(() => {
+                    runFinalAlign(true);
+                    floatingChipAlignTimerRef.current = null;
+                  }, 380);
+                }
+              }}
+              className="inline-flex items-center justify-center rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+            >
+              <span className="leading-none">{floatingDay.label}</span>
+            </button>
+          </div>
+        ) : null}
+
         {!activeChatId ? (
           <div
             ref={chatScrollRef}
@@ -1102,24 +1179,41 @@ export default function ChatWindowPanel({
             })}
           </div>
         ) : messages.length ? (
-          <Virtuoso
-            ref={virtuosoRef}
-            data={messages}
-            scrollerRef={(el) => {
-              chatScrollRef.current = el;
-            }}
+          <div
+            ref={chatScrollRef}
             onScroll={handlePanelScroll}
-            className="chat-scroll h-full overflow-x-hidden px-0 py-6 md:pl-1 md:pr-4"
+            onTouchStartCapture={handleScrollIntent}
+            onWheelCapture={handleScrollIntent}
+            className="chat-scroll h-full overflow-y-auto overflow-x-hidden px-0 pb-3 pt-1 md:px-2"
             style={chatScrollStyle}
-            overscan={140}
-            components={virtuosoComponents}
-            followOutput={userScrolledUp ? false : "smooth"}
-            initialTopMostItemIndex={messages.length > 0 ? messages.length - 1 : 0}
-            computeItemKey={(index, msg) =>
-              String(msg.id ?? `${msg.created_at || "na"}-${msg.username || "na"}-${index}`)
-            }
-            itemContent={(index, msg) => renderMessageItem(msg, index)}
-          />
+          >
+            {loadingOlderMessages ? (
+              <div className="px-3 pb-3 pt-1 md:px-0">
+                <div className="mx-auto h-10 w-40 animate-pulse rounded-2xl bg-white/80 dark:bg-slate-800/80" />
+              </div>
+            ) : null}
+            {groupedMessages.map((group, groupIndex) => (
+              <div id={`day-group-${group.dayKey || groupIndex}`} key={`single-group-${group.dayKey || groupIndex}`}>
+                <div className="flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => handleGroupChipClick(groupIndex)}
+                    className="inline-flex w-max items-center justify-center rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+                  >
+                    <span data-day-chip={group.dayLabel || ""} className="leading-none">
+                      {group.dayLabel || ""}
+                    </span>
+                  </button>
+                </div>
+                {group.items.map((msg, index) => (
+                  <div key={String(msg?._clientId ?? msg?.id ?? `single-msg-${index}`)}>
+                    {renderMessageItem(msg, { isFirstInGroup: index === 0 })}
+                  </div>
+                ))}
+              </div>
+            ))}
+            <div style={{ height: `${timelineBottomSpacerPx}px` }} />
+          </div>
         ) : (
           <div
             ref={chatScrollRef}
