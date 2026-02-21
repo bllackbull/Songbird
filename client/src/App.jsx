@@ -53,7 +53,7 @@ export default function App() {
     mediaThemeMetas.forEach((node) => node.setAttribute('content', color))
   }
 
-  function refreshThemeColorForSafari(color) {
+  function refreshThemeColorForSafari(color, allowScrollNudge = true) {
     clearThemeRefreshTimers()
     const nudgeColor = color === '#ffffff' ? '#fefefe' : '#0e1728'
     commitThemeColor(nudgeColor)
@@ -77,7 +77,7 @@ export default function App() {
 
     // Force Safari toolbar/theme-color recalc without waiting for manual touch.
     const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent)
-    if (isIOS) {
+    if (isIOS && allowScrollNudge) {
       const y = window.scrollY || 0
       try {
         window.scrollTo(0, y + 1)
@@ -110,7 +110,7 @@ export default function App() {
 
     const themeColor = getThemeColor(nextIsDark, nextRoute)
     document.documentElement.style.setProperty('--safe-area-theme-color', themeColor)
-    refreshThemeColorForSafari(themeColor)
+    refreshThemeColorForSafari(themeColor, nextRoute !== 'chat')
     ;['safe-area-top-fill', 'safe-area-bottom-fill'].forEach((id) => {
       const el = document.getElementById(id)
       if (el) {
@@ -181,21 +181,21 @@ export default function App() {
           activeEl.isContentEditable)
       const keyboardLikelyOpen =
         focusedEditable || window.innerHeight - viewport.height > 120
-      const offset = keyboardLikelyOpen ? 0 : Math.min(rawOffset, 56)
+      // Do not react to Safari toolbar/bottom chrome movement while scrolling.
+      // Only apply offset adjustments while an editable field is focused.
+      const offset = focusedEditable && keyboardLikelyOpen ? 0 : 0
       root.style.setProperty('--vv-bottom-offset', `${offset}px`)
       root.style.setProperty('--mobile-bottom-offset', `${offset}px`)
     }
 
     updateViewportOffset()
     viewport.addEventListener('resize', updateViewportOffset)
-    viewport.addEventListener('scroll', updateViewportOffset)
     window.addEventListener('orientationchange', updateViewportOffset)
     window.addEventListener('focusin', updateViewportOffset)
     window.addEventListener('focusout', updateViewportOffset)
 
     return () => {
       viewport.removeEventListener('resize', updateViewportOffset)
-      viewport.removeEventListener('scroll', updateViewportOffset)
       window.removeEventListener('orientationchange', updateViewportOffset)
       window.removeEventListener('focusin', updateViewportOffset)
       window.removeEventListener('focusout', updateViewportOffset)

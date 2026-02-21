@@ -125,6 +125,7 @@ export function MobileSettingsPanel({
   avatarPreview,
   profileForm,
   handleAvatarChange,
+  handleAvatarRemove,
   setAvatarPreview,
   setProfileForm,
   statusSelection,
@@ -241,9 +242,11 @@ export function MobileSettingsPanel({
                   {avatarPreview ? (
                     <button
                       type="button"
-                      onClick={() => {
-                        setAvatarPreview("");
-                        setProfileForm((prev) => ({ ...prev, avatarUrl: "" }));
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        handleAvatarRemove();
                       }}
                       className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-rose-200 bg-rose-50 text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-md dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200 dark:hover:bg-rose-800/50"
                       aria-label="Remove photo"
@@ -400,6 +403,7 @@ export function DesktopSettingsModal({
   avatarPreview,
   profileForm,
   handleAvatarChange,
+  handleAvatarRemove,
   setAvatarPreview,
   setProfileForm,
   statusSelection,
@@ -466,9 +470,11 @@ export function DesktopSettingsModal({
                   {avatarPreview ? (
                     <button
                       type="button"
-                      onClick={() => {
-                        setAvatarPreview("");
-                        setProfileForm((prev) => ({ ...prev, avatarUrl: "" }));
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        handleAvatarRemove();
                       }}
                       className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-rose-200 bg-rose-50 text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-md dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200 dark:hover:bg-rose-800/50"
                       aria-label="Remove photo"
