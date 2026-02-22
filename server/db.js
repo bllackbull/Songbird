@@ -273,8 +273,8 @@ export function createMessageFiles(messageId, files = []) {
   files.forEach((file) => {
     run(
       `INSERT INTO chat_message_files (
-        message_id, kind, original_name, stored_name, mime_type, size_bytes, width_px, height_px, duration_seconds
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        message_id, kind, original_name, stored_name, mime_type, size_bytes, width_px, height_px, duration_seconds, expires_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         messageId,
         file.kind,
@@ -285,6 +285,7 @@ export function createMessageFiles(messageId, files = []) {
         Number.isFinite(Number(file.widthPx)) ? Number(file.widthPx) : null,
         Number.isFinite(Number(file.heightPx)) ? Number(file.heightPx) : null,
         Number.isFinite(Number(file.durationSeconds)) ? Number(file.durationSeconds) : null,
+        file.expiresAt || null,
       ]
     )
   })
@@ -339,7 +340,7 @@ export function listMessageFilesByMessageIds(messageIds = []) {
   const placeholders = messageIds.map(() => '?').join(', ')
   return getAll(
     `
-      SELECT id, message_id, kind, original_name, stored_name, mime_type, size_bytes, width_px, height_px, duration_seconds, created_at
+      SELECT id, message_id, kind, original_name, stored_name, mime_type, size_bytes, width_px, height_px, duration_seconds, expires_at, created_at
       FROM chat_message_files
       WHERE message_id IN (${placeholders})
       ORDER BY id ASC
@@ -352,7 +353,7 @@ export function listMessageFilesNeedingMetadata(limit = 10000) {
   const safeLimit = Math.max(1, Math.min(200000, Number(limit) || 10000))
   return getAll(
     `
-      SELECT id, stored_name, mime_type, width_px, height_px, duration_seconds
+      SELECT id, stored_name, mime_type, width_px, height_px, duration_seconds, expires_at
       FROM chat_message_files
       WHERE (
         mime_type LIKE 'image/%'

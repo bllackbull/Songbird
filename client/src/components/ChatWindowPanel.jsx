@@ -55,6 +55,7 @@ export default function ChatWindowPanel({
   onRemovePendingUpload,
   onClearPendingUploads,
   onUserScrollIntent,
+  fileUploadEnabled = true,
 }) {
   const [isDesktop, setIsDesktop] = useState(
     typeof window !== "undefined" ? window.matchMedia("(min-width: 768px)").matches : false,
@@ -93,6 +94,7 @@ export default function ChatWindowPanel({
   const [focusedVideoTime, setFocusedVideoTime] = useState(0);
   const [focusedVideoDuration, setFocusedVideoDuration] = useState(0);
   const [focusedVideoHint, setFocusedVideoHint] = useState(null);
+  const [focusNowMs, setFocusNowMs] = useState(Date.now());
   const [floatingDay, setFloatingDay] = useState({ key: "", label: "" });
   const [isTimelineScrollable, setIsTimelineScrollable] = useState(false);
   const floatingChipRef = useRef(null);
@@ -398,6 +400,15 @@ export default function ChatWindowPanel({
     media.addListener(update);
     return () => media.removeListener(update);
   }, []);
+
+  useEffect(() => {
+    if (!focusedMedia?.expiresAt) return undefined;
+    setFocusNowMs(Date.now());
+    const timer = window.setInterval(() => {
+      setFocusNowMs(Date.now());
+    }, 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, [focusedMedia?.expiresAt]);
 
   function getMessageDayLabel(msg) {
     if (msg?._dayLabel) return msg._dayLabel;
@@ -732,7 +743,14 @@ export default function ChatWindowPanel({
               <button
                 type="button"
                 key={key}
-                onClick={() => openFocusMedia({ url: file.url, name: file.name, type: "image" })}
+                onClick={() =>
+                  openFocusMedia({
+                    url: file.url,
+                    name: file.name,
+                    type: "image",
+                    expiresAt: file.expiresAt || null,
+                  })
+                }
                 className="relative block w-full overflow-hidden rounded-xl border border-emerald-200/70 bg-white/70 dark:border-emerald-500/30 dark:bg-slate-900/50"
               >
                 <div className={imageFrameClass} style={mediaFrameStyle}>
@@ -766,7 +784,14 @@ export default function ChatWindowPanel({
               <button
                 type="button"
                 key={key}
-                onClick={() => openFocusMedia({ url: file.url, name: file.name, type: "video" })}
+                onClick={() =>
+                  openFocusMedia({
+                    url: file.url,
+                    name: file.name,
+                    type: "video",
+                    expiresAt: file.expiresAt || null,
+                  })
+                }
                 className="relative block w-full overflow-hidden rounded-xl border border-emerald-200/70 bg-black/60 dark:border-emerald-500/30"
                 aria-label={`Open video ${file.name || ""}`.trim()}
               >
@@ -925,6 +950,44 @@ export default function ChatWindowPanel({
       // no-op
     }
   };
+
+  const getExpiryWarning = useCallback(
+    (expiresAt) => {
+      if (!expiresAt) return null;
+      const expiryMs = new Date(expiresAt).getTime();
+      if (!Number.isFinite(expiryMs)) return null;
+      const diffMs = expiryMs - focusNowMs;
+      if (diffMs <= 0) return null;
+      const minuteMs = 60 * 1000;
+      const hourMs = 60 * minuteMs;
+      const dayMs = 24 * hourMs;
+
+      if (diffMs < hourMs) {
+        const minutes = Math.max(1, Math.ceil(diffMs / minuteMs));
+        return {
+          danger: true,
+          text: `This file will be deleted in ${minutes} minute${minutes === 1 ? "" : "s"}.`,
+        };
+      }
+      if (diffMs < dayMs) {
+        const hours = Math.max(1, Math.ceil(diffMs / hourMs));
+        return {
+          danger: true,
+          text: `This file will be deleted in ${hours} hour${hours === 1 ? "" : "s"}.`,
+        };
+      }
+      const days = Math.max(1, Math.ceil(diffMs / dayMs));
+      return {
+        danger: days <= 1,
+        text: `This file will be deleted in ${days} day${days === 1 ? "" : "s"}.`,
+      };
+    },
+    [focusNowMs],
+  );
+  const focusExpiryWarning = useMemo(
+    () => getExpiryWarning(focusedMedia?.expiresAt),
+    [getExpiryWarning, focusedMedia?.expiresAt],
+  );
 
   const openFocusMedia = (media) => {
     if (focusUnmountTimerRef.current) {
@@ -1246,14 +1309,20 @@ export default function ChatWindowPanel({
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
+                    disabled={!fileUploadEnabled}
                     onClick={() => {
+                      if (!fileUploadEnabled) return;
                       if (pendingUploadType === "media") {
                         mediaInputRef.current?.click();
                       } else {
                         documentInputRef.current?.click();
                       }
                     }}
-                    className="inline-flex items-center gap-1 rounded-full border border-emerald-200/70 px-2 py-0.5 text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:border-emerald-500/30 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 transition ${
+                      fileUploadEnabled
+                        ? "border-emerald-200/70 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100 dark:border-emerald-500/30 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                        : "cursor-not-allowed border-slate-300 text-slate-400 dark:border-slate-700 dark:text-slate-500"
+                    }`}
                   >
                     <Paperclip size={12} />
                     Add
@@ -1343,13 +1412,18 @@ export default function ChatWindowPanel({
             <div className="relative" ref={uploadMenuRef}>
               <button
                 type="button"
+                disabled={!fileUploadEnabled}
                 onClick={() => setShowUploadMenu((prev) => !prev)}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-transparent bg-transparent text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+                className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-transparent bg-transparent transition ${
+                  fileUploadEnabled
+                    ? "text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+                    : "cursor-not-allowed text-slate-400 dark:text-slate-500"
+                }`}
                 aria-label="Attach file"
               >
                 <Paperclip size={18} className="icon-anim-sway" />
               </button>
-              {showUploadMenu ? (
+              {showUploadMenu && fileUploadEnabled ? (
                 <div className="absolute bottom-12 left-0 z-40 w-44 rounded-xl border border-emerald-200/80 bg-white p-1.5 shadow-lg dark:border-emerald-500/30 dark:bg-slate-950">
                   <button
                     type="button"
@@ -1381,6 +1455,7 @@ export default function ChatWindowPanel({
                 accept="image/*,video/*"
                 multiple
                 className="sr-only"
+                disabled={!fileUploadEnabled}
                 onChange={(event) => {
                   onUploadFilesSelected(event.target.files, "media", pendingUploadType === "media");
                   event.target.value = "";
@@ -1391,6 +1466,7 @@ export default function ChatWindowPanel({
                 type="file"
                 multiple
                 className="sr-only"
+                disabled={!fileUploadEnabled}
                 onChange={(event) => {
                   onUploadFilesSelected(event.target.files, "document", pendingUploadType === "document");
                   event.target.value = "";
@@ -1581,15 +1657,33 @@ export default function ChatWindowPanel({
                   </div>
                 </div>
               ) : (
-                <img
-                  src={focusedMedia.url}
-                  alt={focusedMedia.name || "media"}
-                  className="mx-auto max-h-[78vh] w-auto max-w-full rounded-2xl object-contain"
+                <div
+                  className="mx-auto flex w-fit max-w-full flex-col items-center"
                   onClick={(event) => event.stopPropagation()}
                   onTouchStart={isMobileTouchDevice && !isDesktop ? handleFocusTouchStart : undefined}
                   onTouchEnd={isMobileTouchDevice && !isDesktop ? handleFocusTouchEnd : undefined}
-                />
+                >
+                  <img
+                    src={focusedMedia.url}
+                    alt={focusedMedia.name || "media"}
+                    className="mx-auto max-h-[78vh] w-auto max-w-full rounded-2xl object-contain"
+                  />
+                </div>
               )}
+              {focusExpiryWarning ? (
+                <div className="mt-2 flex justify-center" onClick={(event) => event.stopPropagation()}>
+                  <div
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold leading-none ${
+                      focusExpiryWarning.danger
+                        ? "border-rose-300 bg-rose-100 text-rose-700 dark:border-rose-500 dark:bg-rose-900 dark:text-rose-100"
+                        : "border-white/20 bg-black/65 text-white"
+                    }`}
+                  >
+                    <AlertCircle className="h-[13px] w-[13px] shrink-0" />
+                    <span className="leading-none">{focusExpiryWarning.text}</span>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>

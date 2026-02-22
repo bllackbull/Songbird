@@ -3,6 +3,7 @@ import path from "node:path";
 import fs from "node:fs";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
+import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import multer from "multer";
@@ -41,14 +42,37 @@ import {
 } from "./db.js";
 
 const app = express();
+const serverDir = path.dirname(fileURLToPath(import.meta.url));
+const projectRootDir = path.resolve(serverDir, "..");
+dotenv.config({ path: path.join(projectRootDir, ".env") });
+dotenv.config({ path: path.join(serverDir, ".env"), override: true });
+
+const readEnvInt = (keys, fallback, options = {}) => {
+  const names = Array.isArray(keys) ? keys : [keys];
+  const raw = names
+    .map((name) => process.env[name])
+    .find((value) => value !== undefined && value !== null && value !== "");
+  if (raw === undefined || raw === null || raw === "") return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return fallback;
+  const value = Math.trunc(parsed);
+  if (options.min !== undefined && value < options.min) return fallback;
+  if (options.max !== undefined && value > options.max) return fallback;
+  return value;
+};
+const readEnvBool = (keys, fallback) => {
+  const names = Array.isArray(keys) ? keys : [keys];
+  const raw = names
+    .map((name) => process.env[name])
+    .find((value) => value !== undefined && value !== null && value !== "");
+  if (raw === undefined || raw === null || raw === "") return fallback;
+  const normalized = String(raw).trim().toLowerCase();
+  if (["1", "true", "yes", "y", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "n", "off"].includes(normalized)) return false;
+  return fallback;
+};
 const port = process.env.PORT || 5174;
 const isProduction = process.env.NODE_ENV === "production";
-const serverDir = path.dirname(fileURLToPath(import.meta.url));
-const parseEnvInt = (value, fallback) => {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
-  return Math.trunc(parsed);
-};
 
 app.set("trust proxy", 1);
 
@@ -81,10 +105,18 @@ const sseClientsByUsername = new Map();
 const dataDir = path.resolve(serverDir, "..", "data");
 const uploadRootDir = path.join(dataDir, "uploads", "messages");
 const avatarUploadRootDir = path.join(dataDir, "uploads", "avatars");
-const SHARED_MAX_FILE_SIZE_BYTES = parseEnvInt(
-  process.env.CHAT_UPLOAD_MAX_FILE_SIZE_BYTES,
+const SHARED_MAX_FILE_SIZE_BYTES = readEnvInt(
+  "FILE_UPLOAD_MAX_SIZE",
   25 * 1024 * 1024,
+  { min: 1024 },
 );
+const MESSAGE_FILE_RETENTION_DAYS = readEnvInt(
+  "MESSAGE_FILE_RETENTION",
+  7,
+  { min: 0, max: 3650 },
+);
+const FILE_UPLOAD = readEnvBool("FILE_UPLOAD", true);
+const MESSAGE_FILE_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 const MESSAGE_FILE_LIMITS = {
   maxFiles: 10,
   maxFileSizeBytes: SHARED_MAX_FILE_SIZE_BYTES,
@@ -375,6 +407,72 @@ function cleanupMissingMessageFilesForMessageIds(messageIds = []) {
   return { deletedMessageIds: targetMessageIds, changed: true };
 }
 
+function cleanupExpiredMessageFiles() {
+  if (MESSAGE_FILE_RETENTION_DAYS <= 0) {
+    return { removedMessages: 0, removedFiles: 0 };
+  }
+  const nowIso = new Date().toISOString();
+  const rows = adminGetAll(
+    `SELECT DISTINCT message_id
+     FROM chat_message_files
+     WHERE expires_at IS NOT NULL AND expires_at != '' AND julianday(expires_at) <= julianday(?)`,
+    [nowIso],
+  );
+  const messageIds = rows
+    .map((row) => Number(row.message_id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+  if (!messageIds.length) {
+    return { removedMessages: 0, removedFiles: 0 };
+  }
+
+  const placeholders = messageIds.map(() => "?").join(", ");
+  const fileRows = adminGetAll(
+    `SELECT stored_name FROM chat_message_files WHERE message_id IN (${placeholders})`,
+    messageIds,
+  );
+  const storedNames = fileRows.map((row) => row.stored_name);
+
+  adminRun("BEGIN");
+  try {
+    chunkArray(messageIds, 500).forEach((chunk) => {
+      const chunkPlaceholders = chunk.map(() => "?").join(", ");
+      adminRun(
+        `DELETE FROM chat_message_files WHERE message_id IN (${chunkPlaceholders})`,
+        chunk,
+      );
+      adminRun(`DELETE FROM chat_messages WHERE id IN (${chunkPlaceholders})`, chunk);
+    });
+    adminRun("COMMIT");
+  } catch (error) {
+    adminRun("ROLLBACK");
+    throw error;
+  }
+
+  removeStoredFileNames(storedNames);
+  adminSave();
+  return { removedMessages: messageIds.length, removedFiles: storedNames.length };
+}
+
+function backfillMessageFileExpiry() {
+  if (MESSAGE_FILE_RETENTION_DAYS <= 0) return 0;
+  const nowDays = Number(MESSAGE_FILE_RETENTION_DAYS);
+  const row = adminGetRow(
+    `SELECT COUNT(*) AS n
+     FROM chat_message_files
+     WHERE (expires_at IS NULL OR expires_at = '')`,
+  );
+  const pending = Number(row?.n || 0);
+  if (!pending) return 0;
+  adminRun(
+    `UPDATE chat_message_files
+     SET expires_at = datetime(created_at, '+' || ? || ' days')
+     WHERE (expires_at IS NULL OR expires_at = '')`,
+    [nowDays],
+  );
+  adminSave();
+  return pending;
+}
+
 function getDiskUsageInfo() {
   try {
     if (typeof fs.statfsSync !== "function") return null;
@@ -478,6 +576,23 @@ function chunkArray(items = [], size = 500) {
     chunks.push(items.slice(index, index + size))
   }
   return chunks
+}
+
+function hasEnoughFreeDiskSpace(requiredBytes = 0) {
+  const required = Number(requiredBytes || 0);
+  if (!Number.isFinite(required) || required <= 0) return true;
+  const disk = getDiskUsageInfo();
+  if (!disk || !Number.isFinite(Number(disk.freeBytes))) return true;
+  const safetyBuffer = 1 * 1024 * 1024;
+  return Number(disk.freeBytes) >= required + safetyBuffer;
+}
+
+function computeExpiryIso(createdAt = new Date(), days = MESSAGE_FILE_RETENTION_DAYS) {
+  const safeDays = Number(days || 0);
+  if (!Number.isFinite(safeDays) || safeDays <= 0) return null;
+  const base = createdAt instanceof Date ? createdAt : new Date(createdAt);
+  const expiry = new Date(base.getTime() + safeDays * 24 * 60 * 60 * 1000);
+  return expiry.toISOString();
 }
 
 function buildTimestampSchedule(count, daysBack) {
@@ -833,6 +948,11 @@ app.post("/api/profile/avatar", uploadAvatar.single("avatar"), (req, res) => {
   const currentUsername = String(req.body?.currentUsername || "").trim().toLowerCase();
   const file = req.file;
 
+  if (!FILE_UPLOAD) {
+    removeUploadedFiles(file ? [file] : []);
+    return res.status(503).json({ error: "File uploads are disabled on this server." });
+  }
+
   if (!currentUsername) {
     removeUploadedFiles(file ? [file] : []);
     return res.status(400).json({ error: "Current username is required." });
@@ -848,6 +968,10 @@ app.post("/api/profile/avatar", uploadAvatar.single("avatar"), (req, res) => {
   if (!String(file.mimetype || "").toLowerCase().startsWith("image/")) {
     removeUploadedFiles([file]);
     return res.status(400).json({ error: "Avatar must be an image file." });
+  }
+  if (!hasEnoughFreeDiskSpace(Number(file.size || 0))) {
+    removeUploadedFiles([file]);
+    return res.status(400).json({ error: "Not enough free storage space on server." });
   }
 
   const avatarUrl = `/uploads/avatars/${file.filename}`;
@@ -965,6 +1089,7 @@ app.get("/api/chats", (req, res) => {
       durationSeconds: Number.isFinite(Number(file.duration_seconds))
         ? Number(file.duration_seconds)
         : null,
+      expiresAt: file.expires_at || null,
       url: `/uploads/messages/${file.stored_name}`,
     });
     return acc;
@@ -1102,6 +1227,7 @@ app.get("/api/messages", (req, res) => {
       durationSeconds: Number.isFinite(Number(file.duration_seconds))
         ? Number(file.duration_seconds)
         : null,
+      expiresAt: file.expires_at || null,
       url: `/uploads/messages/${file.stored_name}`,
     });
     return acc;
@@ -1159,6 +1285,10 @@ app.post("/api/chats/hide", (req, res) => {
 app.post("/api/messages/upload", uploadFiles.array("files", MESSAGE_FILE_LIMITS.maxFiles), (req, res) => {
   const uploadedFiles = req.files || [];
   try {
+    if (!FILE_UPLOAD) {
+      removeUploadedFiles(uploadedFiles);
+      return res.status(503).json({ error: "File uploads are disabled on this server." });
+    }
     const chatId = Number(req.body?.chatId);
     const username = req.body?.username?.toString();
     const uploadType = req.body?.uploadType?.toString();
@@ -1195,7 +1325,15 @@ app.post("/api/messages/upload", uploadFiles.array("files", MESSAGE_FILE_LIMITS.
         error: `Total upload size cannot exceed ${Math.round(MESSAGE_FILE_LIMITS.maxTotalBytes / (1024 * 1024))} MB.`,
       });
     }
+    if (!hasEnoughFreeDiskSpace(totalBytes)) {
+      removeUploadedFiles(uploadedFiles);
+      return res.status(400).json({
+        error: "Not enough free storage space on server.",
+      });
+    }
 
+    const createdAtIso = new Date().toISOString();
+    const expiresAtIso = computeExpiryIso(createdAtIso, MESSAGE_FILE_RETENTION_DAYS);
     const normalizedFiles = uploadedFiles.map((file, index) => {
       const originalName = decodeOriginalFilename(file.originalname || "file");
       const inferredMime = inferMimeFromFilename(originalName);
@@ -1214,6 +1352,7 @@ app.post("/api/messages/upload", uploadFiles.array("files", MESSAGE_FILE_LIMITS.
         widthPx: sanitizePositiveInt(meta.width),
         heightPx: sanitizePositiveInt(meta.height),
         durationSeconds: sanitizeDurationSeconds(meta.durationSeconds),
+        expiresAt: expiresAtIso,
       };
     });
 
@@ -1728,6 +1867,25 @@ app.use((err, req, res, next) => {
   }
   return next(err);
 });
+
+if (MESSAGE_FILE_RETENTION_DAYS > 0) {
+  try {
+    backfillMessageFileExpiry();
+    cleanupExpiredMessageFiles();
+  } catch (_) {
+    // best effort startup cleanup
+  }
+  const expiryCleanupTimer = setInterval(() => {
+    try {
+      cleanupExpiredMessageFiles();
+    } catch (_) {
+      // keep server alive if cleanup fails
+    }
+  }, MESSAGE_FILE_CLEANUP_INTERVAL_MS);
+  if (typeof expiryCleanupTimer.unref === "function") {
+    expiryCleanupTimer.unref();
+  }
+}
 
 app.listen(port, () => {
   console.log(`Songbird server running on http://localhost:${port}`);

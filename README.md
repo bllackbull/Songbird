@@ -57,25 +57,75 @@ git clone https://github.com/bllackbull/Songbird.git .
 
 **Important:** The `.` at the end clones the repository contents directly into `/opt/songbird` without creating a nested `Songbird/` directory. This keeps your paths clean.
 
-### 3. Install dependencies and build the client
+### 3. Install dependencies
 
 ```bash
 # Install server deps
 cd /opt/songbird/server
 npm install
 
-# Install client deps and build static assets
+# Install client deps
 cd ../client
 npm install
-npm run build
 ```
-
-The build will produce a `client/dist` folder which will be served by Nginx.
 
 ### 4. Configure environment and app
 
 - The server reads `PORT` (default 5174) and `NODE_ENV` (use `production`) from environment variables. The server sets the session cookie `Secure` flag when `NODE_ENV=production`.
-- If you need to set environment variables for the app, you can create a systemd drop-in (see below) or an `.env` and a small wrapper script.
+- You can use a single root `.env` file (`/opt/songbird/.env`) for both server runtime and client build-time settings.
+- The server also supports `server/.env` (it overrides root `.env` when both exist).
+
+Create the file:
+
+```bash
+cd /opt/songbird
+nano .env
+```
+
+Use this table for all configurable values:
+
+| Variable | Type | Default | Description |
+|---|---|---:|---|
+| `PORT` | `integer` | `5174` | API server port (proxied by Nginx). |
+| `NODE_ENV` | `string` | `development` | Set `production` in deployment. |
+| `FILE_UPLOAD` | `boolean` | `true` | Enable/disable all uploads globally (chat files + avatars). |
+| `FILE_UPLOAD_MAX_SIZE` | `integer` | `26214400` | Per-file upload max size (bytes). |
+| `FILE_UPLOAD_MAX_TOTAL_SIZE` | `integer` | `78643200` | Per-message total upload size cap (bytes). |
+| `FILE_UPLOAD_MAX_FILES` | `integer` | `10` | Max uploaded files in one message. |
+| `MESSAGE_FILE_RETENTION` | `integer` | `7` | Auto-delete uploaded message files after N days (`0` disables). |
+| `CHAT_PENDING_TEXT_TIMEOUT` | `integer` | `300000` | Mark pending text message as failed after this timeout (milliseconds). |
+| `CHAT_PENDING_FILE_TIMEOUT` | `integer` | `1200000` | Mark pending file message as failed / XHR timeout for uploads (milliseconds). |
+| `CHAT_PENDING_RETRY_INTERVAL` | `integer` | `4000` | Retry cadence for pending sends while connected (milliseconds). |
+| `CHAT_PENDING_STATUS_CHECK_INTERVAL` | `integer` | `1000` | How often pending messages are checked for timeout (milliseconds). |
+| `CHAT_MESSAGE_FETCH_LIMIT` | `integer` | `300` | Max messages requested per chat fetch (initial/latest window). |
+| `CHAT_MESSAGE_PAGE_SIZE` | `integer` | `60` | Page size for loading older messages when scrolling to top. |
+| `CHAT_LIST_REFRESH_INTERVAL` | `integer` | `20000` | Chats list background refresh interval (milliseconds). |
+| `CHAT_PRESENCE_PING_INTERVAL` | `integer` | `5000` | Presence heartbeat interval (milliseconds). |
+| `CHAT_PEER_PRESENCE_POLL_INTERVAL` | `integer` | `3000` | Active peer presence poll interval (milliseconds). |
+| `CHAT_HEALTH_CHECK_INTERVAL` | `integer` | `10000` | Connection health check interval (milliseconds). |
+| `CHAT_SSE_RECONNECT_DELAY` | `integer` | `2000` | Delay before reconnecting SSE after error (milliseconds). |
+| `CHAT_SEARCH_MAX_RESULTS` | `integer` | `5` | Max users shown in New Chat search results. |
+
+After editing `.env`:
+
+1. Rebuild client (for client/build-time keys).
+
+```bash
+cd /opt/songbird/client
+npm run build
+```
+
+2. Restart server (for server/runtime keys).
+
+```bash
+sudo systemctl restart songbird
+```
+
+3. Reload Nginx.
+
+```bash
+sudo systemctl reload nginx
+```
 
 ### 5. Create systemd service for the Node server
 
@@ -313,57 +363,6 @@ If only the frontend code has changed (no `package.json` changes), you can skip 
 
 > **Note:** <br>
 For zero-downtime deployments on larger projects, consider blue-green deployment or PM2, but for most updates the restart approach above is simple and sufficient.
-
-## Chat page tuning (client env)
-
-You can customize some key values of the app based on your on preferences.
-
-> **Important**:
-> - These are **client build-time** variables.
-> - After changing them, rebuild the frontend: `cd client && npm run build`.
-> - You can set them in `client/.env`, `client/.env.production`, CI/CD env, or any build service config that exports env vars before `npm run build`.
-
-Available keys:
-
-| Variable | Default | Description |
-|---|---:|---|
-| `CHAT_PENDING_TEXT_TIMEOUT_MS` | `300000` | Mark pending text message as failed after this timeout. |
-| `CHAT_PENDING_FILE_TIMEOUT_MS` | `1200000` | Mark pending file message as failed / XHR timeout for uploads. |
-| `CHAT_PENDING_RETRY_INTERVAL_MS` | `4000` | Retry cadence for pending sends while connected. |
-| `CHAT_PENDING_STATUS_CHECK_INTERVAL_MS` | `1000` | How often pending messages are checked for timeout. |
-| `CHAT_MESSAGE_FETCH_LIMIT` | `300` | Max messages requested per chat fetch (initial/latest window). |
-| `CHAT_MESSAGE_PAGE_SIZE` | `60` | Page size for loading older messages when scrolling to top. |
-| `CHAT_UPLOAD_MAX_FILES` | `10` | Max files per single message. |
-| `CHAT_UPLOAD_MAX_FILE_SIZE_BYTES` | `26214400` | Per-file max size. |
-| `CHAT_UPLOAD_MAX_TOTAL_BYTES` | `78643200` | Total size cap for all files in one message. |
-| `CHAT_LIST_REFRESH_INTERVAL_MS` | `20000` | Chats list background refresh interval. |
-| `CHAT_PRESENCE_PING_INTERVAL_MS` | `5000` | Presence heartbeat interval (`/api/presence` POST). |
-| `CHAT_PEER_PRESENCE_POLL_INTERVAL_MS` | `3000` | Active peer presence poll interval. |
-| `CHAT_HEALTH_CHECK_INTERVAL_MS` | `10000` | Connection health check interval. |
-| `CHAT_SSE_RECONNECT_DELAY_MS` | `2000` | Delay before reconnecting SSE after error. |
-| `CHAT_NEW_CHAT_SEARCH_MAX_RESULTS` | `5` | Max users shown in New Chat search results. |
-
-Example (`client/.env.production`):
-
-```bash
-CHAT_PENDING_TEXT_TIMEOUT_MS=180000
-CHAT_PENDING_FILE_TIMEOUT_MS=900000
-CHAT_PENDING_RETRY_INTERVAL_MS=2500
-CHAT_MESSAGE_PAGE_SIZE=80
-CHAT_UPLOAD_MAX_FILES=8
-CHAT_UPLOAD_MAX_FILE_SIZE_BYTES=15728640
-CHAT_UPLOAD_MAX_TOTAL_BYTES=52428800
-```
-
-Example (build service / CI env):
-
-```bash
-export CHAT_PENDING_TEXT_TIMEOUT_MS=180000
-export CHAT_LIST_REFRESH_INTERVAL_MS=15000
-export CHAT_MESSAGE_PAGE_SIZE=80
-cd /opt/songbird/client
-npm run build
-```
 
 ## Running behind a domain + subpath
 

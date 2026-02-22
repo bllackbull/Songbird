@@ -34,23 +34,31 @@ const readEnvNumber = (key, fallback, options = {}) => {
   if (options.max !== undefined && integer > options.max) return fallback;
   return integer;
 };
+const readEnvBool = (key, fallback) => {
+  const raw = import.meta.env[key];
+  if (raw === undefined || raw === null || raw === "") return fallback;
+  const normalized = String(raw).trim().toLowerCase();
+  if (["1", "true", "yes", "y", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "n", "off"].includes(normalized)) return false;
+  return fallback;
+};
 
 const CHAT_PAGE_CONFIG = {
-  pendingTextTimeoutMs: readEnvNumber("CHAT_PENDING_TEXT_TIMEOUT_MS", 5 * 60 * 1000, {
+  pendingTextTimeoutMs: readEnvNumber("CHAT_PENDING_TEXT_TIMEOUT", 5 * 60 * 1000, {
     integer: true,
     min: 1000,
   }),
   pendingFileTimeoutMs: readEnvNumber(
-    "CHAT_PENDING_FILE_TIMEOUT_MS",
+    "CHAT_PENDING_FILE_TIMEOUT",
     20 * 60 * 1000,
     { integer: true, min: 1000 },
   ),
   pendingRetryIntervalMs: readEnvNumber(
-    "CHAT_PENDING_RETRY_INTERVAL_MS",
+    "CHAT_PENDING_RETRY_INTERVAL",
     4000,
     { integer: true, min: 250 },
   ),
-  pendingStatusCheckIntervalMs: readEnvNumber("CHAT_PENDING_STATUS_CHECK_INTERVAL_MS", 1000, {
+  pendingStatusCheckIntervalMs: readEnvNumber("CHAT_PENDING_STATUS_CHECK_INTERVAL", 1000, {
     integer: true,
     min: 250,
   }),
@@ -63,12 +71,12 @@ const CHAT_PAGE_CONFIG = {
     min: 10,
     max: 500,
   }),
-  maxFilesPerMessage: readEnvNumber("CHAT_UPLOAD_MAX_FILES", 10, {
+  maxFilesPerMessage: readEnvNumber("FILE_UPLOAD_MAX_FILES", 10, {
     integer: true,
     min: 1,
   }),
   maxFileSizeBytes: readEnvNumber(
-    "CHAT_UPLOAD_MAX_FILE_SIZE_BYTES",
+    "FILE_UPLOAD_MAX_SIZE",
     25 * 1024 * 1024,
     {
       integer: true,
@@ -76,37 +84,38 @@ const CHAT_PAGE_CONFIG = {
     },
   ),
   maxTotalUploadBytes: readEnvNumber(
-    "CHAT_UPLOAD_MAX_TOTAL_BYTES",
+    "FILE_UPLOAD_MAX_TOTAL_SIZE",
     75 * 1024 * 1024,
     {
       integer: true,
       min: 1024,
     },
   ),
-  chatsRefreshIntervalMs: readEnvNumber("CHAT_LIST_REFRESH_INTERVAL_MS", 20000, {
+  chatsRefreshIntervalMs: readEnvNumber("CHAT_LIST_REFRESH_INTERVAL", 20000, {
     integer: true,
     min: 1000,
   }),
-  presencePingIntervalMs: readEnvNumber("CHAT_PRESENCE_PING_INTERVAL_MS", 5000, {
+  presencePingIntervalMs: readEnvNumber("CHAT_PRESENCE_PING_INTERVAL", 5000, {
     integer: true,
     min: 1000,
   }),
-  newChatSearchMaxResults: readEnvNumber("CHAT_NEW_CHAT_SEARCH_MAX_RESULTS", 5, {
+  newChatSearchMaxResults: readEnvNumber("CHAT_SEARCH_MAX_RESULTS", 5, {
     integer: true,
     min: 1,
   }),
-  healthCheckIntervalMs: readEnvNumber("CHAT_HEALTH_CHECK_INTERVAL_MS", 10000, {
+  healthCheckIntervalMs: readEnvNumber("CHAT_HEALTH_CHECK_INTERVAL", 10000, {
     integer: true,
     min: 1000,
   }),
-  peerPresencePollIntervalMs: readEnvNumber("CHAT_PEER_PRESENCE_POLL_INTERVAL_MS", 3000, {
+  peerPresencePollIntervalMs: readEnvNumber("CHAT_PEER_PRESENCE_POLL_INTERVAL", 3000, {
     integer: true,
     min: 500,
   }),
-  sseReconnectDelayMs: readEnvNumber("CHAT_SSE_RECONNECT_DELAY_MS", 2000, {
+  sseReconnectDelayMs: readEnvNumber("CHAT_SSE_RECONNECT_DELAY", 2000, {
     integer: true,
     min: 250,
   }),
+  fileUploadEnabled: readEnvBool("FILE_UPLOAD", true),
 };
 
 const NEW_CHAT_SEARCH_DEBOUNCE_MS = 300;
@@ -1534,6 +1543,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }
 
   async function handleUploadFilesSelected(fileList, uploadType, append = false) {
+    if (!CHAT_PAGE_CONFIG.fileUploadEnabled) {
+      setUploadError("File uploads are disabled on this server.");
+      return;
+    }
     const incoming = Array.from(fileList || []);
     if (!incoming.length) return;
     setUploadError("");
@@ -1784,6 +1797,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }
 
   async function handleAvatarChange(event) {
+    if (!CHAT_PAGE_CONFIG.fileUploadEnabled) {
+      setProfileError("File uploads are disabled on this server.");
+      event.target.value = "";
+      return;
+    }
     const file = event.target.files?.[0];
     if (!file) {
       return;
@@ -1840,6 +1858,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     try {
       let avatarUrlToSave = profileForm.avatarUrl;
       if (pendingAvatarFile?.file) {
+        if (!CHAT_PAGE_CONFIG.fileUploadEnabled) {
+          throw new Error("File uploads are disabled on this server.");
+        }
         const payload = new FormData();
         payload.append("avatar", pendingAvatarFile.file);
         payload.append("currentUsername", user.username);
@@ -2203,6 +2224,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                 userColor={userColor}
                 profileError={profileError}
                 passwordError={passwordError}
+                fileUploadEnabled={CHAT_PAGE_CONFIG.fileUploadEnabled}
               />
             </div>
           ) : null}
@@ -2301,6 +2323,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         onRemovePendingUpload={removePendingUpload}
         onClearPendingUploads={clearPendingUploads}
         onUserScrollIntent={handleUserScrollIntent}
+        fileUploadEnabled={CHAT_PAGE_CONFIG.fileUploadEnabled}
       />
 
       <MobileTabMenu
@@ -2355,6 +2378,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           userColor={userColor}
           profileError={profileError}
           passwordError={passwordError}
+          fileUploadEnabled={CHAT_PAGE_CONFIG.fileUploadEnabled}
         />
       ) : null}
     </div>
