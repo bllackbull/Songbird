@@ -9,7 +9,7 @@
 
 </div>
 
-**Lightweight self-hosted chat app (React + Vite frontend, Node/Express + sql.js backend)**
+**Songbird is a secure and lightweight self-hosted chat platform designed to empower digital freedom worldwide.**
 
 This repository contains the Songbird chat application. The server uses a file-backed SQLite database via sql.js and the client is built with React + Vite.
 
@@ -71,7 +71,7 @@ npm install
 
 ### 4. Configure environment and app
 
-- The server reads `PORT` (default 5174) and `NODE_ENV` (use `production`) from environment variables. The server sets the session cookie `Secure` flag when `NODE_ENV=production`.
+- The server reads `APP_ENV` and `PORT` from environment variables. The server sets the session cookie `Secure` flag when `APP_ENV=production`.
 - You can use a single root `.env` file (`/opt/songbird/.env`) for both server runtime and client build-time settings.
 - The server also supports `server/.env` (it overrides root `.env` when both exist).
 
@@ -86,8 +86,8 @@ Use this table for all configurable values:
 
 | Variable | Type | Default | Description |
 |---|---|---:|---|
-| `PORT` | `integer` | `5174` | API server port (proxied by Nginx). |
-| `NODE_ENV` | `string` | `development` | Set `production` in deployment. |
+| `PORT` | `integer` | `5174` | API server port. Use the same value in Nginx `proxy_pass`. |
+| `APP_ENV` | `string` | `production` | Server runtime mode (`production` recommended/default). |
 | `FILE_UPLOAD` | `boolean` | `true` | Enable/disable all uploads globally (chat files + avatars). |
 | `FILE_UPLOAD_MAX_SIZE` | `integer` | `26214400` | Per-file upload max size (bytes). |
 | `FILE_UPLOAD_MAX_TOTAL_SIZE` | `integer` | `78643200` | Per-message total upload size cap (bytes). |
@@ -139,8 +139,6 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/songbird/server
-Environment=NODE_ENV=production
-Environment=PORT=5174
 ExecStart=/usr/bin/node index.js
 Restart=on-failure
 
@@ -190,20 +188,13 @@ server {
     proxy_cache_bypass $http_upgrade;
   }
 
-  location /uploads/messages/ {
-    proxy_pass http://127.0.0.1:5174;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-  }
-
   location / {
     try_files $uri $uri/ /index.html;
   }
 }
 ```
+
+> If you set `PORT` to something else in `.env`, change `proxy_pass` to the same port.
 
 Enable the site and test Nginx config:
 
@@ -280,7 +271,7 @@ npm run db:user:delete songbird.sage -y
 ```
 
 DB admin scripts now support both modes:
-- If server is running on `127.0.0.1:${PORT:-5174}`, scripts execute through server admin API.
+- If server is running on `127.0.0.1:5174`, scripts execute through server admin API.
 - If server is not running, scripts operate directly on the DB file.
 
 ### Admin script usage examples

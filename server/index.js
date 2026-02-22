@@ -72,7 +72,8 @@ const readEnvBool = (keys, fallback) => {
   return fallback;
 };
 const port = process.env.PORT || 5174;
-const isProduction = process.env.NODE_ENV === "production";
+const appEnv = process.env.APP_ENV || "production";
+const isProduction = appEnv === "production";
 
 app.set("trust proxy", 1);
 
@@ -134,7 +135,7 @@ if (!fs.existsSync(avatarUploadRootDir)) {
 }
 
 app.use(
-  "/uploads/messages",
+  "/api/uploads/messages",
   express.static(uploadRootDir, {
     etag: true,
     lastModified: true,
@@ -150,7 +151,7 @@ app.use(
 );
 
 app.use(
-  "/uploads/avatars",
+  "/api/uploads/avatars",
   express.static(avatarUploadRootDir, {
     etag: true,
     lastModified: true,
@@ -310,7 +311,7 @@ function removeStoredFileNames(storedNames = []) {
 function removeAvatarByUrl(avatarUrl = "") {
   try {
     const raw = String(avatarUrl || "").trim();
-    if (!raw.startsWith("/uploads/avatars/")) return;
+    if (!raw.startsWith("/api/uploads/avatars/") && !raw.startsWith("/uploads/avatars/")) return;
     const safeName = path.basename(raw);
     if (!safeName) return;
     const filePath = path.join(avatarUploadRootDir, safeName);
@@ -324,18 +325,29 @@ function removeAvatarByUrl(avatarUrl = "") {
 
 function resolveAvatarDiskPath(avatarUrl = "") {
   const raw = String(avatarUrl || "").trim();
-  if (!raw.startsWith("/uploads/avatars/")) return null;
+  if (!raw.startsWith("/api/uploads/avatars/") && !raw.startsWith("/uploads/avatars/")) return null;
   const safeName = path.basename(raw);
   if (!safeName) return null;
   return path.join(avatarUploadRootDir, safeName);
+}
+
+function normalizeAvatarPublicUrl(avatarUrl = "") {
+  const raw = String(avatarUrl || "").trim();
+  if (!raw) return "";
+  if (raw.startsWith("/api/uploads/avatars/")) return raw;
+  if (raw.startsWith("/uploads/avatars/")) {
+    return `/api${raw}`;
+  }
+  return raw;
 }
 
 function ensureAvatarExists(userId, avatarUrl) {
   const value = String(avatarUrl || "").trim();
   if (!value) return null;
   const diskPath = resolveAvatarDiskPath(value);
-  if (!diskPath) return value;
-  if (fs.existsSync(diskPath)) return value;
+  const normalized = normalizeAvatarPublicUrl(value);
+  if (!diskPath) return normalized || null;
+  if (fs.existsSync(diskPath)) return normalized || null;
   if (Number.isFinite(Number(userId)) && Number(userId) > 0) {
     adminRun("UPDATE users SET avatar_url = NULL WHERE id = ?", [Number(userId)]);
     adminSave();
@@ -974,7 +986,7 @@ app.post("/api/profile/avatar", uploadAvatar.single("avatar"), (req, res) => {
     return res.status(400).json({ error: "Not enough free storage space on server." });
   }
 
-  const avatarUrl = `/uploads/avatars/${file.filename}`;
+  const avatarUrl = `/api/uploads/avatars/${file.filename}`;
   if (String(user.avatar_url || "").trim() && user.avatar_url !== avatarUrl) {
     removeAvatarByUrl(user.avatar_url);
   }
@@ -1090,7 +1102,7 @@ app.get("/api/chats", (req, res) => {
         ? Number(file.duration_seconds)
         : null,
       expiresAt: file.expires_at || null,
-      url: `/uploads/messages/${file.stored_name}`,
+      url: `/api/uploads/messages/${file.stored_name}`,
     });
     return acc;
   }, {});
@@ -1228,7 +1240,7 @@ app.get("/api/messages", (req, res) => {
         ? Number(file.duration_seconds)
         : null,
       expiresAt: file.expires_at || null,
-      url: `/uploads/messages/${file.stored_name}`,
+      url: `/api/uploads/messages/${file.stored_name}`,
     });
     return acc;
   }, {});
@@ -1712,7 +1724,10 @@ app.post('/api/admin/db-tools', async (req, res) => {
           (row) => row.stored_name,
         )
         targetAvatarUsers = adminGetAll(
-          `SELECT id, avatar_url FROM users WHERE avatar_url LIKE '/uploads/avatars/%'`,
+          `SELECT id, avatar_url
+           FROM users
+           WHERE avatar_url LIKE '/uploads/avatars/%'
+              OR avatar_url LIKE '/api/uploads/avatars/%'`,
         )
       } else {
         const numericIds = selectors
@@ -1754,7 +1769,10 @@ app.post('/api/admin/db-tools', async (req, res) => {
         }
         if (named.length) {
           targetAvatarUsers = adminGetAll(
-            `SELECT id, avatar_url FROM users WHERE avatar_url LIKE '/uploads/avatars/%'`,
+            `SELECT id, avatar_url
+             FROM users
+             WHERE avatar_url LIKE '/uploads/avatars/%'
+                OR avatar_url LIKE '/api/uploads/avatars/%'`,
           ).filter((row) => named.includes(path.basename(String(row.avatar_url || ''))))
         }
       }
