@@ -9,7 +9,7 @@
 
 </div>
 
-**Lightweight self-hosted chat app (React + Vite frontend, Node/Express + sql.js backend)**
+**Songbird is a secure and lightweight self-hosted chat platform designed to empower digital freedom worldwide.**
 
 This repository contains the Songbird chat application. The server uses a file-backed SQLite database via sql.js and the client is built with React + Vite.
 
@@ -57,25 +57,75 @@ git clone https://github.com/bllackbull/Songbird.git .
 
 **Important:** The `.` at the end clones the repository contents directly into `/opt/songbird` without creating a nested `Songbird/` directory. This keeps your paths clean.
 
-### 3. Install dependencies and build the client
+### 3. Install dependencies
 
 ```bash
 # Install server deps
 cd /opt/songbird/server
 npm install
 
-# Install client deps and build static assets
+# Install client deps
 cd ../client
 npm install
-npm run build
 ```
-
-The build will produce a `client/dist` folder which will be served by Nginx.
 
 ### 4. Configure environment and app
 
-- The server reads `PORT` (default 5174) and `NODE_ENV` (use `production`) from environment variables. The server sets the session cookie `Secure` flag when `NODE_ENV=production`.
-- If you need to set environment variables for the app, you can create a systemd drop-in (see below) or an `.env` and a small wrapper script.
+- The server reads `APP_ENV` and `PORT` from environment variables. The server sets the session cookie `Secure` flag when `APP_ENV=production`.
+- You can use a single root `.env` file (`/opt/songbird/.env`) for both server runtime and client build-time settings.
+- The server also supports `server/.env` (it overrides root `.env` when both exist).
+
+Create the file:
+
+```bash
+cd /opt/songbird
+nano .env
+```
+
+Use this table for all configurable values:
+
+| Variable | Type | Default | Description |
+|---|---|---:|---|
+| `PORT` | `integer` | `5174` | API server port. Use the same value in Nginx `proxy_pass`. |
+| `APP_ENV` | `string` | `production` | Server runtime mode (`production` recommended/default). |
+| `FILE_UPLOAD` | `boolean` | `true` | Enable/disable all uploads globally (chat files + avatars). |
+| `FILE_UPLOAD_MAX_SIZE` | `integer` | `26214400` | Per-file upload max size (bytes). |
+| `FILE_UPLOAD_MAX_TOTAL_SIZE` | `integer` | `78643200` | Per-message total upload size cap (bytes). |
+| `FILE_UPLOAD_MAX_FILES` | `integer` | `10` | Max uploaded files in one message. |
+| `MESSAGE_FILE_RETENTION` | `integer` | `7` | Auto-delete uploaded message files after N days (`0` disables). |
+| `CHAT_PENDING_TEXT_TIMEOUT` | `integer` | `300000` | Mark pending text message as failed after this timeout (milliseconds). |
+| `CHAT_PENDING_FILE_TIMEOUT` | `integer` | `1200000` | Mark pending file message as failed / XHR timeout for uploads (milliseconds). |
+| `CHAT_PENDING_RETRY_INTERVAL` | `integer` | `4000` | Retry cadence for pending sends while connected (milliseconds). |
+| `CHAT_PENDING_STATUS_CHECK_INTERVAL` | `integer` | `1000` | How often pending messages are checked for timeout (milliseconds). |
+| `CHAT_MESSAGE_FETCH_LIMIT` | `integer` | `300` | Max messages requested per chat fetch (initial/latest window). |
+| `CHAT_MESSAGE_PAGE_SIZE` | `integer` | `60` | Page size for loading older messages when scrolling to top. |
+| `CHAT_LIST_REFRESH_INTERVAL` | `integer` | `20000` | Chats list background refresh interval (milliseconds). |
+| `CHAT_PRESENCE_PING_INTERVAL` | `integer` | `5000` | Presence heartbeat interval (milliseconds). |
+| `CHAT_PEER_PRESENCE_POLL_INTERVAL` | `integer` | `3000` | Active peer presence poll interval (milliseconds). |
+| `CHAT_HEALTH_CHECK_INTERVAL` | `integer` | `10000` | Connection health check interval (milliseconds). |
+| `CHAT_SSE_RECONNECT_DELAY` | `integer` | `2000` | Delay before reconnecting SSE after error (milliseconds). |
+| `CHAT_SEARCH_MAX_RESULTS` | `integer` | `5` | Max users shown in New Chat search results. |
+
+After editing `.env`:
+
+1. Rebuild client (for client/build-time keys).
+
+```bash
+cd /opt/songbird/client
+npm run build
+```
+
+2. Restart server (for server/runtime keys).
+
+```bash
+sudo systemctl restart songbird
+```
+
+3. Reload Nginx.
+
+```bash
+sudo systemctl reload nginx
+```
 
 ### 5. Create systemd service for the Node server
 
@@ -89,8 +139,6 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/songbird/server
-Environment=NODE_ENV=production
-Environment=PORT=5174
 ExecStart=/usr/bin/node index.js
 Restart=on-failure
 
@@ -98,18 +146,15 @@ Restart=on-failure
 WantedBy=multi-user.target
 ```
 
-Notes:
-
-- Add `User=` if you prefer an specific user (e.g., create a dedicated `songbird` user for separation).
-- If you decided to create a dedicated user, make sure to create system user and change ownership:
-
-```bash
-sudo useradd --system --no-create-home --shell /usr/sbin/nologin songbird
-sudo chown -R songbird:songbird /opt/songbird
-git config --global --add safe.directory /opt/songbird
-```
-
-- If Node is installed somewhere else, update `ExecStart` accordingly (use full path to `node`).
+> **Notes:**
+> - Add `User=` if you prefer an specific user (e.g., create a dedicated `songbird` user for separation).
+> - If you decided to create a dedicated user, make sure to create system user and change ownership:
+> ```bash
+> sudo useradd --system --no-create-home --shell /usr/sbin/nologin songbird
+> sudo chown -R songbird:songbird /opt/songbird
+> git config --global --add safe.directory /opt/songbird
+> ```
+> - If Node is installed somewhere else, update `ExecStart` accordingly (use full path to `node`).
 
 Enable and start the service:
 
@@ -149,6 +194,8 @@ server {
 }
 ```
 
+> If you set `PORT` to something else in `.env`, change `proxy_pass` to the same port.
+
 Enable the site and test Nginx config:
 
 ```bash
@@ -178,21 +225,94 @@ sudo ufw allow 'Nginx Full'
 sudo ufw enable
 ```
 
-> `data/` is created automatically by the server from the `server` working directory. When running the server from `/opt/songbird/server` the DB will be at `/opt/songbird/data/songbird.db`.
-
 ## Common troubleshooting
 
 - Check the Node server logs: `sudo journalctl -u songbird -f`
 - Check Nginx error logs: `/var/log/nginx/error.log`
 - Ensure `client/dist` exists (the Nginx root) and `songbird.service` is running.
 
-## Database backups and versioned migrations
+## Database commands
 
-Songbird now uses schema versioning.
-
-- Backup command (from `server/`): `npm run backup:db`
-- Migration command (from `server/`): `npm run migrate`
+- Backup DB: `npm run db:backup`
+- Run migrations: `npm run db:migrate`
+- Reset DB: `npm run db:reset`
+- Delete DB: `npm run db:delete`
+- Delete chats (all or selected ids): `npm run db:chat:delete`
+- Delete files (all or selected ids/filenames): `npm run db:file:delete`
+- Delete users (all or selected ids/usernames): `npm run db:user:delete`
+- Create one user: `npm run db:user:create`
+- Generate random users: `npm run db:user:generate`
+- Generate random chat messages for a chat between two users: `npm run db:message:generate`
+- Inspect all summary: `npm run db:inspect`
+- Inspect chats only: `npm run db:chat:inspect`
+- Inspect users only: `npm run db:user:inspect`
+- Inspect files only: `npm run db:file:inspect`
 - Backup location: `data/backups/`
+
+### Safety confirmation and `-y`
+
+Destructive commands ask for safety confirmation by default.
+
+- Interactive mode: type `y/yes` or `n/no`.
+- Non-interactive mode: pass force flag.
+- Supported force flags: `-y` and `--yes`.
+
+Examples:
+
+```bash
+cd server
+npm run db:reset -y
+npm run db:delete --yes
+npm run db:chat:delete 12 -y
+npm run db:file:delete -y
+npm run db:file:delete 42 -y
+npm run db:file:delete FILE_NAME -y
+npm run db:user:delete songbird.sage -y
+```
+
+DB admin scripts now support both modes:
+- If server is running on `127.0.0.1:5174`, scripts execute through server admin API.
+- If server is not running, scripts operate directly on the DB file.
+
+### Admin script usage examples
+
+Create a user:
+
+```bash
+cd server
+npm run db:user:create -- --nickname "Songbird Sage" --username songbird.sage --password "12345678"
+# positional alternative:
+npm run db:user:create -- "Songbird Sage" songbird.sage "12345678"
+```
+
+Generate random users:
+
+```bash
+cd server
+npm run db:user:generate -- --count 50 --password "12345678"
+```
+
+Generate random messages in one chat between two users:
+
+```bash
+cd server
+npm run db:message:generate -- 1 songbird.sage songbird.sage2 300 7
+# users can also be ids:
+npm run db:message:generate -- 1 2 5 300 7
+# named-arg alternative (avoid --user-a/--user-b because npm may rewrite them):
+npm run db:message:generate -- --chatId 1 --userA songbird.sage --userB songbird.sage2 --count 300 --days 7
+```
+
+Inspect database summary:
+
+```bash
+cd server
+npm run db:inspect
+npm run db:inspect -- 50
+npm run db:chat:inspect
+npm run db:user:inspect
+npm run db:file:inspect
+```
 
 Recommended production flow:
 
@@ -213,8 +333,8 @@ npm install
 npm run build
 cd ../server
 npm install
-npm run backup:db
-npm run migrate
+npm run db:backup
+npm run db:migrate
 sudo systemctl restart songbird
 sudo systemctl reload nginx
 ```
@@ -224,14 +344,16 @@ sudo systemctl reload nginx
 - git pull - Fetch and merge latest changes from GitHub
 - npm install (client & server) - Install any new dependencies
 - npm run build - Rebuild the React frontend into client/dist
-- npm run backup:db - Create a timestamped backup of data/songbird.db
-- npm run migrate - Apply versioned schema migrations without dropping data
+- npm run db:backup - Create a timestamped backup of data/songbird.db
+- npm run db:migrate - Apply versioned schema migrations without dropping data
+- npm run db:backfill - Fill missing media dimensions for existing uploaded files
 - systemctl restart songbird - Restart the Node server to pick up changes
 - systemctl reload nginx - Reload Nginx to serve the new build
 
 If only the frontend code has changed (no `package.json` changes), you can skip the `npm install` steps.
 
-> For zero-downtime deployments on larger projects, consider blue-green deployment or PM2, but for most updates the restart approach above is simple and sufficient.
+> **Note:** <br>
+For zero-downtime deployments on larger projects, consider blue-green deployment or PM2, but for most updates the restart approach above is simple and sufficient.
 
 ## Running behind a domain + subpath
 
