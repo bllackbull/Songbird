@@ -78,6 +78,13 @@ const isProduction = appEnv === "production";
 app.set("trust proxy", 1);
 
 app.use(express.json({ limit: "1mb" }));
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+  next();
+});
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -126,6 +133,47 @@ const MESSAGE_FILE_LIMITS = {
 const AVATAR_FILE_LIMITS = {
   maxFileSizeBytes: SHARED_MAX_FILE_SIZE_BYTES,
 };
+const SAFE_INLINE_MESSAGE_EXTENSIONS = new Set([
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".gif",
+  ".webp",
+  ".bmp",
+  ".mp4",
+  ".mov",
+  ".webm",
+  ".mkv",
+  ".avi",
+  ".m4v",
+  ".pdf",
+]);
+const DANGEROUS_FILE_EXTENSIONS = new Set([
+  ".html",
+  ".htm",
+  ".xhtml",
+  ".svg",
+  ".xml",
+  ".js",
+  ".mjs",
+  ".cjs",
+  ".wasm",
+]);
+const DANGEROUS_MIME_SNIPPETS = [
+  "text/html",
+  "application/xhtml+xml",
+  "image/svg+xml",
+  "application/xml",
+  "text/xml",
+  "javascript",
+];
+const ALLOWED_AVATAR_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "image/bmp",
+]);
 
 if (!fs.existsSync(uploadRootDir)) {
   fs.mkdirSync(uploadRootDir, { recursive: true });
@@ -141,11 +189,16 @@ app.use(
     lastModified: true,
     maxAge: "365d",
     immutable: true,
-    setHeaders: (res) => {
+    setHeaders: (res, servedPath) => {
       // Uploaded message files are content-addressed by generated filename.
       // They can be cached aggressively by browsers and CDNs.
       res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
       res.setHeader("Vary", "Accept-Encoding");
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      const ext = path.extname(String(servedPath || "")).toLowerCase();
+      if (!SAFE_INLINE_MESSAGE_EXTENSIONS.has(ext)) {
+        res.setHeader("Content-Disposition", 'attachment; filename="download"');
+      }
     },
   }),
 );
@@ -159,6 +212,7 @@ app.use(
     setHeaders: (res) => {
       res.setHeader("Cache-Control", "public, max-age=2592000");
       res.setHeader("Vary", "Accept-Encoding");
+      res.setHeader("X-Content-Type-Options", "nosniff");
     },
   }),
 );
@@ -282,10 +336,25 @@ function inferMimeFromFilename(name = "") {
 }
 
 function removeUploadedFiles(files = []) {
+  const allowedRoots = [uploadRootDir, avatarUploadRootDir]
+    .map((root) => path.resolve(String(root || "")))
+    .filter(Boolean);
+
+  const isInsideAllowedRoot = (candidatePath) => {
+    const resolved = path.resolve(String(candidatePath || ""));
+    return allowedRoots.some((root) => {
+      const withSep = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
+      return resolved === root || resolved.startsWith(withSep);
+    });
+  };
+
   files.forEach((file) => {
     try {
-      if (file?.path && fs.existsSync(file.path)) {
-        fs.unlinkSync(file.path);
+      const filePath = typeof file?.path === "string" ? file.path : "";
+      if (!filePath) return;
+      if (!isInsideAllowedRoot(filePath)) return;
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
       }
     } catch (_) {
       // best effort cleanup
@@ -608,13 +677,16 @@ function computeExpiryIso(createdAt = new Date(), days = MESSAGE_FILE_RETENTION_
 }
 
 function buildTimestampSchedule(count, daysBack) {
-  const days = Math.max(1, daysBack)
+  const safeCountRaw = Number(count);
+  const safeDaysRaw = Number(daysBack);
+  const safeCount = Number.isFinite(safeCountRaw) ? Math.max(1, Math.min(10000, Math.trunc(safeCountRaw))) : 1;
+  const days = Number.isFinite(safeDaysRaw) ? Math.max(1, Math.min(365, Math.trunc(safeDaysRaw))) : 1;
   const today = new Date()
   const startDay = new Date(today.getFullYear(), today.getMonth(), today.getDate())
   startDay.setDate(startDay.getDate() - (days - 1))
 
   const perDay = new Array(days).fill(0)
-  for (let i = 0; i < count; i += 1) {
+  for (let i = 0; i < safeCount; i += 1) {
     perDay[i % days] += 1
   }
 
@@ -712,15 +784,43 @@ function getSessionFromRequest(req) {
   return session;
 }
 
+function requireSession(req, res) {
+  const session = getSessionFromRequest(req);
+  if (!session) {
+    res.status(401).json({ error: "Not authenticated." });
+    return null;
+  }
+  return session;
+}
+
+function requireSessionUsernameMatch(res, session, suppliedUsername) {
+  const supplied = String(suppliedUsername || "").trim().toLowerCase();
+  if (supplied && supplied !== String(session.username || "").toLowerCase()) {
+    res.status(403).json({ error: "Username does not match authenticated user." });
+    return false;
+  }
+  return true;
+}
+
+function isDangerousUploadFile(originalName, mimeType) {
+  const ext = path.extname(String(originalName || "")).toLowerCase();
+  const lowerMime = String(mimeType || "").toLowerCase();
+  if (DANGEROUS_FILE_EXTENSIONS.has(ext)) return true;
+  return DANGEROUS_MIME_SNIPPETS.some((snippet) => lowerMime.includes(snippet));
+}
+
 app.get("/api/health", (req, res) => {
   res.json({ ok: true });
 });
 
 app.get("/api/events", (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
   const username = req.query.username?.toString()?.toLowerCase();
   if (!username) {
     return res.status(400).json({ error: "Username is required." });
   }
+  if (!requireSessionUsernameMatch(res, session, username)) return;
   const user = findUserByUsername(username);
   if (!user) {
     return res.status(404).json({ error: "User not found." });
@@ -852,6 +952,8 @@ app.post("/api/logout", (req, res) => {
 });
 
 app.get("/api/profile", (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
   const username = req.query.username?.toString();
   if (!username) {
     return res.status(400).json({ error: "Username is required." });
@@ -871,11 +973,11 @@ app.get("/api/profile", (req, res) => {
 });
 
 app.post("/api/presence", (req, res) => {
-  const { username } = req.body || {};
-  if (!username) {
-    return res.status(400).json({ error: "Username is required." });
-  }
-  const user = findUserByUsername(username.toLowerCase());
+  const session = requireSession(req, res);
+  if (!session) return;
+  const suppliedUsername = req.body?.username;
+  if (!requireSessionUsernameMatch(res, session, suppliedUsername)) return;
+  const user = findUserByUsername(String(session.username || "").toLowerCase());
   if (!user) {
     return res.status(404).json({ error: "User not found." });
   }
@@ -884,6 +986,8 @@ app.post("/api/presence", (req, res) => {
 });
 
 app.get("/api/presence", (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
   const username = req.query.username?.toString();
   if (!username) {
     return res.status(400).json({ error: "Username is required." });
@@ -900,6 +1004,8 @@ app.get("/api/presence", (req, res) => {
 });
 
 app.put("/api/profile", (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
   const { currentUsername, username, nickname, avatarUrl } = req.body || {};
   if (!currentUsername || !username) {
     return res
@@ -911,6 +1017,7 @@ app.put("/api/profile", (req, res) => {
   if (!currentUser) {
     return res.status(404).json({ error: "User not found." });
   }
+  if (!requireSessionUsernameMatch(res, session, currentUsername)) return;
 
   const trimmed = username.trim().toLowerCase();
   if (trimmed.length < 3) {
@@ -957,6 +1064,11 @@ app.put("/api/profile", (req, res) => {
 });
 
 app.post("/api/profile/avatar", uploadAvatar.single("avatar"), (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) {
+    removeUploadedFiles(req.file ? [req.file] : []);
+    return;
+  }
   const currentUsername = String(req.body?.currentUsername || "").trim().toLowerCase();
   const file = req.file;
 
@@ -969,6 +1081,10 @@ app.post("/api/profile/avatar", uploadAvatar.single("avatar"), (req, res) => {
     removeUploadedFiles(file ? [file] : []);
     return res.status(400).json({ error: "Current username is required." });
   }
+  if (!requireSessionUsernameMatch(res, session, currentUsername)) {
+    removeUploadedFiles(file ? [file] : []);
+    return;
+  }
   const user = findUserByUsername(currentUsername);
   if (!user) {
     removeUploadedFiles(file ? [file] : []);
@@ -977,9 +1093,10 @@ app.post("/api/profile/avatar", uploadAvatar.single("avatar"), (req, res) => {
   if (!file) {
     return res.status(400).json({ error: "Avatar file is required." });
   }
-  if (!String(file.mimetype || "").toLowerCase().startsWith("image/")) {
+  const avatarMime = String(file.mimetype || "").toLowerCase();
+  if (!ALLOWED_AVATAR_MIME_TYPES.has(avatarMime)) {
     removeUploadedFiles([file]);
-    return res.status(400).json({ error: "Avatar must be an image file." });
+    return res.status(400).json({ error: "Avatar must be a JPEG, PNG, GIF, WEBP, or BMP image." });
   }
   if (!hasEnoughFreeDiskSpace(Number(file.size || 0))) {
     removeUploadedFiles([file]);
@@ -999,6 +1116,8 @@ app.post("/api/profile/avatar", uploadAvatar.single("avatar"), (req, res) => {
 });
 
 app.put("/api/password", (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
   const { username, currentPassword, newPassword } = req.body || {};
   if (!username || !currentPassword || !newPassword) {
     return res.status(400).json({
@@ -1011,6 +1130,7 @@ app.put("/api/password", (req, res) => {
       .json({ error: "Password must be at least 6 characters." });
   }
 
+  if (!requireSessionUsernameMatch(res, session, username)) return;
   const user = findUserByUsername(username.toLowerCase());
   if (!user || !bcrypt.compareSync(currentPassword, user.password_hash)) {
     return res.status(401).json({ error: "Invalid credentials." });
@@ -1023,6 +1143,8 @@ app.put("/api/password", (req, res) => {
 });
 
 app.put("/api/status", (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
   const { username, status } = req.body || {};
   if (!username || !status) {
     return res.status(400).json({ error: "Username and status are required." });
@@ -1031,6 +1153,7 @@ app.put("/api/status", (req, res) => {
   if (!allowed.has(status)) {
     return res.status(400).json({ error: "Invalid status." });
   }
+  if (!requireSessionUsernameMatch(res, session, username)) return;
   const user = findUserByUsername(username.toLowerCase());
   if (!user) {
     return res.status(404).json({ error: "User not found." });
@@ -1040,8 +1163,11 @@ app.put("/api/status", (req, res) => {
 });
 
 app.get("/api/users", (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
   const exclude = req.query.exclude?.toString();
   const query = req.query.query?.toString();
+  if (exclude && !requireSessionUsernameMatch(res, session, exclude)) return;
   const users = query
     ? searchUsers(query.toLowerCase(), exclude)
     : listUsers(exclude);
@@ -1054,10 +1180,13 @@ app.get("/api/users", (req, res) => {
 });
 
 app.get("/api/chats", (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
   const username = req.query.username?.toString();
   if (!username) {
     return res.status(400).json({ error: "Username is required." });
   }
+  if (!requireSessionUsernameMatch(res, session, username)) return;
   const user = findUserByUsername(username.toLowerCase());
   if (!user) {
     return res.status(404).json({ error: "User not found." });
@@ -1115,10 +1244,13 @@ app.get("/api/chats", (req, res) => {
 });
 
 app.post("/api/chats/dm", (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
   const { from, to } = req.body || {};
   if (!from || !to) {
     return res.status(400).json({ error: "Both users are required." });
   }
+  if (!requireSessionUsernameMatch(res, session, from)) return;
 
   const fromUser = findUserByUsername(from.toLowerCase());
   const toUser = findUserByUsername(to.toLowerCase());
@@ -1145,10 +1277,13 @@ app.post("/api/chats/dm", (req, res) => {
 });
 
 app.post("/api/chats", (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
   const { name, type, members = [], creator } = req.body || {};
   if (!creator) {
     return res.status(400).json({ error: "Creator is required." });
   }
+  if (!requireSessionUsernameMatch(res, session, creator)) return;
 
   const creatorUser = findUserByUsername(creator.toLowerCase());
   if (!creatorUser) {
@@ -1176,6 +1311,8 @@ app.post("/api/chats", (req, res) => {
 });
 
 app.get("/api/messages", (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
   const chatId = Number(req.query.chatId);
   const username = req.query.username?.toString();
   const beforeId = Number(req.query.beforeId || 0);
@@ -1189,6 +1326,7 @@ app.get("/api/messages", (req, res) => {
       .status(400)
       .json({ error: "Chat and username are required." });
   }
+  if (!requireSessionUsernameMatch(res, session, username)) return;
 
   const user = findUserByUsername(username.toLowerCase());
   if (!user) {
@@ -1252,12 +1390,15 @@ app.get("/api/messages", (req, res) => {
 });
 
 app.post("/api/messages/read", (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
   const { chatId, username } = req.body || {};
   if (!chatId || !username) {
     return res
       .status(400)
       .json({ error: "Chat and username are required." });
   }
+  if (!requireSessionUsernameMatch(res, session, username)) return;
   const user = findUserByUsername(username.toLowerCase());
   if (!user) {
     return res.status(404).json({ error: "User not found." });
@@ -1277,12 +1418,15 @@ app.post("/api/messages/read", (req, res) => {
 });
 
 app.post("/api/chats/hide", (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
   const { username, chatIds = [] } = req.body || {};
   if (!username || !Array.isArray(chatIds) || !chatIds.length) {
     return res
       .status(400)
       .json({ error: "Username and chatIds are required." });
   }
+  if (!requireSessionUsernameMatch(res, session, username)) return;
   const user = findUserByUsername(username.toLowerCase());
   if (!user) {
     return res.status(404).json({ error: "User not found." });
@@ -1295,7 +1439,15 @@ app.post("/api/chats/hide", (req, res) => {
 });
 
 app.post("/api/messages/upload", uploadFiles.array("files", MESSAGE_FILE_LIMITS.maxFiles), (req, res) => {
-  const uploadedFiles = req.files || [];
+  const session = requireSession(req, res);
+  if (!session) {
+    removeUploadedFiles(req.files || []);
+    return;
+  }
+  if (!Array.isArray(req.files)) {
+    return res.status(400).json({ error: "Invalid files payload." });
+  }
+  const uploadedFiles = req.files;
   try {
     if (!FILE_UPLOAD) {
       removeUploadedFiles(uploadedFiles);
@@ -1311,6 +1463,10 @@ app.post("/api/messages/upload", uploadFiles.array("files", MESSAGE_FILE_LIMITS.
     if (!chatId || !username) {
       removeUploadedFiles(uploadedFiles);
       return res.status(400).json({ error: "Chat and username are required." });
+    }
+    if (!requireSessionUsernameMatch(res, session, username)) {
+      removeUploadedFiles(uploadedFiles);
+      return;
     }
     if (!uploadedFiles.length) {
       return res.status(400).json({ error: "At least one file is required." });
@@ -1350,6 +1506,9 @@ app.post("/api/messages/upload", uploadFiles.array("files", MESSAGE_FILE_LIMITS.
       const originalName = decodeOriginalFilename(file.originalname || "file");
       const inferredMime = inferMimeFromFilename(originalName);
       const mimeType = (file.mimetype || inferredMime || "application/octet-stream").toLowerCase();
+      if (isDangerousUploadFile(originalName, mimeType)) {
+        throw new Error("This file type is not allowed for security reasons.");
+      }
       const kind = getUploadKind(uploadType, mimeType);
       if (!kind) {
         throw new Error("Invalid file type for selected upload option.");
@@ -1395,6 +1554,8 @@ app.post("/api/messages/upload", uploadFiles.array("files", MESSAGE_FILE_LIMITS.
 });
 
 app.post("/api/messages", (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
   const { chatId, username, body } = req.body || {};
   if (!chatId || !username || !body) {
     return res.status(400).json({
@@ -1402,6 +1563,7 @@ app.post("/api/messages", (req, res) => {
     });
   }
 
+  if (!requireSessionUsernameMatch(res, session, username)) return;
   const user = findUserByUsername(username.toLowerCase());
   if (!user) {
     return res.status(404).json({ error: "User not found." });
@@ -1622,7 +1784,7 @@ app.post('/api/admin/db-tools', async (req, res) => {
         const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
         let out = ''
         for (let i = 0; i < length; i += 1) {
-          out += chars[Math.floor(Math.random() * chars.length)]
+          out += chars[crypto.randomInt(0, chars.length)]
         }
         return out
       }
@@ -1637,7 +1799,7 @@ app.post('/api/admin/db-tools', async (req, res) => {
         createUser(username, passwordHash, `${nicknamePrefix} ${i + 1}`)
         created += 1
       }
-      return res.json({ ok: true, result: { created, password } })
+      return res.json({ ok: true, result: { created } })
     }
 
     if (action === 'generate_chat_messages') {
