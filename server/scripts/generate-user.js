@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs'
+import crypto from 'node:crypto'
 import { getCliArgs, getPositionalArgs, getFlagValue } from './_cli.js'
 import { openDatabase, runAdminActionViaServer } from './_db-admin.js'
 
@@ -6,7 +7,7 @@ function randomToken(length = 6) {
   const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
   let output = ''
   for (let i = 0; i < length; i += 1) {
-    output += chars[Math.floor(Math.random() * chars.length)]
+    output += chars[crypto.randomInt(0, chars.length)]
   }
   return output
 }
@@ -32,7 +33,7 @@ const remoteResult = await runAdminActionViaServer('generate_users', {
 })
 if (remoteResult) {
   console.log(`Server mode generated users: ${remoteResult.created ?? 0}`)
-  console.log(`Default password for generated users: ${remoteResult.password || password}`)
+  console.log('Default password was set from the CLI argument or default value.')
   process.exit(0)
 }
 
@@ -66,7 +67,7 @@ try {
 
   dbApi.save()
   console.log(`Generated users: ${created}`)
-  console.log(`Default password for generated users: ${password}`)
+  console.log('Default password was set from the CLI argument or default value.')
 } finally {
   dbApi.close()
 }
