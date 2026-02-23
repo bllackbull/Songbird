@@ -341,17 +341,17 @@ function removeUploadedFiles(files = []) {
     .filter(Boolean);
 
   const isInsideAllowedRoot = (candidatePath) => {
-    const resolved = path.resolve(String(candidatePath || ""));
     return allowedRoots.some((root) => {
       const withSep = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
-      return resolved === root || resolved.startsWith(withSep);
+      return candidatePath === root || candidatePath.startsWith(withSep);
     });
   };
 
   files.forEach((file) => {
     try {
-      const filePath = typeof file?.path === "string" ? file.path : "";
-      if (!filePath) return;
+      const rawPath = typeof file?.path === "string" ? file.path : "";
+      if (!rawPath) return;
+      const filePath = path.resolve(String(rawPath || ""));
       if (!isInsideAllowedRoot(filePath)) return;
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
