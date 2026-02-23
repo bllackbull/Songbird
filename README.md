@@ -182,22 +182,78 @@ git clone https://github.com/bllackbull/Songbird.git .
 >nvm use
 >```
 
-
-
 ### 3. Install dependencies
 
 ```bash
 cd /opt/songbird/server
 npm install
 
-cd /opt/songbird/client
+# Install client deps
+cd ../client
 npm install
+```
+
+### 4. Configure environment and app
+
+- The server reads `APP_ENV` and `PORT` from environment variables. The server sets the session cookie `Secure` flag when `APP_ENV=production`.
+- You can use a single root `.env` file (`/opt/songbird/.env`) for both server runtime and client build-time settings.
+- The server also supports `server/.env` (it overrides root `.env` when both exist).
+
+Create the file:
+
+```bash
+cd /opt/songbird
+nano .env
+```
+
+Use this table for all configurable values:
+
+| Variable | Type | Default | Description |
+|---|---|---:|---|
+| `PORT` | `integer` | `5174` | API server port. Use the same value in Nginx `proxy_pass`. |
+| `APP_ENV` | `string` | `production` | Server runtime mode (`production` recommended/default). |
+| `FILE_UPLOAD` | `boolean` | `true` | Enable/disable all uploads globally (chat files + avatars). |
+| `FILE_UPLOAD_MAX_SIZE` | `integer` | `26214400` | Per-file upload max size (bytes). |
+| `FILE_UPLOAD_MAX_TOTAL_SIZE` | `integer` | `78643200` | Per-message total upload size cap (bytes). |
+| `FILE_UPLOAD_MAX_FILES` | `integer` | `10` | Max uploaded files in one message. |
+| `MESSAGE_FILE_RETENTION` | `integer` | `7` | Auto-delete uploaded message files after N days (`0` disables). |
+| `CHAT_PENDING_TEXT_TIMEOUT` | `integer` | `300000` | Mark pending text message as failed after this timeout (milliseconds). |
+| `CHAT_PENDING_FILE_TIMEOUT` | `integer` | `1200000` | Mark pending file message as failed / XHR timeout for uploads (milliseconds). |
+| `CHAT_PENDING_RETRY_INTERVAL` | `integer` | `4000` | Retry cadence for pending sends while connected (milliseconds). |
+| `CHAT_PENDING_STATUS_CHECK_INTERVAL` | `integer` | `1000` | How often pending messages are checked for timeout (milliseconds). |
+| `CHAT_MESSAGE_FETCH_LIMIT` | `integer` | `300` | Max messages requested per chat fetch (initial/latest window). |
+| `CHAT_MESSAGE_PAGE_SIZE` | `integer` | `60` | Page size for loading older messages when scrolling to top. |
+| `CHAT_LIST_REFRESH_INTERVAL` | `integer` | `20000` | Chats list background refresh interval (milliseconds). |
+| `CHAT_PRESENCE_PING_INTERVAL` | `integer` | `5000` | Presence heartbeat interval (milliseconds). |
+| `CHAT_PEER_PRESENCE_POLL_INTERVAL` | `integer` | `3000` | Active peer presence poll interval (milliseconds). |
+| `CHAT_HEALTH_CHECK_INTERVAL` | `integer` | `10000` | Connection health check interval (milliseconds). |
+| `CHAT_SSE_RECONNECT_DELAY` | `integer` | `2000` | Delay before reconnecting SSE after error (milliseconds). |
+| `CHAT_SEARCH_MAX_RESULTS` | `integer` | `5` | Max users shown in New Chat search results. |
+
+After editing `.env`:
+
+1. Rebuild client (for client/build-time keys).
+
+```bash
+cd /opt/songbird/client
 npm run build
 ```
 
-### 4. Create systemd service for the Node server
+2. Restart server (for server/runtime keys).
 
-Create `/etc/systemd/system/songbird.service` with the following:
+```bash
+sudo systemctl restart songbird
+```
+
+3. Reload Nginx.
+
+```bash
+sudo systemctl reload nginx
+```
+
+### 5. Create systemd service for the Node server
+
+Create `/etc/systemd/system/songbird.service` with the following (use `sudo`):
 
 ```ini
 [Unit]
@@ -207,37 +263,22 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/songbird/server
-ExecStart=/usr/bin/env node index.js
+ExecStart=/usr/bin/node index.js
 Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-> **NOTE:**
-> - If you installed Node.js using nvm, set this as Node path in `ExectStart`:
->
->```ini
->ExecStart=/root/.nvm/versions/node/v24.11.1/bin/node index.js
->```
->
-> - If you installed Node.js using volta, set this as Node path in `ExectStart`:
->
->```ini
->ExecStart=/root/.volta/bin/node index.js
->```
->
-
-- Add `User=` if you prefer an specific user (e.g., create a dedicated `songbird` user for separation).
-- If you decided to create a dedicated user, make sure to create system user and change ownership:
-
-```bash
-sudo useradd --system --no-create-home --shell /usr/sbin/nologin songbird
-sudo chown -R songbird:songbird /opt/songbird
-git config --global --add safe.directory /opt/songbird
-```
-
-- If Node is installed somewhere else, update `ExecStart` accordingly (use full path to `node`).
+> **Notes:**
+> - Add `User=` if you prefer an specific user (e.g., create a dedicated `songbird` user for separation).
+> - If you decided to create a dedicated user, make sure to create system user and change ownership:
+> ```bash
+> sudo useradd --system --no-create-home --shell /usr/sbin/nologin songbird
+> sudo chown -R songbird:songbird /opt/songbird
+> git config --global --add safe.directory /opt/songbird
+> ```
+> - If Node is installed somewhere else, update `ExecStart` accordingly (use full path to `node`).
 
 > **NOTE:** Skip this step if you installed Node.js using nvm or volta.
 
@@ -309,7 +350,9 @@ server {
 }
 ```
 
-#### 2. Enable the site and test Nginx config:
+> If you set `PORT` to something else in `.env`, change `proxy_pass` to the same port.
+
+Enable the site and test Nginx config:
 
 ```bash
 sudo ln -s /etc/nginx/sites-available/songbird /etc/nginx/sites-enabled/
@@ -379,83 +422,12 @@ sudo ufw allow 'Nginx Full'
 sudo ufw enable
 ```
 
-> **NOTE:**
-> - If you set `PORT` to a different value, update `proxy_pass` accordingly.
-> - Keep `client_max_body_size` aligned with `FILE_UPLOAD_MAX_TOTAL_SIZE` (total request size).
-> - Keep the dedicated `/api/events` block as shown so SSE remains truly realtime behind HTTPS reverse proxies.
-
 ## Common troubleshooting
 
 - Docker logs: `docker compose -f docker-compose.yaml logs -f`
 - systemd service logs: `sudo journalctl -u songbird -f`
 - Check Nginx error logs: `/var/log/nginx/error.log`
 - If Docker build looks stuck at `RUN npm ci`, it is usually downloading dependencies. Use plain progress for visibility:
-
-```bash
-docker compose -f docker-compose.yaml build --no-cache --progress=plain
-```
-
-## Environment Variables Configuration
-
-You can configure environment variables to customize app behavior.
-
-```bash
-cd /opt/songbird
-nano .env
-```
-
-### Configurable values:
-
-## Updating the deployed app
-
-> **Tip:** <br>
->Backup your database before updating:
->
-> ```bash
-> cd /opt/songbird/server
-> npm run db:backup
-> # Or use this for Docker:
-> docker compose exec songbird npm --prefix /app/server run db:backup
-> ```
->
-> The backup file will be saved under `/data/backups` directory.
-
-
-### Docker + Compose
-
-```bash
-cd /opt/songbird
-git pull origin main
-docker compose -f docker-compose.yaml up -d --build
-sudo systemctl reload nginx
-```
-
-### Manual (systemd)
-
-```bash
-cd /opt/songbird
-git pull origin main
-cd client
-npm install
-npm run build
-cd ../server
-npm install
-sudo systemctl restart songbird
-sudo systemctl reload nginx
-```
-
-**What each step does:**
-
-- git pull - Fetch and merge latest changes from GitHub
-- npm install (client & server) - Install any new dependencies
-- npm run build - Rebuild the React frontend into client/dist
-- systemctl restart songbird - Restart the Node server to pick up changes
-- systemctl reload nginx - Reload Nginx to serve the new build
-
-If only the frontend code has changed (no `package.json` changes), you can skip the `npm install` steps.
-
-> **Note:** <br>
-For zero-downtime deployments on larger projects, consider blue-green deployment or PM2, but for most updates the restart approach above is simple and sufficient.
 
 ## Database commands
 
@@ -540,15 +512,65 @@ npm run db:user:inspect
 npm run db:file:inspect
 ```
 
-### Use commands via Docker
+Recommended production flow:
 
-Use npm scripts inside the runnig container:
+### Configurable values:
+
+## Updating the deployed app
+
+> **Tip:** <br>
+>Backup your database before updating:
+>
+> ```bash
+> cd /opt/songbird/server
+> npm run db:backup
+> # Or use this for Docker:
+> docker compose exec songbird npm --prefix /app/server run db:backup
+> ```
+>
+> The backup file will be saved under `/data/backups` directory.
+
+
+### Docker + Compose
 
 ```bash
-docker compose exec songbird npm --prefix /app/server run db:backup
-docker compose exec songbird npm --prefix /app/server run db:migrate
-docker compose exec songbird npm --prefix /app/server run db:inspect
+cd /opt/songbird
+git pull origin main
+docker compose -f docker-compose.yaml up -d --build
+sudo systemctl reload nginx
 ```
+
+### Manual (systemd)
+
+```bash
+cd /opt/songbird
+git pull origin main
+cd client
+npm install
+npm run build
+cd ../server
+npm install
+npm run db:backup
+npm run db:migrate
+sudo systemctl restart songbird
+sudo systemctl reload nginx
+```
+
+**What each step does:**
+
+- git pull - Fetch and merge latest changes from GitHub
+- npm install (client & server) - Install any new dependencies
+- npm run build - Rebuild the React frontend into client/dist
+- npm run db:backup - Create a timestamped backup of data/songbird.db
+- npm run db:migrate - Apply versioned schema migrations without dropping data
+- npm run db:backfill - Fill missing media dimensions for existing uploaded files
+- systemctl restart songbird - Restart the Node server to pick up changes
+- systemctl reload nginx - Reload Nginx to serve the new build
+
+If only the frontend code has changed (no `package.json` changes), you can skip the `npm install` steps.
+
+> **Note:** <br>
+For zero-downtime deployments on larger projects, consider blue-green deployment or PM2, but for most updates the restart approach above is simple and sufficient.
 
 ## Running behind a domain + subpath
 

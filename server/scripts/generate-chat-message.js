@@ -30,10 +30,7 @@ function pickRandom(arr) {
 
 function buildTimestampSchedule(count, daysBack) {
   const days = Math.max(1, daysBack);
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const nowSecondsOfDay =
-    now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+  const today = new Date();
   const startDay = new Date(
     today.getFullYear(),
     today.getMonth(),
@@ -52,16 +49,9 @@ function buildTimestampSchedule(count, daysBack) {
     if (!messagesInDay) continue;
     const dayStart = new Date(startDay);
     dayStart.setDate(startDay.getDate() + dayIndex);
-    const isToday =
-      dayStart.getFullYear() === today.getFullYear() &&
-      dayStart.getMonth() === today.getMonth() &&
-      dayStart.getDate() === today.getDate();
-    const maxSecondOfDay = isToday
-      ? Math.max(0, Math.min(86399, nowSecondsOfDay))
-      : 86399;
     const seconds = [];
     for (let i = 0; i < messagesInDay; i += 1) {
-      const secondOfDay = Math.floor(Math.random() * (maxSecondOfDay + 1));
+      const secondOfDay = Math.floor(Math.random() * 86400);
       seconds.push(secondOfDay);
     }
     seconds.sort((a, b) => a - b);

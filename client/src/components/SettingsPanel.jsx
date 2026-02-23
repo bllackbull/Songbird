@@ -126,6 +126,7 @@ export function MobileSettingsPanel({
   profileForm,
   handleAvatarChange,
   handleAvatarRemove,
+  setAvatarPreview,
   setProfileForm,
   statusSelection,
   setStatusSelection,
@@ -235,7 +236,7 @@ export function MobileSettingsPanel({
                     htmlFor="profilePhotoInput2"
                     className={`inline-flex items-center justify-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition ${
                       fileUploadEnabled
-                        ? "cursor-pointer border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:shadow-md dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/20"
+                        ? "cursor-pointer border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-md dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/20"
                         : "cursor-not-allowed border-slate-300 bg-slate-100 text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500"
                     }`}
                   >
@@ -415,6 +416,7 @@ export function DesktopSettingsModal({
   profileForm,
   handleAvatarChange,
   handleAvatarRemove,
+  setAvatarPreview,
   setProfileForm,
   statusSelection,
   setStatusSelection,
@@ -474,7 +476,7 @@ export function DesktopSettingsModal({
                     htmlFor="profilePhotoInput"
                     className={`flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition ${
                       fileUploadEnabled
-                        ? "cursor-pointer border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:shadow-md dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/20 dark:hover:shadow-md"
+                        ? "cursor-pointer border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-md dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/20 dark:hover:shadow-md"
                         : "cursor-not-allowed border-slate-300 bg-slate-100 text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500"
                     }`}
                   >
