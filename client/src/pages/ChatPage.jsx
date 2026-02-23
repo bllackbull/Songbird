@@ -1495,29 +1495,41 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   function getMediaFileMetadata(file) {
     const mimeType = String(file?.type || "").toLowerCase();
     if (mimeType.startsWith("image/")) {
-      return new Promise((resolve) => {
-        const objectUrl = URL.createObjectURL(file);
-        const image = new Image();
-        image.onload = () => {
-          resolve({
-            width: image.naturalWidth || null,
-            height: image.naturalHeight || null,
+      if (typeof window.createImageBitmap !== "function") {
+        return Promise.resolve({ width: null, height: null, durationSeconds: null });
+      }
+      return window.createImageBitmap(file)
+        .then((bitmap) => {
+          const metadata = {
+            width: Number.isFinite(Number(bitmap.width)) ? Number(bitmap.width) : null,
+            height: Number.isFinite(Number(bitmap.height)) ? Number(bitmap.height) : null,
             durationSeconds: null,
-          });
-          URL.revokeObjectURL(objectUrl);
-        };
-        image.onerror = () => {
-          resolve({ width: null, height: null, durationSeconds: null });
-          URL.revokeObjectURL(objectUrl);
-        };
-        image.src = objectUrl;
-      });
+          };
+          if (typeof bitmap.close === "function") {
+            bitmap.close();
+          }
+          return metadata;
+        })
+        .catch(() => ({ width: null, height: null, durationSeconds: null }));
     }
     if (mimeType.startsWith("video/")) {
       return new Promise((resolve) => {
-        const objectUrl = URL.createObjectURL(file);
         const video = document.createElement("video");
         video.preload = "metadata";
+        video.muted = true;
+        video.playsInline = true;
+
+        const cleanup = () => {
+          try {
+            video.pause();
+          } catch (_) {
+            // no-op
+          }
+          video.removeAttribute("src");
+          video.srcObject = null;
+          video.load();
+        };
+
         video.onloadedmetadata = () => {
           resolve({
             width: video.videoWidth || null,
@@ -1526,17 +1538,20 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               ? Number(video.duration)
               : null,
           });
-          video.removeAttribute("src");
-          video.load();
-          URL.revokeObjectURL(objectUrl);
+          cleanup();
         };
         video.onerror = () => {
           resolve({ width: null, height: null, durationSeconds: null });
-          video.removeAttribute("src");
-          video.load();
-          URL.revokeObjectURL(objectUrl);
+          cleanup();
         };
-        video.src = objectUrl;
+
+        try {
+          // Prefer srcObject to avoid string-based URL assignment.
+          video.srcObject = file;
+        } catch (_) {
+          resolve({ width: null, height: null, durationSeconds: null });
+          cleanup();
+        }
       });
     }
     return Promise.resolve({ width: null, height: null, durationSeconds: null });
