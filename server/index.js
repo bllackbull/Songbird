@@ -335,26 +335,18 @@ function inferMimeFromFilename(name = "") {
   return map[ext] || "";
 }
 
-function removeUploadedFiles(files = []) {
-  const allowedRoots = [uploadRootDir, avatarUploadRootDir]
-    .map((root) => path.resolve(String(root || "")))
-    .filter(Boolean);
-
-  const isInsideAllowedRoot = (candidatePath) => {
-    return allowedRoots.some((root) => {
-      const withSep = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
-      return candidatePath === root || candidatePath.startsWith(withSep);
-    });
-  };
+function removeUploadedFiles(files = [], uploadDir = uploadRootDir) {
+  if (!Array.isArray(files) || !files.length) return;
+  const baseDir = path.resolve(String(uploadDir || ""));
+  if (!baseDir) return;
 
   files.forEach((file) => {
     try {
-      const rawPath = typeof file?.path === "string" ? file.path : "";
-      if (!rawPath) return;
-      const filePath = path.resolve(String(rawPath || ""));
-      if (!isInsideAllowedRoot(filePath)) return;
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
+      const safeFileName = path.basename(String(file?.filename || "").trim());
+      if (!safeFileName) return;
+      const diskPath = path.join(baseDir, safeFileName);
+      if (fs.existsSync(diskPath)) {
+        fs.unlinkSync(diskPath);
       }
     } catch (_) {
       // best effort cleanup
@@ -685,14 +677,11 @@ function buildTimestampSchedule(count, daysBack) {
   const startDay = new Date(today.getFullYear(), today.getMonth(), today.getDate())
   startDay.setDate(startDay.getDate() - (days - 1))
 
-  const perDay = new Array(days).fill(0)
-  for (let i = 0; i < safeCount; i += 1) {
-    perDay[i % days] += 1
-  }
-
   const stamps = []
   for (let dayIndex = 0; dayIndex < days; dayIndex += 1) {
-    const messagesInDay = perDay[dayIndex]
+    const baseCount = Math.floor(safeCount / days);
+    const remainder = safeCount % days;
+    const messagesInDay = baseCount + (dayIndex < remainder ? 1 : 0);
     if (!messagesInDay) continue
     const dayStart = new Date(startDay)
     dayStart.setDate(startDay.getDate() + dayIndex)
@@ -1066,28 +1055,28 @@ app.put("/api/profile", (req, res) => {
 app.post("/api/profile/avatar", uploadAvatar.single("avatar"), (req, res) => {
   const session = requireSession(req, res);
   if (!session) {
-    removeUploadedFiles(req.file ? [req.file] : []);
+    removeUploadedFiles(req.file ? [req.file] : [], avatarUploadRootDir);
     return;
   }
   const currentUsername = String(req.body?.currentUsername || "").trim().toLowerCase();
   const file = req.file;
 
   if (!FILE_UPLOAD) {
-    removeUploadedFiles(file ? [file] : []);
+    removeUploadedFiles(file ? [file] : [], avatarUploadRootDir);
     return res.status(503).json({ error: "File uploads are disabled on this server." });
   }
 
   if (!currentUsername) {
-    removeUploadedFiles(file ? [file] : []);
+    removeUploadedFiles(file ? [file] : [], avatarUploadRootDir);
     return res.status(400).json({ error: "Current username is required." });
   }
   if (!requireSessionUsernameMatch(res, session, currentUsername)) {
-    removeUploadedFiles(file ? [file] : []);
+    removeUploadedFiles(file ? [file] : [], avatarUploadRootDir);
     return;
   }
   const user = findUserByUsername(currentUsername);
   if (!user) {
-    removeUploadedFiles(file ? [file] : []);
+    removeUploadedFiles(file ? [file] : [], avatarUploadRootDir);
     return res.status(404).json({ error: "User not found." });
   }
   if (!file) {
@@ -1095,11 +1084,11 @@ app.post("/api/profile/avatar", uploadAvatar.single("avatar"), (req, res) => {
   }
   const avatarMime = String(file.mimetype || "").toLowerCase();
   if (!ALLOWED_AVATAR_MIME_TYPES.has(avatarMime)) {
-    removeUploadedFiles([file]);
+    removeUploadedFiles([file], avatarUploadRootDir);
     return res.status(400).json({ error: "Avatar must be a JPEG, PNG, GIF, WEBP, or BMP image." });
   }
   if (!hasEnoughFreeDiskSpace(Number(file.size || 0))) {
-    removeUploadedFiles([file]);
+    removeUploadedFiles([file], avatarUploadRootDir);
     return res.status(400).json({ error: "Not enough free storage space on server." });
   }
 
