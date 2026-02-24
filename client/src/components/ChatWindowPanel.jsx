@@ -85,7 +85,6 @@ export default function ChatWindowPanel({
   const focusUnmountTimerRef = useRef(null);
   const focusEnterRafRef = useRef(null);
   const focusSwipeStartRef = useRef({ x: 0, y: 0, tracking: false });
-  const focusedVideoRafRef = useRef(null);
   const focusedVideoHintTimerRef = useRef(null);
   const [showUploadMenu, setShowUploadMenu] = useState(false);
   const [mediaAspectByKey, setMediaAspectByKey] = useState(() => ({}));
@@ -94,6 +93,7 @@ export default function ChatWindowPanel({
   const [focusedVideoTime, setFocusedVideoTime] = useState(0);
   const [focusedVideoDuration, setFocusedVideoDuration] = useState(0);
   const [focusedVideoHint, setFocusedVideoHint] = useState(null);
+  const [focusedVideoDecodeIssue, setFocusedVideoDecodeIssue] = useState("");
   const [focusNowMs, setFocusNowMs] = useState(Date.now());
   const [floatingDay, setFloatingDay] = useState({ key: "", label: "" });
   const [isTimelineScrollable, setIsTimelineScrollable] = useState(false);
@@ -315,14 +315,23 @@ export default function ChatWindowPanel({
     const handleLoaded = () => setFocusedVideoDuration(video.duration || 0);
     const handlePlay = () => setFocusedVideoPlaying(true);
     const handlePause = () => setFocusedVideoPlaying(false);
+    const handleTimeUpdate = () => setFocusedVideoTime(video.currentTime || 0);
+    const handleEnded = () => setFocusedVideoPlaying(false);
+    const handleDurationChange = () => setFocusedVideoDuration(video.duration || 0);
     video.addEventListener("loadedmetadata", handleLoaded);
     video.addEventListener("play", handlePlay);
     video.addEventListener("pause", handlePause);
+    video.addEventListener("timeupdate", handleTimeUpdate);
+    video.addEventListener("ended", handleEnded);
+    video.addEventListener("durationchange", handleDurationChange);
     setFocusedVideoMuted(video.muted);
     return () => {
       video.removeEventListener("loadedmetadata", handleLoaded);
       video.removeEventListener("play", handlePlay);
       video.removeEventListener("pause", handlePause);
+      video.removeEventListener("timeupdate", handleTimeUpdate);
+      video.removeEventListener("ended", handleEnded);
+      video.removeEventListener("durationchange", handleDurationChange);
     };
   }, [focusedMedia]);
 
@@ -336,36 +345,13 @@ export default function ChatWindowPanel({
       const playPromise = video.play?.();
       if (playPromise && typeof playPromise.catch === "function") {
         playPromise.catch(() => {
-          // Autoplay with sound can be blocked depending on browser policy.
+          // user gesture may be required on some devices
         });
       }
     };
     const raf = requestAnimationFrame(tryPlay);
     return () => cancelAnimationFrame(raf);
   }, [focusedMedia, focusVisible]);
-
-  useEffect(() => {
-    if (!focusedVideoPlaying) {
-      if (focusedVideoRafRef.current) {
-        cancelAnimationFrame(focusedVideoRafRef.current);
-        focusedVideoRafRef.current = null;
-      }
-      return undefined;
-    }
-    const tick = () => {
-      const video = focusedVideoRef.current;
-      if (!video) return;
-      setFocusedVideoTime(video.currentTime || 0);
-      focusedVideoRafRef.current = requestAnimationFrame(tick);
-    };
-    focusedVideoRafRef.current = requestAnimationFrame(tick);
-    return () => {
-      if (focusedVideoRafRef.current) {
-        cancelAnimationFrame(focusedVideoRafRef.current);
-        focusedVideoRafRef.current = null;
-      }
-    };
-  }, [focusedVideoPlaying]);
 
   useEffect(() => {
     return () => {
@@ -375,9 +361,6 @@ export default function ChatWindowPanel({
       }
       if (focusedVideoHintTimerRef.current) {
         clearTimeout(focusedVideoHintTimerRef.current);
-      }
-      if (focusedVideoRafRef.current) {
-        cancelAnimationFrame(focusedVideoRafRef.current);
       }
       if (focusUnmountTimerRef.current) {
         clearTimeout(focusUnmountTimerRef.current);
@@ -905,11 +888,18 @@ export default function ChatWindowPanel({
     if (!video) return;
     setFocusedVideoDuration(video.duration || 0);
     setFocusedVideoTime(video.currentTime || 0);
+    if (Number(video.videoWidth || 0) <= 0 && Number(video.videoHeight || 0) <= 0) {
+      setFocusedVideoDecodeIssue(
+        "Video track could not be decoded in this browser. Audio may still play.",
+      );
+    } else {
+      setFocusedVideoDecodeIssue("");
+    }
     if (!focusVisible) return;
     const playPromise = video.play?.();
     if (playPromise && typeof playPromise.catch === "function") {
       playPromise.catch(() => {
-        // browser policy can block autoplay with audio
+        // user gesture may be required on some devices
       });
     }
   };
@@ -918,15 +908,32 @@ export default function ChatWindowPanel({
     const video = focusedVideoRef.current;
     if (!video) return;
     setFocusedVideoDuration(video.duration || 0);
-    // Force first decodable frame, helps black-video issue on some desktop renderers.
-    try {
-      const duration = Number(video.duration || 0);
-      if (Number.isFinite(duration) && duration > 0 && video.currentTime < 0.05) {
-        video.currentTime = Math.min(0.08, Math.max(duration * 0.02, 0.02));
-      }
-    } catch (_) {
-      // ignore
+    setFocusedVideoTime(video.currentTime || 0);
+    if (Number(video.videoWidth || 0) <= 0 && Number(video.videoHeight || 0) <= 0) {
+      setFocusedVideoDecodeIssue(
+        "Video track could not be decoded in this browser. Audio may still play.",
+      );
+    } else {
+      setFocusedVideoDecodeIssue("");
     }
+  };
+
+  const handleFocusedVideoCanPlay = () => {
+    const video = focusedVideoRef.current;
+    if (!video || !focusVisible) return;
+    if (!video.paused) return;
+    const playPromise = video.play?.();
+    if (playPromise && typeof playPromise.catch === "function") {
+      playPromise.catch(() => {
+        // user gesture may be required on some devices
+      });
+    }
+  };
+
+  const handleFocusedVideoError = () => {
+    setFocusedVideoDecodeIssue(
+      "This video format or codec is not supported by your browser.",
+    );
   };
 
   const formatSeconds = (seconds) => {
@@ -999,6 +1006,13 @@ export default function ChatWindowPanel({
       focusEnterRafRef.current = null;
     }
     setFocusedMedia(media);
+    if (media?.type === "video") {
+      setFocusedVideoPlaying(false);
+      setFocusedVideoTime(0);
+      setFocusedVideoDuration(0);
+      setFocusedVideoMuted(false);
+    }
+    setFocusedVideoDecodeIssue("");
     setFocusVisible(false);
     focusEnterRafRef.current = requestAnimationFrame(() => {
       setFocusVisible(true);
@@ -1013,6 +1027,7 @@ export default function ChatWindowPanel({
     }
     focusUnmountTimerRef.current = setTimeout(() => {
       setFocusedMedia(null);
+      setFocusedVideoDecodeIssue("");
       focusUnmountTimerRef.current = null;
     }, 230);
   };
@@ -1609,6 +1624,8 @@ export default function ChatWindowPanel({
                     onClick={toggleFocusedVideoPlay}
                     onLoadedMetadata={handleFocusedVideoLoadedMetadata}
                     onLoadedData={handleFocusedVideoLoadedData}
+                    onCanPlay={handleFocusedVideoCanPlay}
+                    onError={handleFocusedVideoError}
                     className="mx-auto block max-h-[72vh] w-auto max-w-full cursor-pointer rounded-2xl bg-transparent object-contain md:max-h-[78vh] md:[transform:translateZ(0)] md:[backface-visibility:hidden]"
                   />
                   {focusedVideoHint ? (
@@ -1655,6 +1672,11 @@ export default function ChatWindowPanel({
                       </span>
                     </div>
                   </div>
+                  {focusedVideoDecodeIssue ? (
+                    <div className="mt-2 w-full rounded-xl border border-amber-300/60 bg-amber-500/20 px-3 py-2 text-xs text-amber-100">
+                      {focusedVideoDecodeIssue}
+                    </div>
+                  ) : null}
                 </div>
               ) : (
                 <div
