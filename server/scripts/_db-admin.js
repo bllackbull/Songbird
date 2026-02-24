@@ -2,12 +2,25 @@ import fs from 'node:fs'
 import path from 'node:path'
 import initSqlJs from 'sql.js'
 import { dataDir, serverDir } from './_cli.js'
+import { migrations } from '../migrations/index.js'
 
 export const dbPath = path.join(dataDir, 'songbird.db')
 export const uploadsDir = path.join(dataDir, 'uploads', 'messages')
 export const avatarUploadsDir = path.join(dataDir, 'uploads', 'avatars')
 
 let sqlSingleton = null
+const USER_COLORS = [
+  '#10b981',
+  '#0ea5e9',
+  '#f97316',
+  '#8b5cf6',
+  '#ef4444',
+  '#14b8a6',
+  '#f59e0b',
+  '#3b82f6',
+  '#84cc16',
+  '#ec4899',
+]
 
 async function getSql() {
   if (sqlSingleton) return sqlSingleton
@@ -52,9 +65,57 @@ export async function openDatabase() {
     stmt.free()
   }
 
+  const tableExists = (name) =>
+    Boolean(getRow("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", [name]))
+
+  const hasColumn = (tableName, columnName) =>
+    getAll(`PRAGMA table_info('${tableName}')`).some((col) => col.name === columnName)
+
+  const getSchemaVersion = () => {
+    const row = getRow('PRAGMA user_version')
+    return Number(row?.user_version || 0)
+  }
+
+  const setSchemaVersion = (version) => {
+    db.run(`PRAGMA user_version = ${Number(version) || 0}`)
+  }
+
+  const getRandomUserColor = () => {
+    const index = Math.floor(Math.random() * USER_COLORS.length)
+    return USER_COLORS[index]
+  }
+
+  const schemaVersionBeforeMigrations = getSchemaVersion()
+  const migrationContext = {
+    db,
+    getAll,
+    tableExists,
+    hasColumn,
+    getRandomUserColor,
+  }
+  const orderedMigrations = [...migrations].sort((a, b) => a.version - b.version)
+  orderedMigrations.forEach((migration) => {
+    if (getSchemaVersion() >= migration.version) return
+    migration.up(migrationContext)
+    setSchemaVersion(migration.version)
+  })
+  orderedMigrations.forEach((migration) => {
+    migration.up(migrationContext)
+  })
+  const latestVersion = orderedMigrations.length
+    ? Math.max(...orderedMigrations.map((migration) => Number(migration.version) || 0))
+    : 0
+  if (getSchemaVersion() < latestVersion) {
+    setSchemaVersion(latestVersion)
+  }
+
   const save = () => {
     const data = db.export()
     fs.writeFileSync(dbPath, Buffer.from(data))
+  }
+
+  if (getSchemaVersion() !== schemaVersionBeforeMigrations) {
+    save()
   }
 
   const close = () => {

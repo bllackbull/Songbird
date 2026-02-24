@@ -70,7 +70,7 @@ npm install
 npm run build
 ```
 
-### 4. Configure environment (Optional)
+### 4. Configure environment (optional)
 
 - The server reads `APP_ENV` and `PORT` from environment variables. The server sets the session cookie `Secure` flag when `APP_ENV=production`.
 - You can use a single root `.env` file (`/opt/songbird/.env`) for both server runtime and client build-time settings.

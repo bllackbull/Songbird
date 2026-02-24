@@ -114,6 +114,19 @@ function runDatabaseMigrations() {
     migration.up(migrationContext)
     setSchemaVersion(migration.version)
   })
+
+  // Self-heal schemas where PRAGMA user_version advanced but tables are missing.
+  // All migrations are written to be idempotent (CREATE IF NOT EXISTS / guarded ALTERs),
+  // so re-applying ensures critical tables exist.
+  orderedMigrations.forEach((migration) => {
+    migration.up(migrationContext)
+  })
+  const latestVersion = orderedMigrations.length
+    ? Math.max(...orderedMigrations.map((migration) => Number(migration.version) || 0))
+    : 0
+  if (getSchemaVersion() < latestVersion) {
+    setSchemaVersion(latestVersion)
+  }
 }
 
 runDatabaseMigrations()
