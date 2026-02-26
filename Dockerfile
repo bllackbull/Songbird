@@ -3,14 +3,14 @@
 FROM node:24-bookworm-slim AS client-build
 WORKDIR /app/client
 COPY client/package*.json ./
-RUN npm ci
+RUN npm ci --no-audit --no-fund
 COPY client/ ./
 RUN npm run build
 
 FROM node:24-bookworm-slim AS server-deps
 WORKDIR /app/server
 COPY server/package*.json ./
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev --no-audit --no-fund
 
 FROM node:24-bookworm-slim
 WORKDIR /app
