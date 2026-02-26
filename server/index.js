@@ -2,6 +2,7 @@ import express from "express";
 import path from "node:path";
 import fs from "node:fs";
 import crypto from "node:crypto";
+import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
@@ -74,6 +75,22 @@ const readEnvBool = (keys, fallback) => {
 const port = process.env.PORT || 5174;
 const appEnv = process.env.APP_ENV || "production";
 const isProduction = appEnv === "production";
+const APP_DEBUG = readEnvBool("APP_DEBUG", false);
+
+function debugLog(...args) {
+  if (!APP_DEBUG) return;
+  console.log("[app-debug]", ...args);
+}
+const debugRouteCounts = new Map();
+if (APP_DEBUG) {
+  setInterval(() => {
+    const entries = Array.from(debugRouteCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([route, count]) => ({ route, count }));
+    debugLog("api:requests-per-minute", { routes: entries });
+    debugRouteCounts.clear();
+  }, 60 * 1000);
+}
 
 app.set("trust proxy", 1);
 
@@ -85,6 +102,34 @@ app.use((req, res, next) => {
   res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
   next();
 });
+if (APP_DEBUG) {
+  app.use((req, res, next) => {
+    const startedAt = Date.now();
+    let responseBody = null;
+    const originalJson = res.json.bind(res);
+    res.json = (body) => {
+      responseBody = body;
+      return originalJson(body);
+    };
+    res.on("finish", () => {
+      const routeKey = `${String(req.method || "GET").toUpperCase()} ${String(
+        req.path || req.originalUrl || req.url || "",
+      ).split("?")[0]}`;
+      debugRouteCounts.set(routeKey, Number(debugRouteCounts.get(routeKey) || 0) + 1);
+      debugLog("api:request", {
+        method: req.method,
+        path: req.originalUrl || req.url || "",
+        query: req.query || {},
+        params: req.params || {},
+        body: req.body || {},
+        status: Number(res.statusCode || 0),
+        durationMs: Date.now() - startedAt,
+        response: responseBody,
+      });
+    });
+    next();
+  });
+}
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -125,6 +170,15 @@ const MESSAGE_FILE_RETENTION_DAYS = readEnvInt(
 );
 const FILE_UPLOAD = readEnvBool("FILE_UPLOAD", true);
 const MESSAGE_FILE_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
+const TRANSCODE_VIDEOS_TO_H264 = readEnvBool(
+  ["FILE_UPLOAD_TRANSCODE_VIDEOS", "FILE_UPLOAD_TRANSCODE_H264"],
+  true,
+);
+const TRANSCODED_VIDEO_NAME_TAG = "-h264-";
+const videoTranscodeQueue = [];
+let videoTranscodeWorkerRunning = false;
+let ffmpegAvailabilityChecked = false;
+let ffmpegAvailable = false;
 const MESSAGE_FILE_LIMITS = {
   maxFiles: 10,
   maxFileSizeBytes: SHARED_MAX_FILE_SIZE_BYTES,
@@ -673,7 +727,10 @@ function buildTimestampSchedule(count, daysBack) {
   const safeDaysRaw = Number(daysBack);
   const safeCount = Number.isFinite(safeCountRaw) ? Math.max(1, Math.min(10000, Math.trunc(safeCountRaw))) : 1;
   const days = Number.isFinite(safeDaysRaw) ? Math.max(1, Math.min(365, Math.trunc(safeDaysRaw))) : 1;
-  const today = new Date()
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const nowSecondsOfDay =
+    now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
   const startDay = new Date(today.getFullYear(), today.getMonth(), today.getDate())
   startDay.setDate(startDay.getDate() - (days - 1))
 
@@ -685,9 +742,16 @@ function buildTimestampSchedule(count, daysBack) {
     if (!messagesInDay) continue
     const dayStart = new Date(startDay)
     dayStart.setDate(startDay.getDate() + dayIndex)
+    const isToday =
+      dayStart.getFullYear() === today.getFullYear() &&
+      dayStart.getMonth() === today.getMonth() &&
+      dayStart.getDate() === today.getDate();
+    const maxSecondOfDay = isToday
+      ? Math.max(0, Math.min(86399, nowSecondsOfDay))
+      : 86399;
     const seconds = []
     for (let i = 0; i < messagesInDay; i += 1) {
-      seconds.push(Math.floor(Math.random() * 86400))
+      seconds.push(Math.floor(Math.random() * (maxSecondOfDay + 1)))
     }
     seconds.sort((a, b) => a - b)
     for (let i = 0; i < seconds.length; i += 1) {
@@ -716,6 +780,243 @@ function parseUploadFileMetadata(rawValue) {
   }
 }
 
+function runFfmpeg(args = []) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("ffmpeg", args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    });
+    let stderr = "";
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk || "");
+      if (stderr.length > 16000) {
+        stderr = stderr.slice(-16000);
+      }
+    });
+    child.on("error", (error) => reject(error));
+    child.on("close", (code) => {
+      if (code === 0) return resolve();
+      const details = stderr.trim();
+      reject(
+        new Error(
+          details
+            ? `ffmpeg failed: ${details}`
+            : `ffmpeg failed with exit code ${String(code)}`,
+        ),
+      );
+    });
+  });
+}
+
+function runFfprobe(args = []) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("ffprobe", args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += String(chunk || "");
+      if (stdout.length > 160000) {
+        stdout = stdout.slice(-160000);
+      }
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk || "");
+      if (stderr.length > 16000) {
+        stderr = stderr.slice(-16000);
+      }
+    });
+    child.on("error", (error) => reject(error));
+    child.on("close", (code) => {
+      if (code === 0) return resolve(stdout);
+      const details = stderr.trim();
+      reject(
+        new Error(
+          details
+            ? `ffprobe failed: ${details}`
+            : `ffprobe failed with exit code ${String(code)}`,
+        ),
+      );
+    });
+  });
+}
+
+async function probeVideoMetadata(filePath) {
+  try {
+    const output = await runFfprobe([
+      "-v",
+      "error",
+      "-select_streams",
+      "v:0",
+      "-show_entries",
+      "stream=width,height,duration:stream_tags=rotate:stream_side_data=rotation:format=duration",
+      "-of",
+      "json",
+      filePath,
+    ]);
+    const parsed = JSON.parse(String(output || "{}"));
+    const stream = Array.isArray(parsed?.streams) ? parsed.streams[0] || {} : {};
+    const format = parsed?.format || {};
+    const rawWidth = sanitizePositiveInt(stream?.width);
+    const rawHeight = sanitizePositiveInt(stream?.height);
+    const tagRotate = Number(stream?.tags?.rotate);
+    const sideDataRotate = Array.isArray(stream?.side_data_list)
+      ? Number(
+          stream.side_data_list.find((item) =>
+            Number.isFinite(Number(item?.rotation)),
+          )?.rotation,
+        )
+      : NaN;
+    const rotation = Number.isFinite(sideDataRotate)
+      ? sideDataRotate
+      : Number.isFinite(tagRotate)
+        ? tagRotate
+        : 0;
+    const normalizedRotation = Math.abs(Math.round(rotation)) % 360;
+    const shouldSwapAxes = normalizedRotation === 90 || normalizedRotation === 270;
+    const widthPx = shouldSwapAxes ? rawHeight : rawWidth;
+    const heightPx = shouldSwapAxes ? rawWidth : rawHeight;
+    const durationSeconds = sanitizeDurationSeconds(stream?.duration ?? format?.duration);
+    return { widthPx, heightPx, durationSeconds };
+  } catch (_) {
+    return { widthPx: null, heightPx: null, durationSeconds: null };
+  }
+}
+
+async function ensureFfmpegAvailable() {
+  if (ffmpegAvailabilityChecked) {
+    if (!ffmpegAvailable) {
+      throw new Error("ffmpeg is not installed or not available in PATH.");
+    }
+    return;
+  }
+  ffmpegAvailabilityChecked = true;
+  try {
+    await runFfmpeg(["-version"]);
+    ffmpegAvailable = true;
+  } catch (_) {
+    ffmpegAvailable = false;
+    throw new Error("ffmpeg is not installed or not available in PATH.");
+  }
+}
+
+async function runVideoTranscodeJob(job) {
+  const fileId = Number(job?.fileId || 0);
+  const inputStoredName = path.basename(String(job?.storedName || "").trim());
+  if (!fileId || !inputStoredName) return;
+  const inputPath = path.join(uploadRootDir, inputStoredName);
+  if (!fs.existsSync(inputPath)) return;
+
+  const parsed = path.parse(inputStoredName);
+  const outputName = `${parsed.name}-h264-${crypto.randomBytes(4).toString("hex")}.mp4`;
+  const outputPath = path.join(uploadRootDir, outputName);
+
+  try {
+    debugLog("video-transcode:start", {
+      fileId,
+      messageId: Number(job?.messageId || 0) || null,
+      chatId: Number(job?.chatId || 0) || null,
+      inputStoredName,
+    });
+    await runFfmpeg([
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-y",
+      "-i",
+      inputPath,
+      "-c:v",
+      "libx264",
+      "-preset",
+      "veryfast",
+      "-crf",
+      "23",
+      "-pix_fmt",
+      "yuv420p",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "128k",
+      "-movflags",
+      "+faststart",
+      outputPath,
+    ]);
+
+    const outputStat = fs.statSync(outputPath);
+    const outputMeta = await probeVideoMetadata(outputPath);
+    fs.unlinkSync(inputPath);
+    adminRun(
+      `UPDATE chat_message_files
+       SET stored_name = ?, mime_type = ?, size_bytes = ?, width_px = COALESCE(?, width_px), height_px = COALESCE(?, height_px), duration_seconds = COALESCE(?, duration_seconds)
+       WHERE id = ?`,
+      [
+        outputName,
+        "video/mp4",
+        Number(outputStat.size || 0),
+        Number.isFinite(Number(outputMeta?.widthPx)) ? Number(outputMeta.widthPx) : null,
+        Number.isFinite(Number(outputMeta?.heightPx)) ? Number(outputMeta.heightPx) : null,
+        Number.isFinite(Number(outputMeta?.durationSeconds)) ? Number(outputMeta.durationSeconds) : null,
+        fileId,
+      ],
+    );
+    adminSave();
+    debugLog("video-transcode:done", {
+      fileId,
+      outputName,
+      width: outputMeta?.widthPx ?? null,
+      height: outputMeta?.heightPx ?? null,
+      durationSeconds: outputMeta?.durationSeconds ?? null,
+      sizeBytes: Number(outputStat.size || 0),
+    });
+    const chatId = Number(job?.chatId || 0);
+    if (chatId > 0) {
+      emitChatEvent(chatId, {
+        type: "chat_message",
+        chatId,
+        messageId: Number(job?.messageId || 0) || null,
+        username: String(job?.username || ""),
+      });
+    }
+  } catch (error) {
+    try {
+      if (fs.existsSync(outputPath)) {
+        fs.unlinkSync(outputPath);
+      }
+    } catch (_) {
+      // best effort cleanup
+    }
+    console.error(
+      `[video-transcode] failed for ${inputStoredName}: ${String(error?.message || error)}`,
+    );
+    debugLog("video-transcode:error", {
+      fileId,
+      inputStoredName,
+      error: String(error?.message || error),
+    });
+  }
+}
+
+async function processVideoTranscodeQueue() {
+  if (videoTranscodeWorkerRunning) return;
+  videoTranscodeWorkerRunning = true;
+  try {
+    while (videoTranscodeQueue.length) {
+      const job = videoTranscodeQueue.shift();
+      // eslint-disable-next-line no-await-in-loop
+      await runVideoTranscodeJob(job);
+    }
+  } finally {
+    videoTranscodeWorkerRunning = false;
+  }
+}
+
+function enqueueVideoTranscodeJob(job) {
+  videoTranscodeQueue.push(job);
+  void processVideoTranscodeQueue();
+}
+
 function sanitizePositiveInt(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return null;
@@ -728,6 +1029,86 @@ function sanitizeDurationSeconds(value) {
   if (!Number.isFinite(n)) return null;
   if (n < 0) return null;
   return Math.round(n * 1000) / 1000;
+}
+
+function isVideoFileProcessing(row) {
+  if (!TRANSCODE_VIDEOS_TO_H264) return false;
+  if (String(row?.kind || "").toLowerCase() === "document") return false;
+  const mimeType = String(row?.mime_type || "").toLowerCase();
+  if (!mimeType.startsWith("video/")) return false;
+  const storedName = String(row?.stored_name || "").toLowerCase();
+  return !storedName.includes(TRANSCODED_VIDEO_NAME_TAG);
+}
+
+async function hydrateMissingVideoMetadata(rows = []) {
+  if (!Array.isArray(rows) || !rows.length) return rows;
+  const startedAt = Date.now();
+  let updated = false;
+  let probedCount = 0;
+  let probesRemaining = 8;
+  for (const row of rows) {
+    const mimeType = String(row?.mime_type || "").toLowerCase();
+    if (!mimeType.startsWith("video/")) continue;
+    const hasWidth = Number.isFinite(Number(row?.width_px)) && Number(row.width_px) > 0;
+    const hasHeight = Number.isFinite(Number(row?.height_px)) && Number(row.height_px) > 0;
+    const hasDuration =
+      Number.isFinite(Number(row?.duration_seconds)) && Number(row.duration_seconds) >= 0;
+    if (hasWidth && hasHeight && hasDuration) continue;
+    if (probesRemaining <= 0) break;
+    const storedName = path.basename(String(row?.stored_name || "").trim());
+    if (!storedName) continue;
+    const inputPath = path.join(uploadRootDir, storedName);
+    if (!fs.existsSync(inputPath)) continue;
+    probesRemaining -= 1;
+    // Sequential probing avoids burst-spawning ffprobe processes under load.
+    // eslint-disable-next-line no-await-in-loop
+    const meta = await probeVideoMetadata(inputPath);
+    probedCount += 1;
+    const nextWidth =
+      hasWidth || !Number.isFinite(Number(meta?.widthPx)) ? row.width_px : Number(meta.widthPx);
+    const nextHeight =
+      hasHeight || !Number.isFinite(Number(meta?.heightPx)) ? row.height_px : Number(meta.heightPx);
+    const nextDuration =
+      hasDuration || !Number.isFinite(Number(meta?.durationSeconds))
+        ? row.duration_seconds
+        : Number(meta.durationSeconds);
+    if (
+      Number(nextWidth || 0) === Number(row.width_px || 0) &&
+      Number(nextHeight || 0) === Number(row.height_px || 0) &&
+      Number(nextDuration || 0) === Number(row.duration_seconds || 0)
+    ) {
+      continue;
+    }
+    adminRun(
+      `UPDATE chat_message_files
+       SET width_px = COALESCE(?, width_px), height_px = COALESCE(?, height_px), duration_seconds = COALESCE(?, duration_seconds)
+       WHERE id = ?`,
+      [
+        Number.isFinite(Number(nextWidth)) ? Number(nextWidth) : null,
+        Number.isFinite(Number(nextHeight)) ? Number(nextHeight) : null,
+        Number.isFinite(Number(nextDuration)) ? Number(nextDuration) : null,
+        Number(row.id),
+      ],
+    );
+    row.width_px = Number.isFinite(Number(nextWidth)) ? Number(nextWidth) : row.width_px;
+    row.height_px = Number.isFinite(Number(nextHeight)) ? Number(nextHeight) : row.height_px;
+    row.duration_seconds = Number.isFinite(Number(nextDuration))
+      ? Number(nextDuration)
+      : row.duration_seconds;
+    updated = true;
+  }
+  if (updated) {
+    adminSave();
+  }
+  if (probedCount > 0) {
+    debugLog("video-metadata:hydrate", {
+      rows: rows.length,
+      probed: probedCount,
+      updated,
+      elapsedMs: Date.now() - startedAt,
+    });
+  }
+  return rows;
 }
 
 function parseCookies(req) {
@@ -821,6 +1202,7 @@ app.get("/api/events", (req, res) => {
   res.flushHeaders?.();
 
   addSseClient(username, res);
+  updateLastSeen(user.id);
   res.write(`data: ${JSON.stringify({ type: "connected" })}\n\n`);
 
   const keepAlive = setInterval(() => {
@@ -1168,7 +1550,7 @@ app.get("/api/users", (req, res) => {
   });
 });
 
-app.get("/api/chats", (req, res) => {
+app.get("/api/chats", async (req, res) => {
   const session = requireSession(req, res);
   if (!session) return;
   const username = req.query.username?.toString();
@@ -1204,7 +1586,9 @@ app.get("/api/chats", (req, res) => {
   const lastMessageIds = chats
     .map((chat) => Number(chat.last_message_id || 0))
     .filter(Boolean);
-  const lastFiles = listMessageFilesByMessageIds(lastMessageIds);
+  const lastFiles = await hydrateMissingVideoMetadata(
+    listMessageFilesByMessageIds(lastMessageIds),
+  );
   const filesByMessageId = lastFiles.reduce((acc, file) => {
     const messageId = Number(file.message_id);
     if (!acc[messageId]) acc[messageId] = [];
@@ -1213,6 +1597,7 @@ app.get("/api/chats", (req, res) => {
       kind: file.kind,
       name: file.original_name,
       mimeType: file.mime_type,
+      processing: isVideoFileProcessing(file),
       sizeBytes: Number(file.size_bytes || 0),
       width: Number.isFinite(Number(file.width_px)) ? Number(file.width_px) : null,
       height: Number.isFinite(Number(file.height_px)) ? Number(file.height_px) : null,
@@ -1299,7 +1684,7 @@ app.post("/api/chats", (req, res) => {
   res.json({ id: chatId });
 });
 
-app.get("/api/messages", (req, res) => {
+app.get("/api/messages", async (req, res) => {
   const session = requireSession(req, res);
   if (!session) return;
   const chatId = Number(req.query.chatId);
@@ -1351,7 +1736,9 @@ app.get("/api/messages", (req, res) => {
     avatar_url: ensureAvatarExists(message.user_id, message.avatar_url),
   }));
   const messageIds = normalizedMessages.map((message) => Number(message.id)).filter(Boolean);
-  const files = listMessageFilesByMessageIds(messageIds);
+  const files = await hydrateMissingVideoMetadata(
+    listMessageFilesByMessageIds(messageIds),
+  );
   const filesByMessageId = files.reduce((acc, file) => {
     const messageId = Number(file.message_id);
     if (!acc[messageId]) acc[messageId] = [];
@@ -1360,6 +1747,7 @@ app.get("/api/messages", (req, res) => {
       kind: file.kind,
       name: file.original_name,
       mimeType: file.mime_type,
+      processing: isVideoFileProcessing(file),
       sizeBytes: Number(file.size_bytes || 0),
       width: Number.isFinite(Number(file.width_px)) ? Number(file.width_px) : null,
       height: Number.isFinite(Number(file.height_px)) ? Number(file.height_px) : null,
@@ -1371,10 +1759,48 @@ app.get("/api/messages", (req, res) => {
     });
     return acc;
   }, {});
-  const enriched = normalizedMessages.map((message) => ({
-    ...message,
-    files: filesByMessageId[Number(message.id)] || [],
-  }));
+  const enriched = normalizedMessages
+    .map((message) => ({
+      ...message,
+      files: filesByMessageId[Number(message.id)] || [],
+    }))
+    .filter((message) => {
+      const isFromOther = Number(message?.user_id || 0) !== Number(user.id);
+      if (!isFromOther) return true;
+      const hasPendingVideo = (message.files || []).some(
+        (file) =>
+          String(file?.mimeType || "").toLowerCase().startsWith("video/") &&
+          Boolean(file?.processing),
+      );
+      return !hasPendingVideo;
+    });
+  if (APP_DEBUG) {
+    const processingRows = [];
+    enriched.forEach((message) => {
+      const files = Array.isArray(message?.files) ? message.files : [];
+      files.forEach((file) => {
+        processingRows.push({
+          messageId: Number(message?.id || 0),
+          fileId: Number(file?.id || 0),
+          mimeType: String(file?.mimeType || ""),
+          url: String(file?.url || ""),
+          processing: Boolean(file?.processing),
+        });
+      });
+    });
+    debugLog("api:messages:files", {
+      chatId,
+      username: user.username,
+      files: processingRows,
+    });
+  }
+  debugLog("api:messages", {
+    chatId,
+    username: user.username,
+    messageCount: enriched.length,
+    fileCount: files.length,
+    hasMore,
+  });
   res.json({ chatId, messages: enriched, hasMore, totalCount });
 });
 
@@ -1427,7 +1853,7 @@ app.post("/api/chats/hide", (req, res) => {
   res.json({ ok: true });
 });
 
-app.post("/api/messages/upload", uploadFiles.array("files", MESSAGE_FILE_LIMITS.maxFiles), (req, res) => {
+app.post("/api/messages/upload", uploadFiles.array("files", MESSAGE_FILE_LIMITS.maxFiles), async (req, res) => {
   const session = requireSession(req, res);
   if (!session) {
     removeUploadedFiles(req.files || []);
@@ -1515,6 +1941,44 @@ app.post("/api/messages/upload", uploadFiles.array("files", MESSAGE_FILE_LIMITS.
         expiresAt: expiresAtIso,
       };
     });
+    const hasVideoFiles = normalizedFiles.some((file) =>
+      String(file.mimeType || "").toLowerCase().startsWith("video/"),
+    );
+    const shouldTranscodeVideos =
+      TRANSCODE_VIDEOS_TO_H264 && String(uploadType || "").toLowerCase() === "media";
+    debugLog("api:messages/upload:start", {
+      chatId,
+      username: String(username || "").toLowerCase(),
+      fileCount: normalizedFiles.length,
+      hasVideoFiles,
+      transcodeEnabled: shouldTranscodeVideos,
+      uploadType,
+    });
+    if (shouldTranscodeVideos && hasVideoFiles) {
+      await ensureFfmpegAvailable();
+    }
+    if (hasVideoFiles && String(uploadType || "").toLowerCase() === "media") {
+      await Promise.all(
+        normalizedFiles.map(async (file) => {
+          const mimeType = String(file?.mimeType || "").toLowerCase();
+          if (!mimeType.startsWith("video/")) return;
+          if (file.widthPx && file.heightPx && file.durationSeconds !== null) return;
+          const storedName = path.basename(String(file?.storedName || "").trim());
+          if (!storedName) return;
+          const inputPath = path.join(uploadRootDir, storedName);
+          const metadata = await probeVideoMetadata(inputPath);
+          if (!file.widthPx && metadata.widthPx) {
+            file.widthPx = metadata.widthPx;
+          }
+          if (!file.heightPx && metadata.heightPx) {
+            file.heightPx = metadata.heightPx;
+          }
+          if (file.durationSeconds === null && metadata.durationSeconds !== null) {
+            file.durationSeconds = metadata.durationSeconds;
+          }
+        }),
+      );
+    }
 
     const fallbackBody =
       trimmedBody ||
@@ -1527,17 +1991,61 @@ app.post("/api/messages/upload", uploadFiles.array("files", MESSAGE_FILE_LIMITS.
       throw new Error("Unable to create message.");
     }
     createMessageFiles(messageId, normalizedFiles);
+    let transcodeJobsQueued = 0;
+    if (shouldTranscodeVideos && hasVideoFiles) {
+      const insertedRows = listMessageFilesByMessageIds([Number(messageId)]);
+      const insertedByStoredName = new Map();
+      insertedRows.forEach((row) => {
+        const key = path.basename(String(row?.stored_name || "").trim());
+        if (!key) return;
+        insertedByStoredName.set(key, Number(row.id));
+      });
+      normalizedFiles.forEach((file) => {
+        const mimeType = String(file?.mimeType || "").toLowerCase();
+        if (!mimeType.startsWith("video/")) return;
+        const storedName = path.basename(String(file?.storedName || "").trim());
+        if (!storedName) return;
+        const fileId = Number(insertedByStoredName.get(storedName) || 0);
+        if (!fileId) return;
+        enqueueVideoTranscodeJob({
+          fileId,
+          storedName,
+          chatId,
+          messageId: Number(messageId),
+          username: user.username,
+        });
+        transcodeJobsQueued += 1;
+      });
+    }
 
-    emitChatEvent(chatId, {
-      type: "chat_message",
+    if (shouldTranscodeVideos && hasVideoFiles && transcodeJobsQueued > 0) {
+      // Only show pending-conversion videos to the uploader.
+      emitSseEvent(user.username, {
+        type: "chat_message",
+        chatId,
+        messageId: Number(messageId),
+        username: user.username,
+      });
+    } else {
+      emitChatEvent(chatId, {
+        type: "chat_message",
+        chatId,
+        messageId: Number(messageId),
+        username: user.username,
+      });
+    }
+    debugLog("api:messages/upload:done", {
       chatId,
       messageId: Number(messageId),
-      username: user.username,
+      fileCount: normalizedFiles.length,
     });
 
     return res.json({ id: Number(messageId) });
   } catch (error) {
     removeUploadedFiles(uploadedFiles);
+    debugLog("api:messages/upload:error", {
+      error: String(error?.message || error),
+    });
     return res.status(400).json({ error: error.message || "Unable to upload files." });
   }
 });
@@ -1568,6 +2076,12 @@ app.post("/api/messages", (req, res) => {
   if (!id) {
     return res.status(500).json({ error: "Unable to create message." });
   }
+  debugLog("api:messages/send", {
+    chatId: Number(chatId),
+    username: user.username,
+    messageId: Number(id),
+    bodyLength: String(body || "").length,
+  });
   emitChatEvent(Number(chatId), {
     type: "chat_message",
     chatId: Number(chatId),

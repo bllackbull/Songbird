@@ -248,23 +248,23 @@ export function listChatsForUser(userId) {
   return getAll(
     `
     SELECT c.id, c.name, c.type,
-      (SELECT id FROM chat_messages WHERE chat_id = c.id ORDER BY julianday(created_at) DESC, id DESC LIMIT 1) AS last_message_id,
-      (SELECT body FROM chat_messages WHERE chat_id = c.id ORDER BY julianday(created_at) DESC, id DESC LIMIT 1) AS last_message,
-      (SELECT created_at FROM chat_messages WHERE chat_id = c.id ORDER BY julianday(created_at) DESC, id DESC LIMIT 1) AS last_time,
+      (SELECT id FROM chat_messages WHERE chat_id = c.id ORDER BY id DESC LIMIT 1) AS last_message_id,
+      (SELECT body FROM chat_messages WHERE chat_id = c.id ORDER BY id DESC LIMIT 1) AS last_message,
+      (SELECT created_at FROM chat_messages WHERE chat_id = c.id ORDER BY id DESC LIMIT 1) AS last_time,
       (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) AS message_count,
-      (SELECT user_id FROM chat_messages WHERE chat_id = c.id ORDER BY julianday(created_at) DESC, id DESC LIMIT 1) AS last_sender_id,
-      (SELECT users.username FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id ORDER BY julianday(chat_messages.created_at) DESC, chat_messages.id DESC LIMIT 1) AS last_sender_username,
-      (SELECT users.nickname FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id ORDER BY julianday(chat_messages.created_at) DESC, chat_messages.id DESC LIMIT 1) AS last_sender_nickname,
-      (SELECT users.avatar_url FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id ORDER BY julianday(chat_messages.created_at) DESC, chat_messages.id DESC LIMIT 1) AS last_sender_avatar_url,
-      (SELECT read_at FROM chat_messages WHERE chat_id = c.id ORDER BY julianday(created_at) DESC, id DESC LIMIT 1) AS last_message_read_at,
-      (SELECT read_by_user_id FROM chat_messages WHERE chat_id = c.id ORDER BY julianday(created_at) DESC, id DESC LIMIT 1) AS last_message_read_by_user_id,
+      (SELECT user_id FROM chat_messages WHERE chat_id = c.id ORDER BY id DESC LIMIT 1) AS last_sender_id,
+      (SELECT users.username FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id ORDER BY chat_messages.id DESC LIMIT 1) AS last_sender_username,
+      (SELECT users.nickname FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id ORDER BY chat_messages.id DESC LIMIT 1) AS last_sender_nickname,
+      (SELECT users.avatar_url FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id ORDER BY chat_messages.id DESC LIMIT 1) AS last_sender_avatar_url,
+      (SELECT read_at FROM chat_messages WHERE chat_id = c.id ORDER BY id DESC LIMIT 1) AS last_message_read_at,
+      (SELECT read_by_user_id FROM chat_messages WHERE chat_id = c.id ORDER BY id DESC LIMIT 1) AS last_message_read_by_user_id,
       (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id AND user_id != ? AND read_at IS NULL) AS unread_count
     FROM chats c
     JOIN chat_members m ON m.chat_id = c.id
     LEFT JOIN hidden_chats h ON h.chat_id = c.id AND h.user_id = m.user_id
     WHERE m.user_id = ?
       AND h.chat_id IS NULL
-    ORDER BY last_time DESC, c.created_at DESC
+    ORDER BY last_message_id DESC, c.created_at DESC
   `,
     [userId, userId]
   )
