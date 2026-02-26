@@ -1837,10 +1837,27 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         };
 
         try {
-          objectUrl = URL.createObjectURL(file);
-          video.src = objectUrl;
-        } catch (_) {
-          resolve({ width: null, height: null, durationSeconds: null });
+          if ("srcObject" in video) {
+            video.srcObject = file;
+            return;
+          }
+          reader = new FileReader();
+          reader.onload = () => {
+            const dataUrl = typeof reader?.result === "string" ? reader.result : "";
+            if (!dataUrl) {
+              resolveOnce({ width: null, height: null, durationSeconds: null });
+              cleanup();
+              return;
+            }
+            video.src = dataUrl;
+          };
+          reader.onerror = () => {
+            resolveOnce({ width: null, height: null, durationSeconds: null });
+            cleanup();
+          };
+          reader.readAsDataURL(file);
+        } catch {
+          resolveOnce({ width: null, height: null, durationSeconds: null });
           cleanup();
         }
       });
