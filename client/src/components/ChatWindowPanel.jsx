@@ -56,7 +56,9 @@ export default function ChatWindowPanel({
   onClearPendingUploads,
   onUserScrollIntent,
   fileUploadEnabled = true,
+  fileUploadInProgress = false,
 }) {
+  const VIDEO_POSTER_CACHE_KEY = "chat-video-posters-v2";
   const [isDesktop, setIsDesktop] = useState(
     typeof window !== "undefined" ? window.matchMedia("(min-width: 768px)").matches : false,
   );
@@ -70,7 +72,17 @@ export default function ChatWindowPanel({
   const urlPattern = /((?:https?:\/\/|www\.)[^\s<]+)/gi;
   const hasUrlPattern = /(?:https?:\/\/|www\.)[^\s<]+/i;
   const isUrlPattern = /^(?:https?:\/\/|www\.)[^\s<]+$/i;
-  const [loadedMediaThumbs, setLoadedMediaThumbs] = useState(() => new Set());
+  const [loadedMediaThumbs, setLoadedMediaThumbs] = useState(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      const raw = window.sessionStorage.getItem("chat-media-thumbs");
+      const parsed = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(parsed)) return new Set();
+      return new Set(parsed.map((item) => String(item)));
+    } catch (_) {
+      return new Set();
+    }
+  });
   const [focusedMedia, setFocusedMedia] = useState(null);
   const [focusVisible, setFocusVisible] = useState(false);
   const touchStartXRef = useRef(0);
@@ -88,15 +100,27 @@ export default function ChatWindowPanel({
   const focusedVideoHintTimerRef = useRef(null);
   const [showUploadMenu, setShowUploadMenu] = useState(false);
   const [mediaAspectByKey, setMediaAspectByKey] = useState(() => ({}));
+  const [videoPosterByUrl, setVideoPosterByUrl] = useState(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const raw = window.sessionStorage.getItem(VIDEO_POSTER_CACHE_KEY);
+      const parsed = raw ? JSON.parse(raw) : {};
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (_) {
+      return {};
+    }
+  });
   const [focusedVideoPlaying, setFocusedVideoPlaying] = useState(false);
   const [focusedVideoMuted, setFocusedVideoMuted] = useState(false);
   const [focusedVideoTime, setFocusedVideoTime] = useState(0);
   const [focusedVideoDuration, setFocusedVideoDuration] = useState(0);
   const [focusedVideoHint, setFocusedVideoHint] = useState(null);
+  const [focusedMediaLoaded, setFocusedMediaLoaded] = useState(false);
   const [focusedVideoDecodeIssue, setFocusedVideoDecodeIssue] = useState("");
   const [focusNowMs, setFocusNowMs] = useState(Date.now());
   const [floatingDay, setFloatingDay] = useState({ key: "", label: "" });
   const [isTimelineScrollable, setIsTimelineScrollable] = useState(false);
+  const uploadBusy = !fileUploadEnabled || fileUploadInProgress;
   const floatingChipRef = useRef(null);
   const floatingDayLockUntilRef = useRef(0);
   const floatingDayLockByClickRef = useRef(false);
@@ -229,7 +253,7 @@ export default function ChatWindowPanel({
   }, [onUserScrollIntent]);
 
   useEffect(() => {
-    if (isDesktop || !activeChatId || !pendingUploadFiles?.length) return;
+    if (!activeChatId || !pendingUploadFiles?.length) return;
     const scrollToBottomInstant = () => {
       const container = chatScrollRef?.current;
       if (!container) return;
@@ -237,7 +261,7 @@ export default function ChatWindowPanel({
     };
     const raf = requestAnimationFrame(scrollToBottomInstant);
     return () => cancelAnimationFrame(raf);
-  }, [isDesktop, activeChatId, pendingUploadFiles?.length, messages.length, chatScrollRef]);
+  }, [activeChatId, pendingUploadFiles?.length, messages.length, chatScrollRef]);
 
   useEffect(() => {
     if (!activeChatId) {
@@ -298,6 +322,11 @@ export default function ChatWindowPanel({
     document.addEventListener("mousedown", handleOutside);
     return () => document.removeEventListener("mousedown", handleOutside);
   }, [showUploadMenu]);
+
+  useEffect(() => {
+    if (!uploadBusy) return;
+    setShowUploadMenu(false);
+  }, [uploadBusy]);
 
   useEffect(() => {
     setFocusedMedia(null);
@@ -415,7 +444,7 @@ export default function ChatWindowPanel({
       Array.isArray(msg._files) &&
       msg._files.length > 0 &&
       Number(msg._uploadProgress ?? 100) < 100;
-    const isSending = msg._delivery === "sending" || hasUploadInProgress;
+    const isSending = msg._delivery === "sending" || hasUploadInProgress || Boolean(msg._processingPending);
     const isFailed = msg._delivery === "failed";
     const dayLabel = getMessageDayLabel(msg);
 
@@ -637,7 +666,6 @@ export default function ChatWindowPanel({
   };
 
   const cacheMediaAspectRatio = (file, width, height) => {
-    if (isMobileTouchDevice) return;
     const w = Number(width);
     const h = Number(height);
     if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return;
@@ -647,6 +675,33 @@ export default function ChatWindowPanel({
       if (prev[key] === ratio) return prev;
       return { ...prev, [key]: ratio };
     });
+  };
+
+  const getFocusAspectRatio = () => {
+    const width = Number(focusedMedia?.width);
+    const height = Number(focusedMedia?.height);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      return focusedMedia?.type === "video" ? 16 / 9 : 1;
+    }
+    const ratio = width / height;
+    return Math.min(2.4, Math.max(0.42, ratio));
+  };
+  const getFocusFrameStyle = () => {
+    const ratio = getFocusAspectRatio();
+    if (isDesktop) {
+      return {
+        aspectRatio: `${ratio}`,
+        width: `min(92vw, ${Math.max(42, Math.round(78 * ratio))}vh)`,
+        maxWidth: "92vw",
+        maxHeight: "78vh",
+      };
+    }
+    return {
+      aspectRatio: `${ratio}`,
+      width: `min(92vw, ${Math.max(44, Math.round(62 * ratio))}vh)`,
+      maxWidth: "92vw",
+      maxHeight: "calc(100vh - 13rem)",
+    };
   };
 
   const formatFileSize = (sizeBytes) => {
@@ -660,6 +715,43 @@ export default function ChatWindowPanel({
     return `${Math.max(1, Math.round(bytes / kb))} KB`;
   };
 
+  const cacheVideoPoster = (videoUrl, videoEl) => {
+    if (!videoUrl || !videoEl || videoPosterByUrl[videoUrl]) return;
+    try {
+      if (Number(videoEl.readyState || 0) < 2) return;
+      const sourceWidth = Number(videoEl.videoWidth || 0);
+      const sourceHeight = Number(videoEl.videoHeight || 0);
+      if (sourceWidth <= 0 || sourceHeight <= 0) return;
+      const maxWidth = 320;
+      const scale = Math.min(1, maxWidth / sourceWidth);
+      const targetWidth = Math.max(1, Math.round(sourceWidth * scale));
+      const targetHeight = Math.max(1, Math.round(sourceHeight * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(videoEl, 0, 0, targetWidth, targetHeight);
+      const posterDataUrl = canvas.toDataURL("image/jpeg", 0.62);
+      setVideoPosterByUrl((prev) => {
+        if (prev[videoUrl]) return prev;
+        const next = { ...prev, [videoUrl]: posterDataUrl };
+        if (typeof window !== "undefined") {
+          try {
+            const compact = Object.fromEntries(Object.entries(next).slice(-80));
+            window.sessionStorage.setItem(VIDEO_POSTER_CACHE_KEY, JSON.stringify(compact));
+            return compact;
+          } catch (_) {
+            return prev;
+          }
+        }
+        return next;
+      });
+    } catch (_) {
+      // no-op
+    }
+  };
+
   const renderMessageFiles = (files = []) => {
     if (!files.length) return null;
     const markMediaThumbLoaded = (thumbKey) => {
@@ -667,24 +759,49 @@ export default function ChatWindowPanel({
         if (prev.has(thumbKey)) return prev;
         const next = new Set(prev);
         next.add(thumbKey);
+        if (typeof window !== "undefined") {
+          try {
+            const persisted = Array.from(next);
+            window.sessionStorage.setItem(
+              "chat-media-thumbs",
+              JSON.stringify(persisted.slice(-250)),
+            );
+          } catch (_) {
+            // ignore cache failures
+          }
+        }
         return next;
       });
       onMessageMediaLoaded?.();
     };
-    const handleVideoThumbReady = (event, thumbKey) => {
-      handleVideoThumbLoadedMetadata(event);
+  const handleVideoThumbReady = (event, thumbKey, videoUrl) => {
       const video = event.currentTarget;
       if (!video) return;
+      cacheVideoPoster(videoUrl, video);
       // Mobile Safari sometimes paints first frame only after a decode/play step.
       if (!isDesktop) {
         const playPromise = video.play?.();
         if (playPromise && typeof playPromise.then === "function") {
           playPromise
             .then(() => {
+              const duration = Number(video.duration || 0);
+              if (Number.isFinite(duration) && duration > 0) {
+                const target = Math.min(0.16, Math.max(duration * 0.02, 0.02));
+                if (video.currentTime < target) {
+                  try {
+                    video.currentTime = target;
+                  } catch (_) {
+                    // no-op
+                  }
+                }
+              }
               video.pause?.();
+              cacheVideoPoster(videoUrl, video);
               markMediaThumbLoaded(thumbKey);
             })
             .catch(() => {
+              // Even when autoplay is blocked, try to finalize poster from current decoded frame.
+              cacheVideoPoster(videoUrl, video);
               markMediaThumbLoaded(thumbKey);
             });
           return;
@@ -698,9 +815,14 @@ export default function ChatWindowPanel({
           const renderType = getFileRenderType(file);
           const isImage = renderType === "image";
           const isVideo = renderType === "video";
+          const videoUrl = String(file?.url || "");
+          const isTranscodedOutput = videoUrl.includes("-h264-");
+          const isProcessingVideo =
+            isVideo && file?.processing === true && !isTranscodedOutput;
           const key = file.id || `${file.name}-${file.sizeBytes || 0}`;
           const thumbKey = `thumb-${key}`;
-          const thumbLoaded = loadedMediaThumbs.has(thumbKey);
+          const cachedPoster = isVideo && file.url ? videoPosterByUrl[file.url] : "";
+          const thumbLoaded = loadedMediaThumbs.has(thumbKey) || Boolean(cachedPoster);
           const mediaAspectRatio = getMediaAspectRatio(file);
           const mediaFrameStyle = mediaAspectRatio
             ? { aspectRatio: `${mediaAspectRatio}` }
@@ -731,6 +853,8 @@ export default function ChatWindowPanel({
                     url: file.url,
                     name: file.name,
                     type: "image",
+                    width: file.width,
+                    height: file.height,
                     expiresAt: file.expiresAt || null,
                   })
                 }
@@ -748,8 +872,9 @@ export default function ChatWindowPanel({
                       );
                       markMediaThumbLoaded(thumbKey);
                     }}
-                    loading="lazy"
-                    decoding="async"
+                    loading={isDesktop ? "lazy" : "eager"}
+                    decoding={isDesktop ? "async" : "sync"}
+                    fetchPriority={!isDesktop && fileIndex === 0 ? "high" : "auto"}
                     className={imageClass}
                   />
                   {isDesktop && !thumbLoaded ? (
@@ -762,6 +887,18 @@ export default function ChatWindowPanel({
               </button>
             );
           }
+          if (isProcessingVideo) {
+            return (
+              <div
+                key={key}
+                className="relative block w-full overflow-hidden rounded-xl border border-emerald-200/70 bg-slate-200/70 dark:border-emerald-500/30 dark:bg-slate-800/70"
+              >
+                <div className={videoFrameClass} style={mediaFrameStyle}>
+                  <div className="absolute inset-0 animate-pulse bg-slate-200/80 dark:bg-slate-800/80" />
+                </div>
+              </div>
+            );
+          }
           if (isVideo && file.url) {
             return (
               <button
@@ -772,6 +909,9 @@ export default function ChatWindowPanel({
                     url: file.url,
                     name: file.name,
                     type: "video",
+                    processing: Boolean(file.processing),
+                    width: file.width,
+                    height: file.height,
                     expiresAt: file.expiresAt || null,
                   })
                 }
@@ -779,27 +919,49 @@ export default function ChatWindowPanel({
                 aria-label={`Open video ${file.name || ""}`.trim()}
               >
                 <div className={videoFrameClass} style={mediaFrameStyle}>
-                  <video
-                    muted
-                    playsInline
-                    preload={isDesktop ? (fileIndex < 2 ? "auto" : "metadata") : "auto"}
-                    onLoadedMetadata={(event) => {
-                      cacheMediaAspectRatio(
-                        file,
-                        event.currentTarget?.videoWidth,
-                        event.currentTarget?.videoHeight,
-                      );
-                      handleVideoThumbReady(event, thumbKey);
-                    }}
-                    onLoadedData={(event) => handleVideoThumbReady(event, thumbKey)}
-                    src={file.url}
-                    className={videoClass}
-                  />
-                  {isDesktop && !thumbLoaded ? (
-                    <div className="pointer-events-none absolute inset-0 animate-pulse bg-slate-800/80" />
+                  {cachedPoster ? (
+                    <img
+                      src={cachedPoster}
+                      alt={file.name || "video thumbnail"}
+                      onLoad={() => markMediaThumbLoaded(thumbKey)}
+                      className={videoClass}
+                    />
+                  ) : (
+                    <video
+                      key={file.url}
+                      autoPlay={!isDesktop}
+                      loop={!isDesktop}
+                      muted
+                      playsInline
+                      preload={isDesktop ? "auto" : "auto"}
+                      poster={videoPosterByUrl[file.url] || undefined}
+                      onLoadedMetadata={(event) => {
+                        cacheMediaAspectRatio(
+                          file,
+                          event.currentTarget?.videoWidth,
+                          event.currentTarget?.videoHeight,
+                        );
+                        handleVideoThumbLoadedMetadata(event);
+                        if (!isDesktop) {
+                          markMediaThumbLoaded(thumbKey);
+                        }
+                      }}
+                      onCanPlay={(event) => handleVideoThumbReady(event, thumbKey, file.url)}
+                      onLoadedData={(event) => handleVideoThumbReady(event, thumbKey, file.url)}
+                      onError={() => {
+                        if (!isDesktop) {
+                          markMediaThumbLoaded(thumbKey);
+                        }
+                      }}
+                      src={file.url}
+                      className={videoClass}
+                    />
+                  )}
+                  {!thumbLoaded && isDesktop ? (
+                    <div className="pointer-events-none absolute inset-0 animate-pulse bg-slate-200/80 dark:bg-slate-800/80" />
                   ) : null}
                   {!mediaAspectRatio ? (
-                    <div className="pointer-events-none w-full animate-pulse bg-slate-800/80" style={{ height: "180px" }} />
+                    <div className="pointer-events-none w-full animate-pulse bg-slate-200/80 dark:bg-slate-800/80" style={{ height: "180px" }} />
                   ) : null}
                 </div>
                 <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -888,6 +1050,7 @@ export default function ChatWindowPanel({
     if (!video) return;
     setFocusedVideoDuration(video.duration || 0);
     setFocusedVideoTime(video.currentTime || 0);
+    setFocusedMediaLoaded(true);
     if (Number(video.videoWidth || 0) <= 0 && Number(video.videoHeight || 0) <= 0) {
       setFocusedVideoDecodeIssue(
         "Video track could not be decoded in this browser. Audio may still play.",
@@ -909,6 +1072,7 @@ export default function ChatWindowPanel({
     if (!video) return;
     setFocusedVideoDuration(video.duration || 0);
     setFocusedVideoTime(video.currentTime || 0);
+    setFocusedMediaLoaded(true);
     if (Number(video.videoWidth || 0) <= 0 && Number(video.videoHeight || 0) <= 0) {
       setFocusedVideoDecodeIssue(
         "Video track could not be decoded in this browser. Audio may still play.",
@@ -946,6 +1110,7 @@ export default function ChatWindowPanel({
   const handleVideoThumbLoadedMetadata = (event) => {
     const video = event.currentTarget;
     try {
+      if (!isMobileTouchDevice) return;
       const duration = Number(video.duration || 0);
       if (!Number.isFinite(duration) || duration <= 0) return;
       // iOS/Safari can render blank/solid thumbnail at t=0.
@@ -995,7 +1160,6 @@ export default function ChatWindowPanel({
     () => getExpiryWarning(focusedMedia?.expiresAt),
     [getExpiryWarning, focusedMedia?.expiresAt],
   );
-
   const openFocusMedia = (media) => {
     if (focusUnmountTimerRef.current) {
       clearTimeout(focusUnmountTimerRef.current);
@@ -1006,11 +1170,13 @@ export default function ChatWindowPanel({
       focusEnterRafRef.current = null;
     }
     setFocusedMedia(media);
+    setFocusedMediaLoaded(false);
     if (media?.type === "video") {
       setFocusedVideoPlaying(false);
       setFocusedVideoTime(0);
       setFocusedVideoDuration(0);
       setFocusedVideoMuted(false);
+      setFocusedVideoHint(null);
     }
     setFocusedVideoDecodeIssue("");
     setFocusVisible(false);
@@ -1365,7 +1531,7 @@ export default function ChatWindowPanel({
                       <button
                         type="button"
                         onClick={() => onRemovePendingUpload(item.id)}
-                        className="absolute right-1 top-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 bg-white/90 text-slate-600 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300"
+                        className="absolute right-1 top-1 z-20 inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 bg-white/90 text-slate-600 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300"
                         aria-label="Remove file"
                       >
                         <Close size={11} />
@@ -1384,8 +1550,10 @@ export default function ChatWindowPanel({
                             src={item.previewUrl}
                             muted
                             playsInline
-                            preload="metadata"
+                            preload="auto"
                             onLoadedMetadata={handleVideoThumbLoadedMetadata}
+                            onLoadedData={handleVideoThumbLoadedMetadata}
+                            onCanPlay={handleVideoThumbLoadedMetadata}
                             className="h-24 w-auto max-w-full rounded-md object-contain"
                           />
                           <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -1427,10 +1595,13 @@ export default function ChatWindowPanel({
             <div className="relative" ref={uploadMenuRef}>
               <button
                 type="button"
-                disabled={!fileUploadEnabled}
-                onClick={() => setShowUploadMenu((prev) => !prev)}
+                disabled={uploadBusy}
+                onClick={() => {
+                  if (uploadBusy) return;
+                  setShowUploadMenu((prev) => !prev);
+                }}
                 className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-transparent bg-transparent transition ${
-                  fileUploadEnabled
+                  !uploadBusy
                     ? "text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
                     : "cursor-not-allowed text-slate-400 dark:text-slate-500"
                 }`}
@@ -1438,7 +1609,7 @@ export default function ChatWindowPanel({
               >
                 <Paperclip size={18} className="icon-anim-sway" />
               </button>
-              {showUploadMenu && fileUploadEnabled ? (
+              {showUploadMenu && !uploadBusy ? (
                 <div className="absolute bottom-12 left-0 z-40 w-44 rounded-xl border border-emerald-200/80 bg-white p-1.5 shadow-lg dark:border-emerald-500/30 dark:bg-slate-950">
                   <button
                     type="button"
@@ -1470,7 +1641,7 @@ export default function ChatWindowPanel({
                 accept="image/*,video/*"
                 multiple
                 className="sr-only"
-                disabled={!fileUploadEnabled}
+                disabled={uploadBusy}
                 onChange={(event) => {
                   onUploadFilesSelected(event.target.files, "media", pendingUploadType === "media");
                   event.target.value = "";
@@ -1481,7 +1652,7 @@ export default function ChatWindowPanel({
                 type="file"
                 multiple
                 className="sr-only"
-                disabled={!fileUploadEnabled}
+                disabled={uploadBusy}
                 onChange={(event) => {
                   onUploadFilesSelected(event.target.files, "document", pendingUploadType === "document");
                   event.target.value = "";
@@ -1492,6 +1663,12 @@ export default function ChatWindowPanel({
               name="message"
               type="text"
               placeholder="Type a message"
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+                if (!pendingUploadFiles?.length) return;
+                event.preventDefault();
+                event.currentTarget.form?.requestSubmit();
+              }}
               className="min-w-0 flex-1 rounded-2xl border border-emerald-200 bg-white px-4 py-2 text-base text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
             />
             <button
@@ -1529,7 +1706,7 @@ export default function ChatWindowPanel({
 
       {focusedMedia ? (
         <div
-          className={`fixed inset-0 z-[70] transition-opacity duration-200 ${isDesktop ? "bg-black/80" : "bg-black"} ${focusVisible ? "opacity-100" : "opacity-0"}`}
+          className={`fixed inset-0 z-[200] transition-opacity duration-200 ${isDesktop ? "bg-black/80" : "bg-black"} ${focusVisible ? "opacity-100" : "opacity-0"}`}
           onClick={() => {
             if (isDesktop) {
               closeFocusMedia();
@@ -1584,7 +1761,17 @@ export default function ChatWindowPanel({
             </>
           ) : null}
           <div
-            className="flex h-full items-center justify-center p-3 md:p-6"
+            className={`flex h-full justify-center p-3 md:p-6 ${
+              isDesktop ? "items-center" : "items-center"
+            }`}
+            style={
+              isDesktop
+                ? undefined
+                : {
+                    paddingTop: "max(4.25rem, calc(env(safe-area-inset-top) + 3rem))",
+                    paddingBottom: "max(7.5rem, calc(env(safe-area-inset-bottom) + 6.5rem))",
+                  }
+            }
             onClick={(event) => {
               if (!isDesktop) {
                 event.stopPropagation();
@@ -1604,7 +1791,7 @@ export default function ChatWindowPanel({
               style={{
                 width: "fit-content",
                 maxWidth: "92vw",
-                maxHeight: isDesktop ? "min(86vh, 820px)" : "calc(100vh - 1.5rem)",
+                maxHeight: isDesktop ? "min(86vh, 820px)" : "calc(100vh - 13rem)",
               }}
             >
               {focusedMedia.type === "video" ? (
@@ -1614,20 +1801,34 @@ export default function ChatWindowPanel({
                   onTouchStart={isMobileTouchDevice && !isDesktop ? handleFocusTouchStart : undefined}
                   onTouchEnd={isMobileTouchDevice && !isDesktop ? handleFocusTouchEnd : undefined}
                 >
-                  <video
-                    key={focusedMedia.url}
-                    ref={focusedVideoRef}
-                    autoPlay
-                    playsInline
-                    preload="auto"
-                    src={focusedMedia.url}
-                    onClick={toggleFocusedVideoPlay}
-                    onLoadedMetadata={handleFocusedVideoLoadedMetadata}
-                    onLoadedData={handleFocusedVideoLoadedData}
-                    onCanPlay={handleFocusedVideoCanPlay}
-                    onError={handleFocusedVideoError}
-                    className="mx-auto block max-h-[72vh] w-auto max-w-full cursor-pointer rounded-2xl bg-transparent object-contain md:max-h-[78vh] md:[transform:translateZ(0)] md:[backface-visibility:hidden]"
-                  />
+                  {focusedMedia.processing ? (
+                    <div
+                      className="mx-auto flex items-center justify-center overflow-hidden rounded-2xl bg-slate-200/80 dark:bg-slate-800/80"
+                      style={getFocusFrameStyle()}
+                    >
+                      <div className="h-full w-full animate-pulse rounded-2xl bg-slate-200/80 dark:bg-slate-800/80" />
+                    </div>
+                  ) : (
+                    <div className="relative mx-auto flex w-fit max-w-full items-center justify-center">
+                      <video
+                        key={focusedMedia.url}
+                        ref={focusedVideoRef}
+                        autoPlay
+                        playsInline
+                        preload="auto"
+                        src={focusedMedia.url}
+                        onClick={toggleFocusedVideoPlay}
+                        onLoadedMetadata={handleFocusedVideoLoadedMetadata}
+                        onLoadedData={handleFocusedVideoLoadedData}
+                        onCanPlay={handleFocusedVideoCanPlay}
+                        onError={handleFocusedVideoError}
+                        className="mx-auto block max-h-[72vh] w-auto max-w-full cursor-pointer rounded-2xl bg-transparent object-contain md:max-h-[78vh] md:[transform:translateZ(0)] md:[backface-visibility:hidden]"
+                      />
+                      {!focusedMediaLoaded ? (
+                        <div className="pointer-events-none absolute inset-0 animate-pulse rounded-2xl bg-slate-200/80 dark:bg-slate-800/80" />
+                      ) : null}
+                    </div>
+                  )}
                   {focusedVideoHint ? (
                     <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                       <span className="inline-flex h-14 w-14 items-center justify-center rounded-full border border-white/40 bg-black/45 text-white">
@@ -1639,48 +1840,10 @@ export default function ChatWindowPanel({
                       </span>
                     </div>
                   ) : null}
-                  <div className="mt-2 w-full rounded-xl bg-black/70 p-2 text-white">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={toggleFocusedVideoPlay}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/30 bg-white/10"
-                        aria-label={focusedVideoPlaying ? "Pause" : "Play"}
-                      >
-                        {focusedVideoPlaying ? <Pause size={15} /> : <Play size={15} />}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={toggleFocusedVideoMute}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/30 bg-white/10"
-                        aria-label={focusedVideoMuted ? "Unmute" : "Mute"}
-                      >
-                        {focusedVideoMuted ? <VolumeX size={15} /> : <Volume2 size={15} />}
-                      </button>
-                      <input
-                        type="range"
-                        min={0}
-                        max={Math.max(focusedVideoDuration, 0)}
-                        step={0.1}
-                        value={Math.min(focusedVideoTime, focusedVideoDuration || 0)}
-                        onChange={(event) => seekFocusedVideo(event.target.value)}
-                        className="h-1.5 flex-1 accent-emerald-400"
-                        aria-label="Seek video"
-                      />
-                      <span className="w-20 text-right text-[11px]">
-                        {formatSeconds(focusedVideoTime)} / {formatSeconds(focusedVideoDuration)}
-                      </span>
-                    </div>
-                  </div>
-                  {focusedVideoDecodeIssue ? (
-                    <div className="mt-2 w-full rounded-xl border border-amber-300/60 bg-amber-500/20 px-3 py-2 text-xs text-amber-100">
-                      {focusedVideoDecodeIssue}
-                    </div>
-                  ) : null}
                 </div>
               ) : (
                 <div
-                  className="mx-auto flex w-fit max-w-full flex-col items-center"
+                  className="relative mx-auto flex w-fit max-w-full flex-col items-center"
                   onClick={(event) => event.stopPropagation()}
                   onTouchStart={isMobileTouchDevice && !isDesktop ? handleFocusTouchStart : undefined}
                   onTouchEnd={isMobileTouchDevice && !isDesktop ? handleFocusTouchEnd : undefined}
@@ -1688,26 +1851,99 @@ export default function ChatWindowPanel({
                   <img
                     src={focusedMedia.url}
                     alt={focusedMedia.name || "media"}
-                    className="mx-auto max-h-[78vh] w-auto max-w-full rounded-2xl object-contain"
+                    onLoad={() => {
+                      setFocusedMediaLoaded(true);
+                    }}
+                    className={`mx-auto max-h-[78vh] w-auto max-w-full rounded-2xl object-contain transition-opacity duration-150 ${
+                      focusedMediaLoaded ? "opacity-100" : "opacity-0"
+                    }`}
                   />
+                  {!focusedMediaLoaded ? (
+                    <div
+                      className="absolute inset-0 min-h-[240px] w-[min(92vw,920px)] animate-pulse rounded-2xl bg-slate-200/80 dark:bg-slate-800/80"
+                      style={{
+                        aspectRatio: `${getFocusAspectRatio()}`,
+                      }}
+                    />
+                  ) : null}
                 </div>
               )}
-              {focusExpiryWarning ? (
-                <div className="mt-2 flex justify-center" onClick={(event) => event.stopPropagation()}>
+            </div>
+          </div>
+          {focusedMedia?.type === "video" ? (
+            <div
+              className="absolute inset-x-0 bottom-0 z-20 px-4 pb-4 md:px-6"
+              style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              {focusedVideoDecodeIssue ? (
+                <div className="mb-2 flex justify-center">
                   <div
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold leading-none ${
-                      focusExpiryWarning.danger
-                        ? "border-rose-300 bg-rose-100 text-rose-700 dark:border-rose-500 dark:bg-rose-900 dark:text-rose-100"
-                        : "border-white/20 bg-black/65 text-white"
-                    }`}
+                    className="rounded-xl border border-amber-300/60 bg-amber-500/20 px-3 py-2 text-center text-xs text-amber-100"
+                    style={{ width: "min(92vw, 760px)" }}
                   >
-                    <AlertCircle className="h-[13px] w-[13px] shrink-0" />
-                    <span className="leading-none">{focusExpiryWarning.text}</span>
+                    {focusedVideoDecodeIssue}
                   </div>
                 </div>
               ) : null}
+              <div
+                className="mx-auto rounded-xl bg-black/70 p-2 text-white"
+                style={{ width: "min(92vw, 760px)" }}
+              >
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={toggleFocusedVideoPlay}
+                    disabled={Boolean(focusedMedia.processing) || !focusedMediaLoaded}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/30 bg-white/10"
+                    aria-label={focusedVideoPlaying ? "Pause" : "Play"}
+                  >
+                    {focusedVideoPlaying ? <Pause size={15} /> : <Play size={15} />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={toggleFocusedVideoMute}
+                    disabled={Boolean(focusedMedia.processing) || !focusedMediaLoaded}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/30 bg-white/10"
+                    aria-label={focusedVideoMuted ? "Unmute" : "Mute"}
+                  >
+                    {focusedVideoMuted ? <VolumeX size={15} /> : <Volume2 size={15} />}
+                  </button>
+                  <input
+                    type="range"
+                    min={0}
+                    max={Math.max(focusedVideoDuration, 0)}
+                    step={0.1}
+                    value={Math.min(focusedVideoTime, focusedVideoDuration || 0)}
+                    onChange={(event) => seekFocusedVideo(event.target.value)}
+                    disabled={Boolean(focusedMedia.processing) || !focusedMediaLoaded}
+                    className="h-1.5 flex-1 accent-emerald-400"
+                    aria-label="Seek video"
+                  />
+                  <span className="w-20 text-right text-[11px]">
+                    {formatSeconds(focusedVideoTime)} / {formatSeconds(focusedVideoDuration)}
+                  </span>
+                </div>
+              </div>
             </div>
-          </div>
+          ) : null}
+          {focusExpiryWarning ? (
+            <div
+              className="absolute inset-x-0 bottom-0 z-10 flex justify-center px-4 pb-16 md:px-6"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold leading-none ${
+                  focusExpiryWarning.danger
+                    ? "border-rose-300 bg-rose-100 text-rose-700 dark:border-rose-500 dark:bg-rose-900 dark:text-rose-100"
+                    : "border-white/20 bg-black/65 text-white"
+                }`}
+              >
+                <AlertCircle className="h-[13px] w-[13px] shrink-0" />
+                <span className="leading-none">{focusExpiryWarning.text}</span>
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

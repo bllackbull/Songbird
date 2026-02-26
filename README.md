@@ -28,112 +28,10 @@ If you use Docker/Compose, you do not need a `systemd` unit for the Songbird Nod
 **Prerequisites (tested on Ubuntu 22.04+):**
 
 - An Ubuntu server with sudo access
-- A domain name pointing to your server's public IP (Recommended)
-
-## Deployment Script
-
-If you want the manual install flow fully automated, use:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/bllackbull/Songbird/main/scripts/install.sh | bash
-```
-
-Later access the script globally with:
-
-```bash
-songbird-deploy
-```
-
-The script currently supports Debian/Ubuntu and opens an interactive menu:
-
-1. Install Songbird
-2. Update Songbird
-3. Edit Settings (`.env`) and apply changes (client rebuild + service reloads)
-4. Remove Songbird
-5. Install global command (`songbird-deploy`)
-
-Install flow prompts for:
-
-- Domain vs IP deployment
-- Domain name (and SSL via Certbot) when domain mode is selected
-- Default or custom app `PORT`
-- `FILE_UPLOAD` enable/disable
-- `MESSAGE_FILE_RETENTION` days
-- Optional advanced settings edit
-
-## Option A: Docker + Compose (recommended)
-
-### 1. System Setup
-
-Install these packages:
-
-```bash
-sudo apt update
-sudo apt install -y git curl build-essential nginx python3-certbot-nginx ffmpeg ca-certificates gnupg lsb-release
-```
-
-Add Docker official GPG key:
-
-```bash
-sudo mkdir -p /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-```
-
-Add Docker apt repository:
-
-```bash
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-  $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-```
-
-Install Docker Engine + Compose plugin:
-
-```bash
-sudo apt update
-sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-```
-
-Optional: run Docker without `sudo`:
-
-```bash
-sudo usermod -aG docker $USER
-newgrp docker
-```
-
-Optional: Verify Installation:
-
-```bash
-docker --version
-docker compose version
-docker run hello-world
-```
-
-### 2. Clone repository
-
-```bash
-sudo mkdir -p /opt/songbird
-cd /opt/songbird
-git clone https://github.com/bllackbull/Songbird.git .
-```
-
-### 3. Start
-
-```bash
-cd /opt/songbird
-docker compose -f docker-compose.yaml up -d --build
-```
-
-Optional: Verify app is built successfully:
-
-```bash
-docker compose -f docker-compose.yaml ps
-docker compose -f docker-compose.yaml logs -f
-```
-
-To complete the setup, refer to the [Configure Nginx](#configure-nginx) section.
-
-## Option B: Manual Installation
+- Node.js (v18+ recommended) and `npm`
+- `nginx` and `certbot` (with `python3-certbot-nginx`)
+- `ffmpeg` (required when video upload transcoding is enabled)
+- `git`
 
 ### 1. System setup
 
@@ -142,7 +40,6 @@ Update and install required packages:
 ```bash
 sudo apt update
 sudo apt install -y git curl build-essential nginx python3-certbot-nginx ffmpeg
-```
 
 Install Node.js and npm (pick one):
 
@@ -213,10 +110,12 @@ Use this table for all configurable values:
 |---|---|---:|---|
 | `PORT` | `integer` | `5174` | API server port. Use the same value in Nginx `proxy_pass`. |
 | `APP_ENV` | `string` | `production` | Server runtime mode (`production` recommended/default). |
+| `APP_DEBUG` | `boolean` | `false` | Enable verbose server debug logs in terminal/stdout (`[app-debug]` lines for message send/upload/transcode/metadata events). |
 | `FILE_UPLOAD` | `boolean` | `true` | Enable/disable all uploads globally (chat files + avatars). |
 | `FILE_UPLOAD_MAX_SIZE` | `integer` | `26214400` | Per-file upload max size (bytes). |
 | `FILE_UPLOAD_MAX_TOTAL_SIZE` | `integer` | `78643200` | Per-message total upload size cap (bytes). |
 | `FILE_UPLOAD_MAX_FILES` | `integer` | `10` | Max uploaded files in one message. |
+| `FILE_UPLOAD_TRANSCODE_VIDEOS` | `boolean` | `true` | Convert uploaded videos to H.264/AAC MP4 and keep only the converted file. Requires `ffmpeg`. |
 | `MESSAGE_FILE_RETENTION` | `integer` | `7` | Auto-delete uploaded message files after N days (`0` disables). |
 | `CHAT_PENDING_TEXT_TIMEOUT` | `integer` | `300000` | Mark pending text message as failed after this timeout (milliseconds). |
 | `CHAT_PENDING_FILE_TIMEOUT` | `integer` | `1200000` | Mark pending file message as failed / XHR timeout for uploads (milliseconds). |
@@ -251,6 +150,8 @@ sudo systemctl restart songbird
 ```bash
 sudo systemctl reload nginx
 ```
+
+`APP_DEBUG` logs are printed by the Node server process itself (for example `npm --prefix server run dev`, `npm run dev`, or `journalctl -u songbird -f` when running via systemd).
 
 ### 5. Create systemd service for the Node server
 

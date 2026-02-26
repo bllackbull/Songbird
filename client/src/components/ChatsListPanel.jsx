@@ -1,4 +1,4 @@
-import { Check, CheckCheck, File, Image as ImageIcon, Minus, Plus, Video } from "lucide-react";
+import { Check, CheckCheck, Clock12, File, Image as ImageIcon, Minus, Plus, Video } from "lucide-react";
 import { getAvatarStyle } from "../utils/avatarColor.js";
 import { hasPersian } from "../utils/fontUtils.js";
 import { getAvatarInitials } from "../utils/avatarInitials.js";
@@ -163,7 +163,7 @@ export default function ChatsListPanel({
                               <File size={12} className="shrink-0 text-slate-500 dark:text-slate-400" />
                             ) : null}
                             <span className={`min-w-0 truncate ${hasPersian(lastPreview.text) ? "font-fa" : ""}`}>
-                              {lastPreview.text}
+                              {isOwnLastMessagePending ? "Processing..." : lastPreview.text}
                             </span>
                           </span>
                         </span>
