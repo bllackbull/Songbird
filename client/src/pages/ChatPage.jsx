@@ -120,12 +120,10 @@ const CHAT_PAGE_CONFIG = {
 
 const NEW_CHAT_SEARCH_DEBOUNCE_MS = 300;
 const MOBILE_CLOSE_ANIMATION_MS = 340;
-const SCROLL_BOTTOM_SNAP_TIMEOUT_MS = 90;
 const UPLOAD_PROGRESS_HIDE_DELAY_MS = 600;
 const CHAT_BOTTOM_THRESHOLD_PX = 120;
 const JUMP_TO_LATEST_SECOND_SNAP_DELAY_MS = 320;
 const JUMP_TO_LATEST_SECOND_SNAP_THRESHOLD_PX = 24;
-const MEDIA_LOAD_SNAP_DEBOUNCE_MS = 110;
 
 const formatBytesAsMb = (bytes) => `${Math.round(bytes / (1024 * 1024))} MB`;
 
@@ -522,7 +520,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   useEffect(() => {
     clearPendingUploads();
     setActiveUploadProgress(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeChatId]);
 
   useEffect(() => {
@@ -968,7 +965,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         const data = (() => {
           try {
             return JSON.parse(xhr.responseText || "{}");
-          } catch (_) {
+          } catch {
             return {};
           }
         })();
@@ -1177,7 +1174,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         String(file?.mimeType || "").toLowerCase().startsWith("video/"),
       );
       if (!hasVideo) return false;
-      if (Boolean(msg._processingPending)) return true;
+      if (msg._processingPending) return true;
       if (msg._awaitingServerEcho) return true;
       if (msg._delivery === "sending") return true;
       return false;
@@ -1320,7 +1317,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         };
       });
       setChats(patched);
-    } catch (_) {
+    } catch {
       // Keep sidebar usable even when polling fails.
     } finally {
       if (!options.silent) {
@@ -1796,24 +1793,34 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         video.preload = "metadata";
         video.muted = true;
         video.playsInline = true;
-        let objectUrl = "";
+        let reader = null;
+        let resolved = false;
+
+        const resolveOnce = (metadata) => {
+          if (resolved) return;
+          resolved = true;
+          resolve(metadata);
+        };
 
         const cleanup = () => {
           try {
             video.pause();
-          } catch (_) {
+          } catch {
             // no-op
           }
-          if (objectUrl) {
-            URL.revokeObjectURL(objectUrl);
-            objectUrl = "";
+          if ("srcObject" in video) {
+            video.srcObject = null;
           }
           video.removeAttribute("src");
           video.load();
+          if (reader?.readyState === FileReader.LOADING) {
+            reader.abort();
+          }
+          reader = null;
         };
 
         video.onloadedmetadata = () => {
-          resolve({
+          resolveOnce({
             width: video.videoWidth || null,
             height: video.videoHeight || null,
             durationSeconds: Number.isFinite(Number(video.duration))
@@ -1823,7 +1830,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           cleanup();
         };
         video.onerror = () => {
-          resolve({ width: null, height: null, durationSeconds: null });
+          resolveOnce({ width: null, height: null, durationSeconds: null });
           cleanup();
         };
 
@@ -2576,7 +2583,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                 profileForm={profileForm}
                 handleAvatarChange={handleAvatarChange}
                 handleAvatarRemove={handleAvatarRemove}
-                setAvatarPreview={setAvatarPreview}
                 setProfileForm={setProfileForm}
                 statusSelection={statusSelection}
                 setStatusSelection={setStatusSelection}
@@ -2731,7 +2737,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           profileForm={profileForm}
           handleAvatarChange={handleAvatarChange}
           handleAvatarRemove={handleAvatarRemove}
-          setAvatarPreview={setAvatarPreview}
           setProfileForm={setProfileForm}
           statusSelection={statusSelection}
           setStatusSelection={setStatusSelection}
@@ -2747,8 +2752,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     </div>
   );
 }
-
-
 
 
 

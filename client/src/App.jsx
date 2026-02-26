@@ -244,6 +244,17 @@ export default function App() {
         if (isMounted && nextUser) {
           setUser(nextUser)
         }
+        const data = await res.json()
+        if (isMounted && data?.username) {
+          setUser({
+            id: data.id,
+            username: data.username,
+            nickname: data.nickname || null,
+            avatarUrl: data.avatarUrl || null,
+            color: data.color || null,
+            status: data.status || 'online',
+          })
+        }
       } catch {
         if (isMounted) {
           setUser(null)
