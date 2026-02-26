@@ -461,13 +461,13 @@ If you plan to host the app at a subpath (e.g., `example.com/songbird/`) you wil
 
 ## Author
 
-- Maintainer: **@bllackbull**
+- Maintainer: @bllackbull
 
 ## Contributing
 
 - Contributions are welcome.
 - If you want to contribute, contact the maintainer first by opening an issue at: `https://github.com/bllackbull/Songbird/issues`
-- For direct coordination, reach out to **@bllackbull** on GitHub before opening a PR.
+- For direct coordination, reach out to @bllackbull on GitHub before opening a PR.
 
 ## License
 
