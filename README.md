@@ -237,6 +237,11 @@ sudo ufw enable
 - Docker logs: `docker compose -f docker-compose.yaml logs -f`
 - systemd service logs: `sudo journalctl -u songbird -f`
 - Check Nginx error logs: `/var/log/nginx/error.log`
+- If Docker build looks stuck at `RUN npm ci`, it is usually downloading dependencies. Use plain progress for visibility:
+
+```bash
+docker compose -f docker-compose.yaml build --no-cache --progress=plain
+```
 
 ## Environment Variables Configuration
 
