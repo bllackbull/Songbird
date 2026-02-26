@@ -1,4 +1,4 @@
-import { Check, CheckCheck, File, Image as ImageIcon, Minus, Plus, Video } from "lucide-react";
+import { Check, CheckCheck, Clock12, File, Image as ImageIcon, Minus, Plus, Video } from "lucide-react";
 import { getAvatarStyle } from "../utils/avatarColor.js";
 import { hasPersian } from "../utils/fontUtils.js";
 import { getAvatarInitials } from "../utils/avatarInitials.js";
@@ -118,6 +118,7 @@ export default function ChatsListPanel({
           const isOwnLastMessage =
             Boolean(conv.last_message) &&
             conv.last_sender_username === user.username;
+          const isOwnLastMessagePending = Boolean(conv._lastMessagePending) && isOwnLastMessage;
           const isOwnLastMessageSeen = Boolean(conv.last_message_read_at);
           const lastPreview = formatLastMessagePreview(conv);
           const card = (
@@ -162,7 +163,7 @@ export default function ChatsListPanel({
                               <File size={12} className="shrink-0 text-slate-500 dark:text-slate-400" />
                             ) : null}
                             <span className={`min-w-0 truncate ${hasPersian(lastPreview.text) ? "font-fa" : ""}`}>
-                              {lastPreview.text}
+                              {isOwnLastMessagePending ? "Processing..." : lastPreview.text}
                             </span>
                           </span>
                         </span>
@@ -188,12 +189,16 @@ export default function ChatsListPanel({
                     {isOwnLastMessage ? (
                       <span
                         className={`inline-flex items-center ${
-                          isOwnLastMessageSeen
+                          isOwnLastMessagePending
+                            ? "text-emerald-900/80 dark:text-emerald-50/80"
+                            : isOwnLastMessageSeen
                             ? "text-sky-400"
                             : "text-slate-500 dark:text-slate-400"
                         } -translate-y-[1px]`}
                       >
-                        {isOwnLastMessageSeen ? (
+                        {isOwnLastMessagePending ? (
+                          <Clock12 size={13} strokeWidth={2.4} aria-hidden="true" className="animate-spin" />
+                        ) : isOwnLastMessageSeen ? (
                           <CheckCheck size={13} strokeWidth={2.4} aria-hidden="true" />
                         ) : (
                           <Check size={13} strokeWidth={2.4} aria-hidden="true" />
