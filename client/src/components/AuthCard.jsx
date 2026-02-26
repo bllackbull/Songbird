@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import { AlertCircle, Eye, EyeOff, LoaderCircle, Moon, Sun } from "lucide-react";
 
 export default function AuthCard({

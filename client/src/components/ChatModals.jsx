@@ -1,4 +1,4 @@
-import { X as Close } from "lucide-react";
+﻿import { X as Close } from "lucide-react";
 import { getAvatarStyle } from "../utils/avatarColor.js";
 import { hasPersian } from "../utils/fontUtils.js";
 import { getAvatarInitials } from "../utils/avatarInitials.js";

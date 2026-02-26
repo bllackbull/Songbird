@@ -126,7 +126,6 @@ export function MobileSettingsPanel({
   profileForm,
   handleAvatarChange,
   handleAvatarRemove,
-  setAvatarPreview,
   setProfileForm,
   statusSelection,
   setStatusSelection,
@@ -416,7 +415,6 @@ export function DesktopSettingsModal({
   profileForm,
   handleAvatarChange,
   handleAvatarRemove,
-  setAvatarPreview,
   setProfileForm,
   statusSelection,
   setStatusSelection,
@@ -428,13 +426,13 @@ export function DesktopSettingsModal({
   passwordError,
   fileUploadEnabled,
 }) {
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   if (!settingsPanel) return null;
   const resolvedUserColor = userColor || "#10b981";
   const profileIdentity = profileForm.nickname || profileForm.username || "S";
   const profileInitials = getAvatarInitials(profileIdentity);
-  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-6">

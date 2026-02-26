@@ -82,7 +82,7 @@ export default function App() {
       try {
         window.scrollTo(0, y + 1)
         window.scrollTo(0, y)
-      } catch (_) {
+      } catch {
         // ignore
       }
     }
@@ -169,10 +169,6 @@ export default function App() {
     }
 
     const updateViewportOffset = () => {
-      const rawOffset = Math.max(
-        0,
-        Math.round(window.innerHeight - (viewport.height + viewport.offsetTop))
-      )
       const activeEl = document.activeElement
       const focusedEditable =
         !!activeEl &&
@@ -221,7 +217,7 @@ export default function App() {
             status: data.status || 'online',
           })
         }
-      } catch (_) {
+      } catch {
         if (isMounted) {
           setUser(null)
         }
@@ -430,7 +426,7 @@ export default function App() {
             <header className="flex flex-wrap items-center justify-center gap-3 text-center sm:gap-4">
               <div className="flex items-center gap-1 text-black dark:text-white">
                 <div className="flex h-8 w-8 items-center justify-center sm:h-9 sm:w-9">
-                  <SongBirdLogo />
+                  <img src={logo} alt="Songbird logo" className="h-8 w-8" />
                 </div>
                 <div>
                   <p className="text-xl font-bold tracking-tight sm:text-2xl">Songbird</p>
@@ -480,6 +476,3 @@ export default function App() {
   )
 }
 
-function SongBirdLogo() {
-  return <img src={logo} alt="Song Bird logo" className="h-8 w-8" />
-}

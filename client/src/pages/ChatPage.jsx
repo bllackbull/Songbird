@@ -120,12 +120,10 @@ const CHAT_PAGE_CONFIG = {
 
 const NEW_CHAT_SEARCH_DEBOUNCE_MS = 300;
 const MOBILE_CLOSE_ANIMATION_MS = 340;
-const SCROLL_BOTTOM_SNAP_TIMEOUT_MS = 90;
 const UPLOAD_PROGRESS_HIDE_DELAY_MS = 600;
 const CHAT_BOTTOM_THRESHOLD_PX = 120;
 const JUMP_TO_LATEST_SECOND_SNAP_DELAY_MS = 320;
 const JUMP_TO_LATEST_SECOND_SNAP_THRESHOLD_PX = 24;
-const MEDIA_LOAD_SNAP_DEBOUNCE_MS = 110;
 
 const formatBytesAsMb = (bytes) => `${Math.round(bytes / (1024 * 1024))} MB`;
 
@@ -153,7 +151,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [selectedChats, setSelectedChats] = useState([]);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [pendingDeleteIds, setPendingDeleteIds] = useState([]);
-  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [, setIsAtBottom] = useState(true);
   const [userScrolledUp, setUserScrolledUp] = useState(false);
   const [unreadInChat, setUnreadInChat] = useState(0);
   const [unreadMarkerId, setUnreadMarkerId] = useState(null);
@@ -358,7 +356,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ username: user.username }),
         });
-      } catch (_) {
+      } catch {
         // ignore
       }
     };
@@ -410,7 +408,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         if (isMounted) {
           setIsConnected(Boolean(data?.ok));
         }
-      } catch (_) {
+      } catch {
         if (isMounted) {
           setIsConnected(false);
         }
@@ -522,7 +520,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   useEffect(() => {
     clearPendingUploads();
     setActiveUploadProgress(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeChatId]);
 
   useEffect(() => {
@@ -556,15 +553,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       ? activeMembers.find((member) => member.username !== user.username)
       : null;
   const activeHeaderPeer = activePeer || activeDmMember;
-  const activeTitle = useMemo(() => {
-    if (!activeChat) return "Select a chat";
-    if (activeChat.type === "dm") {
-      return (
-        activeDmMember?.nickname || activeDmMember?.username || "Direct message"
-      );
-    }
-    return activeChat.name || "Chat";
-  }, [activeChat, activeDmMember, user.username]);
   const activeFallbackTitle =
     activeHeaderPeer?.nickname || activeHeaderPeer?.username || "Select a chat";
   const canStartChat = Boolean(newChatSelection);
@@ -635,7 +623,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           chatIds: idsToHide,
         }),
       });
-    } catch (_) {
+    } catch {
       // ignore
     }
     if (idsToHide.includes(activeId)) {
@@ -731,7 +719,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             lastSeen: data.lastSeen || null,
           });
         }
-      } catch (_) {
+      } catch {
         if (isMounted) {
           setPeerPresence({ status: "offline", lastSeen: null });
         }
@@ -802,7 +790,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, [activeChatId, user, canMarkReadInCurrentView]);
 
   useEffect(() => {
-    if (!showSettings) return;
+    if (!showSettings || settingsPanel) return;
     const handleOutside = (event) => {
       const target = event.target;
       if (settingsMenuRef.current && settingsMenuRef.current.contains(target))
@@ -816,7 +804,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     };
     document.addEventListener("mousedown", handleOutside);
     return () => document.removeEventListener("mousedown", handleOutside);
-  }, [showSettings]);
+  }, [showSettings, settingsPanel]);
 
   useEffect(() => {
     const syncActiveState = () => {
@@ -883,7 +871,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         let payload = null;
         try {
           payload = JSON.parse(event.data);
-        } catch (_) {
+        } catch {
           return;
         }
         if (!payload?.type) return;
@@ -975,7 +963,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         const data = (() => {
           try {
             return JSON.parse(xhr.responseText || "{}");
-          } catch (_) {
+          } catch {
             return {};
           }
         })();
@@ -1184,7 +1172,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         String(file?.mimeType || "").toLowerCase().startsWith("video/"),
       );
       if (!hasVideo) return false;
-      if (Boolean(msg._processingPending)) return true;
+      if (msg._processingPending) return true;
       if (msg._awaitingServerEcho) return true;
       if (msg._delivery === "sending") return true;
       return false;
@@ -1327,7 +1315,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         };
       });
       setChats(patched);
-    } catch (_) {
+    } catch {
       // Keep sidebar usable even when polling fails.
     } finally {
       if (!options.silent) {
@@ -1639,8 +1627,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       const hasUnreadFromOthers = nextMessages.some(
         (msg) => msg.username !== user.username && !msg.read_at,
       );
-      const prevCount = messages.length;
-      const newCount = nextMessages.length - prevCount;
       const hasNew =
         lastId &&
         lastMessageIdRef.current &&
@@ -1731,7 +1717,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           body: JSON.stringify({ chatId, username: user.username }),
         }).catch(() => null);
       }
-    } catch (_) {
+    } catch {
       // Keep chat window free of transient fetch errors.
     } finally {
       messageFetchInFlightRef.current = false;
@@ -1805,24 +1791,34 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         video.preload = "metadata";
         video.muted = true;
         video.playsInline = true;
-        let objectUrl = "";
+        let reader = null;
+        let resolved = false;
+
+        const resolveOnce = (metadata) => {
+          if (resolved) return;
+          resolved = true;
+          resolve(metadata);
+        };
 
         const cleanup = () => {
           try {
             video.pause();
-          } catch (_) {
+          } catch {
             // no-op
           }
-          if (objectUrl) {
-            URL.revokeObjectURL(objectUrl);
-            objectUrl = "";
+          if ("srcObject" in video) {
+            video.srcObject = null;
           }
           video.removeAttribute("src");
           video.load();
+          if (reader?.readyState === FileReader.LOADING) {
+            reader.abort();
+          }
+          reader = null;
         };
 
         video.onloadedmetadata = () => {
-          resolve({
+          resolveOnce({
             width: video.videoWidth || null,
             height: video.videoHeight || null,
             durationSeconds: Number.isFinite(Number(video.duration))
@@ -1832,7 +1828,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           cleanup();
         };
         video.onerror = () => {
-          resolve({ width: null, height: null, durationSeconds: null });
+          resolveOnce({ width: null, height: null, durationSeconds: null });
           cleanup();
         };
 
@@ -2126,7 +2122,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
   }
 
-  async function updateStatus(nextStatus, markIdle) {
+  async function updateStatus(nextStatus) {
     if (!user || user.status === nextStatus) return;
     try {
       const res = await fetch(`${API_BASE}/api/status`, {
@@ -2140,7 +2136,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }
       const nextUser = { ...user, status: data.status };
       setUser(nextUser);
-    } catch (_) {}
+    } catch {}
   }
 
   async function handleAvatarChange(event) {
@@ -2246,7 +2242,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       let updatedUser = nextUser;
 
       if (statusSelection && statusSelection !== (user.status || "online")) {
-        await updateStatus(statusSelection, false);
+        await updateStatus(statusSelection);
         updatedUser = { ...updatedUser, status: statusSelection };
       }
 
@@ -2585,7 +2581,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                 profileForm={profileForm}
                 handleAvatarChange={handleAvatarChange}
                 handleAvatarRemove={handleAvatarRemove}
-                setAvatarPreview={setAvatarPreview}
                 setProfileForm={setProfileForm}
                 statusSelection={statusSelection}
                 setStatusSelection={setStatusSelection}
@@ -2740,7 +2735,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           profileForm={profileForm}
           handleAvatarChange={handleAvatarChange}
           handleAvatarRemove={handleAvatarRemove}
-          setAvatarPreview={setAvatarPreview}
           setProfileForm={setProfileForm}
           statusSelection={statusSelection}
           setStatusSelection={setStatusSelection}
@@ -2756,5 +2750,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     </div>
   );
 }
+
 
 
