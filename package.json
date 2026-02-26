@@ -17,7 +17,12 @@
     "start": "npm --prefix server run start"
   },
   "devDependencies": {
-    "concurrently": "^9.2.1"
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@semantic-release/github": "^12.0.6",
+    "@semantic-release/release-notes-generator": "^14.1.0",
+    "concurrently": "^9.2.1",
+    "semantic-release": "^25.0.3"
   },
   "engines": {
     "node": ">=24.0.0",
