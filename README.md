@@ -28,18 +28,73 @@ If you use Docker/Compose, you do not need a `systemd` unit for the Songbird Nod
 **Prerequisites (tested on Ubuntu 22.04+):**
 
 - An Ubuntu server with sudo access
-- Node.js (v18+ recommended) and `npm`
-- `nginx` and `certbot` (with `python3-certbot-nginx`)
-- `ffmpeg` (required when video upload transcoding is enabled)
-- `git`
-
-### 1. System setup
 
 Update and install required packages:
 
 ```bash
 sudo apt update
 sudo apt install -y git curl build-essential nginx python3-certbot-nginx ffmpeg
+```
+
+## Option A: Docker + Compose (recommended)
+
+### 1. System Setup
+
+Install these packages:
+
+```bash
+sudo apt install -y ca-certificates gnupg
+```
+
+Add Docker official GPG key:
+
+```bash
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+```
+
+Add Docker apt repository:
+
+```bash
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt update
+```
+
+Install Docker Engine + Compose plugin:
+
+```bash
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+```
+
+Optional: run Docker without `sudo`:
+
+```bash
+sudo usermod -aG docker $USER
+newgrp docker
+```
+
+**nvm**:
+
+```bash
+sudo mkdir -p /opt/songbird
+cd /opt/songbird
+git clone https://github.com/bllackbull/Songbird.git .
+```
+
+### 3. Start
+
+```bash
+cd /opt/songbird
+docker compose -f docker-compose.yaml up -d --build
+docker compose -f docker-compose.yaml ps
+docker compose -f docker-compose.yaml logs -f
+```
+
+## Option B: Manual Installation
+
+### 1. System setup
 
 Install Node.js and npm (pick one):
 
@@ -54,12 +109,21 @@ sudo apt install -y nodejs
 
 ```bash
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/latest/install.sh | bash
+cd /opt/songbird
+nvm install
+nvm use
 ```
 
 **Volta**:
 
 ```bash
 curl https://get.volta.sh | bash
+cd /opt/songbird
+```
+
+Volta will auto-install the versions when you enter the project. If you want to manually install the same versions globally, you can do:
+
+```bash
 volta install node@24.11.1 npm@11.6.4
 ```
 
@@ -71,40 +135,118 @@ cd /opt/songbird
 git clone https://github.com/bllackbull/Songbird.git .
 ```
 
->**Note:** <br>
->If you installed Node.js using nvm:
->
->```bash
->nvm install
->nvm use
->```
-
 ### 3. Install dependencies
 
 ```bash
 cd /opt/songbird/server
 npm install
 
-# Install client deps
-cd ../client
+cd /opt/songbird/client
 npm install
 npm run build
 ```
 
-### 4. Configure environment (optional)
+### 4. Create systemd service for the Node server
 
-- The server reads `APP_ENV` and `PORT` from environment variables. The server sets the session cookie `Secure` flag when `APP_ENV=production`.
-- You can use a single root `.env` file (`/opt/songbird/.env`) for both server runtime and client build-time settings.
-- The server also supports `server/.env` (it overrides root `.env` when both exist).
+Create `/etc/systemd/system/songbird.service` with the following:
 
-Create the file:
+```ini
+[Unit]
+Description=Songbird server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/songbird/server
+ExecStart=/usr/bin/node index.js
+User=songbird
+Group=songbird
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Create a dedicated system user and change ownership of the project directory:
+
+```bash
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin songbird
+sudo chown -R songbird:songbird /opt/songbird
+```
+
+Enable and start the service:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now songbird.service
+```
+
+## Configure Nginx
+
+### 1. Configure Nginx file
+
+Create an Nginx site file at `/etc/nginx/sites-available/songbird`:
+
+```nginx
+server {
+  listen 80;
+  server_name example.com www.example.com;
+
+  location / {
+    proxy_pass http://127.0.0.1:5174;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_cache_bypass $http_upgrade;
+  }
+}
+```
+
+> **NOTE:**
+> If you set `PORT` to a different value, update `proxy_pass` accordingly.
+
+Enable the site and test Nginx config:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/songbird /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+### 2. Obtain SSL certificate via Certbot
+
+```bash
+sudo certbot --nginx -d example.com -d www.example.com
+sudo certbot renew --dry-run
+```
+
+### 3. Firewall (optional)
+
+```bash
+sudo ufw allow 'Nginx Full'
+sudo ufw enable
+```
+
+## Common troubleshooting
+
+- Docker logs: `docker compose -f docker-compose.yaml logs -f`
+- systemd service logs: `sudo journalctl -u songbird -f`
+- Check Nginx error logs: `/var/log/nginx/error.log`
+
+## Environment Variables Configuration
+
+You can configure environment variables to customize app behavior.
 
 ```bash
 cd /opt/songbird
 nano .env
 ```
 
-Use this table for all configurable values:
+### Configurable values:
 
 | Variable | Type | Default | Description |
 |---|---|---:|---|
@@ -130,206 +272,95 @@ Use this table for all configurable values:
 | `CHAT_SSE_RECONNECT_DELAY` | `integer` | `2000` | Delay before reconnecting SSE after error (milliseconds). |
 | `CHAT_SEARCH_MAX_RESULTS` | `integer` | `5` | Max users shown in New Chat search results. |
 
-After editing `.env`:
+### Apply Changes:
 
-1. Rebuild client (for client/build-time keys).
+**1. Docker deployment:**
+
+```bash
+cd /opt/songbird
+# Apply updated runtime env vars from .env
+docker compose -f docker-compose.yaml up -d --force-recreate songbird
+```
+
+If your change affects build-time client values, rebuild the image too:
+
+```bash
+cd /opt/songbird
+docker compose -f docker-compose.yaml up -d --build --force-recreate songbird
+```
+
+**2. Manual (systemd) deployment:**
+
+Rebuild client:
 
 ```bash
 cd /opt/songbird/client
 npm run build
 ```
 
-2. Restart server (for server/runtime keys).
+Restart systemd service:
 
 ```bash
 sudo systemctl restart songbird
 ```
 
-3. Reload Nginx.
+**3. Reload Nginx:**
 
 ```bash
 sudo systemctl reload nginx
 ```
 
-`APP_DEBUG` logs are printed by the Node server process itself (for example `npm --prefix server run dev`, `npm run dev`, or `journalctl -u songbird -f` when running via systemd).
+## Updating the deployed app
 
-### 5. Create systemd service for the Node server
-
-Create `/etc/systemd/system/songbird.service` with the following (use `sudo`):
-
-```ini
-[Unit]
-Description=Songbird server
-After=network.target
-
-[Service]
-Type=simple
-WorkingDirectory=/opt/songbird/server
-ExecStart=/usr/bin/node index.js
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-```
-
-> **Notes:**
-> - Add `User=` if you prefer an specific user (e.g., create a dedicated `songbird` user for separation).
-> - If you decided to create a dedicated user, make sure to create system user and change ownership:
+> **Tip:** <br>
+>Backup your database before updating:
 > ```bash
-> sudo useradd --system --no-create-home --shell /usr/sbin/nologin songbird
-> sudo chown -R songbird:songbird /opt/songbird
-> git config --global --add safe.directory /opt/songbird
+> cd /opt/songbird/server
+> npm run db:backup
 > ```
-> - If Node is installed somewhere else, update `ExecStart` accordingly (use full path to `node`).
+> The backup file will be saved under `/data/backups` directory.
 
-> **NOTE:** Skip this step if you installed Node.js using nvm or volta.
 
-Due to security conserns, it is recommended to create a dedicated system user and change ownership of the project directory:
-
-1. Add these lines to systemd service file:
-
-```ini
-User=songbird
-Group=songbird
-```
-
-2. Create a dedicated system user:
+### Docker + Compose
 
 ```bash
-sudo useradd --system --no-create-home --shell /usr/sbin/nologin songbird
-```
-
-3. Change ownership of the project directory:
-
-```bash
-sudo chown -R songbird:songbird /opt/songbird
-```
-
-**Enable and start the service:**
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now songbird.service
-```
-
-## Configure Nginx
-
-### Option A: Domain Setup (HTTPS)
-
-#### 1. Create an Nginx site file at `/etc/nginx/sites-available/songbird`:
-
-```nginx
-server {
-  listen 80;
-  server_name example.com www.example.com;
-  client_max_body_size 78643200;
-
-  location /api/events {
-    proxy_pass http://127.0.0.1:5174;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_read_timeout 1h;
-    proxy_send_timeout 1h;
-    proxy_buffering off;
-    proxy_cache off;
-    add_header X-Accel-Buffering no;
-  }
-
-  location / {
-    proxy_pass http://127.0.0.1:5174;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_cache_bypass $http_upgrade;
-  }
-}
-```
-
-> If you set `PORT` to something else in `.env`, change `proxy_pass` to the same port.
-
-Enable the site and test Nginx config:
-
-```bash
-sudo ln -s /etc/nginx/sites-available/songbird /etc/nginx/sites-enabled/
-sudo nginx -t
+cd /opt/songbird
+git pull origin main
+docker compose -f docker-compose.yaml up -d --build
+docker compose -f docker-compose.yaml logs -f --tail=100
+cd ./server
+npm run db:migrate
 sudo systemctl reload nginx
 ```
 
-#### 3. Get SSL for domain
+### Manual (systemd)
 
 ```bash
-sudo certbot --nginx -d example.com -d www.example.com
-sudo certbot renew --dry-run
-```
-
-### Option B: Server IP (HTTP)
-
-If you want to run only on your server IP over HTTP, you can skip Certbot entirely.
-
-#### 1. Use this Nginx server block instead:
-
-```nginx
-server {
-  listen 80 default_server;
-  server_name _;
-  client_max_body_size 78643200;
-
-  location /api/events {
-    proxy_pass http://127.0.0.1:5174;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_read_timeout 1h;
-    proxy_send_timeout 1h;
-    proxy_buffering off;
-    proxy_cache off;
-    add_header X-Accel-Buffering no;
-  }
-
-  location / {
-    proxy_pass http://127.0.0.1:5174;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_cache_bypass $http_upgrade;
-  }
-}
-```
-
-#### 2. Enable the site and test Nginx config:
-
-```bash
-sudo ln -s /etc/nginx/sites-available/songbird /etc/nginx/sites-enabled/
-sudo nginx -t
+cd /opt/songbird
+git pull origin main
+cd client
+npm install
+npm run build
+cd ../server
+npm install
+npm run db:migrate
+sudo systemctl restart songbird
 sudo systemctl reload nginx
 ```
 
-### Optional: Enable firewall
+**What each step does:**
 
-```bash
-sudo ufw allow 'Nginx Full'
-sudo ufw enable
-```
+- git pull - Fetch and merge latest changes from GitHub
+- npm install (client & server) - Install any new dependencies
+- npm run build - Rebuild the React frontend into client/dist
+- npm run db:migrate - Apply versioned schema migrations without dropping data
+- systemctl restart songbird - Restart the Node server to pick up changes
+- systemctl reload nginx - Reload Nginx to serve the new build
 
-## Common troubleshooting
+If only the frontend code has changed (no `package.json` changes), you can skip the `npm install` steps.
 
-- Docker logs: `docker compose -f docker-compose.yaml logs -f`
-- systemd service logs: `sudo journalctl -u songbird -f`
-- Check Nginx error logs: `/var/log/nginx/error.log`
-- If Docker build looks stuck at `RUN npm ci`, it is usually downloading dependencies. Use plain progress for visibility:
+> **Note:** <br>
+For zero-downtime deployments on larger projects, consider blue-green deployment or PM2, but for most updates the restart approach above is simple and sufficient.
 
 ## Database commands
 
@@ -416,63 +447,12 @@ npm run db:file:inspect
 
 Recommended production flow:
 
-### Configurable values:
-
-## Updating the deployed app
-
-> **Tip:** <br>
->Backup your database before updating:
->
-> ```bash
-> cd /opt/songbird/server
-> npm run db:backup
-> # Or use this for Docker:
-> docker compose exec songbird npm --prefix /app/server run db:backup
-> ```
->
-> The backup file will be saved under `/data/backups` directory.
-
-
-### Docker + Compose
-
-```bash
-cd /opt/songbird
-git pull origin main
-docker compose -f docker-compose.yaml up -d --build
-sudo systemctl reload nginx
-```
-
-### Manual (systemd)
-
-```bash
-cd /opt/songbird
-git pull origin main
-cd client
-npm install
-npm run build
-cd ../server
-npm install
-npm run db:backup
-npm run db:migrate
-sudo systemctl restart songbird
-sudo systemctl reload nginx
-```
-
-**What each step does:**
-
-- git pull - Fetch and merge latest changes from GitHub
-- npm install (client & server) - Install any new dependencies
-- npm run build - Rebuild the React frontend into client/dist
-- npm run db:backup - Create a timestamped backup of data/songbird.db
-- npm run db:migrate - Apply versioned schema migrations without dropping data
-- npm run db:backfill - Fill missing media dimensions for existing uploaded files
-- systemctl restart songbird - Restart the Node server to pick up changes
-- systemctl reload nginx - Reload Nginx to serve the new build
-
-If only the frontend code has changed (no `package.json` changes), you can skip the `npm install` steps.
-
-> **Note:** <br>
-For zero-downtime deployments on larger projects, consider blue-green deployment or PM2, but for most updates the restart approach above is simple and sufficient.
+1. Backup DB
+2. Pull latest code
+3. Install dependencies
+4. Build frontend
+5. Run migrations (manual/systemd flow); Docker runs migrations automatically on startup
+6. Restart services
 
 ## Running behind a domain + subpath
 
@@ -480,13 +460,13 @@ If you plan to host the app at a subpath (e.g., `example.com/songbird/`) you wil
 
 ## Author
 
-- Maintainer: [@bllackbull](https://github.com/bllackbull)
+- Maintainer: **@bllackbull**
 
 ## Contributing
 
 - Contributions are welcome.
 - If you want to contribute, contact the maintainer first by opening an issue at: `https://github.com/bllackbull/Songbird/issues`
-- For direct coordination, reach out to [@bllackbull](https://github.com/bllackbull) on GitHub before opening a PR.
+- For direct coordination, reach out to **@bllackbull** on GitHub before opening a PR.
 
 ## License
 
