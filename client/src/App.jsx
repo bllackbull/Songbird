@@ -29,6 +29,44 @@ export default function App() {
     !/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo/i.test(navigator.userAgent)
   const themeRefreshTimersRef = useRef([])
 
+  function normalizeSessionUser(data) {
+    if (!data?.username) return null
+    return {
+      id: data.id,
+      username: data.username,
+      nickname: data.nickname || null,
+      avatarUrl: data.avatarUrl || null,
+      color: data.color || null,
+      status: data.status || 'online',
+    }
+  }
+
+  async function fetchSessionUser() {
+    const res = await fetch(`${API_BASE}/api/me`, { credentials: 'include' })
+    if (!res.ok) {
+      throw new Error('No active session')
+    }
+    const data = await res.json()
+    const nextUser = normalizeSessionUser(data)
+    if (!nextUser) {
+      throw new Error('Invalid session payload')
+    }
+    return nextUser
+  }
+
+  async function resolveSessionUserWithRetry(fallbackUser = null, attempts = 8, waitMs = 150) {
+    for (let i = 0; i < attempts; i += 1) {
+      try {
+        return await fetchSessionUser()
+      } catch {
+        if (i < attempts - 1) {
+          await new Promise((resolve) => window.setTimeout(resolve, waitMs))
+        }
+      }
+    }
+    return fallbackUser
+  }
+
   function clearThemeRefreshTimers() {
     themeRefreshTimersRef.current.forEach((timer) => window.clearTimeout(timer))
     themeRefreshTimersRef.current = []
@@ -202,20 +240,9 @@ export default function App() {
     let isMounted = true
     const fetchSession = async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/me`, { credentials: 'include' })
-        if (!res.ok) {
-          throw new Error('No active session')
-        }
-        const data = await res.json()
-        if (isMounted && data?.username) {
-          setUser({
-            id: data.id,
-            username: data.username,
-            nickname: data.nickname || null,
-            avatarUrl: data.avatarUrl || null,
-            color: data.color || null,
-            status: data.status || 'online',
-          })
+        const nextUser = await fetchSessionUser()
+        if (isMounted && nextUser) {
+          setUser(nextUser)
         }
       } catch {
         if (isMounted) {
@@ -231,6 +258,7 @@ export default function App() {
     return () => {
       isMounted = false
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -290,7 +318,7 @@ export default function App() {
       if (!res.ok) {
         throw new Error(data?.error || 'Unable to sign in.')
       }
-      const nextUser = {
+      const fallbackUser = {
         id: data.id,
         username: data.username,
         nickname: data.nickname || null,
@@ -298,6 +326,7 @@ export default function App() {
         color: data.color || null,
         status: data.status || 'online',
       }
+      const nextUser = await resolveSessionUserWithRetry(fallbackUser)
       setUser(nextUser)
       navigate('/chat', true)
     } catch (err) {
@@ -329,26 +358,20 @@ export default function App() {
     }
 
     try {
-      const res = await fetch(`${API_BASE}/api/register`, {
+      const registerRes = await fetch(`${API_BASE}/api/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
         credentials: 'include',
       })
-      const data = await res.json()
-      if (!res.ok) {
-        throw new Error(data?.error || 'Unable to create account.')
+      const registerData = await registerRes.json()
+      if (!registerRes.ok) {
+        throw new Error(registerData?.error || 'Unable to create account.')
       }
-      const nextUser = {
-        id: data.id,
-        username: data.username,
-        nickname: data.nickname || null,
-        avatarUrl: data.avatarUrl || null,
-        color: data.color || null,
-        status: data.status || 'online',
-      }
-      setUser(nextUser)
-      navigate('/chat', true)
+      // Signup creates the account only; user must explicitly sign in next.
+      setUser(null)
+      setAuthStatus('')
+      navigate('/login', true)
     } catch (err) {
       setAuthStatus(err.message)
     } finally {

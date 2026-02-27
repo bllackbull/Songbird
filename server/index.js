@@ -1122,7 +1122,23 @@ function parseCookies(req) {
   }, {});
 }
 
-function setSessionCookie(res, token) {
+function isHttpsRequest(req) {
+  if (!req) return false;
+  if (req.secure) return true;
+  const proto = String(req.headers?.["x-forwarded-proto"] || "")
+    .split(",")[0]
+    .trim()
+    .toLowerCase();
+  return proto === "https";
+}
+
+function shouldUseSecureCookie(req) {
+  // Only mark cookies Secure on actual HTTPS requests.
+  // This keeps local HTTP development working even if APP_ENV is production.
+  return isProduction && isHttpsRequest(req);
+}
+
+function setSessionCookie(req, res, token) {
   const parts = [
     `sid=${encodeURIComponent(token)}`,
     "Path=/",
@@ -1130,15 +1146,15 @@ function setSessionCookie(res, token) {
     "SameSite=Lax",
     "Max-Age=1209600",
   ];
-  if (isProduction) {
+  if (shouldUseSecureCookie(req)) {
     parts.push("Secure");
   }
   res.setHeader("Set-Cookie", parts.join("; "));
 }
 
-function clearSessionCookie(res) {
+function clearSessionCookie(req, res) {
   const parts = ["sid=", "Path=/", "HttpOnly", "SameSite=Lax", "Max-Age=0"];
-  if (isProduction) {
+  if (shouldUseSecureCookie(req)) {
     parts.push("Secure");
   }
   res.setHeader("Set-Cookie", parts.join("; "));
@@ -1257,7 +1273,7 @@ app.post("/api/register", (req, res) => {
   );
   const token = crypto.randomBytes(24).toString("hex");
   createSession(id, token);
-  setSessionCookie(res, token);
+  setSessionCookie(req, res, token);
 
   return res.json({
     id,
@@ -1287,7 +1303,7 @@ app.post("/api/login", (req, res) => {
   updateLastSeen(user.id);
   const token = crypto.randomBytes(24).toString("hex");
   createSession(user.id, token);
-  setSessionCookie(res, token);
+  setSessionCookie(req, res, token);
   return res.json({
     id: user.id,
     username: user.username,
@@ -1318,7 +1334,7 @@ app.post("/api/logout", (req, res) => {
   if (cookies.sid) {
     deleteSession(cookies.sid);
   }
-  clearSessionCookie(res);
+  clearSessionCookie(req, res);
   res.json({ ok: true });
 });
 

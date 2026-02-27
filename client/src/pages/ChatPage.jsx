@@ -126,6 +126,9 @@ const JUMP_TO_LATEST_SECOND_SNAP_DELAY_MS = 320;
 const JUMP_TO_LATEST_SECOND_SNAP_THRESHOLD_PX = 24;
 
 const formatBytesAsMb = (bytes) => `${Math.round(bytes / (1024 * 1024))} MB`;
+const apiFetch = (url, options = {}) =>
+  fetch(url, { credentials: "include", ...options });
+
 
 
 export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme }) {
@@ -351,7 +354,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (!isAppActive) return;
     const ping = async () => {
       try {
-        await fetch(`${API_BASE}/api/presence`, {
+        await apiFetch(`${API_BASE}/api/presence`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ username: user.username }),
@@ -375,7 +378,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const handle = setTimeout(async () => {
       try {
         setNewChatLoading(true);
-        const res = await fetch(
+        const res = await apiFetch(
           `${API_BASE}/api/users?exclude=${encodeURIComponent(user.username)}&query=${encodeURIComponent(
             newChatUsername.trim().toLowerCase(),
           )}`,
@@ -402,7 +405,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     let isMounted = true;
     const checkHealth = async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/health`);
+        const res = await apiFetch(`${API_BASE}/api/health`);
         if (!res.ok) throw new Error("Not connected");
         const data = await res.json();
         if (isMounted) {
@@ -494,7 +497,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           isAtBottomRef.current &&
           !userScrolledUpRef.current
         ) {
-          await fetch(`${API_BASE}/api/messages/read`, {
+          await apiFetch(`${API_BASE}/api/messages/read`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ chatId: openedChatId, username: user.username }),
@@ -615,7 +618,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       : selectedChats;
     if (!idsToHide.length) return;
     try {
-      await fetch(`${API_BASE}/api/chats/hide`, {
+      await apiFetch(`${API_BASE}/api/chats/hide`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -706,7 +709,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setPeerPresence({ status: "offline", lastSeen: null });
     const fetchPresence = async () => {
       try {
-        const res = await fetch(
+        const res = await apiFetch(
           `${API_BASE}/api/presence?username=${encodeURIComponent(activeHeaderPeer.username)}`,
         );
         const data = await res.json();
@@ -842,7 +845,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (!hasUnreadFromOthers) return;
 
     isMarkingReadRef.current = true;
-    fetch(`${API_BASE}/api/messages/read`, {
+    apiFetch(`${API_BASE}/api/messages/read`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chatId: activeId, username: user.username }),
@@ -862,6 +865,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (!isMounted) return;
       source = new EventSource(
         `${API_BASE}/api/events?username=${encodeURIComponent(user.username)}`,
+        { withCredentials: true },
       );
       source.onopen = () => {
         setSseConnected(true);
@@ -910,7 +914,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       };
     };
 
-    connect();
+    void connect();
 
     return () => {
       isMounted = false;
@@ -993,7 +997,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         setActiveUploadProgress(0);
         data = await uploadPendingMessageWithProgress(pendingMessage, targetChatId);
       } else {
-        const res = await fetch(`${API_BASE}/api/messages`, {
+        const res = await apiFetch(`${API_BASE}/api/messages`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1208,7 +1212,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       setLoadingChats(true);
     }
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `${API_BASE}/api/chats?username=${encodeURIComponent(user.username)}`,
         { cache: "no-store" },
       );
@@ -1354,7 +1358,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (options.beforeCreatedAt) {
         query.set("beforeCreatedAt", String(options.beforeCreatedAt));
       }
-      const res = await fetch(
+      const res = await apiFetch(
         `${API_BASE}/api/messages?${query.toString()}`,
         { cache: "no-store" },
       );
@@ -1711,7 +1715,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         !userScrolledUpRef.current &&
         (shouldAutoMarkReadRef.current || options.initialLoad)
       ) {
-        await fetch(`${API_BASE}/api/messages/read`, {
+        await apiFetch(`${API_BASE}/api/messages/read`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ chatId, username: user.username }),
@@ -2099,7 +2103,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         return;
       }
       const target = matched.username;
-      const res = await fetch(`${API_BASE}/api/chats/dm`, {
+      const res = await apiFetch(`${API_BASE}/api/chats/dm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ from: user.username, to: target }),
@@ -2125,7 +2129,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   async function updateStatus(nextStatus) {
     if (!user || user.status === nextStatus) return;
     try {
-      const res = await fetch(`${API_BASE}/api/status`, {
+      const res = await apiFetch(`${API_BASE}/api/status`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: user.username, status: nextStatus }),
@@ -2207,7 +2211,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         const payload = new FormData();
         payload.append("avatar", pendingAvatarFile.file);
         payload.append("currentUsername", user.username);
-        const uploadRes = await fetch(`${API_BASE}/api/profile/avatar`, {
+        const uploadRes = await apiFetch(`${API_BASE}/api/profile/avatar`, {
           method: "POST",
           body: payload,
         });
@@ -2217,7 +2221,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         }
         avatarUrlToSave = uploadData.avatarUrl || "";
       }
-      const res = await fetch(`${API_BASE}/api/profile`, {
+      const res = await apiFetch(`${API_BASE}/api/profile`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2271,7 +2275,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       return;
     }
     try {
-      const res = await fetch(`${API_BASE}/api/password`, {
+      const res = await apiFetch(`${API_BASE}/api/password`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2296,7 +2300,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }
 
   function handleLogout() {
-    fetch(`${API_BASE}/api/logout`, {
+    apiFetch(`${API_BASE}/api/logout`, {
       method: "POST",
       credentials: "include",
     }).catch(() => null);
@@ -2366,7 +2370,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         );
         if (hasUnreadFromOthers) {
           isMarkingReadRef.current = true;
-          fetch(`${API_BASE}/api/messages/read`, {
+          apiFetch(`${API_BASE}/api/messages/read`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ chatId: activeId, username: user.username }),
@@ -2750,6 +2754,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     </div>
   );
 }
+
+
 
 
 
