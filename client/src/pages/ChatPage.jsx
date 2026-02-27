@@ -126,6 +126,9 @@ const JUMP_TO_LATEST_SECOND_SNAP_DELAY_MS = 320;
 const JUMP_TO_LATEST_SECOND_SNAP_THRESHOLD_PX = 24;
 
 const formatBytesAsMb = (bytes) => `${Math.round(bytes / (1024 * 1024))} MB`;
+const apiFetch = (url, options = {}) =>
+  fetch(url, { credentials: "include", ...options });
+
 
 
 export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme }) {
@@ -494,7 +497,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           isAtBottomRef.current &&
           !userScrolledUpRef.current
         ) {
-          await fetch(`${API_BASE}/api/messages/read`, {
+          await apiFetch(`${API_BASE}/api/messages/read`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ chatId: openedChatId, username: user.username }),
@@ -995,7 +998,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         setActiveUploadProgress(0);
         data = await uploadPendingMessageWithProgress(pendingMessage, targetChatId);
       } else {
-        const res = await fetch(`${API_BASE}/api/messages`, {
+        const res = await apiFetch(`${API_BASE}/api/messages`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1356,7 +1359,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (options.beforeCreatedAt) {
         query.set("beforeCreatedAt", String(options.beforeCreatedAt));
       }
-      const res = await fetch(
+      const res = await apiFetch(
         `${API_BASE}/api/messages?${query.toString()}`,
         { cache: "no-store" },
       );
@@ -2209,7 +2212,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         const payload = new FormData();
         payload.append("avatar", pendingAvatarFile.file);
         payload.append("currentUsername", user.username);
-        const uploadRes = await fetch(`${API_BASE}/api/profile/avatar`, {
+        const uploadRes = await apiFetch(`${API_BASE}/api/profile/avatar`, {
           method: "POST",
           body: payload,
         });
@@ -2219,7 +2222,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         }
         avatarUrlToSave = uploadData.avatarUrl || "";
       }
-      const res = await fetch(`${API_BASE}/api/profile`, {
+      const res = await apiFetch(`${API_BASE}/api/profile`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2368,7 +2371,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         );
         if (hasUnreadFromOthers) {
           isMarkingReadRef.current = true;
-          fetch(`${API_BASE}/api/messages/read`, {
+          apiFetch(`${API_BASE}/api/messages/read`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ chatId: activeId, username: user.username }),
@@ -2752,6 +2755,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     </div>
   );
 }
+
+
 
 
 
