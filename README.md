@@ -204,6 +204,20 @@ server {
   server_name example.com www.example.com;
   client_max_body_size 78643200;
 
+  location /api/events {
+    proxy_pass http://127.0.0.1:5174;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 1h;
+    proxy_send_timeout 1h;
+    proxy_buffering off;
+    proxy_cache off;
+    add_header X-Accel-Buffering no;
+  }
+
   location / {
     proxy_pass http://127.0.0.1:5174;
     proxy_http_version 1.1;
@@ -221,6 +235,7 @@ server {
 > **NOTE:**
 > - If you set `PORT` to a different value, update `proxy_pass` accordingly.
 > - Keep `client_max_body_size` aligned with `FILE_UPLOAD_MAX_TOTAL_SIZE` (total request size).
+> - Keep the dedicated `/api/events` block as shown so SSE remains truly realtime behind HTTPS reverse proxies.
 
 Enable the site and test Nginx config:
 

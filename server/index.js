@@ -1213,8 +1213,10 @@ app.get("/api/events", (req, res) => {
   }
 
   res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
+  // Hint reverse proxies (e.g., Nginx) not to buffer SSE chunks.
+  res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders?.();
 
   addSseClient(username, res);
