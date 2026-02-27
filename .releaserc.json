@@ -12,7 +12,8 @@
     [
       "@semantic-release/github",
       {
-        "assets": [{ "path": "dist/*.zip", "label": "Distribution" }]
+        "assets": [{ "path": "dist/*.zip", "label": "Distribution" }],
+        "failOnIssueNotFound": false
       }
     ]
   ]
