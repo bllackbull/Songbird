@@ -1,0 +1,20 @@
+services:
+  songbird:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: songbird
+    restart: unless-stopped
+    ports:
+      - "${PORT:-5174}:${PORT:-5174}"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      PORT: ${PORT:-5174}
+    volumes:
+      - songbird-data:/app/data
+
+volumes:
+  songbird-data:

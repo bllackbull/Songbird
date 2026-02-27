@@ -1,9 +1,11 @@
 import path from 'node:path'
 import fs from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import initSqlJs from 'sql.js'
 import { migrations } from './migrations/index.js'
 
-const dataDir = path.resolve(process.cwd(), '..', 'data')
+const serverDir = path.dirname(fileURLToPath(import.meta.url))
+const dataDir = path.resolve(serverDir, '..', 'data')
 const dbPath = path.join(dataDir, 'songbird.db')
 
 if (!fs.existsSync(dataDir)) {
@@ -11,7 +13,7 @@ if (!fs.existsSync(dataDir)) {
 }
 
 const SQL = await initSqlJs({
-  locateFile: (file) => path.resolve(process.cwd(), 'node_modules', 'sql.js', 'dist', file),
+  locateFile: (file) => path.resolve(serverDir, 'node_modules', 'sql.js', 'dist', file),
 })
 
 const fileExists = fs.existsSync(dbPath)
@@ -48,6 +50,13 @@ function run(sql, params = []) {
   stmt.step()
   stmt.free()
   saveDatabase()
+}
+
+function runWithoutSave(sql, params = []) {
+  const stmt = db.prepare(sql)
+  stmt.bind(params)
+  stmt.step()
+  stmt.free()
 }
 
 function getLastInsertId() {
@@ -105,6 +114,19 @@ function runDatabaseMigrations() {
     migration.up(migrationContext)
     setSchemaVersion(migration.version)
   })
+
+  // Self-heal schemas where PRAGMA user_version advanced but tables are missing.
+  // All migrations are written to be idempotent (CREATE IF NOT EXISTS / guarded ALTERs),
+  // so re-applying ensures critical tables exist.
+  orderedMigrations.forEach((migration) => {
+    migration.up(migrationContext)
+  })
+  const latestVersion = orderedMigrations.length
+    ? Math.max(...orderedMigrations.map((migration) => Number(migration.version) || 0))
+    : 0
+  if (getSchemaVersion() < latestVersion) {
+    setSchemaVersion(latestVersion)
+  }
 }
 
 runDatabaseMigrations()
@@ -170,6 +192,10 @@ export function findDmChat(userId, otherUserId) {
     JOIN chat_members m1 ON m1.chat_id = c.id AND m1.user_id = ?
     JOIN chat_members m2 ON m2.chat_id = c.id AND m2.user_id = ?
     WHERE c.type = 'dm'
+    ORDER BY
+      (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) DESC,
+      (SELECT id FROM chat_messages WHERE chat_id = c.id ORDER BY julianday(created_at) DESC, id DESC LIMIT 1) DESC,
+      c.id DESC
     LIMIT 1
   `,
     [userId, otherUserId]
@@ -178,7 +204,12 @@ export function findDmChat(userId, otherUserId) {
 }
 
 export function createChat(name, type = 'dm') {
-  run('INSERT INTO chats (name, type) VALUES (?, ?)', [name || null, type])
+  const normalizedType = String(type || 'dm')
+  const normalizedName =
+    normalizedType === 'dm'
+      ? (String(name || '').trim() || 'dm')
+      : (String(name || '').trim() || null)
+  run('INSERT INTO chats (name, type) VALUES (?, ?)', [normalizedName, normalizedType])
   const id = getLastInsertId()
   if (id) return id
   const fallback = getRow('SELECT id FROM chats ORDER BY id DESC LIMIT 1')
@@ -217,21 +248,23 @@ export function listChatsForUser(userId) {
   return getAll(
     `
     SELECT c.id, c.name, c.type,
-      (SELECT body FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_message,
-      (SELECT created_at FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_time,
-      (SELECT user_id FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_sender_id,
-      (SELECT users.username FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id ORDER BY chat_messages.created_at DESC LIMIT 1) AS last_sender_username,
-      (SELECT users.nickname FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id ORDER BY chat_messages.created_at DESC LIMIT 1) AS last_sender_nickname,
-      (SELECT users.avatar_url FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id ORDER BY chat_messages.created_at DESC LIMIT 1) AS last_sender_avatar_url,
-      (SELECT read_at FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_message_read_at,
-      (SELECT read_by_user_id FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_message_read_by_user_id,
+      (SELECT id FROM chat_messages WHERE chat_id = c.id ORDER BY id DESC LIMIT 1) AS last_message_id,
+      (SELECT body FROM chat_messages WHERE chat_id = c.id ORDER BY id DESC LIMIT 1) AS last_message,
+      (SELECT created_at FROM chat_messages WHERE chat_id = c.id ORDER BY id DESC LIMIT 1) AS last_time,
+      (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) AS message_count,
+      (SELECT user_id FROM chat_messages WHERE chat_id = c.id ORDER BY id DESC LIMIT 1) AS last_sender_id,
+      (SELECT users.username FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id ORDER BY chat_messages.id DESC LIMIT 1) AS last_sender_username,
+      (SELECT users.nickname FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id ORDER BY chat_messages.id DESC LIMIT 1) AS last_sender_nickname,
+      (SELECT users.avatar_url FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id ORDER BY chat_messages.id DESC LIMIT 1) AS last_sender_avatar_url,
+      (SELECT read_at FROM chat_messages WHERE chat_id = c.id ORDER BY id DESC LIMIT 1) AS last_message_read_at,
+      (SELECT read_by_user_id FROM chat_messages WHERE chat_id = c.id ORDER BY id DESC LIMIT 1) AS last_message_read_by_user_id,
       (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id AND user_id != ? AND read_at IS NULL) AS unread_count
     FROM chats c
     JOIN chat_members m ON m.chat_id = c.id
     LEFT JOIN hidden_chats h ON h.chat_id = c.id AND h.user_id = m.user_id
     WHERE m.user_id = ?
       AND h.chat_id IS NULL
-    ORDER BY last_time DESC, c.created_at DESC
+    ORDER BY last_message_id DESC, c.created_at DESC
   `,
     [userId, userId]
   )
@@ -239,21 +272,133 @@ export function listChatsForUser(userId) {
 
 export function createMessage(chatId, userId, body) {
   run('INSERT INTO chat_messages (chat_id, user_id, body) VALUES (?, ?, ?)', [chatId, userId, body])
-  return getLastInsertId()
+  const id = getLastInsertId()
+  if (id) return id
+  const fallback = getRow(
+    'SELECT id FROM chat_messages WHERE chat_id = ? AND user_id = ? ORDER BY id DESC LIMIT 1',
+    [chatId, userId]
+  )
+  return fallback?.id || null
 }
 
-export function getMessages(chatId) {
-  return getAll(
+export function createMessageFiles(messageId, files = []) {
+  if (!messageId) return
+  files.forEach((file) => {
+    run(
+      `INSERT INTO chat_message_files (
+        message_id, kind, original_name, stored_name, mime_type, size_bytes, width_px, height_px, duration_seconds, expires_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        messageId,
+        file.kind,
+        file.originalName,
+        file.storedName,
+        file.mimeType,
+        Number(file.sizeBytes || 0),
+        Number.isFinite(Number(file.widthPx)) ? Number(file.widthPx) : null,
+        Number.isFinite(Number(file.heightPx)) ? Number(file.heightPx) : null,
+        Number.isFinite(Number(file.durationSeconds)) ? Number(file.durationSeconds) : null,
+        file.expiresAt || null,
+      ]
+    )
+  })
+}
+
+export function getMessages(chatId, options = {}) {
+  const limitRaw = Number(options.limit || 50)
+  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(10000, limitRaw)) : 50
+  const beforeIdRaw = Number(options.beforeId || 0)
+  const beforeCreatedAtRaw = String(options.beforeCreatedAt || '').trim()
+  const hasBeforeId = Number.isFinite(beforeIdRaw) && beforeIdRaw > 0
+  const hasBeforeCreatedAt = Boolean(beforeCreatedAtRaw)
+  const hasBefore = hasBeforeId && hasBeforeCreatedAt
+  const whereSql = hasBefore
+    ? `WHERE chat_messages.chat_id = ?
+       AND (
+         julianday(chat_messages.created_at) < julianday(?)
+         OR (
+           julianday(chat_messages.created_at) = julianday(?)
+           AND chat_messages.id < ?
+         )
+       )`
+    : 'WHERE chat_messages.chat_id = ?'
+  const params = hasBefore
+    ? [chatId, beforeCreatedAtRaw, beforeCreatedAtRaw, beforeIdRaw, limit + 1]
+    : [chatId, limit + 1]
+  const rowsDesc = getAll(
     `
     SELECT chat_messages.id, chat_messages.body, chat_messages.created_at, chat_messages.read_at, chat_messages.read_by_user_id,
-      users.username, users.nickname, users.avatar_url, users.color
+      users.id AS user_id, users.username, users.nickname, users.avatar_url, users.color
     FROM chat_messages
     JOIN users ON users.id = chat_messages.user_id
-    WHERE chat_messages.chat_id = ?
-    ORDER BY chat_messages.created_at ASC
-    LIMIT 200
+    ${whereSql}
+    ORDER BY julianday(chat_messages.created_at) DESC, chat_messages.id DESC
+    LIMIT ?
   `,
-    [chatId]
+    params
+  )
+  const hasMore = rowsDesc.length > limit
+  const rows = rowsDesc.slice(0, limit).reverse()
+  const totalRow = getRow('SELECT COUNT(*) AS total FROM chat_messages WHERE chat_id = ?', [chatId])
+  const totalCount = Number(totalRow?.total || 0)
+  return {
+    messages: rows,
+    hasMore,
+    totalCount,
+  }
+}
+
+export function listMessageFilesByMessageIds(messageIds = []) {
+  if (!Array.isArray(messageIds) || !messageIds.length) return []
+  const placeholders = messageIds.map(() => '?').join(', ')
+  return getAll(
+    `
+      SELECT id, message_id, kind, original_name, stored_name, mime_type, size_bytes, width_px, height_px, duration_seconds, expires_at, created_at
+      FROM chat_message_files
+      WHERE message_id IN (${placeholders})
+      ORDER BY id ASC
+    `,
+    messageIds
+  )
+}
+
+export function listMessageFilesNeedingMetadata(limit = 10000) {
+  const safeLimit = Math.max(1, Math.min(200000, Number(limit) || 10000))
+  return getAll(
+    `
+      SELECT id, stored_name, mime_type, width_px, height_px, duration_seconds, expires_at
+      FROM chat_message_files
+      WHERE (
+        mime_type LIKE 'image/%'
+        OR mime_type LIKE 'video/%'
+      ) AND (
+        width_px IS NULL
+        OR height_px IS NULL
+        OR (mime_type LIKE 'video/%' AND duration_seconds IS NULL)
+      )
+      ORDER BY id ASC
+      LIMIT ?
+    `,
+    [safeLimit]
+  )
+}
+
+export function updateMessageFileMetadata(fileId, metadata = {}) {
+  run(
+    `
+      UPDATE chat_message_files
+      SET
+        width_px = COALESCE(?, width_px),
+        height_px = COALESCE(?, height_px),
+        duration_seconds = COALESCE(?, duration_seconds)
+      WHERE id = ?
+    `,
+    [
+      Number.isFinite(Number(metadata.widthPx)) ? Number(metadata.widthPx) : null,
+      Number.isFinite(Number(metadata.heightPx)) ? Number(metadata.heightPx) : null,
+      Number.isFinite(Number(metadata.durationSeconds)) ? Number(metadata.durationSeconds) : null,
+      Number(fileId),
+    ]
   )
 }
 
@@ -326,4 +471,21 @@ export function touchSession(token) {
 
 export function deleteSession(token) {
   run('DELETE FROM sessions WHERE token = ?', [token])
+}
+
+// Internal admin helpers for server-side DB tooling endpoints.
+export function adminGetRow(sql, params = []) {
+  return getRow(sql, params)
+}
+
+export function adminGetAll(sql, params = []) {
+  return getAll(sql, params)
+}
+
+export function adminRun(sql, params = []) {
+  runWithoutSave(sql, params)
+}
+
+export function adminSave() {
+  saveDatabase()
 }

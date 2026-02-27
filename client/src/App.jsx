@@ -29,6 +29,44 @@ export default function App() {
     !/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo/i.test(navigator.userAgent)
   const themeRefreshTimersRef = useRef([])
 
+  function normalizeSessionUser(data) {
+    if (!data?.username) return null
+    return {
+      id: data.id,
+      username: data.username,
+      nickname: data.nickname || null,
+      avatarUrl: data.avatarUrl || null,
+      color: data.color || null,
+      status: data.status || 'online',
+    }
+  }
+
+  async function fetchSessionUser() {
+    const res = await fetch(`${API_BASE}/api/me`, { credentials: 'include' })
+    if (!res.ok) {
+      throw new Error('No active session')
+    }
+    const data = await res.json()
+    const nextUser = normalizeSessionUser(data)
+    if (!nextUser) {
+      throw new Error('Invalid session payload')
+    }
+    return nextUser
+  }
+
+  async function resolveSessionUserWithRetry(fallbackUser = null, attempts = 8, waitMs = 150) {
+    for (let i = 0; i < attempts; i += 1) {
+      try {
+        return await fetchSessionUser()
+      } catch {
+        if (i < attempts - 1) {
+          await new Promise((resolve) => window.setTimeout(resolve, waitMs))
+        }
+      }
+    }
+    return fallbackUser
+  }
+
   function clearThemeRefreshTimers() {
     themeRefreshTimersRef.current.forEach((timer) => window.clearTimeout(timer))
     themeRefreshTimersRef.current = []
@@ -53,7 +91,7 @@ export default function App() {
     mediaThemeMetas.forEach((node) => node.setAttribute('content', color))
   }
 
-  function refreshThemeColorForSafari(color) {
+  function refreshThemeColorForSafari(color, allowScrollNudge = true) {
     clearThemeRefreshTimers()
     const nudgeColor = color === '#ffffff' ? '#fefefe' : '#0e1728'
     commitThemeColor(nudgeColor)
@@ -77,12 +115,12 @@ export default function App() {
 
     // Force Safari toolbar/theme-color recalc without waiting for manual touch.
     const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent)
-    if (isIOS) {
+    if (isIOS && allowScrollNudge) {
       const y = window.scrollY || 0
       try {
         window.scrollTo(0, y + 1)
         window.scrollTo(0, y)
-      } catch (_) {
+      } catch {
         // ignore
       }
     }
@@ -110,7 +148,7 @@ export default function App() {
 
     const themeColor = getThemeColor(nextIsDark, nextRoute)
     document.documentElement.style.setProperty('--safe-area-theme-color', themeColor)
-    refreshThemeColorForSafari(themeColor)
+    refreshThemeColorForSafari(themeColor, nextRoute !== 'chat')
     ;['safe-area-top-fill', 'safe-area-bottom-fill'].forEach((id) => {
       const el = document.getElementById(id)
       if (el) {
@@ -169,10 +207,6 @@ export default function App() {
     }
 
     const updateViewportOffset = () => {
-      const rawOffset = Math.max(
-        0,
-        Math.round(window.innerHeight - (viewport.height + viewport.offsetTop))
-      )
       const activeEl = document.activeElement
       const focusedEditable =
         !!activeEl &&
@@ -181,21 +215,21 @@ export default function App() {
           activeEl.isContentEditable)
       const keyboardLikelyOpen =
         focusedEditable || window.innerHeight - viewport.height > 120
-      const offset = keyboardLikelyOpen ? 0 : Math.min(rawOffset, 56)
+      // Do not react to Safari toolbar/bottom chrome movement while scrolling.
+      // Only apply offset adjustments while an editable field is focused.
+      const offset = focusedEditable && keyboardLikelyOpen ? 0 : 0
       root.style.setProperty('--vv-bottom-offset', `${offset}px`)
       root.style.setProperty('--mobile-bottom-offset', `${offset}px`)
     }
 
     updateViewportOffset()
     viewport.addEventListener('resize', updateViewportOffset)
-    viewport.addEventListener('scroll', updateViewportOffset)
     window.addEventListener('orientationchange', updateViewportOffset)
     window.addEventListener('focusin', updateViewportOffset)
     window.addEventListener('focusout', updateViewportOffset)
 
     return () => {
       viewport.removeEventListener('resize', updateViewportOffset)
-      viewport.removeEventListener('scroll', updateViewportOffset)
       window.removeEventListener('orientationchange', updateViewportOffset)
       window.removeEventListener('focusin', updateViewportOffset)
       window.removeEventListener('focusout', updateViewportOffset)
@@ -206,22 +240,11 @@ export default function App() {
     let isMounted = true
     const fetchSession = async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/me`, { credentials: 'include' })
-        if (!res.ok) {
-          throw new Error('No active session')
+        const nextUser = await fetchSessionUser()
+        if (isMounted && nextUser) {
+          setUser(nextUser)
         }
-        const data = await res.json()
-        if (isMounted && data?.username) {
-          setUser({
-            id: data.id,
-            username: data.username,
-            nickname: data.nickname || null,
-            avatarUrl: data.avatarUrl || null,
-            color: data.color || null,
-            status: data.status || 'online',
-          })
-        }
-      } catch (_) {
+      } catch {
         if (isMounted) {
           setUser(null)
         }
@@ -235,6 +258,7 @@ export default function App() {
     return () => {
       isMounted = false
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -294,7 +318,7 @@ export default function App() {
       if (!res.ok) {
         throw new Error(data?.error || 'Unable to sign in.')
       }
-      const nextUser = {
+      const fallbackUser = {
         id: data.id,
         username: data.username,
         nickname: data.nickname || null,
@@ -302,6 +326,7 @@ export default function App() {
         color: data.color || null,
         status: data.status || 'online',
       }
+      const nextUser = await resolveSessionUserWithRetry(fallbackUser)
       setUser(nextUser)
       navigate('/chat', true)
     } catch (err) {
@@ -333,26 +358,20 @@ export default function App() {
     }
 
     try {
-      const res = await fetch(`${API_BASE}/api/register`, {
+      const registerRes = await fetch(`${API_BASE}/api/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
         credentials: 'include',
       })
-      const data = await res.json()
-      if (!res.ok) {
-        throw new Error(data?.error || 'Unable to create account.')
+      const registerData = await registerRes.json()
+      if (!registerRes.ok) {
+        throw new Error(registerData?.error || 'Unable to create account.')
       }
-      const nextUser = {
-        id: data.id,
-        username: data.username,
-        nickname: data.nickname || null,
-        avatarUrl: data.avatarUrl || null,
-        color: data.color || null,
-        status: data.status || 'online',
-      }
-      setUser(nextUser)
-      navigate('/chat', true)
+      // Signup creates the account only; user must explicitly sign in next.
+      setUser(null)
+      setAuthStatus('')
+      navigate('/login', true)
     } catch (err) {
       setAuthStatus(err.message)
     } finally {
@@ -430,7 +449,7 @@ export default function App() {
             <header className="flex flex-wrap items-center justify-center gap-3 text-center sm:gap-4">
               <div className="flex items-center gap-1 text-black dark:text-white">
                 <div className="flex h-8 w-8 items-center justify-center sm:h-9 sm:w-9">
-                  <SongBirdLogo />
+                  <img src={logo} alt="Songbird logo" className="h-8 w-8" />
                 </div>
                 <div>
                   <p className="text-xl font-bold tracking-tight sm:text-2xl">Songbird</p>
@@ -480,6 +499,3 @@ export default function App() {
   )
 }
 
-function SongBirdLogo() {
-  return <img src={logo} alt="Song Bird logo" className="h-8 w-8" />
-}

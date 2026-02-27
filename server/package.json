@@ -14,13 +14,28 @@
   "scripts": {
     "dev": "node --watch index.js",
     "start": "node index.js",
-    "backup:db": "node scripts/backup-db.js",
-    "migrate": "node scripts/migrate.js"
+    "db:delete": "node scripts/delete-db.js",
+    "db:reset": "node scripts/reset-db.js",
+    "db:backup": "node scripts/backup-db.js",
+    "db:migrate": "node scripts/migrate.js",
+    "db:backfill": "node scripts/backfill-message-file-metadata.js",
+    "db:chat:delete": "node scripts/delete-chat.js",
+    "db:file:delete": "node scripts/delete-file.js",
+    "db:user:delete": "node scripts/delete-user.js",
+    "db:user:create": "node scripts/create-user.js",
+    "db:user:generate": "node scripts/generate-user.js",
+    "db:message:generate": "node scripts/generate-chat-message.js",
+    "db:inspect": "node scripts/inspect-db.js all",
+    "db:chat:inspect": "node scripts/inspect-db.js chat",
+    "db:user:inspect": "node scripts/inspect-db.js user",
+    "db:file:inspect": "node scripts/inspect-db.js file"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
+    "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "express-rate-limit": "^8.2.1",
+    "multer": "^1.4.5-lts.1",
     "sql.js": "^1.13.0"
   }
 }

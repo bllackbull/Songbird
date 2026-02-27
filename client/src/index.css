@@ -237,6 +237,18 @@ input, textarea, select {
   }
 }
 
+@keyframes icon-drop {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+  45% {
+    transform: translateY(3px) scale(1.06);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
 .icon-anim-spin-lg,
 .icon-anim-spin-dir,
 .icon-anim-spin-left,
@@ -245,7 +257,8 @@ input, textarea, select {
 .icon-anim-slide,
 .icon-anim-pop,
 .icon-anim-peek,
-.icon-anim-lift {
+.icon-anim-lift,
+.icon-anim-drop {
   transform-origin: center;
   transition: transform 220ms ease;
 }
@@ -345,6 +358,14 @@ button:hover .icon-anim-lift,
 button:focus-visible .icon-anim-lift,
 label:hover .icon-anim-lift {
   animation: icon-lift 300ms ease-out 1 both;
+}
+
+button:hover .icon-anim-drop,
+button:focus-visible .icon-anim-drop,
+a:hover .icon-anim-drop,
+a:focus-visible .icon-anim-drop,
+label:hover .icon-anim-drop {
+  animation: icon-drop 300ms ease-out 1 both;
 }
 
 @keyframes chat-wiggle-ios {

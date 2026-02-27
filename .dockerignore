@@ -1,0 +1,10 @@
+.git
+.github
+node_modules
+**/node_modules
+client/dist
+data
+npm-debug.log*
+.gitignore
+.vscode
+.idea
