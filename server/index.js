@@ -930,7 +930,7 @@ async function runVideoTranscodeJob(job) {
       "-c:v",
       "libx264",
       "-preset",
-      "veryfast",
+      "ultrafast",
       "-crf",
       "23",
       "-pix_fmt",
