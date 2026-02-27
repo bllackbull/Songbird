@@ -97,6 +97,11 @@ git clone https://github.com/bllackbull/Songbird.git .
 ```bash
 cd /opt/songbird
 docker compose -f docker-compose.yaml up -d --build
+```
+
+Optional: Verify app is built successfully:
+
+```bash
 docker compose -f docker-compose.yaml ps
 docker compose -f docker-compose.yaml logs -f
 ```
@@ -347,10 +352,14 @@ sudo systemctl reload nginx
 
 > **Tip:** <br>
 >Backup your database before updating:
+>
 > ```bash
 > cd /opt/songbird/server
 > npm run db:backup
+> # Or for docker use:
+> docker compose exec songbird npm --prefix /app/server run db:backup
 > ```
+>
 > The backup file will be saved under `/data/backups` directory.
 
 
@@ -360,7 +369,6 @@ sudo systemctl reload nginx
 cd /opt/songbird
 git pull origin main
 docker compose -f docker-compose.yaml up -d --build
-docker compose -f docker-compose.yaml logs -f --tail=100
 sudo systemctl reload nginx
 ```
 
@@ -374,7 +382,6 @@ npm install
 npm run build
 cd ../server
 npm install
-npm run db:migrate
 sudo systemctl restart songbird
 sudo systemctl reload nginx
 ```
@@ -384,7 +391,6 @@ sudo systemctl reload nginx
 - git pull - Fetch and merge latest changes from GitHub
 - npm install (client & server) - Install any new dependencies
 - npm run build - Rebuild the React frontend into client/dist
-- npm run db:migrate - Apply versioned schema migrations without dropping data
 - systemctl restart songbird - Restart the Node server to pick up changes
 - systemctl reload nginx - Reload Nginx to serve the new build
 
@@ -476,14 +482,15 @@ npm run db:user:inspect
 npm run db:file:inspect
 ```
 
-Recommended production flow:
+### Use commands via Docker
 
-1. Backup DB
-2. Pull latest code
-3. Install dependencies
-4. Build frontend
-5. Run migrations (manual/systemd flow); Docker runs migrations automatically on startup
-6. Restart services
+Use npm scripts inside the runnig container:
+
+```bash
+docker compose exec songbird npm --prefix /app/server run db:backup
+docker compose exec songbird npm --prefix /app/server run db:migrate
+docker compose exec songbird npm --prefix /app/server run db:inspect
+```
 
 ## Running behind a domain + subpath
 
