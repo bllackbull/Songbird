@@ -202,6 +202,7 @@ Create an Nginx site file at `/etc/nginx/sites-available/songbird`:
 server {
   listen 80;
   server_name example.com www.example.com;
+  client_max_body_size 78643200;
 
   location / {
     proxy_pass http://127.0.0.1:5174;
@@ -218,7 +219,8 @@ server {
 ```
 
 > **NOTE:**
-> If you set `PORT` to a different value, update `proxy_pass` accordingly.
+> - If you set `PORT` to a different value, update `proxy_pass` accordingly.
+> - Keep `client_max_body_size` aligned with `FILE_UPLOAD_MAX_TOTAL_SIZE` (total request size).
 
 Enable the site and test Nginx config:
 
@@ -344,8 +346,6 @@ cd /opt/songbird
 git pull origin main
 docker compose -f docker-compose.yaml up -d --build
 docker compose -f docker-compose.yaml logs -f --tail=100
-cd ./server
-npm run db:migrate
 sudo systemctl reload nginx
 ```
 

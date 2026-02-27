@@ -221,6 +221,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const sseReconnectRef = useRef(null);
   const isMarkingReadRef = useRef(false);
   const sendingClientIdsRef = useRef(new Set());
+  const usernameRef = useRef(String(user?.username || ""));
+  const loadChatsRef = useRef(null);
+  const scheduleMessageRefreshRef = useRef(null);
 
   const scrollChatToBottom = (behavior = "auto") => {
     const container = chatScrollRef.current;
@@ -294,6 +297,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   useEffect(() => {
     pendingUploadFilesRef.current = pendingUploadFiles;
   }, [pendingUploadFiles]);
+
+  useEffect(() => {
+    usernameRef.current = String(user?.username || "");
+  }, [user?.username]);
 
   useEffect(() => {
     return () => {
@@ -882,12 +889,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         if (payload.type !== "chat_message" && payload.type !== "chat_read") {
           return;
         }
-        void loadChats({ silent: true });
+        void loadChatsRef.current?.({ silent: true });
+        const payloadChatId = Number(payload.chatId || 0);
         const currentActiveId = activeChatIdRef.current;
-        if (currentActiveId && Number(payload.chatId) === currentActiveId) {
+        if (currentActiveId && payloadChatId === currentActiveId) {
           const isOwnEvent =
             String(payload?.username || "").toLowerCase() ===
-            String(user.username || "").toLowerCase();
+            String(usernameRef.current || "").toLowerCase();
           const isIncomingMessage = payload.type === "chat_message" && !isOwnEvent;
           if (isIncomingMessage) {
             if (userScrolledUpRef.current && !isAtBottomRef.current) {
@@ -896,7 +904,26 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               pendingScrollToBottomRef.current = true;
             }
           }
-          scheduleMessageRefresh(currentActiveId);
+          if (payload.type === "chat_read" && !isOwnEvent) {
+            const nowIso = new Date().toISOString();
+            setMessages((prev) =>
+              prev.map((msg) => {
+                const fromCurrentUser =
+                  String(msg?.username || "").toLowerCase() ===
+                  String(usernameRef.current || "").toLowerCase();
+                if (!fromCurrentUser || msg?.read_at) return msg;
+                return { ...msg, read_at: nowIso };
+              }),
+            );
+            setChats((prev) =>
+              prev.map((chat) =>
+                Number(chat?.id) === payloadChatId
+                  ? { ...chat, last_message_read_at: nowIso }
+                  : chat,
+              ),
+            );
+          }
+          scheduleMessageRefreshRef.current?.(currentActiveId);
         }
       };
 
@@ -925,6 +952,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }
     };
   }, [user?.username]);
+
+  useEffect(() => {
+    loadChatsRef.current = loadChats;
+    scheduleMessageRefreshRef.current = scheduleMessageRefresh;
+  });
 
   const uploadPendingMessageWithProgress = (pendingMessage, targetChatId) =>
     new Promise((resolve, reject) => {
@@ -975,7 +1007,19 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           resolve(data);
           return;
         }
-        reject(new Error(data?.error || "Unable to send message."));
+        if (data?.error) {
+          reject(new Error(String(data.error)));
+          return;
+        }
+        if (xhr.status === 413) {
+          reject(
+            new Error(
+              "Upload rejected (HTTP 413): request is too large. Increase proxy upload limit.",
+            ),
+          );
+          return;
+        }
+        reject(new Error(`Unable to send message (HTTP ${xhr.status || "unknown"}).`));
       };
 
       xhr.send(form);
