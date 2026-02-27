@@ -27,6 +27,7 @@ FILE_UPLOAD="$DEFAULT_FILE_UPLOAD"
 RETENTION_DAYS="$DEFAULT_RETENTION_DAYS"
 NGINX_SERVER_NAME="_"
 CURRENT_ENV_FILE=""
+PROMPT_FD=0
 
 log() {
   printf "[%s] %s\n" "$APP_NAME-deploy" "$*"
@@ -57,11 +58,33 @@ run_in_install_dir() {
   run_as_root bash -lc "cd '$INSTALL_DIR' && $*"
 }
 
+init_prompt_io() {
+  if [[ -t 0 ]]; then
+    PROMPT_FD=0
+    return 0
+  fi
+  if [[ -r /dev/tty ]]; then
+    exec 3</dev/tty
+    PROMPT_FD=3
+    return 0
+  fi
+  fail "No interactive TTY detected. Run this script in an interactive shell."
+}
+
+prompt_read() {
+  local prompt="$1"
+  local __result_var="$2"
+  local input=""
+  printf "%s" "$prompt" >/dev/tty
+  IFS= read -r -u "$PROMPT_FD" input
+  printf -v "$__result_var" "%s" "$input"
+}
+
 prompt_non_empty() {
   local prompt="$1"
   local value=""
   while true; do
-    read -r -p "$prompt: " value
+    prompt_read "$prompt: " value
     value="${value#"${value%%[![:space:]]*}"}"
     value="${value%"${value##*[![:space:]]}"}"
     if [[ -n "$value" ]]; then
@@ -77,7 +100,7 @@ prompt_yes_no() {
   local default="$2"
   local value=""
   while true; do
-    read -r -p "$prompt [y/n] (default: $default): " value
+    prompt_read "$prompt [y/n] (default: $default): " value
     value="$(printf "%s" "$value" | tr '[:upper:]' '[:lower:]')"
     if [[ -z "$value" ]]; then
       value="$default"
@@ -93,7 +116,7 @@ prompt_yes_no() {
 prompt_port() {
   local value=""
   while true; do
-    read -r -p "Enter application port (default: $DEFAULT_PORT): " value
+    prompt_read "Enter application port (default: $DEFAULT_PORT): " value
     if [[ -z "$value" ]]; then
       value="$DEFAULT_PORT"
     fi
@@ -108,7 +131,7 @@ prompt_port() {
 prompt_retention_days() {
   local value=""
   while true; do
-    read -r -p "Enter MESSAGE_FILE_RETENTION in days (0 disables, default: $DEFAULT_RETENTION_DAYS): " value
+    prompt_read "Enter MESSAGE_FILE_RETENTION in days (0 disables, default: $DEFAULT_RETENTION_DAYS): " value
     if [[ -z "$value" ]]; then
       value="$DEFAULT_RETENTION_DAYS"
     fi
@@ -308,7 +331,7 @@ sync_values_from_env() {
 collect_install_options() {
   local mode=""
   while true; do
-    read -r -p "Deploy behind a domain or server IP? [domain/ip] (default: domain): " mode
+    prompt_read "Deploy behind a domain or server IP? [domain/ip] (default: domain): " mode
     mode="$(printf "%s" "$mode" | tr '[:upper:]' '[:lower:]')"
     [[ -z "$mode" ]] && mode="domain"
     case "$mode" in
@@ -621,6 +644,7 @@ show_menu() {
 }
 
 main() {
+  init_prompt_io
   detect_os
   ensure_sudo
 
@@ -628,7 +652,7 @@ main() {
   while true; do
     check_for_updates_notice
     show_menu
-    read -r -p "Choose an option [1-6]: " choice
+    prompt_read "Choose an option [1-6]: " choice
     case "$choice" in
       1) install_songbird ;;
       2) update_songbird ;;
