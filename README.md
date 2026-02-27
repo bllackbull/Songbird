@@ -30,12 +30,36 @@ If you use Docker/Compose, you do not need a `systemd` unit for the Songbird Nod
 - An Ubuntu server with sudo access
 - A domain name pointing to your server's public IP (Recommended)
 
-Update and install required packages:
+## Deployment Script
+
+If you want the manual install flow fully automated, use:
 
 ```bash
-sudo apt update
-sudo apt install -y git curl build-essential nginx python3-certbot-nginx ffmpeg
+bash scripts/install.sh
 ```
+
+Or run remotely:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bllackbull/Songbird/main/scripts/install.sh | bash
+```
+
+The script currently supports Debian/Ubuntu and opens an interactive menu:
+
+1. Install Songbird
+2. Update Songbird
+3. Edit Settings (`.env`) and apply changes (client rebuild + service reloads)
+4. Remove Songbird
+5. Install global command (`songbird-deploy`)
+
+Install flow prompts for:
+
+- Domain vs IP deployment
+- Domain name (and SSL via Certbot) when domain mode is selected
+- Default or custom app `PORT`
+- `FILE_UPLOAD` enable/disable
+- `MESSAGE_FILE_RETENTION` days
+- Optional advanced settings edit (`.env` opens, then script continues after close)
 
 ## Option A: Docker + Compose (recommended)
 
@@ -44,7 +68,8 @@ sudo apt install -y git curl build-essential nginx python3-certbot-nginx ffmpeg
 Install these packages:
 
 ```bash
-sudo apt install -y ca-certificates gnupg lsb-release
+sudo apt update
+sudo apt install -y git curl build-essential nginx python3-certbot-nginx ffmpeg ca-certificates gnupg lsb-release
 ```
 
 Add Docker official GPG key:
@@ -111,6 +136,13 @@ To complete the setup, refer to the [Configure Nginx](#configure-nginx) section.
 ## Option B: Manual Installation
 
 ### 1. System setup
+
+Update and install required packages:
+
+```bash
+sudo apt update
+sudo apt install -y git curl build-essential nginx python3-certbot-nginx ffmpeg
+```
 
 Install Node.js and npm (pick one):
 
