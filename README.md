@@ -27,8 +27,8 @@ If you use Docker/Compose, you do not need a `systemd` unit for the Songbird Nod
 
 **Prerequisites (tested on Ubuntu 22.04+):**
 
-- A domain name pointing to your server's public IP
 - An Ubuntu server with sudo access
+- A domain name pointing to your server's public IP (Recommended)
 
 Update and install required packages:
 
@@ -125,21 +125,12 @@ sudo apt install -y nodejs
 
 ```bash
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/latest/install.sh | bash
-cd /opt/songbird
-nvm install
-nvm use
 ```
 
 **Volta**:
 
 ```bash
 curl https://get.volta.sh | bash
-cd /opt/songbird
-```
-
-Volta will auto-install the versions when you enter the project. If you want to manually install the same versions globally, you can do:
-
-```bash
 volta install node@24.11.1 npm@11.6.4
 ```
 
@@ -150,6 +141,16 @@ sudo mkdir -p /opt/songbird
 cd /opt/songbird
 git clone https://github.com/bllackbull/Songbird.git .
 ```
+
+>**Note:** <br>
+>If you installed Node.js using nvm:
+>
+>```bash
+>nvm install
+>nvm use
+>```
+
+
 
 ### 3. Install dependencies
 
@@ -174,23 +175,53 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/songbird/server
-ExecStart=/usr/bin/node index.js
-User=songbird
-Group=songbird
+ExecStart=/usr/bin/env node index.js
 Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-Create a dedicated system user and change ownership of the project directory:
+> **NOTE:**
+> - If you installed Node.js using nvm, set this as Node path in `ExectStart`:
+>
+>```ini
+>ExecStart=/root/.nvm/versions/node/v24.11.1/bin/node index.js
+>```
+>
+> - If you installed Node.js using volta, set this as Node path in `ExectStart`:
+>
+>```ini
+>ExecStart=/root/.volta/bin/node index.js
+>```
+>
+
+**Recommended: Create a dedicated user:**
+
+> **NOTE:** Skip this step if you installed Node.js using nvm or volta.
+
+Due to security conserns, it is recommended to create a dedicated system user and change ownership of the project directory:
+
+1. Add these lines to systemd service file:
+
+```ini
+User=songbird
+Group=songbird
+```
+
+2. Create a dedicated system user:
 
 ```bash
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin songbird
+```
+
+3. Change ownership of the project directory:
+
+```bash
 sudo chown -R songbird:songbird /opt/songbird
 ```
 
-Enable and start the service:
+**Enable and start the service:**
 
 ```bash
 sudo systemctl daemon-reload
@@ -199,9 +230,9 @@ sudo systemctl enable --now songbird.service
 
 ## Configure Nginx
 
-### 1. Configure Nginx file
+### Option A: Domain Setup (HTTPS)
 
-Create an Nginx site file at `/etc/nginx/sites-available/songbird`:
+#### 1. Create an Nginx site file at `/etc/nginx/sites-available/songbird`:
 
 ```nginx
 server {
@@ -237,12 +268,7 @@ server {
 }
 ```
 
-> **NOTE:**
-> - If you set `PORT` to a different value, update `proxy_pass` accordingly.
-> - Keep `client_max_body_size` aligned with `FILE_UPLOAD_MAX_TOTAL_SIZE` (total request size).
-> - Keep the dedicated `/api/events` block as shown so SSE remains truly realtime behind HTTPS reverse proxies.
-
-Enable the site and test Nginx config:
+#### 2. Enable the site and test Nginx config:
 
 ```bash
 sudo ln -s /etc/nginx/sites-available/songbird /etc/nginx/sites-enabled/
@@ -250,19 +276,72 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-### 2. Obtain SSL certificate via Certbot
+#### 3. Get SSL for domain
 
 ```bash
 sudo certbot --nginx -d example.com -d www.example.com
 sudo certbot renew --dry-run
 ```
 
-### 3. Firewall (optional)
+### Option B: Server IP (HTTP)
+
+If you want to run only on your server IP over HTTP, you can skip Certbot entirely.
+
+#### 1. Use this Nginx server block instead:
+
+```nginx
+server {
+  listen 80 default_server;
+  server_name _;
+  client_max_body_size 78643200;
+
+  location /api/events {
+    proxy_pass http://127.0.0.1:5174;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 1h;
+    proxy_send_timeout 1h;
+    proxy_buffering off;
+    proxy_cache off;
+    add_header X-Accel-Buffering no;
+  }
+
+  location / {
+    proxy_pass http://127.0.0.1:5174;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_cache_bypass $http_upgrade;
+  }
+}
+```
+
+#### 2. Enable the site and test Nginx config:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/songbird /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+### Optional: Enable firewall
 
 ```bash
 sudo ufw allow 'Nginx Full'
 sudo ufw enable
 ```
+
+> **NOTE:**
+> - If you set `PORT` to a different value, update `proxy_pass` accordingly.
+> - Keep `client_max_body_size` aligned with `FILE_UPLOAD_MAX_TOTAL_SIZE` (total request size).
+> - Keep the dedicated `/api/events` block as shown so SSE remains truly realtime behind HTTPS reverse proxies.
 
 ## Common troubleshooting
 
@@ -356,7 +435,7 @@ sudo systemctl reload nginx
 > ```bash
 > cd /opt/songbird/server
 > npm run db:backup
-> # Or for docker use:
+> # Or use this for Docker:
 > docker compose exec songbird npm --prefix /app/server run db:backup
 > ```
 >
