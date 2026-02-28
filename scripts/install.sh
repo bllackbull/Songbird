@@ -654,6 +654,17 @@ install_global_command() {
   log "Run it from anywhere with: songbird-deploy"
 }
 
+ensure_global_command_on_first_run() {
+  local target="/usr/local/bin/songbird-deploy"
+  if run_as_root test -x "$target"; then
+    return 0
+  fi
+  log "Global command not found. Installing it automatically..."
+  if ! install_global_command; then
+    warn "Automatic global command installation failed. You can retry from the menu."
+  fi
+}
+
 show_menu() {
   printf "\n"
   printf "Songbird Deploy Menu\n"
@@ -661,7 +672,7 @@ show_menu() {
   printf "2) Update Songbird\n"
   printf "3) Edit Settings (.env)\n"
   printf "4) Remove Songbird\n"
-  printf "5) Install global command (songbird-deploy)\n"
+  printf "5) Reinstall global command (songbird-deploy)\n"
   printf "6) Exit\n"
 }
 
@@ -669,6 +680,7 @@ main() {
   init_prompt_io
   detect_os
   ensure_sudo
+  ensure_global_command_on_first_run
 
   local choice=""
   while true; do
