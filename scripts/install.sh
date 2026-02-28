@@ -14,6 +14,7 @@ DEFAULT_PORT="5174"
 DEFAULT_FILE_UPLOAD="true"
 DEFAULT_RETENTION_DAYS="7"
 NODE_MAJOR="24"
+SCRIPT_REMOTE_URL="${SCRIPT_REMOTE_URL:-https://raw.githubusercontent.com/bllackbull/Songbird/main/scripts/install.sh}"
 
 SUDO=""
 OS_ID=""
@@ -624,10 +625,31 @@ install_songbird() {
 
 install_global_command() {
   local target="/usr/local/bin/songbird-deploy"
+  local source_hint="${BASH_SOURCE[0]:-}"
   local source_path=""
-  source_path="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 
-  run_as_root install -m 755 "$source_path" "$target"
+  if [[ -n "$source_hint" ]]; then
+    if [[ "$source_hint" != /* ]]; then
+      source_hint="$(pwd)/$source_hint"
+    fi
+    if [[ -f "$source_hint" ]]; then
+      source_path="$source_hint"
+    fi
+  fi
+
+  if [[ -n "$source_path" ]]; then
+    run_as_root install -m 755 "$source_path" "$target"
+  else
+    log "Script source path is not a regular file. Installing global command from ${SCRIPT_REMOTE_URL}..."
+    if [[ -n "$SUDO" ]]; then
+      curl -fsSL "$SCRIPT_REMOTE_URL" | $SUDO tee "$target" >/dev/null
+      $SUDO chmod 755 "$target"
+    else
+      curl -fsSL "$SCRIPT_REMOTE_URL" > "$target"
+      chmod 755 "$target"
+    fi
+  fi
+
   log "Global command installed: songbird-deploy"
   log "Run it from anywhere with: songbird-deploy"
 }
