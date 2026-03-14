@@ -67,19 +67,21 @@ export const migration001InitialSchema = {
 
       CREATE INDEX IF NOT EXISTS idx_members_user ON chat_members(user_id);
       CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
-    `
+    `;
 
     schemaSql
       .trim()
-      .split(';')
+      .split(";")
       .map((statement) => statement.trim())
       .filter(Boolean)
-      .forEach((statement) => db.run(statement))
+      .forEach((statement) => db.run(statement));
 
     // Legacy installs can still have conversation_id at v1. Only create this
     // index when chat_id already exists to avoid aborting before v2 migration.
-    if (hasColumn('chat_messages', 'chat_id')) {
-      db.run('CREATE INDEX IF NOT EXISTS idx_messages_chat_time ON chat_messages(chat_id, created_at)')
+    if (hasColumn("chat_messages", "chat_id")) {
+      db.run(
+        "CREATE INDEX IF NOT EXISTS idx_messages_chat_time ON chat_messages(chat_id, created_at)",
+      );
     }
   },
-}
+};

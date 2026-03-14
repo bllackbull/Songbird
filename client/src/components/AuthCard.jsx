@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, Eye, EyeOff, LoaderCircle, Moon, Sun } from "lucide-react";
+import { AlertCircle, Eye, EyeOff, LoaderCircle, Moon, Sun } from "../icons/lucide.js";
 
 export default function AuthCard({
   mode,

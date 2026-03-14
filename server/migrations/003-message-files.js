@@ -15,14 +15,13 @@ export const migration003MessageFiles = {
       );
 
       CREATE INDEX IF NOT EXISTS idx_message_files_message_id ON chat_message_files(message_id);
-    `
+    `;
 
     schemaSql
       .trim()
-      .split(';')
+      .split(";")
       .map((statement) => statement.trim())
       .filter(Boolean)
-      .forEach((statement) => db.run(statement))
+      .forEach((statement) => db.run(statement));
   },
-}
-
+};

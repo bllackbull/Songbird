@@ -1,4 +1,4 @@
-﻿import { MessageCircle as Chat, Settings } from "lucide-react";
+import { Chat, Settings } from "../icons/lucide.js";
 
 export default function MobileTabMenu({
   hidden,

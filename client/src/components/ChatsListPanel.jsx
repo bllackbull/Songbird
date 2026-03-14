@@ -1,4 +1,4 @@
-﻿import { Check, CheckCheck, Clock12, File, Image as ImageIcon, Minus, Plus, Video } from "lucide-react";
+import { Check, CheckCheck, Clock12, File, ImageIcon, Minus, Plus, Video } from "../icons/lucide.js";
 import { getAvatarStyle } from "../utils/avatarColor.js";
 import { hasPersian } from "../utils/fontUtils.js";
 import { getAvatarInitials } from "../utils/avatarInitials.js";

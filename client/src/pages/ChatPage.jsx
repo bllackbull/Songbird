@@ -1,133 +1,43 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import {
-  Settings,
-  X as Close,
-  Plus,
-  Pencil,
-  Trash,
-  LoaderCircle,
-} from "lucide-react";
 import MobileTabMenu from "../components/MobileTabMenu.jsx";
-import ChatsListPanel from "../components/ChatsListPanel.jsx";
 import ChatWindowPanel from "../components/ChatWindowPanel.jsx";
 import { DeleteChatsModal, NewChatModal } from "../components/ChatModals.jsx";
-import {
-  DesktopSettingsModal,
-  MobileSettingsPanel,
-  SettingsMenuPopover,
-} from "../components/SettingsPanel.jsx";
-import { getAvatarStyle } from "../utils/avatarColor.js";
-import { hasPersian } from "../utils/fontUtils.js";
+import { DesktopSettingsModal } from "../components/settings/index.js";
+import { ChatSidebar } from "../components/chatpage/index.js";
+import { CHAT_PAGE_CONFIG } from "../settings/chatPageConfig.js";
 import { getAvatarInitials } from "../utils/avatarInitials.js";
-
-const API_BASE = "";
-const readEnvNumber = (key, fallback, options = {}) => {
-  const keys = Array.isArray(key) ? key : [key];
-  const raw = keys
-    .map((name) => import.meta.env[name])
-    .find((value) => value !== undefined && value !== null && value !== "");
-  if (raw === undefined || raw === null || raw === "") return fallback;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) return fallback;
-  const integer = options.integer ? Math.trunc(parsed) : parsed;
-  if (options.min !== undefined && integer < options.min) return fallback;
-  if (options.max !== undefined && integer > options.max) return fallback;
-  return integer;
-};
-const readEnvBool = (key, fallback) => {
-  const raw = import.meta.env[key];
-  if (raw === undefined || raw === null || raw === "") return fallback;
-  const normalized = String(raw).trim().toLowerCase();
-  if (["1", "true", "yes", "y", "on"].includes(normalized)) return true;
-  if (["0", "false", "no", "n", "off"].includes(normalized)) return false;
-  return fallback;
-};
-
-const CHAT_PAGE_CONFIG = {
-  pendingTextTimeoutMs: readEnvNumber("CHAT_PENDING_TEXT_TIMEOUT", 5 * 60 * 1000, {
-    integer: true,
-    min: 1000,
-  }),
-  pendingFileTimeoutMs: readEnvNumber(
-    "CHAT_PENDING_FILE_TIMEOUT",
-    20 * 60 * 1000,
-    { integer: true, min: 1000 },
-  ),
-  pendingRetryIntervalMs: readEnvNumber(
-    "CHAT_PENDING_RETRY_INTERVAL",
-    4000,
-    { integer: true, min: 250 },
-  ),
-  pendingStatusCheckIntervalMs: readEnvNumber("CHAT_PENDING_STATUS_CHECK_INTERVAL", 1000, {
-    integer: true,
-    min: 250,
-  }),
-  messageFetchLimit: readEnvNumber("CHAT_MESSAGE_FETCH_LIMIT", 300, {
-    integer: true,
-    min: 1,
-  }),
-  messagePageSize: readEnvNumber("CHAT_MESSAGE_PAGE_SIZE", 60, {
-    integer: true,
-    min: 10,
-    max: 500,
-  }),
-  maxFilesPerMessage: readEnvNumber("FILE_UPLOAD_MAX_FILES", 10, {
-    integer: true,
-    min: 1,
-  }),
-  maxFileSizeBytes: readEnvNumber(
-    "FILE_UPLOAD_MAX_SIZE",
-    25 * 1024 * 1024,
-    {
-      integer: true,
-      min: 1024,
-    },
-  ),
-  maxTotalUploadBytes: readEnvNumber(
-    "FILE_UPLOAD_MAX_TOTAL_SIZE",
-    75 * 1024 * 1024,
-    {
-      integer: true,
-      min: 1024,
-    },
-  ),
-  chatsRefreshIntervalMs: readEnvNumber("CHAT_LIST_REFRESH_INTERVAL", 20000, {
-    integer: true,
-    min: 1000,
-  }),
-  presencePingIntervalMs: readEnvNumber("CHAT_PRESENCE_PING_INTERVAL", 5000, {
-    integer: true,
-    min: 1000,
-  }),
-  newChatSearchMaxResults: readEnvNumber("CHAT_SEARCH_MAX_RESULTS", 5, {
-    integer: true,
-    min: 1,
-  }),
-  healthCheckIntervalMs: readEnvNumber("CHAT_HEALTH_CHECK_INTERVAL", 10000, {
-    integer: true,
-    min: 1000,
-  }),
-  peerPresencePollIntervalMs: readEnvNumber("CHAT_PEER_PRESENCE_POLL_INTERVAL", 3000, {
-    integer: true,
-    min: 500,
-  }),
-  sseReconnectDelayMs: readEnvNumber("CHAT_SSE_RECONNECT_DELAY", 2000, {
-    integer: true,
-    min: 250,
-  }),
-  fileUploadEnabled: readEnvBool("FILE_UPLOAD", true),
-};
+import {
+  formatBytesAsMb,
+  formatDayLabel,
+  formatTime,
+  parseServerDate,
+} from "../utils/chatFormat.js";
+import { useChatEvents } from "../hooks/useChatEvents.js";
+import { useChatScroll } from "../hooks/useChatScroll.js";
+import {
+  createDmChat,
+  fetchHealth,
+  fetchPresence,
+  getMessagesUploadUrl,
+  getSseStreamUrl,
+  hideChats,
+  listChatsForUser,
+  listMessagesByQuery,
+  logout,
+  markMessagesRead,
+  pingPresence,
+  searchUsers,
+  sendMessage,
+  updatePassword,
+  updateProfile,
+  updateStatus,
+  uploadAvatar,
+} from "../api/chatApi.js";
 
 const NEW_CHAT_SEARCH_DEBOUNCE_MS = 300;
 const MOBILE_CLOSE_ANIMATION_MS = 340;
 const UPLOAD_PROGRESS_HIDE_DELAY_MS = 600;
-const CHAT_BOTTOM_THRESHOLD_PX = 120;
-const JUMP_TO_LATEST_SECOND_SNAP_DELAY_MS = 320;
-const JUMP_TO_LATEST_SECOND_SNAP_THRESHOLD_PX = 24;
 
-const formatBytesAsMb = (bytes) => `${Math.round(bytes / (1024 * 1024))} MB`;
-const apiFetch = (url, options = {}) =>
-  fetch(url, { credentials: "include", ...options });
 
 
 
@@ -225,15 +135,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const loadChatsRef = useRef(null);
   const scheduleMessageRefreshRef = useRef(null);
 
-  const scrollChatToBottom = (behavior = "auto") => {
-    const container = chatScrollRef.current;
-    if (!container) return;
-    container.scrollTo({
-      top: container.scrollHeight + 1000,
-      behavior,
-    });
-  };
-
   const clearUnreadAlignTimers = () => {
     unreadAlignTimersRef.current.forEach((timer) => window.clearTimeout(timer));
     unreadAlignTimersRef.current = [];
@@ -293,6 +194,32 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     [messages],
   );
   const canMarkReadInCurrentView = !isMobileViewport || mobileTab === "chat";
+  const {
+    handleChatScroll,
+    handleJumpToLatest,
+    handleMessageMediaLoaded,
+    scrollChatToBottom,
+  } = useChatScroll({
+    activeChatId,
+    canMarkReadInCurrentView,
+    chatScrollRef,
+    clearUnreadAlignTimers,
+    messages,
+    user,
+    isAppActive,
+    markMessagesRead,
+    pendingScrollToUnreadRef,
+    isAtBottomRef,
+    userScrolledUpRef,
+    unreadAnchorLockUntilRef,
+    suppressScrolledUpRef,
+    mediaLoadSnapTimerRef,
+    activeChatIdRef,
+    isMarkingReadRef,
+    setUnreadInChat,
+    setIsAtBottom,
+    setUserScrolledUp,
+  });
 
   useEffect(() => {
     pendingUploadFilesRef.current = pendingUploadFiles;
@@ -361,11 +288,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (!isAppActive) return;
     const ping = async () => {
       try {
-        await apiFetch(`${API_BASE}/api/presence`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username: user.username }),
-        });
+        await pingPresence(user.username);
       } catch {
         // ignore
       }
@@ -385,11 +308,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const handle = setTimeout(async () => {
       try {
         setNewChatLoading(true);
-        const res = await apiFetch(
-          `${API_BASE}/api/users?exclude=${encodeURIComponent(user.username)}&query=${encodeURIComponent(
-            newChatUsername.trim().toLowerCase(),
-          )}`,
-        );
+        const res = await searchUsers({
+          exclude: user.username,
+          query: newChatUsername.trim().toLowerCase(),
+        });
         const data = await res.json();
         if (!res.ok) {
           throw new Error(data?.error || "Unable to search users.");
@@ -412,7 +334,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     let isMounted = true;
     const checkHealth = async () => {
       try {
-        const res = await apiFetch(`${API_BASE}/api/health`);
+        const res = await fetchHealth();
         if (!res.ok) throw new Error("Not connected");
         const data = await res.json();
         if (isMounted) {
@@ -504,11 +426,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           isAtBottomRef.current &&
           !userScrolledUpRef.current
         ) {
-          await apiFetch(`${API_BASE}/api/messages/read`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ chatId: openedChatId, username: user.username }),
-          }).catch(() => null);
+          await markMessagesRead({ chatId: openedChatId, username: user.username }).catch(
+            () => null,
+          );
         }
         if (!sseConnected) {
           await loadChats({ silent: true });
@@ -567,6 +487,16 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     activeHeaderPeer?.nickname || activeHeaderPeer?.username || "Select a chat";
   const canStartChat = Boolean(newChatSelection);
   const userColor = user?.color || "#10b981";
+  const handleExitEdit = () => {
+    setEditMode(false);
+    setSelectedChats([]);
+  };
+  const handleEnterEdit = () => {
+    if (!visibleChats.length) return;
+    setEditMode(true);
+  };
+  const handleDeleteChats = () => requestDeleteChats(selectedChats);
+  const handleOpenSettings = () => setShowSettings((prev) => !prev);
 
   const displayName = user.nickname || user.username;
   const displayInitials = getAvatarInitials(displayName);
@@ -625,14 +555,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       : selectedChats;
     if (!idsToHide.length) return;
     try {
-      await apiFetch(`${API_BASE}/api/chats/hide`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: user.username,
-          chatIds: idsToHide,
-        }),
-      });
+      await hideChats({ username: user.username, chatIds: idsToHide });
     } catch {
       // ignore
     }
@@ -651,53 +574,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     await loadChats();
   };
 
-  const parseServerDate = (value) => {
-    if (!value) return new Date();
-    if (typeof value === "string") {
-      const normalized = value.includes("T") ? value : value.replace(" ", "T");
-      const hasExplicitTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized);
-      return hasExplicitTimezone
-        ? new Date(normalized)
-        : new Date(`${normalized}Z`);
-    }
-    return new Date(value);
-  };
-
-  const formatDayLabel = (dateValue) => {
-    const now = new Date();
-    const date = parseServerDate(dateValue);
-    const startOfToday = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-    );
-    const startOfDate = new Date(
-      date.getFullYear(),
-      date.getMonth(),
-      date.getDate(),
-    );
-    const diffDays = Math.round(
-      (startOfToday - startOfDate) / (1000 * 60 * 60 * 24),
-    );
-
-    if (diffDays === 0) return "Today";
-    if (diffDays === 1) return "Yesterday";
-    if (diffDays > 1 && diffDays < 7) {
-      return date.toLocaleDateString(undefined, { weekday: "long" });
-    }
-    return date.toLocaleDateString(undefined, {
-      month: "long",
-      day: "numeric",
-    });
-  };
-
-  const formatTime = (dateValue) =>
-    parseServerDate(dateValue).toLocaleTimeString(undefined, {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
-
   // Messages are updated via SSE events and explicit send/read actions.
   // Avoid periodic full message fetches to reduce unnecessary reflows/fetches.
 
@@ -714,11 +590,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (!activeHeaderPeer?.username) return;
     let isMounted = true;
     setPeerPresence({ status: "offline", lastSeen: null });
-    const fetchPresence = async () => {
+    const fetchPeerPresence = async () => {
       try {
-        const res = await apiFetch(
-          `${API_BASE}/api/presence?username=${encodeURIComponent(activeHeaderPeer.username)}`,
-        );
+        const res = await fetchPresence(activeHeaderPeer.username);
         const data = await res.json();
         if (!res.ok) {
           throw new Error(data?.error || "Unable to fetch presence.");
@@ -735,8 +609,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         }
       }
     };
-    fetchPresence();
-    const interval = setInterval(fetchPresence, CHAT_PAGE_CONFIG.peerPresencePollIntervalMs);
+    fetchPeerPresence();
+    const interval = setInterval(
+      fetchPeerPresence,
+      CHAT_PAGE_CONFIG.peerPresencePollIntervalMs,
+    );
     return () => {
       isMounted = false;
       clearInterval(interval);
@@ -852,106 +729,30 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (!hasUnreadFromOthers) return;
 
     isMarkingReadRef.current = true;
-    apiFetch(`${API_BASE}/api/messages/read`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chatId: activeId, username: user.username }),
-    })
+    markMessagesRead({ chatId: activeId, username: user.username })
       .catch(() => null)
       .finally(() => {
         isMarkingReadRef.current = false;
       });
   }, [messages, user?.username, isAppActive, canMarkReadInCurrentView]);
 
-  useEffect(() => {
-    if (!user?.username) return;
-    let source = null;
-    let isMounted = true;
-
-    const connect = () => {
-      if (!isMounted) return;
-      source = new EventSource(
-        `${API_BASE}/api/events?username=${encodeURIComponent(user.username)}`,
-        { withCredentials: true },
-      );
-      source.onopen = () => {
-        setSseConnected(true);
-      };
-
-      source.onmessage = (event) => {
-        let payload = null;
-        try {
-          payload = JSON.parse(event.data);
-        } catch {
-          return;
-        }
-        if (!payload?.type) return;
-        if (payload.type !== "chat_message" && payload.type !== "chat_read") {
-          return;
-        }
-        void loadChatsRef.current?.({ silent: true });
-        const payloadChatId = Number(payload.chatId || 0);
-        const currentActiveId = activeChatIdRef.current;
-        if (currentActiveId && payloadChatId === currentActiveId) {
-          const isOwnEvent =
-            String(payload?.username || "").toLowerCase() ===
-            String(usernameRef.current || "").toLowerCase();
-          const isIncomingMessage = payload.type === "chat_message" && !isOwnEvent;
-          if (isIncomingMessage) {
-            if (userScrolledUpRef.current && !isAtBottomRef.current) {
-              setUnreadInChat((prev) => prev + 1);
-            } else {
-              pendingScrollToBottomRef.current = true;
-            }
-          }
-          if (payload.type === "chat_read" && !isOwnEvent) {
-            const nowIso = new Date().toISOString();
-            setMessages((prev) =>
-              prev.map((msg) => {
-                const fromCurrentUser =
-                  String(msg?.username || "").toLowerCase() ===
-                  String(usernameRef.current || "").toLowerCase();
-                if (!fromCurrentUser || msg?.read_at) return msg;
-                return { ...msg, read_at: nowIso };
-              }),
-            );
-            setChats((prev) =>
-              prev.map((chat) =>
-                Number(chat?.id) === payloadChatId
-                  ? { ...chat, last_message_read_at: nowIso }
-                  : chat,
-              ),
-            );
-          }
-          scheduleMessageRefreshRef.current?.(currentActiveId);
-        }
-      };
-
-      source.onerror = () => {
-        setSseConnected(false);
-        source?.close();
-        if (!isMounted) return;
-        if (sseReconnectRef.current) {
-          clearTimeout(sseReconnectRef.current);
-        }
-        sseReconnectRef.current = setTimeout(
-          connect,
-          CHAT_PAGE_CONFIG.sseReconnectDelayMs,
-        );
-      };
-    };
-
-    void connect();
-
-    return () => {
-      isMounted = false;
-      setSseConnected(false);
-      source?.close();
-      if (sseReconnectRef.current) {
-        clearTimeout(sseReconnectRef.current);
-      }
-    };
-  }, [user?.username]);
+  useChatEvents({
+    username: user?.username,
+    getSseStreamUrl,
+    sseReconnectDelayMs: CHAT_PAGE_CONFIG.sseReconnectDelayMs,
+    setSseConnected,
+    loadChatsRef,
+    scheduleMessageRefreshRef,
+    activeChatIdRef,
+    usernameRef,
+    userScrolledUpRef,
+    isAtBottomRef,
+    pendingScrollToBottomRef,
+    setUnreadInChat,
+    setMessages,
+    setChats,
+    sseReconnectRef,
+  });
 
   useEffect(() => {
     loadChatsRef.current = loadChats;
@@ -981,7 +782,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       form.append("fileMeta", JSON.stringify(fileMeta));
 
       const xhr = new XMLHttpRequest();
-      xhr.open("POST", `${API_BASE}/api/messages/upload`);
+      xhr.open("POST", getMessagesUploadUrl());
       xhr.timeout = CHAT_PAGE_CONFIG.pendingFileTimeoutMs;
 
       xhr.upload.onprogress = (event) => {
@@ -1041,14 +842,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         setActiveUploadProgress(0);
         data = await uploadPendingMessageWithProgress(pendingMessage, targetChatId);
       } else {
-        const res = await apiFetch(`${API_BASE}/api/messages`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            username: user.username,
-            body: pendingMessage.body,
-            chatId: targetChatId,
-          }),
+        const res = await sendMessage({
+          username: user.username,
+          body: pendingMessage.body,
+          chatId: targetChatId,
         });
         data = await res.json();
         if (!res.ok) {
@@ -1256,10 +1053,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       setLoadingChats(true);
     }
     try {
-      const res = await apiFetch(
-        `${API_BASE}/api/chats?username=${encodeURIComponent(user.username)}`,
-        { cache: "no-store" },
-      );
+      const res = await listChatsForUser(user.username, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data?.error || "Failed to load chats.");
@@ -1402,8 +1196,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (options.beforeCreatedAt) {
         query.set("beforeCreatedAt", String(options.beforeCreatedAt));
       }
-      const res = await apiFetch(
-        `${API_BASE}/api/messages?${query.toString()}`,
+      const res = await listMessagesByQuery(
+        Object.fromEntries(query.entries()),
         { cache: "no-store" },
       );
       const data = await res.json();
@@ -1759,11 +1553,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         !userScrolledUpRef.current &&
         (shouldAutoMarkReadRef.current || options.initialLoad)
       ) {
-        await apiFetch(`${API_BASE}/api/messages/read`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ chatId, username: user.username }),
-        }).catch(() => null);
+        await markMessagesRead({ chatId, username: user.username }).catch(() => null);
       }
     } catch {
       // Keep chat window free of transient fetch errors.
@@ -2147,11 +1937,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         return;
       }
       const target = matched.username;
-      const res = await apiFetch(`${API_BASE}/api/chats/dm`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ from: user.username, to: target }),
-      });
+      const res = await createDmChat({ from: user.username, to: target });
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data?.error || `Unable to start chat (${res.status}).`);
@@ -2173,11 +1959,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   async function updateStatus(nextStatus) {
     if (!user || user.status === nextStatus) return;
     try {
-      const res = await apiFetch(`${API_BASE}/api/status`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: user.username, status: nextStatus }),
-      });
+      const res = await updateStatus({ username: user.username, status: nextStatus });
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data?.error || "Unable to update status.");
@@ -2255,25 +2037,18 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         const payload = new FormData();
         payload.append("avatar", pendingAvatarFile.file);
         payload.append("currentUsername", user.username);
-        const uploadRes = await apiFetch(`${API_BASE}/api/profile/avatar`, {
-          method: "POST",
-          body: payload,
-        });
+        const uploadRes = await uploadAvatar(payload);
         const uploadData = await uploadRes.json();
         if (!uploadRes.ok) {
           throw new Error(uploadData?.error || "Unable to upload profile photo.");
         }
         avatarUrlToSave = uploadData.avatarUrl || "";
       }
-      const res = await apiFetch(`${API_BASE}/api/profile`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          currentUsername: user.username,
-          username: trimmedUsername,
-          nickname: profileForm.nickname,
-          avatarUrl: avatarUrlToSave,
-        }),
+      const res = await updateProfile({
+        currentUsername: user.username,
+        username: trimmedUsername,
+        nickname: profileForm.nickname,
+        avatarUrl: avatarUrlToSave,
       });
       const data = await res.json();
       if (!res.ok) {
@@ -2319,14 +2094,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       return;
     }
     try {
-      const res = await apiFetch(`${API_BASE}/api/password`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: user.username,
-          currentPassword: passwordForm.currentPassword,
-          newPassword: passwordForm.newPassword,
-        }),
+      const res = await updatePassword({
+        username: user.username,
+        currentPassword: passwordForm.currentPassword,
+        newPassword: passwordForm.newPassword,
       });
       const data = await res.json();
       if (!res.ok) {
@@ -2344,10 +2115,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }
 
   function handleLogout() {
-    apiFetch(`${API_BASE}/api/logout`, {
-      method: "POST",
-      credentials: "include",
-    }).catch(() => null);
+    logout().catch(() => null);
     setUser(null);
     setShowSettings(false);
     setMobileTab("chats");
@@ -2359,100 +2127,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setNewChatResults([]);
     setNewChatSelection(null);
     setNewChatError("");
-  };
-
-  const handleChatScroll = (event) => {
-    const target = event.currentTarget;
-    const threshold = CHAT_BOTTOM_THRESHOLD_PX;
-    const atBottom =
-      target.scrollHeight - target.scrollTop - target.clientHeight < threshold;
-    if (isAtBottomRef.current !== atBottom) {
-      isAtBottomRef.current = atBottom;
-      setIsAtBottom(atBottom);
-    }
-    if (atBottom) {
-      suppressScrolledUpRef.current = false;
-      unreadAnchorLockUntilRef.current = 0;
-      clearUnreadAlignTimers();
-      if (userScrolledUpRef.current) {
-        userScrolledUpRef.current = false;
-        setUserScrolledUp(false);
-      }
-    } else {
-      if (event?.isTrusted) {
-        suppressScrolledUpRef.current = false;
-        unreadAnchorLockUntilRef.current = 0;
-        clearUnreadAlignTimers();
-      }
-      if (suppressScrolledUpRef.current) {
-        return;
-      }
-      if (!userScrolledUpRef.current) {
-        pendingScrollToBottomRef.current = false;
-        pendingScrollToUnreadRef.current = null;
-        userScrolledUpRef.current = true;
-        setUserScrolledUp(true);
-        if (mediaLoadSnapTimerRef.current) {
-          window.clearTimeout(mediaLoadSnapTimerRef.current);
-          mediaLoadSnapTimerRef.current = null;
-        }
-      }
-    }
-    if (atBottom) {
-      pendingScrollToBottomRef.current = false;
-      setUnreadInChat(0);
-      const activeId = activeChatIdRef.current;
-      if (
-        activeId &&
-        user?.username &&
-        isAppActive &&
-        canMarkReadInCurrentView &&
-        !isMarkingReadRef.current
-      ) {
-        const hasUnreadFromOthers = messages.some(
-          (msg) => msg.username !== user.username && !msg.read_at,
-        );
-        if (hasUnreadFromOthers) {
-          isMarkingReadRef.current = true;
-          apiFetch(`${API_BASE}/api/messages/read`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ chatId: activeId, username: user.username }),
-          })
-            .catch(() => null)
-            .finally(() => {
-              isMarkingReadRef.current = false;
-            });
-        }
-      }
-    }
-  };
-
-  const handleJumpToLatest = () => {
-    pendingScrollToUnreadRef.current = null;
-    suppressScrolledUpRef.current = true;
-    scrollChatToBottom("smooth");
-    window.setTimeout(() => {
-      const next = chatScrollRef.current;
-      if (!next) return;
-      const distance = next.scrollHeight - (next.scrollTop + next.clientHeight);
-      if (distance > JUMP_TO_LATEST_SECOND_SNAP_THRESHOLD_PX) {
-        scrollChatToBottom("smooth");
-      }
-    }, JUMP_TO_LATEST_SECOND_SNAP_DELAY_MS);
-    setUnreadInChat(0);
-    isAtBottomRef.current = true;
-    setIsAtBottom(true);
-    userScrolledUpRef.current = false;
-    setUserScrolledUp(false);
-  };
-  const handleMessageMediaLoaded = () => {
-    if (!activeChatId) return;
-    // Disable auto-snap on media load in virtualized mode; it causes scroll fights.
-    if (mediaLoadSnapTimerRef.current) {
-      window.clearTimeout(mediaLoadSnapTimerRef.current);
-      mediaLoadSnapTimerRef.current = null;
-    }
   };
 
   const handleStartReached = async () => {
@@ -2517,190 +2191,59 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         paddingRight: "max(0px, env(safe-area-inset-right))",
       }}
     >
-      <aside
-        className={
-          "relative flex h-full min-h-0 w-full flex-col overflow-hidden border-x border-slate-300/80 bg-white shadow-lg shadow-emerald-500/10 dark:border-white/5 dark:bg-slate-900 md:border md:w-[35%] md:shadow-xl md:shadow-emerald-500/15 " +
-          (mobileTab === "chat" ? "hidden md:block" : "block")
-        }
-      >
-        <div className="grid h-[72px] grid-cols-[1fr,auto,1fr] items-center border-b border-slate-300/80 bg-white px-6 py-4 dark:border-emerald-500/20 dark:bg-slate-900">
-          {mobileTab === "settings" ? (
-            <div className="col-span-3 text-center text-lg font-semibold md:hidden">
-                <span className="inline-flex items-center gap-2">
-                {!isConnected ? (
-                  <LoaderCircle className="h-5 w-5 animate-spin text-emerald-500" />
-                ) : null}
-                {isConnected ? "Settings" : "Connecting..."}
-              </span>
-            </div>
-          ) : (
-            <>
-              <div className="flex items-center gap-2">
-                {editMode ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditMode(false);
-                      setSelectedChats([]);
-                    }}
-                    className="inline-flex items-center justify-center rounded-full border border-emerald-200 bg-white/80 p-2 text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
-                    aria-label="Exit edit mode"
-                  >
-                    <Close size={18} className="icon-anim-sway" />
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!visibleChats.length) return;
-                      setEditMode(true);
-                    }}
-                    disabled={!visibleChats.length}
-                    className="inline-flex items-center justify-center rounded-full border border-emerald-200 bg-white/80 p-2 text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-emerald-200 disabled:hover:shadow-none dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
-                    aria-label="Edit chat list"
-                  >
-                    <Pencil size={18} className="icon-anim-sway" />
-                  </button>
-                )}
-              </div>
-              <h2 className="text-center text-lg font-semibold">
-                <span className="inline-flex items-center gap-2">
-                  {!editMode && !isConnected ? (
-                    <LoaderCircle className="h-5 w-5 animate-spin text-emerald-500" />
-                  ) : null}
-                  {editMode ? "Edit" : isConnected ? "Chats" : "Connecting..."}
-                </span>
-              </h2>
-              <div className="flex justify-end">
-                {editMode ? (
-                  <button
-                    type="button"
-                    onClick={() => requestDeleteChats(selectedChats)}
-                    disabled={!selectedChats.length}
-                    className="inline-flex items-center justify-center rounded-full border border-rose-200 bg-rose-50 p-2 text-rose-600 transition hover:border-rose-300 hover:shadow-[0_0_16px_rgba(244,63,94,0.22)] disabled:opacity-50 dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200"
-                    aria-label="Delete chats"
-                  >
-                    <Trash size={18} className="icon-anim-slide" />
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setNewChatOpen(true)}
-                    className="inline-flex items-center justify-center rounded-full border border-emerald-200 bg-white/80 p-2 text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
-                    aria-label="New chat"
-                  >
-                    <Plus size={18} className="icon-anim-pop" />
-                  </button>
-                )}
-              </div>
-            </>
-          )}
-        </div>
-
-        <SettingsMenuPopover
-          showSettings={showSettings}
-          settingsMenuRef={settingsMenuRef}
-          setSettingsPanel={setSettingsPanel}
-          toggleTheme={toggleTheme}
-          setIsDark={setIsDark}
-          isDark={isDark}
-          handleLogout={handleLogout}
-        />
-
-        <div
-          className="min-h-0 flex-1 overflow-hidden py-4"
-          style={{ overscrollBehavior: "contain" }}
-        >
-          {mobileTab === "settings" ? (
-            <div className="app-scroll h-full overflow-y-auto overflow-x-hidden px-6 pb-[104px] md:h-[calc(100%-88px)] md:pb-4">
-              <MobileSettingsPanel
-                settingsPanel={settingsPanel}
-                user={user}
-                displayName={displayName}
-                statusDotClass={statusDotClass}
-                statusValue={statusValue}
-                setSettingsPanel={setSettingsPanel}
-                toggleTheme={toggleTheme}
-                setIsDark={setIsDark}
-                isDark={isDark}
-                handleLogout={handleLogout}
-                handleProfileSave={handleProfileSave}
-                avatarPreview={avatarPreview}
-                profileForm={profileForm}
-                handleAvatarChange={handleAvatarChange}
-                handleAvatarRemove={handleAvatarRemove}
-                setProfileForm={setProfileForm}
-                statusSelection={statusSelection}
-                setStatusSelection={setStatusSelection}
-                handlePasswordSave={handlePasswordSave}
-                passwordForm={passwordForm}
-                setPasswordForm={setPasswordForm}
-                userColor={userColor}
-                profileError={profileError}
-                passwordError={passwordError}
-                fileUploadEnabled={CHAT_PAGE_CONFIG.fileUploadEnabled}
-              />
-            </div>
-          ) : null}
-
-          <div className={mobileTab === "settings" ? "hidden min-h-0 h-full" : "block min-h-0 h-full"}>
-            <div className="app-scroll h-full overflow-y-auto overflow-x-hidden px-6 pb-[104px] md:h-[calc(100%-88px)] md:pb-4">
-            <ChatsListPanel
-              loadingChats={loadingChats}
-              visibleChats={visibleChats}
-              user={user}
-              editMode={editMode}
-              activeChatId={activeChatId}
-              selectedChats={selectedChats}
-              formatTime={formatTime}
-              requestDeleteChats={requestDeleteChats}
-              toggleSelectChat={toggleSelectChat}
-              setActiveChatId={setActiveChatId}
-              setActivePeer={setActivePeer}
-              setMobileTab={setMobileTab}
-              setIsAtBottom={setIsAtBottom}
-              setUnreadInChat={setUnreadInChat}
-              lastMessageIdRef={lastMessageIdRef}
-              isAtBottomRef={isAtBottomRef}
-              onOpenNewChat={() => setNewChatOpen(true)}
-            />
-            </div>
-          </div>
-        </div>
-
-        <div className="absolute bottom-0 left-0 right-0 hidden h-[88px] border-t border-slate-300/80 bg-white px-6 py-4 dark:border-emerald-500/20 dark:bg-slate-900 md:block">
-          <div className="flex h-full items-center justify-between">
-            <div className="flex items-center gap-3">
-              {user.avatarUrl ? (
-                <img src={user.avatarUrl} alt={displayName} className="h-10 w-10 rounded-full object-cover" />
-              ) : (
-                <div
-                  className={`flex h-10 w-10 items-center justify-center rounded-full ${hasPersian(displayInitials) ? "font-fa" : ""}`}
-                  style={getAvatarStyle(userColor)}
-                >
-                  {displayInitials}
-                </div>
-              )}
-              <div>
-                <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-200">{displayName}</p>
-                <p className="mt-1 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                  <span className={`h-2 w-2 rounded-full ${statusDotClass}`} />
-                  {statusValue}
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowSettings((prev) => !prev)}
-              className="flex items-center justify-center rounded-full border border-emerald-200 bg-white/80 p-2 text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
-              aria-label="Open settings"
-              ref={settingsButtonRef}
-            >
-              <Settings size={18} className="icon-anim-spin-dir" />
-            </button>
-          </div>
-        </div>
-      </aside>
+      <ChatSidebar
+        mobileTab={mobileTab}
+        isConnected={isConnected}
+        editMode={editMode}
+        visibleChats={visibleChats}
+        selectedChats={selectedChats}
+        loadingChats={loadingChats}
+        activeChatId={activeChatId}
+        user={user}
+        formatTime={formatTime}
+        requestDeleteChats={requestDeleteChats}
+        toggleSelectChat={toggleSelectChat}
+        setActiveChatId={setActiveChatId}
+        setActivePeer={setActivePeer}
+        setMobileTab={setMobileTab}
+        setIsAtBottom={setIsAtBottom}
+        setUnreadInChat={setUnreadInChat}
+        lastMessageIdRef={lastMessageIdRef}
+        isAtBottomRef={isAtBottomRef}
+        onOpenNewChat={() => setNewChatOpen(true)}
+        showSettings={showSettings}
+        settingsMenuRef={settingsMenuRef}
+        setSettingsPanel={setSettingsPanel}
+        toggleTheme={toggleTheme}
+        setIsDark={setIsDark}
+        isDark={isDark}
+        handleLogout={handleLogout}
+        settingsPanel={settingsPanel}
+        displayName={displayName}
+        statusDotClass={statusDotClass}
+        statusValue={statusValue}
+        handleProfileSave={handleProfileSave}
+        avatarPreview={avatarPreview}
+        profileForm={profileForm}
+        handleAvatarChange={handleAvatarChange}
+        handleAvatarRemove={handleAvatarRemove}
+        setProfileForm={setProfileForm}
+        statusSelection={statusSelection}
+        setStatusSelection={setStatusSelection}
+        handlePasswordSave={handlePasswordSave}
+        passwordForm={passwordForm}
+        setPasswordForm={setPasswordForm}
+        userColor={userColor}
+        profileError={profileError}
+        passwordError={passwordError}
+        fileUploadEnabled={CHAT_PAGE_CONFIG.fileUploadEnabled}
+        onExitEdit={handleExitEdit}
+        onEnterEdit={handleEnterEdit}
+        onDeleteChats={handleDeleteChats}
+        onOpenSettings={handleOpenSettings}
+        settingsButtonRef={settingsButtonRef}
+        displayInitials={displayInitials}
+      />
 
       <ChatWindowPanel
         mobileTab={mobileTab}
