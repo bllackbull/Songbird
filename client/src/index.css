@@ -1,57 +1,32 @@
 @font-face {
   font-family: 'DM Sans';
-  src: url('../fonts/dm-sans-v17-latin-regular.woff2') format('woff2');
+  src: url('../fonts/dm-sans/dm-sans-v17-latin-regular.woff2') format('woff2');
   font-weight: 400;
+  font-style: normal;
   font-display: swap;
 }
 
 @font-face {
   font-family: 'DM Sans';
-  src: url('../fonts/dm-sans-v17-latin-regular.woff2') format('woff2');
-  font-weight: 500;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'DM Sans';
-  src: url('../fonts/dm-sans-v17-latin-regular.woff2') format('woff2');
-  font-weight: 600;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'DM Sans';
-  src: url('../fonts/dm-sans-v17-latin-regular.woff2') format('woff2');
+  src: url('../fonts/dm-sans/dm-sans-v17-latin-700.woff2') format('woff2');
   font-weight: 700;
-  font-size: bold;
+  font-style: normal;
   font-display: swap;
 }
 
 @font-face {
   font-family: 'Vazirmatn';
-  src: url('../fonts/vazirmatn-v16-arabic_latin-regular.woff2') format('woff2');
+  src: url('../fonts/vazirmatn/vazirmatn-v16-arabic_latin-regular.woff2') format('woff2');
   font-weight: 400;
+  font-style: normal;
   font-display: swap;
 }
 
 @font-face {
   font-family: 'Vazirmatn';
-  src: url('../fonts/vazirmatn-v16-arabic_latin-regular.woff2') format('woff2');
-  font-weight: 500;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Vazirmatn';
-  src: url('../fonts/vazirmatn-v16-arabic_latin-regular.woff2') format('woff2');
-  font-weight: 600;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Vazirmatn';
-  src: url('../fonts/vazirmatn-v16-arabic_latin-regular.woff2') format('woff2');
+  src: url('../fonts/vazirmatn/vazirmatn-v16-arabic_latin-700.woff2') format('woff2');
   font-weight: 700;
+  font-style: normal;
   font-display: swap;
 }
 
@@ -74,6 +49,7 @@ html, body, #root {
   overflow: hidden;
 }
 
+
 body {
   margin: 0;
   font-family: 'DM Sans', system-ui, sans-serif;
@@ -82,6 +58,7 @@ body {
   /* Prevent Safari zoom on input focus */
   -webkit-font-smoothing: antialiased;
   -webkit-touch-callout: none;
+  font-synthesis: weight;
 }
 
 @layer base {

@@ -150,7 +150,7 @@ export default function ChatsListPanel({
                   <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">
                     {conv.last_message || (conv.last_message_files || []).length ? (
                       conv.last_sender_username === user.username ? (
-                        <span className="inline-flex min-w-0 items-center gap-1 align-middle leading-none">
+                          <span className="inline-flex min-w-0 items-center gap-1 align-middle leading-snug">
                           <span className="font-bold text-slate-500 dark:text-slate-400">
                             You:
                           </span>
@@ -168,7 +168,7 @@ export default function ChatsListPanel({
                           </span>
                         </span>
                       ) : (
-                        <span className="inline-flex min-w-0 items-center gap-1 align-middle leading-none">
+                        <span className="inline-flex min-w-0 items-center gap-1 align-middle leading-snug">
                           {lastPreview.icon === "video" ? (
                             <Video size={12} className="shrink-0 text-slate-500 dark:text-slate-400" />
                           ) : lastPreview.icon === "image" ? (

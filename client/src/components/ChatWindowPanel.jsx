@@ -244,6 +244,13 @@ export default function ChatWindowPanel({
     onUserScrollIntent?.();
   }, [onUserScrollIntent, resetFloatingLocks]);
 
+  const handleComposerResize = useCallback(() => {
+    if (!activeChatId || userScrolledUp) return;
+    const container = chatScrollRef?.current;
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight + 1000, behavior: "auto" });
+  }, [activeChatId, chatScrollRef, userScrolledUp]);
+
   useEffect(() => {
     if (!activeChatId || !pendingUploadFiles?.length) return;
     const scrollToBottomInstant = () => {
@@ -490,8 +497,8 @@ export default function ChatWindowPanel({
       className={
         "fixed inset-0 top-0 z-20 md:relative md:inset-auto md:top-auto md:z-auto flex h-full flex-1 flex-col overflow-hidden border-x border-slate-300/80 bg-white shadow-xl shadow-emerald-500/10 dark:border-white/5 dark:bg-slate-900 md:border md:w-[65%] md:shadow-2xl md:shadow-emerald-500/15 transition-transform duration-300 ease-out will-change-transform " +
         (mobileTab === "chat"
-          ? "translate-x-0"
-          : "translate-x-full md:translate-x-0")
+          ? "transform-none"
+          : "translate-x-full md:transform-none")
       }
       style={{ paddingTop: "max(0px, env(safe-area-inset-top))" }}
       onTouchStart={handleTouchStart}
@@ -499,60 +506,66 @@ export default function ChatWindowPanel({
       onTouchEnd={handleTouchEnd}
     >
       {activeChatId ? (
-        <div className="sticky top-0 z-20 flex h-[72px] items-center justify-between gap-3 border-b border-slate-300/80 bg-white px-6 py-4 dark:border-emerald-500/20 dark:bg-slate-900">
-          <button
-            type="button"
-            onClick={closeChat}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white/80 text-emerald-700 transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 md:invisible md:pointer-events-none"
-            aria-label="Back to chats"
+        <>
+          <div
+            className="fixed inset-x-0 z-30 flex h-[72px] items-center justify-between gap-3 border-b border-slate-300/80 bg-white px-6 py-4 dark:border-emerald-500/20 dark:bg-slate-900 md:sticky md:top-0 md:inset-x-auto md:z-20"
+            style={{ top: "max(0px, calc(env(safe-area-inset-top) + var(--vv-top-offset, 0px)))" }}
           >
-            <ArrowLeft size={18} />
-          </button>
-          <div className="flex flex-1 flex-col items-center justify-center gap-1">
+            <button
+              type="button"
+              onClick={closeChat}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white/80 text-emerald-700 transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 md:invisible md:pointer-events-none"
+              aria-label="Back to chats"
+            >
+              <ArrowLeft size={18} />
+            </button>
+            <div className="flex flex-1 flex-col items-center justify-center gap-1">
+              {activeHeaderPeer ? (
+                <>
+                  <h2 className="text-center text-lg font-semibold">
+                    <span className={hasPersian(activeFallbackTitle) ? "font-fa" : ""}>
+                      {activeFallbackTitle}
+                    </span>
+                  </h2>
+                  <p className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                    {!isConnected ? (
+                      <>
+                        <LoaderCircle className="h-4 w-4 animate-spin text-emerald-500" />
+                        Connecting...
+                      </>
+                    ) : (
+                      <>
+                        <span
+                          className={`h-2 w-2 rounded-full ${
+                            peerStatusLabel === "online" ? "bg-emerald-400" : "bg-slate-400"
+                          }`}
+                        />
+                        {peerStatusLabel}
+                      </>
+                    )}
+                  </p>
+                </>
+              ) : null}
+            </div>
             {activeHeaderPeer ? (
-              <>
-                <h2 className="text-center text-lg font-semibold">
-                  <span className={hasPersian(activeFallbackTitle) ? "font-fa" : ""}>
-                    {activeFallbackTitle}
-                  </span>
-                </h2>
-                <p className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                  {!isConnected ? (
-                    <>
-                      <LoaderCircle className="h-4 w-4 animate-spin text-emerald-500" />
-                      Connecting...
-                    </>
-                  ) : (
-                    <>
-                      <span
-                        className={`h-2 w-2 rounded-full ${
-                          peerStatusLabel === "online" ? "bg-emerald-400" : "bg-slate-400"
-                        }`}
-                      />
-                      {peerStatusLabel}
-                    </>
-                  )}
-                </p>
-              </>
+              activeHeaderPeer?.avatar_url ? (
+                <img
+                  src={activeHeaderPeer?.avatar_url}
+                  alt={activeFallbackTitle}
+                  className="h-9 w-9 flex-shrink-0 rounded-full object-cover"
+                />
+              ) : (
+                <div
+                  className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ${hasPersian(activePeerInitials) ? "font-fa" : ""}`}
+                  style={getAvatarStyle(activePeerColor)}
+                >
+                  {activePeerInitials}
+                </div>
+              )
             ) : null}
           </div>
-          {activeHeaderPeer ? (
-            activeHeaderPeer?.avatar_url ? (
-              <img
-                src={activeHeaderPeer?.avatar_url}
-                alt={activeFallbackTitle}
-                className="h-9 w-9 flex-shrink-0 rounded-full object-cover"
-              />
-            ) : (
-              <div
-                className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ${hasPersian(activePeerInitials) ? "font-fa" : ""}`}
-                style={getAvatarStyle(activePeerColor)}
-              >
-                {activePeerInitials}
-              </div>
-            )
-          ) : null}
-        </div>
+          <div className="h-[72px] md:hidden" />
+        </>
       ) : null}
 
       {insecureConnection && activeChatId ? (
@@ -617,6 +630,7 @@ export default function ChatWindowPanel({
         activeChatId={activeChatId}
         isDesktop={isDesktop}
         handleSend={handleSend}
+        onComposerResize={handleComposerResize}
         pendingUploadFiles={pendingUploadFiles}
         pendingUploadType={pendingUploadType}
         fileUploadEnabled={fileUploadEnabled}

@@ -230,20 +230,20 @@ export function useFocusedMedia({ isDesktop, isMobileTouchDevice }) {
         const minutes = Math.max(1, Math.ceil(diffMs / minuteMs));
         return {
           danger: true,
-          text: `This file will be deleted in ${minutes} minute${minutes === 1 ? "" : "s"}.`,
+          text: `Auto-deletes in ${minutes} minute${minutes === 1 ? "" : "s"}.`,
         };
       }
       if (diffMs < dayMs) {
         const hours = Math.max(1, Math.ceil(diffMs / hourMs));
         return {
           danger: true,
-          text: `This file will be deleted in ${hours} hour${hours === 1 ? "" : "s"}.`,
+          text: `Auto-deletes in ${hours} hour${hours === 1 ? "" : "s"}.`,
         };
       }
       const days = Math.max(1, Math.ceil(diffMs / dayMs));
       return {
         danger: days <= 1,
-        text: `This file will be deleted in ${days} day${days === 1 ? "" : "s"}.`,
+        text: `Auto-deletes in ${days} day${days === 1 ? "" : "s"}.`,
       };
     },
     [focusNowMs],

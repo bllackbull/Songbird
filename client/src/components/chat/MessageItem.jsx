@@ -16,7 +16,12 @@ export function MessageItem({
   const isUrlPattern = /^(?:https?:\/\/|www\.)[^\s<]+$/i;
   const isOwn = msg.username === user.username;
   const isRead = Boolean(msg.read_at);
-  const hasFiles = Array.isArray(msg.files) && msg.files.length > 0;
+  const messageFiles = Array.isArray(msg.files) ? msg.files : [];
+  const hasFiles = messageFiles.length > 0;
+  const getFileRenderType = messageFilesProps?.getFileRenderType;
+  const hasMediaFiles = getFileRenderType
+    ? messageFiles.some((file) => getFileRenderType(file) !== "document")
+    : true;
   const hasUploadInProgress =
     Array.isArray(msg._files) &&
     msg._files.length > 0 &&
@@ -85,7 +90,9 @@ export function MessageItem({
         <div
           className={`rounded-2xl px-4 py-3 text-sm shadow-sm ${
             hasFiles
-              ? "w-[min(52vw,18rem)] max-w-[68%] md:w-[min(44vw,22rem)] md:max-w-[62%] md:min-w-[12rem]"
+              ? hasMediaFiles
+                ? "w-[min(52vw,18rem)] max-w-[68%] md:w-[min(44vw,22rem)] md:max-w-[62%] md:min-w-[12rem]"
+                : "w-fit max-w-[82%] md:max-w-[75%]"
               : "max-w-[82%] md:max-w-[75%]"
           } ${
             isOwn
@@ -93,15 +100,17 @@ export function MessageItem({
               : "bg-white/90 text-slate-800 rounded-bl-md dark:bg-slate-800/75 dark:text-slate-100"
           }`}
         >
-          <MessageFiles files={msg.files || []} {...messageFilesProps} />
+          <MessageFiles files={messageFiles} {...messageFilesProps} />
           {!(
             (msg.files || []).length &&
             /^Sent (a media file|a document|\d+ files)$/i.test((msg.body || "").trim())
           ) ? (
             <p
+              dir={hasPersian(msg.body) ? "rtl" : "ltr"}
               className={`mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${
-                hasPersian(msg.body) ? "font-fa" : ""
+                hasPersian(msg.body) ? "font-fa text-right" : "text-left"
               }`}
+              style={{ unicodeBidi: "plaintext" }}
             >
               {renderMessageBody(msg.body)}
             </p>

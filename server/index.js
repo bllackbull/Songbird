@@ -233,6 +233,58 @@ if (!fs.existsSync(avatarUploadRootDir)) {
   fs.mkdirSync(avatarUploadRootDir, { recursive: true });
 }
 
+function buildDownloadFilename(value) {
+  const raw = String(value || "download");
+  const cleaned = raw
+    .replace(/[\r\n"]/g, "")
+    .replace(/[\\/:*?<>|%]/g, "_")
+    .trim();
+  return cleaned || "download";
+}
+
+function buildAsciiFallbackFilename(value) {
+  const cleaned = buildDownloadFilename(value)
+    .replace(/[^\x20-\x7E]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned || "download";
+}
+
+app.get("/api/uploads/messages/:storedName", (req, res) => {
+  const storedName = path.basename(String(req.params?.storedName || "").trim());
+  if (!storedName) return res.status(404).end();
+
+  const filePath = path.join(uploadRootDir, storedName);
+  if (!fs.existsSync(filePath)) return res.status(404).end();
+
+  const row = adminGetRow(
+    "SELECT original_name, mime_type FROM chat_message_files WHERE stored_name = ?",
+    [storedName],
+  );
+  const originalName = buildDownloadFilename(row?.original_name);
+  const fallbackName = buildAsciiFallbackFilename(originalName);
+  const mimeType = String(row?.mime_type || "").trim();
+  const ext = path.extname(storedName).toLowerCase();
+
+  res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+  res.setHeader("Vary", "Accept-Encoding");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+
+  if (mimeType) {
+    res.type(mimeType);
+  }
+
+  if (!SAFE_INLINE_MESSAGE_EXTENSIONS.has(ext)) {
+    const encoded = encodeURIComponent(originalName);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${fallbackName}"; filename*=UTF-8''${encoded}`,
+    );
+  }
+
+  return res.sendFile(filePath);
+});
+
 app.use(
   "/api/uploads/messages",
   express.static(uploadRootDir, {

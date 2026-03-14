@@ -1,16 +1,12 @@
-import {
-  File,
-  ImageIcon,
-  Paperclip,
-  Play,
-  Send,
-  Close,
-} from "../../icons/lucide.js";
+import { useEffect, useRef, useState } from "react";
+import { File, ImageIcon, Paperclip, Play, Send, Close } from "../../icons/lucide.js";
+import { hasPersian } from "../../utils/fontUtils.js";
 
 export function MessageComposer({
   activeChatId,
   isDesktop,
   handleSend,
+  onComposerResize,
   pendingUploadFiles,
   pendingUploadType,
   fileUploadEnabled,
@@ -27,6 +23,28 @@ export function MessageComposer({
   uploadMenuRef,
   handleVideoThumbLoadedMetadata,
 }) {
+  const messageInputRef = useRef(null);
+  const [isRtl, setIsRtl] = useState(false);
+  const maxTextareaHeight = 136;
+
+  const resizeTextarea = () => {
+    const el = messageInputRef.current;
+    if (!el) return;
+    el.style.height = "0px";
+    const nextHeight = Math.min(el.scrollHeight, maxTextareaHeight);
+    el.style.height = `${Math.max(44, nextHeight)}px`;
+    el.style.overflowY = el.scrollHeight > maxTextareaHeight ? "auto" : "hidden";
+    onComposerResize?.();
+  };
+
+  useEffect(() => {
+    resizeTextarea();
+  }, []);
+
+  useEffect(() => {
+    resizeTextarea();
+  }, [pendingUploadFiles?.length]);
+
   if (!activeChatId) return null;
 
   return (
@@ -38,7 +56,13 @@ export function MessageComposer({
           ? "0.75rem"
           : "max(0.75rem, calc(env(safe-area-inset-bottom) + 0.5rem))",
       }}
-      onSubmit={handleSend}
+      onSubmit={(event) => {
+        handleSend(event);
+        requestAnimationFrame(() => {
+          setIsRtl(false);
+          resizeTextarea();
+        });
+      }}
     >
       {pendingUploadFiles?.length ? (
         <div className="rounded-2xl border border-emerald-200/80 bg-emerald-50/70 p-2 dark:border-emerald-500/30 dark:bg-slate-950/70">
@@ -78,7 +102,7 @@ export function MessageComposer({
               </button>
             </div>
           </div>
-          <div className="grid max-h-40 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
+          <div className="chat-scroll grid max-h-40 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
             {pendingUploadFiles.map((item) => {
               const forceDocPreview = pendingUploadType === "document";
               const isImage = !forceDocPreview && item.mimeType?.startsWith("image/");
@@ -153,7 +177,7 @@ export function MessageComposer({
           </div>
         </div>
       ) : null}
-      <div className="flex flex-row gap-3">
+      <div className="flex flex-row items-center gap-3">
         <div className="relative" ref={uploadMenuRef}>
           <button
             type="button"
@@ -229,21 +253,37 @@ export function MessageComposer({
             }}
           />
         </div>
-        <input
+        <textarea
+          ref={messageInputRef}
           name="message"
-          type="text"
+          rows={1}
           placeholder="Type a message"
+          lang={isRtl ? "fa" : "en"}
+          dir={isRtl ? "rtl" : "ltr"}
+          onInput={(event) => {
+            const value = event.currentTarget.value || "";
+            setIsRtl(hasPersian(value));
+            resizeTextarea();
+          }}
           onKeyDown={(event) => {
             if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
-            if (!pendingUploadFiles?.length) return;
             event.preventDefault();
             event.currentTarget.form?.requestSubmit();
           }}
-          className="min-w-0 flex-1 rounded-2xl border border-emerald-200 bg-white px-4 py-2 text-base text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
+          className={`chat-scroll min-w-0 flex-1 resize-none rounded-2xl border border-emerald-200 bg-white px-4 py-2 text-base text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${isRtl ? "text-right font-fa" : "text-left"}`}
+          style={{
+            minHeight: "44px",
+            maxHeight: `${maxTextareaHeight}px`,
+            unicodeBidi: "plaintext",
+            whiteSpace: "pre-wrap",
+            wordBreak: "normal",
+            overflowWrap: "break-word",
+            overflowX: "hidden",
+          }}
         />
         <button
           type="submit"
-          className="inline-flex items-center justify-center rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-emerald-500/40"
+          className="inline-flex h-11 items-center justify-center rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-emerald-500/40"
         >
           <Send className="icon-anim-slide" />
         </button>
