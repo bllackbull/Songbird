@@ -402,6 +402,33 @@ function registerMessageRoutes(app, deps) {
           );
         }
 
+        const summarizeFiles = (files) => {
+          if (!Array.isArray(files) || files.length === 0) return "";
+          const videoCount = files.filter((file) =>
+            String(file.mimeType || "").toLowerCase().startsWith("video/"),
+          ).length;
+          const imageCount = files.filter((file) =>
+            String(file.mimeType || "").toLowerCase().startsWith("image/"),
+          ).length;
+          const docCount = Math.max(0, files.length - videoCount - imageCount);
+          if (files.length === 1) {
+            if (videoCount === 1) return "Sent a video";
+            if (imageCount === 1) return "Sent a photo";
+            return "Sent a document";
+          }
+          if (videoCount > 0 && imageCount === 0 && docCount === 0) {
+            return `Sent ${videoCount} video${videoCount > 1 ? "s" : ""}`;
+          }
+          if (imageCount > 0 && videoCount === 0 && docCount === 0) {
+            return `Sent ${imageCount} photo${imageCount > 1 ? "s" : ""}`;
+          }
+          if (docCount > 0 && imageCount === 0 && videoCount === 0) {
+            return `Sent ${docCount} document${docCount > 1 ? "s" : ""}`;
+          }
+          return `Sent ${files.length} files`;
+        };
+
+        const fileSummaryText = summarizeFiles(normalizedFiles);
         const fallbackBody =
           trimmedBody ||
           (normalizedFiles.length === 1
@@ -459,6 +486,8 @@ function registerMessageRoutes(app, deps) {
             chatId,
             messageId: Number(messageId),
             username: user.username,
+            body: fallbackBody,
+            summaryText: fileSummaryText,
           });
         } else {
           emitChatEvent(chatId, {
@@ -466,6 +495,8 @@ function registerMessageRoutes(app, deps) {
             chatId,
             messageId: Number(messageId),
             username: user.username,
+            body: fallbackBody,
+            summaryText: fileSummaryText,
           });
         }
 
@@ -529,6 +560,7 @@ function registerMessageRoutes(app, deps) {
       chatId: Number(chatId),
       messageId: Number(id),
       username: user.username,
+      body,
     });
 
     res.json({ id });

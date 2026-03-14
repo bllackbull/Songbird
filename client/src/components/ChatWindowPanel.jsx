@@ -509,7 +509,7 @@ export default function ChatWindowPanel({
         <>
           <div
             className="fixed inset-x-0 z-30 flex h-[72px] items-center justify-between gap-3 border-b border-slate-300/80 bg-white px-6 py-4 dark:border-emerald-500/20 dark:bg-slate-900 md:sticky md:top-0 md:inset-x-auto md:z-20"
-            style={{ top: "max(0px, calc(env(safe-area-inset-top) + var(--vv-top-offset, 0px)))" }}
+            style={{ top: "max(0px, env(safe-area-inset-top))" }}
           >
             <button
               type="button"

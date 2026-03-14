@@ -202,7 +202,6 @@ export default function App() {
     const viewport = window.visualViewport
     if (!viewport) {
       root.style.setProperty('--vv-bottom-offset', '0px')
-      root.style.setProperty('--vv-top-offset', '0px')
       root.style.setProperty('--mobile-bottom-offset', '0px')
       return
     }
@@ -218,10 +217,7 @@ export default function App() {
         focusedEditable || window.innerHeight - viewport.height > 120
       // Do not react to Safari toolbar/bottom chrome movement while scrolling.
       // Only apply offset adjustments while an editable field is focused.
-      const rawBottomOffset = window.innerHeight - viewport.height - viewport.offsetTop
-      const offset = focusedEditable && keyboardLikelyOpen ? Math.max(0, rawBottomOffset) : 0
-      const topOffset = Math.max(0, Number(viewport.offsetTop || 0))
-      root.style.setProperty('--vv-top-offset', `${topOffset}px`)
+      const offset = focusedEditable && keyboardLikelyOpen ? 0 : 0
       root.style.setProperty('--vv-bottom-offset', `${offset}px`)
       root.style.setProperty('--mobile-bottom-offset', `${offset}px`)
     }

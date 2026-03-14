@@ -16,6 +16,7 @@ export function useChatEvents({
   setMessages,
   setChats,
   sseReconnectRef,
+  onIncomingMessage,
 }) {
   useEffect(() => {
     if (!username) return;
@@ -45,11 +46,18 @@ export function useChatEvents({
         void loadChatsRef.current?.({ silent: true });
         const payloadChatId = Number(payload.chatId || 0);
         const currentActiveId = activeChatIdRef.current;
+        const isOwnEvent =
+          String(payload?.username || "").toLowerCase() ===
+          String(usernameRef.current || "").toLowerCase();
+        const isIncomingMessage = payload.type === "chat_message" && !isOwnEvent;
+        if (isIncomingMessage) {
+          onIncomingMessage?.(payload, {
+            isActiveChat: currentActiveId && payloadChatId === currentActiveId,
+            isOwnEvent,
+            body: String(payload?.body || ""),
+          });
+        }
         if (currentActiveId && payloadChatId === currentActiveId) {
-          const isOwnEvent =
-            String(payload?.username || "").toLowerCase() ===
-            String(usernameRef.current || "").toLowerCase();
-          const isIncomingMessage = payload.type === "chat_message" && !isOwnEvent;
           if (isIncomingMessage) {
             if (userScrolledUpRef.current && !isAtBottomRef.current) {
               setUnreadInChat((prev) => prev + 1);

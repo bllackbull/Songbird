@@ -1083,6 +1083,32 @@ async function ensureFfmpegAvailable() {
   }
 }
 
+function summarizeMessageFiles(rows = []) {
+  if (!Array.isArray(rows) || rows.length === 0) return "";
+  const videoCount = rows.filter((file) =>
+    String(file?.mime_type || "").toLowerCase().startsWith("video/"),
+  ).length;
+  const imageCount = rows.filter((file) =>
+    String(file?.mime_type || "").toLowerCase().startsWith("image/"),
+  ).length;
+  const docCount = Math.max(0, rows.length - videoCount - imageCount);
+  if (rows.length === 1) {
+    if (videoCount === 1) return "Sent a video";
+    if (imageCount === 1) return "Sent a photo";
+    return "Sent a document";
+  }
+  if (videoCount > 0 && imageCount === 0 && docCount === 0) {
+    return `Sent ${videoCount} video${videoCount > 1 ? "s" : ""}`;
+  }
+  if (imageCount > 0 && videoCount === 0 && docCount === 0) {
+    return `Sent ${imageCount} photo${imageCount > 1 ? "s" : ""}`;
+  }
+  if (docCount > 0 && imageCount === 0 && videoCount === 0) {
+    return `Sent ${docCount} document${docCount > 1 ? "s" : ""}`;
+  }
+  return `Sent ${rows.length} files`;
+}
+
 async function runVideoTranscodeJob(job) {
   const fileId = Number(job?.fileId || 0);
   const inputStoredName = path.basename(String(job?.storedName || "").trim());
@@ -1165,13 +1191,24 @@ async function runVideoTranscodeJob(job) {
     });
 
     const chatId = Number(job?.chatId || 0);
+    const messageId = Number(job?.messageId || 0);
+    const messageRow = messageId
+      ? adminGetRow("SELECT body FROM chat_messages WHERE id = ?", [messageId])
+      : null;
+    const messageBody = String(messageRow?.body || "").trim();
+    const filesForMessage = messageId
+      ? listMessageFilesByMessageIds([messageId])
+      : [];
+    const summaryText = summarizeMessageFiles(filesForMessage);
 
     if (chatId > 0) {
       emitChatEvent(chatId, {
         type: "chat_message",
         chatId,
-        messageId: Number(job?.messageId || 0) || null,
+        messageId: messageId || null,
         username: String(job?.username || ""),
+        body: messageBody,
+        summaryText,
       });
     }
   } catch (error) {

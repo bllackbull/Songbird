@@ -37,6 +37,7 @@ import {
 const NEW_CHAT_SEARCH_DEBOUNCE_MS = 300;
 const MOBILE_CLOSE_ANIMATION_MS = 340;
 const UPLOAD_PROGRESS_HIDE_DELAY_MS = 600;
+const NOTIFICATION_PREVIEW_MAX_CHARS = 120;
 
 
 
@@ -134,6 +135,39 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const usernameRef = useRef(String(user?.username || ""));
   const loadChatsRef = useRef(null);
   const scheduleMessageRefreshRef = useRef(null);
+  const notificationAskedRef = useRef(false);
+
+  const truncateText = (text, maxChars) => {
+    const value = String(text || "");
+    if (value.length <= maxChars) return value;
+    return `${value.slice(0, maxChars).trimEnd()}...`;
+  };
+
+  const summarizeFiles = (files = []) => {
+    if (!Array.isArray(files) || files.length === 0) return "";
+    const videoCount = files.filter((file) =>
+      String(file?.mimeType || "").toLowerCase().startsWith("video/"),
+    ).length;
+    const imageCount = files.filter((file) =>
+      String(file?.mimeType || "").toLowerCase().startsWith("image/"),
+    ).length;
+    const docCount = Math.max(0, files.length - videoCount - imageCount);
+    if (files.length === 1) {
+      if (videoCount === 1) return "Sent a video";
+      if (imageCount === 1) return "Sent a photo";
+      return "Sent a document";
+    }
+    if (videoCount > 0 && imageCount === 0 && docCount === 0) {
+      return `Sent ${videoCount} video${videoCount > 1 ? "s" : ""}`;
+    }
+    if (imageCount > 0 && videoCount === 0 && docCount === 0) {
+      return `Sent ${imageCount} photo${imageCount > 1 ? "s" : ""}`;
+    }
+    if (docCount > 0 && imageCount === 0 && videoCount === 0) {
+      return `Sent ${docCount} document${docCount > 1 ? "s" : ""}`;
+    }
+    return `Sent ${files.length} files`;
+  };
 
   const clearUnreadAlignTimers = () => {
     unreadAlignTimersRef.current.forEach((timer) => window.clearTimeout(timer));
@@ -276,6 +310,57 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    if (!user?.username) return;
+    const askedKey = "songbird-notify-asked";
+    const alreadyAsked = sessionStorage.getItem(askedKey) === "1";
+    if (Notification.permission !== "default" || alreadyAsked) {
+      notificationAskedRef.current = true;
+      return;
+    }
+    const requestPermission = () => {
+      if (notificationAskedRef.current) return;
+      notificationAskedRef.current = true;
+      Notification.requestPermission()
+        .catch(() => null)
+        .finally(() => {
+          if (Notification.permission !== "default") {
+            sessionStorage.setItem(askedKey, "1");
+          } else {
+            notificationAskedRef.current = false;
+          }
+        });
+    };
+    // Try immediately after login (may be blocked by some browsers).
+    requestPermission();
+    const handleUserGesture = () => requestPermission();
+    window.addEventListener("pointerdown", handleUserGesture, { once: true, capture: true });
+    window.addEventListener("keydown", handleUserGesture, { once: true, capture: true });
+    return () => {
+      window.removeEventListener("pointerdown", handleUserGesture, { capture: true });
+      window.removeEventListener("keydown", handleUserGesture, { capture: true });
+    };
+  }, [user?.username]);
+
+  useEffect(() => {
+    const totalUnread = chats.reduce(
+      (sum, chat) => sum + Number(chat?.unread_count || 0),
+      0,
+    );
+    document.title =
+      totalUnread > 0
+        ? `Songbird | ${totalUnread} new message${totalUnread === 1 ? "" : "s"}`
+        : "Songbird";
+    if (navigator?.setAppBadge) {
+      if (totalUnread > 0) {
+        navigator.setAppBadge(totalUnread).catch(() => null);
+      } else if (navigator.clearAppBadge) {
+        navigator.clearAppBadge().catch(() => null);
+      }
+    }
+  }, [chats]);
+
+  useEffect(() => {
     if (!user || sseConnected) return;
     const interval = setInterval(() => {
       void loadChats({ silent: true });
@@ -411,6 +496,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           unreadCount > 0 ? unreadCount + 120 : 0,
         ),
       );
+      const canMarkReadNow = !isMobileViewport || mobileTab === "chat";
+      const isAppActiveNow =
+        typeof document !== "undefined" &&
+        document.visibilityState === "visible" &&
+        document.hasFocus();
       void (async () => {
         const shouldFetchInitial = !cached || !sseConnected;
         if (shouldFetchInitial) {
@@ -421,8 +511,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           scrollChatToBottom("auto");
         }
         if (
-          canMarkReadInCurrentView &&
-          isAppActive &&
+          canMarkReadNow &&
+          isAppActiveNow &&
           isAtBottomRef.current &&
           !userScrolledUpRef.current
         ) {
@@ -435,7 +525,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         }
       })();
     }
-  }, [user, activeChatId, isMobileViewport, canMarkReadInCurrentView, sseConnected, isAppActive]);
+  }, [user, activeChatId, isMobileViewport, sseConnected, mobileTab]);
 
   useEffect(() => {
     if (!activeChatId) {
@@ -752,6 +842,63 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setMessages,
     setChats,
     sseReconnectRef,
+    onIncomingMessage: (payload, meta = {}) => {
+      if (typeof window === "undefined" || !("Notification" in window)) return;
+      if (Notification.permission !== "granted") return;
+      const sender = String(payload?.username || "").trim();
+      const isOwnEvent =
+        sender.toLowerCase() === String(user?.username || "").toLowerCase();
+      if (isOwnEvent) return;
+      const payloadChatId = Number(payload?.chatId || 0);
+      const currentActiveId = activeChatIdRef.current;
+      const appVisible =
+        document.visibilityState === "visible" && document.hasFocus();
+      if (appVisible) {
+        return;
+      }
+      const chat = chats.find((conv) => Number(conv.id) === payloadChatId);
+      let title = "New message";
+      if (chat) {
+        if (chat.type === "dm") {
+          const other = (chat.members || []).find(
+            (member) => member.username !== user?.username,
+          );
+          title = other?.nickname || other?.username || "Direct message";
+        } else {
+          title = chat.name || "Chat";
+        }
+      } else if (sender) {
+        title = sender;
+      }
+      const messageBody = String(meta?.body || payload?.body || "").trim();
+      const summaryText = String(payload?.summaryText || "").trim();
+      const derivedSummary = chat ? summarizeFiles(chat.last_message_files) : "";
+      const isGenericBody =
+        !messageBody || /^Sent (a media file|a document|\d+ files)$/i.test(messageBody);
+      const baseBody =
+        summaryText && isGenericBody
+          ? summaryText
+          : derivedSummary && isGenericBody
+            ? derivedSummary
+            : messageBody;
+        const body = baseBody
+          ? truncateText(baseBody, NOTIFICATION_PREVIEW_MAX_CHARS)
+          : sender
+            ? `New message from ${sender}.`
+            : "New message.";
+      try {
+        const notification = new Notification(title, {
+          body,
+          tag: payloadChatId ? `chat-${payloadChatId}` : undefined,
+          renotify: true,
+        });
+        notification.onclick = () => {
+          window.focus();
+        };
+      } catch {
+        // ignore notification errors
+      }
+    },
   });
 
   useEffect(() => {
