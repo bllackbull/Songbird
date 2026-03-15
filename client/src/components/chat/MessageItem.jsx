@@ -1,4 +1,5 @@
-import { AlertCircle, Check, CheckCheck, Clock12 } from "../../icons/lucide.js";
+import { useRef, useState } from "react";
+import { AlertCircle, Check, CheckCheck, Clock12, File, ImageIcon, Video } from "../../icons/lucide.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { MessageFiles } from "./MessageFiles.jsx";
 
@@ -10,6 +11,10 @@ export function MessageItem({
   unreadMarkerId,
   messageFilesProps,
   getMessageDayLabel,
+  isDesktop,
+  isMobileTouchDevice,
+  onReply,
+  onJumpToMessage,
 }) {
   const urlPattern = /((?:https?:\/\/|www\.)[^\s<]+)/gi;
   const hasUrlPattern = /(?:https?:\/\/|www\.)[^\s<]+/i;
@@ -32,6 +37,27 @@ export function MessageItem({
   const dayLabel = getMessageDayLabel
     ? getMessageDayLabel(msg)
     : msg?._dayLabel || msg?._dayKey || "";
+  const replyTarget = msg.replyTo || null;
+  const replyDisplayName =
+    replyTarget?.nickname || replyTarget?.username || "Unknown";
+  const replyPreview = String(replyTarget?.body || "").trim() || "Message";
+  const derivedReplyIcon = (() => {
+    if (!replyTarget) return null;
+    if (replyTarget.icon) return replyTarget.icon;
+    if (/^Sent a video/i.test(replyPreview)) return "video";
+    if (/^Sent a photo/i.test(replyPreview)) return "image";
+    if (/^Sent (a document|\d+ files)/i.test(replyPreview)) return "document";
+    return null;
+  })();
+  const replyIsRtl = hasPersian(replyPreview);
+
+  const touchStartXRef = useRef(0);
+  const touchStartYRef = useRef(0);
+  const touchDxRef = useRef(0);
+  const touchDyRef = useRef(0);
+  const trackingSwipeRef = useRef(false);
+  const [swipeOffset, setSwipeOffset] = useState(0);
+  const [isSwiping, setIsSwiping] = useState(false);
 
   const renderMessageBody = (body) => {
     const text = body || "";
@@ -65,6 +91,7 @@ export function MessageItem({
       id={`message-${msg.id}`}
       data-msg-day={dayLabel}
       data-msg-day-key={msg?._dayKey || ""}
+      style={{ scrollMarginTop: "96px" }}
       className={`w-full max-w-full overflow-x-hidden px-0 pb-3 md:px-3 ${
         isFirstInGroup ? "pt-2" : ""
       }`}
@@ -86,9 +113,51 @@ export function MessageItem({
         className={`flex w-full max-w-full px-3 md:px-0 ${
           isOwn ? "justify-end" : "justify-start"
         }`}
+        style={{ touchAction: "pan-y" }}
+        onTouchStart={(event) => {
+          if (isDesktop || !isMobileTouchDevice || !onReply) return;
+          const touch = event.touches?.[0];
+          if (!touch) return;
+          trackingSwipeRef.current = true;
+          setIsSwiping(true);
+          touchStartXRef.current = touch.clientX;
+          touchStartYRef.current = touch.clientY;
+          touchDxRef.current = 0;
+          touchDyRef.current = 0;
+        }}
+        onTouchMove={(event) => {
+          if (!trackingSwipeRef.current) return;
+          const touch = event.touches?.[0];
+          if (!touch) return;
+          const dx = touch.clientX - touchStartXRef.current;
+          const dy = touch.clientY - touchStartYRef.current;
+          touchDxRef.current = dx;
+          touchDyRef.current = dy;
+          if (Math.abs(dx) < Math.abs(dy)) {
+            return;
+          }
+          if (event.cancelable) {
+            event.preventDefault();
+          }
+          if (dx < 0) {
+            setSwipeOffset(Math.max(dx, -70));
+          }
+        }}
+        onTouchEnd={() => {
+          if (!trackingSwipeRef.current) return;
+          trackingSwipeRef.current = false;
+          setIsSwiping(false);
+          const dx = touchDxRef.current;
+          const dy = Math.abs(touchDyRef.current);
+          setSwipeOffset(0);
+          if (dx < -55 && dy < 36) {
+            onReply?.(msg);
+          }
+        }}
       >
         <div
-          className={`rounded-2xl px-4 py-3 text-sm shadow-sm ${
+          data-message-bubble
+          className={`rounded-2xl px-4 py-3 text-sm shadow-sm overflow-visible ${
             hasFiles
               ? hasMediaFiles
                 ? "w-[min(52vw,18rem)] max-w-[68%] md:w-[min(44vw,22rem)] md:max-w-[62%] md:min-w-[12rem]"
@@ -99,7 +168,45 @@ export function MessageItem({
               ? "rounded-br-md bg-emerald-200 text-emerald-950 dark:bg-emerald-800 dark:text-white"
               : "bg-white/90 text-slate-800 rounded-bl-md dark:bg-slate-800/75 dark:text-slate-100"
           }`}
+          onDoubleClick={() => {
+            if (!isDesktop || !onReply) return;
+            onReply(msg);
+          }}
+          style={{
+            transform: swipeOffset ? `translateX(${swipeOffset}px)` : undefined,
+            transition: isSwiping ? "none" : "transform 160ms ease",
+          }}
         >
+          {replyTarget ? (
+            <button
+              type="button"
+              onClick={() => onJumpToMessage?.(replyTarget.id)}
+              className="group mb-2 inline-flex w-fit max-w-full items-center gap-2 rounded-xl border border-emerald-200/70 bg-white/70 px-3 py-2.5 text-left text-xs text-slate-700 transition hover:border-emerald-300 hover:bg-white hover:shadow-[0_0_16px_rgba(16,185,129,0.18)] dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200 dark:hover:bg-slate-900/70 dark:hover:shadow-[0_0_16px_rgba(16,185,129,0.14)]"
+              aria-label={`Reply to ${replyDisplayName}`}
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block max-w-full truncate whitespace-nowrap text-[10px] font-semibold">
+                  {replyDisplayName}
+                </span>
+                <span
+                  className={`flex max-w-full items-center gap-1 truncate whitespace-nowrap ${
+                    replyIsRtl ? "font-fa text-right" : "text-left"
+                  }`}
+                  dir={replyIsRtl ? "rtl" : "ltr"}
+                  style={{ unicodeBidi: "plaintext" }}
+                >
+                  {derivedReplyIcon === "video" ? (
+                    <Video size={11} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                  ) : derivedReplyIcon === "image" ? (
+                    <ImageIcon size={11} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                  ) : derivedReplyIcon === "document" ? (
+                    <File size={11} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                  ) : null}
+                  <span className="min-w-0 truncate">{replyPreview}</span>
+                </span>
+              </span>
+            </button>
+          ) : null}
           <MessageFiles files={messageFiles} {...messageFilesProps} />
           {!(
             (msg.files || []).length &&

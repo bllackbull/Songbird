@@ -32,7 +32,7 @@ export default function SidebarHeader({
                 className="inline-flex items-center justify-center rounded-full border border-emerald-200 bg-white/80 p-2 text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
                 aria-label="Exit edit mode"
               >
-                <Close size={18} className="icon-anim-sway" />
+                <Close size={18} className="icon-anim-pop" />
               </button>
             ) : (
               <button

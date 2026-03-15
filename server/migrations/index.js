@@ -4,6 +4,7 @@ import { migration003MessageFiles } from "./003-message-files.js";
 import { migration004MessageFileMetadata } from "./004-message-file-metadata.js";
 import { migration005DmDefaultName } from "./005-dm-default-name.js";
 import { migration006MessageFileExpiry } from "./006-message-file-expiry.js";
+import { migration007MessageReplies } from "./007-message-replies.js";
 
 export const migrations = [
   migration001InitialSchema,
@@ -12,4 +13,5 @@ export const migrations = [
   migration004MessageFileMetadata,
   migration005DmDefaultName,
   migration006MessageFileExpiry,
+  migration007MessageReplies,
 ];

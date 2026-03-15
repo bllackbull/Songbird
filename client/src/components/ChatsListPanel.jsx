@@ -146,14 +146,14 @@ export default function ChatsListPanel({
                 )}
                 <div className="min-w-0 flex-1">
                   <p className={`font-semibold ${hasPersian(name) ? "font-fa" : ""}`}>{name}</p>
-                  <p className="mt-1 w-full min-w-0 text-xs leading-[1.35] text-slate-500 dark:text-slate-400">
+                  <p className="mt-1 w-full min-w-0 overflow-hidden text-xs leading-[1.35] text-slate-500 dark:text-slate-400">
                     {conv.last_message || (conv.last_message_files || []).length ? (
                       conv.last_sender_username === user.username ? (
-                          <span className="flex w-full min-w-0 items-center gap-1 align-middle leading-[1.35] overflow-hidden">
+                          <span className="flex w-full min-w-0 items-center gap-1 align-middle leading-[1.35]">
                           <span className="shrink-0 font-bold text-slate-500 dark:text-slate-400">
                             You:
                           </span>
-                          <span className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
+                          <span className="flex min-w-0 flex-1 items-center gap-1">
                             {lastPreview.icon === "video" ? (
                               <Video size={12} className="shrink-0 text-slate-500 dark:text-slate-400" />
                             ) : lastPreview.icon === "image" ? (
@@ -161,13 +161,15 @@ export default function ChatsListPanel({
                             ) : lastPreview.icon === "document" ? (
                               <File size={12} className="shrink-0 text-slate-500 dark:text-slate-400" />
                             ) : null}
-                          <span className={`block min-w-0 flex-1 truncate leading-[1.35] ${hasPersian(lastPreview.text) ? "font-fa" : ""}`}>
+                          <span
+                            className={`block min-w-0 max-w-full flex-1 truncate leading-[1.35] ${hasPersian(lastPreview.text) ? "font-fa" : ""}`}
+                          >
                             {isOwnLastMessagePending ? "Processing..." : lastPreview.text}
                           </span>
                           </span>
                         </span>
                       ) : (
-                        <span className="flex w-full min-w-0 items-center gap-1 align-middle leading-[1.35] overflow-hidden">
+                        <span className="flex w-full min-w-0 items-center gap-1 align-middle leading-[1.35]">
                           {lastPreview.icon === "video" ? (
                             <Video size={12} className="shrink-0 text-slate-500 dark:text-slate-400" />
                           ) : lastPreview.icon === "image" ? (
@@ -175,7 +177,9 @@ export default function ChatsListPanel({
                           ) : lastPreview.icon === "document" ? (
                             <File size={12} className="shrink-0 text-slate-500 dark:text-slate-400" />
                           ) : null}
-                          <span className={`block min-w-0 flex-1 truncate leading-[1.35] ${hasPersian(lastPreview.text) ? "font-fa" : ""}`}>
+                          <span
+                            className={`block min-w-0 max-w-full flex-1 truncate leading-[1.35] ${hasPersian(lastPreview.text) ? "font-fa" : ""}`}
+                          >
                             {lastPreview.text}
                           </span>
                         </span>

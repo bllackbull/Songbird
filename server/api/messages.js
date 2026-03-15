@@ -15,6 +15,7 @@ function registerMessageRoutes(app, deps) {
     emitSseEvent,
     ensureAvatarExists,
     ensureFfmpegAvailable,
+    findMessageById,
     findUserByUsername,
     getMessages,
     getUploadKind,
@@ -90,6 +91,20 @@ function registerMessageRoutes(app, deps) {
     const normalizedMessages = messages.map((message) => ({
       ...message,
       avatar_url: ensureAvatarExists(message.user_id, message.avatar_url),
+      replyTo:
+        Number(message?.reply_id || 0) > 0
+          ? {
+              id: Number(message.reply_id),
+              body: message.reply_body || "",
+              created_at: message.reply_created_at || null,
+              username: message.reply_username || "",
+              nickname: message.reply_nickname || "",
+              avatar_url: ensureAvatarExists(
+                message.reply_user_id || null,
+                message.reply_avatar_url,
+              ),
+            }
+          : null,
     }));
 
     const messageIds = normalizedMessages
@@ -242,6 +257,7 @@ function registerMessageRoutes(app, deps) {
         const fileMeta = parseUploadFileMetadata(req.body?.fileMeta);
         const body = req.body?.body?.toString() || "";
         const trimmedBody = body.trim();
+        const replyToMessageId = Number(req.body?.replyToMessageId || 0) || null;
 
         if (!chatId || !username) {
           removeUploadedFiles(uploadedFiles);
@@ -282,6 +298,15 @@ function registerMessageRoutes(app, deps) {
           removeUploadedFiles(uploadedFiles);
 
           return res.status(403).json({ error: "Not a member of this chat." });
+        }
+        if (replyToMessageId) {
+          const replyTarget = findMessageById(replyToMessageId);
+          if (!replyTarget || Number(replyTarget.chat_id) !== Number(chatId)) {
+            removeUploadedFiles(uploadedFiles);
+            return res
+              .status(400)
+              .json({ error: "Reply target is not available in this chat." });
+          }
         }
 
         const totalBytes = uploadedFiles.reduce(
@@ -435,7 +460,12 @@ function registerMessageRoutes(app, deps) {
             ? `Sent ${normalizedFiles[0].kind === "media" ? "a media file" : "a document"}`
             : `Sent ${normalizedFiles.length} files`);
 
-        const messageId = createMessage(chatId, user.id, fallbackBody);
+        const messageId = createMessage(
+          chatId,
+          user.id,
+          fallbackBody,
+          replyToMessageId,
+        );
         if (!messageId) {
           throw new Error("Unable to create message.");
         }
@@ -488,6 +518,7 @@ function registerMessageRoutes(app, deps) {
             username: user.username,
             body: fallbackBody,
             summaryText: fileSummaryText,
+            replyToMessageId,
           });
         } else {
           emitChatEvent(chatId, {
@@ -497,6 +528,7 @@ function registerMessageRoutes(app, deps) {
             username: user.username,
             body: fallbackBody,
             summaryText: fileSummaryText,
+            replyToMessageId,
           });
         }
 
@@ -525,7 +557,7 @@ function registerMessageRoutes(app, deps) {
     const session = requireSession(req, res);
     if (!session) return;
 
-    const { chatId, username, body } = req.body || {};
+    const { chatId, username, body, replyToMessageId } = req.body || {};
     if (!chatId || !username || !body) {
       return res.status(400).json({
         error: "Chat, username, and message body are required.",
@@ -543,7 +575,16 @@ function registerMessageRoutes(app, deps) {
       return res.status(403).json({ error: "Not a member of this chat." });
     }
 
-    const id = createMessage(Number(chatId), user.id, body);
+    if (replyToMessageId) {
+      const replyTarget = findMessageById(Number(replyToMessageId));
+      if (!replyTarget || Number(replyTarget.chat_id) !== Number(chatId)) {
+        return res
+          .status(400)
+          .json({ error: "Reply target is not available in this chat." });
+      }
+    }
+
+    const id = createMessage(Number(chatId), user.id, body, replyToMessageId);
     if (!id) {
       return res.status(500).json({ error: "Unable to create message." });
     }
@@ -561,6 +602,7 @@ function registerMessageRoutes(app, deps) {
       messageId: Number(id),
       username: user.username,
       body,
+      replyToMessageId,
     });
 
     res.json({ id });

@@ -63,7 +63,7 @@ export function FocusedMediaModal({
             className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/30 bg-black/40 text-white transition hover:border-white/50 hover:bg-black/55"
             aria-label="Close"
           >
-            <Close size={18} className="icon-anim-sway" />
+            <Close size={18} className="icon-anim-pop" />
           </button>
           <a
             href={focusedMedia.url}
@@ -88,7 +88,7 @@ export function FocusedMediaModal({
               className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/30 bg-black/40 text-white transition hover:border-white/50 hover:bg-black/55"
               aria-label="Close"
             >
-              <Close size={18} className="icon-anim-sway" />
+              <Close size={18} className="icon-anim-pop" />
             </button>
           </div>
           <div

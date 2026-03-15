@@ -74,6 +74,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [pendingUploadType, setPendingUploadType] = useState("");
   const [uploadError, setUploadError] = useState("");
   const [activeUploadProgress, setActiveUploadProgress] = useState(null);
+  const [replyTarget, setReplyTarget] = useState(null);
   const chatScrollRef = useRef(null);
   const lastMessageIdRef = useRef(null);
   const isAtBottomRef = useRef(true);
@@ -247,9 +248,78 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     return `Sent ${files.length} files`;
   };
 
+  const resolveReplyPreview = (msg) => {
+    if (!msg) return { text: "", icon: null };
+    const rawBody = String(msg.body || "").trim();
+    const files = Array.isArray(msg.files)
+      ? msg.files
+      : Array.isArray(msg._files)
+        ? msg._files
+        : [];
+    const videoCount = files.filter((file) =>
+      String(file?.mimeType || "").toLowerCase().startsWith("video/"),
+    ).length;
+    const imageCount = files.filter((file) =>
+      String(file?.mimeType || "").toLowerCase().startsWith("image/"),
+    ).length;
+    const docCount = Math.max(0, files.length - videoCount - imageCount);
+    const icon =
+      videoCount > 0 ? "video" : imageCount > 0 ? "image" : files.length ? "document" : null;
+    let summary = summarizeFiles(files);
+    if (!summary && /^Sent a media file$/i.test(rawBody)) {
+      if (videoCount === 1 && imageCount === 0) summary = "Sent a video";
+      if (imageCount === 1 && videoCount === 0) summary = "Sent a photo";
+    }
+    const isGenericBody =
+      !rawBody || /^Sent (a media file|a document|\d+ files)$/i.test(rawBody);
+    const text = isGenericBody && summary ? summary : rawBody || summary || "Message";
+    return { text, icon: icon || (docCount > 0 ? "document" : null) };
+  };
+
   const clearUnreadAlignTimers = () => {
     unreadAlignTimersRef.current.forEach((timer) => window.clearTimeout(timer));
     unreadAlignTimersRef.current = [];
+  };
+
+  const handleStartReply = (msg) => {
+    if (!msg) return;
+    const targetId = Number(msg.id || msg._serverId || 0);
+    if (!targetId) return;
+    const replyName =
+      msg.nickname || msg.username || msg.replyTo?.nickname || msg.replyTo?.username || "";
+    const preview = resolveReplyPreview(msg);
+    setReplyTarget({
+      id: targetId,
+      username: msg.username || "",
+      nickname: msg.nickname || "",
+      body: preview.text,
+      icon: preview.icon,
+      displayName: replyName || "Unknown",
+    });
+    if (!userScrolledUpRef.current) {
+      pendingScrollToBottomRef.current = true;
+      scrollChatToBottom("auto");
+      requestAnimationFrame(() => {
+        scrollChatToBottom("auto");
+      });
+      window.setTimeout(() => {
+        scrollChatToBottom("auto");
+      }, 80);
+    }
+  };
+
+  const handleClearReply = () => {
+    setReplyTarget(null);
+    if (!userScrolledUpRef.current) {
+      pendingScrollToBottomRef.current = true;
+      scrollChatToBottom("auto");
+      requestAnimationFrame(() => {
+        scrollChatToBottom("auto");
+      });
+      window.setTimeout(() => {
+        scrollChatToBottom("auto");
+      }, 80);
+    }
   };
 
   const scheduleUnreadAnchorAlignment = (unreadId) => {
@@ -600,6 +670,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   useEffect(() => {
     clearPendingUploads();
     setActiveUploadProgress(null);
+    setReplyTarget(null);
   }, [activeChatId]);
 
   useEffect(() => {
@@ -973,6 +1044,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       form.append("chatId", String(targetChatId));
       form.append("body", pendingMessage.body || "");
       form.append("uploadType", pendingMessage._uploadType || "document");
+      if (pendingMessage.replyTo?.id) {
+        form.append("replyToMessageId", String(pendingMessage.replyTo.id));
+      }
       const fileMeta = [];
       pendingMessage._files.forEach((item) => {
         if (item?.file instanceof File) {
@@ -1053,6 +1127,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           username: user.username,
           body: pendingMessage.body,
           chatId: targetChatId,
+          replyToMessageId: pendingMessage.replyTo?.id || null,
         });
         data = await res.json();
         if (!res.ok) {
@@ -1126,6 +1201,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             _awaitingServerEcho: true,
             _processingPending: keepPendingUntilServerEcho,
             _serverId: serverId,
+            replyTo: pendingMessage.replyTo || null,
             files: messageFiles,
           },
         ];
@@ -1790,6 +1866,16 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     });
     setPendingUploadType("");
     setUploadError("");
+    if (!userScrolledUpRef.current) {
+      pendingScrollToBottomRef.current = true;
+      scrollChatToBottom("auto");
+      requestAnimationFrame(() => {
+        scrollChatToBottom("auto");
+      });
+      window.setTimeout(() => {
+        scrollChatToBottom("auto");
+      }, 80);
+    }
   }
 
   function removePendingUpload(id) {
@@ -2056,6 +2142,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           file: item.file,
         }))
       : [];
+    const replyPayload = replyTarget
+      ? {
+          id: replyTarget.id,
+          username: replyTarget.username,
+          nickname: replyTarget.nickname,
+          body: replyTarget.body,
+          displayName: replyTarget.displayName,
+        }
+      : null;
 
     if (hasPendingFiles) {
       form.reset();
@@ -2072,8 +2167,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         _createdAt: createdAt,
         _dayKey: pendingDayKey,
         body: fallbackBody,
+        replyTo: replyPayload,
       };
       await sendPendingMessage(pendingMessage);
+      setReplyTarget(null);
       return;
     }
 
@@ -2097,6 +2194,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         _files: pendingFiles,
         _uploadProgress: hasPendingFiles ? 0 : null,
         _awaitingServerEcho: false,
+        replyTo: replyPayload,
         files: pendingFiles.map((file) => ({
           id: file.id,
           kind: file.kind,
@@ -2113,6 +2211,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     form.reset();
     clearPendingUploads();
     pendingScrollToBottomRef.current = true;
+    setReplyTarget(null);
 
     if (!isConnected) {
       return;
@@ -2126,6 +2225,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       _uploadType: pendingUploadType,
       _files: pendingFiles,
       body: fallbackBody,
+      replyTo: replyPayload,
     };
     await sendPendingMessage(pendingMessage);
   }
@@ -2492,6 +2592,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         onUploadFilesSelected={handleUploadFilesSelected}
         onRemovePendingUpload={removePendingUpload}
         onClearPendingUploads={clearPendingUploads}
+        replyTarget={replyTarget}
+        onClearReply={handleClearReply}
+        onReplyToMessage={handleStartReply}
         onUserScrollIntent={handleUserScrollIntent}
         fileUploadEnabled={CHAT_PAGE_CONFIG.fileUploadEnabled}
         fileUploadInProgress={fileUploadInProgress || activeUploadProgress !== null}

@@ -49,6 +49,9 @@ export default function ChatWindowPanel({
   onUploadFilesSelected,
   onRemovePendingUpload,
   onClearPendingUploads,
+  replyTarget,
+  onClearReply,
+  onReplyToMessage,
   onUserScrollIntent,
   fileUploadEnabled = true,
   fileUploadInProgress = false,
@@ -97,6 +100,8 @@ export default function ChatWindowPanel({
   });
   const uploadBusy = !fileUploadEnabled || fileUploadInProgress;
   const timelineBottomSpacerPx = 4;
+  const replyOrUploadOffset =
+    replyTarget || (pendingUploadFiles?.length ?? 0) > 0 ? 64 : 0;
   const {
     focusedMedia,
     setFocusedMedia,
@@ -489,6 +494,24 @@ export default function ChatWindowPanel({
       unreadMarkerId={unreadMarkerId}
       messageFilesProps={messageFilesProps}
       getMessageDayLabel={getMessageDayLabel}
+      isDesktop={isDesktop}
+      isMobileTouchDevice={isMobileTouchDevice}
+      onReply={onReplyToMessage}
+      onJumpToMessage={(messageId) => {
+        const target = document.getElementById(`message-${messageId}`);
+        if (target && typeof target.scrollIntoView === "function") {
+          target.scrollIntoView({ block: "center", behavior: "smooth" });
+        }
+        const bubble = target?.querySelector?.("[data-message-bubble]");
+        if (bubble) {
+          bubble.classList.remove("reply-flash");
+          void bubble.offsetWidth;
+          bubble.classList.add("reply-flash");
+          window.setTimeout(() => {
+            bubble.classList.remove("reply-flash");
+          }, 700);
+        }
+      }}
     />
   );
 
@@ -631,6 +654,8 @@ export default function ChatWindowPanel({
         isDesktop={isDesktop}
         handleSend={handleSend}
         onComposerResize={handleComposerResize}
+        replyTarget={replyTarget}
+        onClearReply={onClearReply}
         pendingUploadFiles={pendingUploadFiles}
         pendingUploadType={pendingUploadType}
         fileUploadEnabled={fileUploadEnabled}
@@ -654,7 +679,7 @@ export default function ChatWindowPanel({
           onClick={onJumpToLatest}
           className="absolute inline-flex h-11 w-11 items-center justify-center rounded-full border border-emerald-200 bg-white text-emerald-700 shadow-lg transition hover:border-emerald-300 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
           style={{
-            bottom: "max(80px + 0.05rem, calc(80px + env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px) + 0.05rem))",
+            bottom: `max(80px + 0.05rem, calc(80px + env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px) + 0.05rem + ${replyOrUploadOffset}px))`,
             right: "0.85rem",
             transform: "none",
           }}

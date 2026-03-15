@@ -31,7 +31,7 @@ export function NewChatModal({
             onClick={onClose}
             className="flex items-center justify-center rounded-full border border-emerald-200 p-2 text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_16px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
           >
-            <Close size={18} />
+            <Close size={18} className="icon-anim-pop" />
           </button>
         </div>
         <div className="mt-4">

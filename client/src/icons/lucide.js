@@ -21,6 +21,7 @@ import {
   Pencil,
   Play,
   Plus,
+  Reply,
   SendHorizontal,
   Settings,
   ShieldCheck,
@@ -32,6 +33,7 @@ import {
   Volume2,
   VolumeX,
   X as Close,
+  XCircle as CloseCircle,
 } from "lucide-react";
 
 export {
@@ -57,6 +59,7 @@ export {
   Pencil,
   Play,
   Plus,
+  Reply,
   SendHorizontal as Send,
   Settings,
   ShieldCheck,
@@ -67,5 +70,6 @@ export {
   Video,
   Volume2,
   VolumeX,
-  Close
+  Close,
+  CloseCircle
 };

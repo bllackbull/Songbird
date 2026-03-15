@@ -297,12 +297,11 @@ export function listChatsForUser(userId) {
   );
 }
 
-export function createMessage(chatId, userId, body) {
-  run("INSERT INTO chat_messages (chat_id, user_id, body) VALUES (?, ?, ?)", [
-    chatId,
-    userId,
-    body,
-  ]);
+export function createMessage(chatId, userId, body, replyToMessageId = null) {
+  run(
+    "INSERT INTO chat_messages (chat_id, user_id, body, reply_to_message_id) VALUES (?, ?, ?, ?)",
+    [chatId, userId, body, replyToMessageId || null],
+  );
 
   const id = getLastInsertId();
   if (id) return id;
@@ -312,6 +311,13 @@ export function createMessage(chatId, userId, body) {
     [chatId, userId],
   );
   return fallback?.id || null;
+}
+
+export function findMessageById(messageId) {
+  return getRow(
+    "SELECT id, chat_id, user_id, body, created_at FROM chat_messages WHERE id = ?",
+    [messageId],
+  );
 }
 
 export function createMessageFiles(messageId, files = []) {
@@ -369,9 +375,19 @@ export function getMessages(chatId, options = {}) {
   const rowsDesc = getAll(
     `
     SELECT chat_messages.id, chat_messages.body, chat_messages.created_at, chat_messages.read_at, chat_messages.read_by_user_id,
-      users.id AS user_id, users.username, users.nickname, users.avatar_url, users.color
+      chat_messages.reply_to_message_id,
+      users.id AS user_id, users.username, users.nickname, users.avatar_url, users.color,
+      reply.id AS reply_id,
+      reply.body AS reply_body,
+      reply.created_at AS reply_created_at,
+      reply.user_id AS reply_user_id,
+      reply_user.username AS reply_username,
+      reply_user.nickname AS reply_nickname,
+      reply_user.avatar_url AS reply_avatar_url
     FROM chat_messages
     JOIN users ON users.id = chat_messages.user_id
+    LEFT JOIN chat_messages reply ON reply.id = chat_messages.reply_to_message_id
+    LEFT JOIN users reply_user ON reply_user.id = reply.user_id
     ${whereSql}
     ORDER BY julianday(chat_messages.created_at) DESC, chat_messages.id DESC
     LIMIT ?

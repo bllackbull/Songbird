@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { File, ImageIcon, Paperclip, Play, Send, Close } from "../../icons/lucide.js";
+import { File, ImageIcon, Paperclip, Play, Reply, Send, Close, Video } from "../../icons/lucide.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 
 export function MessageComposer({
@@ -7,6 +7,8 @@ export function MessageComposer({
   isDesktop,
   handleSend,
   onComposerResize,
+  replyTarget,
+  onClearReply,
   pendingUploadFiles,
   pendingUploadType,
   fileUploadEnabled,
@@ -26,6 +28,16 @@ export function MessageComposer({
   const messageInputRef = useRef(null);
   const [isRtl, setIsRtl] = useState(false);
   const maxTextareaHeight = 136;
+  const replyIsRtl = replyTarget ? hasPersian(replyTarget.body || "") : false;
+  const replyBodyText = replyTarget?.body || "";
+  const derivedReplyIcon = (() => {
+    if (!replyTarget) return null;
+    if (replyTarget.icon) return replyTarget.icon;
+    if (/^Sent a video/i.test(replyBodyText)) return "video";
+    if (/^Sent a photo/i.test(replyBodyText)) return "image";
+    if (/^Sent (a document|\d+ files)/i.test(replyBodyText)) return "document";
+    return null;
+  })();
 
   const resizeTextarea = () => {
     const el = messageInputRef.current;
@@ -44,6 +56,10 @@ export function MessageComposer({
   useEffect(() => {
     resizeTextarea();
   }, [pendingUploadFiles?.length]);
+
+  useEffect(() => {
+    resizeTextarea();
+  }, [replyTarget]);
 
   if (!activeChatId) return null;
 
@@ -64,6 +80,44 @@ export function MessageComposer({
         });
       }}
     >
+      {replyTarget ? (
+        <div className="rounded-2xl border border-emerald-200/80 bg-emerald-50/70 p-2 dark:border-emerald-500/30 dark:bg-slate-950/70">
+          <div className="flex items-start gap-3 px-1">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200">
+              <Reply size={20} className="icon-anim-sway" />
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col">
+              <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-200">
+                Reply to {replyTarget.displayName || replyTarget.username || "message"}
+              </span>
+              <span
+                className={`mt-1 flex min-w-0 items-center gap-1 text-xs text-slate-600 dark:text-slate-300 ${
+                  replyIsRtl ? "font-fa text-right" : "text-left"
+                }`}
+                dir={replyIsRtl ? "rtl" : "ltr"}
+                style={{ unicodeBidi: "plaintext" }}
+              >
+                {derivedReplyIcon === "video" ? (
+                  <Video size={12} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                ) : derivedReplyIcon === "image" ? (
+                  <ImageIcon size={12} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                ) : derivedReplyIcon === "document" ? (
+                  <File size={12} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                ) : null}
+                <span className="min-w-0 truncate">{replyTarget.body || "Message"}</span>
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={onClearReply}
+              className="inline-flex h-9 w-9 items-center justify-center self-center rounded-full border border-emerald-200 text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_16px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+              aria-label="Cancel reply"
+            >
+              <Close size={20} className="icon-anim-pop" />
+            </button>
+          </div>
+        </div>
+      ) : null}
       {pendingUploadFiles?.length ? (
         <div className="rounded-2xl border border-emerald-200/80 bg-emerald-50/70 p-2 dark:border-emerald-500/30 dark:bg-slate-950/70">
           <div className="mb-2 flex items-center justify-between px-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-200">
@@ -97,7 +151,7 @@ export function MessageComposer({
                 onClick={onClearPendingUploads}
                 className="inline-flex items-center gap-1 rounded-full border border-rose-200/70 px-2 py-0.5 text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 dark:border-rose-500/30 dark:text-rose-300 dark:hover:bg-rose-900/30"
               >
-                <Close size={12} />
+              <Close size={12} className="icon-anim-pop" />
                 Clear
               </button>
             </div>
@@ -118,7 +172,7 @@ export function MessageComposer({
                     className="absolute right-1 top-1 z-20 inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 bg-white/90 text-slate-600 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300"
                     aria-label="Remove file"
                   >
-                    <Close size={11} />
+                    <Close size={11} className="icon-anim-pop" />
                   </button>
                   {isImage ? (
                     <div className="mb-1 flex h-24 items-center justify-center rounded-md">

@@ -400,6 +400,27 @@ label:hover .icon-anim-drop {
   animation: icon-drop 300ms ease-out 1 both;
 }
 
+@keyframes reply-flash {
+  0% {
+    box-shadow: inset 0 0 0 0 rgba(16, 185, 129, 0);
+    background-color: transparent;
+  }
+  25% {
+    box-shadow: inset 0 0 0 2px rgba(16, 185, 129, 0.55);
+    background-color: rgba(16, 185, 129, 0.12);
+  }
+  100% {
+    box-shadow: inset 0 0 0 0 rgba(16, 185, 129, 0);
+    background-color: transparent;
+  }
+}
+
+.reply-flash {
+  animation: reply-flash 700ms ease-out 1;
+  position: relative;
+  z-index: 2;
+}
+
 @keyframes chat-wiggle-ios {
   0% {
     transform: translateX(0) rotate(0deg);
