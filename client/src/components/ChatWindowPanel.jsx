@@ -575,7 +575,7 @@ export default function ChatWindowPanel({
         >
           <div className="inline-flex items-center gap-1.5 rounded-full border border-rose-300 bg-rose-100 px-3 py-1 text-xs font-semibold leading-none text-rose-700 dark:border-rose-500 dark:bg-rose-900 dark:text-rose-100">
             <AlertCircle className="h-[13px] w-[13px] shrink-0 -translate-y-[0.5px]" />
-            <span className="leading-none">Connection is not secure.</span>
+            <span className="leading-none">Connection is not secure</span>
           </div>
         </div>
       ) : null}

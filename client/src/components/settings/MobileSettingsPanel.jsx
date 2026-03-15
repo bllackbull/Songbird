@@ -3,17 +3,14 @@ import {
   ArrowLeft,
   Eye,
   EyeOff,
-  LogOut,
-  ShieldCheck,
   Trash,
   Upload,
-  User,
 } from "../../icons/lucide.js";
 import { getAvatarStyle } from "../../utils/avatarColor.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import { InlineError } from "./InlineError.jsx";
-import { ThemeButton } from "./ThemeButton.jsx";
+import { SettingsMenuActions } from "./SettingsMenuActions.jsx";
 
 export function MobileSettingsPanel({
   settingsPanel,
@@ -41,6 +38,11 @@ export function MobileSettingsPanel({
   profileError,
   passwordError,
   fileUploadEnabled,
+  notificationsSupported,
+  notificationPermission,
+  notificationsEnabled,
+  notificationStatusLabel,
+  onToggleNotifications,
 }) {
   const resolvedUserColor = userColor || "#10b981";
   const displayInitials = getAvatarInitials(displayName);
@@ -49,6 +51,11 @@ export function MobileSettingsPanel({
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const notificationsOn =
+    notificationsSupported &&
+    notificationPermission === "granted" &&
+    notificationsEnabled;
+  const notificationsDisabled = Boolean(notificationStatusLabel);
   return (
     <>
       {!settingsPanel ? (
@@ -81,36 +88,18 @@ export function MobileSettingsPanel({
             </div>
           </div>
           <div className="rounded-2xl border border-slate-300/80 bg-white/90 p-2 text-sm shadow-sm dark:border-emerald-500/20 dark:bg-slate-950/60">
-            <button
-              type="button"
-              onClick={() => setSettingsPanel("profile")}
-              className="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-3 text-left text-base font-medium text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
-            >
-              <User size={18} className="icon-anim-sway" />
-              Edit profile
-            </button>
-            <button
-              type="button"
-              onClick={() => setSettingsPanel("security")}
-              className="mt-1 flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-3 text-left text-base font-medium text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
-            >
-              <ShieldCheck size={18} className="icon-anim-sway" />
-              Security
-            </button>
-            <ThemeButton
+            <SettingsMenuActions
+              variant="mobile"
+              setSettingsPanel={setSettingsPanel}
               isDark={isDark}
               toggleTheme={toggleTheme}
               setIsDark={setIsDark}
-              thick
+              handleLogout={handleLogout}
+              notificationsOn={notificationsOn}
+              notificationsDisabled={notificationsDisabled}
+              notificationStatusLabel={notificationStatusLabel}
+              onToggleNotifications={onToggleNotifications}
             />
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="mt-2 flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-3 text-left text-base font-medium text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-[0_0_18px_rgba(244,63,94,0.18)] dark:text-rose-300 dark:hover:border-rose-500/30 dark:hover:bg-rose-500/10"
-            >
-              <LogOut size={18} className="icon-anim-slide" />
-              Log out
-            </button>
           </div>
         </div>
       ) : null}
@@ -241,7 +230,9 @@ export function MobileSettingsPanel({
                     <span
                       className={`h-2 w-2 rounded-full ${value === "online" ? "bg-emerald-400" : "bg-slate-400"}`}
                     />
-                    <span>{value.charAt(0).toUpperCase() + value.slice(1)}</span>
+                    <span>
+                      {value.charAt(0).toUpperCase() + value.slice(1)}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -389,4 +380,3 @@ export function MobileSettingsPanel({
     </>
   );
 }
-

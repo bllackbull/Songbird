@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 export function useChatEvents({
   username,
@@ -18,6 +18,12 @@ export function useChatEvents({
   sseReconnectRef,
   onIncomingMessage,
 }) {
+  const onIncomingMessageRef = useRef(onIncomingMessage);
+
+  useEffect(() => {
+    onIncomingMessageRef.current = onIncomingMessage;
+  }, [onIncomingMessage]);
+
   useEffect(() => {
     if (!username) return;
     let source = null;
@@ -51,7 +57,7 @@ export function useChatEvents({
           String(usernameRef.current || "").toLowerCase();
         const isIncomingMessage = payload.type === "chat_message" && !isOwnEvent;
         if (isIncomingMessage) {
-          onIncomingMessage?.(payload, {
+          onIncomingMessageRef.current?.(payload, {
             isActiveChat: currentActiveId && payloadChatId === currentActiveId,
             isOwnEvent,
             body: String(payload?.body || ""),

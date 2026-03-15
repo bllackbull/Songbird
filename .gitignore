@@ -18,5 +18,6 @@ data/
 
 # OS/editor
 .DS_Store
+.todo
 .vscode/
 .idea/

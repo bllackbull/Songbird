@@ -38,6 +38,7 @@ const NEW_CHAT_SEARCH_DEBOUNCE_MS = 300;
 const MOBILE_CLOSE_ANIMATION_MS = 340;
 const UPLOAD_PROGRESS_HIDE_DELAY_MS = 600;
 const NOTIFICATION_PREVIEW_MAX_CHARS = 120;
+const NOTIFICATIONS_ENABLED_KEY = "songbird-notify-enabled";
 
 
 
@@ -125,6 +126,17 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       ? window.matchMedia("(max-width: 767px)").matches
       : false,
   );
+  const [notificationsEnabled, setNotificationsEnabled] = useState(() => {
+    if (typeof window === "undefined") return true;
+    const stored = window.localStorage.getItem(NOTIFICATIONS_ENABLED_KEY);
+    return stored === "0" ? false : true;
+  });
+  const [notificationPermission, setNotificationPermission] = useState(() => {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      return "unsupported";
+    }
+    return Notification.permission;
+  });
 
   const settingsMenuRef = useRef(null);
   const settingsButtonRef = useRef(null);
@@ -135,12 +147,78 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const usernameRef = useRef(String(user?.username || ""));
   const loadChatsRef = useRef(null);
   const scheduleMessageRefreshRef = useRef(null);
-  const notificationAskedRef = useRef(false);
 
   const truncateText = (text, maxChars) => {
     const value = String(text || "");
     if (value.length <= maxChars) return value;
     return `${value.slice(0, maxChars).trimEnd()}...`;
+  };
+
+  const uaPlatform =
+    typeof navigator !== "undefined"
+      ? navigator.userAgentData?.platform || navigator.platform || ""
+      : "";
+  const uaString =
+    typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
+  const isIOSPlatform = /iP(ad|hone|od)/i.test(uaPlatform);
+  const isIOSDevice = isIOSPlatform || (!uaPlatform && /iP(ad|hone|od)/i.test(uaString));
+  const isStandaloneDisplay =
+    typeof window !== "undefined" &&
+    (window.matchMedia?.("(display-mode: standalone)")?.matches ||
+      window.navigator?.standalone);
+  const isSecureContext =
+    typeof window !== "undefined" && Boolean(window.isSecureContext);
+  const hasNotificationApi =
+    typeof window !== "undefined" && "Notification" in window;
+  const iosRequiresStandalone = isIOSDevice && !isStandaloneDisplay;
+  const notificationsSupported =
+    hasNotificationApi && isSecureContext && !iosRequiresStandalone;
+  const notificationsAllowed = notificationPermission === "granted";
+  const notificationsActive = notificationsEnabled && notificationsAllowed;
+  const notificationStatusLabel = !hasNotificationApi
+    ? "Not supported in this browser"
+    : !isSecureContext
+      ? "Connection is not secure"
+      : iosRequiresStandalone
+        ? "Requires Home Screen install"
+        : notificationPermission === "denied"
+          ? "Blocked in browser settings"
+          : "";
+  const notificationsDisabled = Boolean(notificationStatusLabel);
+
+  const persistNotificationsEnabled = (value) => {
+    setNotificationsEnabled(value);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(NOTIFICATIONS_ENABLED_KEY, value ? "1" : "0");
+    }
+  };
+
+  const requestNotificationPermission = async () => {
+    if (!notificationsSupported) return;
+    try {
+      const result = await Notification.requestPermission();
+      setNotificationPermission(result);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleToggleNotifications = async () => {
+    if (!notificationsSupported) return;
+    if (notificationPermission === "denied") {
+      persistNotificationsEnabled(false);
+      return;
+    }
+    if (notificationsActive) {
+      persistNotificationsEnabled(false);
+      return;
+    }
+    if (!notificationsEnabled) {
+      persistNotificationsEnabled(true);
+    }
+    if (notificationPermission !== "granted") {
+      await requestNotificationPermission();
+    }
   };
 
   const summarizeFiles = (files = []) => {
@@ -310,37 +388,19 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !("Notification" in window)) return;
-    if (!user?.username) return;
-    const askedKey = "songbird-notify-asked";
-    const alreadyAsked = sessionStorage.getItem(askedKey) === "1";
-    if (Notification.permission !== "default" || alreadyAsked) {
-      notificationAskedRef.current = true;
-      return;
-    }
-    const requestPermission = () => {
-      if (notificationAskedRef.current) return;
-      notificationAskedRef.current = true;
-      Notification.requestPermission()
-        .catch(() => null)
-        .finally(() => {
-          if (Notification.permission !== "default") {
-            sessionStorage.setItem(askedKey, "1");
-          } else {
-            notificationAskedRef.current = false;
-          }
-        });
+    if (!notificationsSupported) return;
+    const syncPermission = () => {
+      setNotificationPermission(Notification.permission);
     };
-    // Try immediately after login (may be blocked by some browsers).
-    requestPermission();
-    const handleUserGesture = () => requestPermission();
-    window.addEventListener("pointerdown", handleUserGesture, { once: true, capture: true });
-    window.addEventListener("keydown", handleUserGesture, { once: true, capture: true });
+    syncPermission();
+    window.addEventListener("focus", syncPermission);
+    document.addEventListener("visibilitychange", syncPermission);
     return () => {
-      window.removeEventListener("pointerdown", handleUserGesture, { capture: true });
-      window.removeEventListener("keydown", handleUserGesture, { capture: true });
+      window.removeEventListener("focus", syncPermission);
+      document.removeEventListener("visibilitychange", syncPermission);
     };
-  }, [user?.username]);
+  }, [notificationsSupported]);
+
 
   useEffect(() => {
     const totalUnread = chats.reduce(
@@ -844,7 +904,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     sseReconnectRef,
     onIncomingMessage: (payload, meta = {}) => {
       if (typeof window === "undefined" || !("Notification" in window)) return;
-      if (Notification.permission !== "granted") return;
+      if (!notificationsActive) return;
       const sender = String(payload?.username || "").trim();
       const isOwnEvent =
         sender.toLowerCase() === String(user?.username || "").toLowerCase();
@@ -2384,6 +2444,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         profileError={profileError}
         passwordError={passwordError}
         fileUploadEnabled={CHAT_PAGE_CONFIG.fileUploadEnabled}
+        notificationsSupported={notificationsSupported}
+        notificationPermission={notificationPermission}
+        notificationsEnabled={notificationsEnabled}
+        notificationsDisabled={notificationsDisabled}
+        notificationStatusLabel={notificationStatusLabel}
+        onToggleNotifications={handleToggleNotifications}
         onExitEdit={handleExitEdit}
         onEnterEdit={handleEnterEdit}
         onDeleteChats={handleDeleteChats}

@@ -49,6 +49,12 @@ export default function ChatSidebar({
   profileError,
   passwordError,
   fileUploadEnabled,
+  notificationsSupported,
+  notificationPermission,
+  notificationsEnabled,
+  notificationsDisabled,
+  notificationStatusLabel,
+  onToggleNotifications,
   onExitEdit,
   onEnterEdit,
   onDeleteChats,
@@ -83,6 +89,12 @@ export default function ChatSidebar({
         setIsDark={setIsDark}
         isDark={isDark}
         handleLogout={handleLogout}
+        notificationsSupported={notificationsSupported}
+        notificationPermission={notificationPermission}
+        notificationsEnabled={notificationsEnabled}
+        notificationsDisabled={notificationsDisabled}
+        notificationStatusLabel={notificationStatusLabel}
+        onToggleNotifications={onToggleNotifications}
       />
 
       <div
@@ -117,6 +129,12 @@ export default function ChatSidebar({
               profileError={profileError}
               passwordError={passwordError}
               fileUploadEnabled={fileUploadEnabled}
+              notificationsSupported={notificationsSupported}
+              notificationPermission={notificationPermission}
+              notificationsEnabled={notificationsEnabled}
+              notificationsDisabled={notificationsDisabled}
+              notificationStatusLabel={notificationStatusLabel}
+              onToggleNotifications={onToggleNotifications}
             />
           </div>
         ) : null}
