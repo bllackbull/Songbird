@@ -21,23 +21,31 @@ This repository contains the Songbird chat application. The server uses a file-b
 
 ## Installation and Deployment
 
-Docker support is included and is a good default for most deployments because it standardizes runtime dependencies and process restarts.
-
-If you use Docker/Compose, you do not need a `systemd` unit for the Songbird Node process. The container runtime handles process lifecycle (`restart: unless-stopped` in Compose). You can still use `systemd` for non-Docker deployments.
+There are three ways available to install the app:
+- [Easy to install Script]() (Recommended)
+- [Docker](#install-via-docker)
+- [Manual Installation](#manual-installation)
 
 **Prerequisites (tested on Ubuntu 22.04+):**
 
 - An Ubuntu server with sudo access
 - A domain name pointing to your server's public IP (Recommended)
 
-Update and install required packages:
+## Deployment Script
+
+If you want to use the easy to install script, use:
 
 ```bash
-sudo apt update
-sudo apt install -y git curl build-essential nginx python3-certbot-nginx ffmpeg
+curl -fsSL https://raw.githubusercontent.com/bllackbull/Songbird/main/scripts/install.sh | bash
 ```
 
-## Option A: Docker + Compose (recommended)
+Later access the script globally with:
+
+```bash
+songbird-deploy
+```
+
+## Install via Docker
 
 ### 1. System Setup
 
@@ -92,14 +100,14 @@ cd /opt/songbird
 git clone https://github.com/bllackbull/Songbird.git .
 ```
 
-### 3. Start
+### 3. Build container
 
 ```bash
 cd /opt/songbird
 docker compose -f docker-compose.yaml up -d --build
 ```
 
-Optional: Verify app is built successfully:
+Optional: Verify container is built successfully:
 
 ```bash
 docker compose -f docker-compose.yaml ps
@@ -108,13 +116,20 @@ docker compose -f docker-compose.yaml logs -f
 
 To complete the setup, refer to the [Configure Nginx](#configure-nginx) section.
 
-## Option B: Manual Installation
+## Manual Installation
 
 ### 1. System setup
 
+Update and install required packages:
+
+```bash
+sudo apt update
+sudo apt install -y git curl build-essential nginx python3-certbot-nginx ffmpeg
+```
+
 Install Node.js and npm (pick one):
 
-**NodeSource**:
+**NodeSource (Recommended)**:
 
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
@@ -219,6 +234,7 @@ sudo useradd --system --no-create-home --shell /usr/sbin/nologin songbird
 
 ```bash
 sudo chown -R songbird:songbird /opt/songbird
+git config --global --add safe.directory /opt/songbird
 ```
 
 **Enable and start the service:**
