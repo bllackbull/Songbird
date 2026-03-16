@@ -16,7 +16,7 @@ export function MessageItem({
   onReply,
   onJumpToMessage,
 }) {
-  const urlPattern = /((?:https?:\/\/|www\.)[^\s<]+)/gi;
+  const urlPattern = /((?:https?:\/\/|www\.)[^\s<]+)/gi; // TODO support more protocols
   const hasUrlPattern = /(?:https?:\/\/|www\.)[^\s<]+/i;
   const isUrlPattern = /^(?:https?:\/\/|www\.)[^\s<]+$/i;
   const isOwn = msg.username === user.username;

@@ -473,10 +473,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
 
   useEffect(() => {
-    const totalUnread = chats.reduce(
+    let totalUnread = chats.reduce(
       (sum, chat) => sum + Number(chat?.unread_count || 0),
       0,
     );
+
+    if (totalUnread > 999) totalUnread = "+999"
+
     document.title =
       totalUnread > 0
         ? `Songbird | ${totalUnread} new message${totalUnread === 1 ? "" : "s"}`

@@ -1,4 +1,13 @@
-import { Check, CheckCheck, Clock12, File, ImageIcon, Minus, Plus, Video } from "../icons/lucide.js";
+import {
+  Check,
+  CheckCheck,
+  Clock12,
+  File,
+  ImageIcon,
+  Minus,
+  Plus,
+  Video,
+} from "../icons/lucide.js";
 import { getAvatarStyle } from "../utils/avatarColor.js";
 import { hasPersian } from "../utils/fontUtils.js";
 import { getAvatarInitials } from "../utils/avatarInitials.js";
@@ -25,9 +34,12 @@ export default function ChatsListPanel({
   const wiggleDurations = [640, 700, 760, 820, 880, 940];
   const wiggleDelays = [-80, -170, -260, -120, -220, -320];
   const isEmptyState = !loadingChats && !visibleChats.length;
-  const fallbackUploadTextPattern = /^Sent (a media file|a document|\d+ files)$/i;
+  const fallbackUploadTextPattern =
+    /^Sent (a media file|a document|\d+ files)$/i;
   const formatLastMessagePreview = (conv) => {
-    const files = Array.isArray(conv.last_message_files) ? conv.last_message_files : [];
+    const files = Array.isArray(conv.last_message_files)
+      ? conv.last_message_files
+      : [];
     const body = String(conv.last_message || "").trim();
     if (!files.length) {
       return {
@@ -37,10 +49,14 @@ export default function ChatsListPanel({
     }
 
     const videoCount = files.filter((file) =>
-      String(file.mimeType || "").toLowerCase().startsWith("video/"),
+      String(file.mimeType || "")
+        .toLowerCase()
+        .startsWith("video/"),
     ).length;
     const imageCount = files.filter((file) =>
-      String(file.mimeType || "").toLowerCase().startsWith("image/"),
+      String(file.mimeType || "")
+        .toLowerCase()
+        .startsWith("image/"),
     ).length;
     const docCount = Math.max(0, files.length - videoCount - imageCount);
 
@@ -117,9 +133,14 @@ export default function ChatsListPanel({
           const isOwnLastMessage =
             Boolean(conv.last_message) &&
             conv.last_sender_username === user.username;
-          const isOwnLastMessagePending = Boolean(conv._lastMessagePending) && isOwnLastMessage;
+          const isOwnLastMessagePending =
+            Boolean(conv._lastMessagePending) && isOwnLastMessage;
           const isOwnLastMessageSeen = Boolean(conv.last_message_read_at);
           const lastPreview = formatLastMessagePreview(conv);
+
+          let unreadCount = conv.unread_count;
+          if (unreadCount > 999) unreadCount = "+999";
+
           const card = (
             <div
               className={`w-full rounded-2xl border px-3 py-3 text-left text-sm transition ${
@@ -145,37 +166,62 @@ export default function ChatsListPanel({
                   </div>
                 )}
                 <div className="min-w-0 flex-1">
-                  <p className={`font-semibold ${hasPersian(name) ? "font-fa" : ""}`}>{name}</p>
+                  <p
+                    className={`font-semibold ${hasPersian(name) ? "font-fa" : ""}`}
+                  >
+                    {name}
+                  </p>
                   <p className="mt-1 w-full min-w-0 overflow-hidden text-xs leading-[1.35] text-slate-500 dark:text-slate-400">
-                    {conv.last_message || (conv.last_message_files || []).length ? (
+                    {conv.last_message ||
+                    (conv.last_message_files || []).length ? (
                       conv.last_sender_username === user.username ? (
-                          <span className="flex w-full min-w-0 items-center gap-1 align-middle leading-[1.35]">
+                        <span className="flex w-full min-w-0 items-center gap-1 align-middle leading-[1.35]">
                           <span className="shrink-0 font-bold text-slate-500 dark:text-slate-400">
                             You:
                           </span>
                           <span className="flex min-w-0 flex-1 items-center gap-1">
                             {lastPreview.icon === "video" ? (
-                              <Video size={12} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                              <Video
+                                size={12}
+                                className="shrink-0 text-slate-500 dark:text-slate-400"
+                              />
                             ) : lastPreview.icon === "image" ? (
-                              <ImageIcon size={12} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                              <ImageIcon
+                                size={12}
+                                className="shrink-0 text-slate-500 dark:text-slate-400"
+                              />
                             ) : lastPreview.icon === "document" ? (
-                              <File size={12} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                              <File
+                                size={12}
+                                className="shrink-0 text-slate-500 dark:text-slate-400"
+                              />
                             ) : null}
-                          <span
-                            className={`block min-w-0 max-w-full flex-1 truncate leading-[1.35] ${hasPersian(lastPreview.text) ? "font-fa" : ""}`}
-                          >
-                            {isOwnLastMessagePending ? "Processing..." : lastPreview.text}
-                          </span>
+                            <span
+                              className={`block min-w-0 max-w-full flex-1 truncate leading-[1.35] ${hasPersian(lastPreview.text) ? "font-fa" : ""}`}
+                            >
+                              {isOwnLastMessagePending
+                                ? "Processing..."
+                                : lastPreview.text}
+                            </span>
                           </span>
                         </span>
                       ) : (
                         <span className="flex w-full min-w-0 items-center gap-1 align-middle leading-[1.35]">
                           {lastPreview.icon === "video" ? (
-                            <Video size={12} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                            <Video
+                              size={12}
+                              className="shrink-0 text-slate-500 dark:text-slate-400"
+                            />
                           ) : lastPreview.icon === "image" ? (
-                            <ImageIcon size={12} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                            <ImageIcon
+                              size={12}
+                              className="shrink-0 text-slate-500 dark:text-slate-400"
+                            />
                           ) : lastPreview.icon === "document" ? (
-                            <File size={12} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                            <File
+                              size={12}
+                              className="shrink-0 text-slate-500 dark:text-slate-400"
+                            />
                           ) : null}
                           <span
                             className={`block min-w-0 max-w-full flex-1 truncate leading-[1.35] ${hasPersian(lastPreview.text) ? "font-fa" : ""}`}
@@ -195,26 +241,37 @@ export default function ChatsListPanel({
                           isOwnLastMessagePending
                             ? "text-emerald-900/80 dark:text-emerald-50/80"
                             : isOwnLastMessageSeen
-                            ? "text-sky-400"
-                            : "text-slate-500 dark:text-slate-400"
+                              ? "text-sky-400"
+                              : "text-slate-500 dark:text-slate-400"
                         } -translate-y-[1px]`}
                       >
                         {isOwnLastMessagePending ? (
-                          <Clock12 size={13} strokeWidth={2.4} aria-hidden="true" className="animate-spin" />
+                          <Clock12
+                            size={13}
+                            strokeWidth={2.4}
+                            aria-hidden="true"
+                            className="animate-spin"
+                          />
                         ) : isOwnLastMessageSeen ? (
-                          <CheckCheck size={13} strokeWidth={2.4} aria-hidden="true" />
+                          <CheckCheck
+                            size={13}
+                            strokeWidth={2.4}
+                            aria-hidden="true"
+                          />
                         ) : (
-                          <Check size={13} strokeWidth={2.4} aria-hidden="true" />
+                          <Check
+                            size={13}
+                            strokeWidth={2.4}
+                            aria-hidden="true"
+                          />
                         )}
                       </span>
                     ) : null}
                     <p>{conv.last_time ? formatTime(conv.last_time) : ""}</p>
                   </div>
                   {conv.unread_count > 0 ? (
-                    <span
-                      className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-emerald-500 px-2 text-[10px] font-bold text-white"
-                    >
-                      {conv.unread_count}
+                    <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-emerald-500 px-2 text-[10px] font-bold text-white">
+                      {unreadCount}
                     </span>
                   ) : null}
                 </div>
