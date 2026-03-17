@@ -22,7 +22,7 @@ This repository contains the Songbird chat application. The server uses a file-b
 ## Installation and Deployment
 
 There are three ways available to install the app:
-- [Easy to install Script]() (Recommended)
+- [Easy to install Script](#deployment-script) (Recommended)
 - [Docker](#install-via-docker)
 - [Manual Installation](#manual-installation)
 

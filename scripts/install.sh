@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -uo pipefail
+
+trap 'clear; exit 130' INT TERM
+trap 'clear' EXIT
 
 APP_NAME="songbird"
 INSTALL_DIR="/opt/songbird"
@@ -13,9 +16,11 @@ NGINX_SITE_FILE="/etc/nginx/sites-available/songbird"
 NGINX_ENABLED_FILE="/etc/nginx/sites-enabled/songbird"
 DEFAULT_PORT="5174"
 DEFAULT_FILE_UPLOAD="true"
+DEFAULT_MAX_UPLOAD="78643200"
 DEFAULT_RETENTION_DAYS="7"
 NODE_MAJOR="24"
 SCRIPT_REMOTE_URL="${SCRIPT_REMOTE_URL:-https://raw.githubusercontent.com/bllackbull/Songbird/main/scripts/install.sh}"
+LOG_LINES="${LOG_LINES:-100}"
 
 # Mirror URLs
 MIRROR_NODESOURCE="${MIRROR_NODESOURCE:-}"
@@ -30,6 +35,7 @@ DOMAIN_NAMES=()
 CERTBOT_EMAIL=""
 APP_PORT="$DEFAULT_PORT"
 FILE_UPLOAD="$DEFAULT_FILE_UPLOAD"
+MAX_UPLOAD="$DEFAULT_MAX_UPLOAD"
 RETENTION_DAYS="$DEFAULT_RETENTION_DAYS"
 NGINX_SERVER_NAME="_"
 CURRENT_ENV_FILE=""
@@ -37,13 +43,18 @@ PROMPT_FD=0
 
 log() {
   local timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
+  local log_dir="$(dirname "$LOG_FILE")"
+
   printf "[SONGBIRD] %s\n" "$1"
-  printf "[%s] [SONGBIRD] %s\n" "$timestamp" "$1" >> "$LOGFILE" 2>/dev/null || true
+
+  if [[ -d "$log_dir" ]]; then
+    printf "[%s] [SONGBIRD] %s\n" "$timestamp" "$1" >> "$LOG_FILE" 2>/dev/null || true
+  fi
 }
 
 
 ensure_log_dir() {
-  local log_dir="$(dirname "$LOGFILE")"
+  local log_dir="$(dirname "$LOG_FILE")"
   if [[ ! -d "$log_dir" ]]; then
     run_as_root mkdir -p "$log_dir"
     log "Created log directory: $log_dir"
@@ -63,21 +74,26 @@ have_cmd() {
   command -v "$1" >/dev/null 2>&1
 }
 
+press_enter_to_continue() {
+  printf "\nPress Enter to return to the main menu..."
+  read -r _
+}
+
 run_silent() {
   local output
   # Append command being run to log file
-  printf "[%s] Running: %s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOGFILE" 2>/dev/null || true
+  printf "[%s] Running: %s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG_FILE" 2>/dev/null || true
   
   if ! output="$("$@" 2>&1)"; then
     # Log the failure
-    printf "[%s] FAILED: %s\n%s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$*" "$output" >> "$LOGFILE" 2>/dev/null || true
+    printf "[%s] FAILED: %s\n%s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$*" "$output" >> "$LOG_FILE" 2>/dev/null || true
     # Show error to user
     printf "\n[ERROR] Command failed: %s\n" "$*"
     printf "%s\n" "$output"
     return 1
   else
     # Log success + output
-    printf "[%s] SUCCESS: %s\n%s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$*" "$output" >> "$LOGFILE" 2>/dev/null || true
+    printf "[%s] SUCCESS: %s\n%s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$*" "$output" >> "$LOG_FILE" 2>/dev/null || true
   fi
 }
 
@@ -152,7 +168,7 @@ prompt_yes_no() {
 prompt_port() {
   local value=""
   while true; do
-    prompt_read "Enter application port (default: $DEFAULT_PORT): " value
+    prompt_read "Enter server port (default: $DEFAULT_PORT): " value
     if [[ -z "$value" ]]; then
       printf "%s" "$DEFAULT_PORT"
       return 0
@@ -225,8 +241,17 @@ install_required_packages() {
 
   if [[ -n "$MIRROR_APT_EXTRA" ]]; then
     local mirror_list="/etc/apt/sources.list.d/songbird-mirror.list"
+    local pref_file="/etc/apt/preferences.d/songbird-mirror"
+    local codename=$(lsb_release -sc)
+
     log "Adding mirror apt source: ${MIRROR_APT_EXTRA}"
-    printf "%s\n" "$MIRROR_APT_EXTRA" | run_silent run_as_root tee "$mirror_list" >/dev/null
+
+    printf "deb %s %s main restricted universe multiverse\n" "$MIRROR_APT_EXTRA" "$codename" \
+      | run_silent run_as_root tee "$mirror_list" >/dev/null
+
+    printf "Package: *\nPin: origin %s\nPin-Priority: 1001\n" \
+      "$(echo "$MIRROR_APT_EXTRA" | sed 's|https\?://||;s|/.*||')" \
+      | run_silent run_as_root tee "$pref_file" >/dev/null
   fi
 
 
@@ -235,7 +260,7 @@ install_required_packages() {
 
   if (( ${#missing_pkgs[@]} > 0 )); then
     log "Installing missing packages: ${missing_pkgs[*]}"
-    run_silent run_as_root apt-get install -y "${missing_pkgs[@]}"
+    run_silent run_as_root apt-get install -y --allow-downgrades "${missing_pkgs[@]}"
   else
     log "All required base packages are already installed."
   fi
@@ -302,7 +327,7 @@ ensure_service_user_exists() {
   fi
 }
 
-clone_or_update_repo() {
+clone_repo() {
   run_silent run_as_root mkdir -p "$INSTALL_DIR"
 
   if run_silent run_as_root test -d "$INSTALL_DIR/.git"; then
@@ -392,17 +417,25 @@ open_env_editor() {
   fi
 
   log "Opening ${env_file} with ${editor_cmd}. Save and close to continue."
+  tput rmcup
+  trap 'tput rmcup' EXIT INT TERM  
+
   if [[ -n "$SUDO" ]]; then
     $SUDO "$editor_cmd" "$env_file"
   else
     "$editor_cmd" "$env_file"
   fi
+
+  tput smcup
+  clear
+  trap 'tput rmcup' EXIT INT TERM
 }
 
 sync_values_from_env() {
   local env_file="$INSTALL_DIR/.env"
   APP_PORT="$(get_existing_env_value "PORT" "$DEFAULT_PORT")"
   FILE_UPLOAD="$(get_existing_env_value "FILE_UPLOAD" "$DEFAULT_FILE_UPLOAD")"
+  MAX_UPLOAD="$(get_existing_env_value "FILE_UPLOAD_MAX_TOTAL_SIZE" "$DEFAULT_MAX_UPLOAD")"
   RETENTION_DAYS="$(get_existing_env_value "MESSAGE_FILE_RETENTION" "$DEFAULT_RETENTION_DAYS")"
   CURRENT_ENV_FILE="$env_file"
 }
@@ -463,7 +496,7 @@ collect_install_options() {
 
   APP_PORT="$(prompt_port)"
 
-  if [[ "$(prompt_yes_no "Enable file uploads" "yes")" == "yes" ]]; then
+  if [[ "$(prompt_yes_no "Enable file uploads?" "yes")" == "yes" ]]; then
     FILE_UPLOAD="true"
   else
     FILE_UPLOAD="false"
@@ -478,6 +511,7 @@ collect_install_options() {
 
 write_full_env_with_defaults() {
   local env_file="${INSTALL_DIR}/.env"
+  run_silent run_as_root mkdir -p "$INSTALL_DIR"
   run_silent run_as_root touch "$env_file"
   render_full_env_file "$env_file"
   CURRENT_ENV_FILE="$env_file"
@@ -487,7 +521,7 @@ write_full_env_with_defaults() {
 apply_ownership() {
   ensure_service_user_exists
   run_silent run_as_root chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "$INSTALL_DIR"
-  run_slient run_as_root git config --global --add safe.directory "$INSTALL_DIR"
+  run_silent run_as_root git config --global --add safe.directory "$INSTALL_DIR"
 }
 
 configure_systemd_service() {
@@ -511,16 +545,18 @@ EOF
 
   run_as_root systemctl daemon-reload
   run_as_root systemctl enable --now songbird.service
+  run_as_root systemctl restart songbird.service
 }
 
 configure_nginx() {
   local server_name_line="server_name ${NGINX_SERVER_NAME};"
+
   log "Creating Nginx config at ${NGINX_SITE_FILE}..."
   run_silent run_as_root tee "$NGINX_SITE_FILE" >/dev/null <<EOF
 server {
   listen 80 default_server;
   ${server_name_line}
-  client_max_body_size 78643200;
+  client_max_body_size ${MAX_UPLOAD};
 
   location /api/events {
     proxy_pass http://127.0.0.1:${APP_PORT};
@@ -565,39 +601,54 @@ configure_ssl_if_needed() {
     return 0
   fi
 
-  # Build the list of domains NOT already covered by any existing certificate.
-  # "certbot certificates" lists domains per cert; we grep for exact domain matches.
+  local existing_certs
+  existing_certs="$(run_as_root certbot certificates 2>/dev/null)"
+
   local uncovered=()
   local d
   for d in "${DOMAIN_NAMES[@]}"; do
-    if run_silent run_as_root certbot certificates 2>/dev/null \
-        | grep -qP "^\s+Domains:.*\b$(printf '%s' "$d" | sed 's/[.[\*^$]/\\&/g')\b"; then
-      log "Domain ${d} is already covered by an existing certificate. Skipping."
+    local escaped
+    escaped="$(printf '%s' "$d" | sed 's/[.[\*^$]/\\&/g')"
+
+    if echo "$existing_certs" | grep -qP "^\s+Domains:.*\b${escaped}\b"; then
+      log "Domain ${d} already has a certificate. Will reconfigure nginx."
     else
       uncovered+=("$d")
     fi
   done
 
-  if (( ${#uncovered[@]} == 0 )); then
-    log "All specified domains already have SSL certificates. Nothing to do."
-    return 0
+  if (( ${#uncovered[@]} > 0 )); then
+    local certbot_d_args=()
+    for d in "${uncovered[@]}"; do
+      certbot_d_args+=(-d "$d")
+    done
+
+    log "Requesting SSL certificate for: ${uncovered[*]}"
+    run_as_root certbot certonly \
+      --nginx \
+      --non-interactive \
+      --agree-tos \
+      --email "$CERTBOT_EMAIL" \
+      "${certbot_d_args[@]}" || { log "ERROR: Certbot failed for: ${uncovered[*]}"; return 1; }
+
+    log "SSL certificate obtained for: ${uncovered[*]}"
+  else
+    log "All domains already have certificates. Skipping certificate request."
   fi
 
-  local certbot_d_args=()
-  for d in "${uncovered[@]}"; do
-    certbot_d_args+=(-d "$d")
+  log "Configuring nginx SSL for: ${DOMAIN_NAMES[*]}"
+  local all_d_args=()
+  for d in "${DOMAIN_NAMES[@]}"; do
+    all_d_args+=(-d "$d")
   done
 
-  log "Requesting SSL certificate for: ${uncovered[*]}"
-  run_as_root certbot \
+  run_as_root certbot install \
     --nginx \
     --non-interactive \
-    --agree-tos \
-    --email "$CERTBOT_EMAIL" \
-    --redirect \
-    "${certbot_d_args[@]}"
+    --cert-name "${DOMAIN_NAMES[0]}" \
+    "${all_d_args[@]}" || { log "ERROR: Failed to configure nginx SSL"; return 1; }
 
-  log "SSL certificate obtained for: ${uncovered[*]}."
+  log "Nginx SSL configured for: ${DOMAIN_NAMES[*]}"
 }
 
 backup_database() {
@@ -632,12 +683,13 @@ rebuild_and_restart_after_settings_change() {
   if [[ -f "$NGINX_SITE_FILE" ]]; then
     # Preserve currently deployed server_name from existing config when possible.
     local existing_server_name
-    existing_server_name="$(run_as_root awk '/^[[:space:]]*server_name[[:space:]]+/ { gsub(/;/, \"\", \$0); sub(/^[[:space:]]*server_name[[:space:]]+/, \"\", \$0); print; exit }' "$NGINX_SITE_FILE" || true)"
+    existing_server_name="$(run_as_root awk '/^[[:space:]]*server_name[[:space:]]+/ { gsub(/;/, "", $0); sub(/^[[:space:]]*server_name[[:space:]]+/, "", $0); print; exit }' "$NGINX_SITE_FILE" || true)"
     if [[ -n "$existing_server_name" ]]; then
       NGINX_SERVER_NAME="$existing_server_name"
     fi
   fi
   configure_nginx
+  configure_ssl_if_needed
 }
 
 update_songbird() {
@@ -669,6 +721,16 @@ update_songbird() {
   run_as_root systemctl reload nginx
 
   log "Update completed."
+  press_enter_to_continue
+}
+
+restart_songbird() {
+  log "Restarting Songbird service..."
+  run_as_root systemctl restart songbird.service
+  run_as_root systemctl reload nginx
+
+  log "Songbird restarted successfully."
+  press_enter_to_continue
 }
 
 edit_settings() {
@@ -690,11 +752,12 @@ edit_settings() {
   log "Changes detected. Applying updates..."
   rebuild_and_restart_after_settings_change
   log "Settings applied."
+  press_enter_to_continue
 }
 
 remove_songbird() {
   [[ -d "$INSTALL_DIR" ]] || fail "No install found at ${INSTALL_DIR}."
-  if [[ "$(prompt_yes_no "This will remove Songbird from this server. Continue" "no")" != "yes" ]]; then
+  if [[ "$(prompt_yes_no "This will remove Songbird from this server. Continue?" "no")" != "yes" ]]; then
     log "Removal canceled."
     return 0
   fi
@@ -717,6 +780,15 @@ remove_songbird() {
   fi
 
   log "Songbird removed."
+
+  if [[ -f "/usr/local/bin/songbird-deploy" ]]; then
+    if [[ "$(prompt_yes_no "Remove global command (songbird-deploy) as well?" "no")" == "yes" ]]; then
+      run_as_root rm -f "/usr/local/bin/songbird-deploy"
+      log "Global command removed."
+    fi
+  fi
+
+  press_enter_to_continue
 }
 
 check_for_updates_notice() {
@@ -738,19 +810,14 @@ check_for_updates_notice() {
 }
 
 install_songbird() {
+  ensure_log_dir
   collect_install_options
   install_required_packages
   ensure_nodejs_from_nodesource
   ensure_service_user_exists
-  clone_or_update_repo
-  install_songbird_dependencies
   write_full_env_with_defaults
-
-  if [[ "$(prompt_yes_no "Configure advanced settings now (open .env)" "no")" == "yes" ]]; then
-    open_env_editor "$CURRENT_ENV_FILE"
-    sync_values_from_env
-  fi
-
+  clone_repo
+  install_songbird_dependencies
   apply_ownership
   configure_systemd_service
   configure_nginx
@@ -759,10 +826,14 @@ install_songbird() {
   log "Installation complete."
   log "Songbird has been installed successfully."
   if [[ "$DEPLOY_MODE" == "domain" ]]; then
-    log "Visit: https://${DOMAIN_NAME}"
+    for d in "${DOMAIN_NAMES[@]}"; do
+      log "Visit: https://${d}"
+    done
   else
     log "Visit: http://<your-server-ip>"
   fi
+
+  press_enter_to_continue
 }
 
 install_global_command() {
@@ -782,7 +853,7 @@ install_global_command() {
   if [[ -n "$source_path" ]]; then
     run_silent run_as_root install -m 755 "$source_path" "$target"
   else
-    log "Script source path is not a regular file. Installing global command from ${SCRIPT_REMOTE_URL}..."
+    log "Script source path is not a regular file. Installing global command..."
     if [[ -n "$SUDO" ]]; then
       curl -fsSL "$SCRIPT_REMOTE_URL" | $SUDO tee "$target" >/dev/null
       $SUDO chmod 755 "$target"
@@ -794,11 +865,12 @@ install_global_command() {
 
   log "Global command installed: songbird-deploy"
   log "Run it from anywhere with: songbird-deploy"
+  press_enter_to_continue
 }
 
 ensure_global_command_on_first_run() {
   local target="/usr/local/bin/songbird-deploy"
-  if run_silent run_as_root test -x "$target"; then
+  if run_as_root test -x "$target"; then
     return 0
   fi
   log "Global command not found. Installing it automatically..."
@@ -813,7 +885,7 @@ configure_mirrors() {
 
   local val=""
 
-  prompt_read "NodeSource mirror base URL (current: ${MIRROR_NODESOURCE:-<default NodeSource>}): " val
+  prompt_read "Nodejs mirror base URL (current: ${MIRROR_NODESOURCE:-<default NodeSource>}): " val
   val="${val#"${val%%[![:space:]]*}"}"
   val="${val%"${val##*[![:space:]]}"}"
   if [[ -n "$val" ]]; then
@@ -839,48 +911,55 @@ configure_mirrors() {
 
   printf "\nMirror settings updated (active for this session).\n"
   printf "To persist them, export MIRROR_NODESOURCE and MIRROR_APT_EXTRA before launching.\n"
+  press_enter_to_continue
 }
 
 show_logs() {
-  if [[ -f "$LOGFILE" ]]; then
-    less "$LOGFILE"
+  if [[ -f "$LOG_FILE" ]]; then
+    clear
+    printf "\n  Last %s lines of script log:\n\n" "$LOG_LINES"
+    tail -n "$LOG_LINES" "$LOG_FILE"
   else
-    printf "\n  No script log found at: %s\n" "$LOGFILE"
-    printf "  Press Enter to continue..."
-    read -r
+    printf "\n  No script log found at: %s\n" "$LOG_FILE"
   fi
+  press_enter_to_continue
 }
 
 show_service_logs() {
-  if systemctl list-units --type=service --all | grep -q "songbird"; then
-    journalctl -u songbird --no-pager | less
+  if systemctl list-units --type=service --all | grep songbird; then
+    clear
+    printf "\n  Last %s lines of songbird service log:\n\n" "$LOG_LINES"
+    run_as_root journalctl -u songbird --no-pager -n "$LOG_LINES"
   else
     printf "\n  Songbird service not found.\n"
-    printf "  Press Enter to continue..."
-    read -r
   fi
+  press_enter_to_continue
 }
 
-show_nginx_logs() {
-  local nginx_log_dir="/var/log/nginx"
-  if [[ -d "$nginx_log_dir" ]]; then
-    # Show both access and error logs if they exist
-    local log_files=()
-    [[ -f "$nginx_log_dir/access.log" ]] && log_files+=("$nginx_log_dir/access.log")
-    [[ -f "$nginx_log_dir/error.log" ]]  && log_files+=("$nginx_log_dir/error.log")
+show_nginx_access_logs() {
+  local log_file="/var/log/nginx/access.log"
 
-    if [[ ${#log_files[@]} -gt 0 ]]; then
-      less "${log_files[@]}"
-    else
-      printf "\n  No nginx log files found in: %s\n" "$nginx_log_dir"
-      printf "  Press Enter to continue..."
-      read -r
-    fi
+  if [[ -f "$log_file" ]]; then
+    clear
+    printf "\n  Last %s lines of nginx access log:\n\n" "$LOG_LINES"
+    run_as_root tail -n "$LOG_LINES" "$log_file"
   else
-    printf "\n  Nginx log directory not found: %s\n" "$nginx_log_dir"
-    printf "  Press Enter to continue..."
-    read -r
+    printf "\n  Nginx access log not found: %s\n" "$log_file"
   fi
+  press_enter_to_continue
+}
+
+show_nginx_error_logs() {
+  local log_file="/var/log/nginx/error.log"
+
+  if [[ -f "$log_file" ]]; then
+    clear
+    printf "\n  Last %s lines of nginx error log:\n\n" "$LOG_LINES"
+    run_as_root tail -n "$LOG_LINES" "$log_file"
+  else
+    printf "\n  Nginx error log not found: %s\n" "$log_file"
+  fi
+  press_enter_to_continue
 }
 
 
@@ -910,12 +989,13 @@ show_menu() {
   printf "Songbird Deploy Menu\n"
   printf "1) Install Songbird\n"
   printf "2) Update Songbird\n"
-  printf "3) Edit Settings (.env)\n"
-  printf "4) Remove Songbird\n"
-  printf "5) Reinstall global command (songbird-deploy)\n"
-  printf "6) Configure mirrors\n"
-  printf "7) View Logs\n"
-  printf "8) Exit\n"
+  printf "3) Restart Songbird\n"
+  printf "4) Edit Settings (.env)\n"
+  printf "5) Remove Songbird\n"
+  printf "6) Reinstall global command (songbird-deploy)\n"
+  printf "7) Configure mirrors\n"
+  printf "8) View Logs\n"
+  printf "9) Exit\n\n"
 }
 
 show_logs_menu() {
@@ -926,48 +1006,49 @@ show_logs_menu() {
     printf "Logs Menu\n"
     printf "1) View script logs\n"
     printf "2) View service logs\n"
-    printf "3) View nginx logs\n"
-    printf "4) Go back\n"
+    printf "3) View nginx access logs\n"
+    printf "4) View nginx error logs\n"
+    printf "5) Go back\n\n"
 
-    prompt_read "Choose an option [1-4]: " choice
+    prompt_read "Choose an option [1-5]: " choice
     case "$choice" in
       1) show_logs ;;
       2) show_service_logs ;;
-      3) show_nginx_logs ;;
-      4) return ;;
-      *) printf "Invalid choice. Select a number from 1 to 4.\n" ;;
+      3) show_nginx_access_logs ;;
+      4) show_nginx_error_logs ;;
+      5) return ;;
+      *) printf "Invalid choice. Select a number from 1 to 5.\n" ;;
     esac
   done
 }
 
 main() {
-  # Save the current terminal screen and cursor position
-  tput smcup
-
-  # Ensure we restore the terminal on any exit
-  trap 'tput rmcup' EXIT INT TERM
-
   ensure_log_dir
   init_prompt_io
   detect_os
   ensure_sudo
   ensure_global_command_on_first_run
 
+  tput smcup
+  trap 'tput rmcup' EXIT INT TERM
+
   local choice=""
   while true; do
     check_for_updates_notice
+    tput smcup
     show_menu
-    prompt_read "Choose an option [1-8]: " choice
+    prompt_read "Choose an option [1-9]: " choice
     case "$choice" in
       1) install_songbird ;;
       2) update_songbird ;;
-      3) edit_settings ;;
-      4) remove_songbird ;;
-      5) install_global_command ;;
-      6) configure_mirrors ;;
-      7) view_logs ;;
-      8) break ;;
-      *) printf "Invalid choice. Select a number from 1 to 8.\n" ;;
+      3) restart_songbird ;;
+      4) edit_settings ;;
+      5) remove_songbird ;;
+      6) install_global_command ;;
+      7) configure_mirrors ;;
+      8) show_logs_menu ;;
+      9) break ;;
+      *) printf "Invalid choice. Select a number from 1 to 9.\n" ;;
     esac
   done
 }
