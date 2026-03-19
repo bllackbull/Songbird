@@ -2092,6 +2092,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       setUserScrolledUp(false);
       isAtBottomRef.current = true;
       setIsAtBottom(true);
+      scrollChatToBottom("auto");
+      requestAnimationFrame(() => {
+        scrollChatToBottom("auto");
+      });
+      window.setTimeout(() => {
+        scrollChatToBottom("auto");
+      }, 80);
     }
   }
 
