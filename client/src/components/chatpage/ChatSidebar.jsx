@@ -23,6 +23,18 @@ export default function ChatSidebar({
   lastMessageIdRef,
   isAtBottomRef,
   onOpenNewChat,
+  onOpenNewGroup,
+  chatsSearchQuery,
+  onChatsSearchChange,
+  onChatsSearchFocus,
+  onChatsSearchBlur,
+  chatsSearchFocused,
+  onCloseSearch,
+  discoverLoading,
+  discoverUsers,
+  discoverGroups,
+  onOpenDiscoveredUser,
+  onOpenDiscoveredGroup,
   showSettings,
   settingsMenuRef,
   setSettingsPanel,
@@ -59,6 +71,7 @@ export default function ChatSidebar({
   onEnterEdit,
   onDeleteChats,
   onOpenSettings,
+  onOpenOwnProfile,
   settingsButtonRef,
   displayInitials,
 }) {
@@ -79,6 +92,13 @@ export default function ChatSidebar({
         onEnterEdit={onEnterEdit}
         onDeleteChats={onDeleteChats}
         onNewChat={onOpenNewChat}
+        onNewGroup={onOpenNewGroup}
+        chatsSearchQuery={chatsSearchQuery}
+        chatsSearchFocused={chatsSearchFocused}
+        onChatsSearchChange={onChatsSearchChange}
+        onChatsSearchFocus={onChatsSearchFocus}
+        onChatsSearchBlur={onChatsSearchBlur}
+        onCloseSearch={onCloseSearch}
       />
 
       <SettingsMenuPopover
@@ -102,7 +122,7 @@ export default function ChatSidebar({
         style={{ overscrollBehavior: "contain" }}
       >
         {mobileTab === "settings" ? (
-          <div className="app-scroll h-full overflow-y-auto overflow-x-hidden px-6 pb-[104px] md:h-[calc(100%-88px)] md:pb-4">
+          <div className="app-scroll h-full overflow-y-scroll overflow-x-hidden px-6 pb-[104px] md:h-[calc(100%-88px)] md:pb-4">
             <MobileSettingsPanel
               settingsPanel={settingsPanel}
               user={user}
@@ -135,12 +155,13 @@ export default function ChatSidebar({
               notificationsDisabled={notificationsDisabled}
               notificationStatusLabel={notificationStatusLabel}
               onToggleNotifications={onToggleNotifications}
+              onOpenOwnProfile={onOpenOwnProfile}
             />
           </div>
         ) : null}
 
         <div className={mobileTab === "settings" ? "hidden min-h-0 h-full" : "block min-h-0 h-full"}>
-          <div className="app-scroll h-full overflow-y-auto overflow-x-hidden px-6 pb-[104px] md:h-[calc(100%-88px)] md:pb-4">
+          <div className="app-scroll h-full overflow-y-scroll overflow-x-hidden px-6 pb-[104px] md:h-[calc(100%-88px)] md:pb-4">
             <ChatsListPanel
               loadingChats={loadingChats}
               visibleChats={visibleChats}
@@ -158,7 +179,13 @@ export default function ChatSidebar({
               setUnreadInChat={setUnreadInChat}
               lastMessageIdRef={lastMessageIdRef}
               isAtBottomRef={isAtBottomRef}
-              onOpenNewChat={onOpenNewChat}
+              chatsSearchQuery={chatsSearchQuery}
+              chatsSearchFocused={chatsSearchFocused}
+              discoverLoading={discoverLoading}
+              discoverUsers={discoverUsers}
+              discoverGroups={discoverGroups}
+              onOpenDiscoveredUser={onOpenDiscoveredUser}
+              onOpenDiscoveredGroup={onOpenDiscoveredGroup}
             />
           </div>
         </div>
@@ -172,6 +199,7 @@ export default function ChatSidebar({
         statusValue={statusValue}
         userColor={userColor}
         onOpenSettings={onOpenSettings}
+        onOpenOwnProfile={onOpenOwnProfile}
         settingsButtonRef={settingsButtonRef}
       />
     </aside>

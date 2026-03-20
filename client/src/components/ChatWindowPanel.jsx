@@ -24,6 +24,9 @@ export default function ChatWindowPanel({
   activeHeaderPeer,
   activeFallbackTitle,
   peerStatusLabel,
+  isGroupChat = false,
+  groupAvatarColor = null,
+  groupAvatarUrl = "",
   chatScrollRef,
   onChatScroll,
   onStartReached,
@@ -52,6 +55,8 @@ export default function ChatWindowPanel({
   replyTarget,
   onClearReply,
   onReplyToMessage,
+  onOpenHeaderProfile,
+  onOpenMessageSenderProfile,
   onUserScrollIntent,
   fileUploadEnabled = true,
   fileUploadInProgress = false,
@@ -65,7 +70,7 @@ export default function ChatWindowPanel({
       ? window.matchMedia("(max-width: 767px) and (pointer: coarse)").matches
       : false,
   );
-  const activePeerColor = activeHeaderPeer?.color || "#10b981";
+  const activePeerColor = activeHeaderPeer?.color || groupAvatarColor || "#10b981";
   const activePeerInitials = getAvatarInitials(activeFallbackTitle || "S");
   const [loadedMediaThumbs, setLoadedMediaThumbs] = useState(() => {
     if (typeof window === "undefined") return new Set();
@@ -497,6 +502,8 @@ export default function ChatWindowPanel({
       isDesktop={isDesktop}
       isMobileTouchDevice={isMobileTouchDevice}
       onReply={onReplyToMessage}
+      isGroupChat={isGroupChat}
+      onOpenSenderProfile={onOpenMessageSenderProfile}
       onJumpToMessage={(messageId) => {
         const target = document.getElementById(`message-${messageId}`);
         if (target && typeof target.scrollIntoView === "function") {
@@ -543,19 +550,25 @@ export default function ChatWindowPanel({
               <ArrowLeft size={18} />
             </button>
             <div className="flex flex-1 flex-col items-center justify-center gap-1">
-              {activeHeaderPeer ? (
-                <>
-                  <h2 className="text-center text-lg font-semibold">
-                    <span className={hasPersian(activeFallbackTitle) ? "font-fa" : ""}>
-                      {activeFallbackTitle}
-                    </span>
-                  </h2>
-                  <p className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                    {!isConnected ? (
-                      <>
-                        <LoaderCircle className="h-4 w-4 animate-spin text-emerald-500" />
-                        Connecting...
-                      </>
+              <>
+                <button
+                  type="button"
+                  onClick={onOpenHeaderProfile}
+                  className="text-center text-lg font-semibold transition hover:text-emerald-600 dark:hover:text-emerald-300"
+                >
+                  <span className={hasPersian(activeFallbackTitle) ? "font-fa" : ""}>
+                    {activeFallbackTitle}
+                  </span>
+                </button>
+                <p className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                  {!isConnected ? (
+                    <>
+                      <LoaderCircle className="h-4 w-4 animate-spin text-emerald-500" />
+                      Connecting...
+                    </>
+                  ) : (
+                    isGroupChat ? (
+                      <>{peerStatusLabel}</>
                     ) : (
                       <>
                         <span
@@ -565,27 +578,58 @@ export default function ChatWindowPanel({
                         />
                         {peerStatusLabel}
                       </>
-                    )}
-                  </p>
-                </>
-              ) : null}
+                    )
+                  )}
+                </p>
+              </>
             </div>
             {activeHeaderPeer ? (
               activeHeaderPeer?.avatar_url ? (
-                <img
-                  src={activeHeaderPeer?.avatar_url}
-                  alt={activeFallbackTitle}
-                  className="h-9 w-9 flex-shrink-0 rounded-full object-cover"
-                />
+                <button
+                  type="button"
+                  onClick={onOpenHeaderProfile}
+                  className="group"
+                >
+                  <img
+                    src={activeHeaderPeer?.avatar_url}
+                    alt={activeFallbackTitle}
+                    className="h-9 w-9 flex-shrink-0 rounded-full object-cover transition group-hover:ring-2 group-hover:ring-emerald-300"
+                  />
+                </button>
               ) : (
-                <div
-                  className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ${hasPersian(activePeerInitials) ? "font-fa" : ""}`}
+                <button
+                  type="button"
+                  onClick={onOpenHeaderProfile}
+                  className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full transition hover:ring-2 hover:ring-emerald-300 ${hasPersian(activePeerInitials) ? "font-fa" : ""}`}
                   style={getAvatarStyle(activePeerColor)}
                 >
                   {activePeerInitials}
-                </div>
+                </button>
               )
-            ) : null}
+            ) : (
+              groupAvatarUrl ? (
+                <button
+                  type="button"
+                  onClick={onOpenHeaderProfile}
+                  className="group"
+                >
+                  <img
+                    src={groupAvatarUrl}
+                    alt={activeFallbackTitle}
+                    className="h-9 w-9 flex-shrink-0 rounded-full object-cover transition group-hover:ring-2 group-hover:ring-emerald-300"
+                  />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onOpenHeaderProfile}
+                  className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full transition hover:ring-2 hover:ring-emerald-300 ${hasPersian(activePeerInitials) ? "font-fa" : ""}`}
+                  style={getAvatarStyle(activePeerColor)}
+                >
+                  {activePeerInitials}
+                </button>
+              )
+            )}
           </div>
           <div className="h-[72px] md:hidden" />
         </>

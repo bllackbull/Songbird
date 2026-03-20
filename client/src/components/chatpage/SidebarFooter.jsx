@@ -10,21 +10,26 @@ export default function SidebarFooter({
   statusValue,
   userColor,
   onOpenSettings,
+  onOpenOwnProfile,
   settingsButtonRef,
 }) {
   return (
     <div className="absolute bottom-0 left-0 right-0 hidden h-[88px] border-t border-slate-300/80 bg-white px-6 py-4 dark:border-emerald-500/20 dark:bg-slate-900 md:block">
       <div className="flex h-full items-center justify-between">
-        <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onOpenOwnProfile}
+          className="group flex items-center gap-3 text-left"
+        >
           {user.avatarUrl ? (
             <img
               src={user.avatarUrl}
               alt={displayName}
-              className="h-10 w-10 rounded-full object-cover"
+              className="h-10 w-10 rounded-full object-cover transition group-hover:ring-2 group-hover:ring-emerald-300"
             />
           ) : (
             <div
-              className={`flex h-10 w-10 items-center justify-center rounded-full ${
+              className={`flex h-10 w-10 items-center justify-center rounded-full transition group-hover:ring-2 group-hover:ring-emerald-300 ${
                 hasPersian(displayInitials) ? "font-fa" : ""
               }`}
               style={getAvatarStyle(userColor)}
@@ -33,7 +38,7 @@ export default function SidebarFooter({
             </div>
           )}
           <div>
-            <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-200">
+            <p className="text-sm font-semibold text-emerald-700 transition group-hover:text-emerald-600 dark:text-emerald-200 dark:group-hover:text-emerald-300">
               {displayName}
             </p>
             <p className="mt-1 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
@@ -41,7 +46,7 @@ export default function SidebarFooter({
               {statusValue}
             </p>
           </div>
-        </div>
+        </button>
         <button
           type="button"
           onClick={onOpenSettings}

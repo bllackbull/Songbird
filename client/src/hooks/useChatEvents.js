@@ -17,12 +17,18 @@ export function useChatEvents({
   setChats,
   sseReconnectRef,
   onIncomingMessage,
+  onPresenceUpdate,
 }) {
   const onIncomingMessageRef = useRef(onIncomingMessage);
+  const onPresenceUpdateRef = useRef(onPresenceUpdate);
 
   useEffect(() => {
     onIncomingMessageRef.current = onIncomingMessage;
   }, [onIncomingMessage]);
+
+  useEffect(() => {
+    onPresenceUpdateRef.current = onPresenceUpdate;
+  }, [onPresenceUpdate]);
 
   useEffect(() => {
     if (!username) return;
@@ -46,7 +52,15 @@ export function useChatEvents({
           return;
         }
         if (!payload?.type) return;
-        if (payload.type !== "chat_message" && payload.type !== "chat_read") {
+        if (
+          payload.type !== "chat_message" &&
+          payload.type !== "chat_read" &&
+          payload.type !== "presence_update"
+        ) {
+          return;
+        }
+        if (payload.type === "presence_update") {
+          onPresenceUpdateRef.current?.(payload);
           return;
         }
         void loadChatsRef.current?.({ silent: true });

@@ -224,17 +224,53 @@ export function findDmChat(userId, otherUserId) {
   return row?.id || null;
 }
 
-export function createChat(name, type = "dm") {
+export function createChat(name, type = "dm", options = {}) {
   const normalizedType = String(type || "dm");
   const normalizedName =
     normalizedType === "dm"
       ? String(name || "").trim() || "dm"
       : String(name || "").trim() || null;
+  const groupUsername =
+    normalizedType === "group"
+      ? String(options.groupUsername || "")
+          .trim()
+          .toLowerCase() || null
+      : null;
+  const groupVisibility =
+    normalizedType === "group" &&
+    String(options.groupVisibility || "").toLowerCase() === "private"
+      ? "private"
+      : "public";
+  const inviteToken =
+    normalizedType === "group"
+      ? String(options.inviteToken || "").trim() || null
+      : null;
+  const createdByUserId = Number(options.createdByUserId || 0) || null;
+  const groupColor =
+    normalizedType === "group"
+      ? String(options.groupColor || "").trim() || setUserColor()
+      : null;
+  const allowMemberInvites =
+    normalizedType === "group" && options.allowMemberInvites === false ? 0 : 1;
+  const groupAvatarUrl =
+    normalizedType === "group"
+      ? String(options.groupAvatarUrl || "").trim() || null
+      : null;
 
-  run("INSERT INTO chats (name, type) VALUES (?, ?)", [
+  run(
+    "INSERT INTO chats (name, type, group_username, group_visibility, invite_token, created_by_user_id, group_color, allow_member_invites, group_avatar_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [
     normalizedName,
     normalizedType,
-  ]);
+      groupUsername,
+      groupVisibility,
+      inviteToken,
+      createdByUserId,
+      groupColor,
+      allowMemberInvites,
+      groupAvatarUrl,
+    ],
+  );
 
   const id = getLastInsertId();
   if (id) return id;
@@ -247,6 +283,126 @@ export function addChatMember(chatId, userId, role = "member") {
   run(
     "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",
     [chatId, userId, role],
+  );
+}
+
+export function searchPublicGroups(query, viewerUserId, limit = 20) {
+  const like = `%${String(query || "").trim()}%`;
+  const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+  return getAll(
+    `SELECT c.id, c.name, c.group_username, c.group_color, c.group_avatar_url, c.invite_token,
+            (SELECT COUNT(*) FROM chat_members m WHERE m.chat_id = c.id) AS members_count,
+            EXISTS(
+              SELECT 1 FROM chat_members vm
+              WHERE vm.chat_id = c.id AND vm.user_id = ?
+            ) AS is_member
+     FROM chats c
+     WHERE c.type = 'group'
+       AND c.group_visibility = 'public'
+       AND (c.name LIKE ? OR c.group_username LIKE ?)
+     ORDER BY
+       CASE
+         WHEN c.group_username LIKE ? THEN 0
+         ELSE 1
+       END,
+       c.name ASC
+     LIMIT ?`,
+    [Number(viewerUserId), like, like, like, safeLimit],
+  );
+}
+
+export function removeChatMember(chatId, userId) {
+  run("DELETE FROM chat_members WHERE chat_id = ? AND user_id = ?", [
+    Number(chatId),
+    Number(userId),
+  ]);
+}
+
+export function markGroupMemberRemoved(chatId, userId, removedByUserId) {
+  run(
+    `INSERT INTO group_removed_members (chat_id, user_id, removed_by_user_id, removed_at)
+     VALUES (?, ?, ?, datetime('now'))
+     ON CONFLICT(chat_id, user_id) DO UPDATE SET
+       removed_by_user_id = excluded.removed_by_user_id,
+       removed_at = datetime('now')`,
+    [Number(chatId), Number(userId), Number(removedByUserId)],
+  );
+}
+
+export function clearGroupMemberRemoved(chatId, userId) {
+  run("DELETE FROM group_removed_members WHERE chat_id = ? AND user_id = ?", [
+    Number(chatId),
+    Number(userId),
+  ]);
+}
+
+export function isGroupMemberRemoved(chatId, userId) {
+  const row = getRow(
+    "SELECT 1 AS removed FROM group_removed_members WHERE chat_id = ? AND user_id = ?",
+    [Number(chatId), Number(userId)],
+  );
+  return Boolean(row);
+}
+
+export function findChatByGroupUsername(groupUsername) {
+  return getRow(
+    "SELECT id, name, type, group_username, group_visibility, invite_token, group_color, allow_member_invites, group_avatar_url, created_by_user_id FROM chats WHERE group_username = ? AND type = 'group'",
+    [String(groupUsername || "").trim().toLowerCase()],
+  );
+}
+
+export function findChatByInviteToken(inviteToken) {
+  return getRow(
+    "SELECT id, name, type, group_username, group_visibility, invite_token, group_color, allow_member_invites, group_avatar_url, created_by_user_id FROM chats WHERE invite_token = ? AND type = 'group'",
+    [String(inviteToken || "").trim()],
+  );
+}
+
+export function findChatById(chatId) {
+  return getRow(
+    `SELECT id, name, type, group_username, group_visibility, invite_token, group_color,
+            allow_member_invites, group_avatar_url, created_by_user_id
+     FROM chats WHERE id = ?`,
+    [Number(chatId)],
+  );
+}
+
+export function updateGroupChat(chatId, payload = {}) {
+  const name = String(payload?.name || "").trim() || null;
+  const groupUsername =
+    String(payload?.groupUsername || "")
+      .trim()
+      .toLowerCase() || null;
+  const groupVisibility =
+    String(payload?.groupVisibility || "").toLowerCase() === "private"
+      ? "private"
+      : "public";
+  const allowMemberInvites = payload?.allowMemberInvites === false ? 0 : 1;
+  const groupAvatarUrl =
+    payload?.groupAvatarUrl === undefined
+      ? null
+      : String(payload?.groupAvatarUrl || "").trim() || null;
+
+  run(
+    `UPDATE chats
+     SET name = ?, group_username = ?, group_visibility = ?, allow_member_invites = ?,
+         group_avatar_url = COALESCE(?, group_avatar_url)
+     WHERE id = ? AND type = 'group'`,
+    [
+      name,
+      groupUsername,
+      groupVisibility,
+      allowMemberInvites,
+      groupAvatarUrl,
+      Number(chatId),
+    ],
+  );
+}
+
+export function regenerateGroupInviteToken(chatId, inviteToken) {
+  run(
+    "UPDATE chats SET invite_token = ? WHERE id = ? AND type = 'group'",
+    [String(inviteToken || "").trim(), Number(chatId)],
   );
 }
 
@@ -274,20 +430,22 @@ export function listChatMembers(chatId) {
 export function listChatsForUser(userId) {
   return getAll(
     `
-    SELECT c.id, c.name, c.type,
-      (SELECT id FROM chat_messages WHERE chat_id = c.id ORDER BY id DESC LIMIT 1) AS last_message_id,
-      (SELECT body FROM chat_messages WHERE chat_id = c.id ORDER BY id DESC LIMIT 1) AS last_message,
-      (SELECT created_at FROM chat_messages WHERE chat_id = c.id ORDER BY id DESC LIMIT 1) AS last_time,
+    SELECT c.id, c.name, c.type, c.group_username, c.group_visibility, c.invite_token, c.group_color, c.allow_member_invites, c.group_avatar_url, c.created_by_user_id,
+      COALESCE(mu.muted, 0) AS muted,
+      (SELECT id FROM chat_messages WHERE chat_id = c.id AND body NOT LIKE '[[system:%]]' ORDER BY id DESC LIMIT 1) AS last_message_id,
+      (SELECT body FROM chat_messages WHERE chat_id = c.id AND body NOT LIKE '[[system:%]]' ORDER BY id DESC LIMIT 1) AS last_message,
+      (SELECT created_at FROM chat_messages WHERE chat_id = c.id AND body NOT LIKE '[[system:%]]' ORDER BY id DESC LIMIT 1) AS last_time,
       (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) AS message_count,
-      (SELECT user_id FROM chat_messages WHERE chat_id = c.id ORDER BY id DESC LIMIT 1) AS last_sender_id,
-      (SELECT users.username FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id ORDER BY chat_messages.id DESC LIMIT 1) AS last_sender_username,
-      (SELECT users.nickname FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id ORDER BY chat_messages.id DESC LIMIT 1) AS last_sender_nickname,
-      (SELECT users.avatar_url FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id ORDER BY chat_messages.id DESC LIMIT 1) AS last_sender_avatar_url,
-      (SELECT read_at FROM chat_messages WHERE chat_id = c.id ORDER BY id DESC LIMIT 1) AS last_message_read_at,
-      (SELECT read_by_user_id FROM chat_messages WHERE chat_id = c.id ORDER BY id DESC LIMIT 1) AS last_message_read_by_user_id,
-      (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id AND user_id != ? AND read_at IS NULL) AS unread_count
+      (SELECT user_id FROM chat_messages WHERE chat_id = c.id AND body NOT LIKE '[[system:%]]' ORDER BY id DESC LIMIT 1) AS last_sender_id,
+      (SELECT users.username FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id AND chat_messages.body NOT LIKE '[[system:%]]' ORDER BY chat_messages.id DESC LIMIT 1) AS last_sender_username,
+      (SELECT users.nickname FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id AND chat_messages.body NOT LIKE '[[system:%]]' ORDER BY chat_messages.id DESC LIMIT 1) AS last_sender_nickname,
+      (SELECT users.avatar_url FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id AND chat_messages.body NOT LIKE '[[system:%]]' ORDER BY chat_messages.id DESC LIMIT 1) AS last_sender_avatar_url,
+      (SELECT read_at FROM chat_messages WHERE chat_id = c.id AND body NOT LIKE '[[system:%]]' ORDER BY id DESC LIMIT 1) AS last_message_read_at,
+      (SELECT read_by_user_id FROM chat_messages WHERE chat_id = c.id AND body NOT LIKE '[[system:%]]' ORDER BY id DESC LIMIT 1) AS last_message_read_by_user_id,
+      (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id AND body NOT LIKE '[[system:%]]' AND user_id != ? AND read_at IS NULL) AS unread_count
     FROM chats c
     JOIN chat_members m ON m.chat_id = c.id
+    LEFT JOIN chat_mutes mu ON mu.chat_id = c.id AND mu.user_id = m.user_id
     LEFT JOIN hidden_chats h ON h.chat_id = c.id AND h.user_id = m.user_id
     WHERE m.user_id = ?
       AND h.chat_id IS NULL
@@ -528,6 +686,25 @@ export function unhideChat(userId, chatId) {
   run("DELETE FROM hidden_chats WHERE user_id = ? AND chat_id = ?", [
     userId,
     chatId,
+  ]);
+}
+
+export function setChatMuted(userId, chatId, muted) {
+  if (muted) {
+    run(
+      `INSERT INTO chat_mutes (user_id, chat_id, muted, updated_at)
+       VALUES (?, ?, 1, datetime('now'))
+       ON CONFLICT(user_id, chat_id) DO UPDATE SET
+         muted = 1,
+         updated_at = datetime('now')`,
+      [Number(userId), Number(chatId)],
+    );
+    return;
+  }
+
+  run("DELETE FROM chat_mutes WHERE user_id = ? AND chat_id = ?", [
+    Number(userId),
+    Number(chatId),
   ]);
 }
 

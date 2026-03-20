@@ -1,7 +1,13 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import MobileTabMenu from "../components/MobileTabMenu.jsx";
 import ChatWindowPanel from "../components/ChatWindowPanel.jsx";
-import { DeleteChatsModal, NewChatModal } from "../components/ChatModals.jsx";
+import ChatProfileModal from "../components/ChatProfileModal.jsx";
+import {
+  DeleteChatsModal,
+  GroupInviteLinkModal,
+  NewChatModal,
+  NewGroupModal,
+} from "../components/ChatModals.jsx";
 import { DesktopSettingsModal } from "../components/settings/index.js";
 import { ChatSidebar } from "../components/chatpage/index.js";
 import { CHAT_PAGE_CONFIG } from "../settings/chatPageConfig.js";
@@ -16,11 +22,15 @@ import { useChatEvents } from "../hooks/useChatEvents.js";
 import { useChatScroll } from "../hooks/useChatScroll.js";
 import {
   createDmChat,
+  discoverUsersAndGroups,
+  createGroupChat,
   fetchHealth,
   fetchPresence,
+  getGroupInviteLink,
   getMessagesUploadUrl,
   getSseStreamUrl,
   hideChats,
+  leaveGroupChat,
   listChatsForUser,
   listMessagesByQuery,
   logout,
@@ -28,6 +38,11 @@ import {
   pingPresence,
   searchUsers,
   sendMessage,
+  removeGroupMember,
+  regenerateGroupInviteLink,
+  setChatMute,
+  updateGroupChat,
+  uploadGroupAvatar,
   updatePassword,
   updateProfile,
   updateStatus,
@@ -39,6 +54,8 @@ const MOBILE_CLOSE_ANIMATION_MS = 340;
 const UPLOAD_PROGRESS_HIDE_DELAY_MS = 600;
 const NOTIFICATION_PREVIEW_MAX_CHARS = 120;
 const NOTIFICATIONS_ENABLED_KEY = "songbird-notify-enabled";
+const OPEN_CHAT_ID_KEY = "songbird-open-chat-id";
+const PRESENCE_IDLE_THRESHOLD_MS = 12 * 1000;
 
 
 
@@ -62,6 +79,32 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [newChatResults, setNewChatResults] = useState([]);
   const [newChatLoading, setNewChatLoading] = useState(false);
   const [newChatSelection, setNewChatSelection] = useState(null);
+  const [chatsSearchQuery, setChatsSearchQuery] = useState("");
+  const [chatsSearchFocused, setChatsSearchFocused] = useState(false);
+  const [discoverLoading, setDiscoverLoading] = useState(false);
+  const [discoverUsers, setDiscoverUsers] = useState([]);
+  const [discoverGroups, setDiscoverGroups] = useState([]);
+  const [newGroupOpen, setNewGroupOpen] = useState(false);
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [newGroupForm, setNewGroupForm] = useState({
+    nickname: "",
+    username: "",
+    visibility: "public",
+    allowMemberInvites: true,
+  });
+  const [newGroupSearch, setNewGroupSearch] = useState("");
+  const [newGroupSearchResults, setNewGroupSearchResults] = useState([]);
+  const [newGroupSearchLoading, setNewGroupSearchLoading] = useState(false);
+  const [newGroupMembers, setNewGroupMembers] = useState([]);
+  const [newGroupError, setNewGroupError] = useState("");
+  const [groupInviteOpen, setGroupInviteOpen] = useState(false);
+  const [createdGroupInviteLink, setCreatedGroupInviteLink] = useState("");
+  const [editGroupInviteLink, setEditGroupInviteLink] = useState("");
+  const [regeneratingGroupInviteLink, setRegeneratingGroupInviteLink] = useState(false);
+  const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [profileModalMember, setProfileModalMember] = useState(null);
+  const [profileInviteLink, setProfileInviteLink] = useState("");
+  const [editingGroup, setEditingGroup] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [selectedChats, setSelectedChats] = useState([]);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
@@ -104,6 +147,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     avatarUrl: user?.avatarUrl || "",
   });
   const [avatarPreview, setAvatarPreview] = useState(user?.avatarUrl || "");
+  const [groupAvatarPreview, setGroupAvatarPreview] = useState("");
+  const [pendingGroupAvatarFile, setPendingGroupAvatarFile] = useState(null);
   const [pendingAvatarFile, setPendingAvatarFile] = useState(null);
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: "",
@@ -148,6 +193,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const usernameRef = useRef(String(user?.username || ""));
   const loadChatsRef = useRef(null);
   const scheduleMessageRefreshRef = useRef(null);
+  const presenceStateRef = useRef(new Map());
 
   const truncateText = (text, maxChars) => {
     const value = String(text || "");
@@ -418,9 +464,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           URL.revokeObjectURL(file.previewUrl);
         }
       });
+      if (pendingGroupAvatarFile?.previewUrl) {
+        URL.revokeObjectURL(pendingGroupAvatarFile.previewUrl);
+      }
       clearUnreadAlignTimers();
     };
-  }, []);
+  }, [pendingGroupAvatarFile]);
 
   useEffect(() => {
     if (user) {
@@ -473,20 +522,20 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
 
   useEffect(() => {
-    let totalUnread = chats.reduce(
-      (sum, chat) => sum + Number(chat?.unread_count || 0),
+    const totalUnreadCount = chats.reduce(
+      (sum, chat) =>
+        sum + (chat?._muted ? 0 : Number(chat?.unread_count || 0)),
       0,
     );
-
-    if (totalUnread > 999) totalUnread = "+999"
+    const totalUnread = totalUnreadCount > 999 ? "+999" : totalUnreadCount;
 
     document.title =
-      totalUnread > 0
+      totalUnreadCount > 0
         ? `Songbird | ${totalUnread} new message${totalUnread === 1 ? "" : "s"}`
         : "Songbird";
     if (navigator?.setAppBadge) {
-      if (totalUnread > 0) {
-        navigator.setAppBadge(totalUnread).catch(() => null);
+      if (totalUnreadCount > 0) {
+        navigator.setAppBadge(totalUnreadCount).catch(() => null);
       } else if (navigator.clearAppBadge) {
         navigator.clearAppBadge().catch(() => null);
       }
@@ -547,6 +596,105 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }, NEW_CHAT_SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(handle);
   }, [newChatUsername, newChatOpen, user.username]);
+
+  useEffect(() => {
+    if (!newGroupOpen) return;
+    if (!newGroupSearch.trim()) {
+      setNewGroupSearchResults([]);
+      return;
+    }
+    const handle = setTimeout(async () => {
+      try {
+        setNewGroupSearchLoading(true);
+        const res = await searchUsers({
+          exclude: user.username,
+          query: newGroupSearch.trim().toLowerCase(),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data?.error || "Unable to search users.");
+        }
+        const selectedUsernames = new Set(
+          newGroupMembers.map((member) => String(member?.username || "")),
+        );
+        const currentEditingChat = chats.find(
+          (chat) => Number(chat.id) === Number(activeChatId),
+        );
+        if (editingGroup && currentEditingChat?.type === "group") {
+          (currentEditingChat.members || []).forEach((member) => {
+            const memberUsername = String(member?.username || "").toLowerCase();
+            if (
+              memberUsername &&
+              memberUsername !== String(user.username || "").toLowerCase()
+            ) {
+              selectedUsernames.add(memberUsername);
+            }
+          });
+        }
+        const users = (data.users || [])
+          .filter(
+            (candidate) =>
+              !selectedUsernames.has(String(candidate.username || "").toLowerCase()),
+          )
+          .slice(0, CHAT_PAGE_CONFIG.newChatSearchMaxResults);
+        setNewGroupSearchResults(users);
+      } catch (err) {
+        setNewGroupError(err.message);
+      } finally {
+        setNewGroupSearchLoading(false);
+      }
+    }, NEW_CHAT_SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(handle);
+  }, [newGroupSearch, newGroupOpen, newGroupMembers, user.username, editingGroup, chats, activeChatId]);
+
+  useEffect(() => {
+    const query = String(chatsSearchQuery || "").trim();
+    if (!query) {
+      setDiscoverLoading(false);
+      setDiscoverUsers([]);
+      setDiscoverGroups([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        setDiscoverLoading(true);
+        const res = await discoverUsersAndGroups({
+          username: user.username,
+          query: query.toLowerCase(),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data?.error || "Unable to search.");
+        }
+        if (cancelled) return;
+        setDiscoverUsers(
+          (Array.isArray(data?.users) ? data.users : []).slice(
+            0,
+            CHAT_PAGE_CONFIG.newChatSearchMaxResults,
+          ),
+        );
+        setDiscoverGroups(
+          (Array.isArray(data?.groups) ? data.groups : []).slice(
+            0,
+            CHAT_PAGE_CONFIG.newChatSearchMaxResults,
+          ),
+        );
+      } catch {
+        if (cancelled) return;
+        setDiscoverUsers([]);
+        setDiscoverGroups([]);
+      } finally {
+        if (!cancelled) {
+          setDiscoverLoading(false);
+        }
+      }
+    }, NEW_CHAT_SEARCH_DEBOUNCE_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [chatsSearchQuery, user.username]);
 
   useEffect(() => {
     let isMounted = true;
@@ -697,18 +845,56 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, [activeUploadProgress, activeChatId]);
 
   const activeId = activeChatId ? Number(activeChatId) : null;
-  const visibleChats = chats;
+  const visibleChats = useMemo(() => {
+    const query = String(chatsSearchQuery || "").trim().toLowerCase();
+    if (!query) return chats;
+    return chats.filter((chat) => {
+      const members = Array.isArray(chat?.members) ? chat.members : [];
+      if (String(chat?.type || "").toLowerCase() === "group") {
+        const groupName = String(chat?.name || "").toLowerCase();
+        const groupUsername = String(chat?.group_username || "").toLowerCase();
+        return groupName.includes(query) || groupUsername.includes(query);
+      }
+      const other = members.find(
+        (member) =>
+          String(member?.username || "").toLowerCase() !==
+          String(user?.username || "").toLowerCase(),
+      );
+      const nickname = String(other?.nickname || "").toLowerCase();
+      const username = String(other?.username || "").toLowerCase();
+      return nickname.includes(query) || username.includes(query);
+    });
+  }, [chats, chatsSearchQuery, user?.username]);
   const activeChat =
     visibleChats.find((conv) => conv.id === activeId) ||
     chats.find((conv) => conv.id === activeId);
   const activeMembers = activeChat?.members || [];
+  const isActiveGroupChat = activeChat?.type === "group";
+  const activeGroupMemberUsernames = useMemo(() => {
+    if (!isActiveGroupChat) return [];
+    return (activeMembers || [])
+      .map((member) => String(member?.username || "").toLowerCase())
+      .filter(Boolean)
+      .sort();
+  }, [isActiveGroupChat, activeMembers]);
+  const activeGroupMemberUsernamesKey = activeGroupMemberUsernames.join("|");
   const activeDmMember =
     activeChat?.type === "dm"
       ? activeMembers.find((member) => member.username !== user.username)
       : null;
   const activeHeaderPeer = activePeer || activeDmMember;
-  const activeFallbackTitle =
-    activeHeaderPeer?.nickname || activeHeaderPeer?.username || "Select a chat";
+  const activeFallbackTitle = isActiveGroupChat
+    ? activeChat?.name || "Group"
+    : activeHeaderPeer?.nickname || activeHeaderPeer?.username || "Select a chat";
+  const activeHeaderAvatar = isActiveGroupChat
+    ? null
+    : activeHeaderPeer;
+  const activeGroupAvatarColor = isActiveGroupChat
+    ? activeChat?.group_color || "#10b981"
+    : null;
+  const activeGroupAvatarUrl = isActiveGroupChat
+    ? activeChat?.group_avatar_url || ""
+    : "";
   const canStartChat = Boolean(newChatSelection);
   const userColor = user?.color || "#10b981";
   const handleExitEdit = () => {
@@ -743,10 +929,61 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
     return new Date(value);
   };
+  const resolveOnlineOffline = (status, lastSeenInput) => {
+    const normalizedStatus = String(status || "").toLowerCase();
+    if (normalizedStatus !== "online") return "offline";
+    const parsed = parsePresenceDate(lastSeenInput);
+    const seenAt = parsed?.getTime?.() || 0;
+    if (!Number.isFinite(seenAt) || seenAt <= 0) return "offline";
+    return Date.now() - seenAt <= PRESENCE_IDLE_THRESHOLD_MS ? "online" : "offline";
+  };
+  const applyPresenceUpdate = (payload = {}) => {
+    const targetUsername = String(payload?.username || "").toLowerCase();
+    if (!targetUsername) return;
+    const status = String(payload?.status || "").toLowerCase();
+    const rawLastSeen = String(payload?.lastSeen || "").trim();
+    const parsedLastSeen = parsePresenceDate(rawLastSeen);
+    const normalizedLastSeen = parsedLastSeen?.toISOString?.() || new Date().toISOString();
+    const onlineStatus = resolveOnlineOffline(status, normalizedLastSeen);
+    presenceStateRef.current.set(targetUsername, {
+      status,
+      lastSeen: normalizedLastSeen,
+    });
+    setChats((prev) =>
+      prev.map((chat) => {
+        const members = Array.isArray(chat?.members) ? chat.members : [];
+        if (
+          !members.some(
+            (member) => String(member?.username || "").toLowerCase() === targetUsername,
+          )
+        ) {
+          return chat;
+        }
+        return {
+          ...chat,
+          members: members.map((member) => {
+            if (String(member?.username || "").toLowerCase() !== targetUsername) {
+              return member;
+            }
+            return {
+              ...member,
+              status: onlineStatus,
+            };
+          }),
+        };
+      }),
+    );
+    if (String(activeHeaderPeer?.username || "").toLowerCase() === targetUsername) {
+      setPeerPresence({
+        status: onlineStatus,
+        lastSeen: normalizedLastSeen,
+      });
+    }
+  };
   const lastSeenAt = peerPresence.lastSeen
     ? parsePresenceDate(peerPresence.lastSeen)?.getTime() || null
     : null;
-  const effectivePeerIdleThreshold = 12 * 1000;
+  const effectivePeerIdleThreshold = PRESENCE_IDLE_THRESHOLD_MS;
   const isIdle =
     lastSeenAt !== null && Date.now() - lastSeenAt > effectivePeerIdleThreshold;
   const peerStatusLabel = !activeHeaderPeer
@@ -758,6 +995,23 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         : peerPresence.status === "online"
           ? "online"
           : "offline";
+  const activeHeaderSubtitle = isActiveGroupChat
+    ? `${activeMembers.length} member${activeMembers.length === 1 ? "" : "s"}`
+    : peerStatusLabel;
+  const activeChatMuted = Boolean(activeChat?._muted);
+  const profileTargetUser = profileModalMember || activeHeaderPeer || null;
+  const canCurrentUserEditGroup = Boolean(
+    isActiveGroupChat &&
+      activeMembers.some(
+        (member) =>
+          Number(member.id) === Number(user?.id || 0) &&
+          String(member.role || "").toLowerCase() === "owner",
+      ),
+  );
+  const canCurrentUserViewInvite = Boolean(
+    isActiveGroupChat &&
+      (canCurrentUserEditGroup || Boolean(Number(activeChat?.allow_member_invites || 0))),
+  );
 
   const toggleSelectChat = (chatId) => {
     setSelectedChats((prev) =>
@@ -779,6 +1033,18 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       : selectedChats;
     if (!idsToHide.length) return;
     try {
+      const groupsToLeave = chats.filter(
+        (chat) => idsToHide.includes(Number(chat.id)) && chat.type === "group",
+      );
+      await Promise.all(
+        groupsToLeave.map(async (groupChat) => {
+          try {
+            await leaveGroupChat(groupChat.id, { username: user.username });
+          } catch {
+            // ignore leave failures and still proceed with hide
+          }
+        }),
+      );
       await hideChats({ username: user.username, chatIds: idsToHide });
     } catch {
       // ignore
@@ -822,9 +1088,17 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           throw new Error(data?.error || "Unable to fetch presence.");
         }
         if (isMounted) {
+          const normalizedUsername = String(data?.username || activeHeaderPeer.username || "")
+            .toLowerCase();
+          const normalizedLastSeen = String(data?.lastSeen || "").trim() || new Date().toISOString();
+          presenceStateRef.current.set(normalizedUsername, {
+            status: String(data?.status || "online").toLowerCase(),
+            lastSeen: normalizedLastSeen,
+          });
+          const status = resolveOnlineOffline(data?.status, normalizedLastSeen);
           setPeerPresence({
-            status: data.status || "online",
-            lastSeen: data.lastSeen || null,
+            status,
+            lastSeen: normalizedLastSeen,
           });
         }
       } catch {
@@ -833,15 +1107,114 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         }
       }
     };
-    fetchPeerPresence();
-    const interval = setInterval(
-      fetchPeerPresence,
-      CHAT_PAGE_CONFIG.peerPresencePollIntervalMs,
-    );
+    void fetchPeerPresence();
     return () => {
       isMounted = false;
-      clearInterval(interval);
     };
+  }, [activeHeaderPeer?.username]);
+
+  useEffect(() => {
+    if (!profileModalOpen || profileModalMember || activeChat?.type !== "group") return;
+    const memberUsernames = activeGroupMemberUsernames;
+    if (!memberUsernames.length) return;
+    let cancelled = false;
+
+    setChats((prev) =>
+      prev.map((chat) => {
+        if (Number(chat?.id) !== Number(activeChat?.id)) return chat;
+        return {
+          ...chat,
+          members: (chat.members || []).map((member) => {
+            const username = String(member?.username || "").toLowerCase();
+            const snapshot = presenceStateRef.current.get(username);
+            const nextStatus = snapshot
+              ? resolveOnlineOffline(snapshot.status, snapshot.lastSeen)
+              : "offline";
+            return { ...member, status: nextStatus };
+          }),
+        };
+      }),
+    );
+
+    const bootstrapMembersPresence = async () => {
+      await Promise.all(
+        memberUsernames.map(async (username) => {
+          try {
+            const res = await fetchPresence(username);
+            const data = await res.json();
+            if (!res.ok || cancelled) return;
+            applyPresenceUpdate({
+              type: "presence_update",
+              username: data?.username || username,
+              status: data?.status || "offline",
+              lastSeen: data?.lastSeen || null,
+            });
+          } catch {
+            // ignore bootstrap failures for individual users
+          }
+        }),
+      );
+    };
+
+    void bootstrapMembersPresence();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    profileModalOpen,
+    profileModalMember,
+    activeChat?.id,
+    activeChat?.type,
+    activeGroupMemberUsernamesKey,
+  ]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      let changed = false;
+      setChats((prev) =>
+        prev.map((chat) => {
+          if (!Array.isArray(chat?.members) || chat.members.length === 0) return chat;
+          let chatChanged = false;
+          const nextMembers = chat.members.map((member) => {
+            const username = String(member?.username || "").toLowerCase();
+            if (!username) return member;
+            const snapshot = presenceStateRef.current.get(username);
+            if (!snapshot) return member;
+            const nextStatus = resolveOnlineOffline(snapshot.status, snapshot.lastSeen);
+            if (String(member?.status || "").toLowerCase() === nextStatus) return member;
+            chatChanged = true;
+            return { ...member, status: nextStatus };
+          });
+          if (!chatChanged) return chat;
+          changed = true;
+          return { ...chat, members: nextMembers };
+        }),
+      );
+
+      if (activeHeaderPeer?.username) {
+        const snapshot = presenceStateRef.current.get(
+          String(activeHeaderPeer.username || "").toLowerCase(),
+        );
+        if (snapshot) {
+          const nextStatus = resolveOnlineOffline(snapshot.status, snapshot.lastSeen);
+          setPeerPresence((prev) => {
+            if (
+              String(prev?.status || "").toLowerCase() === nextStatus &&
+              String(prev?.lastSeen || "") === String(snapshot.lastSeen || "")
+            ) {
+              return prev;
+            }
+            return { status: nextStatus, lastSeen: snapshot.lastSeen || null };
+          });
+        }
+      }
+
+      if (!changed) {
+        // no-op: we still refresh peerPresence above
+      }
+    }, 1500);
+
+    return () => clearInterval(interval);
   }, [activeHeaderPeer?.username]);
 
   useEffect(() => {
@@ -991,6 +1364,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         return;
       }
       const chat = chats.find((conv) => Number(conv.id) === payloadChatId);
+      if (chat?._muted) return;
       let title = "New message";
       if (chat) {
         if (chat.type === "dm") {
@@ -1032,6 +1406,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       } catch {
         // ignore notification errors
       }
+    },
+    onPresenceUpdate: (payload) => {
+      applyPresenceUpdate(payload);
     },
   });
 
@@ -1404,6 +1781,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         return bTime - aTime;
       });
       const patched = merged.map((chat) => {
+        const muted = Boolean(Number(chat?.muted || 0));
         const files = Array.isArray(chat?.last_message_files) ? chat.last_message_files : [];
         const hasProcessingVideo = files.some(
           (file) =>
@@ -1419,14 +1797,21 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             ...chat,
             _lastMessagePending: true,
             last_message_read_at: null,
+            _muted: muted,
           };
         }
-        if (!hasProcessingVideo || !isFromOther) return chat;
+        if (!hasProcessingVideo || !isFromOther) {
+          return {
+            ...chat,
+            _muted: muted,
+          };
+        }
         const previous = chats.find((existing) => Number(existing.id) === Number(chat.id));
         if (!previous) {
           return {
             ...chat,
             unread_count: 0,
+            _muted: muted,
           };
         }
         return {
@@ -1440,9 +1825,32 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           last_sender_avatar_url: previous.last_sender_avatar_url,
           last_message_files: previous.last_message_files || [],
           unread_count: previous.unread_count || 0,
+          _muted: muted,
         };
       });
       setChats(patched);
+
+      const pendingOpenChatId = Number(
+        typeof window !== "undefined"
+          ? window.sessionStorage.getItem(OPEN_CHAT_ID_KEY)
+          : 0,
+      );
+      if (pendingOpenChatId > 0) {
+        const pendingChat = patched.find((item) => Number(item.id) === pendingOpenChatId);
+        if (pendingChat) {
+          setActiveChatId(pendingOpenChatId);
+          if (pendingChat.type === "dm") {
+            const nextOther = (pendingChat.members || []).find(
+              (member) => member.username !== user.username,
+            );
+            setActivePeer(nextOther || null);
+          } else {
+            setActivePeer(null);
+          }
+          setMobileTab("chat");
+          window.sessionStorage.removeItem(OPEN_CHAT_ID_KEY);
+        }
+      }
     } catch {
       // Keep sidebar usable even when polling fails.
     } finally {
@@ -1509,12 +1917,30 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             )
           : false;
         const isOwnProcessingVideo = hasProcessingVideo && msg.username === user.username;
+        const bodyText = String(msg?.body || "");
+        const systemMatch = bodyText.match(/^\[\[system:(join|joined|left|removed):(.+)\]\]$/i);
+        const rawTargetName = systemMatch?.[2] ? String(systemMatch[2]).trim() : "";
+        const maxNameLength = 13;
+        const shortTargetName =
+          rawTargetName.length > maxNameLength
+            ? `${rawTargetName.slice(0, maxNameLength)}...`
+            : rawTargetName;
+        const normalizedSystemType = String(systemMatch?.[1] || "").toLowerCase();
+        const systemText =
+          normalizedSystemType === "left"
+            ? `${shortTargetName || "A member"} left the group`
+            : normalizedSystemType === "removed"
+              ? `${shortTargetName || "A member"} was removed from the group`
+              : normalizedSystemType
+                ? `${shortTargetName || "A member"} joined the group`
+                : "";
         return {
           ...msg,
           _dayKey: dayKey,
           _dayLabel: formatDayLabel(msg.created_at),
           _timeLabel: formatTime(msg.created_at),
           _processingPending: isOwnProcessingVideo,
+          _systemEvent: normalizedSystemType ? { type: normalizedSystemType, text: systemText } : null,
         };
       });
       if (options.prepend) {
@@ -2341,7 +2767,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
     if (!usernamePattern.test(trimmedUsername)) {
       setProfileError(
-        "Username can only include english letters, numbers, dot (.), underscore (_), and dash (-).",
+        "Username can only include english letters, numbers, dot (.), and underscore (_).",
       );
       return;
     }
@@ -2445,6 +2871,435 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setNewChatSelection(null);
     setNewChatError("");
   };
+  const toggleMuteChat = async (chatId) => {
+    const id = Number(chatId || 0);
+    if (!id) return;
+    const existing = chats.find((chat) => Number(chat.id) === id);
+    const previousMuted = Boolean(existing?._muted);
+    const nextMuted = !previousMuted;
+
+    setChats((prev) =>
+      prev.map((chat) =>
+        Number(chat.id) === id ? { ...chat, _muted: nextMuted } : chat,
+      ),
+    );
+
+    try {
+      const res = await setChatMute(id, {
+        username: user.username,
+        muted: nextMuted,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || "Unable to update mute state.");
+      }
+      const serverMuted = Boolean(data?.muted);
+      setChats((prev) =>
+        prev.map((chat) =>
+          Number(chat.id) === id ? { ...chat, _muted: serverMuted } : chat,
+        ),
+      );
+    } catch {
+      setChats((prev) =>
+        prev.map((chat) =>
+          Number(chat.id) === id ? { ...chat, _muted: previousMuted } : chat,
+        ),
+      );
+    }
+  };
+
+  const openNewGroupModal = () => {
+    setEditingGroup(false);
+    setNewGroupOpen(true);
+    setNewGroupError("");
+  };
+
+  const closeNewGroupModal = () => {
+    setNewGroupOpen(false);
+    setCreatingGroup(false);
+    setEditingGroup(false);
+    setNewGroupForm({
+      nickname: "",
+      username: "",
+      visibility: "public",
+      allowMemberInvites: true,
+    });
+    setNewGroupSearch("");
+    setNewGroupSearchResults([]);
+    setNewGroupMembers([]);
+    if (pendingGroupAvatarFile?.previewUrl) {
+      URL.revokeObjectURL(pendingGroupAvatarFile.previewUrl);
+    }
+    setPendingGroupAvatarFile(null);
+    setGroupAvatarPreview("");
+    setEditGroupInviteLink("");
+    setRegeneratingGroupInviteLink(false);
+    setNewGroupError("");
+  };
+
+  const openOwnProfileModal = () => {
+    setProfileModalMember({
+      id: Number(user?.id || 0) || null,
+      username: user?.username || "",
+      nickname: user?.nickname || "",
+      avatar_url: user?.avatarUrl || "",
+      color: user?.color || "#10b981",
+      status: user?.status || "online",
+      role: "",
+    });
+    setProfileInviteLink("");
+    setProfileModalOpen(true);
+  };
+
+  const openActiveChatProfile = async () => {
+    if (!activeChat) return;
+    setProfileModalMember(null);
+    setProfileModalOpen(true);
+    if (activeChat.type === "group") {
+      try {
+        const res = await getGroupInviteLink(activeChat.id);
+        const data = await res.json();
+        if (res.ok) {
+          setProfileInviteLink(String(data?.inviteLink || ""));
+        } else {
+          setProfileInviteLink("");
+        }
+      } catch {
+        setProfileInviteLink("");
+      }
+    } else {
+      setProfileInviteLink("");
+    }
+  };
+
+  const openMemberProfileFromMessage = (msg) => {
+    if (!msg) return;
+    const selected = {
+      id: Number(msg.user_id || 0) || null,
+      username: msg.username || "",
+      nickname: msg.nickname || "",
+      avatar_url: msg.avatar_url || "",
+      color: msg.color || "#10b981",
+      status: "online",
+      role: "",
+    };
+    setProfileModalMember(selected);
+    setProfileModalOpen(true);
+  };
+
+  const openMemberProfileFromList = (member) => {
+    if (!member) return;
+    setProfileModalMember(member);
+    setProfileModalOpen(true);
+  };
+
+  const closeProfileModal = () => {
+    setProfileModalOpen(false);
+    setProfileModalMember(null);
+    setProfileInviteLink("");
+  };
+
+  const openSelfProfileEditor = () => {
+    closeProfileModal();
+    setShowSettings(false);
+    setSettingsPanel("profile");
+    if (isMobileViewport) {
+      setMobileTab("settings");
+    }
+  };
+
+  const openEditGroupFromProfile = async () => {
+    if (!activeChat || activeChat.type !== "group") return;
+    if (!canCurrentUserEditGroup) return;
+    setEditingGroup(true);
+    setProfileModalOpen(false);
+    setNewGroupForm({
+      nickname: activeChat.name || "",
+      username: activeChat.group_username || "",
+      visibility: activeChat.group_visibility || "public",
+      allowMemberInvites: Boolean(Number(activeChat.allow_member_invites || 0)),
+    });
+    setNewGroupMembers([]);
+    setNewGroupSearch("");
+    setGroupAvatarPreview(activeChat.group_avatar_url || "");
+    if (pendingGroupAvatarFile?.previewUrl) {
+      URL.revokeObjectURL(pendingGroupAvatarFile.previewUrl);
+    }
+    setPendingGroupAvatarFile(null);
+    setEditGroupInviteLink("");
+    setNewGroupOpen(true);
+    try {
+      const res = await getGroupInviteLink(activeChat.id);
+      const data = await res.json();
+      if (res.ok) {
+        setEditGroupInviteLink(String(data?.inviteLink || ""));
+      }
+    } catch {
+      // ignore invite fetch errors in edit modal
+    }
+  };
+
+  const handleGroupAvatarChange = (event) => {
+    if (!CHAT_PAGE_CONFIG.fileUploadEnabled) {
+      setNewGroupError("File uploads are disabled on this server.");
+      event.target.value = "";
+      return;
+    }
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!String(file.type || "").toLowerCase().startsWith("image/")) {
+      setNewGroupError("Group avatar must be an image file.");
+      event.target.value = "";
+      return;
+    }
+    if (Number(file.size || 0) > CHAT_PAGE_CONFIG.maxFileSizeBytes) {
+      setNewGroupError(
+        `Group avatar must be smaller than ${formatBytesAsMb(
+          CHAT_PAGE_CONFIG.maxFileSizeBytes,
+        )}.`,
+      );
+      event.target.value = "";
+      return;
+    }
+    const previewUrl = URL.createObjectURL(file);
+    if (pendingGroupAvatarFile?.previewUrl) {
+      URL.revokeObjectURL(pendingGroupAvatarFile.previewUrl);
+    }
+    setPendingGroupAvatarFile({ file, previewUrl });
+    setGroupAvatarPreview(previewUrl);
+    setNewGroupError("");
+    event.target.value = "";
+  };
+
+  const handleGroupAvatarRemove = () => {
+    if (pendingGroupAvatarFile?.previewUrl) {
+      URL.revokeObjectURL(pendingGroupAvatarFile.previewUrl);
+    }
+    setPendingGroupAvatarFile(null);
+    setGroupAvatarPreview("");
+  };
+
+  const handleRegenerateGroupInvite = async () => {
+    if (!editingGroup || !activeChat?.id) return;
+    try {
+      setRegeneratingGroupInviteLink(true);
+      const res = await regenerateGroupInviteLink(activeChat.id, {
+        username: user.username,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || "Unable to regenerate invite link.");
+      }
+      const nextLink = String(data?.inviteLink || "");
+      setEditGroupInviteLink(nextLink);
+      setProfileInviteLink(nextLink);
+    } catch (err) {
+      setNewGroupError(err.message || "Unable to regenerate invite link.");
+    } finally {
+      setRegeneratingGroupInviteLink(false);
+    }
+  };
+
+  async function handleCreateGroup() {
+    const nickname = newGroupForm.nickname.trim();
+    const username = newGroupForm.username.trim().toLowerCase();
+    if (!nickname) {
+      setNewGroupError("Group nickname is required.");
+      return;
+    }
+    if (username.length < 3) {
+      setNewGroupError("Group username must be at least 3 characters.");
+      return;
+    }
+    if (!usernamePattern.test(username)) {
+      setNewGroupError(
+        "Group username can only include english letters, numbers, dot (.), and underscore (_).",
+      );
+      return;
+    }
+    try {
+      setCreatingGroup(true);
+      setNewGroupError("");
+      const payload = {
+        creator: user.username,
+        nickname,
+        username,
+        visibility: newGroupForm.visibility,
+        allowMemberInvites: newGroupForm.allowMemberInvites !== false,
+        members: editingGroup
+          ? Array.from(
+              new Set([
+                ...((activeChat?.members || [])
+                  .map((member) => String(member?.username || "").toLowerCase())
+                  .filter(
+                    (memberUsername) =>
+                      memberUsername &&
+                      memberUsername !== String(user.username || "").toLowerCase(),
+                  )),
+                ...newGroupMembers
+                  .map((member) => String(member?.username || "").toLowerCase())
+                  .filter(Boolean),
+              ]),
+            )
+          : newGroupMembers.map((member) => member.username),
+      };
+      const res = editingGroup && activeChat?.id
+        ? await updateGroupChat(activeChat.id, {
+            username: user.username,
+            nickname: payload.nickname,
+            groupUsername: payload.username,
+            visibility: payload.visibility,
+            allowMemberInvites: payload.allowMemberInvites,
+            members: payload.members,
+          })
+        : await createGroupChat(payload);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || "Unable to create group.");
+      }
+      const nextChatId = Number(data?.id || activeChat?.id || 0);
+      if (!nextChatId) {
+        throw new Error("Server did not return a group id.");
+      }
+      if (editingGroup && pendingGroupAvatarFile?.file) {
+        const form = new FormData();
+        form.append("username", user.username);
+        form.append("avatar", pendingGroupAvatarFile.file);
+        const avatarRes = await uploadGroupAvatar(nextChatId, form);
+        const avatarData = await avatarRes.json();
+        if (!avatarRes.ok) {
+          throw new Error(avatarData?.error || "Unable to upload group avatar.");
+        }
+      }
+      if (!editingGroup) {
+        setCreatedGroupInviteLink(String(data?.inviteLink || ""));
+        setGroupInviteOpen(Boolean(data?.inviteLink));
+      }
+      closeNewGroupModal();
+      setEditingGroup(false);
+      await loadChats();
+      setActiveChatId(nextChatId);
+      setActivePeer(null);
+      setMobileTab("chat");
+    } catch (err) {
+      setNewGroupError(err.message);
+    } finally {
+      setCreatingGroup(false);
+    }
+  }
+
+  async function openOrCreateDmFromMember(member) {
+    const targetUsername = String(member?.username || "").toLowerCase();
+    if (!targetUsername) return;
+    if (targetUsername === String(user.username || "").toLowerCase()) return;
+    try {
+      const existingDm = chats.find((chat) => {
+        if (chat?.type !== "dm") return false;
+        return (chat.members || []).some(
+          (chatMember) =>
+            String(chatMember?.username || "").toLowerCase() === targetUsername,
+        );
+      });
+      let nextChatId = Number(existingDm?.id || 0);
+      if (!nextChatId) {
+        const res = await createDmChat({ from: user.username, to: targetUsername });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data?.error || "Unable to open direct chat.");
+        }
+        nextChatId = Number(data?.id || 0);
+      }
+
+      if (!nextChatId) {
+        throw new Error("Unable to resolve direct chat.");
+      }
+
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem(OPEN_CHAT_ID_KEY, String(nextChatId));
+      }
+      setActiveChatId(nextChatId);
+      setMobileTab("chat");
+      closeProfileModal();
+      await loadChats({ silent: true });
+
+      const refreshedDm = chats.find((chat) => Number(chat.id) === nextChatId);
+      const nextPeer = (refreshedDm?.members || []).find(
+        (chatMember) =>
+          String(chatMember?.username || "").toLowerCase() === targetUsername,
+      );
+      setActivePeer(nextPeer || member || null);
+    } catch (err) {
+      setProfileError(err.message || "Unable to open direct chat.");
+    }
+  }
+
+  async function openDiscoverUser(member) {
+    if (!member) return;
+    exitSearchMode();
+    await openOrCreateDmFromMember(member);
+  }
+
+  async function openDiscoverGroup(group) {
+    exitSearchMode();
+    const inviteToken = String(group?.inviteToken || "").trim();
+    const chatId = Number(group?.id || 0);
+    const alreadyMember =
+      group?.isMember === true ||
+      group?.isMember === 1 ||
+      String(group?.isMember || "").toLowerCase() === "true";
+    if (alreadyMember && chatId > 0) {
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem(OPEN_CHAT_ID_KEY, String(chatId));
+      }
+      await loadChats({ silent: true });
+      setActiveChatId(chatId);
+      setActivePeer(null);
+      setMobileTab("chat");
+      return;
+    }
+    if (!inviteToken) return;
+    try {
+      if (typeof window !== "undefined") {
+        window.history.pushState({}, "", `/invite/${inviteToken}`);
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      }
+    } catch (err) {
+      setNewChatError(err.message || "Unable to open group.");
+    }
+  }
+
+  async function handleLeaveActiveGroup() {
+    if (!activeChat || activeChat.type !== "group") return;
+    try {
+      const res = await leaveGroupChat(activeChat.id, { username: user.username });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || "Unable to leave group.");
+      }
+      closeProfileModal();
+      closeChat();
+      await loadChats();
+    } catch {
+      // ignore
+    }
+  }
+
+  async function handleRemoveGroupMember(member) {
+    if (!activeChat || activeChat.type !== "group" || !member?.username) return;
+    try {
+      const res = await removeGroupMember(activeChat.id, {
+        username: user.username,
+        targetUsername: member.username,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || "Unable to remove member.");
+      }
+      await loadChats({ silent: true });
+    } catch {
+      // ignore
+    }
+  }
 
   const handleStartReached = async () => {
     if (isMobileViewport) return;
@@ -2493,10 +3348,23 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
   };
 
+  const exitSearchMode = () => {
+    setChatsSearchFocused(false);
+    setChatsSearchQuery("");
+    setDiscoverLoading(false);
+    setDiscoverUsers([]);
+    setDiscoverGroups([]);
+    if (typeof document !== "undefined") {
+      const activeEl = document.activeElement;
+      if (activeEl && typeof activeEl.blur === "function") {
+        activeEl.blur();
+      }
+    }
+  };
   const handleUserScrollIntent = () => {
     allowStartReachedRef.current = true;
   };
-  const usernamePattern = /^[a-z0-9._-]+$/;
+  const usernamePattern = /^[a-z0-9._]+$/;
 
   return (
     <div
@@ -2528,6 +3396,25 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         lastMessageIdRef={lastMessageIdRef}
         isAtBottomRef={isAtBottomRef}
         onOpenNewChat={() => setNewChatOpen(true)}
+        onOpenNewGroup={openNewGroupModal}
+        chatsSearchQuery={chatsSearchQuery}
+        onChatsSearchChange={setChatsSearchQuery}
+        onChatsSearchFocus={() => {
+          if (editMode) {
+            handleExitEdit();
+          }
+          setChatsSearchFocused(true);
+        }}
+        onChatsSearchBlur={() => {
+          window.setTimeout(() => exitSearchMode(), 140);
+        }}
+        chatsSearchFocused={chatsSearchFocused}
+        onCloseSearch={exitSearchMode}
+        discoverLoading={discoverLoading}
+        discoverUsers={discoverUsers}
+        discoverGroups={discoverGroups}
+        onOpenDiscoveredUser={openDiscoverUser}
+        onOpenDiscoveredGroup={openDiscoverGroup}
         showSettings={showSettings}
         settingsMenuRef={settingsMenuRef}
         setSettingsPanel={setSettingsPanel}
@@ -2564,6 +3451,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         onEnterEdit={handleEnterEdit}
         onDeleteChats={handleDeleteChats}
         onOpenSettings={handleOpenSettings}
+        onOpenOwnProfile={openOwnProfileModal}
         settingsButtonRef={settingsButtonRef}
         displayInitials={displayInitials}
       />
@@ -2572,9 +3460,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         mobileTab={mobileTab}
         activeChatId={activeChatId}
         closeChat={closeChat}
-        activeHeaderPeer={activeHeaderPeer}
+        activeHeaderPeer={activeHeaderAvatar}
         activeFallbackTitle={activeFallbackTitle}
-        peerStatusLabel={peerStatusLabel}
+        peerStatusLabel={activeHeaderSubtitle}
+        isGroupChat={isActiveGroupChat}
+        groupAvatarColor={activeGroupAvatarColor}
+        groupAvatarUrl={activeGroupAvatarUrl}
         chatScrollRef={chatScrollRef}
         onChatScroll={handleChatScroll}
         onStartReached={handleStartReached}
@@ -2605,6 +3496,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         replyTarget={replyTarget}
         onClearReply={handleClearReply}
         onReplyToMessage={handleStartReply}
+        onOpenHeaderProfile={openActiveChatProfile}
+        onOpenMessageSenderProfile={openMemberProfileFromMessage}
         onUserScrollIntent={handleUserScrollIntent}
         fileUploadEnabled={CHAT_PAGE_CONFIG.fileUploadEnabled}
         fileUploadInProgress={fileUploadInProgress || activeUploadProgress !== null}
@@ -2641,6 +3534,81 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         selectedChats={selectedChats}
         setConfirmDeleteOpen={setConfirmDeleteOpen}
         confirmDeleteChats={confirmDeleteChats}
+      />
+
+      <NewGroupModal
+        open={newGroupOpen}
+        groupForm={newGroupForm}
+        setGroupForm={setNewGroupForm}
+        groupSearchQuery={newGroupSearch}
+        setGroupSearchQuery={setNewGroupSearch}
+        groupSearchResults={newGroupSearchResults}
+        groupSearchLoading={newGroupSearchLoading}
+        selectedGroupMembers={newGroupMembers}
+        setSelectedGroupMembers={setNewGroupMembers}
+        groupError={newGroupError}
+        setGroupError={setNewGroupError}
+        creatingGroup={creatingGroup}
+        onCreate={handleCreateGroup}
+        onClose={closeNewGroupModal}
+        title={editingGroup ? "Edit group" : "New group"}
+        submitLabel={editingGroup ? "Save" : "Create"}
+        avatarPreview={groupAvatarPreview}
+        avatarColor={editingGroup ? activeChat?.group_color || "#10b981" : "#10b981"}
+        avatarName={newGroupForm.nickname || newGroupForm.username || "Group"}
+        onAvatarChange={handleGroupAvatarChange}
+        onAvatarRemove={handleGroupAvatarRemove}
+        showAvatarField={editingGroup}
+        hideSelectedMemberChips={editingGroup}
+        fileUploadEnabled={CHAT_PAGE_CONFIG.fileUploadEnabled}
+        showInviteManagement={editingGroup}
+        currentInviteLink={editGroupInviteLink}
+        regeneratingInviteLink={regeneratingGroupInviteLink}
+        onRegenerateInvite={handleRegenerateGroupInvite}
+      />
+
+      <GroupInviteLinkModal
+        open={groupInviteOpen}
+        inviteLink={createdGroupInviteLink}
+        onClose={() => setGroupInviteOpen(false)}
+      />
+
+      <ChatProfileModal
+        open={profileModalOpen}
+        chat={profileModalMember ? { ...activeChat, type: "dm" } : activeChat}
+        targetUser={profileTargetUser}
+        currentUser={user}
+        muted={activeChatMuted}
+        inviteLink={profileInviteLink}
+        canViewInvite={canCurrentUserViewInvite}
+        membersBatchSize={CHAT_PAGE_CONFIG.newChatSearchMaxResults}
+        onClose={closeProfileModal}
+        onOpenChat={() => {
+          const targetForChat = profileModalMember || profileTargetUser;
+          if (targetForChat?.username) {
+            if (
+              String(targetForChat.username).toLowerCase() ===
+              String(user.username).toLowerCase()
+            ) {
+              closeProfileModal();
+              return;
+            }
+            void openOrCreateDmFromMember(targetForChat);
+            return;
+          }
+          if (!profileModalMember && activeChat?.type === "group") {
+            setMobileTab("chat");
+            closeProfileModal();
+            return;
+          }
+          closeProfileModal();
+        }}
+        onToggleMute={() => toggleMuteChat(activeChat?.id)}
+        onLeaveGroup={handleLeaveActiveGroup}
+        onOpenMember={openMemberProfileFromList}
+        onRemoveMember={handleRemoveGroupMember}
+        onEditGroup={openEditGroupFromProfile}
+        onEditSelfProfile={openSelfProfileEditor}
       />
 
       {settingsPanel && mobileTab !== "settings" ? (

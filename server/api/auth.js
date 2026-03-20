@@ -37,7 +37,7 @@ function registerAuthRoutes(app, deps) {
     if (!USERNAME_REGEX.test(trimmed)) {
       return res.status(400).json({
         error:
-          "Username can only include english letters, numbers, dot (.), underscore (_), and dash (-).",
+          "Username can only include english letters, numbers, dot (.), and underscore (_).",
       });
     }
 

@@ -1,11 +1,40 @@
 function registerPresenceRoutes(app, deps) {
   const {
+    emitSseEvent,
     findUserByUsername,
     getUserPresence,
+    listChatMembers,
+    listChatsForUser,
     requireSession,
     requireSessionUsernameMatch,
     updateLastSeen,
   } = deps;
+
+  const emitPresenceUpdate = (user) => {
+    if (!user?.username) return;
+
+    const normalizedUsername = String(user.username || "").toLowerCase();
+    const payload = {
+      type: "presence_update",
+      username: normalizedUsername,
+      status: String(user.status || "online").toLowerCase(),
+      lastSeen: user.last_seen || new Date().toISOString(),
+    };
+
+    const targets = new Set([normalizedUsername]);
+    const chats = listChatsForUser(Number(user.id || 0));
+    chats.forEach((chat) => {
+      const members = listChatMembers(Number(chat?.id || 0));
+      members.forEach((member) => {
+        const memberUsername = String(member?.username || "").toLowerCase();
+        if (memberUsername) targets.add(memberUsername);
+      });
+    });
+
+    targets.forEach((targetUsername) => {
+      emitSseEvent(targetUsername, payload);
+    });
+  };
 
   app.post("/api/presence", (req, res) => {
     const session = requireSession(req, res);
@@ -20,6 +49,10 @@ function registerPresenceRoutes(app, deps) {
     }
 
     updateLastSeen(user.id);
+    const refreshedUser = getUserPresence(String(user.username || "").toLowerCase());
+    if (refreshedUser) {
+      emitPresenceUpdate(refreshedUser);
+    }
 
     res.json({ ok: true });
   });

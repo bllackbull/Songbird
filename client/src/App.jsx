@@ -2,13 +2,22 @@ import { useEffect, useRef, useState } from 'react'
 import logo from './assets/songbird-logo.svg'
 import ChatPage from './pages/ChatPage.jsx'
 import AuthPage from './pages/AuthPage.jsx'
+import InvitePage from './pages/InvitePage.jsx'
 
 const API_BASE = ''
+const AUTH_REDIRECT_KEY = 'songbird-auth-redirect'
+const OPEN_CHAT_ID_KEY = 'songbird-open-chat-id'
 
 function getRoute(pathname) {
   if (pathname === '/signup') return 'signup'
+  if (pathname.startsWith('/invite/')) return 'invite'
   if (pathname === '/chat') return 'chat'
   return 'login'
+}
+
+function getInviteToken(pathname) {
+  if (!pathname.startsWith('/invite/')) return ''
+  return pathname.slice('/invite/'.length).trim()
 }
 
 export default function App() {
@@ -19,6 +28,9 @@ export default function App() {
     return true
   })
   const [route, setRoute] = useState(() => getRoute(window.location.pathname))
+  const [inviteToken, setInviteToken] = useState(() =>
+    getInviteToken(window.location.pathname),
+  )
   const [user, setUser] = useState(null)
   const [authStatus, setAuthStatus] = useState('')
   const [authChecked, setAuthChecked] = useState(false)
@@ -273,17 +285,24 @@ export default function App() {
     if (nextRoute !== route) {
       setRoute(nextRoute)
     }
+    setInviteToken(getInviteToken(window.location.pathname))
   }, [route])
 
   useEffect(() => {
     if (authLoading) return
     if (!authChecked) return
-    if (user && route !== 'chat') {
+    if (user && (route === 'login' || route === 'signup')) {
       navigate('/chat', true)
       return
     }
 
-    if (!user && route === 'chat') {
+    if (!user && (route === 'chat' || route === 'invite')) {
+      if (route === 'invite') {
+        const nextPath = window.location.pathname
+        if (nextPath.startsWith('/invite/')) {
+          window.sessionStorage.setItem(AUTH_REDIRECT_KEY, nextPath)
+        }
+      }
       navigate('/login', true)
     }
   }, [user, route, authChecked, authLoading])
@@ -295,6 +314,7 @@ export default function App() {
       window.history.pushState({}, '', path)
     }
     setRoute(getRoute(path))
+    setInviteToken(getInviteToken(path))
   }
 
   async function handleLogin(event) {
@@ -329,7 +349,13 @@ export default function App() {
       }
       const nextUser = await resolveSessionUserWithRetry(fallbackUser)
       setUser(nextUser)
-      navigate('/chat', true)
+      const redirectPath = window.sessionStorage.getItem(AUTH_REDIRECT_KEY)
+      if (redirectPath && redirectPath.startsWith('/invite/')) {
+        window.sessionStorage.removeItem(AUTH_REDIRECT_KEY)
+        navigate(redirectPath, true)
+      } else {
+        navigate('/chat', true)
+      }
     } catch (err) {
       setAuthStatus(err.message)
     } finally {
@@ -380,7 +406,7 @@ export default function App() {
     }
   }
 
-  const isAuthRoute = route === 'login' || route === 'signup'
+  const isAuthRoute = route === 'login' || route === 'signup' || route === 'invite'
   const safeAreaKey = `${route}-${isDark ? 'dark' : 'light'}`
   const safeAreaThemeColor = getThemeColor(isDark, route)
   const appShellClass = isAuthRoute
@@ -492,6 +518,22 @@ export default function App() {
             )}
             {route === 'chat' && user ? (
               <ChatPage user={user} setUser={setUser} isDark={isDark} setIsDark={setIsDark} toggleTheme={toggleTheme} />
+            ) : null}
+            {route === 'invite' && user ? (
+              <InvitePage
+                token={inviteToken}
+                user={user}
+                isDark={isDark}
+                onToggleTheme={toggleTheme}
+                onNavigateChat={(chatId = 0) => {
+                  const nextChatId = Number(chatId || 0)
+                  if (nextChatId > 0) {
+                    window.sessionStorage.setItem(OPEN_CHAT_ID_KEY, String(nextChatId))
+                  }
+                  navigate('/chat', true)
+                }}
+                onRequireLogin={() => navigate('/login', true)}
+              />
             ) : null}
           </main>
         </div>

@@ -2,7 +2,11 @@ function registerProfileRoutes(app, deps) {
   const {
     ALLOWED_AVATAR_MIME_TYPES,
     AVATAR_FILE_LIMITS,
+    emitSseEvent,
     FILE_UPLOAD,
+    getUserPresence,
+    listChatMembers,
+    listChatsForUser,
     USER_COLORS,
     USERNAME_REGEX,
     bcrypt,
@@ -20,6 +24,29 @@ function registerProfileRoutes(app, deps) {
     updateUserStatus,
     uploadAvatar,
   } = deps;
+
+  const emitPresenceUpdate = (user) => {
+    if (!user?.username) return;
+    const normalizedUsername = String(user.username || "").toLowerCase();
+    const payload = {
+      type: "presence_update",
+      username: normalizedUsername,
+      status: String(user.status || "online").toLowerCase(),
+      lastSeen: user.last_seen || new Date().toISOString(),
+    };
+    const targets = new Set([normalizedUsername]);
+    const chats = listChatsForUser(Number(user.id || 0));
+    chats.forEach((chat) => {
+      const members = listChatMembers(Number(chat?.id || 0));
+      members.forEach((member) => {
+        const memberUsername = String(member?.username || "").toLowerCase();
+        if (memberUsername) targets.add(memberUsername);
+      });
+    });
+    targets.forEach((targetUsername) => {
+      emitSseEvent(targetUsername, payload);
+    });
+  };
 
   app.get("/api/profile", (req, res) => {
     const session = requireSession(req, res);
@@ -74,7 +101,7 @@ function registerProfileRoutes(app, deps) {
     if (!USERNAME_REGEX.test(trimmed)) {
       return res.status(400).json({
         error:
-          "Username can only include english letters, numbers, dot (.), underscore (_), and dash (-).",
+          "Username can only include english letters, numbers, dot (.), and underscore (_).",
       });
     }
 
@@ -229,6 +256,10 @@ function registerProfileRoutes(app, deps) {
     }
 
     updateUserStatus(user.id, status);
+    const refreshedUser = getUserPresence(String(user.username || "").toLowerCase());
+    if (refreshedUser) {
+      emitPresenceUpdate(refreshedUser);
+    }
 
     res.json({ ok: true, status });
   });

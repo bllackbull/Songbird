@@ -43,6 +43,7 @@ export function MobileSettingsPanel({
   notificationsEnabled,
   notificationStatusLabel,
   onToggleNotifications,
+  onOpenOwnProfile,
 }) {
   const resolvedUserColor = userColor || "#10b981";
   const displayInitials = getAvatarInitials(displayName);
@@ -61,16 +62,20 @@ export function MobileSettingsPanel({
       {!settingsPanel ? (
         <div className="space-y-4 md:hidden">
           <div className="rounded-2xl border border-slate-300/80 bg-white/90 p-4 text-slate-700 dark:border-emerald-500/20 dark:bg-slate-950/60 dark:text-slate-200">
-            <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onOpenOwnProfile}
+              className="group flex w-full items-center gap-3 rounded-xl border border-transparent px-1 py-1 text-left transition hover:border-emerald-300 hover:bg-emerald-50/50 hover:shadow-[0_0_16px_rgba(16,185,129,0.18)] dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+            >
               {user.avatarUrl ? (
                 <img
                   src={user.avatarUrl}
                   alt={displayName}
-                  className="h-10 w-10 rounded-full object-cover"
+                  className="h-10 w-10 rounded-full object-cover transition group-hover:ring-2 group-hover:ring-emerald-300"
                 />
               ) : (
                 <div
-                  className={`flex h-10 w-10 items-center justify-center rounded-full ${hasPersian(displayInitials) ? "font-fa" : ""}`}
+                  className={`flex h-10 w-10 items-center justify-center rounded-full transition group-hover:ring-2 group-hover:ring-emerald-300 ${hasPersian(displayInitials) ? "font-fa" : ""}`}
                   style={getAvatarStyle(resolvedUserColor)}
                 >
                   {displayInitials}
@@ -85,7 +90,7 @@ export function MobileSettingsPanel({
                   {statusValue}
                 </p>
               </div>
-            </div>
+            </button>
           </div>
           <div className="rounded-2xl border border-slate-300/80 bg-white/90 p-2 text-sm shadow-sm dark:border-emerald-500/20 dark:bg-slate-950/60">
             <SettingsMenuActions
@@ -205,8 +210,8 @@ export function MobileSettingsPanel({
                     username: event.target.value,
                   }))
                 }
-                pattern="[a-zA-Z0-9._-]+"
-                title="Use english letters, numbers, dot (.), underscore (_), and dash (-)."
+                pattern="[a-zA-Z0-9._]+"
+                title="Use english letters, numbers, dot (.), and underscore (_)."
                 autoCapitalize="none"
                 className="mt-2 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
               />

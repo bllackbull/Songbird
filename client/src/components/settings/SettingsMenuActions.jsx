@@ -1,4 +1,4 @@
-import { Bell, LogOut, ShieldCheck, User } from "../../icons/lucide.js";
+import { Bell, BellOff, LogOut, ShieldCheck, User } from "../../icons/lucide.js";
 import { ThemeButton } from "./ThemeButton.jsx";
 
 export function SettingsMenuActions({
@@ -54,7 +54,11 @@ export function SettingsMenuActions({
       >
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex items-center gap-3">
-            <Bell size={18} className="icon-anim-sway" />
+            {notificationsOn ? (
+              <Bell size={18} className="icon-anim-sway" />
+            ) : (
+              <BellOff size={18} className="icon-anim-sway" />
+            )}
             Notifications
           </span>
           {notificationsDisabled ? (

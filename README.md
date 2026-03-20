@@ -403,7 +403,7 @@ nano .env
 | `CHAT_PEER_PRESENCE_POLL_INTERVAL` | `integer` | `3000` | Active peer presence poll interval (milliseconds). |
 | `CHAT_HEALTH_CHECK_INTERVAL` | `integer` | `10000` | Connection health check interval (milliseconds). |
 | `CHAT_SSE_RECONNECT_DELAY` | `integer` | `2000` | Delay before reconnecting SSE after error (milliseconds). |
-| `CHAT_SEARCH_MAX_RESULTS` | `integer` | `5` | Max users shown in New Chat search results. |
+| `CHAT_SEARCH_MAX_RESULTS` | `integer` | `5` | Max users shown in user search results (New DM/New Group) and member list page size (`Show more`) in Group Profile. |
 
 ### Apply Changes:
 

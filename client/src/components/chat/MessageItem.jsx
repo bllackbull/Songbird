@@ -1,6 +1,8 @@
 import { useRef, useState } from "react";
 import { AlertCircle, Check, CheckCheck, Clock12, File, ImageIcon, Video } from "../../icons/lucide.js";
 import { hasPersian } from "../../utils/fontUtils.js";
+import { getAvatarStyle } from "../../utils/avatarColor.js";
+import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import { MessageFiles } from "./MessageFiles.jsx";
 
 export function MessageItem({
@@ -13,6 +15,8 @@ export function MessageItem({
   getMessageDayLabel,
   isDesktop,
   isMobileTouchDevice,
+  isGroupChat = false,
+  onOpenSenderProfile,
   onReply,
   onJumpToMessage,
 }) {
@@ -50,6 +54,8 @@ export function MessageItem({
     return null;
   })();
   const replyIsRtl = hasPersian(replyPreview);
+  const senderName = msg.nickname || msg.username || "Unknown";
+  const senderInitials = getAvatarInitials(senderName);
 
   const touchStartXRef = useRef(0);
   const touchStartYRef = useRef(0);
@@ -70,12 +76,13 @@ export function MessageItem({
       if (isUrlPattern.test(part)) {
         const href =
           part.startsWith("http://") || part.startsWith("https://") ? part : `https://${part}`;
+        const sameTabInvite = /\/invite\/[A-Za-z0-9]+/.test(href);
         return (
           <a
             key={`msg-link-${index}`}
             href={href}
-            target="_blank"
-            rel="noopener noreferrer"
+            target={sameTabInvite ? "_self" : "_blank"}
+            rel={sameTabInvite ? undefined : "noopener noreferrer"}
             className="break-all text-sky-400 underline decoration-sky-400 underline-offset-2 [overflow-wrap:anywhere]"
           >
             {part}
@@ -109,6 +116,14 @@ export function MessageItem({
           <span className="h-px flex-1 bg-emerald-200/70 dark:bg-emerald-500/30" />
         </div>
       ) : null}
+      {msg?._systemEvent ? (
+        <div className="flex justify-center px-3 py-1 md:px-0">
+          <span className="rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200">
+            {msg._systemEvent.text}
+          </span>
+        </div>
+      ) : null}
+      {!msg?._systemEvent ? (
       <div
         className={`flex w-full max-w-full px-3 md:px-0 ${
           isOwn ? "justify-end" : "justify-start"
@@ -155,9 +170,108 @@ export function MessageItem({
           }
         }}
       >
-        <div
-          data-message-bubble
-          className={`rounded-2xl px-4 py-3 text-sm shadow-sm overflow-visible ${
+        {!isOwn && isGroupChat ? (
+          <div className="flex max-w-[82%] items-end gap-2 md:max-w-[75%]">
+            <button
+              type="button"
+              onClick={() => onOpenSenderProfile?.(msg)}
+              className="group"
+            >
+              {msg.avatar_url ? (
+                <img
+                  src={msg.avatar_url}
+                  alt={senderName}
+                  className="h-7 w-7 shrink-0 rounded-full object-cover transition group-hover:ring-2 group-hover:ring-emerald-300"
+                />
+              ) : (
+                <div
+                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] transition group-hover:ring-2 group-hover:ring-emerald-300 ${hasPersian(senderInitials) ? "font-fa" : ""}`}
+                  style={getAvatarStyle(msg.color || "#10b981")}
+                >
+                  {senderInitials}
+                </div>
+              )}
+            </button>
+            <div
+              data-message-bubble
+              className={`rounded-2xl px-4 py-3 text-sm shadow-sm overflow-visible ${
+                hasFiles
+                  ? hasMediaFiles
+                    ? "w-[min(52vw,18rem)] md:w-[min(44vw,22rem)] md:min-w-[12rem]"
+                    : "w-fit"
+                  : ""
+              } bg-white/90 text-slate-800 rounded-bl-md dark:bg-slate-800/75 dark:text-slate-100`}
+              onDoubleClick={() => {
+                if (!isDesktop || !onReply) return;
+                onReply(msg);
+              }}
+              style={{
+                transform: swipeOffset ? `translateX(${swipeOffset}px)` : undefined,
+                transition: isSwiping ? "none" : "transform 160ms ease",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => onOpenSenderProfile?.(msg)}
+                className={`mb-1 text-[11px] font-semibold transition hover:underline ${hasPersian(senderName) ? "font-fa text-right" : "text-left"}`}
+                style={{ color: String(msg.color || "#10b981") }}
+              >
+                {senderName}
+              </button>
+              {replyTarget ? (
+                <button
+                  type="button"
+                  onClick={() => onJumpToMessage?.(replyTarget.id)}
+                  className="group mb-2 inline-flex w-fit max-w-full items-center gap-2 rounded-xl border border-emerald-200/70 bg-white/70 px-3 py-2.5 text-left text-xs text-slate-700 transition hover:border-emerald-300 hover:bg-white hover:shadow-[0_0_16px_rgba(16,185,129,0.18)] dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200 dark:hover:bg-slate-900/70 dark:hover:shadow-[0_0_16px_rgba(16,185,129,0.14)]"
+                  aria-label={`Reply to ${replyDisplayName}`}
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block max-w-full truncate whitespace-nowrap text-[10px] font-semibold">
+                      {replyDisplayName}
+                    </span>
+                    <span
+                      className={`flex max-w-full items-center gap-1 truncate whitespace-nowrap ${
+                        replyIsRtl ? "font-fa text-right" : "text-left"
+                      }`}
+                      dir={replyIsRtl ? "rtl" : "ltr"}
+                      style={{ unicodeBidi: "plaintext" }}
+                    >
+                      {derivedReplyIcon === "video" ? (
+                        <Video size={11} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                      ) : derivedReplyIcon === "image" ? (
+                        <ImageIcon size={11} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                      ) : derivedReplyIcon === "document" ? (
+                        <File size={11} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                      ) : null}
+                      <span className="min-w-0 truncate">{replyPreview}</span>
+                    </span>
+                  </span>
+                </button>
+              ) : null}
+              <MessageFiles files={messageFiles} {...messageFilesProps} />
+              {!(
+                (msg.files || []).length &&
+                /^Sent (a media file|a document|\d+ files)$/i.test((msg.body || "").trim())
+              ) ? (
+                <p
+                  dir={hasPersian(msg.body) ? "rtl" : "ltr"}
+                  className={`mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${
+                    hasPersian(msg.body) ? "font-fa text-right" : "text-left"
+                  }`}
+                  style={{ unicodeBidi: "plaintext" }}
+                >
+                  {renderMessageBody(msg.body)}
+                </p>
+              ) : null}
+              <div className="mt-2 flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
+                <span>{msg._timeLabel || formatTime(msg.created_at)}</span>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div
+            data-message-bubble
+            className={`rounded-2xl px-4 py-3 text-sm shadow-sm overflow-visible ${
             hasFiles
               ? hasMediaFiles
                 ? "w-[min(52vw,18rem)] max-w-[68%] md:w-[min(44vw,22rem)] md:max-w-[62%] md:min-w-[12rem]"
@@ -176,7 +290,15 @@ export function MessageItem({
             transform: swipeOffset ? `translateX(${swipeOffset}px)` : undefined,
             transition: isSwiping ? "none" : "transform 160ms ease",
           }}
-        >
+          >
+          {!isOwn && isGroupChat ? (
+            <p
+              className={`mb-1 text-[11px] font-semibold ${hasPersian(senderName) ? "font-fa text-right" : "text-left"}`}
+              style={{ color: String(msg.color || "#10b981") }}
+            >
+              {senderName}
+            </p>
+          ) : null}
           {replyTarget ? (
             <button
               type="button"
@@ -254,8 +376,10 @@ export function MessageItem({
               </span>
             ) : null}
           </div>
-        </div>
+          </div>
+        )}
       </div>
+      ) : null}
     </div>
   );
 }

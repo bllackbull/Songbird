@@ -26,6 +26,13 @@ export const searchUsers = ({ exclude, query }) =>
     )}`,
   );
 
+export const discoverUsersAndGroups = ({ username, query }) =>
+  apiFetch(
+    `${API_BASE}/api/discover?username=${encodeURIComponent(
+      username,
+    )}&query=${encodeURIComponent(query)}`,
+  );
+
 export const markMessagesRead = ({ chatId, username }) =>
   apiFetch(`${API_BASE}/api/messages/read`, {
     method: "POST",
@@ -89,6 +96,74 @@ export const createDmChat = ({ from, to }) =>
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ from, to }),
+  });
+
+export const createGroupChat = (payload) =>
+  apiFetch(`${API_BASE}/api/chats/group`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+export const getGroupInviteInfo = (token) =>
+  apiFetch(`${API_BASE}/api/groups/invite/${encodeURIComponent(token)}`);
+
+export const joinGroupByInvite = (token, payload = {}) =>
+  apiFetch(`${API_BASE}/api/groups/invite/${encodeURIComponent(token)}/join`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+export const getGroupInviteLink = (chatId) =>
+  apiFetch(`${API_BASE}/api/chats/group/${encodeURIComponent(chatId)}/invite-link`);
+
+export const regenerateGroupInviteLink = (chatId, payload) =>
+  apiFetch(`${API_BASE}/api/chats/group/${encodeURIComponent(chatId)}/regenerate-invite`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+export const leaveGroupChat = (chatId, payload) =>
+  apiFetch(`${API_BASE}/api/chats/group/${encodeURIComponent(chatId)}/leave`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+export const removeGroupMember = (chatId, payload) =>
+  apiFetch(`${API_BASE}/api/chats/group/${encodeURIComponent(chatId)}/remove-member`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+export const updateGroupChat = (chatId, payload) =>
+  apiFetch(`${API_BASE}/api/chats/group/${encodeURIComponent(chatId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+export const joinPublicGroup = (chatId, payload) =>
+  apiFetch(`${API_BASE}/api/chats/group/${encodeURIComponent(chatId)}/join-public`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+export const uploadGroupAvatar = (chatId, payload) =>
+  apiFetch(`${API_BASE}/api/chats/group/${encodeURIComponent(chatId)}/avatar`, {
+    method: "POST",
+    body: payload,
+  });
+
+export const setChatMute = (chatId, payload) =>
+  apiFetch(`${API_BASE}/api/chats/${encodeURIComponent(chatId)}/mute`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
   });
 
 export const hideChats = ({ username, chatIds }) =>

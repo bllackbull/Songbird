@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs'
 import { getCliArgs, getPositionalArgs, getFlagValue } from './_cli.js'
 import { openDatabase, runAdminActionViaServer } from './_db-admin.js'
 
-const USERNAME_REGEX = /^[a-z0-9._-]+$/
+const USERNAME_REGEX = /^[a-z0-9._]+$/
 
 const args = getCliArgs()
 const positional = getPositionalArgs(args)
@@ -17,7 +17,7 @@ if (!username || !password) {
 }
 
 if (!USERNAME_REGEX.test(username)) {
-  console.error('Invalid username. Allowed: lowercase english letters, numbers, ., _, -')
+  console.error('Invalid username. Allowed: lowercase english letters, numbers, ., _')
   process.exit(1)
 }
 

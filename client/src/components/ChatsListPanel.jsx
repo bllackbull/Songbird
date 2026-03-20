@@ -5,7 +5,7 @@ import {
   File,
   ImageIcon,
   Minus,
-  Plus,
+  Users,
   Video,
 } from "../icons/lucide.js";
 import { getAvatarStyle } from "../utils/avatarColor.js";
@@ -29,7 +29,13 @@ export default function ChatsListPanel({
   setUnreadInChat,
   lastMessageIdRef,
   isAtBottomRef,
-  onOpenNewChat,
+  chatsSearchQuery,
+  chatsSearchFocused,
+  discoverLoading,
+  discoverUsers,
+  discoverGroups,
+  onOpenDiscoveredUser,
+  onOpenDiscoveredGroup,
 }) {
   const wiggleDurations = [640, 700, 760, 820, 880, 940];
   const wiggleDelays = [-80, -170, -260, -120, -220, -320];
@@ -94,9 +100,122 @@ export default function ChatsListPanel({
     return { icon: "document", text: `Sent ${files.length} files` };
   };
 
+  const hasDiscoverQuery = Boolean(String(chatsSearchQuery || "").trim());
+  const showSearchMode = Boolean(chatsSearchFocused);
+  const hasDiscoverResults =
+    (Array.isArray(discoverUsers) && discoverUsers.length > 0) ||
+    (Array.isArray(discoverGroups) && discoverGroups.length > 0);
+
   return (
     <div className={isEmptyState ? "h-full" : "mt-3 space-y-2"}>
-      {loadingChats && !visibleChats.length ? (
+      {showSearchMode ? (
+        <div className="mb-3 space-y-2 rounded-2xl border border-emerald-200/70 bg-emerald-50/40 p-2.5 dark:border-emerald-500/20 dark:bg-emerald-500/5">
+          {discoverLoading ? (
+            <p className="px-1 py-1 text-xs text-slate-500 dark:text-slate-400">Searching...</p>
+          ) : null}
+          {!hasDiscoverQuery && !discoverLoading ? (
+            <p className="px-1 py-1 text-xs text-slate-500 dark:text-slate-400">
+              Type to search users and public groups.
+            </p>
+          ) : null}
+          {Array.isArray(discoverUsers) && discoverUsers.length > 0 ? (
+            <div className="space-y-1.5">
+              <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-200">
+                Users
+              </p>
+              {discoverUsers.map((member) => {
+                const label = member.nickname || member.username;
+                const initials = getAvatarInitials(label);
+                return (
+                  <button
+                    key={`discover-user-${member.id}-${member.username}`}
+                    type="button"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => onOpenDiscoveredUser?.(member)}
+                    className="flex w-full items-center gap-2 rounded-xl border border-emerald-100/80 bg-white/80 px-2 py-2 text-left transition hover:border-emerald-300 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] dark:border-emerald-500/20 dark:bg-slate-900/70 dark:hover:border-emerald-500/35 dark:hover:shadow-[0_0_18px_rgba(16,185,129,0.12)]"
+                  >
+                    {member.avatar_url ? (
+                      <img
+                        src={member.avatar_url}
+                        alt={label}
+                        className="h-8 w-8 rounded-full object-cover"
+                      />
+                    ) : (
+                      <div
+                        className={`flex h-8 w-8 items-center justify-center rounded-full text-xs ${hasPersian(initials) ? "font-fa" : ""}`}
+                        style={getAvatarStyle(member.color || "#10b981")}
+                      >
+                        {initials}
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <p className={`truncate text-sm font-semibold ${hasPersian(label) ? "font-fa" : ""}`}>
+                        {label}
+                      </p>
+                      <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+                        @{member.username}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+          {Array.isArray(discoverGroups) && discoverGroups.length > 0 ? (
+            <div className="space-y-1.5">
+              <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-200">
+                Public Groups
+              </p>
+              {discoverGroups.map((group) => {
+                const label = group.name || "Group";
+                const initials = getAvatarInitials(label);
+                return (
+                  <button
+                    key={`discover-group-${group.id}`}
+                    type="button"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => onOpenDiscoveredGroup?.(group)}
+                    className="flex w-full items-center gap-2 rounded-xl border border-emerald-100/80 bg-white/80 px-2 py-2 text-left transition hover:border-emerald-300 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] dark:border-emerald-500/20 dark:bg-slate-900/70 dark:hover:border-emerald-500/35 dark:hover:shadow-[0_0_18px_rgba(16,185,129,0.12)]"
+                  >
+                    {group.avatarUrl ? (
+                      <img
+                        src={group.avatarUrl}
+                        alt={label}
+                        className="h-8 w-8 rounded-full object-cover"
+                      />
+                    ) : (
+                      <div
+                        className={`flex h-8 w-8 items-center justify-center rounded-full text-xs ${hasPersian(initials) ? "font-fa" : ""}`}
+                        style={getAvatarStyle(group.color || "#10b981")}
+                      >
+                        {initials}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className={`truncate text-sm font-semibold ${hasPersian(label) ? "font-fa" : ""}`}>
+                        {label}
+                      </p>
+                      <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+                        @{group.username} • {Number(group.membersCount || 0)} members
+                      </p>
+                    </div>
+                    {group.isMember ? (
+                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">
+                        Joined
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+          {hasDiscoverQuery && !discoverLoading && !hasDiscoverResults ? (
+            <p className="px-1 py-1 text-xs text-slate-500 dark:text-slate-400">No results.</p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {!showSearchMode && loadingChats && !visibleChats.length ? (
         Array.from({ length: 6 }).map((_, index) => (
           <div
             key={`chat-skeleton-${index}`}
@@ -111,7 +230,7 @@ export default function ChatsListPanel({
             </div>
           </div>
         ))
-      ) : visibleChats.length ? (
+      ) : !showSearchMode && visibleChats.length ? (
         visibleChats.map((conv, index) => {
           const members = conv.members || [];
           const other =
@@ -122,7 +241,10 @@ export default function ChatsListPanel({
             conv.type === "dm"
               ? other?.nickname || other?.username || "Direct message"
               : conv.name || "Chat";
-          const avatarColor = other?.color || "#10b981";
+          const avatarColor =
+            conv.type === "group"
+              ? conv.group_color || "#10b981"
+              : other?.color || "#10b981";
           const avatarInitials = getAvatarInitials(name);
           const wiggleStyle = editMode
             ? {
@@ -151,9 +273,9 @@ export default function ChatsListPanel({
               style={wiggleStyle}
             >
               <div className="flex items-start gap-3">
-                {other?.avatar_url ? (
+                {(conv.type === "group" ? conv.group_avatar_url : other?.avatar_url) ? (
                   <img
-                    src={other.avatar_url}
+                    src={conv.type === "group" ? conv.group_avatar_url : other.avatar_url}
                     alt={name}
                     className="h-9 w-9 flex-shrink-0 rounded-full object-cover"
                   />
@@ -166,10 +288,11 @@ export default function ChatsListPanel({
                   </div>
                 )}
                 <div className="min-w-0 flex-1">
-                  <p
-                    className={`font-semibold ${hasPersian(name) ? "font-fa" : ""}`}
-                  >
-                    {name}
+                  <p className="flex items-center gap-1.5 font-semibold">
+                    {conv.type === "group" ? (
+                      <Users size={14} className="shrink-0 text-emerald-500" />
+                    ) : null}
+                    <span className={hasPersian(name) ? "font-fa" : ""}>{name}</span>
                   </p>
                   <p className="mt-1 w-full min-w-0 overflow-hidden text-xs leading-[1.35] text-slate-500 dark:text-slate-400">
                     {conv.last_message ||
@@ -207,6 +330,11 @@ export default function ChatsListPanel({
                         </span>
                       ) : (
                         <span className="flex w-full min-w-0 items-center gap-1 align-middle leading-[1.35]">
+                          {conv.type === "group" && (conv.last_sender_nickname || conv.last_sender_username) ? (
+                            <span className="shrink-0 font-bold text-slate-500 dark:text-slate-400">
+                              {conv.last_sender_nickname || conv.last_sender_username}:
+                            </span>
+                          ) : null}
                           {lastPreview.icon === "video" ? (
                             <Video
                               size={12}
@@ -270,7 +398,9 @@ export default function ChatsListPanel({
                     <p>{conv.last_time ? formatTime(conv.last_time) : ""}</p>
                   </div>
                   {conv.unread_count > 0 ? (
-                    <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-emerald-500 px-2 text-[10px] font-bold text-white">
+                    <span className={`inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-2 text-[10px] font-bold text-white ${
+                      conv._muted ? "bg-slate-400 dark:bg-slate-500" : "bg-emerald-500"
+                    }`}>
                       {unreadCount}
                     </span>
                   ) : null}
@@ -338,18 +468,14 @@ export default function ChatsListPanel({
             </div>
           );
         })
-      ) : (
-        <div className="flex h-full items-center justify-center">
-          <button
-            type="button"
-            onClick={onOpenNewChat}
-            className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-[0_0_22px_rgba(16,185,129,0.45)]"
-          >
-            <Plus size={18} className="icon-anim-pop" />
-            New chat
-          </button>
+      ) : !showSearchMode ? (
+        <div className="flex min-h-full items-center justify-center py-8">
+          <div className="text-center text-sm text-slate-500 dark:text-slate-400">
+            <p>Your chat list is empty.</p>
+            <p className="mt-1">Search or use + button to start chatting.</p>
+          </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

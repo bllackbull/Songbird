@@ -89,8 +89,8 @@ export default function AuthCard({
             name="username"
             type="text"
             required
-            pattern="[a-zA-Z0-9._-]+"
-            title="Use english letters, numbers, dot (.), underscore (_), and dash (-)."
+            pattern="[a-zA-Z0-9._]+"
+            title="Use english letters, numbers, dot (.), and underscore (_)."
             autoCapitalize="none"
             placeholder="songbird.sage"
             className="mt-1 w-full rounded-2xl border border-emerald-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-100 sm:mt-2 sm:px-4 sm:py-3 sm:text-sm"
