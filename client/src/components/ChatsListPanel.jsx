@@ -116,47 +116,65 @@ export default function ChatsListPanel({
 
   const hasDiscoverQuery = Boolean(String(chatsSearchQuery || "").trim());
   const showSearchMode = Boolean(chatsSearchFocused);
+  const showSearchEmptyState = showSearchMode && !discoverLoading && !hasDiscoverQuery;
   const hasDiscoverResults =
     (Array.isArray(discoverUsers) && discoverUsers.length > 0) ||
     (Array.isArray(discoverGroups) && discoverGroups.length > 0);
+  const resolveDmChatId = (username) => {
+    const target = String(username || "").toLowerCase();
+    if (!target) return null;
+    const dmChat = (visibleChats || []).find((chat) => {
+      if (chat?.type !== "dm") return false;
+      return (chat.members || []).some(
+        (member) => String(member?.username || "").toLowerCase() === target,
+      );
+    });
+    return dmChat?.id ?? null;
+  };
 
   return (
-    <div className={isEmptyState ? "h-full" : "mt-3 space-y-2"}>
+    <div className={showSearchMode || isEmptyState ? "min-h-full" : "mt-3 space-y-2"}>
       {showSearchMode ? (
-        <div className="mb-3 space-y-2 rounded-2xl border border-emerald-200/70 bg-emerald-50/40 p-2.5 dark:border-emerald-500/20 dark:bg-emerald-500/5">
+        <div className={showSearchEmptyState ? "flex min-h-full items-center justify-center py-8" : "mb-3 space-y-3"}>
           {discoverLoading ? (
             <p className="px-1 py-1 text-xs text-slate-500 dark:text-slate-400">Searching...</p>
           ) : null}
-          {!hasDiscoverQuery && !discoverLoading ? (
-            <p className="px-1 py-1 text-xs text-slate-500 dark:text-slate-400">
-              Type to search users and public groups.
-            </p>
+          {showSearchEmptyState ? (
+            <div className="text-center text-sm text-slate-500 dark:text-slate-400">
+              <p>Type to search users and public groups.</p>
+            </div>
           ) : null}
-          {Array.isArray(discoverUsers) && discoverUsers.length > 0 ? (
-            <div className="space-y-1.5">
+          {!showSearchEmptyState && Array.isArray(discoverUsers) && discoverUsers.length > 0 ? (
+            <div className="space-y-2">
               <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-200">
                 Users
               </p>
               {discoverUsers.map((member) => {
                 const label = member.nickname || member.username;
                 const initials = getAvatarInitials(label);
+                const dmChatId = resolveDmChatId(member.username);
+                const isActive = dmChatId && Number(activeChatId) === Number(dmChatId);
                 return (
                   <button
                     key={`discover-user-${member.id}-${member.username}`}
                     type="button"
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => onOpenDiscoveredUser?.(member)}
-                    className="flex w-full items-center gap-2 rounded-xl border border-emerald-100/80 bg-white/80 px-2 py-2 text-left transition hover:border-emerald-300 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] dark:border-emerald-500/20 dark:bg-slate-900/70 dark:hover:border-emerald-500/35 dark:hover:shadow-[0_0_18px_rgba(16,185,129,0.12)]"
+                    className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left text-sm transition ${
+                      isActive
+                        ? "border-emerald-400 bg-emerald-100 text-emerald-900 dark:border-emerald-400/60 dark:bg-emerald-500/20 dark:text-emerald-100"
+                        : "border-slate-300/80 bg-white/90 text-slate-700 hover:border-emerald-300 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:border-emerald-300 focus-visible:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:outline-none dark:border-emerald-500/20 dark:bg-slate-950/60 dark:text-slate-200"
+                    }`}
                   >
                     {member.avatar_url ? (
                       <img
                         src={member.avatar_url}
                         alt={label}
-                        className="h-8 w-8 rounded-full object-cover"
+                        className="h-9 w-9 rounded-full object-cover"
                       />
                     ) : (
                       <div
-                        className={`flex h-8 w-8 items-center justify-center rounded-full text-xs ${hasPersian(initials) ? "font-fa" : ""}`}
+                        className={`flex h-9 w-9 items-center justify-center rounded-full text-xs ${hasPersian(initials) ? "font-fa" : ""}`}
                         style={getAvatarStyle(member.color || "#10b981")}
                       >
                         {initials}
@@ -183,31 +201,36 @@ export default function ChatsListPanel({
               })}
             </div>
           ) : null}
-          {Array.isArray(discoverGroups) && discoverGroups.length > 0 ? (
-            <div className="space-y-1.5">
+          {!showSearchEmptyState && Array.isArray(discoverGroups) && discoverGroups.length > 0 ? (
+            <div className="space-y-2">
               <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-200">
                 Public Groups
               </p>
               {discoverGroups.map((group) => {
                 const label = group.name || "Group";
                 const initials = getAvatarInitials(label);
+                const isActive = Number(activeChatId) === Number(group.id);
                 return (
                   <button
                     key={`discover-group-${group.id}`}
                     type="button"
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => onOpenDiscoveredGroup?.(group)}
-                    className="flex w-full items-center gap-2 rounded-xl border border-emerald-100/80 bg-white/80 px-2 py-2 text-left transition hover:border-emerald-300 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] dark:border-emerald-500/20 dark:bg-slate-900/70 dark:hover:border-emerald-500/35 dark:hover:shadow-[0_0_18px_rgba(16,185,129,0.12)]"
+                    className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left text-sm transition ${
+                      isActive
+                        ? "border-emerald-400 bg-emerald-100 text-emerald-900 dark:border-emerald-400/60 dark:bg-emerald-500/20 dark:text-emerald-100"
+                        : "border-slate-300/80 bg-white/90 text-slate-700 hover:border-emerald-300 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:border-emerald-300 focus-visible:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:outline-none dark:border-emerald-500/20 dark:bg-slate-950/60 dark:text-slate-200"
+                    }`}
                   >
                     {group.avatarUrl ? (
                       <img
                         src={group.avatarUrl}
                         alt={label}
-                        className="h-8 w-8 rounded-full object-cover"
+                        className="h-9 w-9 rounded-full object-cover"
                       />
                     ) : (
                       <div
-                        className={`flex h-8 w-8 items-center justify-center rounded-full text-xs ${hasPersian(initials) ? "font-fa" : ""}`}
+                        className={`flex h-9 w-9 items-center justify-center rounded-full text-xs ${hasPersian(initials) ? "font-fa" : ""}`}
                         style={getAvatarStyle(group.color || "#10b981")}
                       >
                         {initials}
@@ -239,12 +262,11 @@ export default function ChatsListPanel({
               })}
             </div>
           ) : null}
-          {hasDiscoverQuery && !discoverLoading && !hasDiscoverResults ? (
+          {!showSearchEmptyState && hasDiscoverQuery && !discoverLoading && !hasDiscoverResults ? (
             <p className="px-1 py-1 text-xs text-slate-500 dark:text-slate-400">No results.</p>
           ) : null}
         </div>
       ) : null}
-
       {!showSearchMode && loadingChats && !visibleChats.length ? (
         Array.from({ length: 6 }).map((_, index) => (
           <div

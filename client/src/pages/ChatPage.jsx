@@ -3802,12 +3802,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   async function openDiscoverUser(member) {
     if (!member) return;
-    exitSearchMode();
     await openOrCreateDmFromMember(member);
+    setSidebarScrollEpoch((prev) => prev + 1);
   }
 
   async function openDiscoverGroup(group) {
-    exitSearchMode();
     const inviteToken = String(group?.inviteToken || "").trim();
     const chatId = Number(group?.id || 0);
     const alreadyMember =
@@ -3822,6 +3821,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       setActiveChatId(chatId);
       setActivePeer(null);
       setMobileTab("chat");
+      setSidebarScrollEpoch((prev) => prev + 1);
       return;
     }
     if (!inviteToken) return;
@@ -3921,11 +3921,17 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setDiscoverLoading(false);
     setDiscoverUsers([]);
     setDiscoverGroups([]);
+    setSidebarScrollEpoch((prev) => prev + 1);
     if (typeof document !== "undefined") {
       const activeEl = document.activeElement;
       if (activeEl && typeof activeEl.blur === "function") {
         activeEl.blur();
       }
+    }
+    if (typeof window !== "undefined") {
+      window.setTimeout(() => {
+        window.dispatchEvent(new Event("resize"));
+      }, 0);
     }
   };
   const handleUserScrollIntent = () => {
@@ -3974,9 +3980,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           }
           setChatsSearchFocused(true);
         }}
-        onChatsSearchBlur={() => {
-          window.setTimeout(() => exitSearchMode(), 140);
-        }}
+        onChatsSearchBlur={() => {}}
         chatsSearchFocused={chatsSearchFocused}
         onCloseSearch={exitSearchMode}
         discoverLoading={discoverLoading}
