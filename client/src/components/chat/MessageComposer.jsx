@@ -31,25 +31,30 @@ export function MessageComposer({
   const [isRtl, setIsRtl] = useState(false);
   const maxTextareaHeight = 136;
   const replyIsRtl = replyTarget ? hasPersian(replyTarget.body || "") : false;
-  const replyBodyText = replyTarget?.body || "";
-  const isGenericReplyMediaText = /^Sent (a media file|a photo|a video|a document|\d+ files)$/i.test(
-    String(replyBodyText || "").trim(),
-  );
-  const derivedReplyIcon = (() => {
+    const replyBodyText = replyTarget?.body || "";
+    const replyBodyNormalized = String(replyBodyText || "").trim();
+    const isPluralMediaSummary =
+      /^Sent \d+ (files|photos|videos|documents|media files)$/i.test(replyBodyNormalized);
+    const isGenericReplyMediaText =
+      /^Sent (a media file|a photo|a video|a document|\d+ (files|photos|videos|documents|media files))$/i.test(
+        replyBodyNormalized,
+      );
+    const derivedReplyIcon = (() => {
     if (!replyTarget) return null;
     if (replyTarget.icon) return replyTarget.icon;
-    if (/^Sent a video/i.test(replyBodyText)) return "video";
-    if (/^Sent a photo/i.test(replyBodyText)) return "image";
-    if (/^Sent a media file/i.test(replyBodyText)) return "image";
-    if (/^Sent (a document|\d+ files)/i.test(replyBodyText)) return "document";
-    return null;
-  })();
-  const resolvedReplyText =
-    derivedReplyIcon === "video"
-      ? (isGenericReplyMediaText ? "Sent a video" : replyBodyText || "Message")
-      : derivedReplyIcon === "image"
-        ? (isGenericReplyMediaText ? "Sent a photo" : replyBodyText || "Message")
-        : replyBodyText || "Message";
+      if (/^Sent \d+ media files/i.test(replyBodyText)) return "image";
+      if (/^Sent (a video|\d+ videos)/i.test(replyBodyText)) return "video";
+      if (/^Sent (a photo|\d+ photos)/i.test(replyBodyText)) return "image";
+      if (/^Sent a media file/i.test(replyBodyText)) return "image";
+      if (/^Sent (a document|\d+ documents|\d+ files)/i.test(replyBodyText)) return "document";
+      return null;
+    })();
+    const resolvedReplyText =
+      derivedReplyIcon === "video"
+        ? (isGenericReplyMediaText && !isPluralMediaSummary ? "Sent a video" : replyBodyText || "Message")
+        : derivedReplyIcon === "image"
+          ? (isGenericReplyMediaText && !isPluralMediaSummary ? "Sent a photo" : replyBodyText || "Message")
+          : replyBodyText || "Message";
 
   const resizeTextarea = () => {
     const el = messageInputRef.current;
@@ -115,7 +120,11 @@ export function MessageComposer({
               <Reply size={20} className="icon-anim-sway" />
             </div>
             <div className="flex min-w-0 flex-1 flex-col">
-              <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-200">
+              <span
+                className="truncate text-[11px] font-semibold text-emerald-700 dark:text-emerald-200"
+                dir="auto"
+                title={replyTarget.displayName || replyTarget.username || "message"}
+              >
                 Reply to {replyTarget.displayName || replyTarget.username || "message"}
               </span>
               <span
@@ -135,14 +144,14 @@ export function MessageComposer({
                 <span className="min-w-0 truncate">{resolvedReplyText}</span>
               </span>
             </div>
-            <button
-              type="button"
-              onClick={onClearReply}
-              className="inline-flex h-9 w-9 items-center justify-center self-center rounded-full border border-emerald-200 text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_16px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
-              aria-label="Cancel reply"
-            >
-              <Close size={20} className="icon-anim-pop" />
-            </button>
+              <button
+                type="button"
+                onClick={onClearReply}
+                className="inline-flex h-9 w-9 items-center justify-center self-center rounded-full border border-rose-200 text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 hover:shadow-[0_0_16px_rgba(244,63,94,0.2)] dark:border-rose-500/30 dark:text-rose-200 dark:hover:bg-rose-500/10"
+                aria-label="Cancel reply"
+              >
+                <Close size={20} className="icon-anim-pop" />
+              </button>
           </div>
         </div>
       ) : null}
@@ -197,7 +206,7 @@ export function MessageComposer({
                   <button
                     type="button"
                     onClick={() => onRemovePendingUpload(item.id)}
-                    className="absolute right-1 top-1 z-20 inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 bg-white/90 text-slate-600 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300"
+                    className="absolute right-1 top-1 z-20 inline-flex h-5 w-5 items-center justify-center rounded-full border border-rose-200 bg-white/90 text-rose-600 dark:border-rose-500/30 dark:bg-slate-900 dark:text-rose-200"
                     aria-label="Remove file"
                   >
                     <Close size={11} className="icon-anim-pop" />

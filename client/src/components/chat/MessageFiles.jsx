@@ -3,6 +3,7 @@ import { Download, File, Play } from "../../icons/lucide.js";
 export function MessageFiles({
   files = [],
   isDesktop,
+  docFullWidth = false,
   loadedMediaThumbs,
   setLoadedMediaThumbs,
   mediaAspectByKey,
@@ -10,12 +11,24 @@ export function MessageFiles({
   videoPosterByUrl,
   setVideoPosterByUrl,
   videoPosterCacheKey,
+  mediaThumbCacheKey,
+  mediaCacheVersion = 1,
   openFocusMedia,
   onMessageMediaLoaded,
   handleVideoThumbLoadedMetadata,
   getFileRenderType,
 }) {
   if (!files.length) return null;
+  const resolveFileRenderType = getFileRenderType || (() => "document");
+
+  const writeMediaCache = (key, payload) => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(key, JSON.stringify(payload));
+    } catch (_) {
+      // ignore storage failures
+    }
+  };
 
   const getMediaAspectRatio = (file) => {
     const key = file?.id || `${file?.name || ""}-${file?.sizeBytes || 0}`;
@@ -58,18 +71,22 @@ export function MessageFiles({
     return `${Math.max(1, Math.round(bytes / kb))} KB`;
   };
 
-  const truncateFileNameKeepExt = (name, maxBaseChars = 14) => {
+  const getFileNameParts = (name, maxBaseChars = 14) => {
     const fullName = String(name || "document");
     const lastDot = fullName.lastIndexOf(".");
     if (lastDot <= 0 || lastDot === fullName.length - 1) {
-      return fullName.length > maxBaseChars + 3
+      const base = fullName.length > maxBaseChars + 3
         ? `${fullName.slice(0, maxBaseChars)}...`
         : fullName;
+      return { base, ext: "" };
     }
-    const base = fullName.slice(0, lastDot);
-    const ext = fullName.slice(lastDot + 1);
-    if (base.length <= maxBaseChars) return fullName;
-    return `${base.slice(0, maxBaseChars)}...${ext}`;
+    const baseRaw = fullName.slice(0, lastDot);
+    const extRaw = fullName.slice(lastDot + 1);
+    const base =
+      baseRaw.length > maxBaseChars
+        ? `${baseRaw.slice(0, maxBaseChars)}...`
+        : baseRaw;
+    return { base, ext: `.${extRaw}` };
   };
 
   const cacheVideoPoster = (videoUrl, videoEl) => {
@@ -96,7 +113,11 @@ export function MessageFiles({
         if (typeof window !== "undefined") {
           try {
             const compact = Object.fromEntries(Object.entries(next).slice(-80));
-            window.sessionStorage.setItem(videoPosterCacheKey, JSON.stringify(compact));
+            writeMediaCache(videoPosterCacheKey, {
+              version: mediaCacheVersion,
+              updatedAt: Date.now(),
+              posters: compact,
+            });
             return compact;
           } catch (_) {
             return prev;
@@ -112,17 +133,21 @@ export function MessageFiles({
   const markMediaThumbLoaded = (thumbKey) => {
     setLoadedMediaThumbs((prev) => {
       if (prev.has(thumbKey)) return prev;
-      const next = new Set(prev);
-      next.add(thumbKey);
-      if (typeof window !== "undefined") {
-        try {
-          const persisted = Array.from(next);
-          window.sessionStorage.setItem("chat-media-thumbs", JSON.stringify(persisted.slice(-250)));
-        } catch (_) {
-          // ignore cache failures
+        const next = new Set(prev);
+        next.add(thumbKey);
+        if (typeof window !== "undefined") {
+          try {
+            const persisted = Array.from(next);
+            writeMediaCache(mediaThumbCacheKey, {
+              version: mediaCacheVersion,
+              updatedAt: Date.now(),
+              items: persisted.slice(-250),
+            });
+          } catch (_) {
+            // ignore cache failures
+          }
         }
-      }
-      return next;
+        return next;
     });
     onMessageMediaLoaded?.();
   };
@@ -163,16 +188,29 @@ export function MessageFiles({
     markMediaThumbLoaded(thumbKey);
   };
 
+  const hasMediaFiles = files.some((file) => resolveFileRenderType(file) !== "document");
+  const containerClass = hasMediaFiles
+    ? "mt-1 flex w-full max-w-full flex-col gap-2"
+    : "mt-1 inline-grid w-max max-w-full grid-cols-1 gap-2 justify-items-stretch";
+
   return (
-    <div className="mt-1 space-y-2">
+    <div className={containerClass}>
       {files.map((file, fileIndex) => {
-        const renderType = getFileRenderType(file);
+        const renderType = resolveFileRenderType(file);
         const isImage = renderType === "image";
         const isVideo = renderType === "video";
         const videoUrl = String(file?.url || "");
         const isTranscodedOutput = videoUrl.includes("-h264-");
         const isProcessingVideo = isVideo && file?.processing === true && !isTranscodedOutput;
         const key = file.id || `${file.name}-${file.sizeBytes || 0}`;
+        const mediaDownloadName =
+          file?.name ||
+          file?.originalName ||
+          file?.original_name ||
+          file?.storedName ||
+          file?.stored_name ||
+          (file?.url ? String(file.url).split("?")[0].split("/").pop() : "") ||
+          "media";
         const thumbKey = `thumb-${key}`;
         const cachedPoster = isVideo && file.url ? videoPosterByUrl[file.url] : "";
         const thumbLoaded = loadedMediaThumbs.has(thumbKey) || Boolean(cachedPoster);
@@ -201,7 +239,7 @@ export function MessageFiles({
               onClick={() =>
                 openFocusMedia({
                   url: file.url,
-                  name: file.name,
+                  name: mediaDownloadName,
                   type: "image",
                   width: file.width,
                   height: file.height,
@@ -262,7 +300,7 @@ export function MessageFiles({
               onClick={() =>
                 openFocusMedia({
                   url: file.url,
-                  name: file.name,
+                  name: mediaDownloadName,
                   type: "video",
                   processing: Boolean(file.processing),
                   width: file.width,
@@ -331,22 +369,32 @@ export function MessageFiles({
           );
         }
 
+        const docChipClass = isDesktop
+          ? "inline-flex w-full min-w-0 max-w-full overflow-hidden"
+          : "inline-flex w-full min-w-0 max-w-full overflow-hidden";
+
         return file.url ? (
           <a
             key={key}
             href={file.url}
             download={file.name || undefined}
             rel="noopener noreferrer"
-            className="group inline-flex w-fit min-w-[220px] max-w-full items-center gap-2 rounded-xl border border-emerald-200/70 bg-white/70 px-3 py-2.5 text-xs text-slate-700 transition hover:border-emerald-300 hover:bg-white hover:shadow-[0_0_16px_rgba(16,185,129,0.18)] dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200 dark:hover:bg-slate-900/70 dark:hover:shadow-[0_0_16px_rgba(16,185,129,0.14)]"
+            className={`group ${docChipClass} items-center gap-2 rounded-xl border border-emerald-200/70 bg-white/70 px-3 py-2.5 text-xs text-slate-700 transition hover:border-emerald-300 hover:bg-white hover:shadow-[0_0_16px_rgba(16,185,129,0.18)] dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200 dark:hover:bg-slate-900/70 dark:hover:shadow-[0_0_16px_rgba(16,185,129,0.14)]`}
           >
             <span className="relative inline-flex h-5 w-5 shrink-0 items-center justify-center">
               <File size={18} className="absolute text-emerald-600 transition-opacity duration-150 group-hover:opacity-0 dark:text-emerald-300" />
               <Download size={18} className="absolute text-emerald-600 opacity-0 transition-opacity duration-150 group-hover:opacity-100 dark:text-emerald-300" />
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block truncate whitespace-nowrap">
-                {truncateFileNameKeepExt(file.name || "document")}
-              </span>
+              {(() => {
+                const { base, ext } = getFileNameParts(file.name || "document");
+                return (
+                  <span className="flex min-w-0 items-center" dir="auto">
+                    <span className="min-w-0 truncate whitespace-nowrap">{base}</span>
+                    {ext ? <span className="shrink-0">{ext}</span> : null}
+                  </span>
+                );
+              })()}
               <span className="mt-0.5 block text-[10px] text-slate-500 dark:text-slate-400">
                 {formatFileSize(file.sizeBytes)}
               </span>
@@ -355,13 +403,19 @@ export function MessageFiles({
         ) : (
           <div
             key={key}
-            className="inline-flex w-fit min-w-[220px] max-w-full items-center gap-2 rounded-xl border border-emerald-200/70 bg-white/70 px-3 py-2.5 text-xs text-slate-700 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200"
+            className={`${docChipClass} items-center gap-2 rounded-xl border border-emerald-200/70 bg-white/70 px-3 py-2.5 text-xs text-slate-700 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200`}
           >
             <File size={18} className="shrink-0 text-emerald-600 dark:text-emerald-300" />
             <span className="min-w-0 flex-1">
-              <span className="block truncate whitespace-nowrap">
-                {truncateFileNameKeepExt(file.name || "document")}
-              </span>
+              {(() => {
+                const { base, ext } = getFileNameParts(file.name || "document");
+                return (
+                  <span className="flex min-w-0 items-center" dir="auto">
+                    <span className="min-w-0 truncate whitespace-nowrap">{base}</span>
+                    {ext ? <span className="shrink-0">{ext}</span> : null}
+                  </span>
+                );
+              })()}
               <span className="mt-0.5 block text-[10px] text-slate-500 dark:text-slate-400">
                 {formatFileSize(file.sizeBytes)}
               </span>

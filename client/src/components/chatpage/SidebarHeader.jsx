@@ -19,6 +19,8 @@ export default function SidebarHeader({
   onChatsSearchFocus,
   onChatsSearchBlur,
   onCloseSearch,
+  chatsScrollable = false,
+  onScrollToTop,
 }) {
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const createMenuRef = useRef(null);
@@ -56,7 +58,7 @@ export default function SidebarHeader({
                     searchInputRef.current?.blur?.();
                     onCloseSearch?.();
                   }}
-                  className="inline-flex items-center justify-center rounded-full border border-emerald-200 bg-white/80 p-2 text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+                  className="inline-flex items-center justify-center rounded-full border border-rose-200 bg-white/80 p-2 text-rose-600 transition hover:border-rose-300 hover:shadow-[0_0_16px_rgba(244,63,94,0.22)] dark:border-rose-500/30 dark:bg-slate-950 dark:text-rose-200"
                   aria-label="Close search"
                 >
                   <Close size={18} className="icon-anim-pop" />
@@ -65,7 +67,7 @@ export default function SidebarHeader({
                 <button
                   type="button"
                   onClick={onExitEdit}
-                  className="inline-flex items-center justify-center rounded-full border border-emerald-200 bg-white/80 p-2 text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+                  className="inline-flex items-center justify-center rounded-full border border-rose-200 bg-white/80 p-2 text-rose-600 transition hover:border-rose-300 hover:shadow-[0_0_16px_rgba(244,63,94,0.22)] dark:border-rose-500/30 dark:bg-slate-950 dark:text-rose-200"
                   aria-label="Exit edit mode"
                 >
                   <Close size={18} className="icon-anim-pop" />
@@ -87,13 +89,24 @@ export default function SidebarHeader({
                 {!editMode && (!isConnected || isUpdating) ? (
                   <LoaderCircle className="h-5 w-5 animate-spin text-emerald-500" />
                 ) : null}
-                {editMode
-                  ? "Edit"
-                  : !isConnected
-                    ? "Connecting..."
-                    : isUpdating
-                      ? "Updating..."
-                      : "Chats"}
+                {editMode ? (
+                  "Edit"
+                ) : !isConnected ? (
+                  "Connecting..."
+                ) : isUpdating ? (
+                  "Updating..."
+                ) : chatsScrollable ? (
+                  <button
+                    type="button"
+                    onClick={onScrollToTop}
+                    className="inline-flex cursor-pointer items-center gap-2 px-1 py-0.5 text-inherit"
+                    aria-label="Scroll chats to top"
+                  >
+                    Chats
+                  </button>
+                ) : (
+                  "Chats"
+                )}
               </span>
             </h2>
             <div className="flex justify-end">
@@ -170,7 +183,7 @@ export default function SidebarHeader({
                   type="button"
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => onChatsSearchChange?.("")}
-                  className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-emerald-700 transition hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                  className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-rose-600 transition hover:bg-rose-100 hover:shadow-[0_0_18px_rgba(244,63,94,0.22)] dark:text-rose-200 dark:hover:bg-rose-500/10"
                   aria-label="Clear search"
                 >
                   <Close size={14} className="icon-anim-pop" />

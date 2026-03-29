@@ -83,5 +83,13 @@ export const CHAT_PAGE_CONFIG = {
     integer: true,
     min: 250,
   }),
+  cacheTtlMs:
+    readEnvNumber("CHAT_CACHE_TTL", 24, {
+      integer: true,
+      min: 1,
+    }) *
+    60 *
+    60 *
+    1000,
   fileUploadEnabled: readEnvBool("FILE_UPLOAD", true),
 };

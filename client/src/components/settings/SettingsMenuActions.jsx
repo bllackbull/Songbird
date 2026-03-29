@@ -1,4 +1,4 @@
-import { Bell, BellOff, LogOut, ShieldCheck, User } from "../../icons/lucide.js";
+import { Bell, BellOff, Database, LogOut, ShieldCheck, User } from "../../icons/lucide.js";
 import { ThemeButton } from "./ThemeButton.jsx";
 
 export function SettingsMenuActions({
@@ -37,6 +37,14 @@ export function SettingsMenuActions({
       >
         <ShieldCheck size={18} className="icon-anim-sway" />
         Security
+      </button>
+      <button
+        type="button"
+        onClick={() => setSettingsPanel("data")}
+        className={`mt-1 ${buttonBase} ${accentHover}`}
+      >
+        <Database size={18} className="icon-anim-sway" />
+        Data
       </button>
       <button
         type="button"

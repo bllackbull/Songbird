@@ -14,6 +14,7 @@
   "scripts": {
     "dev": "node --watch index.js",
     "start": "node index.js",
+    "test": "node -e \"console.log('No server tests configured.');\"",
     "db:delete": "node scripts/delete-db.js",
     "db:reset": "node scripts/reset-db.js",
     "db:backup": "node scripts/backup-db.js",

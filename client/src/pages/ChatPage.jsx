@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import MobileTabMenu from "../components/MobileTabMenu.jsx";
 import ChatWindowPanel from "../components/ChatWindowPanel.jsx";
 import ChatProfileModal from "../components/ChatProfileModal.jsx";
@@ -12,6 +12,7 @@ import { DesktopSettingsModal } from "../components/settings/index.js";
 import { ChatSidebar } from "../components/chatpage/index.js";
 import { CHAT_PAGE_CONFIG } from "../settings/chatPageConfig.js";
 import { getAvatarInitials } from "../utils/avatarInitials.js";
+import { NICKNAME_MAX, USERNAME_MAX } from "../utils/nameLimits.js";
 import {
   formatBytesAsMb,
   formatChatCardTimestamp,
@@ -46,7 +47,7 @@ import {
   uploadGroupAvatar,
   updatePassword,
   updateProfile,
-  updateStatus,
+  updateStatus as updateStatusRequest,
   uploadAvatar,
 } from "../api/chatApi.js";
 
@@ -57,6 +58,135 @@ const NOTIFICATION_PREVIEW_MAX_CHARS = 120;
 const NOTIFICATIONS_ENABLED_KEY = "songbird-notify-enabled";
 const OPEN_CHAT_ID_KEY = "songbird-open-chat-id";
 const PRESENCE_IDLE_THRESHOLD_MS = 12 * 1000;
+const CHAT_CACHE_VERSION = 1;
+const CHAT_LIST_CACHE_KEY = "songbird-chat-list-cache";
+const CHAT_MESSAGES_CACHE_KEY = "songbird-chat-messages-cache";
+const CHAT_MESSAGES_INDEX_KEY = "songbird-chat-messages-index";
+const CHAT_MESSAGES_INDEX_LIMIT = 25;
+const MEDIA_THUMB_CACHE_KEY = "chat-media-thumbs-v2";
+const MEDIA_POSTER_CACHE_KEY = "chat-video-posters-v3";
+const MESSAGE_CACHE_MAX = Math.max(
+  50,
+  Math.min(200, CHAT_PAGE_CONFIG.messageFetchLimit),
+);
+
+const safeParseJson = (raw) => {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+};
+
+const readLocalCache = (key) => {
+  if (typeof window === "undefined") return null;
+  return safeParseJson(window.localStorage.getItem(key));
+};
+
+const removeLocalCache = (key) => {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // ignore storage failures
+  }
+};
+
+const writeLocalCache = (key, value) => {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // ignore storage failures
+  }
+};
+
+const buildChatListCacheKey = (username) =>
+  `${CHAT_LIST_CACHE_KEY}:${String(username || "").toLowerCase()}`;
+
+const buildMessagesCacheKey = (username, chatId) =>
+  `${CHAT_MESSAGES_CACHE_KEY}:${String(username || "").toLowerCase()}:${Number(chatId || 0)}`;
+
+const buildMessagesIndexKey = (username) =>
+  `${CHAT_MESSAGES_INDEX_KEY}:${String(username || "").toLowerCase()}`;
+
+const isCacheExpired = (entry, ttlMs) => {
+  if (!entry || typeof entry !== "object") return true;
+  if (!Number.isFinite(Number(entry.updatedAt))) return true;
+  return Date.now() - Number(entry.updatedAt) > ttlMs;
+};
+
+const readChatListCache = (username) => {
+  const cached = readLocalCache(buildChatListCacheKey(username));
+  if (!cached || cached.version !== CHAT_CACHE_VERSION) return null;
+  if (isCacheExpired(cached, CHAT_PAGE_CONFIG.cacheTtlMs)) {
+    removeLocalCache(buildChatListCacheKey(username));
+    return null;
+  }
+  return cached;
+};
+
+const readMessagesCache = (username, chatId) => {
+  const key = buildMessagesCacheKey(username, chatId);
+  const cached = readLocalCache(key);
+  if (!cached || cached.version !== CHAT_CACHE_VERSION) return null;
+  if (isCacheExpired(cached, CHAT_PAGE_CONFIG.cacheTtlMs)) {
+    removeLocalCache(key);
+    return null;
+  }
+  return cached;
+};
+
+const readMessagesIndex = (username) => {
+  const index = readLocalCache(buildMessagesIndexKey(username));
+  return Array.isArray(index) ? index : [];
+};
+
+const writeMessagesIndex = (username, index) => {
+  writeLocalCache(buildMessagesIndexKey(username), index);
+};
+
+const pruneMessagesIndex = (username, index) => {
+  const trimmed = index
+    .filter((entry) => Number(entry?.chatId) > 0 && Number.isFinite(Number(entry?.updatedAt)))
+    .sort((a, b) => Number(b.updatedAt) - Number(a.updatedAt))
+    .slice(0, CHAT_MESSAGES_INDEX_LIMIT);
+  const keepIds = new Set(trimmed.map((entry) => Number(entry.chatId)));
+  index.forEach((entry) => {
+    const chatId = Number(entry?.chatId);
+    if (!chatId || keepIds.has(chatId)) return;
+    removeLocalCache(buildMessagesCacheKey(username, chatId));
+  });
+  return trimmed;
+};
+
+const updateMessagesIndex = (username, chatId, updatedAt) => {
+  if (!username || !chatId) return;
+  const index = readMessagesIndex(username);
+  const next = index.filter((entry) => Number(entry?.chatId) !== Number(chatId));
+  next.push({ chatId: Number(chatId), updatedAt: Number(updatedAt) || Date.now() });
+  const trimmed = pruneMessagesIndex(username, next);
+  writeMessagesIndex(username, trimmed);
+};
+
+const sanitizeMessageForCache = (message) => {
+  if (!message || typeof message !== "object") return message;
+  const { _files, ...rest } = message;
+  if (Array.isArray(rest.files)) {
+    rest.files = rest.files.map((file) => {
+      if (!file || typeof file !== "object") return file;
+      const { file: _file, ...fileRest } = file;
+      return fileRest;
+    });
+  }
+  return rest;
+};
+
+const sanitizeMessagesForCache = (messages) =>
+  (Array.isArray(messages) ? messages : [])
+    .map(sanitizeMessageForCache)
+    .slice(-MESSAGE_CACHE_MAX);
 
 
 
@@ -80,6 +210,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [newChatResults, setNewChatResults] = useState([]);
   const [newChatLoading, setNewChatLoading] = useState(false);
   const [newChatSelection, setNewChatSelection] = useState(null);
+  const dmUsernamesRef = useRef(new Set());
   const [chatsSearchQuery, setChatsSearchQuery] = useState("");
   const [chatsSearchFocused, setChatsSearchFocused] = useState(false);
   const [discoverLoading, setDiscoverLoading] = useState(false);
@@ -142,6 +273,35 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const queuedSilentMessageRefreshRef = useRef(null);
   const messagesCacheRef = useRef(new Map());
   const [sseConnected, setSseConnected] = useState(false);
+  const [dataCacheStats, setDataCacheStats] = useState({
+    totalBytes: 0,
+    totalLabel: "0 B",
+    chatList: {
+      count: 0,
+      sizeBytes: 0,
+      sizeLabel: "0 B",
+      updatedAt: null,
+      entries: [],
+    },
+    messageCaches: {
+      count: 0,
+      sizeBytes: 0,
+      sizeLabel: "0 B",
+      entries: [],
+    },
+    mediaThumbs: {
+      count: 0,
+      sizeBytes: 0,
+      sizeLabel: "0 B",
+      updatedAt: null,
+    },
+    mediaPosters: {
+      count: 0,
+      sizeBytes: 0,
+      sizeLabel: "0 B",
+      updatedAt: null,
+    },
+  });
   const [profileForm, setProfileForm] = useState({
     nickname: user?.nickname || "",
     username: user?.username || "",
@@ -229,12 +389,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     hasNotificationApi && isSecureContext && !mobileRequiresStandalone;
   const notificationsAllowed = notificationPermission === "granted";
   const notificationsActive = notificationsEnabled && notificationsAllowed;
-  const notificationStatusLabel = !hasNotificationApi
-    ? "Not supported in this browser"
-    : !isSecureContext
-      ? "Connection is not secure"
-      : mobileRequiresStandalone
-        ? "Require Home screen installation"
+  const notificationStatusLabel = !isSecureContext
+    ? "Connection is not secure"
+    : mobileRequiresStandalone
+      ? "Require Home screen installation"
+      : !hasNotificationApi
+        ? "Not supported in this browser"
         : notificationPermission === "denied"
           ? "Blocked in browser settings"
           : "";
@@ -298,6 +458,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (docCount > 0 && imageCount === 0 && videoCount === 0) {
       return `Sent ${docCount} document${docCount > 1 ? "s" : ""}`;
     }
+    if (imageCount > 0 && videoCount > 0 && docCount === 0) {
+      return `Sent ${files.length} media files`;
+    }
     return `Sent ${files.length} files`;
   };
 
@@ -316,15 +479,26 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       String(file?.mimeType || "").toLowerCase().startsWith("image/"),
     ).length;
     const docCount = Math.max(0, files.length - videoCount - imageCount);
-    const icon =
-      videoCount > 0 ? "video" : imageCount > 0 ? "image" : files.length ? "document" : null;
+    const isMixedMedia = imageCount > 0 && videoCount > 0 && docCount === 0;
+    const icon = isMixedMedia
+      ? "image"
+      : videoCount > 0
+        ? "video"
+        : imageCount > 0
+          ? "image"
+          : files.length
+            ? "document"
+            : null;
     let summary = summarizeFiles(files);
     if (!summary && /^Sent a media file$/i.test(rawBody)) {
       if (videoCount === 1 && imageCount === 0) summary = "Sent a video";
       if (imageCount === 1 && videoCount === 0) summary = "Sent a photo";
     }
     const isGenericBody =
-      !rawBody || /^Sent (a media file|a document|\d+ files)$/i.test(rawBody);
+      !rawBody || /^Sent (a media file|a document|\d+ files|\d+ media files)$/i.test(rawBody);
+    if (isMixedMedia && (isGenericBody || /^Sent \d+ files$/i.test(rawBody))) {
+      summary = `Sent ${files.length} media files`;
+    }
     const text = isGenericBody && summary ? summary : rawBody || summary || "Message";
     return { text, icon: icon || (docCount > 0 ? "document" : null) };
   };
@@ -348,6 +522,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       body: preview.text,
       icon: preview.icon,
       displayName: replyName || "Unknown",
+      color: msg.color || "#10b981",
     });
     if (!userScrolledUpRef.current) {
       pendingScrollToBottomRef.current = true;
@@ -497,6 +672,36 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, [user]);
 
   useEffect(() => {
+    if (!user?.username) return;
+    const cached = readChatListCache(user.username);
+    if (!cached) return;
+    if (!Array.isArray(cached.chats) || cached.chats.length === 0) return;
+    setChats((prev) => (prev.length ? prev : cached.chats));
+    setLoadingChats(false);
+  }, [user?.username]);
+
+  useEffect(() => {
+    if (!user?.username) return;
+    const index = readMessagesIndex(user.username);
+    if (!index.length) return;
+    const now = Date.now();
+    const filtered = index.filter((entry) => {
+      const chatId = Number(entry?.chatId);
+      const updatedAt = Number(entry?.updatedAt);
+      if (!chatId || !Number.isFinite(updatedAt)) return false;
+      if (now - updatedAt > CHAT_PAGE_CONFIG.cacheTtlMs) {
+        removeLocalCache(buildMessagesCacheKey(user.username, chatId));
+        return false;
+      }
+      return true;
+    });
+    const trimmed = pruneMessagesIndex(user.username, filtered);
+    if (trimmed.length !== index.length) {
+      writeMessagesIndex(user.username, trimmed);
+    }
+  }, [user?.username]);
+
+  useEffect(() => {
     if (user) {
       void loadChats({ showUpdating: true });
     }
@@ -573,6 +778,33 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, [user, isAppActive]);
 
   useEffect(() => {
+    const usernames = new Set();
+    (chats || []).forEach((chat) => {
+      if (chat.type !== "dm") return;
+      const members = Array.isArray(chat.members) ? chat.members : [];
+      const other =
+        members.find(
+          (member) =>
+            String(member?.username || "").toLowerCase() !==
+            String(user.username || "").toLowerCase(),
+        ) || null;
+      const otherUsername = String(
+        other?.username ||
+          chat?.username ||
+          chat?.peer_username ||
+          chat?.dm_username ||
+          "",
+      )
+        .toLowerCase()
+        .trim();
+      if (otherUsername && otherUsername !== String(user.username || "").toLowerCase()) {
+        usernames.add(otherUsername);
+      }
+    });
+    dmUsernamesRef.current = usernames;
+  }, [chats, user.username]);
+
+  useEffect(() => {
     if (!newChatOpen) return;
     if (!newChatUsername.trim()) {
       setNewChatResults([]);
@@ -590,10 +822,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         if (!res.ok) {
           throw new Error(data?.error || "Unable to search users.");
         }
-        const users = (data.users || []).slice(
-          0,
-          CHAT_PAGE_CONFIG.newChatSearchMaxResults,
-        );
+        const dmUsernames = dmUsernamesRef.current;
+        const users = (data.users || [])
+          .filter(
+            (candidate) =>
+              !dmUsernames.has(String(candidate.username || "").toLowerCase()),
+          )
+          .slice(0, CHAT_PAGE_CONFIG.newChatSearchMaxResults);
         setNewChatResults(users);
       } catch (err) {
         setNewChatError(err.message);
@@ -747,13 +982,21 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (user && activeChatId) {
       const openedChatId = Number(activeChatId);
       const openedChat = chats.find((chat) => chat.id === openedChatId);
-      const cached = messagesCacheRef.current.get(openedChatId) || null;
+      let cached = messagesCacheRef.current.get(openedChatId) || null;
+      if (!cached && user?.username) {
+        const persisted = readMessagesCache(user.username, openedChatId);
+        if (persisted && Array.isArray(persisted.messages)) {
+          cached = persisted;
+          messagesCacheRef.current.set(openedChatId, persisted);
+        }
+      }
+      const hasCachedMessages = Array.isArray(cached?.messages) && cached.messages.length > 0;
       openingHadUnreadRef.current = Boolean((openedChat?.unread_count || 0) > 0);
       openingUnreadCountRef.current = Number(openedChat?.unread_count || 0);
       isAtBottomRef.current = true;
       setIsAtBottom(true);
-      setLoadingMessages(!cached);
-      setMessages(Array.isArray(cached?.messages) ? cached.messages : []);
+      setLoadingMessages(!hasCachedMessages);
+      setMessages(hasCachedMessages ? cached.messages : []);
       setHasOlderMessages(Boolean(cached?.hasOlderMessages));
       setLoadingOlderMessages(false);
       lastMessageIdRef.current = Number(cached?.lastMessageId || 0) || null;
@@ -790,7 +1033,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         document.visibilityState === "visible" &&
         document.hasFocus();
       void (async () => {
-        const shouldFetchInitial = !cached || !sseConnected;
+        const shouldFetchInitial = !cached || !sseConnected || !hasCachedMessages;
         if (shouldFetchInitial) {
           await loadMessages(openedChatId, { initialLoad: true, limit: initialLimit });
         } else {
@@ -889,7 +1132,17 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     activeChat?.type === "dm"
       ? activeMembers.find((member) => member.username !== user.username)
       : null;
-  const activeHeaderPeer = activePeer || activeDmMember;
+  const isDeletedDm = activeChat?.type === "dm" && !activeDmMember;
+  const deletedDmPeer = isDeletedDm
+    ? {
+        nickname: "Deleted account",
+        username: "",
+        color: "#94a3b8",
+        avatar_url: "",
+        isDeleted: true,
+      }
+    : null;
+  const activeHeaderPeer = activePeer || activeDmMember || deletedDmPeer;
   const activeFallbackTitle = isActiveGroupChat
     ? activeChat?.name || "Group"
     : activeHeaderPeer?.nickname || activeHeaderPeer?.username || "Select a chat";
@@ -993,7 +1246,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const effectivePeerIdleThreshold = PRESENCE_IDLE_THRESHOLD_MS;
   const isIdle =
     lastSeenAt !== null && Date.now() - lastSeenAt > effectivePeerIdleThreshold;
-  const peerStatusLabel = !activeHeaderPeer
+  const peerStatusLabel = !activeHeaderPeer || activeHeaderPeer?.isDeleted
     ? "offline"
     : isIdle
       ? "offline"
@@ -1396,7 +1649,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           const other = (chat.members || []).find(
             (member) => member.username !== user?.username,
           );
-          title = other?.nickname || other?.username || "Direct message";
+          title = other?.nickname || other?.username || "Deleted account";
         } else {
           title = chat.name || "Chat";
         }
@@ -1719,13 +1972,26 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   useEffect(() => {
     if (!activeChatId) return;
-    messagesCacheRef.current.set(Number(activeChatId), {
+    const cachePayload = {
+      version: CHAT_CACHE_VERSION,
       messages,
       hasOlderMessages,
       lastMessageId: messages.length ? Number(messages[messages.length - 1]?.id || 0) : 0,
       updatedAt: Date.now(),
-    });
-  }, [activeChatId, messages, hasOlderMessages]);
+    };
+    messagesCacheRef.current.set(Number(activeChatId), cachePayload);
+    if (user?.username) {
+      const storagePayload = {
+        ...cachePayload,
+        messages: sanitizeMessagesForCache(messages),
+      };
+      writeLocalCache(
+        buildMessagesCacheKey(user.username, activeChatId),
+        storagePayload,
+      );
+      updateMessagesIndex(user.username, activeChatId, cachePayload.updatedAt);
+    }
+  }, [activeChatId, messages, hasOlderMessages, user?.username]);
 
   useEffect(() => {
     if (settingsPanel !== "profile" && profileError) {
@@ -1858,6 +2124,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         };
       });
       setChats(patched);
+      writeLocalCache(buildChatListCacheKey(user.username), {
+        version: CHAT_CACHE_VERSION,
+        updatedAt: Date.now(),
+        chats: patched,
+      });
 
       const pendingOpenChatId = Number(
         typeof window !== "undefined"
@@ -1893,6 +2164,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }
 
   async function loadMessages(chatId, options = {}) {
+    const requestChatId = Number(chatId);
     if (!options.silent) {
       setLoadingMessages(true);
     }
@@ -1929,6 +2201,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data?.error || "Failed to load messages.");
+      }
+      if (activeChatIdRef.current !== requestChatId) {
+        return;
       }
       setHasOlderMessages((prev) =>
         options.prepend
@@ -1980,22 +2255,30 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           .map((message) => [Number(message?.id || 0), resolveReplyPreview(message).icon || null])
           .filter(([id, icon]) => Number.isFinite(id) && id > 0 && Boolean(icon)),
       );
+      const replyColorByMessageId = new Map(
+        nextMessages
+          .map((message) => [Number(message?.id || 0), message?.color || null])
+          .filter(([id, color]) => Number.isFinite(id) && id > 0 && Boolean(color)),
+      );
       const nextMessagesWithReplyIcons = nextMessages.map((message) => {
-        if (!message?.replyTo || message.replyTo.icon) return message;
+        if (!message?.replyTo) return message;
         const replyId = Number(message.replyTo.id || 0);
         if (!replyId) return message;
         const resolvedIcon = replyIconByMessageId.get(replyId) || null;
-        if (!resolvedIcon) return message;
+        const resolvedColor = replyColorByMessageId.get(replyId) || null;
+        if (!resolvedIcon && !resolvedColor) return message;
         return {
           ...message,
           replyTo: {
             ...message.replyTo,
-            icon: resolvedIcon,
+            icon: resolvedIcon || message.replyTo.icon || null,
+            color: resolvedColor || message.replyTo.color || null,
           },
         };
       });
       if (options.prepend) {
         setMessages((prev) => {
+          if (activeChatIdRef.current !== requestChatId) return prev;
           const seen = new Set(prev.map((msg) => Number(msg.id)));
           const older = nextMessagesWithReplyIcons.filter((msg) => !seen.has(Number(msg.id)));
           return older.length ? [...older, ...prev] : prev;
@@ -2003,6 +2286,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         return;
       }
       setMessages((prev) => {
+        if (activeChatIdRef.current !== requestChatId) return prev;
         const prevLatestVisibleTime = prev.reduce((max, msg) => {
           const t = Number(msg?._visibilityTime || parseServerDate(msg?.created_at).getTime());
           return Number.isFinite(t) ? Math.max(max, t) : max;
@@ -2637,6 +2921,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           body: replyTarget.body,
           icon: replyTarget.icon || null,
           displayName: replyTarget.displayName,
+          color: replyTarget.color || null,
         }
       : null;
 
@@ -2751,10 +3036,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
   }
 
-  async function updateStatus(nextStatus) {
+  async function handleStatusUpdate(nextStatus) {
     if (!user || user.status === nextStatus) return;
     try {
-      const res = await updateStatus({ username: user.username, status: nextStatus });
+      const res = await updateStatusRequest({
+        username: user.username,
+        status: nextStatus,
+      });
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data?.error || "Unable to update status.");
@@ -2812,7 +3100,16 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   async function handleProfileSave(event) {
     event.preventDefault();
     setProfileError("");
+    const trimmedNickname = profileForm.nickname.trim();
     const trimmedUsername = profileForm.username.trim().toLowerCase();
+    if (trimmedNickname.length > NICKNAME_MAX) {
+      setProfileError(`Nickname must be ${NICKNAME_MAX} characters or less.`);
+      return;
+    }
+    if (trimmedUsername.length > USERNAME_MAX) {
+      setProfileError(`Username must be ${USERNAME_MAX} characters or less.`);
+      return;
+    }
     if (trimmedUsername.length < 3) {
       setProfileError("Username must be at least 3 characters.");
       return;
@@ -2842,7 +3139,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       const res = await updateProfile({
         currentUsername: user.username,
         username: trimmedUsername,
-        nickname: profileForm.nickname,
+        nickname: trimmedNickname,
         avatarUrl: avatarUrlToSave,
       });
       const data = await res.json();
@@ -2860,7 +3157,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       let updatedUser = nextUser;
 
       if (statusSelection && statusSelection !== (user.status || "online")) {
-        await updateStatus(statusSelection);
+        await handleStatusUpdate(statusSelection);
         updatedUser = { ...updatedUser, status: statusSelection };
       }
 
@@ -2915,6 +3212,213 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setShowSettings(false);
     setMobileTab("chats");
   }
+
+  const formatBytes = (bytes) => {
+    const value = Number(bytes || 0);
+    if (!Number.isFinite(value) || value <= 0) return "0 B";
+    const kb = 1024;
+    const mb = kb * 1024;
+    if (value >= mb) return `${(value / mb).toFixed(2)} MB`;
+    if (value >= kb) return `${Math.round(value / kb)} KB`;
+    return `${Math.max(1, Math.round(value))} B`;
+  };
+
+  const getCacheStats = useCallback(() => {
+    if (typeof window === "undefined") {
+      return {
+        totalBytes: 0,
+        totalLabel: "0 B",
+        chatList: {
+          count: 0,
+          sizeBytes: 0,
+          sizeLabel: "0 B",
+          updatedAt: null,
+          entries: [],
+        },
+        messageCaches: {
+          count: 0,
+          sizeBytes: 0,
+          sizeLabel: "0 B",
+          entries: [],
+        },
+        mediaThumbs: {
+          count: 0,
+          sizeBytes: 0,
+          sizeLabel: "0 B",
+          updatedAt: null,
+        },
+        mediaPosters: {
+          count: 0,
+          sizeBytes: 0,
+          sizeLabel: "0 B",
+          updatedAt: null,
+        },
+      };
+    }
+
+    const username = String(user?.username || "").toLowerCase();
+    let totalBytes = 0;
+    let chatListSizeBytes = 0;
+    let messageCacheSizeBytes = 0;
+    let mediaThumbSizeBytes = 0;
+    let mediaPosterSizeBytes = 0;
+    let chatListUpdatedAt = null;
+    let mediaThumbUpdatedAt = null;
+    let mediaPosterUpdatedAt = null;
+    const chatListEntries = [];
+    const messageCacheEntries = [];
+    const chatNameById = new Map();
+
+    const addSize = (value) => {
+      if (typeof value !== "string") return;
+      const bytes = new Blob([value]).size;
+      totalBytes += bytes;
+      return bytes;
+    };
+
+    const chatListKey = buildChatListCacheKey(username);
+    const messagesIndexKey = buildMessagesIndexKey(username);
+    let mediaThumbParsed = null;
+    let mediaPosterParsed = null;
+
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i);
+      if (!key) continue;
+      const value = window.localStorage.getItem(key);
+      if (key === chatListKey) {
+        const size = addSize(value);
+        const parsed = safeParseJson(value);
+        const chats = Array.isArray(parsed?.chats) ? parsed.chats : [];
+        chatListSizeBytes += size || 0;
+        chatListUpdatedAt = parsed?.updatedAt || null;
+        chats.forEach((chat) => {
+          const chatId = Number(chat?.id || 0);
+          if (chatId) {
+            chatNameById.set(chatId, String(chat?.name || chat?.group_username || chat?.username || "Chat"));
+          }
+          chatListEntries.push({
+            id: chatId,
+            name: String(chat?.name || chat?.group_username || chat?.username || "Chat"),
+            type: String(chat?.type || "").toLowerCase() || "chat",
+            lastTime: chat?.last_time || null,
+            avatar_url: chat?.group_avatar_url || null,
+            color: chat?.group_color || null,
+            members: Array.isArray(chat?.members) ? chat.members : [],
+          });
+        });
+        continue;
+      }
+      if (key === messagesIndexKey) {
+        addSize(value);
+        continue;
+      }
+      if (key.startsWith(`${CHAT_MESSAGES_CACHE_KEY}:${username}:`)) {
+        const size = addSize(value);
+        messageCacheSizeBytes += size || 0;
+        const parsed = safeParseJson(value);
+        const chatId = Number(parsed?.chatId || key.split(":").pop() || 0);
+        const messageCount = Array.isArray(parsed?.messages) ? parsed.messages.length : 0;
+        const updatedAt = parsed?.updatedAt || null;
+        messageCacheEntries.push({
+          chatId,
+          chatName: chatNameById.get(chatId) || `Chat ${chatId || ""}`.trim(),
+          messageCount,
+          updatedAt,
+          sizeBytes: size || 0,
+        });
+        continue;
+      }
+      if (key === MEDIA_THUMB_CACHE_KEY) {
+        const size = addSize(value);
+        mediaThumbSizeBytes += size || 0;
+        mediaThumbParsed = safeParseJson(value);
+        mediaThumbUpdatedAt = mediaThumbParsed?.updatedAt || null;
+        continue;
+      }
+      if (key === MEDIA_POSTER_CACHE_KEY) {
+        const size = addSize(value);
+        mediaPosterSizeBytes += size || 0;
+        mediaPosterParsed = safeParseJson(value);
+        mediaPosterUpdatedAt = mediaPosterParsed?.updatedAt || null;
+        continue;
+      }
+    }
+
+    return {
+      totalBytes,
+      totalLabel: formatBytes(totalBytes),
+      chatList: {
+        count: chatListEntries.length,
+        sizeBytes: chatListSizeBytes,
+        sizeLabel: formatBytes(chatListSizeBytes),
+        updatedAt: chatListUpdatedAt,
+        entries: chatListEntries,
+      },
+      messageCaches: {
+        count: messageCacheEntries.length,
+        sizeBytes: messageCacheSizeBytes,
+        sizeLabel: formatBytes(messageCacheSizeBytes),
+        entries: messageCacheEntries.map((entry) => ({
+          ...entry,
+          sizeLabel: formatBytes(entry.sizeBytes),
+        })),
+      },
+      mediaThumbs: {
+        count: Array.isArray(mediaThumbParsed?.items) ? mediaThumbParsed.items.length : 0,
+        sizeBytes: mediaThumbSizeBytes,
+        sizeLabel: formatBytes(mediaThumbSizeBytes),
+        updatedAt: mediaThumbUpdatedAt,
+      },
+      mediaPosters: {
+        count: mediaPosterParsed?.posters ? Object.keys(mediaPosterParsed.posters || {}).length : 0,
+        sizeBytes: mediaPosterSizeBytes,
+        sizeLabel: formatBytes(mediaPosterSizeBytes),
+        updatedAt: mediaPosterUpdatedAt,
+      },
+    };
+  }, [user?.username]);
+
+  useEffect(() => {
+    if (settingsPanel !== "data") return;
+    setDataCacheStats(getCacheStats());
+  }, [getCacheStats, settingsPanel, user?.username]);
+
+  const handleClearCache = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const username = String(user?.username || "").toLowerCase();
+    if (username) {
+      const keysToRemove = [];
+      for (let i = 0; i < window.localStorage.length; i += 1) {
+        const key = window.localStorage.key(i);
+        if (!key) continue;
+        if (
+          key === buildChatListCacheKey(username) ||
+          key === buildMessagesIndexKey(username) ||
+          key.startsWith(`${CHAT_MESSAGES_CACHE_KEY}:${username}:`)
+        ) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach((key) => removeLocalCache(key));
+    }
+
+    [
+      MEDIA_THUMB_CACHE_KEY,
+      MEDIA_POSTER_CACHE_KEY,
+      "chat-media-thumbs",
+      "chat-video-posters-v2",
+    ].forEach((key) => removeLocalCache(key));
+
+    try {
+      window.sessionStorage.removeItem("chat-media-thumbs");
+      window.sessionStorage.removeItem("chat-video-posters-v2");
+    } catch {
+      // ignore storage failures
+    }
+
+    messagesCacheRef.current.clear();
+    setDataCacheStats(getCacheStats());
+  }, [getCacheStats, user?.username]);
 
   const closeNewChatModal = () => {
     setNewChatOpen(false);
@@ -3157,6 +3661,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const username = newGroupForm.username.trim().toLowerCase();
     if (!nickname) {
       setNewGroupError("Group nickname is required.");
+      return;
+    }
+    if (nickname.length > NICKNAME_MAX) {
+      setNewGroupError(`Group nickname must be ${NICKNAME_MAX} characters or less.`);
+      return;
+    }
+    if (username.length > USERNAME_MAX) {
+      setNewGroupError(`Group username must be ${USERNAME_MAX} characters or less.`);
       return;
     }
     if (username.length < 3) {
@@ -3504,6 +4016,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         notificationsDisabled={notificationsDisabled}
         notificationStatusLabel={notificationStatusLabel}
         onToggleNotifications={handleToggleNotifications}
+        onClearCache={handleClearCache}
+        dataCacheStats={dataCacheStats}
         onExitEdit={handleExitEdit}
         onEnterEdit={handleEnterEdit}
         onDeleteChats={handleDeleteChats}
@@ -3668,7 +4182,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         onEditSelfProfile={openSelfProfileEditor}
       />
 
-      {settingsPanel && mobileTab !== "settings" ? (
+        {settingsPanel && mobileTab !== "settings" ? (
         <DesktopSettingsModal
           settingsPanel={settingsPanel}
           setSettingsPanel={setSettingsPanel}
@@ -3687,6 +4201,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           profileError={profileError}
           passwordError={passwordError}
           fileUploadEnabled={CHAT_PAGE_CONFIG.fileUploadEnabled}
+          onClearCache={handleClearCache}
+          dataCacheStats={dataCacheStats}
+          currentUser={user}
         />
       ) : null}
     </div>

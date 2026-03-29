@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs'
 import crypto from 'node:crypto'
 import { getCliArgs, getPositionalArgs, getFlagValue } from './_cli.js'
 import { openDatabase, runAdminActionViaServer } from './_db-admin.js'
+import { setUserColor } from '../settings/colors.js'
 
 function randomToken(length = 6) {
   const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
@@ -14,9 +15,11 @@ function randomToken(length = 6) {
 
 const args = getCliArgs()
 const positional = getPositionalArgs(args)
-const amountRaw = getFlagValue(args, '--count') || positional[0] || '10'
+const envCount = process.env.npm_config_count || process.env.npm_config_counts || ''
+const envPassword = process.env.npm_config_password || ''
+const amountRaw = getFlagValue(args, '--count') || envCount || positional[0] || '10'
 const amount = Math.max(1, Math.min(5000, Number(amountRaw) || 0))
-const password = getFlagValue(args, '--password') || positional[1] || 'Passw0rd!'
+const password = getFlagValue(args, '--password') || envPassword || positional[1] || 'Passw0rd!'
 const nicknamePrefix = getFlagValue(args, '--nickname-prefix') || 'User'
 const usernamePrefix = getFlagValue(args, '--username-prefix') || 'user'
 
@@ -53,9 +56,10 @@ try {
       } while (usedUsernames.has(username))
       usedUsernames.add(username)
       const nickname = `${nicknamePrefix} ${created + 1}`
+      const assignedColor = setUserColor()
       dbApi.run(
-        'INSERT INTO users (username, nickname, avatar_url, color, status, password_hash, created_at, last_seen) VALUES (?, ?, NULL, NULL, ?, ?, datetime("now"), datetime("now"))',
-        [username, nickname, 'online', passwordHash],
+        'INSERT INTO users (username, nickname, avatar_url, color, status, password_hash, created_at, last_seen) VALUES (?, ?, NULL, ?, ?, ?, datetime("now"), datetime("now"))',
+        [username, nickname, assignedColor, 'online', passwordHash],
       )
       created += 1
     }

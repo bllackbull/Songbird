@@ -11,6 +11,7 @@ function registerProfileRoutes(app, deps) {
     USERNAME_REGEX,
     bcrypt,
     ensureAvatarExists,
+    findChatByGroupUsername,
     findUserById,
     findUserByUsername,
     hasEnoughFreeDiskSpace,
@@ -108,6 +109,9 @@ function registerProfileRoutes(app, deps) {
     if (trimmed !== currentUser.username) {
       const existing = findUserByUsername(trimmed);
       if (existing) {
+        return res.status(409).json({ error: "Username already exists." });
+      }
+      if (findChatByGroupUsername && findChatByGroupUsername(trimmed)) {
         return res.status(409).json({ error: "Username already exists." });
       }
     }

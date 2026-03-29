@@ -364,6 +364,10 @@ label:hover .icon-anim-sway {
   animation: icon-sway 340ms ease-out 1 both;
 }
 
+.data-cache-item:hover .icon-anim-sway {
+  animation: icon-sway 340ms ease-out 1 both;
+}
+
 button:hover .icon-anim-bob,
 button:focus-visible .icon-anim-bob,
 label:hover .icon-anim-bob {

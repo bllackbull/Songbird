@@ -1,5 +1,11 @@
 import { confirmAction, getCliArgs, getPositionalArgs, hasForceYes } from './_cli.js'
-import { openDatabase, removeStoredFiles, chunkArray, runAdminActionViaServer } from './_db-admin.js'
+import {
+  openDatabase,
+  removeStoredFiles,
+  chunkArray,
+  runAdminActionViaServer,
+  detectRunningServer,
+} from './_db-admin.js'
 
 function parseChatIds(args) {
   const positional = getPositionalArgs(args)
@@ -52,19 +58,29 @@ function deleteChatsByIds(dbApi, chatIds) {
   }
 }
 
-const args = getCliArgs()
-const force = hasForceYes(args)
-const requestedChatIds = parseChatIds(args)
-const remoteResult = await runAdminActionViaServer('delete_chats', { chatIds: requestedChatIds })
-if (remoteResult) {
-  console.log(`Server mode: chats deleted: ${remoteResult.removedChats ?? 0}`)
-  console.log(`Server mode: stored files removed: ${remoteResult.removedFiles ?? 0}`)
-} else {
+async function main() {
+  const args = getCliArgs()
+  const force = hasForceYes(args)
+  const hasAll = args.some((arg) => String(arg).toLowerCase() === '--all')
+  const requestedChatIds = parseChatIds(args)
+  const positionalArgs = getPositionalArgs(args)
+
+  if (positionalArgs.length && !requestedChatIds.length) {
+    console.error('No valid chat ids provided. Use numeric chat ids.')
+    process.exitCode = 1
+    return
+  }
+
   const dbApi = await openDatabase()
   try {
     let chatIds = requestedChatIds
 
     if (!chatIds.length) {
+      if (!hasAll) {
+        console.error('Refusing to delete all chats without --all.')
+        process.exitCode = 1
+        return
+      }
       chatIds = dbApi
         .getAll('SELECT id FROM chats ORDER BY id ASC')
         .map((row) => Number(row.id))
@@ -73,26 +89,38 @@ if (remoteResult) {
 
     if (!chatIds.length) {
       console.log('No chats found. Nothing to delete.')
-    } else {
-      const confirmed = await confirmAction({
-        prompt: requestedChatIds.length
-          ? `Delete ${chatIds.length} selected chat(s) and related data?`
-          : `Delete ALL chats (${chatIds.length}) and related data?`,
-        force,
-        forceHint: 'Refusing to delete chats in non-interactive mode without -y/--yes. Run: npm run db:chat:delete -- -y',
-      })
-
-      if (!confirmed) {
-        console.log('Aborted.')
-      } else {
-        const result = deleteChatsByIds(dbApi, chatIds)
-        dbApi.save()
-        console.log(`Chats deleted: ${result.removedChats}`)
-        console.log(`Stored files removed: ${result.removedFiles}`)
-        console.log(`Stored files missing on disk: ${result.missingFiles}`)
-      }
+      return
     }
+
+    const confirmed = await confirmAction({
+      prompt: requestedChatIds.length
+        ? `Delete ${chatIds.length} selected chat(s) and related data?`
+        : `Delete ALL chats (${chatIds.length}) and related data?`,
+      force,
+      forceHint: 'Refusing to delete chats in non-interactive mode without -y/--yes. Run: npm run db:chat:delete -- -y',
+    })
+
+    if (!confirmed) {
+      console.log('Aborted.')
+      return
+    }
+
+    const { running } = await detectRunningServer()
+    if (running) {
+      const remoteResult = await runAdminActionViaServer('delete_chats', { chatIds })
+      console.log(`Server mode: chats deleted: ${remoteResult.removedChats ?? 0}`)
+      console.log(`Server mode: stored files removed: ${remoteResult.removedFiles ?? 0}`)
+      return
+    }
+
+    const result = deleteChatsByIds(dbApi, chatIds)
+    dbApi.save()
+    console.log(`Chats deleted: ${result.removedChats}`)
+    console.log(`Stored files removed: ${result.removedFiles}`)
+    console.log(`Stored files missing on disk: ${result.missingFiles}`)
   } finally {
     dbApi.close()
   }
 }
+
+await main()

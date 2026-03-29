@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   ArrowLeft,
   Eye,
@@ -9,8 +9,10 @@ import {
 import { getAvatarStyle } from "../../utils/avatarColor.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
+import { NICKNAME_MAX, USERNAME_MAX } from "../../utils/nameLimits.js";
 import { InlineError } from "./InlineError.jsx";
 import { SettingsMenuActions } from "./SettingsMenuActions.jsx";
+import { DataSettingsPanel } from "./DataSettingsPanel.jsx";
 
 export function MobileSettingsPanel({
   settingsPanel,
@@ -43,12 +45,17 @@ export function MobileSettingsPanel({
   notificationsEnabled,
   notificationStatusLabel,
   onToggleNotifications,
+  onClearCache,
+  dataCacheStats,
   onOpenOwnProfile,
 }) {
+  const handleClosePanel = useCallback(() => setSettingsPanel(null), [setSettingsPanel]);
   const resolvedUserColor = userColor || "#10b981";
   const displayInitials = getAvatarInitials(displayName);
   const profileIdentity = profileForm.nickname || profileForm.username || "S";
   const profileInitials = getAvatarInitials(profileIdentity);
+  const nicknameLength = String(profileForm.nickname || "").length;
+  const usernameLength = String(profileForm.username || "").length;
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -81,8 +88,12 @@ export function MobileSettingsPanel({
                   {displayInitials}
                 </div>
               )}
-              <div>
-                <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-200">
+              <div className="min-w-0">
+                <p
+                  className="truncate text-sm font-semibold text-emerald-700 dark:text-emerald-200"
+                  dir="auto"
+                  title={displayName}
+                >
                   {displayName}
                 </p>
                 <p className="mt-1 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
@@ -187,34 +198,46 @@ export function MobileSettingsPanel({
               <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
                 Nickname
               </span>
-              <input
-                value={profileForm.nickname}
-                onChange={(event) =>
-                  setProfileForm((prev) => ({
-                    ...prev,
-                    nickname: event.target.value,
-                  }))
-                }
-                className="mt-2 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
-              />
+              <div className="relative mt-2">
+                <input
+                  value={profileForm.nickname}
+                  onChange={(event) =>
+                    setProfileForm((prev) => ({
+                      ...prev,
+                      nickname: event.target.value,
+                    }))
+                  }
+                  maxLength={NICKNAME_MAX}
+                  className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 pr-14 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
+                />
+                <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 dark:text-slate-500">
+                  {nicknameLength}/{NICKNAME_MAX}
+                </span>
+              </div>
             </label>
             <label className="block">
               <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
                 Username
               </span>
-              <input
-                value={profileForm.username}
-                onChange={(event) =>
-                  setProfileForm((prev) => ({
-                    ...prev,
-                    username: event.target.value,
-                  }))
-                }
-                pattern="[a-zA-Z0-9._]+"
-                title="Use english letters, numbers, dot (.), and underscore (_)."
-                autoCapitalize="none"
-                className="mt-2 w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
-              />
+              <div className="relative mt-2">
+                <input
+                  value={profileForm.username}
+                  onChange={(event) =>
+                    setProfileForm((prev) => ({
+                      ...prev,
+                      username: event.target.value,
+                    }))
+                  }
+                  maxLength={USERNAME_MAX}
+                  pattern="[a-zA-Z0-9._]+"
+                  title="Use english letters, numbers, dot (.), and underscore (_)."
+                  autoCapitalize="none"
+                  className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 pr-14 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
+                />
+                <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 dark:text-slate-500">
+                  {usernameLength}/{USERNAME_MAX}
+                </span>
+              </div>
             </label>
             <div>
               <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
@@ -241,6 +264,9 @@ export function MobileSettingsPanel({
                   </button>
                 ))}
               </div>
+              <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                Invisible makes you appear offline to others.
+              </p>
             </div>
             <button
               type="submit"
@@ -380,6 +406,33 @@ export function MobileSettingsPanel({
             </button>
             <InlineError message={passwordError} />
           </form>
+        </div>
+      ) : null}
+
+      {settingsPanel === "data" ? (
+        <div className="md:hidden">
+          <div className="mb-4 flex items-center gap-2 rounded-2xl border border-emerald-100/70 bg-white/80 p-4 dark:border-emerald-500/30 dark:bg-slate-950/60">
+            <button
+              type="button"
+              onClick={() => setSettingsPanel(null)}
+              className="inline-flex items-center justify-center rounded-full border border-emerald-200 p-2 text-emerald-700 transition hover:bg-emerald-50 dark:border-emerald-500/30 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+              aria-label="Back"
+            >
+              <ArrowLeft size={18} />
+            </button>
+            <h4 className="text-sm font-semibold text-emerald-700 dark:text-emerald-200">
+              Data
+            </h4>
+          </div>
+          <div className="space-y-3 text-xs text-slate-600 dark:text-slate-300">
+              <DataSettingsPanel
+                dataCacheStats={dataCacheStats}
+                onClearCache={onClearCache}
+                onClose={handleClosePanel}
+                user={user}
+                variant="mobile"
+              />
+          </div>
         </div>
       ) : null}
     </>

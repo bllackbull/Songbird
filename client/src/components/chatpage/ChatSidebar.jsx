@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState } from "react";
 import ChatsListPanel from "../ChatsListPanel.jsx";
 import { MobileSettingsPanel, SettingsMenuPopover } from "../settings/index.js";
 import SidebarFooter from "./SidebarFooter.jsx";
@@ -69,6 +70,7 @@ export default function ChatSidebar({
   notificationsDisabled,
   notificationStatusLabel,
   onToggleNotifications,
+  onClearCache,
   onExitEdit,
   onEnterEdit,
   onDeleteChats,
@@ -77,6 +79,58 @@ export default function ChatSidebar({
   settingsButtonRef,
   displayInitials,
 }) {
+  const chatsScrollRef = useRef(null);
+  const chatsContentRef = useRef(null);
+  const [isChatsScrollable, setIsChatsScrollable] = useState(false);
+
+  useLayoutEffect(() => {
+    const scroller = chatsScrollRef.current;
+    const content = chatsContentRef.current;
+    if (!scroller) return undefined;
+    const updateScrollable = () => {
+      const next = scroller.scrollHeight - scroller.clientHeight > 4;
+      setIsChatsScrollable((prev) => (prev === next ? prev : next));
+    };
+
+    updateScrollable();
+    const raf1 = requestAnimationFrame(() => {
+      updateScrollable();
+      requestAnimationFrame(updateScrollable);
+    });
+
+    let resizeObserver = null;
+    if (typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(updateScrollable);
+      resizeObserver.observe(scroller);
+      if (content) {
+        resizeObserver.observe(content);
+      }
+    }
+
+    let mutationObserver = null;
+    if (typeof MutationObserver !== "undefined" && content) {
+      mutationObserver = new MutationObserver(updateScrollable);
+      mutationObserver.observe(content, {
+        childList: true,
+        subtree: true,
+      });
+    }
+
+    window.addEventListener("resize", updateScrollable);
+    return () => {
+      cancelAnimationFrame(raf1);
+      window.removeEventListener("resize", updateScrollable);
+      if (resizeObserver) resizeObserver.disconnect();
+      if (mutationObserver) mutationObserver.disconnect();
+    };
+  }, [visibleChats.length, chatsSearchQuery, chatsSearchFocused, scrollEpoch]);
+
+  const handleChatsScroll = () => {
+    const node = chatsScrollRef.current;
+    if (!node) return;
+    setIsChatsScrollable(node.scrollHeight - node.clientHeight > 4);
+  };
+
   return (
     <aside
       className={
@@ -102,6 +156,10 @@ export default function ChatSidebar({
         onChatsSearchFocus={onChatsSearchFocus}
         onChatsSearchBlur={onChatsSearchBlur}
         onCloseSearch={onCloseSearch}
+        chatsScrollable={isChatsScrollable}
+        onScrollToTop={() => {
+          chatsScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+        }}
       />
 
       <SettingsMenuPopover
@@ -127,7 +185,7 @@ export default function ChatSidebar({
         {mobileTab === "settings" ? (
           <div
             key={`settings-scroll-${scrollEpoch}`}
-            className="app-scroll flex h-full min-h-0 flex-col overflow-y-scroll overflow-x-hidden px-6 pb-[104px]"
+            className="app-scroll flex h-full min-h-0 flex-col overflow-y-auto overflow-x-hidden px-6 pb-[104px]"
             style={{
               overscrollBehaviorY: "contain",
               overflowAnchor: "none",
@@ -167,6 +225,7 @@ export default function ChatSidebar({
               notificationsDisabled={notificationsDisabled}
               notificationStatusLabel={notificationStatusLabel}
               onToggleNotifications={onToggleNotifications}
+              onClearCache={onClearCache}
               onOpenOwnProfile={onOpenOwnProfile}
             />
           </div>
@@ -175,39 +234,45 @@ export default function ChatSidebar({
         <div className={mobileTab === "settings" ? "hidden min-h-0 h-full" : "flex min-h-0 h-full flex-col"}>
           <div
             key={`chats-scroll-${scrollEpoch}`}
-            className="app-scroll min-h-0 flex-1 overflow-y-scroll overflow-x-hidden px-6 pb-[104px]"
+            ref={chatsScrollRef}
+            className={`app-scroll min-h-0 flex-1 overflow-x-hidden px-6 pb-[104px] ${
+              isChatsScrollable ? "overflow-y-scroll" : "overflow-y-auto"
+            }`}
             style={{
               overscrollBehaviorY: "contain",
               overflowAnchor: "none",
               WebkitOverflowScrolling: "touch",
               scrollbarGutter: "stable both-edges",
             }}
+            onScroll={handleChatsScroll}
           >
-            <ChatsListPanel
-              loadingChats={loadingChats}
-              visibleChats={visibleChats}
-              user={user}
-              editMode={editMode}
-              activeChatId={activeChatId}
-              selectedChats={selectedChats}
-              formatChatTimestamp={formatChatTimestamp}
-              requestDeleteChats={requestDeleteChats}
-              toggleSelectChat={toggleSelectChat}
-              setActiveChatId={setActiveChatId}
-              setActivePeer={setActivePeer}
-              setMobileTab={setMobileTab}
-              setIsAtBottom={setIsAtBottom}
-              setUnreadInChat={setUnreadInChat}
-              lastMessageIdRef={lastMessageIdRef}
-              isAtBottomRef={isAtBottomRef}
-              chatsSearchQuery={chatsSearchQuery}
-              chatsSearchFocused={chatsSearchFocused}
-              discoverLoading={discoverLoading}
-              discoverUsers={discoverUsers}
-              discoverGroups={discoverGroups}
-              onOpenDiscoveredUser={onOpenDiscoveredUser}
-              onOpenDiscoveredGroup={onOpenDiscoveredGroup}
-            />
+            <div ref={chatsContentRef} className="min-h-0">
+              <ChatsListPanel
+                loadingChats={loadingChats}
+                visibleChats={visibleChats}
+                user={user}
+                editMode={editMode}
+                activeChatId={activeChatId}
+                selectedChats={selectedChats}
+                formatChatTimestamp={formatChatTimestamp}
+                requestDeleteChats={requestDeleteChats}
+                toggleSelectChat={toggleSelectChat}
+                setActiveChatId={setActiveChatId}
+                setActivePeer={setActivePeer}
+                setMobileTab={setMobileTab}
+                setIsAtBottom={setIsAtBottom}
+                setUnreadInChat={setUnreadInChat}
+                lastMessageIdRef={lastMessageIdRef}
+                isAtBottomRef={isAtBottomRef}
+                chatsSearchQuery={chatsSearchQuery}
+                chatsSearchFocused={chatsSearchFocused}
+                discoverLoading={discoverLoading}
+                discoverUsers={discoverUsers}
+                discoverGroups={discoverGroups}
+                onOpenDiscoveredUser={onOpenDiscoveredUser}
+                onOpenDiscoveredGroup={onOpenDiscoveredGroup}
+              />
+            </div>
           </div>
         </div>
       </div>

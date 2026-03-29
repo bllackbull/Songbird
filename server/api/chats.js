@@ -272,6 +272,10 @@ function registerChatRoutes(app, deps) {
       });
     }
 
+    if (findUserByUsername(groupUsername)) {
+      return res.status(409).json({ error: "Group username already exists." });
+    }
+
     if (findChatByGroupUsername(groupUsername)) {
       return res.status(409).json({ error: "Group username already exists." });
     }
@@ -548,6 +552,10 @@ function registerChatRoutes(app, deps) {
         error:
           "Group username can only include english letters, numbers, dot (.), and underscore (_).",
       });
+    }
+
+    if (findUserByUsername(normalizedGroupUsername)) {
+      return res.status(409).json({ error: "Group username already exists." });
     }
 
     const existing = findChatByGroupUsername(normalizedGroupUsername);

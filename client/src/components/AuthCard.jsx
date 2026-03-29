@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AlertCircle, Eye, EyeOff, LoaderCircle, Moon, Sun } from "../icons/lucide.js";
+import { NICKNAME_MAX, USERNAME_MAX } from "../utils/nameLimits.js";
 
 export default function AuthCard({
   mode,
@@ -15,6 +16,8 @@ export default function AuthCard({
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [themeToggleAnimating, setThemeToggleAnimating] = useState(false);
+  const [nicknameLength, setNicknameLength] = useState(0);
+  const [usernameLength, setUsernameLength] = useState(0);
   const themeAnimTimeoutRef = useRef(null);
 
   useEffect(() => {
@@ -65,19 +68,35 @@ export default function AuthCard({
         </button>
       </div>
 
-      <form className="mt-4 space-y-3 sm:mt-6 sm:space-y-4" onSubmit={onSubmit}>
+      <form
+        className="mt-4 space-y-3 sm:mt-6 sm:space-y-4"
+        onSubmit={onSubmit}
+        onReset={() => {
+          setNicknameLength(0);
+          setUsernameLength(0);
+        }}
+      >
         {!isLogin ? (
           <label className="block">
             <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 sm:text-sm">
               Nickname
             </span>
-            <input
-              name="nickname"
-              type="text"
-              required
-              placeholder="Songbird Sage"
-              className="mt-1 w-full rounded-2xl border border-emerald-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-100 sm:mt-2 sm:px-4 sm:py-3 sm:text-sm"
-            />
+            <div className="relative mt-1 sm:mt-2">
+              <input
+                name="nickname"
+                type="text"
+                required
+                placeholder="Songbird Sage"
+                maxLength={NICKNAME_MAX}
+                onInput={(event) =>
+                  setNicknameLength(String(event.currentTarget.value || "").length)
+                }
+                className="w-full rounded-2xl border border-emerald-200 bg-white px-3 py-2 pr-14 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-100 sm:px-4 sm:py-3 sm:text-sm"
+              />
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 dark:text-slate-500 sm:text-[11px]">
+                {nicknameLength}/{NICKNAME_MAX}
+              </span>
+            </div>
           </label>
         ) : null}
 
@@ -85,16 +104,27 @@ export default function AuthCard({
           <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 sm:text-sm">
             Username
           </span>
-          <input
-            name="username"
-            type="text"
-            required
-            pattern="[a-zA-Z0-9._]+"
-            title="Use english letters, numbers, dot (.), and underscore (_)."
-            autoCapitalize="none"
-            placeholder="songbird.sage"
-            className="mt-1 w-full rounded-2xl border border-emerald-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-100 sm:mt-2 sm:px-4 sm:py-3 sm:text-sm"
-          />
+          <div className="relative mt-1 sm:mt-2">
+            <input
+              name="username"
+              type="text"
+              required
+              pattern="[a-zA-Z0-9._]+"
+              title="Use english letters, numbers, dot (.), and underscore (_)."
+              autoCapitalize="none"
+              placeholder="songbird.sage"
+              maxLength={USERNAME_MAX}
+              onInput={(event) =>
+                setUsernameLength(String(event.currentTarget.value || "").length)
+              }
+              className="w-full rounded-2xl border border-emerald-200 bg-white px-3 py-2 pr-14 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-100 sm:px-4 sm:py-3 sm:text-sm"
+            />
+            {!isLogin ? (
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 dark:text-slate-500 sm:text-[11px]">
+                {usernameLength}/{USERNAME_MAX}
+              </span>
+            ) : null}
+          </div>
         </label>
 
         <label className="block">

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Chat,
   Close,
@@ -36,13 +36,12 @@ export default function ChatProfileModal({
   const [memberQuery, setMemberQuery] = useState("");
   const [memberLimit, setMemberLimit] = useState(membersBatchSize);
   const [copiedInviteLink, setCopiedInviteLink] = useState(false);
-  useEffect(() => {
-    if (!open) {
-      setMemberQuery("");
-      setMemberLimit(membersBatchSize);
-      setCopiedInviteLink(false);
-    }
-  }, [open, membersBatchSize]);
+  const handleClose = () => {
+    setMemberQuery("");
+    setMemberLimit(membersBatchSize);
+    setCopiedInviteLink(false);
+    onClose?.();
+  };
 
   const isGroup = chat?.type === "group";
   const isSelfProfile =
@@ -133,14 +132,14 @@ export default function ChatProfileModal({
           ) : (
             <span />
           )}
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
-            aria-label="Close profile"
-          >
-            <Close size={16} className="icon-anim-pop" />
-          </button>
+            <button
+              type="button"
+              onClick={handleClose}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-rose-200 bg-white text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 dark:border-rose-500/30 dark:bg-slate-900 dark:text-rose-200 dark:hover:bg-rose-500/10"
+              aria-label="Close profile"
+            >
+              <Close size={16} className="icon-anim-pop" />
+            </button>
         </div>
 
         <div className="text-center">
@@ -160,10 +159,16 @@ export default function ChatProfileModal({
           )}
           <p
             className={`mt-3 text-lg font-semibold ${hasPersian(profileName) ? "font-fa" : ""}`}
+            dir="auto"
+            style={{ unicodeBidi: "plaintext" }}
           >
             {profileName}
           </p>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
+          <p
+            className="max-w-full truncate text-sm text-slate-500 dark:text-slate-400"
+            dir="auto"
+            title={profileUsername}
+          >
             @{profileUsername}
           </p>
           {isGroup ? (
@@ -281,7 +286,7 @@ export default function ChatProfileModal({
                 <button
                   type="button"
                   onClick={() => setMemberQuery("")}
-                  className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-emerald-700 transition hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                  className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-rose-600 transition hover:bg-rose-100 hover:shadow-[0_0_18px_rgba(244,63,94,0.22)] dark:text-rose-200 dark:hover:bg-rose-500/10"
                 >
                   <Close size={14} className="icon-anim-pop" />
                 </button>
@@ -321,6 +326,8 @@ export default function ChatProfileModal({
                       <div className="min-w-0">
                         <p
                           className={`truncate text-sm font-semibold ${hasPersian(label) ? "font-fa" : ""}`}
+                          dir="auto"
+                          title={label}
                         >
                           {label}
                         </p>

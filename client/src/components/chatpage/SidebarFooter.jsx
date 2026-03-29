@@ -37,8 +37,12 @@ export default function SidebarFooter({
               {displayInitials}
             </div>
           )}
-          <div>
-            <p className="text-sm font-semibold text-emerald-700 transition group-hover:text-emerald-600 dark:text-emerald-200 dark:group-hover:text-emerald-300">
+          <div className="min-w-0">
+            <p
+              className="truncate text-sm font-semibold text-emerald-700 transition group-hover:text-emerald-600 dark:text-emerald-200 dark:group-hover:text-emerald-300"
+              dir="auto"
+              title={displayName}
+            >
               {displayName}
             </p>
             <p className="mt-1 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">

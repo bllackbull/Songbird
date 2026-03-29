@@ -9,6 +9,7 @@ function registerAuthRoutes(app, deps) {
     crypto,
     deleteSession,
     ensureAvatarExists,
+    findChatByGroupUsername,
     findUserByUsername,
     parseCookies,
     setSessionCookie,
@@ -49,6 +50,9 @@ function registerAuthRoutes(app, deps) {
 
     const existing = findUserByUsername(trimmed);
     if (existing) {
+      return res.status(409).json({ error: "Username already exists." });
+    }
+    if (findChatByGroupUsername && findChatByGroupUsername(trimmed)) {
       return res.status(409).json({ error: "Username already exists." });
     }
 

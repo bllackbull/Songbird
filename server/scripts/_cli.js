@@ -61,9 +61,17 @@ export function getPositionalArgs(args = []) {
 }
 
 export function getFlagValue(args = [], flagName) {
-  const index = args.findIndex((arg) => String(arg).toLowerCase() === String(flagName).toLowerCase())
+  const normalizedFlag = String(flagName).toLowerCase()
+  const index = args.findIndex((arg) => String(arg).toLowerCase() === normalizedFlag)
   if (index >= 0) {
     return args[index + 1] || null
+  }
+  const inlineArg = args.find((arg) => {
+    const value = String(arg).toLowerCase()
+    return value.startsWith(`${normalizedFlag}=`) && value.length > normalizedFlag.length + 1
+  })
+  if (inlineArg) {
+    return String(inlineArg).slice(normalizedFlag.length + 1) || null
   }
   const envKey = `npm_config_${String(flagName)
     .replace(/^-+/, '')

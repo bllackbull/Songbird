@@ -60,7 +60,7 @@ export function FocusedMediaModal({
           <button
             type="button"
             onClick={closeFocusMedia}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/30 bg-black/40 text-white transition hover:border-white/50 hover:bg-black/55"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-rose-300/60 bg-rose-500/20 text-rose-100 transition hover:border-rose-300 hover:bg-rose-500/30"
             aria-label="Close"
           >
             <Close size={18} className="icon-anim-pop" />
@@ -85,7 +85,7 @@ export function FocusedMediaModal({
             <button
               type="button"
               onClick={closeFocusMedia}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/30 bg-black/40 text-white transition hover:border-white/50 hover:bg-black/55"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-rose-300/60 bg-rose-500/20 text-rose-100 transition hover:border-rose-300 hover:bg-rose-500/30"
               aria-label="Close"
             >
               <Close size={18} className="icon-anim-pop" />

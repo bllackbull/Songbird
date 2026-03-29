@@ -3,6 +3,7 @@ import {
   AlertCircle,
   ArrowDown,
   ArrowLeft,
+  Ghost,
   LoaderCircle,
 } from "../icons/lucide.js";
 import { getAvatarStyle } from "../utils/avatarColor.js";
@@ -61,7 +62,10 @@ export default function ChatWindowPanel({
   fileUploadEnabled = true,
   fileUploadInProgress = false,
 }) {
-  const VIDEO_POSTER_CACHE_KEY = "chat-video-posters-v2";
+  const MEDIA_CACHE_VERSION = 1;
+  const MEDIA_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+  const MEDIA_THUMB_CACHE_KEY = "chat-media-thumbs-v2";
+  const VIDEO_POSTER_CACHE_KEY = "chat-video-posters-v3";
   const [isDesktop, setIsDesktop] = useState(
     typeof window !== "undefined" ? window.matchMedia("(min-width: 768px)").matches : false,
   );
@@ -72,13 +76,35 @@ export default function ChatWindowPanel({
   );
   const activePeerColor = activeHeaderPeer?.color || groupAvatarColor || "#10b981";
   const activePeerInitials = getAvatarInitials(activeFallbackTitle || "S");
+
+  const readMediaCache = useCallback(
+    (key) => {
+      if (typeof window === "undefined") return null;
+      try {
+        const raw = window.localStorage.getItem(key);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed || parsed.version !== MEDIA_CACHE_VERSION) return null;
+        const updatedAt = Number(parsed.updatedAt || 0);
+        if (!Number.isFinite(updatedAt)) return null;
+        if (Date.now() - updatedAt > MEDIA_CACHE_TTL_MS) {
+          window.localStorage.removeItem(key);
+          return null;
+        }
+        return parsed;
+      } catch (_) {
+        return null;
+      }
+    },
+    [MEDIA_CACHE_TTL_MS, MEDIA_CACHE_VERSION],
+  );
+
   const [loadedMediaThumbs, setLoadedMediaThumbs] = useState(() => {
     if (typeof window === "undefined") return new Set();
     try {
-      const raw = window.sessionStorage.getItem("chat-media-thumbs");
-      const parsed = raw ? JSON.parse(raw) : [];
-      if (!Array.isArray(parsed)) return new Set();
-      return new Set(parsed.map((item) => String(item)));
+      const cached = readMediaCache(MEDIA_THUMB_CACHE_KEY);
+      const items = Array.isArray(cached?.items) ? cached.items : [];
+      return new Set(items.map((item) => String(item)));
     } catch (_) {
       return new Set();
     }
@@ -97,9 +123,9 @@ export default function ChatWindowPanel({
   const [videoPosterByUrl, setVideoPosterByUrl] = useState(() => {
     if (typeof window === "undefined") return {};
     try {
-      const raw = window.sessionStorage.getItem(VIDEO_POSTER_CACHE_KEY);
-      const parsed = raw ? JSON.parse(raw) : {};
-      return parsed && typeof parsed === "object" ? parsed : {};
+      const cached = readMediaCache(VIDEO_POSTER_CACHE_KEY);
+      const posters = cached?.posters;
+      return posters && typeof posters === "object" ? posters : {};
     } catch (_) {
       return {};
     }
@@ -342,9 +368,11 @@ export default function ChatWindowPanel({
   }, [activeChatId]);
 
   useEffect(() => {
-    setLoadedMediaThumbs(new Set());
+    const cached = readMediaCache(MEDIA_THUMB_CACHE_KEY);
+    const items = Array.isArray(cached?.items) ? cached.items : [];
+    setLoadedMediaThumbs(new Set(items.map((item) => String(item))));
     setMediaAspectByKey({});
-  }, [activeChatId]);
+  }, [activeChatId, readMediaCache, MEDIA_THUMB_CACHE_KEY]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -483,6 +511,8 @@ export default function ChatWindowPanel({
     videoPosterByUrl,
     setVideoPosterByUrl,
     videoPosterCacheKey: VIDEO_POSTER_CACHE_KEY,
+    mediaThumbCacheKey: MEDIA_THUMB_CACHE_KEY,
+    mediaCacheVersion: MEDIA_CACHE_VERSION,
     openFocusMedia,
     onMessageMediaLoaded,
     handleVideoThumbLoadedMetadata,
@@ -570,17 +600,39 @@ export default function ChatWindowPanel({
             >
               <ArrowLeft size={18} />
             </button>
-            <div className="flex flex-1 flex-col items-center justify-center gap-1">
+            <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1">
               <>
-                <button
-                  type="button"
-                  onClick={onOpenHeaderProfile}
-                  className="text-center text-lg font-semibold transition hover:text-emerald-600 dark:hover:text-emerald-300"
-                >
-                  <span className={hasPersian(activeFallbackTitle) ? "font-fa" : ""}>
+                {activeHeaderPeer?.isDeleted ? (
+                  <span
+                    className={`block min-w-0 max-w-[60vw] truncate text-center text-lg font-semibold text-slate-500 dark:text-slate-400 sm:max-w-[40vw] md:max-w-[28vw] ${
+                      hasPersian(activeFallbackTitle) ? "font-fa" : ""
+                    }`}
+                    dir="auto"
+                    style={{ unicodeBidi: "plaintext" }}
+                    title={activeFallbackTitle}
+                  >
                     {activeFallbackTitle}
                   </span>
-                </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onOpenHeaderProfile}
+                    className="min-w-0 max-w-[60vw] text-center text-lg font-semibold transition hover:text-emerald-600 dark:hover:text-emerald-300 sm:max-w-[40vw] md:max-w-[28vw]"
+                    dir="auto"
+                    style={{ unicodeBidi: "plaintext" }}
+                    title={activeFallbackTitle}
+                  >
+                    <span
+                      className={`block min-w-0 truncate ${
+                        hasPersian(activeFallbackTitle) ? "font-fa" : ""
+                      }`}
+                      dir="auto"
+                      style={{ unicodeBidi: "plaintext" }}
+                    >
+                      {activeFallbackTitle}
+                    </span>
+                  </button>
+                )}
                 <p className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                   {!isConnected ? (
                     <>
@@ -605,7 +657,14 @@ export default function ChatWindowPanel({
               </>
             </div>
             {activeHeaderPeer ? (
-              activeHeaderPeer?.avatar_url ? (
+              activeHeaderPeer?.isDeleted ? (
+                <div
+                  className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full"
+                  style={getAvatarStyle(activePeerColor)}
+                >
+                  <Ghost size={18} className="text-slate-600" />
+                </div>
+              ) : activeHeaderPeer?.avatar_url ? (
                 <button
                   type="button"
                   onClick={onOpenHeaderProfile}
@@ -699,7 +758,7 @@ export default function ChatWindowPanel({
           </div>
         ) : (
           <MessageTimeline
-            loadingMessages={loadingMessages || (!isConnected && messages.length === 0)}
+            loadingMessages={loadingMessages}
             messages={messages}
             groupedMessages={groupedMessages}
             loadingOlderMessages={loadingOlderMessages}

@@ -3,6 +3,7 @@ import {
   CheckCheck,
   Clock12,
   File,
+  Ghost,
   ImageIcon,
   Minus,
   Users,
@@ -41,7 +42,7 @@ export default function ChatsListPanel({
   const wiggleDelays = [-80, -170, -260, -120, -220, -320];
   const isEmptyState = !loadingChats && !visibleChats.length;
   const fallbackUploadTextPattern =
-    /^Sent (a media file|a document|\d+ files)$/i;
+    /^Sent (a media file|a document|\d+ files|\d+ media files)$/i;
   const formatLastMessagePreview = (conv) => {
     const files = Array.isArray(conv.last_message_files)
       ? conv.last_message_files
@@ -66,10 +67,17 @@ export default function ChatsListPanel({
     ).length;
     const docCount = Math.max(0, files.length - videoCount - imageCount);
 
+    const isMixedMedia = imageCount > 0 && videoCount > 0 && docCount === 0;
     const isFileOnlyBody = !body || fallbackUploadTextPattern.test(body);
     if (!isFileOnlyBody) {
       const icon =
-        videoCount > 0 ? "video" : imageCount > 0 ? "image" : "document";
+        isMixedMedia
+          ? "image"
+          : videoCount > 0
+            ? "video"
+            : imageCount > 0
+              ? "image"
+              : "document";
       return { icon, text: body };
     }
 
@@ -95,6 +103,12 @@ export default function ChatsListPanel({
       return {
         icon: "document",
         text: `Sent ${docCount} document${docCount > 1 ? "s" : ""}`,
+      };
+    }
+    if (isMixedMedia) {
+      return {
+        icon: "image",
+        text: `Sent ${files.length} media files`,
       };
     }
     return { icon: "document", text: `Sent ${files.length} files` };
@@ -149,10 +163,18 @@ export default function ChatsListPanel({
                       </div>
                     )}
                     <div className="min-w-0">
-                      <p className={`truncate text-sm font-semibold ${hasPersian(label) ? "font-fa" : ""}`}>
+                      <p
+                        className={`truncate text-sm font-semibold ${hasPersian(label) ? "font-fa" : ""}`}
+                        dir="auto"
+                        title={label}
+                      >
                         {label}
                       </p>
-                      <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+                      <p
+                        className="truncate text-xs text-slate-500 dark:text-slate-400"
+                        dir="auto"
+                        title={member.username}
+                      >
                         @{member.username}
                       </p>
                     </div>
@@ -192,10 +214,18 @@ export default function ChatsListPanel({
                       </div>
                     )}
                     <div className="min-w-0 flex-1">
-                      <p className={`truncate text-sm font-semibold ${hasPersian(label) ? "font-fa" : ""}`}>
+                      <p
+                        className={`truncate text-sm font-semibold ${hasPersian(label) ? "font-fa" : ""}`}
+                        dir="auto"
+                        title={label}
+                      >
                         {label}
                       </p>
-                      <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+                      <p
+                        className="truncate text-xs text-slate-500 dark:text-slate-400"
+                        dir="auto"
+                        title={group.username}
+                      >
                         @{group.username} • {Number(group.membersCount || 0)} members
                       </p>
                     </div>
@@ -237,14 +267,17 @@ export default function ChatsListPanel({
             conv.type === "dm"
               ? members.find((member) => member.username !== user.username)
               : null;
+          const isDeletedDm = conv.type === "dm" && !other;
           const name =
             conv.type === "dm"
-              ? other?.nickname || other?.username || "Direct message"
+              ? other?.nickname || other?.username || (isDeletedDm ? "Deleted account" : "Direct message")
               : conv.name || "Chat";
           const avatarColor =
             conv.type === "group"
               ? conv.group_color || "#10b981"
-              : other?.color || "#10b981";
+              : isDeletedDm
+                ? "#94a3b8"
+                : other?.color || "#10b981";
           const avatarInitials = getAvatarInitials(name);
           const wiggleStyle = editMode
             ? {
@@ -284,15 +317,21 @@ export default function ChatsListPanel({
                     className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ${hasPersian(avatarInitials) ? "font-fa" : ""}`}
                     style={getAvatarStyle(avatarColor)}
                   >
-                    {avatarInitials}
+                    {isDeletedDm ? <Ghost size={16} className="text-slate-600" /> : avatarInitials}
                   </div>
                 )}
                 <div className="min-w-0 flex-1">
-                  <p className="flex items-center gap-1.5 font-semibold">
+                  <p className="flex min-w-0 items-center gap-1.5 font-semibold">
                     {conv.type === "group" ? (
                       <Users size={14} className="shrink-0 text-emerald-500" />
                     ) : null}
-                    <span className={hasPersian(name) ? "font-fa" : ""}>{name}</span>
+                      <span
+                        className={`min-w-0 max-w-full truncate ${hasPersian(name) ? "font-fa" : ""} ${isDeletedDm ? "text-slate-500" : ""}`}
+                        dir="auto"
+                        title={name}
+                      >
+                        {name}
+                      </span>
                   </p>
                   <p
                     className="mt-1 w-full min-w-0 overflow-hidden text-xs leading-[1.35] text-slate-500 dark:text-slate-400"
@@ -336,7 +375,11 @@ export default function ChatsListPanel({
                       ) : (
                         <span className="flex w-full min-w-0 items-center gap-1 align-middle leading-[1.35]">
                           {conv.type === "group" && (conv.last_sender_nickname || conv.last_sender_username) ? (
-                            <span className="shrink-0 font-bold text-slate-500 dark:text-slate-400">
+                            <span
+                              className="shrink-0 max-w-[40%] truncate font-bold text-slate-500 dark:text-slate-400"
+                              dir="auto"
+                              title={conv.last_sender_nickname || conv.last_sender_username}
+                            >
                               {conv.last_sender_nickname || conv.last_sender_username}:
                             </span>
                           ) : null}

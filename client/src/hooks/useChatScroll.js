@@ -153,12 +153,20 @@ export function useChatScroll({
 
   const handleMessageMediaLoaded = useCallback(() => {
     if (!activeChatId) return;
-    // Disable auto-snap on media load in virtualized mode; it causes scroll fights.
+    if (!isAtBottomRef.current || userScrolledUpRef.current) return;
     if (mediaLoadSnapTimerRef.current) {
       window.clearTimeout(mediaLoadSnapTimerRef.current);
-      mediaLoadSnapTimerRef.current = null;
     }
-  }, [activeChatId, mediaLoadSnapTimerRef]);
+    mediaLoadSnapTimerRef.current = window.setTimeout(() => {
+      scrollChatToBottom("auto");
+    }, 60);
+  }, [
+    activeChatId,
+    isAtBottomRef,
+    mediaLoadSnapTimerRef,
+    scrollChatToBottom,
+    userScrolledUpRef,
+  ]);
 
   useEffect(() => {
     return () => {

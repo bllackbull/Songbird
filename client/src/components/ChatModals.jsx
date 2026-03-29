@@ -3,6 +3,7 @@ import { Close, Copy, Globe, LoaderCircle, Lock, Trash, Upload, Users } from "..
 import { getAvatarStyle } from "../utils/avatarColor.js";
 import { hasPersian } from "../utils/fontUtils.js";
 import { getAvatarInitials } from "../utils/avatarInitials.js";
+import { NICKNAME_MAX, USERNAME_MAX } from "../utils/nameLimits.js";
 
 export function NewChatModal({
   open,
@@ -30,7 +31,7 @@ export function NewChatModal({
           <button
             type="button"
             onClick={onClose}
-            className="flex items-center justify-center rounded-full border border-emerald-200 p-2 text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_16px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+            className="flex items-center justify-center rounded-full border border-rose-200 p-2 text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 hover:shadow-[0_0_16px_rgba(244,63,94,0.2)] dark:border-rose-500/30 dark:text-rose-200 dark:hover:bg-rose-500/10"
           >
             <Close size={18} className="icon-anim-pop" />
           </button>
@@ -58,7 +59,7 @@ export function NewChatModal({
                   setNewChatSelection(null);
                   setNewChatError("");
                 }}
-                className="absolute right-1 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-emerald-700 transition hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                className="absolute right-1 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-rose-600 transition hover:bg-rose-100 hover:shadow-[0_0_18px_rgba(244,63,94,0.22)] dark:text-rose-200 dark:hover:bg-rose-500/10"
                 aria-label="Clear search"
               >
                 <Close size={16} className="icon-anim-pop" />
@@ -100,9 +101,17 @@ export function NewChatModal({
                     {avatarInitials}
                   </div>
                 )}
-                <div>
-                  <p className={`font-semibold ${hasPersian(label) ? "font-fa" : ""}`}>{label}</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">@{result.username}</p>
+                <div className="min-w-0">
+                  <p
+                    className={`truncate font-semibold ${hasPersian(label) ? "font-fa" : ""}`}
+                    dir="auto"
+                    title={label}
+                  >
+                    {label}
+                  </p>
+                  <p className="truncate text-xs text-slate-500 dark:text-slate-400" dir="auto">
+                    @{result.username}
+                  </p>
                 </div>
               </button>
                 );
@@ -227,7 +236,7 @@ export function NewGroupModal({
           <button
             type="button"
             onClick={onClose}
-            className="flex items-center justify-center rounded-full border border-emerald-200 p-2 text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_16px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+            className="flex items-center justify-center rounded-full border border-rose-200 p-2 text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 hover:shadow-[0_0_16px_rgba(244,63,94,0.2)] dark:border-rose-500/30 dark:text-rose-200 dark:hover:bg-rose-500/10"
           >
             <Close size={18} className="icon-anim-pop" />
           </button>
@@ -298,33 +307,45 @@ export function NewGroupModal({
             <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
               Group nickname
             </label>
-            <input
-              value={groupForm.nickname}
-              onChange={(event) => {
-                setGroupForm((prev) => ({ ...prev, nickname: event.target.value }));
-                setGroupError("");
-              }}
-              placeholder="My friends group"
-              className="mt-2 w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
-            />
+            <div className="relative mt-2">
+              <input
+                value={groupForm.nickname}
+                onChange={(event) => {
+                  setGroupForm((prev) => ({ ...prev, nickname: event.target.value }));
+                  setGroupError("");
+                }}
+                maxLength={NICKNAME_MAX}
+                placeholder="My friends group"
+                className="w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-16 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
+              />
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400 dark:text-slate-500">
+                {String(groupForm.nickname || "").length}/{NICKNAME_MAX}
+              </span>
+            </div>
           </div>
 
           <div>
             <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
               Group username
             </label>
-            <input
-              value={groupForm.username}
-              onChange={(event) => {
-                setGroupForm((prev) => ({
-                  ...prev,
-                  username: event.target.value.toLowerCase(),
-                }));
-                setGroupError("");
-              }}
-              placeholder="mygroup"
-              className="mt-2 w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
-            />
+            <div className="relative mt-2">
+              <input
+                value={groupForm.username}
+                onChange={(event) => {
+                  setGroupForm((prev) => ({
+                    ...prev,
+                    username: event.target.value.toLowerCase(),
+                  }));
+                  setGroupError("");
+                }}
+                maxLength={USERNAME_MAX}
+                placeholder="mygroup"
+                className="w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-16 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
+              />
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400 dark:text-slate-500">
+                {String(groupForm.username || "").length}/{USERNAME_MAX}
+              </span>
+            </div>
           </div>
 
           <div>
@@ -429,7 +450,7 @@ export function NewGroupModal({
                     setCopiedRegenerateLink(true);
                     window.setTimeout(() => setCopiedRegenerateLink(false), 1400);
                   }}
-                  className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                  className="inline-flex h-8 items-center gap-1 rounded-full border border-emerald-200 bg-white px-3 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
                 >
                   <Copy size={12} className="icon-anim-pop" />
                   {copiedRegenerateLink ? "Copied" : "Copy"}
@@ -438,7 +459,7 @@ export function NewGroupModal({
                   type="button"
                   onClick={onRegenerateInvite}
                   disabled={regeneratingInviteLink}
-                  className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] disabled:opacity-60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                  className="inline-flex h-8 items-center gap-2 rounded-full border border-emerald-200 bg-white px-3 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] disabled:opacity-60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
                 >
                   {regeneratingInviteLink ? (
                     <LoaderCircle size={12} className="animate-spin" />
@@ -469,7 +490,7 @@ export function NewGroupModal({
                 <button
                   type="button"
                   onClick={() => setGroupSearchQuery("")}
-                  className="absolute right-1 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-emerald-700 transition hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                  className="absolute right-1 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-rose-600 transition hover:bg-rose-100 hover:shadow-[0_0_18px_rgba(244,63,94,0.22)] dark:text-rose-200 dark:hover:bg-rose-500/10"
                   aria-label="Clear member search"
                 >
                   <Close size={16} className="icon-anim-pop" />
@@ -518,10 +539,14 @@ export function NewGroupModal({
                           </div>
                         )}
                         <div className="min-w-0">
-                          <p className={`font-semibold ${hasPersian(label) ? "font-fa" : ""}`}>
+                          <p
+                            className={`truncate font-semibold ${hasPersian(label) ? "font-fa" : ""}`}
+                            dir="auto"
+                            title={label}
+                          >
                             {label}
                           </p>
-                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                          <p className="truncate text-xs text-slate-500 dark:text-slate-400" dir="auto">
                             @{result.username}
                           </p>
                         </div>
@@ -565,7 +590,9 @@ export function NewGroupModal({
                         {initials}
                       </div>
                     )}
-                    @{member.username}
+                    <span className="max-w-[160px] truncate" dir="auto" title={member.username}>
+                      @{member.username}
+                    </span>
                     <Close size={12} />
                   </button>
                   );
@@ -665,7 +692,7 @@ export function GroupInviteLinkModal({
                 // ignore clipboard errors
               }
             }}
-            className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+            className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-white px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
           >
             <Copy size={12} className="icon-anim-pop" />
             {copied ? "Copied" : "Copy"}

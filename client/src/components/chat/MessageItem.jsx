@@ -44,23 +44,34 @@ export function MessageItem({
   const replyTarget = msg.replyTo || null;
   const replyDisplayName =
     replyTarget?.nickname || replyTarget?.username || "Unknown";
-  const replyPreview = String(replyTarget?.body || "").trim() || "Message";
-  const isGenericReplyMediaText = /^Sent (a media file|a photo|a video|a document|\d+ files)$/i.test(
-    String(replyTarget?.body || "").trim(),
-  );
+  const replyPreviewRaw = String(replyTarget?.body || "").trim() || "Message";
+  const truncateReplyPreview = (value, maxChars = 90) => {
+    const text = String(value || "");
+    if (text.length <= maxChars) return text;
+    return `${text.slice(0, maxChars).trimEnd()}...`;
+  };
+  const replyPreview = truncateReplyPreview(replyPreviewRaw);
+  const replyBodyText = String(replyTarget?.body || "").trim();
+  const isPluralMediaSummary =
+    /^Sent \d+ (files|photos|videos|documents|media files)$/i.test(replyBodyText);
+  const isGenericReplyMediaText =
+    /^Sent (a media file|a photo|a video|a document|\d+ (files|photos|videos|documents|media files))$/i.test(
+      replyBodyText,
+    );
   const normalizedReplyPreview =
     replyTarget?.icon === "video"
-      ? (isGenericReplyMediaText ? "Sent a video" : replyPreview)
+      ? (isGenericReplyMediaText && !isPluralMediaSummary ? "Sent a video" : replyPreview)
       : replyTarget?.icon === "image"
-        ? (isGenericReplyMediaText ? "Sent a photo" : replyPreview)
+        ? (isGenericReplyMediaText && !isPluralMediaSummary ? "Sent a photo" : replyPreview)
         : replyPreview;
   const derivedReplyIcon = (() => {
     if (!replyTarget) return null;
     if (replyTarget.icon) return replyTarget.icon;
-    if (/^Sent a video/i.test(replyPreview)) return "video";
-    if (/^Sent a photo/i.test(replyPreview)) return "image";
+    if (/^Sent \d+ media files/i.test(replyPreview)) return "image";
+    if (/^Sent (a video|\d+ videos)/i.test(replyPreview)) return "video";
+    if (/^Sent (a photo|\d+ photos)/i.test(replyPreview)) return "image";
     if (/^Sent a media file/i.test(replyPreview)) return "image";
-    if (/^Sent (a document|\d+ files)/i.test(replyPreview)) return "document";
+    if (/^Sent (a document|\d+ documents|\d+ files)/i.test(replyPreview)) return "document";
     return null;
   })();
   const replyIsRtl = hasPersian(normalizedReplyPreview);
@@ -175,13 +186,13 @@ export function MessageItem({
           const dx = touchDxRef.current;
           const dy = Math.abs(touchDyRef.current);
           setSwipeOffset(0);
-          if (dx < -55 && dy < 36) {
-            onReply?.(msg);
-          }
-        }}
+            if (dx < -32 && dy < 50) {
+              onReply?.(msg);
+            }
+          }}
       >
         {!isOwn && isGroupChat ? (
-          <div className="flex max-w-[82%] items-end gap-2 md:max-w-[75%]">
+          <div className="flex min-w-0 max-w-full items-end gap-2">
             <button
               type="button"
               onClick={() => onOpenSenderProfile?.(msg)}
@@ -204,12 +215,12 @@ export function MessageItem({
             </button>
             <div
               data-message-bubble
-              className={`rounded-2xl px-4 py-3 text-sm shadow-sm overflow-visible ${
+              className={`rounded-2xl px-4 py-3 text-sm shadow-sm overflow-visible min-w-0 max-w-[min(76%,calc(100%-2.25rem))] md:max-w-[min(80%,calc(100%-2.25rem))] ${
                 hasFiles
                   ? hasMediaFiles
                     ? "w-[min(52vw,18rem)] md:w-[min(44vw,22rem)] md:min-w-[12rem]"
-                    : "w-fit"
-                  : ""
+                    : "w-fit max-w-full"
+                  : "max-w-full"
               } bg-white/90 text-slate-800 rounded-bl-md dark:bg-slate-800/75 dark:text-slate-100`}
               onDoubleClick={() => {
                 if (!isDesktop || !onReply) return;
@@ -223,20 +234,27 @@ export function MessageItem({
               <button
                 type="button"
                 onClick={() => onOpenSenderProfile?.(msg)}
-                className={`mb-1 text-[11px] font-semibold transition hover:underline ${hasPersian(senderName) ? "font-fa text-right" : "text-left"}`}
+                className={`mb-1 block max-w-[60vw] truncate text-[11px] font-semibold transition hover:underline sm:max-w-[40vw] md:max-w-[28vw] ${hasPersian(senderName) ? "font-fa text-right" : "text-left"}`}
                 style={{ color: String(msg.color || "#10b981") }}
+                dir="auto"
+                title={senderName}
               >
                 {senderName}
               </button>
               {replyTarget ? (
-                <button
-                  type="button"
-                  onClick={() => onJumpToMessage?.(replyTarget.id)}
-                  className="group mb-2 inline-flex w-fit max-w-full items-center gap-2 rounded-xl border border-emerald-200/70 bg-white/70 px-3 py-2.5 text-left text-xs text-slate-700 transition hover:border-emerald-300 hover:bg-white hover:shadow-[0_0_16px_rgba(16,185,129,0.18)] dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200 dark:hover:bg-slate-900/70 dark:hover:shadow-[0_0_16px_rgba(16,185,129,0.14)]"
-                  aria-label={`Reply to ${replyDisplayName}`}
-                >
+                  <button
+                    type="button"
+                    onClick={() => onJumpToMessage?.(replyTarget.id)}
+                    className="group mb-2 inline-flex w-full max-w-full min-w-0 items-center gap-2 overflow-hidden rounded-xl border border-emerald-200/70 bg-white/70 px-3 py-2.5 text-left text-xs text-slate-700 transition hover:border-emerald-300 hover:bg-white hover:shadow-[0_0_16px_rgba(16,185,129,0.18)] dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200 dark:hover:bg-slate-900/70 dark:hover:shadow-[0_0_16px_rgba(16,185,129,0.14)]"
+                    aria-label={`Reply to ${replyDisplayName}`}
+                  >
                   <span className="min-w-0 flex-1">
-                    <span className="block max-w-full truncate whitespace-nowrap text-[10px] font-semibold">
+                    <span
+                      className="block max-w-full truncate whitespace-nowrap text-[10px] font-semibold"
+                      style={{ color: String(replyTarget?.color || "#10b981") }}
+                      dir="auto"
+                      title={replyDisplayName}
+                    >
                       {replyDisplayName}
                     </span>
                     <span
@@ -258,10 +276,16 @@ export function MessageItem({
                   </span>
                 </button>
               ) : null}
-              <MessageFiles files={messageFiles} {...messageFilesProps} />
+              <MessageFiles
+                files={messageFiles}
+                docFullWidth={isGroupChat && !isOwn && !isDesktop}
+                {...messageFilesProps}
+              />
               {!(
                 (msg.files || []).length &&
-                /^Sent (a media file|a photo|a video|a document|\d+ files)$/i.test((msg.body || "").trim())
+                /^Sent (a media file|a photo|a video|a document|\d+ (files|photos|videos|documents|media files))$/i.test(
+                  (msg.body || "").trim(),
+                )
               ) ? (
                 <p
                   dir={hasPersian(msg.body) ? "rtl" : "ltr"}
@@ -281,12 +305,12 @@ export function MessageItem({
         ) : (
           <div
             data-message-bubble
-            className={`rounded-2xl px-4 py-3 text-sm shadow-sm overflow-visible ${
-            hasFiles
-              ? hasMediaFiles
-                ? "w-[min(52vw,18rem)] max-w-[68%] md:w-[min(44vw,22rem)] md:max-w-[62%] md:min-w-[12rem]"
-                : "w-fit max-w-[82%] md:max-w-[75%]"
-              : "max-w-[82%] md:max-w-[75%]"
+            className={`rounded-2xl px-4 py-3 text-sm shadow-sm overflow-visible min-w-0 max-w-[78%] sm:max-w-[82%] md:max-w-[75%] ${
+              hasFiles
+                ? hasMediaFiles
+                  ? "w-[min(52vw,18rem)] max-w-[72%] md:w-[min(44vw,22rem)] md:max-w-[68%] md:min-w-[12rem]"
+                  : "w-fit max-w-[82%] sm:max-w-[86%] md:max-w-[80%]"
+                : "max-w-[82%] sm:max-w-[86%] md:max-w-[80%]"
           } ${
             isOwn
               ? "rounded-br-md bg-emerald-200 text-emerald-950 dark:bg-emerald-800 dark:text-white"
@@ -303,21 +327,28 @@ export function MessageItem({
           >
           {!isOwn && isGroupChat ? (
             <p
-              className={`mb-1 text-[11px] font-semibold ${hasPersian(senderName) ? "font-fa text-right" : "text-left"}`}
+              className={`mb-1 max-w-[60vw] truncate text-[11px] font-semibold sm:max-w-[40vw] md:max-w-[28vw] ${hasPersian(senderName) ? "font-fa text-right" : "text-left"}`}
               style={{ color: String(msg.color || "#10b981") }}
+              dir="auto"
+              title={senderName}
             >
               {senderName}
             </p>
           ) : null}
           {replyTarget ? (
-            <button
-              type="button"
-              onClick={() => onJumpToMessage?.(replyTarget.id)}
-              className="group mb-2 inline-flex w-fit max-w-full items-center gap-2 rounded-xl border border-emerald-200/70 bg-white/70 px-3 py-2.5 text-left text-xs text-slate-700 transition hover:border-emerald-300 hover:bg-white hover:shadow-[0_0_16px_rgba(16,185,129,0.18)] dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200 dark:hover:bg-slate-900/70 dark:hover:shadow-[0_0_16px_rgba(16,185,129,0.14)]"
-              aria-label={`Reply to ${replyDisplayName}`}
-            >
+              <button
+                type="button"
+                onClick={() => onJumpToMessage?.(replyTarget.id)}
+                className="group mb-2 inline-flex w-full max-w-full min-w-0 items-center gap-2 overflow-hidden rounded-xl border border-emerald-200/70 bg-white/70 px-3 py-2.5 text-left text-xs text-slate-700 transition hover:border-emerald-300 hover:bg-white hover:shadow-[0_0_16px_rgba(16,185,129,0.18)] dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200 dark:hover:bg-slate-900/70 dark:hover:shadow-[0_0_16px_rgba(16,185,129,0.14)]"
+                aria-label={`Reply to ${replyDisplayName}`}
+              >
               <span className="min-w-0 flex-1">
-                <span className="block max-w-full truncate whitespace-nowrap text-[10px] font-semibold">
+                <span
+                  className="block max-w-full truncate whitespace-nowrap text-[10px] font-semibold"
+                  style={{ color: String(replyTarget?.color || "#10b981") }}
+                  dir="auto"
+                  title={replyDisplayName}
+                >
                   {replyDisplayName}
                 </span>
                 <span
@@ -339,10 +370,16 @@ export function MessageItem({
               </span>
             </button>
           ) : null}
-          <MessageFiles files={messageFiles} {...messageFilesProps} />
+            <MessageFiles
+              files={messageFiles}
+              docFullWidth={isGroupChat && !isOwn && !isDesktop}
+              {...messageFilesProps}
+            />
           {!(
             (msg.files || []).length &&
-            /^Sent (a media file|a photo|a video|a document|\d+ files)$/i.test((msg.body || "").trim())
+              /^Sent (a media file|a photo|a video|a document|\d+ (files|photos|videos|documents|media files))$/i.test(
+                (msg.body || "").trim(),
+              )
           ) ? (
             <p
               dir={hasPersian(msg.body) ? "rtl" : "ltr"}
