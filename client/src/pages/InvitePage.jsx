@@ -105,7 +105,8 @@ export default function InvitePage({
     await handleJoin();
   };
 
-  const groupName = group?.name || "Group";
+  const groupType = group?.type === "channel" ? "Channel" : "Group";
+  const groupName = group?.name || groupType;
   const groupInitials = getAvatarInitials(groupName);
   const rawGroupAvatarUrl = String(group?.avatarUrl || "").trim();
   const groupAvatarUrl = rawGroupAvatarUrl.startsWith("/uploads/")
@@ -116,10 +117,10 @@ export default function InvitePage({
     <section className="app-scroll relative my-auto w-full max-w-md max-h-[calc(100dvh-5.5rem)] overflow-y-auto rounded-3xl border border-emerald-200/70 bg-white/80 p-6 shadow-2xl shadow-emerald-500/10 backdrop-blur dark:border-white/5 dark:bg-slate-900/80 sm:max-h-none sm:overflow-visible sm:p-8">
       <div className="relative text-center">
         <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-600 dark:text-emerald-300 sm:text-sm">
-          Group Invite
+          {groupType} Invite
         </p>
         <h1 className="mt-2 text-2xl font-bold sm:mt-3 sm:text-3xl">
-          Join Group
+          Join {groupType}
         </h1>
         <button
           type="button"
@@ -192,8 +193,8 @@ export default function InvitePage({
             </div>
             <p className="mt-2 text-center text-xs text-slate-500 dark:text-slate-400">
               {alreadyMember
-                ? "You are already a member of this group."
-                : "You are about to join this group. Do you want to continue?"}
+                ? `You are already a member of this ${groupType.toLowerCase()}.`
+                : `You are about to join this ${groupType.toLowerCase()}. Do you want to continue?`}
             </p>
             <div className="mt-4 flex items-center justify-end gap-2">
               <button
@@ -217,7 +218,7 @@ export default function InvitePage({
                       <LogIn />
                     </span>
                   )}
-                  Join group
+                  Join {groupType.toLowerCase()}
                 </button>
               ) : (
                 <button

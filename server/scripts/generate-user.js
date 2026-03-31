@@ -4,6 +4,17 @@ import { getCliArgs, getPositionalArgs, getFlagValue } from './_cli.js'
 import { openDatabase, runAdminActionViaServer } from './_db-admin.js'
 import { setUserColor } from '../settings/colors.js'
 
+const clampEnvInt = (value, fallback, { min, max } = {}) => {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return fallback
+  const intValue = Math.trunc(parsed)
+  if (min !== undefined && intValue < min) return fallback
+  if (max !== undefined && intValue > max) return fallback
+  return intValue
+}
+const USERNAME_MAX = clampEnvInt(process.env.USERNAME_MAX, 16, { min: 3, max: 32 })
+const NICKNAME_MAX = clampEnvInt(process.env.NICKNAME_MAX, 24, { min: 3, max: 64 })
+
 function randomToken(length = 6) {
   const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
   let output = ''
@@ -22,6 +33,14 @@ const amount = Math.max(1, Math.min(5000, Number(amountRaw) || 0))
 const password = getFlagValue(args, '--password') || envPassword || positional[1] || 'Passw0rd!'
 const nicknamePrefix = getFlagValue(args, '--nickname-prefix') || 'User'
 const usernamePrefix = getFlagValue(args, '--username-prefix') || 'user'
+const maxUsername = Math.max(3, Number(USERNAME_MAX || 16))
+const maxNickname = Math.max(3, Number(NICKNAME_MAX || 24))
+const maxPrefixLen = Math.max(1, maxUsername - 2)
+const clampPrefix = (value, maxLen) => {
+  const trimmed = String(value || '').trim()
+  if (!trimmed) return ''
+  return trimmed.length > maxLen ? trimmed.slice(0, maxLen) : trimmed
+}
 
 if (!amount) {
   console.error('Usage: npm run db:user:generate -- --count 50 --password "Passw0rd!"')
@@ -52,10 +71,16 @@ try {
     for (let i = 0; i < amount; i += 1) {
       let username = ''
       do {
-        username = `${usernamePrefix}_${randomToken(8)}`.toLowerCase()
+        const basePrefix = clampPrefix(usernamePrefix, maxPrefixLen)
+        const safePrefix = basePrefix.length >= 1 ? basePrefix : clampPrefix('user', maxPrefixLen)
+        const tokenBudget = Math.max(1, maxUsername - safePrefix.length - 1)
+        const token = randomToken(Math.min(12, tokenBudget))
+        username = `${safePrefix}_${token}`.toLowerCase().slice(0, maxUsername)
       } while (usedUsernames.has(username))
       usedUsernames.add(username)
-      const nickname = `${nicknamePrefix} ${created + 1}`
+      const rawNickname = `${nicknamePrefix} ${created + 1}`
+      const nickname =
+        rawNickname.length > maxNickname ? rawNickname.slice(0, maxNickname) : rawNickname
       const assignedColor = setUserColor()
       dbApi.run(
         'INSERT INTO users (username, nickname, avatar_url, color, status, password_hash, created_at, last_seen) VALUES (?, ?, NULL, ?, ?, ?, datetime("now"), datetime("now"))',

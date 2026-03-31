@@ -23,6 +23,22 @@ const SAMPLE_MESSAGES = [
   "Done",
   "Perfect",
 ];
+const clampEnvInt = (value, fallback, { min, max } = {}) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  const intValue = Math.trunc(parsed);
+  if (min !== undefined && intValue < min) return fallback;
+  if (max !== undefined && intValue > max) return fallback;
+  return intValue;
+};
+const MESSAGE_MAX_CHARS = clampEnvInt(
+  process.env.MESSAGE_MAX_CHARS || process.env.MESSAGE_MAX,
+  4000,
+  {
+  min: 1,
+  max: 20000,
+  },
+);
 
 function pickRandom(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
@@ -228,7 +244,11 @@ async function main() {
 
       for (let index = 0; index < count; index += 1) {
         const senderId = index % 2 === 0 ? userAId : userBId;
-        const body = `${pickRandom(SAMPLE_MESSAGES)} #${index + 1}`;
+        const rawBody = `${pickRandom(SAMPLE_MESSAGES)} #${index + 1}`;
+        const body =
+          rawBody.length > MESSAGE_MAX_CHARS
+            ? rawBody.slice(0, MESSAGE_MAX_CHARS)
+            : rawBody;
         dbApi.run(
           "INSERT INTO chat_messages (chat_id, user_id, body, created_at, read_at, read_by_user_id) VALUES (?, ?, ?, ?, NULL, NULL)",
           [chatId, senderId, body, timestamps[index]],

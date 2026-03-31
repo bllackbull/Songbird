@@ -2,21 +2,28 @@ function registerProfileRoutes(app, deps) {
   const {
     ALLOWED_AVATAR_MIME_TYPES,
     AVATAR_FILE_LIMITS,
+    createMessage,
+    emitChatEvent,
     emitSseEvent,
     FILE_UPLOAD,
     getUserPresence,
     listChatMembers,
     listChatsForUser,
     USER_COLORS,
+    NICKNAME_MAX,
+    USERNAME_MAX,
     USERNAME_REGEX,
     bcrypt,
     ensureAvatarExists,
     findChatByGroupUsername,
     findUserById,
     findUserByUsername,
+    deleteUserById,
     hasEnoughFreeDiskSpace,
     avatarUploadRootDir,
+    clearSessionCookie,
     removeAvatarByUrl,
+    removeStoredFileNames,
     removeUploadedFiles,
     requireSession,
     requireSessionUsernameMatch,
@@ -98,11 +105,21 @@ function registerProfileRoutes(app, deps) {
         .status(400)
         .json({ error: "Username must be at least 3 characters." });
     }
+    if (USERNAME_MAX && trimmed.length > USERNAME_MAX) {
+      return res.status(400).json({
+        error: `Username must be at most ${USERNAME_MAX} characters.`,
+      });
+    }
 
     if (!USERNAME_REGEX.test(trimmed)) {
       return res.status(400).json({
         error:
           "Username can only include english letters, numbers, dot (.), and underscore (_).",
+      });
+    }
+    if (nickname && String(nickname).trim().length > (NICKNAME_MAX || 0)) {
+      return res.status(400).json({
+        error: `Nickname must be at most ${NICKNAME_MAX} characters.`,
       });
     }
 
@@ -266,6 +283,61 @@ function registerProfileRoutes(app, deps) {
     }
 
     res.json({ ok: true, status });
+  });
+
+  app.post("/api/profile/delete", (req, res) => {
+    const session = requireSession(req, res);
+    if (!session) return;
+
+    const { username, password } = req.body || {};
+    if (!username || !password) {
+      return res.status(400).json({ error: "Username and password are required." });
+    }
+    if (!requireSessionUsernameMatch(res, session, username)) return;
+
+    const user = findUserByUsername(String(username || "").toLowerCase());
+    if (!user || !bcrypt.compareSync(String(password || ""), user.password_hash)) {
+      return res.status(401).json({ error: "Invalid credentials." });
+    }
+
+    if (user.avatar_url) {
+      removeAvatarByUrl(user.avatar_url);
+    }
+
+    const memberChats = listChatsForUser(Number(user.id || 0));
+    memberChats.forEach((chat) => {
+      const chatId = Number(chat?.id || 0);
+      if (!chatId) return;
+      const label = user.nickname || user.username;
+      if (String(chat?.type || "").toLowerCase() === "group") {
+        createMessage(chatId, user.id, `[[system:left:${label}]]`);
+        emitChatEvent(chatId, {
+          type: "chat_message",
+          chatId,
+          username: user.username,
+          body: `[[system:left:${label}]]`,
+        });
+      }
+      const members = listChatMembers(chatId);
+      members.forEach((member) => {
+        const memberUsername = String(member?.username || "").toLowerCase();
+        if (!memberUsername || memberUsername === String(user.username || "").toLowerCase())
+          return;
+        try {
+          emitSseEvent(memberUsername, { type: "chat_list_changed", chatId });
+        } catch {
+          // ignore realtime list errors
+        }
+      });
+    });
+
+    const { storedNames } = deleteUserById(Number(user.id));
+    if (Array.isArray(storedNames) && storedNames.length) {
+      removeStoredFileNames(storedNames);
+    }
+
+    clearSessionCookie(req, res);
+    return res.json({ ok: true });
   });
 }
 

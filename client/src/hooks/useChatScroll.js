@@ -87,8 +87,14 @@ export function useChatScroll({
           canMarkReadInCurrentView &&
           !isMarkingReadRef.current
         ) {
+          if (
+            pendingScrollToUnreadRef.current !== null ||
+            Number(unreadAnchorLockUntilRef.current || 0) > Date.now()
+          ) {
+            return;
+          }
           const hasUnreadFromOthers = messages.some(
-            (msg) => msg.username !== user.username && !msg.read_at,
+            (msg) => msg.username !== user.username && !msg._readByMe,
           );
           if (hasUnreadFromOthers) {
             isMarkingReadRef.current = true;

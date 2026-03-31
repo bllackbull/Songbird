@@ -27,6 +27,7 @@ export default function ChatSidebar({
   isAtBottomRef,
   onOpenNewChat,
   onOpenNewGroup,
+  onOpenNewChannel,
   chatsSearchQuery,
   onChatsSearchChange,
   onChatsSearchFocus,
@@ -36,8 +37,12 @@ export default function ChatSidebar({
   discoverLoading,
   discoverUsers,
   discoverGroups,
+  discoverChannels,
+  discoverSaved,
+  isSavedChatActive,
   onOpenDiscoveredUser,
   onOpenDiscoveredGroup,
+  onOpenSavedMessages,
   showSettings,
   settingsMenuRef,
   setSettingsPanel,
@@ -71,6 +76,7 @@ export default function ChatSidebar({
   notificationStatusLabel,
   onToggleNotifications,
   onClearCache,
+  onDeleteAccount,
   onExitEdit,
   onEnterEdit,
   onDeleteChats,
@@ -150,6 +156,7 @@ export default function ChatSidebar({
         onDeleteChats={onDeleteChats}
         onNewChat={onOpenNewChat}
         onNewGroup={onOpenNewGroup}
+        onNewChannel={onOpenNewChannel}
         chatsSearchQuery={chatsSearchQuery}
         chatsSearchFocused={chatsSearchFocused}
         onChatsSearchChange={onChatsSearchChange}
@@ -176,6 +183,7 @@ export default function ChatSidebar({
         notificationsDisabled={notificationsDisabled}
         notificationStatusLabel={notificationStatusLabel}
         onToggleNotifications={onToggleNotifications}
+        onOpenSavedMessages={onOpenSavedMessages}
       />
 
       <div
@@ -227,6 +235,8 @@ export default function ChatSidebar({
               onToggleNotifications={onToggleNotifications}
               onClearCache={onClearCache}
               onOpenOwnProfile={onOpenOwnProfile}
+              onOpenSavedMessages={onOpenSavedMessages}
+              onDeleteAccount={onDeleteAccount}
             />
           </div>
         ) : null}
@@ -235,9 +245,7 @@ export default function ChatSidebar({
           <div
             key={`chats-scroll-${scrollEpoch}`}
             ref={chatsScrollRef}
-            className={`app-scroll min-h-0 flex-1 overflow-x-hidden px-6 pb-[104px] ${
-              isChatsScrollable ? "overflow-y-scroll" : "overflow-y-auto"
-            }`}
+            className="app-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-6 pb-[104px]"
             style={{
               overscrollBehaviorY: "contain",
               overflowAnchor: "none",
@@ -266,12 +274,16 @@ export default function ChatSidebar({
                 isAtBottomRef={isAtBottomRef}
                 chatsSearchQuery={chatsSearchQuery}
                 chatsSearchFocused={chatsSearchFocused}
-                discoverLoading={discoverLoading}
-                discoverUsers={discoverUsers}
-                discoverGroups={discoverGroups}
-                onOpenDiscoveredUser={onOpenDiscoveredUser}
-                onOpenDiscoveredGroup={onOpenDiscoveredGroup}
-              />
+        discoverLoading={discoverLoading}
+        discoverUsers={discoverUsers}
+        discoverGroups={discoverGroups}
+        discoverChannels={discoverChannels}
+        discoverSaved={discoverSaved}
+        isSavedChatActive={isSavedChatActive}
+        onOpenDiscoveredUser={onOpenDiscoveredUser}
+        onOpenDiscoveredGroup={onOpenDiscoveredGroup}
+        onOpenSavedMessages={onOpenSavedMessages}
+      />
             </div>
           </div>
         </div>

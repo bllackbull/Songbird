@@ -22,10 +22,14 @@ import {
 } from "../utils/chatFormat.js";
 import { useChatEvents } from "../hooks/useChatEvents.js";
 import { useChatScroll } from "../hooks/useChatScroll.js";
+import { Bookmark } from "../icons/lucide.js";
 import {
   createDmChat,
   discoverUsersAndGroups,
+  createChannelChat,
   createGroupChat,
+  deleteAccount,
+  deleteGroupChat,
   fetchHealth,
   fetchPresence,
   getGroupInviteLink,
@@ -43,13 +47,17 @@ import {
   removeGroupMember,
   regenerateGroupInviteLink,
   setChatMute,
+  updateChannelChat,
+  getMessageReadCounts,
   updateGroupChat,
   uploadGroupAvatar,
+  getSavedMessagesChat,
   updatePassword,
   updateProfile,
   updateStatus as updateStatusRequest,
   uploadAvatar,
 } from "../api/chatApi.js";
+import { APP_CONFIG } from "../settings/appConfig.js";
 
 const NEW_CHAT_SEARCH_DEBOUNCE_MS = 300;
 const MOBILE_CLOSE_ANIMATION_MS = 340;
@@ -65,6 +73,7 @@ const CHAT_MESSAGES_INDEX_KEY = "songbird-chat-messages-index";
 const CHAT_MESSAGES_INDEX_LIMIT = 25;
 const MEDIA_THUMB_CACHE_KEY = "chat-media-thumbs-v2";
 const MEDIA_POSTER_CACHE_KEY = "chat-video-posters-v3";
+const CHANNEL_SEEN_CACHE_KEY = "songbird-channel-seen";
 const MESSAGE_CACHE_MAX = Math.max(
   50,
   Math.min(200, CHAT_PAGE_CONFIG.messageFetchLimit),
@@ -111,6 +120,9 @@ const buildMessagesCacheKey = (username, chatId) =>
 const buildMessagesIndexKey = (username) =>
   `${CHAT_MESSAGES_INDEX_KEY}:${String(username || "").toLowerCase()}`;
 
+const buildChannelSeenCacheKey = (username, chatId) =>
+  `${CHANNEL_SEEN_CACHE_KEY}:${String(username || "").toLowerCase()}:${Number(chatId || 0)}`;
+
 const isCacheExpired = (entry, ttlMs) => {
   if (!entry || typeof entry !== "object") return true;
   if (!Number.isFinite(Number(entry.updatedAt))) return true;
@@ -141,6 +153,31 @@ const readMessagesCache = (username, chatId) => {
 const readMessagesIndex = (username) => {
   const index = readLocalCache(buildMessagesIndexKey(username));
   return Array.isArray(index) ? index : [];
+};
+
+const readChannelSeenCache = (username, chatId) => {
+  const cached = readLocalCache(buildChannelSeenCacheKey(username, chatId));
+  if (!cached || typeof cached !== "object") return {};
+  if (cached.version !== 1 || typeof cached.counts !== "object") return {};
+  return cached.counts || {};
+};
+
+const writeChannelSeenCache = (username, chatId, counts = {}) => {
+  if (!username || !chatId || typeof counts !== "object") return;
+  const entries = Object.entries(counts)
+    .map(([key, value]) => [Number(key), Number(value)])
+    .filter(([id, value]) => Number.isFinite(id) && id > 0 && Number.isFinite(value));
+  if (!entries.length) return;
+  entries.sort((a, b) => b[0] - a[0]);
+  const trimmed = entries.slice(0, 300).reduce((acc, [id, value]) => {
+    acc[id] = value;
+    return acc;
+  }, {});
+  writeLocalCache(buildChannelSeenCacheKey(username, chatId), {
+    version: 1,
+    updatedAt: Date.now(),
+    counts: trimmed,
+  });
 };
 
 const writeMessagesIndex = (username, index) => {
@@ -199,6 +236,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [chats, setChats] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [channelSeenCounts, setChannelSeenCounts] = useState({});
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -216,8 +254,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [discoverLoading, setDiscoverLoading] = useState(false);
   const [discoverUsers, setDiscoverUsers] = useState([]);
   const [discoverGroups, setDiscoverGroups] = useState([]);
+  const [discoverChannels, setDiscoverChannels] = useState([]);
+  const [discoverSaved, setDiscoverSaved] = useState(false);
   const [newGroupOpen, setNewGroupOpen] = useState(false);
   const [creatingGroup, setCreatingGroup] = useState(false);
+  const [groupModalType, setGroupModalType] = useState("group");
   const [newGroupForm, setNewGroupForm] = useState({
     nickname: "",
     username: "",
@@ -236,6 +277,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [profileModalMember, setProfileModalMember] = useState(null);
   const [profileInviteLink, setProfileInviteLink] = useState("");
+  const [mentionProfile, setMentionProfile] = useState(null);
+  const [mentionRefreshToken, setMentionRefreshToken] = useState(0);
   const [editingGroup, setEditingGroup] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [selectedChats, setSelectedChats] = useState([]);
@@ -271,6 +314,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const messageRefreshTimerRef = useRef(null);
   const messageFetchInFlightRef = useRef(false);
   const queuedSilentMessageRefreshRef = useRef(null);
+  const channelSeenQueueRef = useRef([]);
+  const channelSeenActiveRef = useRef(false);
+  const channelSeenLoadedRef = useRef(new Set());
+  const channelSeenTimerRef = useRef(null);
+  const channelSeenLatestRefreshRef = useRef(0);
   const messagesCacheRef = useRef(new Map());
   const [sseConnected, setSseConnected] = useState(false);
   const [dataCacheStats, setDataCacheStats] = useState({
@@ -350,6 +398,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const settingsMenuRef = useRef(null);
   const settingsButtonRef = useRef(null);
   const activeChatIdRef = useRef(null);
+  const activeChatTypeRef = useRef(null);
   const sseReconnectRef = useRef(null);
   const isMarkingReadRef = useRef(false);
   const sendingClientIdsRef = useRef(new Set());
@@ -557,7 +606,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         document.getElementById(`unread-divider-${unreadId}`) ||
         document.getElementById(`message-${unreadId}`);
       if (!divider) return false;
-      if (typeof divider.scrollIntoView === "function") {
+      const scroller = chatScrollRef.current;
+      if (scroller) {
+        const dividerRect = divider.getBoundingClientRect();
+        const containerRect = scroller.getBoundingClientRect();
+        const offsetTop =
+          scroller.scrollTop + (dividerRect.top - containerRect.top) - 12;
+        scroller.scrollTo({ top: Math.max(0, offsetTop), behavior: "auto" });
+      } else if (typeof divider.scrollIntoView === "function") {
         divider.scrollIntoView({ block: "start", behavior: "auto" });
       }
       return true;
@@ -573,9 +629,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
   };
 
-  const setPendingUploadProgress = (clientId, progress) => {
+  const setPendingUploadProgress = (clientId, progress, chatId = null) => {
     const nextProgress = Math.max(0, Math.min(100, Number(progress || 0)));
-    setActiveUploadProgress(nextProgress);
+    const activeId = Number(activeChatIdRef.current || 0);
+    const targetId = Number(chatId || 0);
+    if (!targetId || activeId === targetId) {
+      setActiveUploadProgress(nextProgress);
+    }
     setMessages((prev) =>
       prev.map((msg) =>
         msg._clientId === clientId ? { ...msg, _uploadProgress: nextProgress } : msg,
@@ -593,6 +653,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       void loadMessages(chatId, { silent: true, preserveHistory: true, ...options });
     }, 280);
   };
+
   const fileUploadInProgress = useMemo(
     () =>
       messages.some(
@@ -630,6 +691,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setIsAtBottom,
     setUserScrolledUp,
   });
+
 
   useEffect(() => {
     pendingUploadFilesRef.current = pendingUploadFiles;
@@ -714,6 +776,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }
       if (messageRefreshTimerRef.current) {
         window.clearTimeout(messageRefreshTimerRef.current);
+      }
+      if (channelSeenTimerRef.current) {
+        window.clearTimeout(channelSeenTimerRef.current);
       }
     };
   }, []);
@@ -862,7 +927,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         const currentEditingChat = chats.find(
           (chat) => Number(chat.id) === Number(activeChatId),
         );
-        if (editingGroup && currentEditingChat?.type === "group") {
+        if (editingGroup && ["group", "channel"].includes(currentEditingChat?.type)) {
           (currentEditingChat.members || []).forEach((member) => {
             const memberUsername = String(member?.username || "").toLowerCase();
             if (
@@ -895,15 +960,21 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       setDiscoverLoading(false);
       setDiscoverUsers([]);
       setDiscoverGroups([]);
+      setDiscoverChannels([]);
+      setDiscoverSaved(false);
       return;
     }
+    const normalizedQuery = query.toLowerCase();
+    const savedMatch =
+      normalizedQuery.includes("saved") || normalizedQuery.includes("bookmark");
+    setDiscoverSaved(savedMatch);
     let cancelled = false;
     const timer = setTimeout(async () => {
       try {
         setDiscoverLoading(true);
         const res = await discoverUsersAndGroups({
           username: user.username,
-          query: query.toLowerCase(),
+          query: normalizedQuery,
         });
         const data = await res.json();
         if (!res.ok) {
@@ -922,10 +993,17 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             CHAT_PAGE_CONFIG.newChatSearchMaxResults,
           ),
         );
+        setDiscoverChannels(
+          (Array.isArray(data?.channels) ? data.channels : []).slice(
+            0,
+            CHAT_PAGE_CONFIG.newChatSearchMaxResults,
+          ),
+        );
       } catch {
         if (cancelled) return;
         setDiscoverUsers([]);
         setDiscoverGroups([]);
+        setDiscoverChannels([]);
       } finally {
         if (!cancelled) {
           setDiscoverLoading(false);
@@ -1032,15 +1110,25 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         typeof document !== "undefined" &&
         document.visibilityState === "visible" &&
         document.hasFocus();
-      void (async () => {
-        const shouldFetchInitial = !cached || !sseConnected || !hasCachedMessages;
-        if (shouldFetchInitial) {
-          await loadMessages(openedChatId, { initialLoad: true, limit: initialLimit });
-        } else {
-          openingChatRef.current = false;
-          pendingScrollToBottomRef.current = true;
-          scrollChatToBottom("auto");
-        }
+        void (async () => {
+          const shouldFetchInitial =
+            openingUnreadCountRef.current > 0 || !cached || !sseConnected || !hasCachedMessages;
+          if (shouldFetchInitial) {
+            await loadMessages(openedChatId, { initialLoad: true, limit: initialLimit });
+          } else {
+            const hasOpeningUnread = openingUnreadCountRef.current > 0;
+            if (!hasOpeningUnread) {
+              pendingScrollToBottomRef.current = true;
+              scrollChatToBottom("auto");
+            }
+            // Refresh to reconcile cached messages (e.g., deleted files).
+            void loadMessages(openedChatId, {
+              initialLoad: true,
+              silent: true,
+              preserveHistory: true,
+              limit: initialLimit,
+            });
+          }
         if (
           canMarkReadNow &&
           isAppActiveNow &&
@@ -1062,10 +1150,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (!activeChatId) {
       setUnreadInChat(0);
     }
-  }, [activeChatId]);
-
-  useEffect(() => {
-    activeChatIdRef.current = activeChatId ? Number(activeChatId) : null;
   }, [activeChatId]);
 
   useEffect(() => {
@@ -1095,15 +1179,21 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, [activeUploadProgress, activeChatId]);
 
   const activeId = activeChatId ? Number(activeChatId) : null;
+  activeChatIdRef.current = activeId;
   const visibleChats = useMemo(() => {
     const query = String(chatsSearchQuery || "").trim().toLowerCase();
     if (!query) return chats;
     return chats.filter((chat) => {
       const members = Array.isArray(chat?.members) ? chat.members : [];
-      if (String(chat?.type || "").toLowerCase() === "group") {
+      const chatType = String(chat?.type || "").toLowerCase();
+      if (chatType === "group" || chatType === "channel") {
         const groupName = String(chat?.name || "").toLowerCase();
         const groupUsername = String(chat?.group_username || "").toLowerCase();
         return groupName.includes(query) || groupUsername.includes(query);
+      }
+      if (chatType === "saved") {
+        const label = String(chat?.name || "saved messages").toLowerCase();
+        return label.includes(query) || "saved messages".includes(query);
       }
       const other = members.find(
         (member) =>
@@ -1118,15 +1208,27 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const activeChat =
     visibleChats.find((conv) => conv.id === activeId) ||
     chats.find((conv) => conv.id === activeId);
+
+  useEffect(() => {
+    activeChatTypeRef.current = activeChat?.type || null;
+  }, [activeChat?.type]);
   const activeMembers = activeChat?.members || [];
   const isActiveGroupChat = activeChat?.type === "group";
+  const isActiveChannelChat = activeChat?.type === "channel";
+  const isActiveSavedChat = activeChat?.type === "saved";
+  const isActiveOwner = activeMembers.some(
+    (member) =>
+      Number(member.id) === Number(user?.id || 0) &&
+      String(member.role || "").toLowerCase() === "owner",
+  );
+  const canSendInActiveChat = !isActiveChannelChat || isActiveOwner;
   const activeGroupMemberUsernames = useMemo(() => {
-    if (!isActiveGroupChat) return [];
+    if (!isActiveGroupChat && !isActiveChannelChat) return [];
     return (activeMembers || [])
       .map((member) => String(member?.username || "").toLowerCase())
       .filter(Boolean)
       .sort();
-  }, [isActiveGroupChat, activeMembers]);
+  }, [isActiveGroupChat, isActiveChannelChat, activeMembers]);
   const activeGroupMemberUsernamesKey = activeGroupMemberUsernames.join("|");
   const activeDmMember =
     activeChat?.type === "dm"
@@ -1143,18 +1245,143 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }
     : null;
   const activeHeaderPeer = activePeer || activeDmMember || deletedDmPeer;
-  const activeFallbackTitle = isActiveGroupChat
-    ? activeChat?.name || "Group"
-    : activeHeaderPeer?.nickname || activeHeaderPeer?.username || "Select a chat";
-  const activeHeaderAvatar = isActiveGroupChat
+  const activeFallbackTitle = isActiveGroupChat || isActiveChannelChat
+    ? activeChat?.name || (isActiveChannelChat ? "Channel" : "Group")
+    : isActiveSavedChat
+      ? "Saved messages"
+      : activeHeaderPeer?.nickname || activeHeaderPeer?.username || "Select a chat";
+  const activeHeaderAvatar = isActiveGroupChat || isActiveChannelChat || isActiveSavedChat
     ? null
     : activeHeaderPeer;
-  const activeGroupAvatarColor = isActiveGroupChat
+  const activeGroupAvatarColor = isActiveGroupChat || isActiveChannelChat
     ? activeChat?.group_color || "#10b981"
     : null;
-  const activeGroupAvatarUrl = isActiveGroupChat
+  const activeGroupAvatarUrl = isActiveGroupChat || isActiveChannelChat
     ? activeChat?.group_avatar_url || ""
     : "";
+  const activeHeaderAvatarIcon = isActiveSavedChat ? (
+    <Bookmark size={18} className="text-white" />
+  ) : null;
+  const headerAvatarColor = isActiveSavedChat ? "#10b981" : activeGroupAvatarColor;
+
+  const getVisibleChannelMessageIds = useCallback(() => {
+    if (!chatScrollRef.current) return [];
+    const containerRect = chatScrollRef.current.getBoundingClientRect();
+    const ids = [];
+    messages.forEach((msg) => {
+      const messageId = Number(msg?._serverId || msg?.id || 0);
+      if (!messageId) return;
+      const element = document.getElementById(`message-${messageId}`);
+      if (!element) return;
+      const rect = element.getBoundingClientRect();
+      if (rect.bottom >= containerRect.top && rect.top <= containerRect.bottom) {
+        ids.push(messageId);
+      }
+    });
+    return ids;
+  }, [messages]);
+
+  const processChannelSeenQueue = useCallback(() => {
+    if (!isActiveChannelChat) return;
+    if (channelSeenActiveRef.current) return;
+    const nextId = channelSeenQueueRef.current.shift();
+    if (!nextId) return;
+    const activeId = Number(activeChatIdRef.current || 0);
+    if (!activeId) return;
+    channelSeenActiveRef.current = true;
+    getMessageReadCounts({
+      chatId: activeId,
+      username: String(usernameRef.current || ""),
+      messageIds: [nextId],
+    })
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) return;
+        const count = Number(data?.counts?.[nextId] || 0);
+        setChannelSeenCounts((prev) => ({
+          ...prev,
+          [nextId]: count,
+        }));
+      })
+      .catch(() => null)
+      .finally(() => {
+        channelSeenLoadedRef.current.add(nextId);
+        channelSeenActiveRef.current = false;
+        if (channelSeenTimerRef.current) {
+          window.clearTimeout(channelSeenTimerRef.current);
+        }
+        channelSeenTimerRef.current = window.setTimeout(() => {
+          processChannelSeenQueue();
+        }, 140);
+      });
+  }, [isActiveChannelChat]);
+
+  const enqueueChannelSeenCounts = useCallback((forceLatest = false) => {
+    if (!isActiveChannelChat || loadingMessages) return;
+    const visible = Array.from(new Set(getVisibleChannelMessageIds())).sort(
+      (a, b) => b - a,
+    );
+    if (!visible.length) return;
+    const latestId = visible[0];
+    const now = Date.now();
+    if (latestId) {
+      const shouldForce =
+        forceLatest || now - Number(channelSeenLatestRefreshRef.current || 0) > 2500;
+      if (shouldForce && !channelSeenQueueRef.current.includes(latestId)) {
+        channelSeenQueueRef.current.push(latestId);
+        channelSeenLatestRefreshRef.current = now;
+      }
+    }
+    visible.slice(1).forEach((id) => {
+      if (channelSeenLoadedRef.current.has(id)) return;
+      if (channelSeenQueueRef.current.includes(id)) return;
+      channelSeenQueueRef.current.push(id);
+    });
+    processChannelSeenQueue();
+  }, [getVisibleChannelMessageIds, isActiveChannelChat, loadingMessages, processChannelSeenQueue]);
+
+  useEffect(() => {
+    if (!isActiveChannelChat) {
+      channelSeenQueueRef.current = [];
+      channelSeenLoadedRef.current = new Set();
+      setChannelSeenCounts({});
+      return;
+    }
+    channelSeenQueueRef.current = [];
+    channelSeenLoadedRef.current = new Set();
+    setChannelSeenCounts(readChannelSeenCache(user?.username, activeChatId));
+    requestAnimationFrame(() => {
+      enqueueChannelSeenCounts();
+    });
+  }, [isActiveChannelChat, activeChatId, enqueueChannelSeenCounts]);
+
+  useEffect(() => {
+    if (!isActiveChannelChat || loadingMessages) return;
+    requestAnimationFrame(() => {
+      enqueueChannelSeenCounts();
+    });
+  }, [messages, loadingMessages, isActiveChannelChat, enqueueChannelSeenCounts]);
+
+  useEffect(() => {
+    if (!isActiveChannelChat) return;
+    const interval = setInterval(() => {
+      enqueueChannelSeenCounts(true);
+    }, 4500);
+    return () => clearInterval(interval);
+  }, [isActiveChannelChat, enqueueChannelSeenCounts]);
+
+  useEffect(() => {
+    if (!isActiveChannelChat || !activeChatId) return;
+    writeChannelSeenCache(user?.username, activeChatId, channelSeenCounts);
+  }, [channelSeenCounts, isActiveChannelChat, activeChatId, user?.username]);
+
+  const handleChatScrollWithSeen = useCallback(
+    (event) => {
+      handleChatScroll(event);
+      enqueueChannelSeenCounts();
+    },
+    [handleChatScroll, enqueueChannelSeenCounts],
+  );
   const canStartChat = Boolean(newChatSelection);
   const userColor = user?.color || "#10b981";
   const handleExitEdit = () => {
@@ -1255,13 +1482,38 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         : peerPresence.status === "online"
           ? "online"
           : "offline";
-  const activeHeaderSubtitle = isActiveGroupChat
-    ? `${activeMembers.length} member${activeMembers.length === 1 ? "" : "s"}`
-    : peerStatusLabel;
+  const activeMembersLabel = Number(activeMembers.length || 0)
+    .toLocaleString("en-US");
+  const activeHeaderSubtitle = isActiveGroupChat || isActiveChannelChat
+    ? `${activeMembersLabel} member${activeMembers.length === 1 ? "" : "s"}`
+    : isActiveSavedChat
+      ? ""
+      : peerStatusLabel;
   const activeChatMuted = Boolean(activeChat?._muted);
-  const profileTargetUser = profileModalMember || activeHeaderPeer || null;
+  const mentionProfileUser =
+    mentionProfile?.kind === "user"
+      ? {
+          username: mentionProfile.username,
+          nickname: mentionProfile.nickname || mentionProfile.username,
+          avatar_url: mentionProfile.avatarUrl || "",
+          color: mentionProfile.color || "#10b981",
+          status: "online",
+        }
+      : null;
+  const mentionProfileChat =
+    mentionProfile && mentionProfile.kind !== "user"
+      ? {
+          type: mentionProfile.kind,
+          name: mentionProfile.name || mentionProfile.username || "Chat",
+          group_username: mentionProfile.username || "",
+          group_color: mentionProfile.color || "#10b981",
+          group_avatar_url: mentionProfile.avatarUrl || null,
+          members: [],
+        }
+      : null;
+  const profileTargetUser = mentionProfileUser || profileModalMember || activeHeaderPeer || null;
   const canCurrentUserEditGroup = Boolean(
-    isActiveGroupChat &&
+    (isActiveGroupChat || isActiveChannelChat) &&
       activeMembers.some(
         (member) =>
           Number(member.id) === Number(user?.id || 0) &&
@@ -1269,7 +1521,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       ),
   );
   const canCurrentUserViewInvite = Boolean(
-    isActiveGroupChat &&
+    !mentionProfile &&
+    (isActiveGroupChat || isActiveChannelChat) &&
       (canCurrentUserEditGroup || Boolean(Number(activeChat?.allow_member_invites || 0))),
   );
 
@@ -1294,7 +1547,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (!idsToHide.length) return;
     try {
       const groupsToLeave = chats.filter(
-        (chat) => idsToHide.includes(Number(chat.id)) && chat.type === "group",
+        (chat) =>
+          idsToHide.includes(Number(chat.id)) &&
+          (chat.type === "group" || chat.type === "channel"),
       );
       await Promise.all(
         groupsToLeave.map(async (groupChat) => {
@@ -1374,7 +1629,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, [activeHeaderPeer?.username]);
 
   useEffect(() => {
-    if (!profileModalOpen || profileModalMember || activeChat?.type !== "group") return;
+    if (
+      !profileModalOpen ||
+      profileModalMember ||
+      !["group", "channel"].includes(activeChat?.type)
+    ) {
+      return;
+    }
     const memberUsernames = activeGroupMemberUsernames;
     if (!memberUsernames.length) return;
     let cancelled = false;
@@ -1502,12 +1763,54 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       userScrolledUpRef.current = true;
       setUserScrolledUp(true);
       unreadAnchorLockUntilRef.current = Date.now() + 4000;
+      shouldAutoMarkReadRef.current = true;
+        if (scroller) {
+          window.setTimeout(() => {
+            if (unreadMarkerIdRef.current !== null) {
+              return;
+            }
+            const distance =
+              scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+            if (distance <= 120) {
+              isAtBottomRef.current = true;
+            setIsAtBottom(true);
+            userScrolledUpRef.current = false;
+            setUserScrolledUp(false);
+            unreadAnchorLockUntilRef.current = 0;
+          }
+        }, 90);
+      }
     });
   }, [activeChatId, messages, loadingMessages]);
 
   useLayoutEffect(() => {
     if (!activeChatId) return;
+    if (!unreadMarkerIdRef.current) return;
+    if (loadingMessages || messages.length === 0) return;
+    const unreadId = Number(unreadMarkerIdRef.current || 0);
+    if (!unreadId) return;
+    requestAnimationFrame(() => {
+      scheduleUnreadAnchorAlignment(unreadId);
+      pendingScrollToBottomRef.current = false;
+      isAtBottomRef.current = false;
+      setIsAtBottom(false);
+      userScrolledUpRef.current = true;
+      setUserScrolledUp(true);
+      unreadAnchorLockUntilRef.current = Date.now() + 5000;
+    });
+  }, [activeChatId, unreadMarkerId, messages.length, loadingMessages]);
+
+  useLayoutEffect(() => {
+    if (!activeChatId) return;
     if (!pendingScrollToBottomRef.current) return;
+    if (
+      pendingScrollToUnreadRef.current !== null ||
+      unreadMarkerIdRef.current !== null ||
+      Date.now() < Number(unreadAnchorLockUntilRef.current || 0)
+    ) {
+      pendingScrollToBottomRef.current = false;
+      return;
+    }
     if (loadingMessages && messages.length === 0) return;
     requestAnimationFrame(() => {
       scrollChatToBottom("auto");
@@ -1599,7 +1902,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       return;
     }
     const hasUnreadFromOthers = messages.some(
-      (msg) => msg.username !== user.username && !msg.read_at,
+      (msg) => msg.username !== user.username && !msg._readByMe,
     );
     if (!hasUnreadFromOthers) return;
 
@@ -1685,8 +1988,24 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         // ignore notification errors
       }
     },
+    onChatRead: (payload) => {
+      const payloadChatId = Number(payload?.chatId || 0);
+      const currentActiveId = Number(activeChatIdRef.current || 0);
+      if (!payloadChatId || payloadChatId !== currentActiveId) return;
+      if (!isActiveChannelChat) return;
+      const visible = getVisibleChannelMessageIds();
+      if (visible.length) {
+        visible.forEach((id) => {
+          channelSeenLoadedRef.current.delete(id);
+        });
+      }
+      enqueueChannelSeenCounts(true);
+    },
     onPresenceUpdate: (payload) => {
       applyPresenceUpdate(payload);
+    },
+    onChatListChanged: () => {
+      setMentionRefreshToken((prev) => prev + 1);
     },
   });
 
@@ -1730,7 +2049,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           0,
           Math.min(100, Math.round((event.loaded / event.total) * 100)),
         );
-        setPendingUploadProgress(pendingMessage._clientId, percent);
+        setPendingUploadProgress(pendingMessage._clientId, percent, targetChatId);
       };
 
       xhr.onerror = () => reject(new Error("Network error during file upload."));
@@ -1772,13 +2091,33 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const hasFiles = Array.isArray(pendingMessage._files) && pendingMessage._files.length > 0;
     if (!clientId || sendingClientIdsRef.current.has(clientId)) return;
 
+    const maxMessageChars = APP_CONFIG.messageMaxChars;
+    if (!hasFiles && String(pendingMessage.body || "").length > maxMessageChars) {
+      setUploadError(`Message must be ${maxMessageChars} characters or less.`);
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg?._clientId === clientId ? { ...msg, _delivery: "failed" } : msg,
+        ),
+      );
+      return;
+    }
+
     sendingClientIdsRef.current.add(clientId);
+    let isTargetActive = false;
     try {
       const targetChatId = Number(pendingMessage._chatId || activeChatId);
       if (!targetChatId) return;
+      isTargetActive = Number(activeChatIdRef.current) === Number(targetChatId);
+      const chatType =
+        chats.find((chat) => Number(chat.id) === Number(targetChatId))?.type ||
+        activeChatTypeRef.current ||
+        null;
+      const isSavedChat = String(chatType || "").toLowerCase() === "saved";
       let data = null;
       if (hasFiles) {
-        setActiveUploadProgress(0);
+        if (isTargetActive) {
+          setActiveUploadProgress(0);
+        }
         data = await uploadPendingMessageWithProgress(pendingMessage, targetChatId);
       } else {
         const res = await sendMessage({
@@ -1793,80 +2132,92 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         }
       }
 
-      setMessages((prev) => {
-        const uploadType = String(pendingMessage?._uploadType || "").toLowerCase();
-        const files = Array.isArray(pendingMessage?._files) ? pendingMessage._files : [];
-        const hasMediaVideo = files.some((file) =>
-          String(file?.mimeType || "").toLowerCase().startsWith("video/"),
-        );
-        const keepPendingUntilServerEcho = hasFiles && uploadType === "media" && hasMediaVideo;
-        const serverId = Number(data.id) || null;
-        const index = prev.findIndex((msg) => msg?._clientId === clientId);
-        if (index >= 0) {
-          return prev.map((msg) =>
-            msg._clientId === clientId
-              ? {
-                  ...msg,
-                  _serverId: serverId || msg._serverId || null,
-                  _delivery: keepPendingUntilServerEcho ? "sending" : "sent",
-                  _processingPending:
-                    keepPendingUntilServerEcho || Boolean(msg?._processingPending),
-                  _awaitingServerEcho: true,
-                  _uploadProgress: 100,
-                }
-              : msg,
-          );
-        }
-        const createdAt = pendingMessage?._createdAt || new Date().toISOString();
-        const pendingDate = parseServerDate(createdAt);
-        const pendingDayKey = `${pendingDate.getFullYear()}-${pendingDate.getMonth()}-${pendingDate.getDate()}`;
-        const pendingBody = String(pendingMessage?.body || "").trim() || "Sent a file";
-        const messageFiles = files.map((file) => ({
-          id: file.id,
-          kind: file.kind,
-          name: file.name,
-          mimeType: file.mimeType,
-          sizeBytes: file.sizeBytes,
-          width: Number.isFinite(Number(file.width)) ? Number(file.width) : null,
-          height: Number.isFinite(Number(file.height)) ? Number(file.height) : null,
-          durationSeconds: Number.isFinite(Number(file.durationSeconds))
-            ? Number(file.durationSeconds)
-            : null,
-          url: file.url || null,
-          processing:
-            keepPendingUntilServerEcho &&
+      if (isTargetActive) {
+        setMessages((prev) => {
+          const uploadType = String(pendingMessage?._uploadType || "").toLowerCase();
+          const files = Array.isArray(pendingMessage?._files) ? pendingMessage._files : [];
+          const hasMediaVideo = files.some((file) =>
             String(file?.mimeType || "").toLowerCase().startsWith("video/"),
-        }));
-        return [
-          ...prev,
-          {
-            id: clientId,
-            username: user.username,
-            body: pendingBody,
-            created_at: createdAt,
-            read_at: null,
-            read_by_user_id: null,
-            _clientId: clientId,
-            _chatId: Number(targetChatId),
-            _queuedAt: Number(pendingMessage?._queuedAt || Date.now()),
-            _delivery: keepPendingUntilServerEcho ? "sending" : "sent",
-            _dayKey: pendingDayKey,
-            _dayLabel: formatDayLabel(createdAt),
-            _timeLabel: formatTime(createdAt),
-            _uploadType: uploadType || "document",
-            _files: files,
-            _uploadProgress: 100,
-            _awaitingServerEcho: true,
-            _processingPending: keepPendingUntilServerEcho,
-            _serverId: serverId,
-            replyTo: pendingMessage.replyTo || null,
-            files: messageFiles,
-          },
-        ];
-      });
+          );
+          const keepPendingUntilServerEcho = hasFiles && uploadType === "media" && hasMediaVideo;
+          const serverId = Number(data.id) || null;
+          const index = prev.findIndex((msg) => msg?._clientId === clientId);
+          if (index >= 0) {
+            return prev.map((msg) =>
+              msg._clientId === clientId
+                ? {
+                    ...msg,
+                    _serverId: serverId || msg._serverId || null,
+                    _delivery: keepPendingUntilServerEcho ? "sending" : "sent",
+                    _processingPending:
+                      keepPendingUntilServerEcho || Boolean(msg?._processingPending),
+                    _awaitingServerEcho: true,
+                    _uploadProgress: 100,
+                    read_at:
+                      isSavedChat && !msg.read_at
+                        ? msg.created_at || new Date().toISOString()
+                        : msg.read_at,
+                    read_by_user_id:
+                      isSavedChat && !msg.read_by_user_id
+                        ? Number(user?.id || 0)
+                        : msg.read_by_user_id,
+                  }
+                : msg,
+            );
+          }
+          const createdAt = pendingMessage?._createdAt || new Date().toISOString();
+          const pendingDate = parseServerDate(createdAt);
+          const pendingDayKey = `${pendingDate.getFullYear()}-${pendingDate.getMonth()}-${pendingDate.getDate()}`;
+          const pendingBody = String(pendingMessage?.body || "").trim() || "Sent a file";
+          const messageFiles = files.map((file) => ({
+            id: file.id,
+            kind: file.kind,
+            name: file.name,
+            mimeType: file.mimeType,
+            sizeBytes: file.sizeBytes,
+            width: Number.isFinite(Number(file.width)) ? Number(file.width) : null,
+            height: Number.isFinite(Number(file.height)) ? Number(file.height) : null,
+            durationSeconds: Number.isFinite(Number(file.durationSeconds))
+              ? Number(file.durationSeconds)
+              : null,
+            url: file.url || null,
+            processing:
+              keepPendingUntilServerEcho &&
+              String(file?.mimeType || "").toLowerCase().startsWith("video/"),
+          }));
+          return [
+            ...prev,
+            {
+              id: clientId,
+              username: user.username,
+              body: pendingBody,
+              created_at: createdAt,
+              read_at: isSavedChat ? createdAt : null,
+              read_by_user_id: isSavedChat ? Number(user?.id || 0) : null,
+              _clientId: clientId,
+              _chatId: Number(targetChatId),
+              _queuedAt: Number(pendingMessage?._queuedAt || Date.now()),
+              _delivery: keepPendingUntilServerEcho ? "sending" : "sent",
+              _dayKey: pendingDayKey,
+              _dayLabel: formatDayLabel(createdAt),
+              _timeLabel: formatTime(createdAt),
+              _uploadType: uploadType || "document",
+              _files: files,
+              _uploadProgress: 100,
+              _awaitingServerEcho: true,
+              _processingPending: keepPendingUntilServerEcho,
+              _serverId: serverId,
+              replyTo: pendingMessage.replyTo || null,
+              files: messageFiles,
+            },
+          ];
+        });
+      }
       if (hasFiles) {
-        setActiveUploadProgress(100);
-        setTimeout(() => setActiveUploadProgress(null), UPLOAD_PROGRESS_HIDE_DELAY_MS);
+        if (isTargetActive) {
+          setActiveUploadProgress(100);
+          setTimeout(() => setActiveUploadProgress(null), UPLOAD_PROGRESS_HIDE_DELAY_MS);
+        }
       }
       pendingScrollToBottomRef.current = false;
       await loadChats({ silent: true });
@@ -1874,25 +2225,29 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       // Immediate forced refetch here can race and cause first-message flicker.
     } catch (error) {
       if (hasFiles) {
-        setActiveUploadProgress(null);
-        setUploadError(String(error?.message || "Unable to upload files."));
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg._clientId === clientId
-              ? {
-                  ...msg,
-                  _delivery: "failed",
-                  _uploadProgress: null,
-                }
-              : msg,
-          ),
-        );
+        if (isTargetActive) {
+          setActiveUploadProgress(null);
+          setUploadError(String(error?.message || "Unable to upload files."));
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg._clientId === clientId
+                ? {
+                    ...msg,
+                    _delivery: "failed",
+                    _uploadProgress: null,
+                  }
+                : msg,
+            ),
+          );
+        }
       } else {
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg._clientId === clientId ? { ...msg, _delivery: "failed" } : msg,
-          ),
-        );
+        if (isTargetActive) {
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg._clientId === clientId ? { ...msg, _delivery: "failed" } : msg,
+            ),
+          );
+        }
       }
     } finally {
       sendingClientIdsRef.current.delete(clientId);
@@ -2212,9 +2567,16 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             ? prev || Boolean(data?.hasMore)
             : Boolean(data?.hasMore),
       );
-        const nextMessages = (data.messages || []).map((msg) => {
+      const chatType =
+        chats.find((chat) => Number(chat.id) === Number(requestChatId))?.type ||
+        activeChatTypeRef.current ||
+        null;
+      const allowSystemEvents = String(chatType || "").toLowerCase() !== "channel";
+      const nextMessages = (data.messages || []).map((msg) => {
         const date = parseServerDate(msg.created_at);
         const dayKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+        const readByMe =
+          Number(msg?.user_id || 0) === Number(user.id) || Boolean(msg.read_by_me);
         const hasProcessingVideo = Array.isArray(msg?.files)
           ? msg.files.some(
               (file) =>
@@ -2243,11 +2605,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                 : "";
         return {
           ...msg,
+          _readByMe: readByMe,
           _dayKey: dayKey,
           _dayLabel: formatDayLabel(msg.created_at),
           _timeLabel: formatTime(msg.created_at),
           _processingPending: isOwnProcessingVideo,
-          _systemEvent: normalizedSystemType ? { type: normalizedSystemType, text: systemText } : null,
+          _systemEvent:
+            allowSystemEvents && normalizedSystemType
+              ? { type: normalizedSystemType, text: systemText }
+              : null,
         };
       });
       const replyIconByMessageId = new Map(
@@ -2287,16 +2653,43 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }
       setMessages((prev) => {
         if (activeChatIdRef.current !== requestChatId) return prev;
-        const prevLatestVisibleTime = prev.reduce((max, msg) => {
+        if (isActiveChannelChat) {
+          const nextCounts = nextMessagesWithReplyIcons.reduce((acc, msg) => {
+            const id = Number(msg?.id || 0);
+            if (!id) return acc;
+            if (Number.isFinite(Number(msg?.seenCount))) {
+              acc[id] = Math.max(1, Number(msg.seenCount));
+            }
+            return acc;
+          }, {});
+          if (Object.keys(nextCounts).length) {
+            setChannelSeenCounts((prevCounts) => ({ ...prevCounts, ...nextCounts }));
+          }
+        }
+        let basePrev = prev;
+        if (options.pruneMissing) {
+          const serverIds = new Set(
+            nextMessagesWithReplyIcons
+              .map((msg) => Number(msg?.id || 0))
+              .filter((id) => Number.isFinite(id) && id > 0),
+          );
+          basePrev = prev.filter((msg) => {
+            if (msg?._delivery === "sending" || msg?._delivery === "failed") return true;
+            if (msg?._clientId) return true;
+            const serverId = Number(msg?._serverId || msg?.id || 0);
+            return serverIds.has(serverId);
+          });
+        }
+        const prevLatestVisibleTime = basePrev.reduce((max, msg) => {
           const t = Number(msg?._visibilityTime || parseServerDate(msg?.created_at).getTime());
           return Number.isFinite(t) ? Math.max(max, t) : max;
         }, 0);
         const prevByServerId = new Map(
-          prev
+          basePrev
             .filter((msg) => Number.isFinite(Number(msg._serverId || msg.id)))
             .map((msg) => [Number(msg._serverId || msg.id), msg]),
         );
-        const prevLocalCandidates = prev.filter((msg) => Boolean(msg?._clientId));
+        const prevLocalCandidates = basePrev.filter((msg) => Boolean(msg?._clientId));
         const nextMessagesWithLocalIdentity = nextMessagesWithReplyIcons.map((serverMsg) => {
           let existingLocal = prevByServerId.get(Number(serverMsg.id));
           if (!existingLocal) {
@@ -2347,7 +2740,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
         if (
           nextMessages.length === 0 &&
-          prev.some((msg) => {
+          basePrev.some((msg) => {
             if (Number(msg._chatId || chatId) !== Number(chatId)) return false;
             return Boolean(
               msg._clientId || msg._awaitingServerEcho || msg._delivery,
@@ -2356,7 +2749,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         ) {
           // Prevent one-frame disappearance when first local message exists
           // and a transient fetch returns empty before server echo settles.
-          return prev;
+          return basePrev;
         }
         const isPendingMessageAcknowledged = (pending, serverMessages) => {
           if (!pending || !serverMessages.length) return false;
@@ -2409,13 +2802,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           });
         };
 
-        const pendingLocal = prev.filter(
+        const pendingLocal = basePrev.filter(
           (msg) =>
             (msg._delivery === "sending" || msg._delivery === "failed") &&
             Number(msg._chatId || chatId) === Number(chatId) &&
             !isPendingMessageAcknowledged(msg, nextMessages),
         );
-        const optimisticSentLocal = prev.filter((msg) => {
+        const optimisticSentLocal = basePrev.filter((msg) => {
           if (!msg?._awaitingServerEcho) return false;
           if (Number(msg._chatId || chatId) !== Number(chatId)) return false;
           return !nextMessagesWithVisibility.some(
@@ -2470,7 +2863,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         ].sort(compareMessages);
 
         const nowMs = Date.now();
-        const rescuedOptimistic = prev.filter((msg) => {
+        const rescuedOptimistic = basePrev.filter((msg) => {
           if (!msg?._clientId) return false;
           if (Number(msg._chatId || chatId) !== Number(chatId)) return false;
           const queuedAt = Number(msg?._queuedAt || 0);
@@ -2514,7 +2907,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       const lastMsg = nextMessages[nextMessages.length - 1];
       const lastId = lastMsg?.id || null;
       const hasUnreadFromOthers = nextMessages.some(
-        (msg) => msg.username !== user.username && !msg.read_at,
+        (msg) => msg.username !== user.username && !msg._readByMe,
       );
       const hasNew =
         lastId &&
@@ -2525,7 +2918,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
       if (openingChatRef.current) {
         const firstUnreadIndex = nextMessages.findIndex(
-          (msg) => msg.username !== user.username && !msg.read_at,
+          (msg) => msg.username !== user.username && !msg._readByMe,
         );
         const firstUnreadMessage =
           firstUnreadIndex >= 0 ? nextMessages[firstUnreadIndex] : null;
@@ -2533,7 +2926,26 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         shouldAutoMarkReadRef.current = true;
         pendingScrollToUnreadRef.current = null;
 
+        if (!firstUnreadMessage?.id && openingUnreadCountRef.current > 0 && !options.forceUnreadFetch) {
+          const boostedLimit = Math.min(
+            10000,
+            Math.max(
+              CHAT_PAGE_CONFIG.messageFetchLimit,
+              Number(openingUnreadCountRef.current || 0) + 200,
+              Number(options.limit || 0) + 200,
+            ),
+          );
+          void loadMessages(chatId, {
+            silent: true,
+            preserveHistory: true,
+            limit: boostedLimit,
+            forceUnreadFetch: true,
+          });
+          return;
+        }
+
         if (firstUnreadMessage?.id) {
+          shouldAutoMarkReadRef.current = false;
           const unreadId = Number(firstUnreadMessage.id);
           setUnreadMarkerId(unreadId);
           unreadMarkerIdRef.current = unreadId;
@@ -2551,6 +2963,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           setUserScrolledUp(false);
           isAtBottomRef.current = true;
           setIsAtBottom(true);
+          shouldAutoMarkReadRef.current = true;
         }
 
         openingHadUnreadRef.current = false;
@@ -2570,11 +2983,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         setUnreadInChat(0);
       }
 
-      const keepUnreadAnchor =
-        Boolean(options.initialLoad) &&
-        (pendingScrollToUnreadRef.current !== null ||
-          unreadMarkerIdRef.current !== null ||
-          Number(openingUnreadCountRef.current || 0) > 0);
+        const hasPendingUnreadAnchor =
+          pendingScrollToUnreadRef.current !== null ||
+          unreadMarkerIdRef.current !== null;
+        const keepUnreadAnchor =
+          hasPendingUnreadAnchor ||
+          (Boolean(options.initialLoad) &&
+            Number(openingUnreadCountRef.current || 0) > 0);
       const unreadAnchorLocked =
         unreadMarkerIdRef.current !== null &&
         Date.now() < Number(unreadAnchorLockUntilRef.current || 0);
@@ -2609,9 +3024,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (queuedSilentMessageRefreshRef.current) {
         const queued = queuedSilentMessageRefreshRef.current;
         queuedSilentMessageRefreshRef.current = null;
-        if (Number(queued.chatId) === Number(chatId)) {
-          void loadMessages(queued.chatId, queued.options);
-        }
+        void loadMessages(queued.chatId, queued.options);
       }
       if (!options.silent) {
         setLoadingMessages(false);
@@ -2863,6 +3276,18 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
   }
 
+  const handleMessageInput = useCallback(
+    (value) => {
+      if (!uploadError) return;
+      if (!String(uploadError).toLowerCase().includes("message must be")) return;
+      const trimmed = String(value || "").trim();
+      if (trimmed.length <= APP_CONFIG.messageMaxChars) {
+        setUploadError("");
+      }
+    },
+    [uploadError],
+  );
+
   async function handleSend(event) {
     event.preventDefault();
     if (!activeChatId) return;
@@ -2879,8 +3304,17 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const trimmedBody = body.trim();
     const hasPendingFiles = pendingUploadFiles.length > 0;
     if (!trimmedBody && !hasPendingFiles) return;
+    const maxMessageChars = APP_CONFIG.messageMaxChars;
+    if (String(body).length > maxMessageChars) {
+      setUploadError(`Message must be ${maxMessageChars} characters or less.`);
+      return;
+    }
+    if (uploadError) {
+      setUploadError("");
+    }
 
     const pendingFilesSummary = hasPendingFiles ? summarizeFiles(pendingUploadFiles) : "";
+    const isSavedChat = isActiveSavedChat;
 
     const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const createdAt = new Date().toISOString();
@@ -2941,6 +3375,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         _dayKey: pendingDayKey,
         body: fallbackBody,
         replyTo: replyPayload,
+        read_at: isSavedChat ? createdAt : null,
+        read_by_user_id: isSavedChat ? Number(user?.id || 0) : null,
       };
       await sendPendingMessage(pendingMessage);
       setReplyTarget(null);
@@ -2954,8 +3390,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         username: user.username,
         body: fallbackBody,
         created_at: createdAt,
-        read_at: null,
-        read_by_user_id: null,
+        read_at: isSavedChat ? createdAt : null,
+        read_by_user_id: isSavedChat ? Number(user?.id || 0) : null,
         _clientId: tempId,
         _chatId: Number(activeChatId),
         _queuedAt: queuedAt,
@@ -3466,6 +3902,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const openNewGroupModal = () => {
     setEditingGroup(false);
+    setGroupModalType("group");
+    setNewGroupOpen(true);
+    setNewGroupError("");
+  };
+
+  const openNewChannelModal = () => {
+    setEditingGroup(false);
+    setGroupModalType("channel");
     setNewGroupOpen(true);
     setNewGroupError("");
   };
@@ -3474,6 +3918,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setNewGroupOpen(false);
     setCreatingGroup(false);
     setEditingGroup(false);
+    setGroupModalType("group");
     setNewGroupForm({
       nickname: "",
       username: "",
@@ -3511,7 +3956,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (!activeChat) return;
     setProfileModalMember(null);
     setProfileModalOpen(true);
-    if (activeChat.type === "group") {
+    if (activeChat.type === "group" || activeChat.type === "channel") {
       try {
         const res = await getGroupInviteLink(activeChat.id);
         const data = await res.json();
@@ -3549,10 +3994,17 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setProfileModalOpen(true);
   };
 
+  const openMentionProfile = (mention) => {
+    if (!mention) return;
+    setMentionProfile(mention);
+    setProfileModalOpen(true);
+  };
+
   const closeProfileModal = () => {
     setProfileModalOpen(false);
     setProfileModalMember(null);
     setProfileInviteLink("");
+    setMentionProfile(null);
   };
 
   const openSelfProfileEditor = () => {
@@ -3564,10 +4016,39 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
   };
 
+  const openSavedMessages = async () => {
+    try {
+      setShowSettings(false);
+      setSettingsPanel(null);
+      let savedChat = chats.find((chat) => chat.type === "saved");
+      let chatId = Number(savedChat?.id || 0);
+      if (!chatId) {
+        const res = await getSavedMessagesChat(user.username);
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data?.error || "Unable to open saved messages.");
+        }
+        chatId = Number(data?.id || 0);
+        await loadChats({ silent: true });
+      }
+      if (!chatId) return;
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem(OPEN_CHAT_ID_KEY, String(chatId));
+      }
+      setActiveChatId(chatId);
+      setActivePeer(null);
+      setMobileTab("chat");
+      setSidebarScrollEpoch((prev) => prev + 1);
+    } catch {
+      // ignore
+    }
+  };
+
   const openEditGroupFromProfile = async () => {
-    if (!activeChat || activeChat.type !== "group") return;
+    if (!activeChat || !["group", "channel"].includes(activeChat.type)) return;
     if (!canCurrentUserEditGroup) return;
     setEditingGroup(true);
+    setGroupModalType(activeChat.type === "channel" ? "channel" : "group");
     setProfileModalOpen(false);
     setNewGroupForm({
       nickname: activeChat.name || "",
@@ -3657,27 +4138,29 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   };
 
   async function handleCreateGroup() {
+    const isChannel = groupModalType === "channel";
+    const label = isChannel ? "Channel" : "Group";
     const nickname = newGroupForm.nickname.trim();
     const username = newGroupForm.username.trim().toLowerCase();
     if (!nickname) {
-      setNewGroupError("Group nickname is required.");
+      setNewGroupError(`${label} nickname is required.`);
       return;
     }
     if (nickname.length > NICKNAME_MAX) {
-      setNewGroupError(`Group nickname must be ${NICKNAME_MAX} characters or less.`);
+      setNewGroupError(`${label} nickname must be ${NICKNAME_MAX} characters or less.`);
       return;
     }
     if (username.length > USERNAME_MAX) {
-      setNewGroupError(`Group username must be ${USERNAME_MAX} characters or less.`);
+      setNewGroupError(`${label} username must be ${USERNAME_MAX} characters or less.`);
       return;
     }
     if (username.length < 3) {
-      setNewGroupError("Group username must be at least 3 characters.");
+      setNewGroupError(`${label} username must be at least 3 characters.`);
       return;
     }
     if (!usernamePattern.test(username)) {
       setNewGroupError(
-        "Group username can only include english letters, numbers, dot (.), and underscore (_).",
+        `${label} username can only include english letters, numbers, dot (.), and underscore (_).`,
       );
       return;
     }
@@ -3708,7 +4191,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           : newGroupMembers.map((member) => member.username),
       };
       const res = editingGroup && activeChat?.id
-        ? await updateGroupChat(activeChat.id, {
+        ? await (isChannel ? updateChannelChat : updateGroupChat)(activeChat.id, {
             username: user.username,
             nickname: payload.nickname,
             groupUsername: payload.username,
@@ -3716,7 +4199,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             allowMemberInvites: payload.allowMemberInvites,
             members: payload.members,
           })
-        : await createGroupChat(payload);
+        : await (isChannel ? createChannelChat : createGroupChat)(payload);
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data?.error || "Unable to create group.");
@@ -3836,7 +4319,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }
 
   async function handleLeaveActiveGroup() {
-    if (!activeChat || activeChat.type !== "group") return;
+    if (!activeChat || !["group", "channel"].includes(activeChat.type)) return;
     try {
       const res = await leaveGroupChat(activeChat.id, { username: user.username });
       const data = await res.json();
@@ -3852,7 +4335,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }
 
   async function handleRemoveGroupMember(member) {
-    if (!activeChat || activeChat.type !== "group" || !member?.username) return;
+    if (!activeChat || !["group", "channel"].includes(activeChat.type) || !member?.username)
+      return;
     try {
       const res = await removeGroupMember(activeChat.id, {
         username: user.username,
@@ -3866,6 +4350,42 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     } catch {
       // ignore
     }
+  }
+
+  async function handleDeleteAccount(password) {
+    if (!user?.username) return;
+    const trimmed = String(password || "").trim();
+    if (!trimmed) {
+      throw new Error("Password is required.");
+    }
+    const res = await deleteAccount({ username: user.username, password: trimmed });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data?.error || "Unable to delete account.");
+    }
+    setSettingsPanel(null);
+    setShowSettings(false);
+    handleLogout();
+  }
+
+  async function handleDeleteActiveGroup(password) {
+    if (!activeChat || !["group", "channel"].includes(activeChat.type)) return;
+    const trimmed = String(password || "").trim();
+    if (!trimmed) {
+      throw new Error("Password is required.");
+    }
+    const res = await deleteGroupChat(activeChat.id, {
+      username: user.username,
+      password: trimmed,
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data?.error || "Unable to delete chat.");
+    }
+    closeProfileModal();
+    closeNewGroupModal();
+    closeChat();
+    await loadChats();
   }
 
   const handleStartReached = async () => {
@@ -3921,6 +4441,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setDiscoverLoading(false);
     setDiscoverUsers([]);
     setDiscoverGroups([]);
+    setDiscoverChannels([]);
+    setDiscoverSaved(false);
     setSidebarScrollEpoch((prev) => prev + 1);
     if (typeof document !== "undefined") {
       const activeEl = document.activeElement;
@@ -3972,6 +4494,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         isAtBottomRef={isAtBottomRef}
         onOpenNewChat={() => setNewChatOpen(true)}
         onOpenNewGroup={openNewGroupModal}
+        onOpenNewChannel={openNewChannelModal}
         chatsSearchQuery={chatsSearchQuery}
         onChatsSearchChange={setChatsSearchQuery}
         onChatsSearchFocus={() => {
@@ -3986,6 +4509,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         discoverLoading={discoverLoading}
         discoverUsers={discoverUsers}
         discoverGroups={discoverGroups}
+        discoverChannels={discoverChannels}
+        discoverSaved={discoverSaved}
+        isSavedChatActive={isActiveSavedChat}
         onOpenDiscoveredUser={openDiscoverUser}
         onOpenDiscoveredGroup={openDiscoverGroup}
         showSettings={showSettings}
@@ -4020,8 +4546,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         notificationsDisabled={notificationsDisabled}
         notificationStatusLabel={notificationStatusLabel}
         onToggleNotifications={handleToggleNotifications}
+        onOpenSavedMessages={openSavedMessages}
         onClearCache={handleClearCache}
         dataCacheStats={dataCacheStats}
+        onDeleteAccount={handleDeleteAccount}
         onExitEdit={handleExitEdit}
         onEnterEdit={handleEnterEdit}
         onDeleteChats={handleDeleteChats}
@@ -4039,10 +4567,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         activeFallbackTitle={activeFallbackTitle}
         peerStatusLabel={activeHeaderSubtitle}
         isGroupChat={isActiveGroupChat}
+        isChannelChat={isActiveChannelChat}
+        isSavedChat={isActiveSavedChat}
         groupAvatarColor={activeGroupAvatarColor}
         groupAvatarUrl={activeGroupAvatarUrl}
+        channelSeenCounts={channelSeenCounts}
         chatScrollRef={chatScrollRef}
-        onChatScroll={handleChatScroll}
+        onChatScroll={handleChatScrollWithSeen}
         onStartReached={handleStartReached}
         messages={messages}
         user={user}
@@ -4064,18 +4595,27 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         pendingUploadType={pendingUploadType}
         uploadError={uploadError}
         activeUploadProgress={activeUploadProgress}
+        messageMaxChars={APP_CONFIG.messageMaxChars}
         onMessageMediaLoaded={handleMessageMediaLoaded}
         onUploadFilesSelected={handleUploadFilesSelected}
         onRemovePendingUpload={removePendingUpload}
         onClearPendingUploads={clearPendingUploads}
+        onMessageInput={handleMessageInput}
         replyTarget={replyTarget}
         onClearReply={handleClearReply}
         onReplyToMessage={handleStartReply}
         onOpenHeaderProfile={openActiveChatProfile}
         onOpenMessageSenderProfile={openMemberProfileFromMessage}
+        onOpenMention={openMentionProfile}
         onUserScrollIntent={handleUserScrollIntent}
         fileUploadEnabled={CHAT_PAGE_CONFIG.fileUploadEnabled}
         fileUploadInProgress={fileUploadInProgress || activeUploadProgress !== null}
+        showComposer={canSendInActiveChat}
+        headerClickable={!isActiveSavedChat}
+        showStatus={!isActiveSavedChat}
+        headerAvatarIcon={activeHeaderAvatarIcon}
+        headerAvatarColor={headerAvatarColor}
+        mentionRefreshToken={mentionRefreshToken}
       />
 
       <MobileTabMenu
@@ -4126,11 +4666,19 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         creatingGroup={creatingGroup}
         onCreate={handleCreateGroup}
         onClose={closeNewGroupModal}
-        title={editingGroup ? "Edit group" : "New group"}
+        title={
+          editingGroup
+            ? `Edit ${groupModalType === "channel" ? "channel" : "group"}`
+            : `New ${groupModalType === "channel" ? "channel" : "group"}`
+        }
         submitLabel={editingGroup ? "Save" : "Create"}
         avatarPreview={groupAvatarPreview}
         avatarColor={editingGroup ? activeChat?.group_color || "#10b981" : "#10b981"}
-        avatarName={newGroupForm.nickname || newGroupForm.username || "Group"}
+        avatarName={
+          newGroupForm.nickname ||
+          newGroupForm.username ||
+          (groupModalType === "channel" ? "Channel" : "Group")
+        }
         onAvatarChange={handleGroupAvatarChange}
         onAvatarRemove={handleGroupAvatarRemove}
         showAvatarField={editingGroup}
@@ -4140,6 +4688,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         currentInviteLink={editGroupInviteLink}
         regeneratingInviteLink={regeneratingGroupInviteLink}
         onRegenerateInvite={handleRegenerateGroupInvite}
+        entityLabel={groupModalType === "channel" ? "Channel" : "Group"}
+        onDeleteChat={editingGroup ? handleDeleteActiveGroup : null}
       />
 
       <GroupInviteLinkModal
@@ -4150,12 +4700,18 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
       <ChatProfileModal
         open={profileModalOpen}
-        chat={profileModalMember ? { ...activeChat, type: "dm" } : activeChat}
+        chat={
+          mentionProfileChat ||
+          ((mentionProfileUser || profileModalMember)
+            ? { ...(activeChat || {}), type: "dm" }
+            : activeChat)
+        }
         targetUser={profileTargetUser}
         currentUser={user}
         muted={activeChatMuted}
         inviteLink={profileInviteLink}
         canViewInvite={canCurrentUserViewInvite}
+        readOnly={Boolean(mentionProfile)}
         membersBatchSize={CHAT_PAGE_CONFIG.newChatSearchMaxResults}
         onClose={closeProfileModal}
         onOpenChat={() => {
@@ -4208,6 +4764,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           onClearCache={handleClearCache}
           dataCacheStats={dataCacheStats}
           currentUser={user}
+          onDeleteAccount={handleDeleteAccount}
         />
       ) : null}
     </div>

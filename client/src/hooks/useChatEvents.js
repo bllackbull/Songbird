@@ -17,18 +17,30 @@ export function useChatEvents({
   setChats,
   sseReconnectRef,
   onIncomingMessage,
+  onChatRead,
   onPresenceUpdate,
+  onChatListChanged,
 }) {
   const onIncomingMessageRef = useRef(onIncomingMessage);
+  const onChatReadRef = useRef(onChatRead);
   const onPresenceUpdateRef = useRef(onPresenceUpdate);
+  const onChatListChangedRef = useRef(onChatListChanged);
 
   useEffect(() => {
     onIncomingMessageRef.current = onIncomingMessage;
   }, [onIncomingMessage]);
 
   useEffect(() => {
+    onChatReadRef.current = onChatRead;
+  }, [onChatRead]);
+
+  useEffect(() => {
     onPresenceUpdateRef.current = onPresenceUpdate;
   }, [onPresenceUpdate]);
+
+  useEffect(() => {
+    onChatListChangedRef.current = onChatListChanged;
+  }, [onChatListChanged]);
 
   useEffect(() => {
     if (!username) return;
@@ -55,6 +67,8 @@ export function useChatEvents({
         if (
           payload.type !== "chat_message" &&
           payload.type !== "chat_read" &&
+          payload.type !== "chat_message_deleted" &&
+          payload.type !== "chat_list_changed" &&
           payload.type !== "presence_update"
         ) {
           return;
@@ -69,7 +83,12 @@ export function useChatEvents({
         const isOwnEvent =
           String(payload?.username || "").toLowerCase() ===
           String(usernameRef.current || "").toLowerCase();
+        if (payload.type === "chat_list_changed") {
+          onChatListChangedRef.current?.(payload);
+          return;
+        }
         const isIncomingMessage = payload.type === "chat_message" && !isOwnEvent;
+        const isDeleteEvent = payload.type === "chat_message_deleted";
         if (isIncomingMessage) {
           onIncomingMessageRef.current?.(payload, {
             isActiveChat: currentActiveId && payloadChatId === currentActiveId,
@@ -86,6 +105,7 @@ export function useChatEvents({
             }
           }
           if (payload.type === "chat_read" && !isOwnEvent) {
+            onChatReadRef.current?.(payload);
             const nowIso = new Date().toISOString();
             setMessages((prev) =>
               prev.map((msg) => {
@@ -103,6 +123,24 @@ export function useChatEvents({
                   : chat,
               ),
             );
+          }
+          if (isDeleteEvent) {
+            const messageIds = Array.isArray(payload?.messageIds)
+              ? payload.messageIds.map((id) => Number(id)).filter((id) => Number.isFinite(id))
+              : [];
+            if (messageIds.length) {
+              setMessages((prev) =>
+                prev.filter((msg) => {
+                  const serverId = Number(msg?._serverId || msg?.id || 0);
+                  return !messageIds.includes(serverId);
+                }),
+              );
+            }
+            scheduleMessageRefreshRef.current?.(currentActiveId, {
+              preserveHistory: true,
+              pruneMissing: true,
+            });
+            return;
           }
           scheduleMessageRefreshRef.current?.(currentActiveId);
         }

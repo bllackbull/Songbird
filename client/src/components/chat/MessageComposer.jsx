@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { File, ImageIcon, Paperclip, Play, Reply, Send, Close, Video } from "../../icons/lucide.js";
 import { hasPersian } from "../../utils/fontUtils.js";
+import { renderMarkdownInlinePlain } from "../../utils/markdown.js";
 
 export function MessageComposer({
   activeChatId,
@@ -19,6 +20,8 @@ export function MessageComposer({
   onUploadFilesSelected,
   uploadError,
   activeUploadProgress,
+  messageMaxChars = null,
+  onMessageInput,
   uploadBusy,
   showUploadMenu,
   setShowUploadMenu,
@@ -55,6 +58,7 @@ export function MessageComposer({
         : derivedReplyIcon === "image"
           ? (isGenericReplyMediaText && !isPluralMediaSummary ? "Sent a photo" : replyBodyText || "Message")
           : replyBodyText || "Message";
+    const resolvedReplyHtml = renderMarkdownInlinePlain(resolvedReplyText);
 
   const resizeTextarea = () => {
     const el = messageInputRef.current;
@@ -141,7 +145,10 @@ export function MessageComposer({
                 ) : derivedReplyIcon === "document" ? (
                   <File size={12} className="shrink-0 text-slate-500 dark:text-slate-400" />
                 ) : null}
-                <span className="min-w-0 truncate">{resolvedReplyText}</span>
+                <span
+                  className="min-w-0 truncate"
+                  dangerouslySetInnerHTML={{ __html: resolvedReplyHtml }}
+                />
               </span>
             </div>
               <button
@@ -349,12 +356,16 @@ export function MessageComposer({
           name="message"
           rows={1}
           placeholder="Type a message"
+          maxLength={Number.isFinite(Number(messageMaxChars)) ? messageMaxChars : undefined}
           lang={isRtl ? "fa" : "en"}
           dir={isRtl ? "rtl" : "ltr"}
           onInput={(event) => {
             const value = event.currentTarget.value || "";
             setIsRtl(hasPersian(value));
             resizeTextarea();
+            if (typeof onMessageInput === "function") {
+              onMessageInput(value);
+            }
           }}
           onKeyDown={(event) => {
             if (!isDesktop) return;

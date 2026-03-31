@@ -18,11 +18,11 @@ function resolveUserIds(dbApi, selectors) {
       return
     }
     const groupRow = dbApi.getRow(
-      "SELECT id FROM chats WHERE type = 'group' AND group_username = ?",
+      "SELECT id FROM chats WHERE type IN ('group', 'channel') AND group_username = ?",
       [raw],
     )
     if (groupRow?.id) {
-      throw new Error(`Cannot delete user. "${raw}" is a group username.`)
+      throw new Error(`Cannot delete user. "${raw}" is a group/channel username.`)
     }
     const row = dbApi.getRow('SELECT id FROM users WHERE username = ?', [raw])
     if (row?.id) {
@@ -45,8 +45,8 @@ async function main() {
       userIds = resolveUserIds(dbApi, selectors)
     } catch (error) {
       const message = String(error?.message || '')
-      if (message.includes('group username')) {
-        console.error('Unable to delete a group with db:user:delete.')
+      if (message.includes('group/channel username') || message.includes('group username')) {
+        console.error('Unable to delete a group or channel with db:user:delete.')
         process.exitCode = 1
         return
       }
@@ -92,8 +92,8 @@ async function main() {
         return
       } catch (error) {
         const message = String(error?.message || '')
-        if (message.includes('group username')) {
-          console.error('Unable to delete a group with db:user:delete.')
+        if (message.includes('group/channel username') || message.includes('group username')) {
+          console.error('Unable to delete a group or channel with db:user:delete.')
           process.exitCode = 1
           return
         }
@@ -102,31 +102,107 @@ async function main() {
     }
 
     const placeholders = userIds.map(() => '?').join(', ')
-    const fileRows = dbApi.getAll(
-      `
-        SELECT cmf.stored_name
-        FROM chat_message_files cmf
-        JOIN chat_messages cm ON cm.id = cmf.message_id
-        WHERE cm.user_id IN (${placeholders})
-      `,
+    const ownerChatRows = dbApi.getAll(
+      `SELECT chat_id FROM chat_members WHERE role = 'owner' AND user_id IN (${placeholders})`,
       userIds,
     )
-    const storedNames = fileRows.map((row) => row.stored_name)
+    const ownerChatIds = Array.from(
+      new Set(ownerChatRows.map((row) => Number(row?.chat_id || 0)).filter(Boolean)),
+    )
+    const chatIdsToDelete = []
+    const ownershipTransfers = []
+    ownerChatIds.forEach((chatId) => {
+      const remaining = dbApi
+        .getAll(
+          `SELECT user_id FROM chat_members WHERE chat_id = ? AND user_id NOT IN (${placeholders})`,
+          [Number(chatId), ...userIds],
+        )
+        .map((row) => Number(row?.user_id || 0))
+        .filter((id) => Number.isFinite(id) && id > 0)
+      if (!remaining.length) {
+        chatIdsToDelete.push(Number(chatId))
+        return
+      }
+      const nextOwnerId = remaining[Math.floor(Math.random() * remaining.length)]
+      if (nextOwnerId) {
+        ownershipTransfers.push({
+          chatId: Number(chatId),
+          nextOwnerId: Number(nextOwnerId),
+        })
+      }
+    })
+    const uniqueChatDeletes = Array.from(
+      new Set(chatIdsToDelete.filter((id) => Number.isFinite(id) && id > 0)),
+    )
+    const chatPlaceholders = uniqueChatDeletes.map(() => '?').join(', ')
+    const chatFileRows = uniqueChatDeletes.length
+      ? dbApi.getAll(
+          `SELECT cmf.stored_name
+           FROM chat_message_files cmf
+           JOIN chat_messages cm ON cm.id = cmf.message_id
+           WHERE cm.chat_id IN (${chatPlaceholders})`,
+          uniqueChatDeletes,
+        )
+      : []
+    const storedNames = Array.from(
+      new Set(
+        [...chatFileRows]
+          .map((row) => String(row?.stored_name || '').trim())
+          .filter(Boolean),
+      ),
+    )
 
     dbApi.run('BEGIN')
     try {
+      if (uniqueChatDeletes.length) {
+        chunkArray(uniqueChatDeletes, 500).forEach((chunk) => {
+          const chunkPlaceholders = chunk.map(() => '?').join(', ')
+          dbApi.run(
+            `DELETE FROM chat_message_reads WHERE message_id IN (
+              SELECT id FROM chat_messages WHERE chat_id IN (${chunkPlaceholders})
+            )`,
+            chunk,
+          )
+          dbApi.run(
+            `DELETE FROM chat_message_files WHERE message_id IN (
+              SELECT id FROM chat_messages WHERE chat_id IN (${chunkPlaceholders})
+            )`,
+            chunk,
+          )
+          dbApi.run(
+            `DELETE FROM chat_messages WHERE chat_id IN (${chunkPlaceholders})`,
+            chunk,
+          )
+          dbApi.run(`DELETE FROM chat_members WHERE chat_id IN (${chunkPlaceholders})`, chunk)
+          dbApi.run(`DELETE FROM chat_mutes WHERE chat_id IN (${chunkPlaceholders})`, chunk)
+          dbApi.run(
+            `DELETE FROM group_removed_members WHERE chat_id IN (${chunkPlaceholders})`,
+            chunk,
+          )
+          dbApi.run(`DELETE FROM hidden_chats WHERE chat_id IN (${chunkPlaceholders})`, chunk)
+          dbApi.run(`DELETE FROM chats WHERE id IN (${chunkPlaceholders})`, chunk)
+        })
+      }
+      ownershipTransfers.forEach((transfer) => {
+        if (
+          uniqueChatDeletes.includes(Number(transfer.chatId)) ||
+          !transfer.chatId ||
+          !transfer.nextOwnerId
+        ) {
+          return
+        }
+        dbApi.run('UPDATE chat_members SET role = ? WHERE chat_id = ? AND user_id = ?', [
+          'owner',
+          Number(transfer.chatId),
+          Number(transfer.nextOwnerId),
+        ])
+      })
       chunkArray(userIds, 500).forEach((chunk) => {
         const chunkPlaceholders = chunk.map(() => '?').join(', ')
         dbApi.run(`DELETE FROM sessions WHERE user_id IN (${chunkPlaceholders})`, chunk)
         dbApi.run(`DELETE FROM hidden_chats WHERE user_id IN (${chunkPlaceholders})`, chunk)
+        dbApi.run(`DELETE FROM chat_message_reads WHERE user_id IN (${chunkPlaceholders})`, chunk)
         dbApi.run(`UPDATE chat_messages SET read_by_user_id = NULL WHERE read_by_user_id IN (${chunkPlaceholders})`, chunk)
-        dbApi.run(
-          `DELETE FROM chat_message_files WHERE message_id IN (
-            SELECT id FROM chat_messages WHERE user_id IN (${chunkPlaceholders})
-          )`,
-          chunk,
-        )
-        dbApi.run(`DELETE FROM chat_messages WHERE user_id IN (${chunkPlaceholders})`, chunk)
         dbApi.run(`DELETE FROM chat_members WHERE user_id IN (${chunkPlaceholders})`, chunk)
         dbApi.run(`DELETE FROM users WHERE id IN (${chunkPlaceholders})`, chunk)
       })

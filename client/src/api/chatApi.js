@@ -26,6 +26,13 @@ export const searchUsers = ({ exclude, query }) =>
     )}`,
   );
 
+export const resolveMentions = ({ username, mentions }) =>
+  apiFetch(`${API_BASE}/api/mentions/resolve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, mentions }),
+  });
+
 export const discoverUsersAndGroups = ({ username, query }) =>
   apiFetch(
     `${API_BASE}/api/discover?username=${encodeURIComponent(
@@ -38,6 +45,13 @@ export const markMessagesRead = ({ chatId, username }) =>
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ chatId, username }),
+  });
+
+export const getMessageReadCounts = ({ chatId, username, messageIds }) =>
+  apiFetch(`${API_BASE}/api/messages/read-counts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chatId, username, messageIds }),
   });
 
 export const logout = () =>
@@ -68,6 +82,13 @@ export const updateStatus = (payload) =>
 export const updatePassword = (payload) =>
   apiFetch(`${API_BASE}/api/password`, {
     method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+export const deleteAccount = (payload) =>
+  apiFetch(`${API_BASE}/api/profile/delete`, {
+    method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
@@ -103,6 +124,13 @@ export const createGroupChat = (payload) =>
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+  });
+
+export const createChannelChat = (payload) =>
+  apiFetch(`${API_BASE}/api/chats/group`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...payload, type: "channel" }),
   });
 
 export const getGroupInviteInfo = (token) =>
@@ -146,6 +174,20 @@ export const updateGroupChat = (chatId, payload) =>
     body: JSON.stringify(payload),
   });
 
+export const updateChannelChat = (chatId, payload) =>
+  apiFetch(`${API_BASE}/api/chats/group/${encodeURIComponent(chatId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...payload, type: "channel" }),
+  });
+
+export const deleteGroupChat = (chatId, payload) =>
+  apiFetch(`${API_BASE}/api/chats/group/${encodeURIComponent(chatId)}/delete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
 export const joinPublicGroup = (chatId, payload) =>
   apiFetch(`${API_BASE}/api/chats/group/${encodeURIComponent(chatId)}/join-public`, {
     method: "POST",
@@ -158,6 +200,9 @@ export const uploadGroupAvatar = (chatId, payload) =>
     method: "POST",
     body: payload,
   });
+
+export const getSavedMessagesChat = (username) =>
+  apiFetch(`${API_BASE}/api/chats/saved?username=${encodeURIComponent(username)}`);
 
 export const setChatMute = (chatId, payload) =>
   apiFetch(`${API_BASE}/api/chats/${encodeURIComponent(chatId)}/mute`, {

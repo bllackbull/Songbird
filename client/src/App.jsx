@@ -3,6 +3,7 @@ import logo from './assets/songbird-logo.svg'
 import ChatPage from './pages/ChatPage.jsx'
 import AuthPage from './pages/AuthPage.jsx'
 import InvitePage from './pages/InvitePage.jsx'
+import { APP_CONFIG } from './settings/appConfig.js'
 
 const API_BASE = ''
 const AUTH_REDIRECT_KEY = 'songbird-auth-redirect'
@@ -35,6 +36,7 @@ export default function App() {
   const [authStatus, setAuthStatus] = useState('')
   const [authChecked, setAuthChecked] = useState(false)
   const [authLoading, setAuthLoading] = useState(false)
+  const accountCreationEnabled = APP_CONFIG.accountCreationEnabled
   const isIOSSafari =
     /iP(ad|hone|od)/i.test(navigator.userAgent) &&
     /Safari/i.test(navigator.userAgent) &&
@@ -185,6 +187,12 @@ export default function App() {
     applyTheme(isDark, route)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDark, route])
+
+  useEffect(() => {
+    if (route === 'signup' && !accountCreationEnabled) {
+      navigate('/login', true)
+    }
+  }, [route, accountCreationEnabled])
 
   useEffect(() => {
     const refreshTheme = () => applyTheme(isDark, route)
@@ -499,6 +507,7 @@ export default function App() {
                 status={authStatus}
                 loading={authLoading}
                 showSigningOverlay={authLoading}
+                allowSignup={accountCreationEnabled}
               />
             )}
             {route === 'signup' && (
@@ -514,6 +523,7 @@ export default function App() {
                 status={authStatus}
                 loading={authLoading}
                 showSigningOverlay={false}
+                allowSignup={accountCreationEnabled}
               />
             )}
             {route === 'chat' && user ? (

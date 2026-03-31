@@ -1,4 +1,4 @@
-import { Bell, BellOff, Database, LogOut, ShieldCheck, User } from "../../icons/lucide.js";
+import { Bell, BellOff, Bookmark, Database, LogOut, ShieldCheck, User } from "../../icons/lucide.js";
 import { ThemeButton } from "./ThemeButton.jsx";
 
 export function SettingsMenuActions({
@@ -12,6 +12,7 @@ export function SettingsMenuActions({
   notificationsDisabled,
   notificationStatusLabel,
   onToggleNotifications,
+  onOpenSavedMessages,
 }) {
   const isMobile = variant === "mobile";
   const buttonBase = isMobile
@@ -45,6 +46,14 @@ export function SettingsMenuActions({
       >
         <Database size={18} className="icon-anim-sway" />
         Data
+      </button>
+      <button
+        type="button"
+        onClick={() => onOpenSavedMessages?.()}
+        className={`mt-1 ${buttonBase} ${accentHover}`}
+      >
+        <Bookmark size={18} className="icon-anim-sway" />
+        Saved messages
       </button>
       <button
         type="button"

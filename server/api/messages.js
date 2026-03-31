@@ -4,6 +4,7 @@ function registerMessageRoutes(app, deps) {
     FILE_UPLOAD,
     MESSAGE_FILE_LIMITS,
     MESSAGE_FILE_RETENTION_DAYS,
+    MESSAGE_MAX_CHARS,
     TRANSCODE_VIDEOS_TO_H264,
     cleanupMissingMessageFiles,
     computeExpiryIso,
@@ -15,9 +16,13 @@ function registerMessageRoutes(app, deps) {
     emitSseEvent,
     ensureAvatarExists,
     ensureFfmpegAvailable,
+    findChatById,
     findMessageById,
     findUserByUsername,
     getMessages,
+    getMessageReadCounts,
+    getMessageAuthors,
+    getMessageReadByUser,
     getUploadKind,
     hasEnoughFreeDiskSpace,
     hydrateMissingVideoMetadata,
@@ -25,6 +30,7 @@ function registerMessageRoutes(app, deps) {
     isDangerousUploadFile,
     isMember,
     isVideoFileProcessing,
+    getChatMemberRole,
     listMessageFilesByMessageIds,
     parseUploadFileMetadata,
     path,
@@ -38,6 +44,7 @@ function registerMessageRoutes(app, deps) {
     uploadRootDir,
     enqueueVideoTranscodeJob,
     markMessagesRead,
+    markMessageRead,
   } = deps;
 
   app.get("/api/messages", async (req, res) => {
@@ -78,6 +85,15 @@ function registerMessageRoutes(app, deps) {
     );
 
     if (cleanup.changed) {
+      if (cleanup.deletedByChat && cleanup.deletedByChat.size) {
+        cleanup.deletedByChat.forEach((messageIds, chatId) => {
+          emitChatEvent(Number(chatId), {
+            type: "chat_message_deleted",
+            chatId: Number(chatId),
+            messageIds,
+          });
+        });
+      }
       const refreshed = getMessages(chatId, {
         beforeId: beforeId > 0 ? beforeId : null,
         beforeCreatedAt: beforeCreatedAt || null,
@@ -110,6 +126,10 @@ function registerMessageRoutes(app, deps) {
     const messageIds = normalizedMessages
       .map((message) => Number(message.id))
       .filter(Boolean);
+    const readRows = getMessageReadByUser(messageIds, user.id);
+    const readByMe = new Set(
+      readRows.map((row) => Number(row?.message_id || 0)).filter(Boolean),
+    );
     const files = await hydrateMissingVideoMetadata(
       listMessageFilesByMessageIds(messageIds),
     );
@@ -145,6 +165,9 @@ function registerMessageRoutes(app, deps) {
     const enriched = normalizedMessages
       .map((message) => ({
         ...message,
+        read_by_me:
+          Number(message?.user_id || 0) === Number(user.id) ||
+          readByMe.has(Number(message.id)),
         files: filesByMessageId[Number(message.id)] || [],
       }))
       .filter((message) => {
@@ -182,6 +205,28 @@ function registerMessageRoutes(app, deps) {
         chatId,
         username: user.username,
         files: processingRows,
+      });
+    }
+
+    const chat = findChatById(chatId);
+    if (chat?.type === "channel" && messageIds.length) {
+      const countRows = getMessageReadCounts(messageIds);
+      const counts = countRows.reduce((acc, row) => {
+        const id = Number(row?.message_id || 0);
+        if (!id) return acc;
+        acc[id] = Number(row?.count || 0);
+        return acc;
+      }, {});
+      const authorRows = getMessageAuthors(messageIds);
+      authorRows.forEach((row) => {
+        const id = Number(row?.id || 0);
+        if (!id) return;
+        counts[id] = Number(counts[id] || 0) + 1;
+      });
+      enriched.forEach((msg) => {
+        const id = Number(msg?.id || 0);
+        if (!id) return;
+        msg.seenCount = Number(counts[id] || 1);
       });
     }
 
@@ -227,6 +272,49 @@ function registerMessageRoutes(app, deps) {
     res.json({ ok: true });
   });
 
+  app.post("/api/messages/read-counts", (req, res) => {
+    const session = requireSession(req, res);
+    if (!session) return;
+
+    const { chatId, username, messageIds = [] } = req.body || {};
+    if (!chatId || !username || !Array.isArray(messageIds)) {
+      return res.status(400).json({
+        error: "Chat id, username, and messageIds are required.",
+      });
+    }
+    if (!requireSessionUsernameMatch(res, session, username)) return;
+
+    const user = findUserByUsername(username.toLowerCase());
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+    if (!isMember(Number(chatId), user.id)) {
+      return res.status(403).json({ error: "Not a member of this chat." });
+    }
+
+    const authors = getMessageAuthors(messageIds);
+    const authorByMessageId = authors.reduce((acc, row) => {
+      const id = Number(row?.id || 0);
+      if (!id) return acc;
+      acc[id] = Number(row?.user_id || 0);
+      return acc;
+    }, {});
+    const rows = getMessageReadCounts(messageIds);
+    const counts = rows.reduce((acc, row) => {
+      const id = Number(row?.message_id || 0);
+      if (!id) return acc;
+      acc[id] = Number(row?.count || 0);
+      return acc;
+    }, {});
+    Object.keys(authorByMessageId).forEach((key) => {
+      const id = Number(key);
+      if (!id) return;
+      counts[id] = Number(counts[id] || 0) + 1;
+    });
+
+    res.json({ ok: true, counts });
+  });
+
   app.post(
     "/api/messages/upload",
     uploadFiles.array("files", MESSAGE_FILE_LIMITS.maxFiles),
@@ -258,6 +346,13 @@ function registerMessageRoutes(app, deps) {
         const body = req.body?.body?.toString() || "";
         const trimmedBody = body.trim();
         const replyToMessageId = Number(req.body?.replyToMessageId || 0) || null;
+        const maxMessageChars = Math.max(1, Number(MESSAGE_MAX_CHARS || 4000));
+        if (body.length > maxMessageChars) {
+          removeUploadedFiles(uploadedFiles);
+          return res.status(400).json({
+            error: `Message must be at most ${maxMessageChars} characters.`,
+          });
+        }
 
         if (!chatId || !username) {
           removeUploadedFiles(uploadedFiles);
@@ -298,6 +393,20 @@ function registerMessageRoutes(app, deps) {
           removeUploadedFiles(uploadedFiles);
 
           return res.status(403).json({ error: "Not a member of this chat." });
+        }
+        const chat = findChatById(chatId);
+        if (!chat) {
+          removeUploadedFiles(uploadedFiles);
+          return res.status(404).json({ error: "Chat not found." });
+        }
+        if (chat.type === "channel") {
+          const role = String(getChatMemberRole(chatId, user.id)).toLowerCase();
+          if (role !== "owner") {
+            removeUploadedFiles(uploadedFiles);
+            return res
+              .status(403)
+              .json({ error: "Only channel owner can send messages." });
+          }
         }
         if (replyToMessageId) {
           const replyTarget = findMessageById(replyToMessageId);
@@ -471,6 +580,9 @@ function registerMessageRoutes(app, deps) {
         }
 
         createMessageFiles(messageId, normalizedFiles);
+        if (chat.type === "saved") {
+          markMessageRead(messageId, user.id);
+        }
 
         let transcodeJobsQueued = 0;
 
@@ -563,6 +675,13 @@ function registerMessageRoutes(app, deps) {
         error: "Chat, username, and message body are required.",
       });
     }
+    const bodyText = String(body || "");
+    const maxMessageChars = Math.max(1, Number(MESSAGE_MAX_CHARS || 4000));
+    if (bodyText.length > maxMessageChars) {
+      return res.status(400).json({
+        error: `Message must be at most ${maxMessageChars} characters.`,
+      });
+    }
 
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
@@ -575,6 +694,19 @@ function registerMessageRoutes(app, deps) {
       return res.status(403).json({ error: "Not a member of this chat." });
     }
 
+    const chat = findChatById(Number(chatId));
+    if (!chat) {
+      return res.status(404).json({ error: "Chat not found." });
+    }
+    if (chat.type === "channel") {
+      const role = String(getChatMemberRole(Number(chatId), user.id)).toLowerCase();
+      if (role !== "owner") {
+        return res
+          .status(403)
+          .json({ error: "Only channel owner can send messages." });
+      }
+    }
+
     if (replyToMessageId) {
       const replyTarget = findMessageById(Number(replyToMessageId));
       if (!replyTarget || Number(replyTarget.chat_id) !== Number(chatId)) {
@@ -584,9 +716,12 @@ function registerMessageRoutes(app, deps) {
       }
     }
 
-    const id = createMessage(Number(chatId), user.id, body, replyToMessageId);
+    const id = createMessage(Number(chatId), user.id, bodyText, replyToMessageId);
     if (!id) {
       return res.status(500).json({ error: "Unable to create message." });
+    }
+    if (chat.type === "saved") {
+      markMessageRead(id, user.id);
     }
 
     debugLog("api:messages/send", {

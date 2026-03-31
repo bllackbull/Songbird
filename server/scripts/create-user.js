@@ -4,6 +4,16 @@ import { openDatabase, runAdminActionViaServer } from './_db-admin.js'
 import { setUserColor } from '../settings/colors.js'
 
 const USERNAME_REGEX = /^[a-z0-9._]+$/
+const clampEnvInt = (value, fallback, { min, max } = {}) => {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return fallback
+  const intValue = Math.trunc(parsed)
+  if (min !== undefined && intValue < min) return fallback
+  if (max !== undefined && intValue > max) return fallback
+  return intValue
+}
+const USERNAME_MAX = clampEnvInt(process.env.USERNAME_MAX, 16, { min: 3, max: 32 })
+const NICKNAME_MAX = clampEnvInt(process.env.NICKNAME_MAX, 24, { min: 3, max: 64 })
 
 async function main() {
   const args = getCliArgs()
@@ -20,6 +30,18 @@ async function main() {
 
   if (!USERNAME_REGEX.test(username)) {
     console.error('Invalid username. Allowed: lowercase english letters, numbers, ., _')
+    process.exit(1)
+  }
+  if (username.length < 3) {
+    console.error('Username must be at least 3 characters.')
+    process.exit(1)
+  }
+  if (USERNAME_MAX && username.length > USERNAME_MAX) {
+    console.error(`Username must be at most ${USERNAME_MAX} characters.`)
+    process.exit(1)
+  }
+  if (nickname && nickname.length > (NICKNAME_MAX || 0)) {
+    console.error(`Nickname must be at most ${NICKNAME_MAX} characters.`)
     process.exit(1)
   }
 

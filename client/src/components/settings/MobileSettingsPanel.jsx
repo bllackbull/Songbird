@@ -13,6 +13,7 @@ import { NICKNAME_MAX, USERNAME_MAX } from "../../utils/nameLimits.js";
 import { InlineError } from "./InlineError.jsx";
 import { SettingsMenuActions } from "./SettingsMenuActions.jsx";
 import { DataSettingsPanel } from "./DataSettingsPanel.jsx";
+import ConfirmPasswordModal from "../ConfirmPasswordModal.jsx";
 
 export function MobileSettingsPanel({
   settingsPanel,
@@ -48,6 +49,8 @@ export function MobileSettingsPanel({
   onClearCache,
   dataCacheStats,
   onOpenOwnProfile,
+  onOpenSavedMessages,
+  onDeleteAccount,
 }) {
   const handleClosePanel = useCallback(() => setSettingsPanel(null), [setSettingsPanel]);
   const resolvedUserColor = userColor || "#10b981";
@@ -59,6 +62,7 @@ export function MobileSettingsPanel({
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const notificationsOn =
     notificationsSupported &&
     notificationPermission === "granted" &&
@@ -115,6 +119,7 @@ export function MobileSettingsPanel({
               notificationsDisabled={notificationsDisabled}
               notificationStatusLabel={notificationStatusLabel}
               onToggleNotifications={onToggleNotifications}
+              onOpenSavedMessages={onOpenSavedMessages}
             />
           </div>
         </div>
@@ -268,6 +273,16 @@ export function MobileSettingsPanel({
                 Invisible makes you appear offline to others.
               </p>
             </div>
+            {onDeleteAccount ? (
+              <button
+                type="button"
+                onClick={() => setDeleteModalOpen(true)}
+                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200/80 bg-rose-50/70 px-3 py-2 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 dark:border-rose-500/40 dark:bg-rose-900/30 dark:text-rose-200 dark:hover:bg-rose-900/50"
+              >
+                <Trash size={14} className="icon-anim-sway" />
+                Delete account
+              </button>
+            ) : null}
             <button
               type="submit"
               className="w-full rounded-xl bg-emerald-500 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-[0_0_20px_rgba(16,185,129,0.4)]"
@@ -435,6 +450,18 @@ export function MobileSettingsPanel({
           </div>
         </div>
       ) : null}
+
+      <ConfirmPasswordModal
+        open={deleteModalOpen}
+        title="Delete account"
+        description="This permanently deletes your account, removes your messages, and transfers or deletes any groups/channels you own."
+        confirmLabel="Continue"
+        deleteLabel="Delete"
+        onClose={() => setDeleteModalOpen(false)}
+        onConfirm={async (password) => {
+          await onDeleteAccount?.(password);
+        }}
+      />
     </>
   );
 }

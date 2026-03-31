@@ -18,6 +18,7 @@ DEFAULT_PORT="5174"
 DEFAULT_FILE_UPLOAD="true"
 DEFAULT_MAX_UPLOAD="78643200"
 DEFAULT_RETENTION_DAYS="7"
+DEFAULT_ACCOUNT_CREATION="true"
 NODE_MAJOR="24"
 SCRIPT_REMOTE_URL="${SCRIPT_REMOTE_URL:-https://raw.githubusercontent.com/bllackbull/Songbird/main/scripts/install.sh}"
 LOG_LINES="${LOG_LINES:-100}"
@@ -37,6 +38,7 @@ APP_PORT="$DEFAULT_PORT"
 FILE_UPLOAD="$DEFAULT_FILE_UPLOAD"
 MAX_UPLOAD="$DEFAULT_MAX_UPLOAD"
 RETENTION_DAYS="$DEFAULT_RETENTION_DAYS"
+ACCOUNT_CREATION="$DEFAULT_ACCOUNT_CREATION"
 NGINX_SERVER_NAME="_"
 CURRENT_ENV_FILE=""
 PROMPT_FD=0
@@ -388,12 +390,14 @@ render_full_env_file() {
 PORT=${APP_PORT}
 APP_ENV=production
 APP_DEBUG=false
+ACCOUNT_CREATION=${ACCOUNT_CREATION}
 FILE_UPLOAD=${FILE_UPLOAD}
 FILE_UPLOAD_MAX_SIZE=$(get_existing_env_value "FILE_UPLOAD_MAX_SIZE" "26214400")
 FILE_UPLOAD_MAX_TOTAL_SIZE=$(get_existing_env_value "FILE_UPLOAD_MAX_TOTAL_SIZE" "78643200")
 FILE_UPLOAD_MAX_FILES=$(get_existing_env_value "FILE_UPLOAD_MAX_FILES" "10")
 FILE_UPLOAD_TRANSCODE_VIDEOS=$(get_existing_env_value "FILE_UPLOAD_TRANSCODE_VIDEOS" "true")
 MESSAGE_FILE_RETENTION=${RETENTION_DAYS}
+MESSAGE_MAX_CHARS=$(get_existing_env_value "MESSAGE_MAX_CHARS" "4000")
 CHAT_PENDING_TEXT_TIMEOUT=$(get_existing_env_value "CHAT_PENDING_TEXT_TIMEOUT" "300000")
 CHAT_PENDING_FILE_TIMEOUT=$(get_existing_env_value "CHAT_PENDING_FILE_TIMEOUT" "1200000")
 CHAT_PENDING_RETRY_INTERVAL=$(get_existing_env_value "CHAT_PENDING_RETRY_INTERVAL" "4000")
@@ -440,6 +444,7 @@ sync_values_from_env() {
   FILE_UPLOAD="$(get_existing_env_value "FILE_UPLOAD" "$DEFAULT_FILE_UPLOAD")"
   MAX_UPLOAD="$(get_existing_env_value "FILE_UPLOAD_MAX_TOTAL_SIZE" "$DEFAULT_MAX_UPLOAD")"
   RETENTION_DAYS="$(get_existing_env_value "MESSAGE_FILE_RETENTION" "$DEFAULT_RETENTION_DAYS")"
+  ACCOUNT_CREATION="$(get_existing_env_value "ACCOUNT_CREATION" "$DEFAULT_ACCOUNT_CREATION")"
   CURRENT_ENV_FILE="$env_file"
 }
 
@@ -498,6 +503,12 @@ collect_install_options() {
 
 
   APP_PORT="$(prompt_port)"
+
+  if [[ "$(prompt_yes_no "Allow account creation via website?" "yes")" == "yes" ]]; then
+    ACCOUNT_CREATION="true"
+  else
+    ACCOUNT_CREATION="false"
+  fi
 
   if [[ "$(prompt_yes_no "Enable file uploads?" "yes")" == "yes" ]]; then
     FILE_UPLOAD="true"

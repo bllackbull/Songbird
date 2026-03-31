@@ -9,7 +9,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     envDir: "..",
-    envPrefix: ["CHAT_", "FILE_", "MESSAGE_"],
+    envPrefix: ["CHAT_", "FILE_", "MESSAGE_", "ACCOUNT_"],
     server: {
       host: "0.0.0.0",
       port: 5173,

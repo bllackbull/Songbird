@@ -1,9 +1,11 @@
-import { useRef, useState } from "react";
-import { AlertCircle, Check, CheckCheck, Clock12, File, ImageIcon, Video } from "../../icons/lucide.js";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertCircle, Check, CheckCheck, Clock12, Eye, File, Ghost, ImageIcon, Video } from "../../icons/lucide.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { getAvatarStyle } from "../../utils/avatarColor.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import { MessageFiles } from "./MessageFiles.jsx";
+import { renderMarkdownBlock, renderMarkdownInlinePlain } from "../../utils/markdown.js";
+import { resolveMention } from "../../utils/mentions.js";
 
 export function MessageItem({
   msg,
@@ -16,14 +18,15 @@ export function MessageItem({
   isDesktop,
   isMobileTouchDevice,
   isGroupChat = false,
+  isChannelChat = false,
+  seenCount = null,
   onOpenSenderProfile,
+  onOpenMention,
+  mentionRefreshToken = 0,
   onReply,
   onJumpToMessage,
 }) {
-  const urlPattern = /((?:https?:\/\/|www\.)[^\s<]+)/gi; // TODO support more protocols
-  const hasUrlPattern = /(?:https?:\/\/|www\.)[^\s<]+/i;
-  const isUrlPattern = /^(?:https?:\/\/|www\.)[^\s<]+$/i;
-  const isOwn = msg.username === user.username;
+  const isOwn = !isChannelChat && msg.username === user.username;
   const isRead = Boolean(msg.read_at);
   const messageFiles = Array.isArray(msg.files) ? msg.files : [];
   const hasFiles = messageFiles.length > 0;
@@ -38,6 +41,141 @@ export function MessageItem({
   const isSending =
     msg._delivery === "sending" || hasUploadInProgress || Boolean(msg._processingPending);
   const isFailed = msg._delivery === "failed";
+  const messageBodyRef = useRef(null);
+  const onOpenMentionRef = useRef(onOpenMention);
+  useEffect(() => {
+    onOpenMentionRef.current = onOpenMention;
+  }, [onOpenMention]);
+  const markdownHtml = useMemo(() => {
+    return renderMarkdownBlock(String(msg?.body || ""));
+  }, [msg?.body]);
+
+  const wrapMentionsInContainer = (container) => {
+    if (!container || typeof document === "undefined") return false;
+    const walker = document.createTreeWalker(
+      container,
+      NodeFilter.SHOW_TEXT,
+      {
+        acceptNode(node) {
+          const parent = node.parentElement;
+          if (!parent) return NodeFilter.FILTER_REJECT;
+          if (parent.closest("a, code, pre, .sb-mention")) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          return NodeFilter.FILTER_ACCEPT;
+        },
+      },
+    );
+    let changed = false;
+    const regex = /(^|[^a-z0-9._])@([a-z0-9._]{3,})/gi;
+    const textNodes = [];
+    while (walker.nextNode()) {
+      textNodes.push(walker.currentNode);
+    }
+    textNodes.forEach((node) => {
+      const text = String(node.textContent || "");
+      if (!regex.test(text)) return;
+      regex.lastIndex = 0;
+      const frag = document.createDocumentFragment();
+      let lastIndex = 0;
+      let match = null;
+      while ((match = regex.exec(text))) {
+        const prefix = match[1] || "";
+        const username = match[2] || "";
+        const start = match.index;
+        const mentionStart = start + prefix.length;
+        if (mentionStart > lastIndex) {
+          frag.appendChild(document.createTextNode(text.slice(lastIndex, mentionStart)));
+        }
+        const span = document.createElement("span");
+        span.className = "sb-mention";
+        span.dataset.mention = String(username || "").toLowerCase();
+        span.textContent = `@${username}`;
+        frag.appendChild(span);
+        lastIndex = mentionStart + username.length + 1;
+      }
+      if (lastIndex < text.length) {
+        frag.appendChild(document.createTextNode(text.slice(lastIndex)));
+      }
+      node.parentNode?.replaceChild(frag, node);
+      changed = true;
+    });
+    return changed;
+  };
+
+  useEffect(() => {
+    const container = messageBodyRef.current;
+    if (!container) return;
+    wrapMentionsInContainer(container);
+    const mentionEls = container.querySelectorAll(".sb-mention");
+    mentionEls.forEach((node) => {
+      let el = node;
+      if (el.dataset.sbMentionEnhanced === "1") {
+        const clone = el.cloneNode(true);
+        clone.classList.remove("sb-mention-active");
+        delete clone.dataset.sbMentionEnhanced;
+        el.replaceWith(clone);
+        el = clone;
+      }
+      const rawMention =
+        el.dataset.mention ||
+        String(el.textContent || "").trim().replace(/^@/, "");
+      const mention = String(rawMention || "").toLowerCase();
+      if (!mention) return;
+      el.dataset.sbMentionEnhanced = "1";
+      resolveMention(mention, user.username).then((result) => {
+        if (!result || result.status !== "valid") return;
+        el.classList.add("sb-mention-active");
+        el.addEventListener("click", () => {
+          if (typeof onOpenMentionRef.current === "function") {
+            onOpenMentionRef.current(result.data);
+          }
+        });
+      });
+    });
+    const blocks = container.querySelectorAll(".sb-code-block");
+    blocks.forEach((block) => {
+      if (block.dataset.sbEnhanced === "1") return;
+      block.dataset.sbEnhanced = "1";
+      const codeEl = block.querySelector("pre.sb-code > code");
+      const button = block.querySelector(".sb-code-copy");
+      if (!codeEl || !button) return;
+      button.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(codeEl.textContent || "");
+          button.dataset.state = "copied";
+          button.setAttribute("aria-label", "Copied");
+          window.setTimeout(() => {
+            button.dataset.state = "idle";
+            button.setAttribute("aria-label", "Copy code");
+          }, 1200);
+        } catch {
+          button.dataset.state = "error";
+          button.setAttribute("aria-label", "Copy failed");
+          window.setTimeout(() => {
+            button.dataset.state = "idle";
+            button.setAttribute("aria-label", "Copy code");
+          }, 1200);
+        }
+      });
+    });
+  }, [markdownHtml, mentionRefreshToken, user.username]);
+
+  const formatSeenCount = (value) => {
+    const count = Math.max(1, Number(value || 0));
+    if (!Number.isFinite(count)) return "1";
+    if (count < 1000) return String(count);
+    if (count < 1_000_000) {
+      const next = (count / 1000).toFixed(1);
+      return `${next.replace(/\.0$/, "")}K`;
+    }
+    if (count < 1_000_000_000) {
+      const next = (count / 1_000_000).toFixed(1);
+      return `${next.replace(/\.0$/, "")}M`;
+    }
+    const next = (count / 1_000_000_000).toFixed(1);
+    return `${next.replace(/\.0$/, "")}B`;
+  };
   const dayLabel = getMessageDayLabel
     ? getMessageDayLabel(msg)
     : msg?._dayLabel || msg?._dayKey || "";
@@ -64,6 +202,10 @@ export function MessageItem({
       : replyTarget?.icon === "image"
         ? (isGenericReplyMediaText && !isPluralMediaSummary ? "Sent a photo" : replyPreview)
         : replyPreview;
+  const replyPreviewHtml = useMemo(
+    () => renderMarkdownInlinePlain(normalizedReplyPreview),
+    [normalizedReplyPreview],
+  );
   const derivedReplyIcon = (() => {
     if (!replyTarget) return null;
     if (replyTarget.icon) return replyTarget.icon;
@@ -75,8 +217,16 @@ export function MessageItem({
     return null;
   })();
   const replyIsRtl = hasPersian(normalizedReplyPreview);
-  const senderName = msg.nickname || msg.username || "Unknown";
+  const isDeletedAuthor =
+    String(msg.username || "").toLowerCase() === "deleted" ||
+    String(msg.nickname || "").toLowerCase() === "deleted user";
+  const senderName = isDeletedAuthor
+    ? "Deleted account"
+    : msg.nickname || msg.username || "Unknown";
   const senderInitials = getAvatarInitials(senderName);
+  const senderColor = isDeletedAuthor ? "#94a3b8" : msg.color || "#10b981";
+  const canOpenSenderProfile =
+    !isDeletedAuthor && typeof onOpenSenderProfile === "function";
 
   const touchStartXRef = useRef(0);
   const touchStartYRef = useRef(0);
@@ -86,33 +236,6 @@ export function MessageItem({
   const [swipeOffset, setSwipeOffset] = useState(0);
   const [isSwiping, setIsSwiping] = useState(false);
 
-  const renderMessageBody = (body) => {
-    const text = body || "";
-    if (!hasUrlPattern.test(text)) {
-      return text;
-    }
-    const parts = text.split(urlPattern);
-    return parts.map((part, index) => {
-      if (!part) return null;
-      if (isUrlPattern.test(part)) {
-        const href =
-          part.startsWith("http://") || part.startsWith("https://") ? part : `https://${part}`;
-        const sameTabInvite = /\/invite\/[A-Za-z0-9]+/.test(href);
-        return (
-          <a
-            key={`msg-link-${index}`}
-            href={href}
-            target={sameTabInvite ? "_self" : "_blank"}
-            rel={sameTabInvite ? undefined : "noopener noreferrer"}
-            className="break-all text-sky-400 underline decoration-sky-400 underline-offset-2 [overflow-wrap:anywhere]"
-          >
-            {part}
-          </a>
-        );
-      }
-      return <span key={`msg-part-${index}`}>{part}</span>;
-    });
-  };
 
   return (
     <div
@@ -191,25 +314,34 @@ export function MessageItem({
             }
           }}
       >
-        {!isOwn && isGroupChat ? (
+        {!isOwn && isGroupChat && !isChannelChat ? (
           <div className="flex min-w-0 max-w-full items-end gap-2">
             <button
               type="button"
-              onClick={() => onOpenSenderProfile?.(msg)}
-              className="group"
+              onClick={canOpenSenderProfile ? () => onOpenSenderProfile?.(msg) : undefined}
+              className={canOpenSenderProfile ? "group" : ""}
+              disabled={!canOpenSenderProfile}
             >
-              {msg.avatar_url ? (
+              {msg.avatar_url && !isDeletedAuthor ? (
                 <img
                   src={msg.avatar_url}
                   alt={senderName}
-                  className="h-7 w-7 shrink-0 rounded-full object-cover transition group-hover:ring-2 group-hover:ring-emerald-300"
+                  className={`h-7 w-7 shrink-0 rounded-full object-cover transition ${
+                    canOpenSenderProfile ? "group-hover:ring-2 group-hover:ring-emerald-300" : ""
+                  }`}
                 />
               ) : (
                 <div
-                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] transition group-hover:ring-2 group-hover:ring-emerald-300 ${hasPersian(senderInitials) ? "font-fa" : ""}`}
-                  style={getAvatarStyle(msg.color || "#10b981")}
+                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] transition ${
+                    canOpenSenderProfile ? "group-hover:ring-2 group-hover:ring-emerald-300" : ""
+                  } ${hasPersian(senderInitials) ? "font-fa" : ""}`}
+                  style={getAvatarStyle(senderColor)}
                 >
-                  {senderInitials}
+                  {isDeletedAuthor ? (
+                    <Ghost size={12} className="text-slate-600" />
+                  ) : (
+                    senderInitials
+                  )}
                 </div>
               )}
             </button>
@@ -233,9 +365,12 @@ export function MessageItem({
             >
               <button
                 type="button"
-                onClick={() => onOpenSenderProfile?.(msg)}
-                className={`mb-1 block max-w-[60vw] truncate text-[11px] font-semibold transition hover:underline sm:max-w-[40vw] md:max-w-[28vw] ${hasPersian(senderName) ? "font-fa text-right" : "text-left"}`}
-                style={{ color: String(msg.color || "#10b981") }}
+                onClick={canOpenSenderProfile ? () => onOpenSenderProfile?.(msg) : undefined}
+                disabled={!canOpenSenderProfile}
+                className={`mb-1 block max-w-[60vw] truncate text-[11px] font-semibold transition ${
+                  canOpenSenderProfile ? "hover:underline" : ""
+                } sm:max-w-[40vw] md:max-w-[28vw] ${hasPersian(senderName) ? "font-fa text-right" : "text-left"}`}
+                style={{ color: String(senderColor) }}
                 dir="auto"
                 title={senderName}
               >
@@ -271,7 +406,10 @@ export function MessageItem({
                       ) : derivedReplyIcon === "document" ? (
                         <File size={11} className="shrink-0 text-slate-500 dark:text-slate-400" />
                       ) : null}
-                      <span className="min-w-0 truncate">{normalizedReplyPreview}</span>
+                      <span
+                        className="min-w-0 truncate"
+                        dangerouslySetInnerHTML={{ __html: replyPreviewHtml }}
+                      />
                     </span>
                   </span>
                 </button>
@@ -287,15 +425,15 @@ export function MessageItem({
                   (msg.body || "").trim(),
                 )
               ) ? (
-                <p
+                <div
+                  ref={messageBodyRef}
                   dir={hasPersian(msg.body) ? "rtl" : "ltr"}
-                  className={`mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${
+                  className={`sb-markdown mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${
                     hasPersian(msg.body) ? "font-fa text-right" : "text-left"
                   }`}
                   style={{ unicodeBidi: "plaintext" }}
-                >
-                  {renderMessageBody(msg.body)}
-                </p>
+                  dangerouslySetInnerHTML={{ __html: markdownHtml }}
+                />
               ) : null}
               <div className="mt-2 flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
                 <span>{msg._timeLabel || formatTime(msg.created_at)}</span>
@@ -325,10 +463,10 @@ export function MessageItem({
             transition: isSwiping ? "none" : "transform 160ms ease",
           }}
           >
-          {!isOwn && isGroupChat ? (
+          {!isOwn && isGroupChat && !isChannelChat ? (
             <p
               className={`mb-1 max-w-[60vw] truncate text-[11px] font-semibold sm:max-w-[40vw] md:max-w-[28vw] ${hasPersian(senderName) ? "font-fa text-right" : "text-left"}`}
-              style={{ color: String(msg.color || "#10b981") }}
+              style={{ color: String(senderColor) }}
               dir="auto"
               title={senderName}
             >
@@ -365,7 +503,10 @@ export function MessageItem({
                   ) : derivedReplyIcon === "document" ? (
                     <File size={11} className="shrink-0 text-slate-500 dark:text-slate-400" />
                   ) : null}
-                  <span className="min-w-0 truncate">{normalizedReplyPreview}</span>
+                  <span
+                  className="min-w-0 truncate"
+                  dangerouslySetInnerHTML={{ __html: replyPreviewHtml }}
+                />
                 </span>
               </span>
             </button>
@@ -381,15 +522,15 @@ export function MessageItem({
                 (msg.body || "").trim(),
               )
           ) ? (
-            <p
+            <div
+              ref={messageBodyRef}
               dir={hasPersian(msg.body) ? "rtl" : "ltr"}
-              className={`mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${
+              className={`sb-markdown mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${
                 hasPersian(msg.body) ? "font-fa text-right" : "text-left"
               }`}
               style={{ unicodeBidi: "plaintext" }}
-            >
-              {renderMessageBody(msg.body)}
-            </p>
+              dangerouslySetInnerHTML={{ __html: markdownHtml }}
+            />
           ) : null}
           <div
             className={`mt-2 flex items-center gap-1 text-[10px] ${
@@ -399,19 +540,31 @@ export function MessageItem({
             }`}
           >
             <span>{msg._timeLabel || formatTime(msg.created_at)}</span>
-            {isOwn ? (
+            {isOwn || isChannelChat ? (
               <span
-                className={`inline-flex items-center ${
+                className={`inline-flex items-center gap-1 ${
                   isSending
                     ? "text-emerald-900/80 dark:text-emerald-50/80"
                     : isFailed
                       ? "text-rose-500"
-                      : isRead
-                        ? "text-sky-400"
-                        : "text-emerald-900/80 dark:text-emerald-50/80"
+                      : isChannelChat
+                        ? "text-slate-500 dark:text-slate-400"
+                        : isRead
+                          ? "text-sky-400"
+                          : "text-emerald-900/80 dark:text-emerald-50/80"
                 }`}
               >
-                {isSending ? (
+                {isChannelChat ? (
+                  <>
+                    <Eye
+                      size={13}
+                      strokeWidth={2.4}
+                      aria-hidden="true"
+                      className="-translate-y-px"
+                    />
+                    <span>{formatSeenCount(seenCount)}</span>
+                  </>
+                ) : isSending ? (
                   <Clock12 size={15} strokeWidth={2.4} className="animate-spin" aria-hidden="true" />
                 ) : isFailed ? (
                   <AlertCircle size={15} strokeWidth={2.4} aria-hidden="true" />

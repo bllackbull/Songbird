@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Chat, Close, LoaderCircle, Pencil, Plus, Search, Trash, Users } from "../../icons/lucide.js";
+import { Chat, Close, LoaderCircle, Megaphone, Pencil, Plus, Search, Trash, Users } from "../../icons/lucide.js";
 
 export default function SidebarHeader({
   mobileTab,
@@ -13,6 +13,7 @@ export default function SidebarHeader({
   onDeleteChats,
   onNewChat,
   onNewGroup,
+  onNewChannel,
   chatsSearchQuery,
   chatsSearchFocused,
   onChatsSearchChange,
@@ -159,6 +160,17 @@ export default function SidebarHeader({
                         <Users size={15} className="icon-anim-sway" />
                         New group
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowCreateMenu(false);
+                          onNewChannel?.();
+                        }}
+                        className="mt-1 flex w-full items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-left text-xs text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+                      >
+                        <Megaphone size={15} className="icon-anim-sway" />
+                        New channel
+                      </button>
                     </div>
                   ) : null}
                 </div>
@@ -169,19 +181,23 @@ export default function SidebarHeader({
             <label className="group relative block">
               {!chatsSearchQuery.trim() && !chatsSearchFocused ? (
                 <span className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 text-sm leading-none text-slate-500 transition-colors group-hover:text-slate-600 dark:text-slate-400 dark:group-hover:text-slate-300">
-                  <Search
-                    size={14}
-                    className="icon-anim-pop block -translate-y-[1px] text-emerald-600 dark:text-emerald-300"
-                  />
+                  <span className="inline-flex -translate-y-[1px] md:translate-y-0">
+                    <Search
+                      size={14}
+                      className="icon-anim-pop block text-emerald-600 dark:text-emerald-300"
+                    />
+                  </span>
                   <span>Search</span>
                 </span>
               ) : null}
               {chatsSearchFocused || chatsSearchQuery.trim() ? (
                 <span className="pointer-events-none absolute left-3 top-1/2 flex -translate-y-1/2 items-center gap-2 leading-none text-slate-500 dark:text-slate-400">
-                  <Search
-                    size={14}
-                    className="icon-anim-pop block -translate-y-[1px] text-emerald-600 dark:text-emerald-300"
-                  />
+                  <span className="inline-flex -translate-y-[1px] md:translate-y-0">
+                    <Search
+                      size={14}
+                      className="icon-anim-pop block text-emerald-600 dark:text-emerald-300"
+                    />
+                  </span>
                 </span>
               ) : null}
               <input

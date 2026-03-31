@@ -231,29 +231,34 @@ export function createChat(name, type = "dm", options = {}) {
       ? String(name || "").trim() || "dm"
       : String(name || "").trim() || null;
   const groupUsername =
-    normalizedType === "group"
+    normalizedType === "group" || normalizedType === "channel"
       ? String(options.groupUsername || "")
           .trim()
           .toLowerCase() || null
       : null;
   const groupVisibility =
-    normalizedType === "group" &&
-    String(options.groupVisibility || "").toLowerCase() === "private"
+    normalizedType === "saved"
       ? "private"
-      : "public";
+      : (normalizedType === "group" || normalizedType === "channel") &&
+          String(options.groupVisibility || "").toLowerCase() === "private"
+        ? "private"
+        : "public";
   const inviteToken =
-    normalizedType === "group"
+    normalizedType === "group" || normalizedType === "channel"
       ? String(options.inviteToken || "").trim() || null
       : null;
   const createdByUserId = Number(options.createdByUserId || 0) || null;
   const groupColor =
-    normalizedType === "group"
+    normalizedType === "group" || normalizedType === "channel"
       ? String(options.groupColor || "").trim() || setUserColor()
       : null;
   const allowMemberInvites =
-    normalizedType === "group" && options.allowMemberInvites === false ? 0 : 1;
+    (normalizedType === "group" || normalizedType === "channel") &&
+    options.allowMemberInvites === false
+      ? 0
+      : 1;
   const groupAvatarUrl =
-    normalizedType === "group"
+    normalizedType === "group" || normalizedType === "channel"
       ? String(options.groupAvatarUrl || "").trim() || null
       : null;
 
@@ -298,7 +303,14 @@ export function searchPublicGroups(query, viewerUserId, limit = 20) {
             ) AS is_member
      FROM chats c
      WHERE c.type = 'group'
-       AND c.group_visibility = 'public'
+       AND (
+         c.group_visibility = 'public'
+         OR EXISTS(
+           SELECT 1 FROM chat_members vm
+           WHERE vm.chat_id = c.id
+             AND vm.user_id = ?
+         )
+       )
        AND (c.name LIKE ? OR c.group_username LIKE ?)
      ORDER BY
        CASE
@@ -307,7 +319,39 @@ export function searchPublicGroups(query, viewerUserId, limit = 20) {
        END,
        c.name ASC
      LIMIT ?`,
-    [Number(viewerUserId), like, like, like, safeLimit],
+    [Number(viewerUserId), Number(viewerUserId), like, like, like, safeLimit],
+  );
+}
+
+export function searchPublicChannels(query, viewerUserId, limit = 20) {
+  const like = `%${String(query || "").trim()}%`;
+  const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+  return getAll(
+    `SELECT c.id, c.name, c.group_username, c.group_color, c.group_avatar_url, c.invite_token,
+            (SELECT COUNT(*) FROM chat_members m WHERE m.chat_id = c.id) AS members_count,
+            EXISTS(
+              SELECT 1 FROM chat_members vm
+              WHERE vm.chat_id = c.id AND vm.user_id = ?
+            ) AS is_member
+     FROM chats c
+     WHERE c.type = 'channel'
+       AND (
+         c.group_visibility = 'public'
+         OR EXISTS(
+           SELECT 1 FROM chat_members vm
+           WHERE vm.chat_id = c.id
+             AND vm.user_id = ?
+         )
+       )
+       AND (c.name LIKE ? OR c.group_username LIKE ?)
+     ORDER BY
+       CASE
+         WHEN c.group_username LIKE ? THEN 0
+         ELSE 1
+       END,
+       c.name ASC
+     LIMIT ?`,
+    [Number(viewerUserId), Number(viewerUserId), like, like, like, safeLimit],
   );
 }
 
@@ -346,14 +390,14 @@ export function isGroupMemberRemoved(chatId, userId) {
 
 export function findChatByGroupUsername(groupUsername) {
   return getRow(
-    "SELECT id, name, type, group_username, group_visibility, invite_token, group_color, allow_member_invites, group_avatar_url, created_by_user_id FROM chats WHERE group_username = ? AND type = 'group'",
+    "SELECT id, name, type, group_username, group_visibility, invite_token, group_color, allow_member_invites, group_avatar_url, created_by_user_id FROM chats WHERE group_username = ? AND type IN ('group', 'channel')",
     [String(groupUsername || "").trim().toLowerCase()],
   );
 }
 
 export function findChatByInviteToken(inviteToken) {
   return getRow(
-    "SELECT id, name, type, group_username, group_visibility, invite_token, group_color, allow_member_invites, group_avatar_url, created_by_user_id FROM chats WHERE invite_token = ? AND type = 'group'",
+    "SELECT id, name, type, group_username, group_visibility, invite_token, group_color, allow_member_invites, group_avatar_url, created_by_user_id FROM chats WHERE invite_token = ? AND type IN ('group', 'channel')",
     [String(inviteToken || "").trim()],
   );
 }
@@ -399,9 +443,41 @@ export function updateGroupChat(chatId, payload = {}) {
   );
 }
 
+export function updateChannelChat(chatId, payload = {}) {
+  const name = String(payload?.name || "").trim() || null;
+  const groupUsername =
+    String(payload?.groupUsername || "")
+      .trim()
+      .toLowerCase() || null;
+  const groupVisibility =
+    String(payload?.groupVisibility || "").toLowerCase() === "private"
+      ? "private"
+      : "public";
+  const allowMemberInvites = payload?.allowMemberInvites === false ? 0 : 1;
+  const groupAvatarUrl =
+    payload?.groupAvatarUrl === undefined
+      ? null
+      : String(payload?.groupAvatarUrl || "").trim() || null;
+
+  run(
+    `UPDATE chats
+     SET name = ?, group_username = ?, group_visibility = ?, allow_member_invites = ?,
+         group_avatar_url = COALESCE(?, group_avatar_url)
+     WHERE id = ? AND type = 'channel'`,
+    [
+      name,
+      groupUsername,
+      groupVisibility,
+      allowMemberInvites,
+      groupAvatarUrl,
+      Number(chatId),
+    ],
+  );
+}
+
 export function regenerateGroupInviteToken(chatId, inviteToken) {
   run(
-    "UPDATE chats SET invite_token = ? WHERE id = ? AND type = 'group'",
+    "UPDATE chats SET invite_token = ? WHERE id = ? AND type IN ('group', 'channel')",
     [String(inviteToken || "").trim(), Number(chatId)],
   );
 }
@@ -427,6 +503,200 @@ export function listChatMembers(chatId) {
   );
 }
 
+export function getChatMemberRole(chatId, userId) {
+  const row = getRow(
+    "SELECT role FROM chat_members WHERE chat_id = ? AND user_id = ?",
+    [Number(chatId), Number(userId)],
+  );
+  return String(row?.role || "");
+}
+
+export function setChatMemberRole(chatId, userId, role = "member") {
+  run("UPDATE chat_members SET role = ? WHERE chat_id = ? AND user_id = ?", [
+    String(role || "member"),
+    Number(chatId),
+    Number(userId),
+  ]);
+}
+
+export function deleteChatById(chatId) {
+  const targetChatId = Number(chatId);
+  if (!targetChatId) return { storedNames: [] };
+
+  const fileRows = getAll(
+    `
+      SELECT cmf.stored_name
+      FROM chat_message_files cmf
+      JOIN chat_messages cm ON cm.id = cmf.message_id
+      WHERE cm.chat_id = ?
+    `,
+    [targetChatId],
+  );
+  const storedNames = fileRows
+    .map((row) => String(row?.stored_name || "").trim())
+    .filter(Boolean);
+
+  const savepoint = `sp_delete_chat_${targetChatId}_${Date.now()}`;
+  runWithoutSave(`SAVEPOINT ${savepoint}`);
+  try {
+    runWithoutSave(
+      `DELETE FROM chat_message_reads
+       WHERE message_id IN (SELECT id FROM chat_messages WHERE chat_id = ?)`,
+      [targetChatId],
+    );
+    runWithoutSave(
+      `DELETE FROM chat_message_files
+       WHERE message_id IN (SELECT id FROM chat_messages WHERE chat_id = ?)`,
+      [targetChatId],
+    );
+    runWithoutSave("DELETE FROM chat_messages WHERE chat_id = ?", [targetChatId]);
+    runWithoutSave("DELETE FROM chat_members WHERE chat_id = ?", [targetChatId]);
+    runWithoutSave("DELETE FROM hidden_chats WHERE chat_id = ?", [targetChatId]);
+    runWithoutSave("DELETE FROM chat_mutes WHERE chat_id = ?", [targetChatId]);
+    runWithoutSave("DELETE FROM group_removed_members WHERE chat_id = ?", [targetChatId]);
+    runWithoutSave("DELETE FROM chats WHERE id = ?", [targetChatId]);
+    runWithoutSave(`RELEASE ${savepoint}`);
+    saveDatabase();
+  } catch (error) {
+    try {
+      runWithoutSave(`ROLLBACK TO ${savepoint}`);
+      runWithoutSave(`RELEASE ${savepoint}`);
+    } catch {
+      // ignore rollback failures
+    }
+    throw error;
+  }
+
+  return { storedNames };
+}
+
+export function deleteUserById(userId) {
+  const targetUserId = Number(userId);
+  if (!targetUserId) {
+    return { storedNames: [], deletedChatIds: [], transferredChatIds: [] };
+  }
+
+  const ownerChatRows = getAll(
+    "SELECT chat_id FROM chat_members WHERE role = 'owner' AND user_id = ?",
+    [targetUserId],
+  );
+  const ownerChatIds = Array.from(
+    new Set(ownerChatRows.map((row) => Number(row?.chat_id || 0)).filter(Boolean)),
+  );
+
+  const chatIdsToDelete = [];
+  const ownershipTransfers = [];
+
+  ownerChatIds.forEach((chatId) => {
+    const remaining = getAll(
+      "SELECT user_id FROM chat_members WHERE chat_id = ? AND user_id != ?",
+      [Number(chatId), targetUserId],
+    )
+      .map((row) => Number(row?.user_id || 0))
+      .filter((id) => Number.isFinite(id) && id > 0);
+
+    if (!remaining.length) {
+      chatIdsToDelete.push(Number(chatId));
+      return;
+    }
+
+    const nextOwnerId = remaining[Math.floor(Math.random() * remaining.length)];
+    if (nextOwnerId) {
+      ownershipTransfers.push({
+        chatId: Number(chatId),
+        nextOwnerId: Number(nextOwnerId),
+      });
+    }
+  });
+
+  const uniqueChatDeletes = Array.from(
+    new Set(chatIdsToDelete.filter((id) => Number.isFinite(id) && id > 0)),
+  );
+
+  const storedNames = new Set();
+
+  if (uniqueChatDeletes.length) {
+    const chatPlaceholders = uniqueChatDeletes.map(() => "?").join(", ");
+    const chatFileRows = getAll(
+      `SELECT cmf.stored_name
+       FROM chat_message_files cmf
+       JOIN chat_messages cm ON cm.id = cmf.message_id
+       WHERE cm.chat_id IN (${chatPlaceholders})`,
+      uniqueChatDeletes,
+    );
+    chatFileRows.forEach((row) => {
+      const name = String(row?.stored_name || "").trim();
+      if (name) storedNames.add(name);
+    });
+  }
+
+  const savepoint = `sp_delete_user_${targetUserId}_${Date.now()}`;
+  runWithoutSave(`SAVEPOINT ${savepoint}`);
+  try {
+    if (uniqueChatDeletes.length) {
+      uniqueChatDeletes.forEach((chatId) => {
+        runWithoutSave(
+          `DELETE FROM chat_message_reads
+           WHERE message_id IN (SELECT id FROM chat_messages WHERE chat_id = ?)`,
+          [chatId],
+        );
+        runWithoutSave(
+          `DELETE FROM chat_message_files
+           WHERE message_id IN (SELECT id FROM chat_messages WHERE chat_id = ?)`,
+          [chatId],
+        );
+        runWithoutSave("DELETE FROM chat_messages WHERE chat_id = ?", [chatId]);
+        runWithoutSave("DELETE FROM chat_members WHERE chat_id = ?", [chatId]);
+        runWithoutSave("DELETE FROM chat_mutes WHERE chat_id = ?", [chatId]);
+        runWithoutSave("DELETE FROM group_removed_members WHERE chat_id = ?", [chatId]);
+        runWithoutSave("DELETE FROM hidden_chats WHERE chat_id = ?", [chatId]);
+        runWithoutSave("DELETE FROM chats WHERE id = ?", [chatId]);
+      });
+    }
+
+    ownershipTransfers.forEach((transfer) => {
+      if (
+        uniqueChatDeletes.includes(Number(transfer.chatId)) ||
+        !transfer.chatId ||
+        !transfer.nextOwnerId
+      ) {
+        return;
+      }
+      runWithoutSave("UPDATE chat_members SET role = ? WHERE chat_id = ? AND user_id = ?", [
+        "owner",
+        Number(transfer.chatId),
+        Number(transfer.nextOwnerId),
+      ]);
+    });
+
+    runWithoutSave("DELETE FROM sessions WHERE user_id = ?", [targetUserId]);
+    runWithoutSave("DELETE FROM hidden_chats WHERE user_id = ?", [targetUserId]);
+    runWithoutSave("DELETE FROM chat_message_reads WHERE user_id = ?", [targetUserId]);
+    runWithoutSave(
+      "UPDATE chat_messages SET read_by_user_id = NULL WHERE read_by_user_id = ?",
+      [targetUserId],
+    );
+    runWithoutSave("DELETE FROM chat_members WHERE user_id = ?", [targetUserId]);
+    runWithoutSave("DELETE FROM users WHERE id = ?", [targetUserId]);
+    runWithoutSave(`RELEASE ${savepoint}`);
+    saveDatabase();
+  } catch (error) {
+    try {
+      runWithoutSave(`ROLLBACK TO ${savepoint}`);
+      runWithoutSave(`RELEASE ${savepoint}`);
+    } catch {
+      // ignore rollback failures
+    }
+    throw error;
+  }
+
+  return {
+    storedNames: Array.from(storedNames),
+    deletedChatIds: uniqueChatDeletes,
+    transferredChatIds: ownershipTransfers.map((t) => Number(t.chatId || 0)),
+  };
+}
+
 export function listChatsForUser(userId) {
   return getAll(
     `
@@ -437,12 +707,19 @@ export function listChatsForUser(userId) {
       (SELECT created_at FROM chat_messages WHERE chat_id = c.id AND body NOT LIKE '[[system:%]]' ORDER BY id DESC LIMIT 1) AS last_time,
       (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) AS message_count,
       (SELECT user_id FROM chat_messages WHERE chat_id = c.id AND body NOT LIKE '[[system:%]]' ORDER BY id DESC LIMIT 1) AS last_sender_id,
-      (SELECT users.username FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id AND chat_messages.body NOT LIKE '[[system:%]]' ORDER BY chat_messages.id DESC LIMIT 1) AS last_sender_username,
-      (SELECT users.nickname FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id AND chat_messages.body NOT LIKE '[[system:%]]' ORDER BY chat_messages.id DESC LIMIT 1) AS last_sender_nickname,
-      (SELECT users.avatar_url FROM chat_messages JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id AND chat_messages.body NOT LIKE '[[system:%]]' ORDER BY chat_messages.id DESC LIMIT 1) AS last_sender_avatar_url,
+      (SELECT COALESCE(users.username, 'deleted') FROM chat_messages LEFT JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id AND chat_messages.body NOT LIKE '[[system:%]]' ORDER BY chat_messages.id DESC LIMIT 1) AS last_sender_username,
+      (SELECT COALESCE(users.nickname, 'Deleted user') FROM chat_messages LEFT JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id AND chat_messages.body NOT LIKE '[[system:%]]' ORDER BY chat_messages.id DESC LIMIT 1) AS last_sender_nickname,
+      (SELECT users.avatar_url FROM chat_messages LEFT JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id AND chat_messages.body NOT LIKE '[[system:%]]' ORDER BY chat_messages.id DESC LIMIT 1) AS last_sender_avatar_url,
       (SELECT read_at FROM chat_messages WHERE chat_id = c.id AND body NOT LIKE '[[system:%]]' ORDER BY id DESC LIMIT 1) AS last_message_read_at,
       (SELECT read_by_user_id FROM chat_messages WHERE chat_id = c.id AND body NOT LIKE '[[system:%]]' ORDER BY id DESC LIMIT 1) AS last_message_read_by_user_id,
-      (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id AND body NOT LIKE '[[system:%]]' AND user_id != ? AND read_at IS NULL) AS unread_count
+      (SELECT COUNT(*)
+         FROM chat_messages cm
+         WHERE cm.chat_id = c.id
+           AND cm.body NOT LIKE '[[system:%]]'
+           AND cm.user_id != ?
+           AND cm.id NOT IN (
+             SELECT message_id FROM chat_message_reads WHERE user_id = ?
+           )) AS unread_count
     FROM chats c
     JOIN chat_members m ON m.chat_id = c.id
     LEFT JOIN chat_mutes mu ON mu.chat_id = c.id AND mu.user_id = m.user_id
@@ -451,7 +728,7 @@ export function listChatsForUser(userId) {
       AND h.chat_id IS NULL
     ORDER BY last_message_id DESC, c.created_at DESC
   `,
-    [userId, userId],
+    [userId, userId, userId],
   );
 }
 
@@ -469,6 +746,54 @@ export function createMessage(chatId, userId, body, replyToMessageId = null) {
     [chatId, userId],
   );
   return fallback?.id || null;
+}
+
+export function markMessageRead(messageId, readerId) {
+  run(
+    `UPDATE chat_messages
+     SET read_at = datetime('now'), read_by_user_id = ?
+     WHERE id = ?`,
+    [Number(readerId), Number(messageId)],
+  );
+  const row = getRow("SELECT user_id FROM chat_messages WHERE id = ?", [
+    Number(messageId),
+  ]);
+  if (Number(row?.user_id || 0) === Number(readerId)) return;
+  run(
+    `INSERT OR IGNORE INTO chat_message_reads (message_id, user_id, read_at)
+     VALUES (?, ?, datetime('now'))`,
+    [Number(messageId), Number(readerId)],
+  );
+}
+
+export function findSavedChatByUserId(userId) {
+  return getRow(
+    `SELECT id, name, type, group_username, group_visibility, invite_token, group_color,
+            allow_member_invites, group_avatar_url, created_by_user_id
+     FROM chats WHERE type = 'saved' AND created_by_user_id = ?`,
+    [Number(userId)],
+  );
+}
+
+export function ensureSavedChatForUser(userId) {
+  const existing = findSavedChatByUserId(userId);
+  if (existing?.id) {
+    if (!isMember(existing.id, Number(userId))) {
+      addChatMember(existing.id, Number(userId), "owner");
+    }
+    if (String(existing.group_visibility || "").toLowerCase() !== "private") {
+      run("UPDATE chats SET group_visibility = 'private' WHERE id = ?", [
+        Number(existing.id),
+      ]);
+    }
+    return existing;
+  }
+  const chatId = createChat("Saved messages", "saved", {
+    createdByUserId: Number(userId),
+  });
+  if (!chatId) return null;
+  addChatMember(chatId, Number(userId), "owner");
+  return findChatById(chatId);
 }
 
 export function findMessageById(messageId) {
@@ -534,16 +859,19 @@ export function getMessages(chatId, options = {}) {
     `
     SELECT chat_messages.id, chat_messages.body, chat_messages.created_at, chat_messages.read_at, chat_messages.read_by_user_id,
       chat_messages.reply_to_message_id,
-      users.id AS user_id, users.username, users.nickname, users.avatar_url, users.color,
+      users.id AS user_id,
+      COALESCE(users.username, 'deleted') AS username,
+      COALESCE(users.nickname, 'Deleted user') AS nickname,
+      users.avatar_url, users.color,
       reply.id AS reply_id,
       reply.body AS reply_body,
       reply.created_at AS reply_created_at,
       reply.user_id AS reply_user_id,
-      reply_user.username AS reply_username,
-      reply_user.nickname AS reply_nickname,
+      COALESCE(reply_user.username, 'deleted') AS reply_username,
+      COALESCE(reply_user.nickname, 'Deleted user') AS reply_nickname,
       reply_user.avatar_url AS reply_avatar_url
     FROM chat_messages
-    JOIN users ON users.id = chat_messages.user_id
+    LEFT JOIN users ON users.id = chat_messages.user_id
     LEFT JOIN chat_messages reply ON reply.id = chat_messages.reply_to_message_id
     LEFT JOIN users reply_user ON reply_user.id = reply.user_id
     ${whereSql}
@@ -663,6 +991,21 @@ export function getUserPresence(username) {
 }
 
 export function markMessagesRead(chatId, readerId) {
+  const recentRows = getAll(
+    `SELECT id FROM chat_messages
+     WHERE chat_id = ?
+       AND user_id != ?
+       AND id NOT IN (SELECT message_id FROM chat_message_reads WHERE user_id = ?)
+     ORDER BY id DESC`,
+    [Number(chatId), Number(readerId), Number(readerId)],
+  );
+  if (!recentRows.length) return;
+
+  const messageIds = recentRows
+    .map((row) => Number(row.id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+  if (!messageIds.length) return;
+
   run(
     `
     UPDATE chat_messages
@@ -671,6 +1014,99 @@ export function markMessagesRead(chatId, readerId) {
   `,
     [readerId, chatId, readerId],
   );
+  const chunkSize = 300;
+  for (let i = 0; i < messageIds.length; i += chunkSize) {
+    const chunk = messageIds.slice(i, i + chunkSize);
+    const placeholders = chunk.map(() => "(?, ?, datetime('now'))").join(", ");
+    run(
+      `INSERT OR IGNORE INTO chat_message_reads (message_id, user_id, read_at)
+       VALUES ${placeholders}`,
+      chunk.flatMap((id) => [id, Number(readerId)]),
+    );
+  }
+}
+
+export function getMessageReadCounts(messageIds = []) {
+  const normalized = Array.from(
+    new Set(
+      (Array.isArray(messageIds) ? messageIds : [])
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id) && id > 0),
+    ),
+  );
+  if (!normalized.length) return [];
+  const placeholders = normalized.map(() => "?").join(", ");
+  return getAll(
+    `SELECT message_id, COUNT(*) AS count
+     FROM chat_message_reads
+     WHERE message_id IN (${placeholders})
+     GROUP BY message_id`,
+    normalized,
+  );
+}
+
+export function getMessageAuthors(messageIds = []) {
+  const normalized = Array.from(
+    new Set(
+      (Array.isArray(messageIds) ? messageIds : [])
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id) && id > 0),
+    ),
+  );
+  if (!normalized.length) return [];
+  const placeholders = normalized.map(() => "?").join(", ");
+  return getAll(
+    `SELECT id, user_id FROM chat_messages WHERE id IN (${placeholders})`,
+    normalized,
+  );
+}
+
+export function getMessageReadByUser(messageIds = [], userId) {
+  const normalized = Array.from(
+    new Set(
+      (Array.isArray(messageIds) ? messageIds : [])
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id) && id > 0),
+    ),
+  );
+  if (!normalized.length) return [];
+  const placeholders = normalized.map(() => "?").join(", ");
+  return getAll(
+    `SELECT message_id FROM chat_message_reads
+     WHERE user_id = ? AND message_id IN (${placeholders})`,
+    [Number(userId), ...normalized],
+  );
+}
+
+export function recordMessageReads(messageIds = [], readerId) {
+  const normalized = Array.from(
+    new Set(
+      (Array.isArray(messageIds) ? messageIds : [])
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id) && id > 0),
+    ),
+  );
+  if (!normalized.length) return;
+  const placeholders = normalized.map(() => "?").join(", ");
+  const rows = getAll(
+    `SELECT id, user_id FROM chat_messages WHERE id IN (${placeholders})`,
+    normalized,
+  );
+  const toInsert = rows
+    .filter((row) => Number(row?.user_id || 0) !== Number(readerId))
+    .map((row) => Number(row.id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+  if (!toInsert.length) return;
+  const chunkSize = 300;
+  for (let i = 0; i < toInsert.length; i += chunkSize) {
+    const chunk = toInsert.slice(i, i + chunkSize);
+    const valuePlaceholders = chunk.map(() => "(?, ?, datetime('now'))").join(", ");
+    run(
+      `INSERT OR IGNORE INTO chat_message_reads (message_id, user_id, read_at)
+       VALUES ${valuePlaceholders}`,
+      chunk.flatMap((id) => [id, Number(readerId)]),
+    );
+  }
 }
 
 export function hideChatsForUser(userId, chatIds = []) {

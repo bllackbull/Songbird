@@ -4,6 +4,7 @@ import { getAvatarStyle } from "../utils/avatarColor.js";
 import { hasPersian } from "../utils/fontUtils.js";
 import { getAvatarInitials } from "../utils/avatarInitials.js";
 import { NICKNAME_MAX, USERNAME_MAX } from "../utils/nameLimits.js";
+import ConfirmPasswordModal from "./ConfirmPasswordModal.jsx";
 
 export function NewChatModal({
   open,
@@ -218,8 +219,11 @@ export function NewGroupModal({
   currentInviteLink = "",
   regeneratingInviteLink = false,
   onRegenerateInvite,
+  entityLabel = "Group",
+  onDeleteChat,
 }) {
   const [copiedRegenerateLink, setCopiedRegenerateLink] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   if (!open) return null;
 
   const selectedMemberNames = new Set(
@@ -227,6 +231,7 @@ export function NewGroupModal({
   );
 
   return (
+    <>
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-6">
       <div className="app-scroll max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-2xl border border-emerald-100/70 bg-white p-6 shadow-xl dark:border-emerald-500/30 dark:bg-slate-950">
         <div className="flex items-center justify-between">
@@ -246,7 +251,7 @@ export function NewGroupModal({
           {showAvatarField ? (
             <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
               <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                Group photo
+                {entityLabel} photo
               </p>
               <div className="mt-3 flex items-center gap-4">
                 {avatarPreview ? (
@@ -293,7 +298,7 @@ export function NewGroupModal({
                         onAvatarRemove?.();
                       }}
                       className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-rose-200 bg-rose-50 text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-md dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200 dark:hover:bg-rose-800/50"
-                      aria-label="Remove group photo"
+                      aria-label={`Remove ${entityLabel.toLowerCase()} photo`}
                     >
                       <Trash size={18} className="icon-anim-sway" />
                     </button>
@@ -305,7 +310,7 @@ export function NewGroupModal({
 
           <div>
             <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-              Group nickname
+              {entityLabel} nickname
             </label>
             <div className="relative mt-2">
               <input
@@ -315,7 +320,7 @@ export function NewGroupModal({
                   setGroupError("");
                 }}
                 maxLength={NICKNAME_MAX}
-                placeholder="My friends group"
+                placeholder={`My ${entityLabel.toLowerCase()}`}
                 className="w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-16 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
               />
               <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400 dark:text-slate-500">
@@ -326,7 +331,7 @@ export function NewGroupModal({
 
           <div>
             <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-              Group username
+              {entityLabel} username
             </label>
             <div className="relative mt-2">
               <input
@@ -339,7 +344,7 @@ export function NewGroupModal({
                   setGroupError("");
                 }}
                 maxLength={USERNAME_MAX}
-                placeholder="mygroup"
+                placeholder={`my${entityLabel.toLowerCase()}`}
                 className="w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-16 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
               />
               <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400 dark:text-slate-500">
@@ -612,6 +617,17 @@ export function NewGroupModal({
           </p>
         ) : null}
 
+        {onDeleteChat ? (
+          <button
+            type="button"
+            onClick={() => setDeleteModalOpen(true)}
+            className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-rose-200/80 bg-rose-50/70 px-4 py-3 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 dark:border-rose-500/40 dark:bg-rose-900/30 dark:text-rose-200 dark:hover:bg-rose-900/50"
+          >
+            <Trash size={16} className="icon-anim-sway" />
+            Delete {entityLabel.toLowerCase()}
+          </button>
+        ) : null}
+
         <div className="mt-4 flex items-center justify-end gap-2">
           <button
             type="button"
@@ -638,6 +654,19 @@ export function NewGroupModal({
         </div>
       </div>
     </div>
+
+    <ConfirmPasswordModal
+      open={deleteModalOpen}
+      title={`Delete ${entityLabel.toLowerCase()}`}
+      description={`This permanently deletes the ${entityLabel.toLowerCase()}, removes all members, and erases all messages.`}
+      confirmLabel="Continue"
+      deleteLabel={`Delete ${entityLabel.toLowerCase()}`}
+      onClose={() => setDeleteModalOpen(false)}
+      onConfirm={async (password) => {
+        await onDeleteChat?.(password);
+      }}
+    />
+    </>
   );
 }
 

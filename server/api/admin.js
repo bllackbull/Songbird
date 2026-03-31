@@ -7,6 +7,9 @@ function registerAdminRoutes(app, deps) {
     chunkArray,
     bcrypt,
     setUserColor,
+    NICKNAME_MAX,
+    USERNAME_MAX,
+    MESSAGE_MAX_CHARS,
     USERNAME_REGEX,
     isLoopbackRequest,
     removeAllMessageUploads,
@@ -16,6 +19,7 @@ function registerAdminRoutes(app, deps) {
     avatarUploadRootDir,
     fs,
     path,
+    emitChatEvent,
   } = deps;
 
   app.post("/api/admin/db-tools", async (req, res) => {
@@ -74,6 +78,13 @@ function registerAdminRoutes(app, deps) {
             const chunkPlaceholders = chunk.map(() => "?").join(", ");
 
             adminRun(
+              `DELETE FROM chat_message_reads WHERE message_id IN (
+                SELECT id FROM chat_messages WHERE chat_id IN (${chunkPlaceholders})
+              )`,
+              chunk,
+            );
+
+            adminRun(
               `DELETE FROM chat_message_files WHERE message_id IN (
                 SELECT id FROM chat_messages WHERE chat_id IN (${chunkPlaceholders})
               )`,
@@ -87,6 +98,16 @@ function registerAdminRoutes(app, deps) {
 
             adminRun(
               `DELETE FROM chat_members WHERE chat_id IN (${chunkPlaceholders})`,
+              chunk,
+            );
+
+            adminRun(
+              `DELETE FROM chat_mutes WHERE chat_id IN (${chunkPlaceholders})`,
+              chunk,
+            );
+
+            adminRun(
+              `DELETE FROM group_removed_members WHERE chat_id IN (${chunkPlaceholders})`,
               chunk,
             );
 
@@ -138,11 +159,11 @@ function registerAdminRoutes(app, deps) {
           }
 
           const groupRow = adminGetRow(
-            "SELECT id FROM chats WHERE type = 'group' AND group_username = ?",
+            "SELECT id FROM chats WHERE type IN ('group', 'channel') AND group_username = ?",
             [raw],
           );
           if (groupRow?.id) {
-            throw new Error(`Cannot delete user. "${raw}" is a group username.`);
+            throw new Error(`Cannot delete user. "${raw}" is a group/channel username.`);
           }
 
           const row = adminGetRow("SELECT id FROM users WHERE username = ?", [raw]);
@@ -166,29 +187,121 @@ function registerAdminRoutes(app, deps) {
         }
 
         const userPlaceholders = userIds.map(() => "?").join(", ");
-        const fileRows = adminGetAll(
-          `SELECT cmf.stored_name
-           FROM chat_message_files cmf
-           JOIN chat_messages cm ON cm.id = cmf.message_id
-           WHERE cm.user_id IN (${userPlaceholders})`,
+        const ownerChatRows = adminGetAll(
+          `SELECT chat_id FROM chat_members WHERE role = 'owner' AND user_id IN (${userPlaceholders})`,
           userIds,
         );
-        const storedNames = fileRows.map((row) => row.stored_name);
+        const ownerChatIds = Array.from(
+          new Set(ownerChatRows.map((row) => Number(row?.chat_id || 0)).filter(Boolean)),
+        );
+        const chatIdsToDelete = [];
+        const ownershipTransfers = [];
+        ownerChatIds.forEach((chatId) => {
+          const remaining = adminGetAll(
+            `SELECT user_id FROM chat_members WHERE chat_id = ? AND user_id NOT IN (${userPlaceholders})`,
+            [Number(chatId), ...userIds],
+          )
+            .map((row) => Number(row?.user_id || 0))
+            .filter((id) => Number.isFinite(id) && id > 0);
+          if (!remaining.length) {
+            chatIdsToDelete.push(Number(chatId));
+            return;
+          }
+          const nextOwnerId =
+            remaining[Math.floor(Math.random() * remaining.length)];
+          if (nextOwnerId) {
+            ownershipTransfers.push({
+              chatId: Number(chatId),
+              nextOwnerId: Number(nextOwnerId),
+            });
+          }
+        });
+        const uniqueChatDeletes = Array.from(
+          new Set(chatIdsToDelete.filter((id) => Number.isFinite(id) && id > 0)),
+        );
+        const chatDeletePlaceholders = uniqueChatDeletes.map(() => "?").join(", ");
+        const chatStoredRows = uniqueChatDeletes.length
+          ? adminGetAll(
+              `SELECT cmf.stored_name
+               FROM chat_message_files cmf
+               JOIN chat_messages cm ON cm.id = cmf.message_id
+               WHERE cm.chat_id IN (${chatDeletePlaceholders})`,
+              uniqueChatDeletes,
+            )
+          : [];
+        const storedNames = Array.from(
+          new Set(
+            [...chatStoredRows]
+              .map((row) => String(row?.stored_name || "").trim())
+              .filter(Boolean),
+          ),
+        );
 
         adminRun("BEGIN");
         try {
+          if (uniqueChatDeletes.length) {
+            chunkArray(uniqueChatDeletes, 500).forEach((chunk) => {
+              const chunkPlaceholders = chunk.map(() => "?").join(", ");
+              adminRun(
+                `DELETE FROM chat_message_reads WHERE message_id IN (
+                  SELECT id FROM chat_messages WHERE chat_id IN (${chunkPlaceholders})
+                )`,
+                chunk,
+              );
+              adminRun(
+                `DELETE FROM chat_message_files WHERE message_id IN (
+                  SELECT id FROM chat_messages WHERE chat_id IN (${chunkPlaceholders})
+                )`,
+                chunk,
+              );
+              adminRun(
+                `DELETE FROM chat_messages WHERE chat_id IN (${chunkPlaceholders})`,
+                chunk,
+              );
+              adminRun(
+                `DELETE FROM chat_members WHERE chat_id IN (${chunkPlaceholders})`,
+                chunk,
+              );
+              adminRun(
+                `DELETE FROM chat_mutes WHERE chat_id IN (${chunkPlaceholders})`,
+                chunk,
+              );
+              adminRun(
+                `DELETE FROM group_removed_members WHERE chat_id IN (${chunkPlaceholders})`,
+                chunk,
+              );
+              adminRun(
+                `DELETE FROM hidden_chats WHERE chat_id IN (${chunkPlaceholders})`,
+                chunk,
+              );
+              adminRun(
+                `DELETE FROM chats WHERE id IN (${chunkPlaceholders})`,
+                chunk,
+              );
+            });
+          }
+          ownershipTransfers.forEach((transfer) => {
+            if (
+              uniqueChatDeletes.includes(Number(transfer.chatId)) ||
+              !transfer.chatId ||
+              !transfer.nextOwnerId
+            ) {
+              return;
+            }
+            adminRun(
+              `UPDATE chat_members SET role = 'owner' WHERE chat_id = ? AND user_id = ?`,
+              [Number(transfer.chatId), Number(transfer.nextOwnerId)],
+            );
+          });
           chunkArray(userIds, 500).forEach((chunk) => {
             const chunkPlaceholders = chunk.map(() => "?").join(", ");
 
             adminRun(
-              `DELETE FROM chat_message_files WHERE message_id IN (
-                SELECT id FROM chat_messages WHERE user_id IN (${chunkPlaceholders})
-              )`,
+              `DELETE FROM chat_message_reads WHERE user_id IN (${chunkPlaceholders})`,
               chunk,
             );
-
             adminRun(
-              `DELETE FROM chat_messages WHERE user_id IN (${chunkPlaceholders})`,
+              `UPDATE chat_messages SET read_by_user_id = NULL WHERE read_by_user_id IN (${chunkPlaceholders})`,
               chunk,
             );
 
@@ -228,6 +341,7 @@ function registerAdminRoutes(app, deps) {
           result: {
             removedUsers: userIds.length,
             removedFiles: storedNames.length,
+            removedChats: uniqueChatDeletes.length,
           },
         });
       }
@@ -239,6 +353,19 @@ function registerAdminRoutes(app, deps) {
 
         if (!rawUsername || !password) {
           return res.status(400).json({ error: "Username and password are required." });
+        }
+        if (rawUsername.length < 3) {
+          return res.status(400).json({ error: "Username must be at least 3 characters." });
+        }
+        if (USERNAME_MAX && rawUsername.length > USERNAME_MAX) {
+          return res.status(400).json({
+            error: `Username must be at most ${USERNAME_MAX} characters.`,
+          });
+        }
+        if (nickname && nickname.length > (NICKNAME_MAX || 0)) {
+          return res.status(400).json({
+            error: `Nickname must be at most ${NICKNAME_MAX} characters.`,
+          });
         }
 
         if (USERNAME_REGEX && !USERNAME_REGEX.test(rawUsername)) {
@@ -254,7 +381,7 @@ function registerAdminRoutes(app, deps) {
           return res.status(409).json({ error: "Username already exists." });
         }
         const groupExists = adminGetRow(
-          "SELECT id FROM chats WHERE type = 'group' AND group_username = ?",
+          "SELECT id FROM chats WHERE type IN ('group', 'channel') AND group_username = ?",
           [rawUsername],
         );
         if (groupExists?.id) {
@@ -293,6 +420,14 @@ function registerAdminRoutes(app, deps) {
         const password = String(payload.password || "");
         const nicknamePrefix = String(payload.nicknamePrefix || "User");
         const usernamePrefix = String(payload.usernamePrefix || "user");
+        const maxUsername = Math.max(3, Number(USERNAME_MAX || 16));
+        const maxNickname = Math.max(3, Number(NICKNAME_MAX || 24));
+        const maxPrefixLen = Math.max(1, maxUsername - 2);
+        const clampPrefix = (value, maxLen) => {
+          const trimmed = String(value || "").trim();
+          if (!trimmed) return "";
+          return trimmed.length > maxLen ? trimmed.slice(0, maxLen) : trimmed;
+        };
 
         if (!count || !password) {
           return res
@@ -302,7 +437,7 @@ function registerAdminRoutes(app, deps) {
 
         const existingRows = adminGetAll("SELECT username FROM users");
         const existingGroups = adminGetAll(
-          "SELECT group_username FROM chats WHERE type = 'group' AND group_username IS NOT NULL",
+          "SELECT group_username FROM chats WHERE type IN ('group', 'channel') AND group_username IS NOT NULL",
         );
         const usedUsernames = new Set(
           existingRows.map((row) => String(row.username || "").toLowerCase()),
@@ -328,10 +463,19 @@ function registerAdminRoutes(app, deps) {
           for (let i = 0; i < count; i += 1) {
             let username = "";
             do {
-              username = `${usernamePrefix}_${randomToken(8)}`.toLowerCase();
+              const basePrefix = clampPrefix(usernamePrefix, maxPrefixLen);
+              const safePrefix =
+                basePrefix.length >= 1 ? basePrefix : clampPrefix("user", maxPrefixLen);
+              const tokenBudget = Math.max(1, maxUsername - safePrefix.length - 1);
+              const token = randomToken(Math.min(12, tokenBudget));
+              username = `${safePrefix}_${token}`.toLowerCase().slice(0, maxUsername);
             } while (usedUsernames.has(username));
             usedUsernames.add(username);
-            const nickname = `${nicknamePrefix} ${created + 1}`;
+            const rawNickname = `${nicknamePrefix} ${created + 1}`;
+            const nickname =
+              rawNickname.length > maxNickname
+                ? rawNickname.slice(0, maxNickname)
+                : rawNickname;
             const assignedColor = setUserColor ? setUserColor() : null;
             adminRun(
               "INSERT INTO users (username, nickname, avatar_url, color, status, password_hash, created_at, last_seen) VALUES (?, ?, NULL, ?, ?, ?, datetime('now'), datetime('now'))",
@@ -406,6 +550,7 @@ function registerAdminRoutes(app, deps) {
           "Done",
           "Perfect",
         ];
+        const maxMessageChars = Math.max(1, Number(MESSAGE_MAX_CHARS || 4000));
         const pickRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
         const buildTimestampSchedule = (totalCount, days) => {
           const now = new Date();
@@ -466,7 +611,11 @@ function registerAdminRoutes(app, deps) {
           const timestamps = buildTimestampSchedule(count, daysBack);
           for (let index = 0; index < count; index += 1) {
             const senderId = index % 2 === 0 ? userAId : userBId;
-            const body = `${pickRandom(sampleMessages)} #${index + 1}`;
+            const rawBody = `${pickRandom(sampleMessages)} #${index + 1}`;
+            const body =
+              rawBody.length > maxMessageChars
+                ? rawBody.slice(0, maxMessageChars)
+                : rawBody;
             adminRun(
               "INSERT INTO chat_messages (chat_id, user_id, body, created_at, read_at, read_by_user_id) VALUES (?, ?, ?, ?, NULL, NULL)",
               [chatId, senderId, body, timestamps[index]],
@@ -607,6 +756,7 @@ function registerAdminRoutes(app, deps) {
         let targetMessageIds = [];
         let messageStoredNames = [];
         let targetAvatarUsers = [];
+        let messageChatPairs = [];
 
         if (deleteAll) {
           targetMessageIds = adminGetAll(
@@ -614,6 +764,18 @@ function registerAdminRoutes(app, deps) {
           )
             .map((row) => Number(row.message_id))
             .filter((id) => Number.isFinite(id) && id > 0);
+
+          if (targetMessageIds.length) {
+            messageChatPairs = adminGetAll(
+              `SELECT id, chat_id FROM chat_messages WHERE id IN (${targetMessageIds
+                .map(() => "?")
+                .join(", ")})`,
+              targetMessageIds,
+            ).map((row) => ({
+              id: Number(row.id),
+              chatId: Number(row.chat_id),
+            }));
+          }
 
           messageStoredNames = adminGetAll(
             "SELECT stored_name FROM chat_message_files",
@@ -662,6 +824,15 @@ function registerAdminRoutes(app, deps) {
           );
 
           if (targetMessageIds.length) {
+            messageChatPairs = adminGetAll(
+              `SELECT id, chat_id FROM chat_messages WHERE id IN (${targetMessageIds
+                .map(() => "?")
+                .join(", ")})`,
+              targetMessageIds,
+            ).map((row) => ({
+              id: Number(row.id),
+              chatId: Number(row.chat_id),
+            }));
             messageStoredNames = adminGetAll(
               `SELECT stored_name FROM chat_message_files WHERE message_id IN (${targetMessageIds
                 .map(() => "?")
@@ -736,6 +907,23 @@ function registerAdminRoutes(app, deps) {
         });
 
         adminSave();
+
+        if (messageChatPairs.length) {
+          const chatToMessageIds = new Map();
+          messageChatPairs.forEach((pair) => {
+            if (!Number.isFinite(pair.chatId) || !Number.isFinite(pair.id)) return;
+            const list = chatToMessageIds.get(pair.chatId) || [];
+            list.push(pair.id);
+            chatToMessageIds.set(pair.chatId, list);
+          });
+          chatToMessageIds.forEach((messageIds, chatId) => {
+            emitChatEvent(Number(chatId), {
+              type: "chat_message_deleted",
+              chatId: Number(chatId),
+              messageIds,
+            });
+          });
+        }
 
         return res.json({
           ok: true,

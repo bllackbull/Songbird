@@ -9,7 +9,10 @@ function registerChatRoutes(app, deps) {
     crypto,
     createChat,
     createMessage,
+    deleteChatById,
     emitChatEvent,
+    emitSseEvent,
+    ensureSavedChatForUser,
     ensureAvatarExists,
     findChatById,
     findChatByGroupUsername,
@@ -26,7 +29,9 @@ function registerChatRoutes(app, deps) {
     listMessageFilesByMessageIds,
     listUsers,
     removeAvatarByUrl,
+    removeStoredFileNames,
     clearGroupMemberRemoved,
+    bcrypt,
     markGroupMemberRemoved,
     removeChatMember,
     regenerateGroupInviteToken,
@@ -35,10 +40,13 @@ function registerChatRoutes(app, deps) {
     requireSessionUsernameMatch,
     searchUsers,
     searchPublicGroups,
+    searchPublicChannels,
     setChatMuted,
     updateGroupChat,
+    updateChannelChat,
     unhideChat,
     uploadAvatar,
+    setChatMemberRole,
   } = deps;
 
   const resolveClientBaseOrigin = (req) => {
@@ -100,6 +108,15 @@ function registerChatRoutes(app, deps) {
     const cleanup = cleanupMissingMessageFiles(initialLastMessageIds);
 
     if (cleanup.changed) {
+      if (cleanup.deletedByChat && cleanup.deletedByChat.size) {
+        cleanup.deletedByChat.forEach((messageIds, chatId) => {
+          emitChatEvent(Number(chatId), {
+            type: "chat_message_deleted",
+            chatId: Number(chatId),
+            messageIds,
+          });
+        });
+      }
       chats = listChatsForUser(user.id).map((conv) => {
         const members = listChatMembers(conv.id).map((member) => ({
           ...member,
@@ -152,6 +169,30 @@ function registerChatRoutes(app, deps) {
     }));
 
     res.json({ chats: enrichedChats });
+  });
+
+  app.get("/api/chats/saved", (req, res) => {
+    const session = requireSession(req, res);
+    if (!session) return;
+
+    const username = req.query.username?.toString();
+    if (!username) {
+      return res.status(400).json({ error: "Username is required." });
+    }
+    if (!requireSessionUsernameMatch(res, session, username)) return;
+
+    const user = findUserByUsername(String(username || "").toLowerCase());
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    const savedChat = ensureSavedChatForUser(Number(user.id));
+    if (!savedChat?.id) {
+      return res.status(500).json({ error: "Unable to open saved messages." });
+    }
+    unhideChat(user.id, Number(savedChat.id));
+
+    return res.json({ id: Number(savedChat.id) });
   });
 
   app.post("/api/chats/dm", (req, res) => {
@@ -232,6 +273,7 @@ function registerChatRoutes(app, deps) {
     if (!session) return;
 
     const {
+      type,
       creator,
       nickname,
       username,
@@ -250,34 +292,37 @@ function registerChatRoutes(app, deps) {
       return res.status(404).json({ error: "Creator not found." });
     }
 
+    const normalizedType =
+      String(type || "group").toLowerCase() === "channel" ? "channel" : "group";
+    const label = normalizedType === "channel" ? "Channel" : "Group";
     const groupNickname = String(nickname || "").trim();
     const groupUsername = String(username || "")
       .trim()
       .toLowerCase();
     if (!groupNickname) {
-      return res.status(400).json({ error: "Group nickname is required." });
+      return res.status(400).json({ error: `${label} nickname is required.` });
     }
     if (!groupUsername) {
-      return res.status(400).json({ error: "Group username is required." });
+      return res.status(400).json({ error: `${label} username is required.` });
     }
     if (groupUsername.length < 3) {
       return res
         .status(400)
-        .json({ error: "Group username must be at least 3 characters." });
+        .json({ error: `${label} username must be at least 3 characters.` });
     }
     if (!USERNAME_REGEX.test(groupUsername)) {
       return res.status(400).json({
         error:
-          "Group username can only include english letters, numbers, dot (.), and underscore (_).",
+          `${label} username can only include english letters, numbers, dot (.), and underscore (_).`,
       });
     }
 
     if (findUserByUsername(groupUsername)) {
-      return res.status(409).json({ error: "Group username already exists." });
+      return res.status(409).json({ error: `${label} username already exists.` });
     }
 
     if (findChatByGroupUsername(groupUsername)) {
-      return res.status(409).json({ error: "Group username already exists." });
+      return res.status(409).json({ error: `${label} username already exists.` });
     }
 
     const normalizedVisibility =
@@ -285,7 +330,7 @@ function registerChatRoutes(app, deps) {
         ? "private"
         : "public";
     const inviteToken = crypto.randomBytes(24).toString("hex");
-    const chatId = createChat(groupNickname, "group", {
+    const chatId = createChat(groupNickname, normalizedType, {
       groupUsername,
       groupVisibility: normalizedVisibility,
       inviteToken,
@@ -294,7 +339,7 @@ function registerChatRoutes(app, deps) {
     });
 
     if (!chatId) {
-      return res.status(500).json({ error: "Failed to create group." });
+      return res.status(500).json({ error: `Failed to create ${label.toLowerCase()}.` });
     }
 
     addChatMember(chatId, creatorUser.id, "owner");
@@ -307,6 +352,13 @@ function registerChatRoutes(app, deps) {
     memberSet.forEach((memberUsername) => {
       const member = findUserByUsername(memberUsername);
       if (member) addChatMember(chatId, member.id, "member");
+    });
+    memberSet.forEach((memberUsername) => {
+      try {
+        emitSseEvent(memberUsername, { type: "chat_list_changed", chatId });
+      } catch {
+        // ignore realtime list errors
+      }
     });
 
     const baseOrigin = resolveClientBaseOrigin(req);
@@ -342,11 +394,13 @@ function registerChatRoutes(app, deps) {
       ...member,
       avatar_url: ensureAvatarExists(member.id, member.avatar_url),
     }));
+    const label = chat.type === "channel" ? "Channel" : "Group";
 
     return res.json({
       group: {
         id: Number(chat.id),
-        name: chat.name || "Group",
+        name: chat.name || label,
+        type: chat.type || "group",
         username: chat.group_username || "",
         color: chat.group_color || "#10b981",
         avatarUrl: normalizeGroupAvatarUrl(chat.group_avatar_url),
@@ -392,19 +446,26 @@ function registerChatRoutes(app, deps) {
     const wasMember = isMember(chatId, user.id);
     if (!wasMember) {
       addChatMember(chatId, user.id, "member");
-      createMessage(chatId, user.id, `[[system:joined:${user.nickname || user.username}]]`);
-      try {
-        emitChatEvent(chatId, {
-          type: "chat_message",
-          chatId,
-          username: user.username,
-          body: `[[system:joined:${user.nickname || user.username}]]`,
-        });
-      } catch {
-        // Joining should not fail due to transient event broadcast issues.
+      if (chat.type === "group") {
+        createMessage(chatId, user.id, `[[system:joined:${user.nickname || user.username}]]`);
+        try {
+          emitChatEvent(chatId, {
+            type: "chat_message",
+            chatId,
+            username: user.username,
+            body: `[[system:joined:${user.nickname || user.username}]]`,
+          });
+        } catch {
+          // Joining should not fail due to transient event broadcast issues.
+        }
       }
     }
     unhideChat(user.id, chatId);
+    try {
+      emitSseEvent(user.username, { type: "chat_list_changed", chatId });
+    } catch {
+      // ignore realtime list errors
+    }
 
     return res.json({
       ok: true,
@@ -419,12 +480,12 @@ function registerChatRoutes(app, deps) {
 
     const chatId = Number(req.params?.chatId || 0);
     if (!chatId) {
-      return res.status(400).json({ error: "Group chat id is required." });
+      return res.status(400).json({ error: "Chat id is required." });
     }
 
     const chat = findChatById(chatId);
-    if (!chat || chat.type !== "group") {
-      return res.status(404).json({ error: "Group not found." });
+    if (!chat || (chat.type !== "group" && chat.type !== "channel")) {
+      return res.status(404).json({ error: "Chat not found." });
     }
 
     const user = findUserByUsername(String(session.username || "").toLowerCase());
@@ -436,6 +497,7 @@ function registerChatRoutes(app, deps) {
     }
 
     const members = listChatMembers(chatId);
+    const label = chat.type === "channel" ? "channel" : "group";
     const isOwner = members.some(
       (member) =>
         Number(member.id) === Number(user.id) &&
@@ -443,7 +505,9 @@ function registerChatRoutes(app, deps) {
     );
     const allowMemberInvites = Boolean(Number(chat.allow_member_invites || 0));
     if (!isOwner && !allowMemberInvites) {
-      return res.status(403).json({ error: "Only group owner can share invite link." });
+      return res
+        .status(403)
+        .json({ error: `Only ${label} owner can share invite link.` });
     }
 
     const baseOrigin = resolveClientBaseOrigin(req);
@@ -463,7 +527,7 @@ function registerChatRoutes(app, deps) {
     const chatId = Number(req.params?.chatId || 0);
     const username = req.body?.username?.toString();
     if (!chatId || !username) {
-      return res.status(400).json({ error: "Group chat id and username are required." });
+      return res.status(400).json({ error: "Chat id and username are required." });
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
@@ -472,17 +536,20 @@ function registerChatRoutes(app, deps) {
       return res.status(404).json({ error: "User not found." });
     }
     const chat = findChatById(chatId);
-    if (!chat || chat.type !== "group") {
-      return res.status(404).json({ error: "Group not found." });
+    if (!chat || (chat.type !== "group" && chat.type !== "channel")) {
+      return res.status(404).json({ error: "Chat not found." });
     }
     const members = listChatMembers(chatId);
+    const label = chat.type === "channel" ? "channel" : "group";
     const isOwner = members.some(
       (member) =>
         Number(member.id) === Number(user.id) &&
         String(member.role || "").toLowerCase() === "owner",
     );
     if (!isOwner) {
-      return res.status(403).json({ error: "Only group owner can regenerate invite link." });
+      return res
+        .status(403)
+        .json({ error: `Only ${label} owner can regenerate invite link.` });
     }
 
     const inviteToken = crypto.randomBytes(24).toString("hex");
@@ -523,18 +590,21 @@ function registerChatRoutes(app, deps) {
     }
 
     const chat = findChatById(chatId);
-    if (!chat || chat.type !== "group") {
-      return res.status(404).json({ error: "Group not found." });
+    if (!chat || (chat.type !== "group" && chat.type !== "channel")) {
+      return res.status(404).json({ error: "Chat not found." });
     }
 
     const chatMembers = listChatMembers(chatId);
+    const label = chat.type === "channel" ? "Channel" : "Group";
     const isOwner = chatMembers.some(
       (member) =>
         Number(member.id) === Number(user.id) &&
         String(member.role || "").toLowerCase() === "owner",
     );
     if (!isOwner) {
-      return res.status(403).json({ error: "Only group owner can edit this group." });
+      return res
+        .status(403)
+        .json({ error: `Only ${label.toLowerCase()} owner can edit this ${label.toLowerCase()}.` });
     }
 
     const normalizedNickname = String(nickname || "").trim();
@@ -542,28 +612,31 @@ function registerChatRoutes(app, deps) {
       .trim()
       .toLowerCase();
     if (!normalizedNickname) {
-      return res.status(400).json({ error: "Group nickname is required." });
+      return res.status(400).json({ error: `${label} nickname is required.` });
     }
     if (normalizedGroupUsername.length < 3) {
-      return res.status(400).json({ error: "Group username must be at least 3 characters." });
+      return res
+        .status(400)
+        .json({ error: `${label} username must be at least 3 characters.` });
     }
     if (!USERNAME_REGEX.test(normalizedGroupUsername)) {
       return res.status(400).json({
         error:
-          "Group username can only include english letters, numbers, dot (.), and underscore (_).",
+          `${label} username can only include english letters, numbers, dot (.), and underscore (_).`,
       });
     }
 
     if (findUserByUsername(normalizedGroupUsername)) {
-      return res.status(409).json({ error: "Group username already exists." });
+      return res.status(409).json({ error: `${label} username already exists.` });
     }
 
     const existing = findChatByGroupUsername(normalizedGroupUsername);
     if (existing && Number(existing.id) !== chatId) {
-      return res.status(409).json({ error: "Group username already exists." });
+      return res.status(409).json({ error: `${label} username already exists.` });
     }
 
-    updateGroupChat(chatId, {
+    const updateFn = chat.type === "channel" ? updateChannelChat : updateGroupChat;
+    updateFn(chatId, {
       name: normalizedNickname,
       groupUsername: normalizedGroupUsername,
       groupVisibility: visibility,
@@ -582,17 +655,24 @@ function registerChatRoutes(app, deps) {
       if (isMember(chatId, member.id)) return;
       clearGroupMemberRemoved(chatId, member.id);
       addChatMember(chatId, member.id, "member");
-      createMessage(
-        chatId,
-        user.id,
-        `[[system:joined:${member.nickname || member.username}]]`,
-      );
-      emitChatEvent(chatId, {
-        type: "chat_message",
-        chatId,
-        username: user.username,
-        body: `[[system:joined:${member.nickname || member.username}]]`,
-      });
+      if (chat.type === "group") {
+        createMessage(
+          chatId,
+          user.id,
+          `[[system:joined:${member.nickname || member.username}]]`,
+        );
+        emitChatEvent(chatId, {
+          type: "chat_message",
+          chatId,
+          username: user.username,
+          body: `[[system:joined:${member.nickname || member.username}]]`,
+        });
+      }
+      try {
+        emitSseEvent(member.username, { type: "chat_list_changed", chatId });
+      } catch {
+        // ignore realtime list errors
+      }
     });
 
     const updated = findChatById(chatId);
@@ -609,7 +689,7 @@ function registerChatRoutes(app, deps) {
     const chatId = Number(req.params?.chatId || 0);
     const username = req.body?.username?.toString();
     if (!chatId || !username) {
-      return res.status(400).json({ error: "Group chat id and username are required." });
+      return res.status(400).json({ error: "Chat id and username are required." });
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
@@ -619,22 +699,107 @@ function registerChatRoutes(app, deps) {
     }
 
     const chat = findChatById(chatId);
-    if (!chat || chat.type !== "group") {
-      return res.status(404).json({ error: "Group not found." });
+    if (!chat || (chat.type !== "group" && chat.type !== "channel")) {
+      return res.status(404).json({ error: "Chat not found." });
     }
     if (!isMember(chatId, user.id)) {
       return res.status(400).json({ error: "You are not a member of this group." });
     }
 
+    const members = listChatMembers(chatId);
+    const isOwner = members.some(
+      (member) =>
+        Number(member.id) === Number(user.id) &&
+        String(member.role || "").toLowerCase() === "owner",
+    );
+    if (isOwner) {
+      const remainingMembers = members.filter(
+        (member) => Number(member.id) !== Number(user.id),
+      );
+      if (remainingMembers.length === 0) {
+        const { storedNames } = deleteChatById(chatId);
+        if (Array.isArray(storedNames) && storedNames.length > 0) {
+          removeStoredFileNames(storedNames);
+        }
+        return res.json({ ok: true, deleted: true });
+      }
+      const nextOwner =
+        remainingMembers[Math.floor(Math.random() * remainingMembers.length)];
+      if (nextOwner?.id) {
+        setChatMemberRole(chatId, Number(nextOwner.id), "owner");
+      }
+    }
+
     removeChatMember(chatId, user.id);
-    createMessage(chatId, user.id, `[[system:left:${user.nickname || user.username}]]`);
-    emitChatEvent(chatId, {
-      type: "chat_message",
-      chatId,
-      username: user.username,
-      body: `[[system:left:${user.nickname || user.username}]]`,
-    });
+    if (chat.type === "group") {
+      createMessage(chatId, user.id, `[[system:left:${user.nickname || user.username}]]`);
+      emitChatEvent(chatId, {
+        type: "chat_message",
+        chatId,
+        username: user.username,
+        body: `[[system:left:${user.nickname || user.username}]]`,
+      });
+    }
+    try {
+      emitSseEvent(user.username, { type: "chat_list_changed", chatId });
+    } catch {
+      // ignore realtime list errors
+    }
     return res.json({ ok: true });
+  });
+
+  app.post("/api/chats/group/:chatId/delete", (req, res) => {
+    const session = requireSession(req, res);
+    if (!session) return;
+
+    const chatId = Number(req.params?.chatId || 0);
+    const username = req.body?.username?.toString();
+    const password = req.body?.password?.toString();
+    if (!chatId || !username || !password) {
+      return res.status(400).json({
+        error: "Chat id, username, and password are required.",
+      });
+    }
+    if (!requireSessionUsernameMatch(res, session, username)) return;
+
+    const user = findUserByUsername(String(username || "").toLowerCase());
+    if (!user || !bcrypt.compareSync(String(password || ""), user.password_hash)) {
+      return res.status(401).json({ error: "Invalid credentials." });
+    }
+
+    const chat = findChatById(chatId);
+    if (!chat || (chat.type !== "group" && chat.type !== "channel")) {
+      return res.status(404).json({ error: "Chat not found." });
+    }
+
+    const members = listChatMembers(chatId);
+    const owner = members.find(
+      (member) =>
+        Number(member.id) === Number(user.id) &&
+        String(member.role || "").toLowerCase() === "owner",
+    );
+    if (!owner) {
+      return res
+        .status(403)
+        .json({ error: "Only the owner can delete this chat." });
+    }
+
+    const memberUsernames = members
+      .map((member) => String(member?.username || "").toLowerCase())
+      .filter(Boolean);
+
+    const { storedNames } = deleteChatById(chatId);
+    if (Array.isArray(storedNames) && storedNames.length > 0) {
+      removeStoredFileNames(storedNames);
+    }
+    memberUsernames.forEach((memberUsername) => {
+      try {
+        emitSseEvent(memberUsername, { type: "chat_list_changed", chatId });
+      } catch {
+        // ignore realtime list errors
+      }
+    });
+    return res.json({ ok: true, deleted: true });
   });
 
   app.post("/api/chats/group/:chatId/remove-member", (req, res) => {
@@ -646,7 +811,7 @@ function registerChatRoutes(app, deps) {
     const targetUsername = req.body?.targetUsername?.toString();
     if (!chatId || !username || !targetUsername) {
       return res.status(400).json({
-        error: "Group chat id, username, and targetUsername are required.",
+        error: "Chat id, username, and targetUsername are required.",
       });
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
@@ -657,14 +822,17 @@ function registerChatRoutes(app, deps) {
       return res.status(404).json({ error: "User not found." });
     }
     const chat = findChatById(chatId);
-    if (!chat || chat.type !== "group") {
-      return res.status(404).json({ error: "Group not found." });
+    if (!chat || (chat.type !== "group" && chat.type !== "channel")) {
+      return res.status(404).json({ error: "Chat not found." });
     }
 
     const members = listChatMembers(chatId);
+    const label = chat.type === "channel" ? "channel" : "group";
     const actorMember = members.find((member) => Number(member.id) === Number(actor.id));
     if (!actorMember || String(actorMember.role || "").toLowerCase() !== "owner") {
-      return res.status(403).json({ error: "Only group owner can remove members." });
+      return res
+        .status(403)
+        .json({ error: `Only ${label} owner can remove members.` });
     }
     const targetMember = members.find((member) => Number(member.id) === Number(target.id));
     if (!targetMember) {
@@ -676,17 +844,24 @@ function registerChatRoutes(app, deps) {
 
     removeChatMember(chatId, target.id);
     markGroupMemberRemoved(chatId, target.id, actor.id);
-    createMessage(
-      chatId,
-      actor.id,
-      `[[system:removed:${target.nickname || target.username}]]`,
-    );
-    emitChatEvent(chatId, {
-      type: "chat_message",
-      chatId,
-      username: actor.username,
-      body: `[[system:removed:${target.nickname || target.username}]]`,
-    });
+    if (chat.type === "group") {
+      createMessage(
+        chatId,
+        actor.id,
+        `[[system:removed:${target.nickname || target.username}]]`,
+      );
+      emitChatEvent(chatId, {
+        type: "chat_message",
+        chatId,
+        username: actor.username,
+        body: `[[system:removed:${target.nickname || target.username}]]`,
+      });
+    }
+    try {
+      emitSseEvent(target.username, { type: "chat_list_changed", chatId });
+    } catch {
+      // ignore realtime list errors
+    }
     return res.json({ ok: true });
   });
 
@@ -725,9 +900,9 @@ function registerChatRoutes(app, deps) {
       }
 
       const chat = findChatById(chatId);
-      if (!chat || chat.type !== "group") {
+      if (!chat || (chat.type !== "group" && chat.type !== "channel")) {
         removeUploadedFiles([file], avatarUploadRootDir);
-        return res.status(404).json({ error: "Group not found." });
+        return res.status(404).json({ error: "Chat not found." });
       }
       const user = findUserByUsername(String(username || "").toLowerCase());
       if (!user) {
@@ -735,6 +910,7 @@ function registerChatRoutes(app, deps) {
         return res.status(404).json({ error: "User not found." });
       }
       const members = listChatMembers(chatId);
+      const label = chat.type === "channel" ? "channel" : "group";
       const isOwner = members.some(
         (member) =>
           Number(member.id) === Number(user.id) &&
@@ -744,7 +920,7 @@ function registerChatRoutes(app, deps) {
         removeUploadedFiles([file], avatarUploadRootDir);
         return res
           .status(403)
-          .json({ error: "Only group owner can update group avatar." });
+          .json({ error: `Only ${label} owner can update ${label} avatar.` });
       }
 
       const avatarUrl = `/api/uploads/avatars/${file.filename}`;
@@ -752,7 +928,8 @@ function registerChatRoutes(app, deps) {
         removeAvatarByUrl(chat.group_avatar_url);
       }
 
-      updateGroupChat(chatId, {
+      const updateFn = chat.type === "channel" ? updateChannelChat : updateGroupChat;
+      updateFn(chatId, {
         name: chat.name,
         groupUsername: chat.group_username,
         groupVisibility: chat.group_visibility,
@@ -837,8 +1014,8 @@ function registerChatRoutes(app, deps) {
     }
 
     const chat = findChatById(chatId);
-    if (!chat || chat.type !== "group") {
-      return res.status(404).json({ error: "Group not found." });
+    if (!chat || (chat.type !== "group" && chat.type !== "channel")) {
+      return res.status(404).json({ error: "Chat not found." });
     }
     if (String(chat.group_visibility || "").toLowerCase() !== "public") {
       return res.status(403).json({ error: "This group is private." });
@@ -853,13 +1030,20 @@ function registerChatRoutes(app, deps) {
     const alreadyMember = isMember(chatId, user.id);
     if (!alreadyMember) {
       addChatMember(chatId, user.id, "member");
-      createMessage(chatId, user.id, `[[system:joined:${user.nickname || user.username}]]`);
-      emitChatEvent(chatId, {
-        type: "chat_message",
-        chatId,
-        username: user.username,
-        body: `[[system:joined:${user.nickname || user.username}]]`,
-      });
+      if (chat.type === "group") {
+        createMessage(chatId, user.id, `[[system:joined:${user.nickname || user.username}]]`);
+        emitChatEvent(chatId, {
+          type: "chat_message",
+          chatId,
+          username: user.username,
+          body: `[[system:joined:${user.nickname || user.username}]]`,
+        });
+      }
+    }
+    try {
+      emitSseEvent(user.username, { type: "chat_list_changed", chatId });
+    } catch {
+      // ignore realtime list errors
     }
 
     return res.json({
@@ -887,6 +1071,54 @@ function registerChatRoutes(app, deps) {
         avatar_url: ensureAvatarExists(item.id, item.avatar_url),
       })),
     });
+  });
+
+  app.post("/api/mentions/resolve", (req, res) => {
+    const session = requireSession(req, res);
+    if (!session) return;
+
+    const username = req.body?.username?.toString();
+    const mentions = Array.isArray(req.body?.mentions) ? req.body.mentions : [];
+    if (!username || !mentions.length) {
+      return res.status(400).json({ error: "Username and mentions are required." });
+    }
+    if (!requireSessionUsernameMatch(res, session, username)) return;
+
+    const unique = Array.from(
+      new Set(
+        mentions
+          .map((item) => String(item || "").trim().toLowerCase())
+          .filter((item) => item.length >= 3),
+      ),
+    ).slice(0, 50);
+
+    const results = [];
+    unique.forEach((mention) => {
+      const user = findUserByUsername(mention);
+      if (user) {
+        results.push({
+          kind: "user",
+          username: user.username,
+          nickname: user.nickname || user.username,
+          avatarUrl: ensureAvatarExists(user.id, user.avatar_url) || null,
+          color: user.color || "#10b981",
+        });
+        return;
+      }
+      const chat = findChatByGroupUsername(mention);
+      if (!chat) return;
+      if (String(chat.group_visibility || "").toLowerCase() !== "public") return;
+      results.push({
+        kind: chat.type === "channel" ? "channel" : "group",
+        chatId: Number(chat.id),
+        username: chat.group_username || mention,
+        name: chat.name || (chat.type === "channel" ? "Channel" : "Group"),
+        avatarUrl: normalizeGroupAvatarUrl(chat.group_avatar_url),
+        color: chat.group_color || "#10b981",
+      });
+    });
+
+    return res.json({ mentions: results });
   });
 
   app.get("/api/discover", (req, res) => {
@@ -921,9 +1153,22 @@ function registerChatRoutes(app, deps) {
       inviteToken: group.invite_token || "",
       membersCount: Number(group.members_count || 0),
       isMember: Boolean(Number(group.is_member || 0)),
+      type: "group",
     }));
 
-    return res.json({ users, groups });
+    const channels = searchPublicChannels(query.toLowerCase(), user.id, 20).map((channel) => ({
+      id: Number(channel.id),
+      name: channel.name || "Channel",
+      username: channel.group_username || "",
+      color: channel.group_color || "#10b981",
+      avatarUrl: channel.group_avatar_url || null,
+      inviteToken: channel.invite_token || "",
+      membersCount: Number(channel.members_count || 0),
+      isMember: Boolean(Number(channel.is_member || 0)),
+      type: "channel",
+    }));
+
+    return res.json({ users, groups, channels });
   });
 }
 

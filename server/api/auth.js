@@ -1,7 +1,10 @@
 function registerAuthRoutes(app, deps) {
   const {
     USER_COLORS,
+    NICKNAME_MAX,
+    USERNAME_MAX,
     USERNAME_REGEX,
+    ACCOUNT_CREATION,
     bcrypt,
     clearSessionCookie,
     createSession,
@@ -19,6 +22,9 @@ function registerAuthRoutes(app, deps) {
   } = deps;
 
   app.post("/api/register", (req, res) => {
+    if (!ACCOUNT_CREATION) {
+      return res.status(403).json({ error: "Account creation is disabled." });
+    }
     const { username, password, nickname, avatarUrl } = req.body || {};
 
     if (!username || !password) {
@@ -34,11 +40,21 @@ function registerAuthRoutes(app, deps) {
         .status(400)
         .json({ error: "Username must be at least 3 characters." });
     }
+    if (USERNAME_MAX && trimmed.length > USERNAME_MAX) {
+      return res.status(400).json({
+        error: `Username must be at most ${USERNAME_MAX} characters.`,
+      });
+    }
 
     if (!USERNAME_REGEX.test(trimmed)) {
       return res.status(400).json({
         error:
           "Username can only include english letters, numbers, dot (.), and underscore (_).",
+      });
+    }
+    if (nickname && String(nickname).trim().length > (NICKNAME_MAX || 0)) {
+      return res.status(400).json({
+        error: `Nickname must be at most ${NICKNAME_MAX} characters.`,
       });
     }
 

@@ -17,6 +17,7 @@ import {
   adminGetRow,
   adminRun,
   adminSave,
+  ensureSavedChatForUser,
   clearGroupMemberRemoved,
   createChat,
   createMessageFiles,
@@ -24,6 +25,8 @@ import {
   createSession,
   deleteSession,
   createUser,
+  deleteChatById,
+  deleteUserById,
   findChatById,
   findDmChat,
   findChatByGroupUsername,
@@ -31,7 +34,11 @@ import {
   findMessageById,
   findUserById,
   findUserByUsername,
+  getMessageReadCounts,
+  getMessageAuthors,
+  getMessageReadByUser,
   getMessages,
+  recordMessageReads,
   listMessageFilesByMessageIds,
   markGroupMemberRemoved,
   regenerateGroupInviteToken,
@@ -44,17 +51,22 @@ import {
   listUsers,
   searchUsers,
   searchPublicGroups,
+  searchPublicChannels,
   setChatMuted,
   touchSession,
   updateLastSeen,
   getUserPresence,
   hideChatsForUser,
   markMessagesRead,
+  markMessageRead,
   updateUserPassword,
   updateUserProfile,
   updateUserStatus,
   updateGroupChat,
+  updateChannelChat,
   unhideChat,
+  getChatMemberRole,
+  setChatMemberRole,
 } from "./db.js";
 
 const app = express();
@@ -145,6 +157,14 @@ const staticLimiter = rateLimit({
 });
 
 const USERNAME_REGEX = /^[a-z0-9._]+$/;
+const USERNAME_MAX = readEnvInt("USERNAME_MAX", 16, { min: 3, max: 32 });
+const NICKNAME_MAX = readEnvInt("NICKNAME_MAX", 24, { min: 3, max: 64 });
+const MESSAGE_MAX_CHARS = readEnvInt(
+  ["MESSAGE_MAX_CHARS", "MESSAGE_MAX"],
+  4000,
+  { min: 1, max: 20000 },
+);
+const ACCOUNT_CREATION = readEnvBool("ACCOUNT_CREATION", true);
 const sseClientsByUsername = new Map();
 const dataDir = path.resolve(serverDir, "..", "data");
 const uploadRootDir = path.join(dataDir, "uploads", "messages");
@@ -584,10 +604,12 @@ function cleanupMissingMessageFiles(messageIds = []) {
     ),
   );
 
-  if (!normalized.length) return { deletedMessageIds: [], changed: false };
+  if (!normalized.length)
+    return { deletedMessageIds: [], deletedByChat: new Map(), changed: false };
 
   const rows = listMessageFilesByMessageIds(normalized);
-  if (!rows.length) return { deletedMessageIds: [], changed: false };
+  if (!rows.length)
+    return { deletedMessageIds: [], deletedByChat: new Map(), changed: false };
 
   const missingMessageIds = new Set();
 
@@ -603,7 +625,7 @@ function cleanupMissingMessageFiles(messageIds = []) {
   });
 
   if (!missingMessageIds.size) {
-    return { deletedMessageIds: [], changed: false };
+    return { deletedMessageIds: [], deletedByChat: new Map(), changed: false };
   }
 
   const targetMessageIds = Array.from(missingMessageIds);
@@ -613,6 +635,19 @@ function cleanupMissingMessageFiles(messageIds = []) {
     targetMessageIds,
   );
   const storedNames = allFilesRows.map((row) => row.stored_name);
+  const messageChatPairs = adminGetAll(
+    `SELECT id, chat_id FROM chat_messages WHERE id IN (${placeholders})`,
+    targetMessageIds,
+  );
+  const deletedByChat = new Map();
+  messageChatPairs.forEach((row) => {
+    const chatId = Number(row?.chat_id || 0);
+    const messageId = Number(row?.id || 0);
+    if (!chatId || !messageId) return;
+    const list = deletedByChat.get(chatId) || [];
+    list.push(messageId);
+    deletedByChat.set(chatId, list);
+  });
 
   adminRun("BEGIN");
   try {
@@ -638,7 +673,7 @@ function cleanupMissingMessageFiles(messageIds = []) {
   removeStoredFileNames(storedNames);
   adminSave();
 
-  return { deletedMessageIds: targetMessageIds, changed: true };
+  return { deletedMessageIds: targetMessageIds, deletedByChat, changed: true };
 }
 
 function cleanupExpiredMessageFiles() {
@@ -1506,6 +1541,10 @@ const apiDeps = {
   MESSAGE_FILE_RETENTION_DAYS,
   TRANSCODE_VIDEOS_TO_H264,
   USER_COLORS,
+  NICKNAME_MAX,
+  USERNAME_MAX,
+  MESSAGE_MAX_CHARS,
+  ACCOUNT_CREATION,
   USERNAME_REGEX,
   addChatMember,
   addSseClient,
@@ -1513,6 +1552,7 @@ const apiDeps = {
   adminGetRow,
   adminRun,
   adminSave,
+  ensureSavedChatForUser,
   avatarUploadRootDir,
   bcrypt,
   buildInspectSnapshot,
@@ -1531,6 +1571,8 @@ const apiDeps = {
   debugLog,
   decodeOriginalFilename,
   deleteSession,
+  deleteChatById,
+  deleteUserById,
   emitChatEvent,
   emitSseEvent,
   enqueueVideoTranscodeJob,
@@ -1544,6 +1586,9 @@ const apiDeps = {
   findUserById,
   findUserByUsername,
   fs,
+  getMessageReadCounts,
+  getMessageAuthors,
+  getMessageReadByUser,
   getMessages,
   getSessionFromRequest,
   getUploadKind,
@@ -1561,8 +1606,12 @@ const apiDeps = {
   listChatsForUser,
   listMessageFilesByMessageIds,
   listUsers,
+  getChatMemberRole,
+  setChatMemberRole,
+  recordMessageReads,
   markGroupMemberRemoved,
   markMessagesRead,
+  markMessageRead,
   parseCookies,
   parseUploadFileMetadata,
   path,
@@ -1580,11 +1629,13 @@ const apiDeps = {
   sanitizePositiveInt,
   searchUsers,
   searchPublicGroups,
+  searchPublicChannels,
   setChatMuted,
   setSessionCookie,
   setUserColor,
   updateLastSeen,
   updateGroupChat,
+  updateChannelChat,
   unhideChat,
   updateUserPassword,
   updateUserProfile,
