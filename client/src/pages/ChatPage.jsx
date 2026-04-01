@@ -496,13 +496,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const notificationsAllowed = notificationPermission === "granted";
   const notificationsActive = notificationsEnabled && notificationsAllowed;
   const notificationStatusLabel = !isSecureContext
-    ? "Connection is not secure"
+    ? "Connection is not secure."
     : mobileRequiresStandalone
-      ? "Require Home screen installation"
+      ? "Require Home screen installation."
       : !hasNotificationApi
-        ? "Not supported in this browser"
+        ? "Not supported in this browser."
         : notificationPermission === "denied"
-          ? "Blocked in browser settings"
+          ? "Blocked in browser settings."
           : "";
   const notificationsDisabled = Boolean(notificationStatusLabel);
   const notificationsDebugLine = `secure:${isSecureContext ? "yes" : "no"} | support:${

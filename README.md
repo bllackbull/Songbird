@@ -376,14 +376,15 @@ You can configure environment variables to customize app behavior.
 
 ```bash
 cd /opt/songbird
-nano .env
+cp .env.example .env
 ```
 
 ### Configurable values:
 
 | Variable | Type | Default | Description |
 |---|---|---:|---|
-| `PORT` | `integer` | `5174` | API server port. Use the same value in Nginx `proxy_pass`. |
+| `SERVER_PORT` | `integer` | `5174` | API server port. (`PORT` is supported as a legacy fallback.) |
+| `CLIENT_PORT` | `integer` | `80` | Nginx listen port (what users connect to). |
 | `APP_ENV` | `string` | `production` | Server runtime mode (`production` recommended/default). |
 | `APP_DEBUG` | `boolean` | `false` | Enable verbose server debug logs in terminal/stdout (`[app-debug]` lines for message send/upload/transcode/metadata events). |
 | `ACCOUNT_CREATION` | `boolean` | `true` | Allow new accounts to be created via the website (`/signup`). |
@@ -409,9 +410,9 @@ nano .env
 | `CHAT_SEARCH_MAX_RESULTS` | `integer` | `5` | Max users shown in search results. |
 | `NICKNAME_MAX` | `integer` | `24` | Max nickname length for users and groups. |
 | `USERNAME_MAX` | `integer` | `16` | Max username length for users and groups. |
-| `VAPID_PUBLIC_KEY` | `string` | `` | Web Push public key (required for push notifications). |
-| `VAPID_PRIVATE_KEY` | `string` | `` | Web Push private key (required for push notifications). |
-| `VAPID_SUBJECT` | `string` | `mailto:admin@example.com` | Contact for VAPID (email or URL). |
+| `VAPID_PUBLIC_KEY` | `string` | `-` | Web Push public key (required for push notifications). |
+| `VAPID_PRIVATE_KEY` | `string` | `-` | Web Push private key (required for push notifications). |
+| `VAPID_SUBJECT` | `string` | `mailto:admin@example.com` | Contact for VAPID (email or URL). Used by push providers. |
 
 > **Push notifications require HTTPS** (except `localhost` for development). iOS requires an installed PWA (iOS 16.4+).
 

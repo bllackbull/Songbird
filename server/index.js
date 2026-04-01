@@ -80,7 +80,7 @@ const projectRootDir = path.resolve(serverDir, "..");
 dotenv.config({ path: path.join(projectRootDir, ".env") });
 dotenv.config({ path: path.join(serverDir, ".env"), override: true });
 
-const port = process.env.PORT || 5174;
+const port = process.env.SERVER_PORT || process.env.PORT || 5174;
 const appEnv = process.env.APP_ENV || "production";
 const isProduction = appEnv === "production";
 const APP_DEBUG = readEnvBool("APP_DEBUG", false);
