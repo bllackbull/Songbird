@@ -50,11 +50,23 @@ export default function ChatsListPanel({
   const isEmptyState = !loadingChats && !visibleChats.length;
   const fallbackUploadTextPattern =
     /^Sent (a media file|a document|\d+ files|\d+ media files)$/i;
+  const normalizePreviewText = (value) => {
+    if (typeof value === "string") {
+      return value === "[object Object]" ? "" : value;
+    }
+    if (value && typeof value === "object") {
+      const text = value.text ?? value.body;
+      return typeof text === "string" ? text : "";
+    }
+    if (value === null || value === undefined) return "";
+    const str = String(value);
+    return str === "[object Object]" ? "" : str;
+  };
   const formatLastMessagePreview = (conv) => {
     const files = Array.isArray(conv.last_message_files)
       ? conv.last_message_files
       : [];
-    const body = String(conv.last_message || "").trim();
+    const body = normalizePreviewText(conv.last_message).trim();
     if (!files.length) {
       return {
         icon: null,
@@ -439,7 +451,7 @@ export default function ChatsListPanel({
 
           const card = (
             <div
-              className={`w-full rounded-2xl border px-3 py-3 text-left text-sm transition ${
+              className={`w-full min-h-[72px] rounded-2xl border px-3 py-3 text-left text-sm transition ${
                 activeChatId === conv.id
                   ? "border-emerald-400 bg-emerald-100 text-emerald-900 dark:border-emerald-400/60 dark:bg-emerald-500/20 dark:text-emerald-100"
                   : "border-slate-300/80 bg-white/90 text-slate-700 hover:border-emerald-300 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] dark:border-emerald-500/20 dark:bg-slate-950/60 dark:text-slate-200"
@@ -514,7 +526,9 @@ export default function ChatsListPanel({
                               dir="auto"
                               className={`block min-w-0 max-w-full flex-1 truncate leading-[1.35] ${hasPersian(lastPreview.text) ? "font-fa" : ""}`}
                               style={{ unicodeBidi: "plaintext" }}
-                              dangerouslySetInnerHTML={{ __html: lastPreviewHtml }}
+                              dangerouslySetInnerHTML={{
+                                __html: String(lastPreviewHtml || ""),
+                              }}
                             />
                           </span>
                         </span>
@@ -550,7 +564,9 @@ export default function ChatsListPanel({
                             dir="auto"
                             className={`block min-w-0 max-w-full flex-1 truncate leading-[1.35] ${hasPersian(lastPreview.text) ? "font-fa" : ""}`}
                             style={{ unicodeBidi: "plaintext" }}
-                            dangerouslySetInnerHTML={{ __html: lastPreviewHtml }}
+                            dangerouslySetInnerHTML={{
+                              __html: String(lastPreviewHtml || ""),
+                            }}
                           />
                         </span>
                       )

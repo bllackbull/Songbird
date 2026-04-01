@@ -239,6 +239,7 @@ export function MessageFiles({
               onClick={() =>
                 openFocusMedia({
                   url: file.url,
+                  downloadUrl: `${file.url}${file.url.includes("?") ? "&" : "?"}download=1`,
                   name: mediaDownloadName,
                   type: "image",
                   width: file.width,
@@ -300,6 +301,7 @@ export function MessageFiles({
               onClick={() =>
                 openFocusMedia({
                   url: file.url,
+                  downloadUrl: `${file.url}${file.url.includes("?") ? "&" : "?"}download=1`,
                   name: mediaDownloadName,
                   type: "video",
                   processing: Boolean(file.processing),

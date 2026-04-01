@@ -31,6 +31,9 @@ function registerMessageRoutes(app, deps) {
     isMember,
     isVideoFileProcessing,
     getChatMemberRole,
+    listChatMembers,
+    listMutedUserIdsForChat,
+    sendPushNotificationToUsers,
     listMessageFilesByMessageIds,
     parseUploadFileMetadata,
     path,
@@ -665,7 +668,7 @@ function registerMessageRoutes(app, deps) {
     },
   );
 
-  app.post("/api/messages", (req, res) => {
+  app.post("/api/messages", async (req, res) => {
     const session = requireSession(req, res);
     if (!session) return;
 
@@ -676,6 +679,11 @@ function registerMessageRoutes(app, deps) {
       });
     }
     const bodyText = String(body || "");
+    if (bodyText === "[object Object]") {
+      return res.status(400).json({
+        error: "Invalid message body.",
+      });
+    }
     const maxMessageChars = Math.max(1, Number(MESSAGE_MAX_CHARS || 4000));
     if (bodyText.length > maxMessageChars) {
       return res.status(400).json({
@@ -739,6 +747,38 @@ function registerMessageRoutes(app, deps) {
       body,
       replyToMessageId,
     });
+
+    try {
+      const members = listChatMembers(Number(chatId));
+      const mutedRows = listMutedUserIdsForChat(Number(chatId));
+      const mutedIds = new Set(
+        mutedRows.map((row) => Number(row?.user_id || 0)).filter(Boolean),
+      );
+      const recipientIds = members
+        .filter((member) => Number(member.id) !== Number(user.id))
+        .map((member) => Number(member.id))
+        .filter(
+          (memberId) =>
+            Number.isFinite(memberId) &&
+            memberId > 0 &&
+            !mutedIds.has(Number(memberId)),
+        );
+      if (recipientIds.length) {
+        const title =
+          chat.type === "dm"
+            ? user.nickname || user.username
+            : chat.name || (chat.type === "channel" ? "Channel" : "Group");
+        const trimmedBody = String(body || "").trim();
+        const notifyBody = trimmedBody || "New message";
+        await sendPushNotificationToUsers(recipientIds, {
+          title,
+          body: notifyBody,
+          data: { url: "/" },
+        });
+      }
+    } catch {
+      // ignore push failures
+    }
 
     res.json({ id });
   });

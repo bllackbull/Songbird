@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   ArrowDown,
   ArrowLeft,
+  Close,
   Ghost,
   LoaderCircle,
 } from "../icons/lucide.js";
@@ -146,6 +147,42 @@ export default function ChatWindowPanel({
   });
   const uploadBusy = !fileUploadEnabled || fileUploadInProgress;
   const timelineBottomSpacerPx = 4;
+  const [hideInsecureTooltip, setHideInsecureTooltip] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("songbird-insecure-dismissed") === "1";
+  });
+  const isLocalhost =
+    typeof window !== "undefined" &&
+    (window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1" ||
+      window.location.hostname === "::1" ||
+      window.location.hostname.endsWith(".localhost"));
+  const insecureTooltipRef = useRef(null);
+  const [insecureTooltipHeight, setInsecureTooltipHeight] = useState(0);
+  useEffect(() => {
+    if (!insecureConnection) return;
+    if (typeof window === "undefined") return;
+    const dismissed =
+      window.localStorage.getItem("songbird-insecure-dismissed") === "1";
+    setHideInsecureTooltip(dismissed);
+  }, [insecureConnection]);
+  useLayoutEffect(() => {
+    if (!insecureConnection || hideInsecureTooltip) {
+      setInsecureTooltipHeight(0);
+      return;
+    }
+    const node = insecureTooltipRef.current;
+    if (!node || typeof window === "undefined") return;
+    const measure = () => {
+      const rect = node.getBoundingClientRect();
+      setInsecureTooltipHeight(Number(rect?.height || 0));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => measure());
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [insecureConnection, hideInsecureTooltip]);
   const {
     focusedMedia,
     setFocusedMedia,
@@ -799,14 +836,32 @@ export default function ChatWindowPanel({
         </>
       ) : null}
 
-      {insecureConnection && activeChatId ? (
-        <div
-          className="pointer-events-none absolute left-1/2 z-[1] -translate-x-1/2"
-          style={{ top: "calc(env(safe-area-inset-top) + 122px)" }}
-        >
-          <div className="inline-flex items-center gap-1.5 rounded-full border border-rose-300 bg-rose-100 px-3 py-1 text-xs font-semibold leading-none text-rose-700 dark:border-rose-500 dark:bg-rose-900 dark:text-rose-100">
-            <AlertCircle className="h-[13px] w-[13px] shrink-0 -translate-y-[0.5px]" />
-            <span className="leading-none">Connection is not secure</span>
+      {insecureConnection && activeChatId && !hideInsecureTooltip && !isLocalhost ? (
+        <div className="w-full">
+          <div
+            ref={insecureTooltipRef}
+            className="flex w-full items-center justify-between border-y border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700 shadow-sm dark:border-rose-500/40 dark:bg-rose-900/40 dark:text-rose-100"
+          >
+            <span className="flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              Connection is not secure
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                if (typeof window !== "undefined") {
+                  window.localStorage.setItem(
+                    "songbird-insecure-dismissed",
+                    "1",
+                  );
+                }
+                setHideInsecureTooltip(true);
+              }}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-rose-200 text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 dark:border-rose-500/40 dark:text-rose-100 dark:hover:bg-rose-900/60"
+              aria-label="Dismiss"
+            >
+              <Close size={14} className="icon-anim-pop relative -left-[0.5px]" />
+            </button>
           </div>
         </div>
       ) : null}
@@ -815,7 +870,13 @@ export default function ChatWindowPanel({
         {activeChatId && floatingDay.key && isTimelineScrollable ? (
           <div
             className="absolute left-1/2 z-[3] -translate-x-1/2"
-            style={{ top: "calc(env(safe-area-inset-top) + 84px)" }}
+            style={{
+              top: `calc(env(safe-area-inset-top) + 84px + ${
+                insecureConnection && activeChatId && !hideInsecureTooltip && !isLocalhost
+                  ? Math.max(0, (insecureTooltipHeight || 56) + 16)
+                  : 0
+              }px)`,
+            }}
           >
             <button
               ref={floatingChipRef}

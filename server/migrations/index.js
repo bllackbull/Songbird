@@ -11,6 +11,7 @@ import { migration010GroupSettings } from "./010-group-settings.js";
 import { migration011ChatMutes } from "./011-chat-mutes.js";
 import { migration012GroupRemovedMembers } from "./012-group-removed-members.js";
 import { migration013MessageReads } from "./013-message-reads.js";
+import { migration as migration014PushSubscriptions } from "./014-push-subscriptions.js";
 
 export const migrations = [
   migration001InitialSchema,
@@ -26,4 +27,5 @@ export const migrations = [
   migration011ChatMutes,
   migration012GroupRemovedMembers,
   migration013MessageReads,
+  migration014PushSubscriptions,
 ];

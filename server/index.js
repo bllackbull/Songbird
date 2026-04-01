@@ -8,6 +8,7 @@ import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import multer from "multer";
+import webpush from "web-push";
 import { registerApiRoutes } from "./api/index.js";
 import { USER_COLORS, setUserColor } from "./settings/colors.js";
 import { readEnvBool, readEnvInt } from "./settings/env.js";
@@ -67,6 +68,10 @@ import {
   unhideChat,
   getChatMemberRole,
   setChatMemberRole,
+  upsertPushSubscription,
+  deletePushSubscription,
+  listPushSubscriptionsByUserIds,
+  listMutedUserIdsForChat,
 } from "./db.js";
 
 const app = express();
@@ -165,6 +170,10 @@ const MESSAGE_MAX_CHARS = readEnvInt(
   { min: 1, max: 20000 },
 );
 const ACCOUNT_CREATION = readEnvBool("ACCOUNT_CREATION", true);
+const VAPID_PUBLIC_KEY = String(process.env.VAPID_PUBLIC_KEY || "").trim();
+const VAPID_PRIVATE_KEY = String(process.env.VAPID_PRIVATE_KEY || "").trim();
+const VAPID_SUBJECT = String(process.env.VAPID_SUBJECT || "mailto:admin@example.com").trim();
+const PUSH_ENABLED = Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
 const sseClientsByUsername = new Map();
 const dataDir = path.resolve(serverDir, "..", "data");
 const uploadRootDir = path.join(dataDir, "uploads", "messages");
@@ -306,7 +315,10 @@ app.get("/api/uploads/messages/:storedName", (req, res) => {
     res.type(mimeType);
   }
 
-  if (!SAFE_INLINE_MESSAGE_EXTENSIONS.has(ext)) {
+  const forceDownload =
+    String(req.query?.download || "").toLowerCase() === "1" ||
+    String(req.query?.download || "").toLowerCase() === "true";
+  if (forceDownload || !SAFE_INLINE_MESSAGE_EXTENSIONS.has(ext)) {
     const encoded = encodeURIComponent(originalName);
     res.setHeader(
       "Content-Disposition",
@@ -434,6 +446,42 @@ function emitChatEvent(chatId, payload) {
     if (!member?.username) return;
     emitSseEvent(member.username, payload);
   });
+}
+
+if (PUSH_ENABLED) {
+  try {
+    webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+  } catch (error) {
+    console.error("[push] VAPID setup failed:", String(error?.message || error));
+  }
+}
+
+async function sendPushNotificationToUsers(userIds = [], payload = {}) {
+  if (!PUSH_ENABLED) return;
+  const targets = listPushSubscriptionsByUserIds(userIds);
+  if (!targets.length) return;
+  const body = JSON.stringify(payload || {});
+  await Promise.all(
+    targets.map(async (sub) => {
+      try {
+        await webpush.sendNotification(
+          {
+            endpoint: sub.endpoint,
+            keys: {
+              p256dh: sub.p256dh || "",
+              auth: sub.auth || "",
+            },
+          },
+          body,
+        );
+      } catch (error) {
+        const status = Number(error?.statusCode || 0);
+        if (status === 404 || status === 410) {
+          deletePushSubscription(sub.endpoint);
+        }
+      }
+    }),
+  );
 }
 
 function getUploadKind(uploadType, mimeType = "") {
@@ -1546,6 +1594,7 @@ const apiDeps = {
   MESSAGE_MAX_CHARS,
   ACCOUNT_CREATION,
   USERNAME_REGEX,
+  VAPID_PUBLIC_KEY: PUSH_ENABLED ? VAPID_PUBLIC_KEY : "",
   addChatMember,
   addSseClient,
   adminGetAll,
@@ -1602,6 +1651,7 @@ const apiDeps = {
   isMember,
   isGroupMemberRemoved,
   isVideoFileProcessing,
+  listPushSubscriptionsByUserIds,
   listChatMembers,
   listChatsForUser,
   listMessageFilesByMessageIds,
@@ -1620,6 +1670,7 @@ const apiDeps = {
   removeAllMessageUploads,
   removeAvatarByUrl,
   removeChatMember,
+  deletePushSubscription,
   removeStoredFileNames,
   removeUploadedFiles,
   removeSseClient,
@@ -1631,6 +1682,7 @@ const apiDeps = {
   searchPublicGroups,
   searchPublicChannels,
   setChatMuted,
+  listMutedUserIdsForChat,
   setSessionCookie,
   setUserColor,
   updateLastSeen,
@@ -1643,6 +1695,8 @@ const apiDeps = {
   uploadAvatar,
   uploadFiles,
   uploadRootDir,
+  upsertPushSubscription,
+  sendPushNotificationToUsers,
 };
 
 registerApiRoutes(app, apiDeps);

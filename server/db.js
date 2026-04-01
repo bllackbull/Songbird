@@ -389,9 +389,16 @@ export function isGroupMemberRemoved(chatId, userId) {
 }
 
 export function findChatByGroupUsername(groupUsername) {
+  const raw = String(groupUsername || "").trim().toLowerCase();
+  if (!raw) return null;
+  const normalized = raw.startsWith("@") ? raw.slice(1) : raw;
+  const withAt = normalized.startsWith("@") ? normalized : `@${normalized}`;
   return getRow(
-    "SELECT id, name, type, group_username, group_visibility, invite_token, group_color, allow_member_invites, group_avatar_url, created_by_user_id FROM chats WHERE group_username = ? AND type IN ('group', 'channel')",
-    [String(groupUsername || "").trim().toLowerCase()],
+    `SELECT id, name, type, group_username, group_visibility, invite_token, group_color,
+            allow_member_invites, group_avatar_url, created_by_user_id
+     FROM chats
+     WHERE group_username IN (?, ?) AND type IN ('group', 'channel')`,
+    [normalized, withAt],
   );
 }
 
@@ -672,6 +679,7 @@ export function deleteUserById(userId) {
     runWithoutSave("DELETE FROM sessions WHERE user_id = ?", [targetUserId]);
     runWithoutSave("DELETE FROM hidden_chats WHERE user_id = ?", [targetUserId]);
     runWithoutSave("DELETE FROM chat_message_reads WHERE user_id = ?", [targetUserId]);
+    runWithoutSave("DELETE FROM push_subscriptions WHERE user_id = ?", [targetUserId]);
     runWithoutSave(
       "UPDATE chat_messages SET read_by_user_id = NULL WHERE read_by_user_id = ?",
       [targetUserId],
@@ -1142,6 +1150,57 @@ export function setChatMuted(userId, chatId, muted) {
     Number(userId),
     Number(chatId),
   ]);
+}
+
+export function upsertPushSubscription(userId, endpoint, p256dh, auth) {
+  const uid = Number(userId || 0);
+  const safeEndpoint = String(endpoint || "").trim();
+  if (!uid || !safeEndpoint) return;
+  run(
+    `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, updated_at)
+     VALUES (?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(endpoint) DO UPDATE SET
+       user_id = excluded.user_id,
+       p256dh = excluded.p256dh,
+       auth = excluded.auth,
+       updated_at = datetime('now')`,
+    [uid, safeEndpoint, String(p256dh || ""), String(auth || "")],
+  );
+}
+
+export function deletePushSubscription(endpoint) {
+  const safeEndpoint = String(endpoint || "").trim();
+  if (!safeEndpoint) return;
+  run("DELETE FROM push_subscriptions WHERE endpoint = ?", [safeEndpoint]);
+}
+
+export function listPushSubscriptionsByUserIds(userIds = []) {
+  const ids = Array.from(
+    new Set(
+      (Array.isArray(userIds) ? userIds : [])
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id) && id > 0),
+    ),
+  );
+  if (!ids.length) return [];
+  const placeholders = ids.map(() => "?").join(", ");
+  return getAll(
+    `SELECT user_id, endpoint, p256dh, auth
+     FROM push_subscriptions
+     WHERE user_id IN (${placeholders})`,
+    ids,
+  );
+}
+
+export function listMutedUserIdsForChat(chatId) {
+  const id = Number(chatId || 0);
+  if (!id) return [];
+  return getAll(
+    "SELECT user_id FROM chat_mutes WHERE chat_id = ? AND muted = 1",
+    [id],
+  )
+    .map((row) => Number(row?.user_id || 0))
+    .filter((userId) => Number.isFinite(userId) && userId > 0);
 }
 
 export function createSession(userId, token) {

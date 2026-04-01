@@ -409,6 +409,11 @@ nano .env
 | `CHAT_SEARCH_MAX_RESULTS` | `integer` | `5` | Max users shown in search results. |
 | `NICKNAME_MAX` | `integer` | `24` | Max nickname length for users and groups. |
 | `USERNAME_MAX` | `integer` | `16` | Max username length for users and groups. |
+| `VAPID_PUBLIC_KEY` | `string` | `` | Web Push public key (required for push notifications). |
+| `VAPID_PRIVATE_KEY` | `string` | `` | Web Push private key (required for push notifications). |
+| `VAPID_SUBJECT` | `string` | `mailto:admin@example.com` | Contact for VAPID (email or URL). |
+
+> **Push notifications require HTTPS** (except `localhost` for development). iOS requires an installed PWA (iOS 16.4+).
 
 ### Apply Changes:
 

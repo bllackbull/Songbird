@@ -71,13 +71,15 @@ export function MessageTimeline({
                 </span>
               </button>
             </div>
-            {group.items.map((msg, index) => (
-              <div
-                key={String(msg?._clientId ?? msg?.id ?? `single-msg-${index}`)}
-              >
-                {renderMessageItem(msg, { isFirstInGroup: index === 0 })}
-              </div>
-            ))}
+            {group.items.map((msg, index) => {
+              const keyBase = msg?._clientId ?? msg?._serverId ?? msg?.id ?? "msg";
+              const keySuffix = msg?._serverId ?? msg?.id ?? msg?._queuedAt ?? index;
+              return (
+                <div key={`${keyBase}-${keySuffix}`}>
+                  {renderMessageItem(msg, { isFirstInGroup: index === 0 })}
+                </div>
+              );
+            })}
           </div>
         ))}
         <div style={{ height: `${timelineBottomSpacerPx}px` }} />

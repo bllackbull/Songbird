@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Check, CheckCheck, Clock12, Eye, File, Ghost, ImageIcon, Video } from "../../icons/lucide.js";
+import { AlertCircle, Check, CheckCheck, Clock12, ClockFading, Eye, File, Ghost, ImageIcon, Video } from "../../icons/lucide.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { getAvatarStyle } from "../../utils/avatarColor.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
@@ -28,6 +28,15 @@ export function MessageItem({
 }) {
   const isOwn = !isChannelChat && msg.username === user.username;
   const isRead = Boolean(msg.read_at);
+  const extractBodyText = (value) => {
+    if (typeof value === "string") {
+      return value === "[object Object]" ? "" : value;
+    }
+    if (value && typeof value === "object") {
+      return String(value.text || value.body || "");
+    }
+    return String(value ?? "");
+  };
   const messageFiles = Array.isArray(msg.files) ? msg.files : [];
   const hasFiles = messageFiles.length > 0;
   const getFileRenderType = messageFilesProps?.getFileRenderType;
@@ -41,31 +50,38 @@ export function MessageItem({
   const isSending =
     msg._delivery === "sending" || hasUploadInProgress || Boolean(msg._processingPending);
   const isFailed = msg._delivery === "failed";
+  const bodyText = extractBodyText(msg?.body);
   const messageBodyRef = useRef(null);
+  const mentionDebugEnabled =
+    typeof window !== "undefined" &&
+    window.localStorage?.getItem("sb-debug-mentions") === "1";
+  const [mentionDebug, setMentionDebug] = useState(null);
   const onOpenMentionRef = useRef(onOpenMention);
   useEffect(() => {
     onOpenMentionRef.current = onOpenMention;
   }, [onOpenMention]);
   const markdownHtml = useMemo(() => {
-    return renderMarkdownBlock(String(msg?.body || ""));
-  }, [msg?.body]);
+    return renderMarkdownBlock(bodyText);
+  }, [bodyText]);
 
   const wrapMentionsInContainer = (container) => {
     if (!container || typeof document === "undefined") return false;
-    const walker = document.createTreeWalker(
-      container,
-      NodeFilter.SHOW_TEXT,
-      {
+    const showText = typeof NodeFilter !== "undefined" ? NodeFilter.SHOW_TEXT : 4;
+    let walker = null;
+    try {
+      walker = document.createTreeWalker(container, showText, {
         acceptNode(node) {
           const parent = node.parentElement;
-          if (!parent) return NodeFilter.FILTER_REJECT;
+          if (!parent) return NodeFilter ? NodeFilter.FILTER_REJECT : 2;
           if (parent.closest("a, code, pre, .sb-mention")) {
-            return NodeFilter.FILTER_REJECT;
+            return NodeFilter ? NodeFilter.FILTER_REJECT : 2;
           }
-          return NodeFilter.FILTER_ACCEPT;
+          return NodeFilter ? NodeFilter.FILTER_ACCEPT : 1;
         },
-      },
-    );
+      });
+    } catch {
+      return false;
+    }
     let changed = false;
     const regex = /(^|[^a-z0-9._])@([a-z0-9._]{3,})/gi;
     const textNodes = [];
@@ -88,8 +104,9 @@ export function MessageItem({
           frag.appendChild(document.createTextNode(text.slice(lastIndex, mentionStart)));
         }
         const span = document.createElement("span");
-        span.className = "sb-mention";
+        span.className = "sb-mention sb-mention-active";
         span.dataset.mention = String(username || "").toLowerCase();
+        span.dir = "ltr";
         span.textContent = `@${username}`;
         frag.appendChild(span);
         lastIndex = mentionStart + username.length + 1;
@@ -106,33 +123,110 @@ export function MessageItem({
   useEffect(() => {
     const container = messageBodyRef.current;
     if (!container) return;
+    const markInvalid = (el) => {
+      const now = Date.now();
+      const lastValid = Number(el.dataset.sbMentionValidAt || 0);
+      if (lastValid && now - lastValid < 30000) {
+        el.dataset.sbMentionInvalidAt = String(now);
+        return;
+      }
+      el.classList.remove("sb-mention-active");
+      el.dataset.sbMentionInvalidAt = String(now);
+    };
+    const markValid = (el) => {
+      el.classList.add("sb-mention-active");
+      el.dataset.sbMentionValidAt = String(Date.now());
+      if (el.dataset.sbMentionInvalidAt) {
+        delete el.dataset.sbMentionInvalidAt;
+      }
+    };
     wrapMentionsInContainer(container);
+    const handleMentionClick = (event) => {
+      const target = event?.target;
+      if (!target || typeof target.closest !== "function") return;
+      const mentionEl = target.closest(".sb-mention");
+      if (!mentionEl || !container.contains(mentionEl)) return;
+      const rawMention =
+        mentionEl.dataset.mention ||
+        String(mentionEl.textContent || "").trim().replace(/^@/, "");
+      const mention = String(rawMention || "").toLowerCase();
+      if (!mention) return;
+      resolveMention(mention, user.username, {
+        force: true,
+        fallbackToCacheOnError: true,
+      }).then((result) => {
+        if (!result || result.status !== "valid") {
+          markInvalid(mentionEl);
+          return;
+        }
+        markValid(mentionEl);
+        if (typeof onOpenMentionRef.current === "function") {
+          onOpenMentionRef.current(result.data);
+        }
+      });
+    };
+    container.addEventListener("click", handleMentionClick);
+    const mentionVersion = String(mentionRefreshToken || 0);
     const mentionEls = container.querySelectorAll(".sb-mention");
     mentionEls.forEach((node) => {
-      let el = node;
-      if (el.dataset.sbMentionEnhanced === "1") {
-        const clone = el.cloneNode(true);
-        clone.classList.remove("sb-mention-active");
-        delete clone.dataset.sbMentionEnhanced;
-        el.replaceWith(clone);
-        el = clone;
-      }
+      const el = node;
+      if (el.dataset.sbMentionEnhanced === mentionVersion) return;
       const rawMention =
         el.dataset.mention ||
         String(el.textContent || "").trim().replace(/^@/, "");
       const mention = String(rawMention || "").toLowerCase();
       if (!mention) return;
-      el.dataset.sbMentionEnhanced = "1";
-      resolveMention(mention, user.username).then((result) => {
-        if (!result || result.status !== "valid") return;
-        el.classList.add("sb-mention-active");
-        el.addEventListener("click", () => {
-          if (typeof onOpenMentionRef.current === "function") {
-            onOpenMentionRef.current(result.data);
-          }
-        });
+      el.dataset.sbMentionEnhanced = mentionVersion;
+      resolveMention(mention, user.username, {
+        fallbackToCacheOnError: true,
+      }).then((result) => {
+        if (!result || result.status !== "valid") {
+          markInvalid(el);
+          return;
+        }
+        markValid(el);
       });
     });
+    const refreshMentions = () => {
+      const nodes = container.querySelectorAll(".sb-mention");
+      nodes.forEach((node) => {
+        const el = node;
+        const rawMention =
+          el.dataset.mention ||
+          String(el.textContent || "").trim().replace(/^@/, "");
+        const mention = String(rawMention || "").toLowerCase();
+        if (!mention) return;
+        resolveMention(mention, user.username, {
+          force: true,
+          fallbackToCacheOnError: true,
+        }).then((result) => {
+          if (!result || result.status !== "valid") {
+            markInvalid(el);
+            return;
+          }
+          markValid(el);
+        });
+      });
+    };
+    const refreshTimer = window.setInterval(refreshMentions, 15000);
+    if (mentionDebugEnabled) {
+      const totalMentions = container.querySelectorAll(".sb-mention").length;
+      const activeMentions =
+        container.querySelectorAll(".sb-mention-active").length;
+      setMentionDebug((prev) => {
+        if (
+          prev &&
+          prev.total === totalMentions &&
+          prev.active === activeMentions
+        ) {
+          return prev;
+        }
+        return {
+          total: totalMentions,
+          active: activeMentions,
+        };
+      });
+    }
     const blocks = container.querySelectorAll(".sb-code-block");
     blocks.forEach((block) => {
       if (block.dataset.sbEnhanced === "1") return;
@@ -159,7 +253,11 @@ export function MessageItem({
         }
       });
     });
-  }, [markdownHtml, mentionRefreshToken, user.username]);
+    return () => {
+      container.removeEventListener("click", handleMentionClick);
+      window.clearInterval(refreshTimer);
+    };
+  }, [markdownHtml, mentionRefreshToken, user.username, mentionDebugEnabled]);
 
   const formatSeenCount = (value) => {
     const count = Math.max(1, Number(value || 0));
@@ -176,20 +274,45 @@ export function MessageItem({
     const next = (count / 1_000_000_000).toFixed(1);
     return `${next.replace(/\.0$/, "")}B`;
   };
+  const formatExpiryBadge = () => {
+    const files = Array.isArray(msg?.files) ? msg.files : [];
+    if (!files.length) return null;
+    const expiryMs = files
+      .map((file) => new Date(file?.expiresAt || "").getTime())
+      .filter((value) => Number.isFinite(value) && value > 0)
+      .sort((a, b) => a - b)[0];
+    if (!expiryMs) return null;
+    const diffMs = expiryMs - Date.now();
+    if (diffMs <= 0) return null;
+    const minuteMs = 60 * 1000;
+    const hourMs = 60 * minuteMs;
+    const dayMs = 24 * hourMs;
+    if (diffMs < hourMs) {
+      const minutes = Math.max(1, Math.ceil(diffMs / minuteMs));
+      return { label: `${minutes}m`, danger: true };
+    }
+    if (diffMs < dayMs) {
+      const hours = Math.max(1, Math.ceil(diffMs / hourMs));
+      return { label: `${hours}h`, danger: true };
+    }
+    const days = Math.max(1, Math.ceil(diffMs / dayMs));
+    return { label: `${days}d`, danger: days <= 1 };
+  };
+  const expiryBadge = formatExpiryBadge();
   const dayLabel = getMessageDayLabel
     ? getMessageDayLabel(msg)
     : msg?._dayLabel || msg?._dayKey || "";
   const replyTarget = msg.replyTo || null;
   const replyDisplayName =
     replyTarget?.nickname || replyTarget?.username || "Unknown";
-  const replyPreviewRaw = String(replyTarget?.body || "").trim() || "Message";
+  const replyPreviewRaw = extractBodyText(replyTarget?.body).trim() || "Message";
   const truncateReplyPreview = (value, maxChars = 90) => {
     const text = String(value || "");
     if (text.length <= maxChars) return text;
     return `${text.slice(0, maxChars).trimEnd()}...`;
   };
   const replyPreview = truncateReplyPreview(replyPreviewRaw);
-  const replyBodyText = String(replyTarget?.body || "").trim();
+  const replyBodyText = extractBodyText(replyTarget?.body).trim();
   const isPluralMediaSummary =
     /^Sent \d+ (files|photos|videos|documents|media files)$/i.test(replyBodyText);
   const isGenericReplyMediaText =
@@ -347,7 +470,7 @@ export function MessageItem({
             </button>
             <div
               data-message-bubble
-              className={`rounded-2xl px-4 py-3 text-sm shadow-sm overflow-visible min-w-0 max-w-[min(76%,calc(100%-2.25rem))] md:max-w-[min(80%,calc(100%-2.25rem))] ${
+              className={`relative rounded-2xl px-4 py-3 text-sm shadow-sm overflow-visible min-w-0 max-w-[min(76%,calc(100%-2.25rem))] md:max-w-[min(80%,calc(100%-2.25rem))] ${
                 hasFiles
                   ? hasMediaFiles
                     ? "w-[min(52vw,18rem)] md:w-[min(44vw,22rem)] md:min-w-[12rem]"
@@ -408,7 +531,9 @@ export function MessageItem({
                       ) : null}
                       <span
                         className="min-w-0 truncate"
-                        dangerouslySetInnerHTML={{ __html: replyPreviewHtml }}
+                        dangerouslySetInnerHTML={{
+                          __html: String(replyPreviewHtml || ""),
+                        }}
                       />
                     </span>
                   </span>
@@ -422,18 +547,25 @@ export function MessageItem({
               {!(
                 (msg.files || []).length &&
                 /^Sent (a media file|a photo|a video|a document|\d+ (files|photos|videos|documents|media files))$/i.test(
-                  (msg.body || "").trim(),
+                  bodyText.trim(),
                 )
               ) ? (
                 <div
                   ref={messageBodyRef}
-                  dir={hasPersian(msg.body) ? "rtl" : "ltr"}
+                  dir={hasPersian(bodyText) ? "rtl" : "ltr"}
                   className={`sb-markdown mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${
-                    hasPersian(msg.body) ? "font-fa text-right" : "text-left"
+                    hasPersian(bodyText) ? "font-fa text-right" : "text-left"
                   }`}
                   style={{ unicodeBidi: "plaintext" }}
-                  dangerouslySetInnerHTML={{ __html: markdownHtml }}
+                  dangerouslySetInnerHTML={{
+                    __html: String(markdownHtml || ""),
+                  }}
                 />
+              ) : null}
+              {mentionDebugEnabled ? (
+                <div className="sb-mention-debug" aria-hidden="true">
+                  @{mentionDebug?.active ?? 0}/{mentionDebug?.total ?? 0}
+                </div>
               ) : null}
               <div className="mt-2 flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
                 <span>{msg._timeLabel || formatTime(msg.created_at)}</span>
@@ -443,7 +575,7 @@ export function MessageItem({
         ) : (
           <div
             data-message-bubble
-            className={`rounded-2xl px-4 py-3 text-sm shadow-sm overflow-visible min-w-0 max-w-[78%] sm:max-w-[82%] md:max-w-[75%] ${
+            className={`relative rounded-2xl px-4 py-3 text-sm shadow-sm overflow-visible min-w-0 max-w-[78%] sm:max-w-[82%] md:max-w-[75%] ${
               hasFiles
                 ? hasMediaFiles
                   ? "w-[min(52vw,18rem)] max-w-[72%] md:w-[min(44vw,22rem)] md:max-w-[68%] md:min-w-[12rem]"
@@ -505,7 +637,9 @@ export function MessageItem({
                   ) : null}
                   <span
                   className="min-w-0 truncate"
-                  dangerouslySetInnerHTML={{ __html: replyPreviewHtml }}
+                  dangerouslySetInnerHTML={{
+                    __html: String(replyPreviewHtml || ""),
+                  }}
                 />
                 </span>
               </span>
@@ -519,60 +653,84 @@ export function MessageItem({
           {!(
             (msg.files || []).length &&
               /^Sent (a media file|a photo|a video|a document|\d+ (files|photos|videos|documents|media files))$/i.test(
-                (msg.body || "").trim(),
+                bodyText.trim(),
               )
           ) ? (
             <div
               ref={messageBodyRef}
-              dir={hasPersian(msg.body) ? "rtl" : "ltr"}
+              dir={hasPersian(bodyText) ? "rtl" : "ltr"}
               className={`sb-markdown mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${
-                hasPersian(msg.body) ? "font-fa text-right" : "text-left"
+                hasPersian(bodyText) ? "font-fa text-right" : "text-left"
               }`}
               style={{ unicodeBidi: "plaintext" }}
-              dangerouslySetInnerHTML={{ __html: markdownHtml }}
+              dangerouslySetInnerHTML={{
+                __html: String(markdownHtml || ""),
+              }}
             />
           ) : null}
+          {mentionDebugEnabled ? (
+            <div className="sb-mention-debug" aria-hidden="true">
+              @{mentionDebug?.active ?? 0}/{mentionDebug?.total ?? 0}
+            </div>
+          ) : null}
           <div
-            className={`mt-2 flex items-center gap-1 text-[10px] ${
+            className={`mt-2 flex w-full items-center text-[10px] ${
               isOwn
                 ? "text-emerald-900/80 dark:text-emerald-50/80"
                 : "text-slate-500 dark:text-slate-400"
             }`}
           >
-            <span>{msg._timeLabel || formatTime(msg.created_at)}</span>
-            {isOwn || isChannelChat ? (
+            <span className="inline-flex items-center gap-1">
+              <span>{msg._timeLabel || formatTime(msg.created_at)}</span>
+              {isOwn || isChannelChat ? (
+                <span
+                  className={`inline-flex items-center gap-1 ${
+                    isSending
+                      ? "text-emerald-900/80 dark:text-emerald-50/80"
+                      : isFailed
+                        ? "text-rose-500"
+                        : isChannelChat
+                          ? "text-slate-500 dark:text-slate-400"
+                          : isRead
+                            ? "text-sky-400"
+                            : "text-emerald-900/80 dark:text-emerald-50/80"
+                  }`}
+                >
+                  {isChannelChat ? (
+                    <>
+                      <Eye
+                        size={13}
+                        strokeWidth={2.4}
+                        aria-hidden="true"
+                        className="-translate-y-px"
+                      />
+                      <span>{formatSeenCount(seenCount)}</span>
+                    </>
+                  ) : isSending ? (
+                    <Clock12
+                      size={15}
+                      strokeWidth={2.4}
+                      className="animate-spin"
+                      aria-hidden="true"
+                    />
+                  ) : isFailed ? (
+                    <AlertCircle size={15} strokeWidth={2.4} aria-hidden="true" />
+                  ) : isRead ? (
+                    <CheckCheck size={15} strokeWidth={2.5} aria-hidden="true" />
+                  ) : (
+                    <Check size={15} strokeWidth={2.5} aria-hidden="true" />
+                  )}
+                </span>
+              ) : null}
+            </span>
+            {expiryBadge ? (
               <span
-                className={`inline-flex items-center gap-1 ${
-                  isSending
-                    ? "text-emerald-900/80 dark:text-emerald-50/80"
-                    : isFailed
-                      ? "text-rose-500"
-                      : isChannelChat
-                        ? "text-slate-500 dark:text-slate-400"
-                        : isRead
-                          ? "text-sky-400"
-                          : "text-emerald-900/80 dark:text-emerald-50/80"
+                className={`ms-auto inline-flex items-center gap-1 ${
+                  expiryBadge.danger ? "text-rose-500" : "text-current"
                 }`}
               >
-                {isChannelChat ? (
-                  <>
-                    <Eye
-                      size={13}
-                      strokeWidth={2.4}
-                      aria-hidden="true"
-                      className="-translate-y-px"
-                    />
-                    <span>{formatSeenCount(seenCount)}</span>
-                  </>
-                ) : isSending ? (
-                  <Clock12 size={15} strokeWidth={2.4} className="animate-spin" aria-hidden="true" />
-                ) : isFailed ? (
-                  <AlertCircle size={15} strokeWidth={2.4} aria-hidden="true" />
-                ) : isRead ? (
-                  <CheckCheck size={15} strokeWidth={2.5} aria-hidden="true" />
-                ) : (
-                  <Check size={15} strokeWidth={2.5} aria-hidden="true" />
-                )}
+                <ClockFading size={12} className="-translate-y-px" />
+                <span>{expiryBadge.label}</span>
               </span>
             ) : null}
           </div>

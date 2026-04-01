@@ -1,10 +1,17 @@
 const PERSIAN_REGEX =
   /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
 const LATIN_REGEX = /[A-Za-z]/;
+const LATIN_CHAR_REGEX = /^[A-Za-z]$/;
 
 const getFirstChar = (text) => {
   const chars = Array.from(String(text || ""));
   return chars.find((char) => String(char || "").trim().length > 0) || "";
+};
+
+const toUpperLatin = (char) => {
+  const value = String(char || "");
+  if (!LATIN_CHAR_REGEX.test(value)) return value;
+  return value.toUpperCase();
 };
 
 const getWordScript = (text) => {
@@ -38,8 +45,10 @@ export function getAvatarInitials(value, fallback = "S") {
     ) {
       return firstChar || fallback;
     }
-    return `${firstChar}${secondChar || ""}` || fallback;
+    const left = toUpperLatin(firstChar);
+    const right = toUpperLatin(secondChar || "");
+    return `${left}${right}` || fallback;
   }
   const firstChar = getFirstChar(text);
-  return firstChar || fallback;
+  return toUpperLatin(firstChar) || fallback;
 }

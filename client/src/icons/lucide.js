@@ -47,6 +47,7 @@ import {
   VolumeX,
   X as Close,
   XCircle as CloseCircle,
+  ClockFading,
 } from "lucide-react";
 
 export {
@@ -97,5 +98,6 @@ export {
   Volume2,
   VolumeX,
   Close,
-  CloseCircle
+  CloseCircle,
+  ClockFading
 };

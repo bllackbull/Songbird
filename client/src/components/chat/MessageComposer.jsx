@@ -33,8 +33,16 @@ export function MessageComposer({
   const messageInputRef = useRef(null);
   const [isRtl, setIsRtl] = useState(false);
   const maxTextareaHeight = 136;
-  const replyIsRtl = replyTarget ? hasPersian(replyTarget.body || "") : false;
-    const replyBodyText = replyTarget?.body || "";
+  const normalizeReplyBody = (value) => {
+    if (typeof value === "string") return value === "[object Object]" ? "" : value;
+    if (value && typeof value === "object") {
+      const text = value.text ?? value.body;
+      return typeof text === "string" ? text : "";
+    }
+    return "";
+  };
+  const replyIsRtl = replyTarget ? hasPersian(normalizeReplyBody(replyTarget.body)) : false;
+    const replyBodyText = normalizeReplyBody(replyTarget?.body);
     const replyBodyNormalized = String(replyBodyText || "").trim();
     const isPluralMediaSummary =
       /^Sent \d+ (files|photos|videos|documents|media files)$/i.test(replyBodyNormalized);
@@ -147,7 +155,9 @@ export function MessageComposer({
                 ) : null}
                 <span
                   className="min-w-0 truncate"
-                  dangerouslySetInnerHTML={{ __html: resolvedReplyHtml }}
+                  dangerouslySetInnerHTML={{
+                    __html: String(resolvedReplyHtml || ""),
+                  }}
                 />
               </span>
             </div>

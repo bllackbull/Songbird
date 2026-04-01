@@ -413,6 +413,9 @@ CHAT_SSE_RECONNECT_DELAY=$(get_existing_env_value "CHAT_SSE_RECONNECT_DELAY" "20
 CHAT_SEARCH_MAX_RESULTS=$(get_existing_env_value "CHAT_SEARCH_MAX_RESULTS" "5")
 NICKNAME_MAX=$(get_existing_env_value "NICKNAME_MAX" "24")
 USERNAME_MAX=$(get_existing_env_value "USERNAME_MAX" "16")
+VAPID_PUBLIC_KEY=$(get_existing_env_value "VAPID_PUBLIC_KEY" "")
+VAPID_PRIVATE_KEY=$(get_existing_env_value "VAPID_PRIVATE_KEY" "")
+VAPID_SUBJECT=$(get_existing_env_value "VAPID_SUBJECT" "mailto:admin@example.com")
 EOF
 }
 

@@ -22,6 +22,35 @@ const escapeHtml = (value) =>
     }
   });
 
+const normalizeMarkdownInput = (value) => {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") {
+    const text = value.text ?? value.body;
+    if (typeof text === "string") return text;
+    return "";
+  }
+  if (value === null || value === undefined) return "";
+  const str = String(value);
+  return str === "[object Object]" ? "" : str;
+};
+
+const coerceHtmlString = (value) => {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") {
+    if (typeof value.toString === "function") {
+      const str = value.toString();
+      if (str && str !== "[object Object]") return str;
+    }
+    if ("innerHTML" in value && typeof value.innerHTML === "string") {
+      return value.innerHTML;
+    }
+    if ("textContent" in value && typeof value.textContent === "string") {
+      return value.textContent;
+    }
+  }
+  return "";
+};
+
 const normalizeLinkHref = (raw) => {
   const value = String(raw || "").trim();
   if (!value) return "";
@@ -170,7 +199,7 @@ const configureMarkdown = () => {
     renderer(token) {
       const username = String(token.username || "").toLowerCase();
       if (!username) return token.raw;
-      return `<span class="sb-mention" data-mention="${escapeHtml(username)}">@${escapeHtml(token.username)}</span>`;
+      return `<span class="sb-mention sb-mention-active" data-mention="${escapeHtml(username)}" dir="ltr">@${escapeHtml(token.username)}</span>`;
     },
   };
 
@@ -183,8 +212,8 @@ const configureMarkdown = () => {
   marked.use({ renderer, extensions: [autoLinkExtension, mentionExtension] });
 };
 
-const sanitize = (html) =>
-  DOMPurify.sanitize(html, {
+const sanitize = (html) => {
+  const cleaned = DOMPurify.sanitize(String(html || ""), {
     ALLOW_DATA_ATTR: true,
     ADD_ATTR: ["target", "rel", "class", "data-auto-link", "data-mention"],
     ADD_TAGS: [
@@ -204,7 +233,10 @@ const sanitize = (html) =>
       "h6",
       "span",
     ],
+    RETURN_TRUSTED_TYPE: false,
   });
+  return coerceHtmlString(cleaned);
+};
 
 const cleanupMarkdownHtml = (html) =>
   String(html || "")
@@ -214,27 +246,46 @@ const cleanupMarkdownHtml = (html) =>
     .replace(/(<br\s*\/?>\s*)+$/gi, "")
     .trim();
 
+const fallbackBlockHtml = (raw) =>
+  escapeHtml(raw).replace(/\n/g, "<br />");
+
+const fallbackInlineHtml = (raw) => escapeHtml(raw);
+
 export const renderMarkdownBlock = (text) => {
   configureMarkdown();
-  const raw = String(text || "");
+  const raw = normalizeMarkdownInput(text);
   if (!raw) return "";
   const parsed = marked.parse(raw);
-  const limited = limitHtmlNesting(parsed);
-  return cleanupMarkdownHtml(sanitize(limited));
+  const parsedHtml = typeof parsed === "string" ? parsed : String(parsed || "");
+  const limited = limitHtmlNesting(parsedHtml);
+  const cleaned = cleanupMarkdownHtml(sanitize(limited));
+  if (cleaned.includes("[object Object]")) {
+    return fallbackBlockHtml(raw);
+  }
+  return cleaned;
 };
 
 export const renderMarkdownInline = (text) => {
   configureMarkdown();
-  const raw = String(text || "");
+  const raw = normalizeMarkdownInput(text);
   if (!raw) return "";
   const parsed = marked.parseInline(raw);
-  const limited = limitHtmlNesting(parsed);
-  return cleanupMarkdownHtml(sanitize(limited));
+  const parsedHtml = typeof parsed === "string" ? parsed : String(parsed || "");
+  const limited = limitHtmlNesting(parsedHtml);
+  const cleaned = cleanupMarkdownHtml(sanitize(limited));
+  if (cleaned.includes("[object Object]")) {
+    return fallbackInlineHtml(raw);
+  }
+  return cleaned;
 };
 
 export const renderMarkdownInlinePlain = (text) => {
   const html = renderMarkdownInline(text);
   return html
     .replace(/<a\b[^>]*>(.*?)<\/a>/gi, "$1")
-    .replace(/<span\b[^>]*data-mention=[^>]*>(.*?)<\/span>/gi, "$1");
+    .replace(/<span\b[^>]*data-mention=[^>]*>(.*?)<\/span>/gi, "$1")
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/\r?\n+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 };

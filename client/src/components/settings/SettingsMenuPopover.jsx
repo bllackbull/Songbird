@@ -14,6 +14,7 @@ export function SettingsMenuPopover({
   notificationsDisabled,
   notificationStatusLabel,
   onToggleNotifications,
+  onOpenNotifications,
   onOpenSavedMessages,
 }) {
   if (!showSettings) return null;
@@ -24,7 +25,7 @@ export function SettingsMenuPopover({
 
   return (
     <div
-      className="absolute bottom-20 right-4 z-10 w-72 max-w-[90vw] rounded-2xl border border-emerald-100/70 bg-white p-2 text-sm shadow-xl dark:border-emerald-500/30 dark:bg-slate-950"
+      className="absolute bottom-20 right-4 z-10 w-64 max-w-[90vw] rounded-2xl border border-emerald-100/70 bg-white p-2 text-sm shadow-xl dark:border-emerald-500/30 dark:bg-slate-950"
       ref={settingsMenuRef}
     >
       <SettingsMenuActions
@@ -38,6 +39,7 @@ export function SettingsMenuPopover({
         notificationsDisabled={notificationsDisabled}
         notificationStatusLabel={notificationStatusLabel}
         onToggleNotifications={onToggleNotifications}
+        onOpenNotifications={onOpenNotifications}
         onOpenSavedMessages={onOpenSavedMessages}
       />
     </div>

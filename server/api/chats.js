@@ -1083,11 +1083,16 @@ function registerChatRoutes(app, deps) {
       return res.status(400).json({ error: "Username and mentions are required." });
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
+    const requester = findUserByUsername(username.toLowerCase());
+    if (!requester) {
+      return res.status(404).json({ error: "User not found." });
+    }
 
     const unique = Array.from(
       new Set(
         mentions
           .map((item) => String(item || "").trim().toLowerCase())
+          .map((item) => item.replace(/^@+/, ""))
           .filter((item) => item.length >= 3),
       ),
     ).slice(0, 50);
@@ -1107,7 +1112,10 @@ function registerChatRoutes(app, deps) {
       }
       const chat = findChatByGroupUsername(mention);
       if (!chat) return;
-      if (String(chat.group_visibility || "").toLowerCase() !== "public") return;
+      const visibility = String(chat.group_visibility || "public").trim().toLowerCase();
+      const isMemberFlag = isMember(chat.id, requester.id);
+      if (visibility === "private" && !isMemberFlag) return;
+      const membersCount = listChatMembers(chat.id).length;
       results.push({
         kind: chat.type === "channel" ? "channel" : "group",
         chatId: Number(chat.id),
@@ -1115,6 +1123,10 @@ function registerChatRoutes(app, deps) {
         name: chat.name || (chat.type === "channel" ? "Channel" : "Group"),
         avatarUrl: normalizeGroupAvatarUrl(chat.group_avatar_url),
         color: chat.group_color || "#10b981",
+        visibility: chat.group_visibility || "public",
+        inviteToken: chat.invite_token || "",
+        membersCount,
+        isMember: Boolean(isMemberFlag),
       });
     });
 

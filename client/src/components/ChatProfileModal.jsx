@@ -4,6 +4,7 @@ import {
   Chat,
   Close,
   Copy,
+  LogIn,
   LogOut,
   Pencil,
   Users,
@@ -32,6 +33,9 @@ export default function ChatProfileModal({
   onRemoveMember,
   onEditGroup,
   onEditSelfProfile,
+  showJoinAction = false,
+  onJoinChat,
+  showMembers = true,
   readOnly = false,
   membersBatchSize = MEMBERS_BATCH_SIZE,
 }) {
@@ -76,6 +80,10 @@ export default function ChatProfileModal({
       : targetUser?.color || "#10b981";
   const initials = getAvatarInitials(profileName);
   const members = Array.isArray(chat?.members) ? chat.members : [];
+  const membersCountRaw = Number(chat?.membersCount);
+  const membersCount = Number.isFinite(membersCountRaw)
+    ? membersCountRaw
+    : members.length;
   const ownerId = Number(
     members.find(
       (member) => String(member.role || "").toLowerCase() === "owner",
@@ -83,7 +91,8 @@ export default function ChatProfileModal({
   );
   const isOwner = Number(currentUser?.id || 0) === ownerId;
   const isReadOnly = Boolean(readOnly);
-  const canSeeMembers = !isReadOnly && (isGroup || (isChannel && isOwner));
+  const canSeeMembers =
+    showMembers && !isReadOnly && (isGroup || (isChannel && isOwner));
 
   const sortedMembers = useMemo(() => {
     const query = memberQuery.trim().toLowerCase();
@@ -191,14 +200,27 @@ export default function ChatProfileModal({
           ) : null}
         {isGroup || isChannel ? (
           <p className={`mt-1 whitespace-nowrap text-slate-500 dark:text-slate-400 ${
-            members.length >= 1_000_000 ? "text-[10px] sm:text-xs" : "text-xs"
+            membersCount >= 1_000_000 ? "text-[10px] sm:text-xs" : "text-xs"
           }`}>
-            {members.length.toLocaleString("en-US")} members
+            {membersCount.toLocaleString("en-US")} members
           </p>
         ) : null}
         </div>
 
-        {!isReadOnly && !isSelfProfile && !isSaved ? (
+        {showJoinAction ? (
+          <div className="mt-4 grid grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={onJoinChat}
+              className="group col-start-2 rounded-2xl border border-emerald-200 bg-white px-2 py-3 text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+            >
+              <div className="mx-auto inline-flex h-11 w-11 items-center justify-center rounded-full">
+                <LogIn size={24} className="icon-anim-bob" />
+              </div>
+              <p className="mt-1 text-xs font-semibold">Join</p>
+            </button>
+          </div>
+        ) : !isReadOnly && !isSelfProfile && !isSaved ? (
           <div
             className={`mt-4 ${
               isGroup || isChannel

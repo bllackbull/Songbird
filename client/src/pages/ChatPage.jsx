@@ -8,7 +8,7 @@ import {
   NewChatModal,
   NewGroupModal,
 } from "../components/ChatModals.jsx";
-import { DesktopSettingsModal } from "../components/settings/index.js";
+import { DesktopSettingsModal, NotificationsSettingsModal } from "../components/settings/index.js";
 import { ChatSidebar } from "../components/chatpage/index.js";
 import { CHAT_PAGE_CONFIG } from "../settings/chatPageConfig.js";
 import { getAvatarInitials } from "../utils/avatarInitials.js";
@@ -52,6 +52,10 @@ import {
   updateGroupChat,
   uploadGroupAvatar,
   getSavedMessagesChat,
+  fetchPushPublicKey,
+  subscribePush,
+  unsubscribePush,
+  sendPushTest,
   updatePassword,
   updateProfile,
   updateStatus as updateStatusRequest,
@@ -66,7 +70,7 @@ const NOTIFICATION_PREVIEW_MAX_CHARS = 120;
 const NOTIFICATIONS_ENABLED_KEY = "songbird-notify-enabled";
 const OPEN_CHAT_ID_KEY = "songbird-open-chat-id";
 const PRESENCE_IDLE_THRESHOLD_MS = 12 * 1000;
-const CHAT_CACHE_VERSION = 1;
+const CHAT_CACHE_VERSION = 2;
 const CHAT_LIST_CACHE_KEY = "songbird-chat-list-cache";
 const CHAT_MESSAGES_CACHE_KEY = "songbird-chat-messages-cache";
 const CHAT_MESSAGES_INDEX_KEY = "songbird-chat-messages-index";
@@ -86,6 +90,20 @@ const safeParseJson = (raw) => {
   } catch {
     return null;
   }
+};
+
+const normalizeMessageBody = (value) => {
+  if (typeof value === "string") {
+    return value === "[object Object]" ? "" : value;
+  }
+  if (value && typeof value === "object") {
+    const text = value.text ?? value.body;
+    return typeof text === "string" ? text : "";
+  }
+  if (value === null || value === undefined) return "";
+  const str = String(value);
+  if (str === "[object Object]") return "";
+  return str;
 };
 
 const readLocalCache = (key) => {
@@ -209,7 +227,19 @@ const updateMessagesIndex = (username, chatId, updatedAt) => {
 
 const sanitizeMessageForCache = (message) => {
   if (!message || typeof message !== "object") return message;
+  const normalizedBody = normalizeMessageBody(message.body);
+  const normalizedReply =
+    message.replyTo && typeof message.replyTo === "object"
+      ? {
+          ...message.replyTo,
+          body: normalizeMessageBody(message.replyTo.body),
+        }
+      : message.replyTo || null;
   const { _files, ...rest } = message;
+  rest.body = normalizedBody;
+  if (normalizedReply) {
+    rest.replyTo = normalizedReply;
+  }
   if (Array.isArray(rest.files)) {
     rest.files = rest.files.map((file) => {
       if (!file || typeof file !== "object") return file;
@@ -224,6 +254,26 @@ const sanitizeMessagesForCache = (messages) =>
   (Array.isArray(messages) ? messages : [])
     .map(sanitizeMessageForCache)
     .slice(-MESSAGE_CACHE_MAX);
+
+const normalizeMessageForRender = (message) => {
+  if (!message || typeof message !== "object") return message;
+  const normalizedBody = normalizeMessageBody(message.body);
+  const normalizedReply =
+    message.replyTo && typeof message.replyTo === "object"
+      ? {
+          ...message.replyTo,
+          body: normalizeMessageBody(message.replyTo.body),
+        }
+      : message.replyTo || null;
+  return {
+    ...message,
+    body: normalizedBody,
+    replyTo: normalizedReply,
+  };
+};
+
+const normalizeMessagesForRender = (messages) =>
+  (Array.isArray(messages) ? messages : []).map(normalizeMessageForRender);
 
 
 
@@ -242,6 +292,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [showSettings, setShowSettings] = useState(false);
   const [mobileTab, setMobileTab] = useState("chats");
   const [settingsPanel, setSettingsPanel] = useState(null);
+  const [notificationsModalOpen, setNotificationsModalOpen] = useState(false);
+  const [testNotificationSent, setTestNotificationSent] = useState(false);
+  const [pushSwReady, setPushSwReady] = useState(false);
+  const [pushVapidReady, setPushVapidReady] = useState(null);
+  const [pushVapidLength, setPushVapidLength] = useState(null);
+  const [pushSubscribeStatus, setPushSubscribeStatus] = useState(null);
+  const [pushSubscribeError, setPushSubscribeError] = useState("");
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [newChatUsername, setNewChatUsername] = useState("");
   const [newChatError, setNewChatError] = useState("");
@@ -448,6 +505,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           ? "Blocked in browser settings"
           : "";
   const notificationsDisabled = Boolean(notificationStatusLabel);
+  const notificationsDebugLine = `secure:${isSecureContext ? "yes" : "no"} | support:${
+    notificationsSupported ? "yes" : "no"
+  } | perm:${notificationPermission} | sw:${pushSwReady ? "ready" : "no"} | vapid:${
+    pushVapidReady === null ? "..." : pushVapidReady ? "ok" : "missing"
+  }${pushVapidLength ? "(" + pushVapidLength + ")" : ""} | sub:${
+    pushSubscribeStatus || "..."
+  }${pushSubscribeError ? " | err:" + pushSubscribeError : ""}`;
+  const pushRegistrationRef = useRef(null);
 
   const persistNotificationsEnabled = (value) => {
     setNotificationsEnabled(value);
@@ -466,6 +531,115 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
   };
 
+  const toBase64 = (value) =>
+    String(value || "")
+      .replace(/-/g, "+")
+      .replace(/_/g, "/");
+
+  const urlBase64ToUint8Array = (base64String) => {
+    const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = toBase64(base64String) + padding;
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  };
+
+  const getVapidKeyLength = (key) => {
+    try {
+      const arr = urlBase64ToUint8Array(String(key || ""));
+      return arr?.length || 0;
+    } catch {
+      return 0;
+    }
+  };
+
+  const ensurePushSubscription = async () => {
+    if (typeof window === "undefined") return;
+    if (!("serviceWorker" in navigator)) {
+      setPushSubscribeStatus("no-sw");
+      return;
+    }
+    if (!notificationsSupported) {
+      setPushSubscribeStatus("unsupported");
+      return;
+    }
+    if (notificationPermission !== "granted") {
+      setPushSubscribeStatus("no-perm");
+      return;
+    }
+    try {
+      setPushSubscribeStatus("...");
+      setPushSubscribeError("");
+      const reg =
+        pushRegistrationRef.current ||
+        (await navigator.serviceWorker.ready);
+      if (!reg?.pushManager) {
+        setPushSubscribeStatus("no-push");
+        return;
+      }
+      const keyRes = await fetchPushPublicKey();
+      const keyData = await keyRes.json();
+      if (!keyRes.ok || !keyData?.publicKey) {
+        setPushSubscribeStatus("no-key");
+        return;
+      }
+      const applicationServerKey = urlBase64ToUint8Array(keyData.publicKey);
+      setPushVapidLength(getVapidKeyLength(keyData.publicKey));
+      if (!applicationServerKey || applicationServerKey.length < 1) {
+        setPushSubscribeStatus("bad-key");
+        return;
+      }
+      let subscription = await reg.pushManager.getSubscription();
+      if (!subscription) {
+        subscription = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey,
+        });
+      }
+      if (!subscription) {
+        setPushSubscribeStatus("no-sub");
+        return;
+      }
+      const json = subscription.toJSON();
+      const res = await subscribePush({
+        username: user.username,
+        subscription: json,
+      });
+      if (!res.ok) {
+        setPushSubscribeStatus("err");
+        setPushSubscribeError(String(res.status || "err"));
+        return;
+      }
+      setPushSubscribeStatus("ok");
+    } catch (err) {
+      setPushSubscribeStatus("err");
+      const message = String(err?.message || err || "subscribe failed");
+      setPushSubscribeError(message);
+    }
+  };
+
+  const removePushSubscription = async () => {
+    if (typeof window === "undefined") return;
+    if (!("serviceWorker" in navigator)) return;
+    try {
+      const reg =
+        pushRegistrationRef.current ||
+        (await navigator.serviceWorker.ready);
+      const subscription = await reg.pushManager.getSubscription();
+      if (!subscription) return;
+      const endpoint = subscription.endpoint;
+      await subscription.unsubscribe();
+      if (endpoint) {
+        await unsubscribePush({ username: user.username, endpoint });
+      }
+    } catch {
+      // ignore
+    }
+  };
+
   const handleToggleNotifications = async () => {
     if (!notificationsSupported) return;
     if (notificationPermission === "denied") {
@@ -474,6 +648,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
     if (notificationsActive) {
       persistNotificationsEnabled(false);
+      await removePushSubscription();
       return;
     }
     if (!notificationsEnabled) {
@@ -481,6 +656,31 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
     if (notificationPermission !== "granted") {
       await requestNotificationPermission();
+    }
+    await ensurePushSubscription();
+  };
+
+  const handleTestPush = async () => {
+    if (!notificationsSupported) return;
+    setTestNotificationSent(true);
+    window.setTimeout(() => setTestNotificationSent(false), 12000);
+    if (notificationPermission !== "granted") {
+      await requestNotificationPermission();
+    }
+    await ensurePushSubscription();
+    try {
+      const res = await sendPushTest({ username: user.username });
+      const data = await res.json();
+      if (!res.ok) {
+        if (typeof window !== "undefined") {
+          window.alert(data?.error || "Unable to send test notification.");
+        }
+        return;
+      }
+    } catch {
+      if (typeof window !== "undefined") {
+        window.alert("Unable to send test notification.");
+      }
     }
   };
 
@@ -515,7 +715,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const resolveReplyPreview = (msg) => {
     if (!msg) return { text: "", icon: null };
-    const rawBody = String(msg.body || "").trim();
+    const rawBody = normalizeMessageBody(msg.body).trim();
     const files = Array.isArray(msg.files)
       ? msg.files
       : Array.isArray(msg._files)
@@ -738,7 +938,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const cached = readChatListCache(user.username);
     if (!cached) return;
     if (!Array.isArray(cached.chats) || cached.chats.length === 0) return;
-    setChats((prev) => (prev.length ? prev : cached.chats));
+    const normalizedCached = cached.chats.map((chat) => ({
+      ...chat,
+      last_message: normalizeMessageBody(chat.last_message),
+    }));
+    setChats((prev) => (prev.length ? prev : normalizedCached));
     setLoadingChats(false);
   }, [user?.username]);
 
@@ -1074,7 +1278,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       isAtBottomRef.current = true;
       setIsAtBottom(true);
       setLoadingMessages(!hasCachedMessages);
-      setMessages(hasCachedMessages ? cached.messages : []);
+      setMessages(hasCachedMessages ? normalizeMessagesForRender(cached.messages) : []);
       setHasOlderMessages(Boolean(cached?.hasOlderMessages));
       setLoadingOlderMessages(false);
       lastMessageIdRef.current = Number(cached?.lastMessageId || 0) || null;
@@ -1504,14 +1708,23 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     mentionProfile && mentionProfile.kind !== "user"
       ? {
           type: mentionProfile.kind,
+          id: Number(mentionProfile.chatId || 0) || null,
           name: mentionProfile.name || mentionProfile.username || "Chat",
           group_username: mentionProfile.username || "",
+          group_visibility: mentionProfile.visibility || "public",
           group_color: mentionProfile.color || "#10b981",
           group_avatar_url: mentionProfile.avatarUrl || null,
+          inviteToken: mentionProfile.inviteToken || "",
           members: [],
+          membersCount: Number(mentionProfile.membersCount || 0),
+          isMember: Boolean(mentionProfile.isMember),
         }
       : null;
   const profileTargetUser = mentionProfileUser || profileModalMember || activeHeaderPeer || null;
+  const canJoinMentionChat = Boolean(
+    mentionProfileChat && !mentionProfileChat.isMember,
+  );
+  const shouldShowMembersList = !mentionProfile;
   const canCurrentUserEditGroup = Boolean(
     (isActiveGroupChat || isActiveChannelChat) &&
       activeMembers.some(
@@ -1959,7 +2172,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       } else if (sender) {
         title = sender;
       }
-      const messageBody = String(meta?.body || payload?.body || "").trim();
+      const messageBody = normalizeMessageBody(meta?.body ?? payload?.body).trim();
       const summaryText = String(payload?.summaryText || "").trim();
       const derivedSummary = chat ? summarizeFiles(chat.last_message_files) : "";
       const isGenericBody =
@@ -2013,6 +2226,45 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     loadChatsRef.current = loadChats;
     scheduleMessageRefreshRef.current = scheduleMessageRefresh;
   });
+
+  useEffect(() => {
+    if (typeof navigator === "undefined") return;
+    if (!("serviceWorker" in navigator)) return;
+    navigator.serviceWorker.ready
+      .then((reg) => {
+        pushRegistrationRef.current = reg;
+        setPushSwReady(true);
+      })
+      .catch(() => null);
+  }, []);
+
+  useEffect(() => {
+    if (!notificationsModalOpen && settingsPanel !== "notifications") return;
+    if (typeof window === "undefined") return;
+    let active = true;
+    fetchPushPublicKey()
+      .then((res) => res.json())
+      .then((data) => {
+        if (!active) return;
+        const key = data?.publicKey ? String(data.publicKey) : "";
+        setPushVapidReady(Boolean(key));
+        setPushVapidLength(key ? getVapidKeyLength(key) : 0);
+      })
+      .catch(() => {
+        if (!active) return;
+        setPushVapidReady(false);
+        setPushVapidLength(0);
+      });
+    return () => {
+      active = false;
+    };
+  }, [notificationsModalOpen, settingsPanel]);
+
+  useEffect(() => {
+    if (!notificationsEnabled) return;
+    if (notificationPermission !== "granted") return;
+    ensurePushSubscription();
+  }, [notificationsEnabled, notificationPermission]);
 
   const uploadPendingMessageWithProgress = (pendingMessage, targetChatId) =>
     new Promise((resolve, reject) => {
@@ -2086,6 +2338,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const sendPendingMessage = async (pendingMessage) => {
     if (!pendingMessage || pendingMessage._delivery !== "sending") return;
+    if (pendingMessage._awaitingServerEcho) return;
 
     const clientId = pendingMessage._clientId;
     const hasFiles = Array.isArray(pendingMessage._files) && pendingMessage._files.length > 0;
@@ -2292,7 +2545,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   useEffect(() => {
     if (!activeChatId) return;
     const interval = setInterval(() => {
-      const pending = messages.filter((msg) => msg._delivery === "sending");
+      const pending = messages.filter(
+        (msg) => msg._delivery === "sending" && !msg._awaitingServerEcho,
+      );
       if (!pending.length) return;
       pending.forEach((msg) => {
         void sendPendingMessage(msg);
@@ -2303,7 +2558,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   useEffect(() => {
     if (!activeChatId) return;
-    if (sseConnected) return;
     const needsMediaSync = messages.some((msg) => {
       const isOwn = msg.username === user.username;
       if (!isOwn) return false;
@@ -2375,6 +2629,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         ...conv,
         id: Number(conv.id),
         message_count: Number(conv.message_count || 0),
+        last_message: normalizeMessageBody(conv.last_message),
         members: (conv.members || []).map((member) => ({
           ...member,
           id: Number(member.id),
@@ -2478,11 +2733,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           _muted: muted,
         };
       });
-      setChats(patched);
+      const normalizedPatched = patched.map((chat) => ({
+        ...chat,
+        last_message: normalizeMessageBody(chat.last_message),
+      }));
+      setChats(normalizedPatched);
       writeLocalCache(buildChatListCacheKey(user.username), {
         version: CHAT_CACHE_VERSION,
         updatedAt: Date.now(),
-        chats: patched,
+        chats: normalizedPatched,
       });
 
       const pendingOpenChatId = Number(
@@ -2586,7 +2845,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             )
           : false;
         const isOwnProcessingVideo = hasProcessingVideo && msg.username === user.username;
-        const bodyText = String(msg?.body || "");
+        const normalizedBody = normalizeMessageBody(msg?.body);
+        const normalizedReply =
+          msg?.replyTo && typeof msg.replyTo === "object"
+            ? {
+                ...msg.replyTo,
+                body: normalizeMessageBody(msg.replyTo?.body),
+              }
+            : msg?.replyTo || null;
+        const bodyText = normalizedBody;
         const systemMatch = bodyText.match(/^\[\[system:(join|joined|left|removed):(.+)\]\]$/i);
         const rawTargetName = systemMatch?.[2] ? String(systemMatch[2]).trim() : "";
         const maxNameLength = 13;
@@ -2605,6 +2872,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                 : "";
         return {
           ...msg,
+          body: normalizedBody,
+          replyTo: normalizedReply,
           _readByMe: readByMe,
           _dayKey: dayKey,
           _dayLabel: formatDayLabel(msg.created_at),
@@ -3301,6 +3570,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const form = event.currentTarget;
     const formData = new FormData(form);
     const body = formData.get("message")?.toString() || "";
+    if (body === "[object Object]") {
+      setUploadError("Invalid message body.");
+      return;
+    }
     const trimmedBody = body.trim();
     const hasPendingFiles = pendingUploadFiles.length > 0;
     if (!trimmedBody && !hasPendingFiles) return;
@@ -4000,6 +4273,62 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setProfileModalOpen(true);
   };
 
+  const handleJoinMentionChat = async () => {
+    if (!mentionProfileChat?.id) return;
+    const token = String(mentionProfileChat.inviteToken || "").trim();
+    if (!token) return;
+    if (typeof window !== "undefined") {
+      window.location.href = `/invite/${token}`;
+    }
+  };
+
+  const handleOpenProfileChat = () => {
+    if (mentionProfileChat?.id) {
+      setActiveChatId(Number(mentionProfileChat.id));
+      setActivePeer(null);
+      setMobileTab("chat");
+      closeProfileModal();
+      return;
+    }
+    const targetForChat = profileModalMember || profileTargetUser;
+    if (targetForChat?.username) {
+      if (
+        String(targetForChat.username).toLowerCase() ===
+        String(user.username).toLowerCase()
+      ) {
+        closeProfileModal();
+        return;
+      }
+      void openOrCreateDmFromMember(targetForChat);
+      return;
+    }
+    if (!profileModalMember && activeChat?.type === "group") {
+      setMobileTab("chat");
+      closeProfileModal();
+      return;
+    }
+    closeProfileModal();
+  };
+
+  const handleLeaveGroupById = async (chatId) => {
+    const id = Number(chatId || 0);
+    if (!id) return;
+    try {
+      const res = await leaveGroupChat(id, { username: user.username });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || "Unable to leave group.");
+      }
+      closeProfileModal();
+      if (Number(activeChat?.id || 0) === id) {
+        closeChat();
+      }
+      await loadChats();
+    } catch {
+      // ignore
+    }
+  };
+
   const closeProfileModal = () => {
     setProfileModalOpen(false);
     setProfileModalMember(null);
@@ -4546,6 +4875,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         notificationsDisabled={notificationsDisabled}
         notificationStatusLabel={notificationStatusLabel}
         onToggleNotifications={handleToggleNotifications}
+        onOpenNotifications={() => setNotificationsModalOpen(true)}
+        onTestPush={handleTestPush}
+        testNotificationSent={testNotificationSent}
+        notificationsDebugLine={notificationsDebugLine}
         onOpenSavedMessages={openSavedMessages}
         onClearCache={handleClearCache}
         dataCacheStats={dataCacheStats}
@@ -4711,35 +5044,40 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         muted={activeChatMuted}
         inviteLink={profileInviteLink}
         canViewInvite={canCurrentUserViewInvite}
-        readOnly={Boolean(mentionProfile)}
+        readOnly={Boolean(
+          mentionProfile &&
+            mentionProfile.kind !== "user" &&
+            !mentionProfileChat?.isMember,
+        )}
+        showJoinAction={canJoinMentionChat}
+        onJoinChat={handleJoinMentionChat}
+        showMembers={shouldShowMembersList}
         membersBatchSize={CHAT_PAGE_CONFIG.newChatSearchMaxResults}
         onClose={closeProfileModal}
-        onOpenChat={() => {
-          const targetForChat = profileModalMember || profileTargetUser;
-          if (targetForChat?.username) {
-            if (
-              String(targetForChat.username).toLowerCase() ===
-              String(user.username).toLowerCase()
-            ) {
-              closeProfileModal();
-              return;
-            }
-            void openOrCreateDmFromMember(targetForChat);
-            return;
-          }
-          if (!profileModalMember && activeChat?.type === "group") {
-            setMobileTab("chat");
-            closeProfileModal();
-            return;
-          }
-          closeProfileModal();
-        }}
-        onToggleMute={() => toggleMuteChat(activeChat?.id)}
-        onLeaveGroup={handleLeaveActiveGroup}
+        onOpenChat={handleOpenProfileChat}
+        onToggleMute={() =>
+          toggleMuteChat(mentionProfileChat?.id || activeChat?.id)
+        }
+        onLeaveGroup={() =>
+          handleLeaveGroupById(mentionProfileChat?.id || activeChat?.id)
+        }
         onOpenMember={openMemberProfileFromList}
         onRemoveMember={handleRemoveGroupMember}
         onEditGroup={openEditGroupFromProfile}
         onEditSelfProfile={openSelfProfileEditor}
+      />
+
+      <NotificationsSettingsModal
+        open={notificationsModalOpen}
+        onClose={() => setNotificationsModalOpen(false)}
+        notificationsActive={notificationsActive}
+        notificationsDisabled={notificationsDisabled}
+        notificationStatusLabel={notificationStatusLabel}
+        onToggleNotifications={handleToggleNotifications}
+        onTestPush={handleTestPush}
+        testNotificationSent={testNotificationSent}
+        notificationsEnabled={notificationsEnabled}
+        debugLine={notificationsDebugLine}
       />
 
         {settingsPanel && mobileTab !== "settings" ? (
@@ -4770,6 +5108,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     </div>
   );
 }
+
 
 
 

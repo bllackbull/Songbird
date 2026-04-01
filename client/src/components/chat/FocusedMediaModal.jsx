@@ -1,5 +1,6 @@
 import {
   AlertCircle,
+  ClockFading,
   Download,
   Pause,
   Play,
@@ -52,7 +53,7 @@ export function FocusedMediaModal({
     >
       {!isDesktop ? (
         <div
-          className={`absolute left-0 right-0 z-10 flex items-center justify-between px-6 py-4 transition-all duration-200 ${
+          className={`pointer-events-auto absolute left-0 right-0 z-50 flex items-center justify-between px-6 py-4 transition-all duration-200 ${
             focusVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-1"
           }`}
           style={{ top: "max(0px, env(safe-area-inset-top))" }}
@@ -60,15 +61,15 @@ export function FocusedMediaModal({
           <button
             type="button"
             onClick={closeFocusMedia}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-rose-300/60 bg-rose-500/20 text-rose-100 transition hover:border-rose-300 hover:bg-rose-500/30"
+            className="pointer-events-auto relative z-50 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/40 bg-transparent text-white transition hover:border-white/60"
             aria-label="Close"
           >
             <Close size={18} className="icon-anim-pop" />
           </button>
           <a
-            href={focusedMedia.url}
+            href={focusedMedia.downloadUrl || focusedMedia.url}
             download={focusedMedia.name || "media"}
-            className="group inline-flex h-9 items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-[0_0_22px_rgba(16,185,129,0.45)]"
+            className="pointer-events-auto relative z-50 group inline-flex h-9 items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-[0_0_22px_rgba(16,185,129,0.45)]"
           >
             <Download size={15} className="icon-anim-drop" />
             Save
@@ -78,28 +79,28 @@ export function FocusedMediaModal({
       {isDesktop ? (
         <>
           <div
-            className={`absolute left-6 top-4 z-10 transition-all duration-200 ${
+            className={`pointer-events-auto absolute left-6 top-4 z-50 transition-all duration-200 ${
               focusVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-1"
             }`}
           >
             <button
               type="button"
               onClick={closeFocusMedia}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-rose-300/60 bg-rose-500/20 text-rose-100 transition hover:border-rose-300 hover:bg-rose-500/30"
+              className="pointer-events-auto relative z-50 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/40 bg-transparent text-white transition hover:border-white/60"
               aria-label="Close"
             >
               <Close size={18} className="icon-anim-pop" />
             </button>
           </div>
           <div
-            className={`absolute right-6 top-4 z-10 transition-all duration-200 ${
+            className={`pointer-events-auto absolute right-6 top-4 z-50 transition-all duration-200 ${
               focusVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-1"
             }`}
           >
             <a
-              href={focusedMedia.url}
+              href={focusedMedia.downloadUrl || focusedMedia.url}
               download={focusedMedia.name || "media"}
-              className="group inline-flex h-9 items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-[0_0_22px_rgba(16,185,129,0.45)]"
+              className="pointer-events-auto relative z-50 group inline-flex h-9 items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-[0_0_22px_rgba(16,185,129,0.45)]"
             >
               <Download size={15} className="icon-anim-drop" />
               Save
@@ -108,7 +109,7 @@ export function FocusedMediaModal({
         </>
       ) : null}
       <div
-        className={`flex h-full justify-center p-3 md:p-6 ${
+        className={`relative z-0 flex h-full justify-center p-3 md:p-6 ${
           isDesktop ? "items-center" : "items-center"
         }`}
         style={
@@ -283,7 +284,7 @@ export function FocusedMediaModal({
       ) : null}
       {focusExpiryWarning ? (
         <div
-          className="absolute inset-x-0 bottom-0 z-10 flex justify-center px-4 pb-16 md:px-6"
+          className="absolute inset-x-0 top-0 z-10 flex justify-center px-4 pt-5 md:px-6"
           onClick={(event) => event.stopPropagation()}
         >
           <div
@@ -292,9 +293,10 @@ export function FocusedMediaModal({
                 ? "border-rose-300 bg-rose-100 text-rose-700 dark:border-rose-500 dark:bg-rose-900 dark:text-rose-100"
                 : "border-white/20 bg-black/65 text-white"
             }`}
+            title={focusExpiryWarning.title || ""}
           >
-            <AlertCircle className="h-[13px] w-[13px] shrink-0" />
-            <span className="leading-none">{focusExpiryWarning.text}</span>
+            <ClockFading className="h-[13px] w-[13px] shrink-0" />
+            <span className="leading-none">{focusExpiryWarning.label}</span>
           </div>
         </div>
       ) : null}

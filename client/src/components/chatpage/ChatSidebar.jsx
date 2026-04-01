@@ -75,6 +75,10 @@ export default function ChatSidebar({
   notificationsDisabled,
   notificationStatusLabel,
   onToggleNotifications,
+  onOpenNotifications,
+  onTestPush,
+  testNotificationSent,
+  notificationsDebugLine,
   onClearCache,
   onDeleteAccount,
   onExitEdit,
@@ -183,6 +187,7 @@ export default function ChatSidebar({
         notificationsDisabled={notificationsDisabled}
         notificationStatusLabel={notificationStatusLabel}
         onToggleNotifications={onToggleNotifications}
+        onOpenNotifications={onOpenNotifications}
         onOpenSavedMessages={onOpenSavedMessages}
       />
 
@@ -233,6 +238,10 @@ export default function ChatSidebar({
               notificationsDisabled={notificationsDisabled}
               notificationStatusLabel={notificationStatusLabel}
               onToggleNotifications={onToggleNotifications}
+              onOpenNotifications={onOpenNotifications}
+              onTestPush={onTestPush}
+              testNotificationSent={testNotificationSent}
+              notificationsDebugLine={notificationsDebugLine}
               onClearCache={onClearCache}
               onOpenOwnProfile={onOpenOwnProfile}
               onOpenSavedMessages={onOpenSavedMessages}

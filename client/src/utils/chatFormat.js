@@ -53,7 +53,7 @@ export const formatChatCardTimestamp = (dateValue) => {
 
   if (diffDays < 7) {
     const shortDay = date.toLocaleDateString("en-US", { weekday: "short" }).slice(0, 3);
-    return `${shortDay.toLowerCase()}.`;
+    return shortDay;
   }
 
   if (date.getFullYear() === now.getFullYear()) {

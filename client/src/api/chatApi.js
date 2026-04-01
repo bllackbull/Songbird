@@ -33,6 +33,29 @@ export const resolveMentions = ({ username, mentions }) =>
     body: JSON.stringify({ username, mentions }),
   });
 
+export const fetchPushPublicKey = () => apiFetch(`${API_BASE}/api/push/public-key`);
+
+export const subscribePush = ({ username, subscription }) =>
+  apiFetch(`${API_BASE}/api/push/subscribe`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, subscription }),
+  });
+
+export const unsubscribePush = ({ username, endpoint }) =>
+  apiFetch(`${API_BASE}/api/push/unsubscribe`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, endpoint }),
+  });
+
+export const sendPushTest = ({ username }) =>
+  apiFetch(`${API_BASE}/api/push/test`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username }),
+  });
+
 export const discoverUsersAndGroups = ({ username, query }) =>
   apiFetch(
     `${API_BASE}/api/discover?username=${encodeURIComponent(

@@ -1,4 +1,4 @@
-import { Bell, BellOff, Bookmark, Database, LogOut, ShieldCheck, User } from "../../icons/lucide.js";
+import { Bell, Bookmark, Database, LogOut, ShieldCheck, User } from "../../icons/lucide.js";
 import { ThemeButton } from "./ThemeButton.jsx";
 
 export function SettingsMenuActions({
@@ -12,6 +12,7 @@ export function SettingsMenuActions({
   notificationsDisabled,
   notificationStatusLabel,
   onToggleNotifications,
+  onOpenNotifications,
   onOpenSavedMessages,
 }) {
   const isMobile = variant === "mobile";
@@ -57,55 +58,11 @@ export function SettingsMenuActions({
       </button>
       <button
         type="button"
-        onClick={onToggleNotifications}
-        disabled={notificationsDisabled}
-        role="switch"
-        aria-checked={notificationsOn}
-        className={`mt-1 flex w-full items-center justify-between gap-3 rounded-xl border border-transparent px-3 ${
-          isMobile ? "py-3 text-base font-medium" : "py-2 text-sm"
-        } text-left text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 ${
-          notificationsDisabled
-            ? "cursor-not-allowed opacity-60 hover:bg-transparent hover:shadow-none"
-            : ""
-        }`}
+        onClick={onOpenNotifications}
+        className={`mt-1 ${buttonBase} ${accentHover}`}
       >
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className="flex items-center gap-3">
-            {notificationsOn ? (
-              <Bell size={18} className="icon-anim-sway" />
-            ) : (
-              <BellOff size={18} className="icon-anim-sway" />
-            )}
-            Notifications
-          </span>
-          {notificationsDisabled ? (
-            <span
-              className={`mt-1 max-w-full truncate whitespace-nowrap ${
-                isMobile ? "text-xs" : "text-[11px]"
-              } font-medium text-slate-500 dark:text-slate-400`}
-              title={notificationStatusLabel}
-            >
-              {notificationStatusLabel}
-            </span>
-          ) : null}
-        </span>
-        <span
-          className={`relative inline-flex ${
-            isMobile ? "h-6 w-11" : "h-5 w-9"
-          } items-center rounded-full transition ${
-            notificationsOn
-              ? "bg-emerald-500"
-              : "bg-slate-300 dark:bg-slate-700"
-          }`}
-        >
-          <span
-            className={`inline-block ${
-              isMobile ? "h-5 w-5" : "h-4 w-4"
-            } transform rounded-full bg-white shadow transition ${
-              notificationsOn ? (isMobile ? "translate-x-5" : "translate-x-4") : "translate-x-1"
-            }`}
-          />
-        </span>
+        <Bell size={18} className="icon-anim-sway" />
+        Notifications
       </button>
       <ThemeButton
         isDark={isDark}
