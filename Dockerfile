@@ -39,7 +39,7 @@ COPY --from=client-build /app/client/dist ./client/dist
 RUN mkdir -p /app/data /app/data/uploads /app/data/backups
 
 ENV APP_ENV=production
-ENV PORT=5174
+ENV SERVER_PORT=5174
 EXPOSE 5174
 
 CMD ["node", "server/index.js"]

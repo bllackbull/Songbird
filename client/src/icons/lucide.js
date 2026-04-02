@@ -9,6 +9,7 @@ import {
   Check,
   CheckCheck,
   Clock12,
+  ClockFading,
   Copy,
   Database,
   Download,
@@ -47,7 +48,6 @@ import {
   VolumeX,
   X as Close,
   XCircle as CloseCircle,
-  ClockFading,
 } from "lucide-react";
 
 export {
@@ -62,6 +62,7 @@ export {
   Check,
   CheckCheck,
   Clock12,
+  ClockFading,
   Copy,
   Database,
   Download,
@@ -99,5 +100,4 @@ export {
   VolumeX,
   Close,
   CloseCircle,
-  ClockFading
 };

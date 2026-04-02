@@ -355,15 +355,30 @@ sudo ufw enable
 ```
 
 > **NOTE:**
-> - If you set `PORT` to a different value, update `proxy_pass` accordingly.
+> - If you set `SERVER_PORT` to a different value, update `proxy_pass` accordingly.
+> - If you use HTTP, nginx port doesn't have to be `80` .
 > - Keep `client_max_body_size` aligned with `FILE_UPLOAD_MAX_TOTAL_SIZE` (total request size).
-> - Keep the dedicated `/api/events` block as shown so SSE remains truly realtime behind HTTPS reverse proxies.
 
 ## Common troubleshooting
 
-- Docker logs: `docker compose -f docker-compose.yaml logs -f`
-- systemd service logs: `sudo journalctl -u songbird -f`
-- Check Nginx error logs: `/var/log/nginx/error.log`
+- Docker logs: 
+
+```bash
+docker compose -f docker-compose.yaml logs -f
+```
+
+- systemd service logs:
+
+```bash
+sudo journalctl -u songbird -f
+```
+
+- Check Nginx error logs:
+
+```bash
+nano /var/log/nginx/error.log
+```
+
 - If Docker build looks stuck at `RUN npm ci`, it is usually downloading dependencies. Use plain progress for visibility:
 
 ```bash
@@ -617,6 +632,34 @@ If you plan to host the app at a subpath (e.g., `example.com/songbird/`) you wil
 - Contributions are welcome.
 - If you want to contribute, contact the maintainer first by opening an issue at: `https://github.com/bllackbull/Songbird/issues`
 - For direct coordination, reach out to [@bllackbull](https://github.com/bllackbull) on GitHub before opening a PR.
+
+## Support
+
+If you like this project which I hope you do, consider supporting your favorite project:
+
+### TRX:
+
+```
+TPf1bEhipKpGkjo5N2Scj9nufNNh5TNrwX
+```
+
+### USDT (TRC20):
+
+```
+0x63313383611BbE11f4fEc139c14ad0b70281b822
+```
+
+### BTC:
+
+```
+bc1q9hupvcc39juhf0k7rgzn6phn8s8jez365kzmuj
+```
+
+### TON:
+
+```
+UQDzQ3xbWzKQvw8X8sWU82dksBeYqTHrT9sLzhBOyaESPjVy
+```
 
 ## License
 

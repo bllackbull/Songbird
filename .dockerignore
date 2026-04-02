@@ -8,3 +8,4 @@ npm-debug.log*
 .gitignore
 .vscode
 .idea
+.todo

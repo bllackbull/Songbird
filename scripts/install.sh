@@ -628,6 +628,7 @@ install_source_from_zip() {
   prepare_source_root_for_data_copy "$zip_path" "$source_root" "install"
 
   run_silent run_as_root cp -a "$source_root"/. "$INSTALL_DIR"/
+  apply_ownership
   run_silent run_as_root rm -rf "$tmp_dir"
 }
 
@@ -648,6 +649,7 @@ update_source_from_zip() {
   prepare_source_root_for_data_copy "$zip_path" "$source_root" "update"
 
   run_silent run_as_root cp -a "$source_root"/. "$INSTALL_DIR"/
+  apply_ownership
   run_silent run_as_root rm -rf "$tmp_dir"
 }
 
@@ -1108,6 +1110,7 @@ restore_backup_if_provided() {
 
   run_silent run_as_root rm -rf "$tmp_dir"
   log "Backup restored into ${INSTALL_DIR}/data."
+  apply_ownership
 }
 
 backup_database() {
