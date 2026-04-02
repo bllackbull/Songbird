@@ -1,5 +1,5 @@
 import { memo, useState } from "react";
-import { Chat, ImageIcon, Trash, User, Video } from "../../icons/lucide.js";
+import { Chat, ImageIcon, Mic, Trash, User, Video } from "../../icons/lucide.js";
 
 function CategoryButton({
   label,
@@ -121,6 +121,17 @@ export const DataSettingsPanel = memo(function DataSettingsPanel({
           icon={<Video size={isMobile ? 16 : 18} className="icon-anim-sway" />}
           sizeLabel={dataCacheStats?.mediaPosters?.sizeLabel}
           disabled={(dataCacheStats?.mediaPosters?.count || 0) === 0}
+          buttonBase={buttonBase}
+          buttonHover={buttonHover}
+          buttonTheme={buttonTheme}
+          disabledTheme={disabledTheme}
+          sizeText={sizeText}
+        />
+        <CategoryButton
+          label="Voice waveforms"
+          icon={<Mic size={isMobile ? 16 : 18} className="icon-anim-sway" />}
+          sizeLabel={dataCacheStats?.voiceWaveforms?.sizeLabel}
+          disabled={(dataCacheStats?.voiceWaveforms?.count || 0) === 0}
           buttonBase={buttonBase}
           buttonHover={buttonHover}
           buttonTheme={buttonTheme}

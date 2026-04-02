@@ -77,6 +77,7 @@ const CHAT_MESSAGES_INDEX_KEY = "songbird-chat-messages-index";
 const CHAT_MESSAGES_INDEX_LIMIT = 25;
 const MEDIA_THUMB_CACHE_KEY = "chat-media-thumbs-v2";
 const MEDIA_POSTER_CACHE_KEY = "chat-video-posters-v3";
+const VOICE_WAVEFORM_CACHE_KEY = "voice-waveform-cache-v1";
 const CHANNEL_SEEN_CACHE_KEY = "songbird-channel-seen";
 const MESSAGE_CACHE_MAX = Math.max(
   50,
@@ -257,7 +258,18 @@ const sanitizeMessagesForCache = (messages) =>
 
 const normalizeMessageForRender = (message) => {
   if (!message || typeof message !== "object") return message;
-  const normalizedBody = normalizeMessageBody(message.body);
+  let normalizedBody = normalizeMessageBody(message.body);
+  const files = Array.isArray(message.files) ? message.files : [];
+  const hasAudio = files.some((file) =>
+    String(file?.mimeType || "").toLowerCase().startsWith("audio/"),
+  );
+  if (hasAudio) {
+    const genericBodyPattern =
+      /^Sent (a media file|a document|a file|\d+ files|\d+ media files)$/i;
+    if (!normalizedBody || genericBodyPattern.test(normalizedBody)) {
+      normalizedBody = "Sent a voice message";
+    }
+  }
   const normalizedReply =
     message.replyTo && typeof message.replyTo === "object"
       ? {
@@ -347,6 +359,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [unreadMarkerId, setUnreadMarkerId] = useState(null);
   const [pendingUploadFiles, setPendingUploadFiles] = useState([]);
   const [pendingUploadType, setPendingUploadType] = useState("");
+  const [pendingVoiceMessage, setPendingVoiceMessage] = useState(null);
   const [uploadError, setUploadError] = useState("");
   const [activeUploadProgress, setActiveUploadProgress] = useState(null);
   const [replyTarget, setReplyTarget] = useState(null);
@@ -366,6 +379,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const shouldAutoMarkReadRef = useRef(true);
   const openingChatRef = useRef(false);
   const pendingUploadFilesRef = useRef([]);
+  const pendingVoiceMessageRef = useRef(null);
   const prevUploadProgressRef = useRef(null);
   const mediaLoadSnapTimerRef = useRef(null);
   const messageRefreshTimerRef = useRef(null);
@@ -401,6 +415,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       updatedAt: null,
     },
     mediaPosters: {
+      count: 0,
+      sizeBytes: 0,
+      sizeLabel: "0 B",
+      updatedAt: null,
+    },
+    voiceWaveforms: {
       count: 0,
       sizeBytes: 0,
       sizeLabel: "0 B",
@@ -692,11 +712,18 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const imageCount = files.filter((file) =>
       String(file?.mimeType || "").toLowerCase().startsWith("image/"),
     ).length;
-    const docCount = Math.max(0, files.length - videoCount - imageCount);
+    const audioCount = files.filter((file) =>
+      String(file?.mimeType || "").toLowerCase().startsWith("audio/"),
+    ).length;
+    const docCount = Math.max(0, files.length - videoCount - imageCount - audioCount);
     if (files.length === 1) {
       if (videoCount === 1) return "Sent a video";
       if (imageCount === 1) return "Sent a photo";
+      if (audioCount === 1) return "Sent a voice message";
       return "Sent a document";
+    }
+    if (audioCount > 0 && videoCount === 0 && imageCount === 0 && docCount === 0) {
+      return `Sent ${audioCount} voice message${audioCount > 1 ? "s" : ""}`;
     }
     if (videoCount > 0 && imageCount === 0 && docCount === 0) {
       return `Sent ${videoCount} video${videoCount > 1 ? "s" : ""}`;
@@ -727,24 +754,33 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const imageCount = files.filter((file) =>
       String(file?.mimeType || "").toLowerCase().startsWith("image/"),
     ).length;
-    const docCount = Math.max(0, files.length - videoCount - imageCount);
+    const audioCount = files.filter((file) =>
+      String(file?.mimeType || "").toLowerCase().startsWith("audio/"),
+    ).length;
+    const docCount = Math.max(0, files.length - videoCount - imageCount - audioCount);
     const isMixedMedia = imageCount > 0 && videoCount > 0 && docCount === 0;
-    const icon = isMixedMedia
-      ? "image"
-      : videoCount > 0
-        ? "video"
-        : imageCount > 0
-          ? "image"
-          : files.length
-            ? "document"
-            : null;
+    const hasVoiceOnly = audioCount > 0 && videoCount === 0 && imageCount === 0 && docCount === 0;
+    const icon = hasVoiceOnly
+      ? "voice"
+      : isMixedMedia
+        ? "image"
+        : videoCount > 0
+          ? "video"
+          : imageCount > 0
+            ? "image"
+            : files.length
+              ? "document"
+              : null;
     let summary = summarizeFiles(files);
     if (!summary && /^Sent a media file$/i.test(rawBody)) {
       if (videoCount === 1 && imageCount === 0) summary = "Sent a video";
       if (imageCount === 1 && videoCount === 0) summary = "Sent a photo";
     }
     const isGenericBody =
-      !rawBody || /^Sent (a media file|a document|\d+ files|\d+ media files)$/i.test(rawBody);
+      !rawBody ||
+      /^Sent (a media file|a document|a voice message|\d+ files|\d+ media files|\d+ voice messages)$/i.test(
+        rawBody,
+      );
     if (isMixedMedia && (isGenericBody || /^Sent \d+ files$/i.test(rawBody))) {
       summary = `Sent ${files.length} media files`;
     }
@@ -898,6 +934,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, [pendingUploadFiles]);
 
   useEffect(() => {
+    pendingVoiceMessageRef.current = pendingVoiceMessage;
+  }, [pendingVoiceMessage]);
+
+  useEffect(() => {
     usernameRef.current = String(user?.username || "");
   }, [user?.username]);
 
@@ -908,6 +948,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           URL.revokeObjectURL(file.previewUrl);
         }
       });
+      if (pendingVoiceMessageRef.current?.previewUrl) {
+        URL.revokeObjectURL(pendingVoiceMessageRef.current.previewUrl);
+      }
       if (pendingGroupAvatarFile?.previewUrl) {
         URL.revokeObjectURL(pendingGroupAvatarFile.previewUrl);
       }
@@ -1358,6 +1401,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   useEffect(() => {
     clearPendingUploads();
+    clearPendingVoiceMessage();
     setActiveUploadProgress(null);
     setReplyTarget(null);
   }, [activeChatId]);
@@ -2278,8 +2322,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }
       const fileMeta = [];
       pendingMessage._files.forEach((item) => {
-        if (item?.file instanceof File) {
-          form.append("files", item.file, item.name || item.file.name);
+        if (item?.file instanceof Blob) {
+          const filename = item.name || item.file.name || "upload.bin";
+          form.append("files", item.file, filename);
           fileMeta.push({
             width: Number.isFinite(Number(item.width)) ? Number(item.width) : null,
             height: Number.isFinite(Number(item.height)) ? Number(item.height) : null,
@@ -2424,6 +2469,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           const pendingBody = String(pendingMessage?.body || "").trim() || "Sent a file";
           const messageFiles = files.map((file) => ({
             id: file.id,
+            _localId: file._localId || file.id,
             kind: file.kind,
             name: file.name,
             mimeType: file.mimeType,
@@ -2563,10 +2609,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (!isOwn) return false;
       const hasFiles = Array.isArray(msg.files) ? msg.files.length > 0 : false;
       if (!hasFiles) return false;
-      const hasVideo = msg.files.some((file) =>
-        String(file?.mimeType || "").toLowerCase().startsWith("video/"),
-      );
-      if (!hasVideo) return false;
       if (msg._processingPending) return true;
       if (msg._awaitingServerEcho) return true;
       if (msg._delivery === "sending") return true;
@@ -2975,8 +3017,19 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             });
           }
           if (!existingLocal?._clientId) return serverMsg;
+          const serverFiles = Array.isArray(serverMsg.files) ? serverMsg.files : [];
+          const localFiles = Array.isArray(existingLocal.files) ? existingLocal.files : [];
+          const mergedFiles =
+            serverFiles.length && localFiles.length === serverFiles.length
+              ? serverFiles.map((file, idx) => ({
+                  ...file,
+                  _localId: localFiles[idx]?._localId || localFiles[idx]?.id || null,
+                  _localUrl: localFiles[idx]?.url || localFiles[idx]?._localUrl || null,
+                }))
+              : serverFiles;
           return {
             ...serverMsg,
+            files: mergedFiles,
             _clientId: existingLocal._clientId,
             _serverId: Number(serverMsg.id),
             _chatId: existingLocal._chatId,
@@ -3324,6 +3377,80 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
   }
 
+  function clearPendingVoiceMessage() {
+    setPendingVoiceMessage((prev) => {
+      if (prev?.previewUrl) {
+        URL.revokeObjectURL(prev.previewUrl);
+      }
+      return null;
+    });
+  }
+
+  function handleVoiceRecorded(payload) {
+    if (!payload?.file) return;
+    if (!CHAT_PAGE_CONFIG.fileUploadEnabled) {
+      setUploadError("File uploads are disabled on this server.");
+      return;
+    }
+    if (fileUploadInProgress || activeUploadProgress !== null) {
+      setUploadError("Please wait for the current upload to finish.");
+      return;
+    }
+    if (pendingVoiceMessage) {
+      setUploadError("Remove the voice message before attaching files.");
+      return;
+    }
+    if (pendingUploadFiles.length) {
+      setUploadError("Remove attachments before adding a voice message.");
+      return;
+    }
+    const file = payload.file;
+    const sizeBytes = Number(file.size || 0);
+    if (sizeBytes > CHAT_PAGE_CONFIG.maxFileSizeBytes) {
+      setUploadError(
+        `Each file must be smaller than ${formatBytesAsMb(
+          CHAT_PAGE_CONFIG.maxFileSizeBytes,
+        )}.`,
+      );
+      return;
+    }
+    if (sizeBytes > CHAT_PAGE_CONFIG.maxTotalUploadBytes) {
+      setUploadError(
+        `Total upload size cannot exceed ${formatBytesAsMb(
+          CHAT_PAGE_CONFIG.maxTotalUploadBytes,
+        )}.`,
+      );
+      return;
+    }
+    setUploadError("");
+    clearPendingVoiceMessage();
+    const previewUrl = URL.createObjectURL(file);
+    setPendingVoiceMessage({
+      id: `voice-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      file,
+      name: file.name || "voice-message",
+      mimeType: payload.mimeType || file.type || "audio/webm",
+      sizeBytes,
+      durationSeconds: Number(payload.durationSeconds || 0) || null,
+      previewUrl,
+      kind: "voice",
+    });
+    if (activeChatId) {
+      pendingScrollToBottomRef.current = true;
+      userScrolledUpRef.current = false;
+      setUserScrolledUp(false);
+      isAtBottomRef.current = true;
+      setIsAtBottom(true);
+      scrollChatToBottom("auto");
+      requestAnimationFrame(() => {
+        scrollChatToBottom("auto");
+      });
+      window.setTimeout(() => {
+        scrollChatToBottom("auto");
+      }, 80);
+    }
+  }
+
   function removePendingUpload(id) {
     setPendingUploadFiles((prev) => {
       const next = prev.filter((file) => {
@@ -3435,6 +3562,68 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         }
       });
     }
+    if (mimeType.startsWith("audio/")) {
+      return new Promise((resolve) => {
+        const audio = document.createElement("audio");
+        audio.preload = "metadata";
+        let reader = null;
+        let resolved = false;
+
+        const resolveOnce = (metadata) => {
+          if (resolved) return;
+          resolved = true;
+          resolve(metadata);
+        };
+
+        const cleanup = () => {
+          if ("srcObject" in audio) {
+            audio.srcObject = null;
+          }
+          audio.removeAttribute("src");
+          audio.load();
+          if (reader?.readyState === FileReader.LOADING) {
+            reader.abort();
+          }
+          reader = null;
+        };
+
+        audio.onloadedmetadata = () => {
+          resolveOnce({
+            width: null,
+            height: null,
+            durationSeconds: Number.isFinite(Number(audio.duration))
+              ? Number(audio.duration)
+              : null,
+          });
+          cleanup();
+        };
+        audio.onerror = () => {
+          resolveOnce({ width: null, height: null, durationSeconds: null });
+          cleanup();
+        };
+
+        try {
+          reader = new FileReader();
+          reader.onload = () => {
+            const dataUrl = typeof reader?.result === "string" ? reader.result : "";
+            if (!dataUrl) {
+              resolveOnce({ width: null, height: null, durationSeconds: null });
+              cleanup();
+              return;
+            }
+            audio.src = dataUrl;
+          };
+          reader.onerror = () => {
+            resolveOnce({ width: null, height: null, durationSeconds: null });
+            cleanup();
+          };
+          reader.readAsDataURL(file);
+        } catch {
+          resolveOnce({ width: null, height: null, durationSeconds: null });
+          cleanup();
+        }
+      });
+    }
     return Promise.resolve({ width: null, height: null, durationSeconds: null });
   }
 
@@ -3522,7 +3711,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       durationSeconds: metadata[index]?.durationSeconds ?? null,
       previewUrl:
         String(file.type || "").startsWith("image/") ||
-        String(file.type || "").startsWith("video/")
+        String(file.type || "").startsWith("video/") ||
+        String(file.type || "").startsWith("audio/")
         ? URL.createObjectURL(file)
         : null,
     }));
@@ -3576,7 +3766,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
     const trimmedBody = body.trim();
     const hasPendingFiles = pendingUploadFiles.length > 0;
-    if (!trimmedBody && !hasPendingFiles) return;
+    const hasPendingVoice = Boolean(pendingVoiceMessage);
+    const hasAnyPendingFiles = hasPendingFiles || hasPendingVoice;
+    if (!trimmedBody && !hasAnyPendingFiles) return;
     const maxMessageChars = APP_CONFIG.messageMaxChars;
     if (String(body).length > maxMessageChars) {
       setUploadError(`Message must be ${maxMessageChars} characters or less.`);
@@ -3586,7 +3778,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       setUploadError("");
     }
 
-    const pendingFilesSummary = hasPendingFiles ? summarizeFiles(pendingUploadFiles) : "";
+    const pendingFilesSummary = hasAnyPendingFiles
+      ? summarizeFiles([
+          ...pendingUploadFiles,
+          ...(hasPendingVoice && pendingVoiceMessage ? [pendingVoiceMessage] : []),
+        ])
+      : "";
     const isSavedChat = isActiveSavedChat;
 
     const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -3599,26 +3796,59 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       (hasPendingFiles
         ? pendingFilesSummary || `Sent ${pendingUploadFiles.length} files`
         : "");
-    const pendingFiles = hasPendingFiles
-      ? pendingUploadFiles.map((item) => ({
-          id: item.id,
-          kind: pendingUploadType === "document" ? "document" : "media",
-          name: item.name,
-          mimeType: item.mimeType,
-          sizeBytes: item.sizeBytes,
-          width: Number.isFinite(Number(item.width)) ? Number(item.width) : null,
-          height: Number.isFinite(Number(item.height)) ? Number(item.height) : null,
-          durationSeconds: Number.isFinite(Number(item.durationSeconds))
-            ? Number(item.durationSeconds)
-            : null,
-          url:
-            item.file instanceof File &&
-            (String(item.mimeType || "").startsWith("image/") ||
-              String(item.mimeType || "").startsWith("video/"))
-              ? URL.createObjectURL(item.file)
-              : item.previewUrl || null,
-          file: item.file,
-        }))
+    const pendingFiles = hasAnyPendingFiles
+      ? [
+          ...pendingUploadFiles.map((item) => {
+            const localUrl =
+              item.file instanceof Blob &&
+              (String(item.mimeType || "").startsWith("image/") ||
+                String(item.mimeType || "").startsWith("video/") ||
+                String(item.mimeType || "").startsWith("audio/"))
+                ? URL.createObjectURL(item.file)
+                : item.previewUrl || null;
+            return {
+              id: item.id,
+              _localId: item.id,
+              kind: pendingUploadType === "document" ? "document" : "media",
+              name: item.name,
+              mimeType: item.mimeType,
+              sizeBytes: item.sizeBytes,
+              width: Number.isFinite(Number(item.width)) ? Number(item.width) : null,
+              height: Number.isFinite(Number(item.height)) ? Number(item.height) : null,
+              durationSeconds: Number.isFinite(Number(item.durationSeconds))
+                ? Number(item.durationSeconds)
+                : null,
+              url: localUrl,
+              _localUrl: localUrl,
+              file: item.file,
+            };
+          }),
+          ...(hasPendingVoice && pendingVoiceMessage
+            ? [
+                (() => {
+                  const localUrl = pendingVoiceMessage.file instanceof Blob
+                    ? URL.createObjectURL(pendingVoiceMessage.file)
+                    : pendingVoiceMessage.previewUrl || null;
+                  return {
+                    id: pendingVoiceMessage.id,
+                    _localId: pendingVoiceMessage.id,
+                    kind: "voice",
+                    name: pendingVoiceMessage.name,
+                    mimeType: pendingVoiceMessage.mimeType,
+                    sizeBytes: pendingVoiceMessage.sizeBytes,
+                    width: null,
+                    height: null,
+                    durationSeconds: Number.isFinite(Number(pendingVoiceMessage.durationSeconds))
+                      ? Number(pendingVoiceMessage.durationSeconds)
+                      : null,
+                    url: localUrl,
+                    _localUrl: localUrl,
+                    file: pendingVoiceMessage.file,
+                  };
+                })(),
+              ]
+            : []),
+        ]
       : [];
     const replyPayload = replyTarget
       ? {
@@ -3632,9 +3862,16 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         }
       : null;
 
-    if (hasPendingFiles) {
+    const effectiveUploadType = hasPendingFiles
+      ? pendingUploadType
+      : hasPendingVoice
+        ? "media"
+        : pendingUploadType;
+
+    if (hasAnyPendingFiles) {
       form.reset();
       clearPendingUploads();
+      clearPendingVoiceMessage();
       pendingScrollToBottomRef.current = true;
 
       const pendingMessage = {
@@ -3642,7 +3879,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         _chatId: Number(activeChatId),
         _queuedAt: queuedAt,
         _delivery: "sending",
-        _uploadType: pendingUploadType,
+        _uploadType: effectiveUploadType,
         _files: pendingFiles,
         _createdAt: createdAt,
         _dayKey: pendingDayKey,
@@ -3672,13 +3909,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         _dayKey: pendingDayKey,
         _dayLabel: formatDayLabel(createdAt),
         _timeLabel: formatTime(createdAt),
-        _uploadType: pendingUploadType,
+        _uploadType: effectiveUploadType,
         _files: pendingFiles,
-        _uploadProgress: hasPendingFiles ? 0 : null,
+        _uploadProgress: hasAnyPendingFiles ? 0 : null,
         _awaitingServerEcho: false,
         replyTo: replyPayload,
         files: pendingFiles.map((file) => ({
           id: file.id,
+          _localId: file._localId || file.id,
           kind: file.kind,
           name: file.name,
           mimeType: file.mimeType,
@@ -3692,6 +3930,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     ]);
     form.reset();
     clearPendingUploads();
+    clearPendingVoiceMessage();
     pendingScrollToBottomRef.current = true;
     setReplyTarget(null);
 
@@ -3704,7 +3943,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       _chatId: Number(activeChatId),
       _queuedAt: queuedAt,
       _delivery: "sending",
-      _uploadType: pendingUploadType,
+      _uploadType: effectiveUploadType,
       _files: pendingFiles,
       body: fallbackBody,
       replyTo: replyPayload,
@@ -3962,6 +4201,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           sizeLabel: "0 B",
           updatedAt: null,
         },
+        voiceWaveforms: {
+          count: 0,
+          sizeBytes: 0,
+          sizeLabel: "0 B",
+          updatedAt: null,
+        },
       };
     }
 
@@ -3971,9 +4216,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     let messageCacheSizeBytes = 0;
     let mediaThumbSizeBytes = 0;
     let mediaPosterSizeBytes = 0;
+    let voiceWaveformSizeBytes = 0;
     let chatListUpdatedAt = null;
     let mediaThumbUpdatedAt = null;
     let mediaPosterUpdatedAt = null;
+    let voiceWaveformUpdatedAt = null;
     const chatListEntries = [];
     const messageCacheEntries = [];
     const chatNameById = new Map();
@@ -3989,6 +4236,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const messagesIndexKey = buildMessagesIndexKey(username);
     let mediaThumbParsed = null;
     let mediaPosterParsed = null;
+    let voiceWaveformParsed = null;
 
     for (let i = 0; i < window.localStorage.length; i += 1) {
       const key = window.localStorage.key(i);
@@ -4051,6 +4299,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         mediaPosterUpdatedAt = mediaPosterParsed?.updatedAt || null;
         continue;
       }
+      if (key === VOICE_WAVEFORM_CACHE_KEY) {
+        const size = addSize(value);
+        voiceWaveformSizeBytes += size || 0;
+        voiceWaveformParsed = safeParseJson(value);
+        voiceWaveformUpdatedAt = voiceWaveformParsed?.updatedAt || null;
+        continue;
+      }
     }
 
     return {
@@ -4084,6 +4339,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         sizeLabel: formatBytes(mediaPosterSizeBytes),
         updatedAt: mediaPosterUpdatedAt,
       },
+      voiceWaveforms: {
+        count: Array.isArray(voiceWaveformParsed?.entries)
+          ? voiceWaveformParsed.entries.length
+          : 0,
+        sizeBytes: voiceWaveformSizeBytes,
+        sizeLabel: formatBytes(voiceWaveformSizeBytes),
+        updatedAt: voiceWaveformUpdatedAt,
+      },
     };
   }, [user?.username]);
 
@@ -4114,6 +4377,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     [
       MEDIA_THUMB_CACHE_KEY,
       MEDIA_POSTER_CACHE_KEY,
+      VOICE_WAVEFORM_CACHE_KEY,
       "chat-media-thumbs",
       "chat-video-posters-v2",
     ].forEach((key) => removeLocalCache(key));
@@ -4926,6 +5190,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         }
         pendingUploadFiles={pendingUploadFiles}
         pendingUploadType={pendingUploadType}
+        pendingVoiceMessage={pendingVoiceMessage}
         uploadError={uploadError}
         activeUploadProgress={activeUploadProgress}
         messageMaxChars={APP_CONFIG.messageMaxChars}
@@ -4933,6 +5198,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         onUploadFilesSelected={handleUploadFilesSelected}
         onRemovePendingUpload={removePendingUpload}
         onClearPendingUploads={clearPendingUploads}
+        onVoiceRecorded={handleVoiceRecorded}
+        onClearPendingVoiceMessage={clearPendingVoiceMessage}
         onMessageInput={handleMessageInput}
         replyTarget={replyTarget}
         onClearReply={handleClearReply}

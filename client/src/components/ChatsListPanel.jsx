@@ -5,6 +5,7 @@ import {
   File,
   Ghost,
   ImageIcon,
+  Mic,
   Minus,
   Bookmark,
   Megaphone,
@@ -49,7 +50,7 @@ export default function ChatsListPanel({
   const wiggleDelays = [-80, -170, -260, -120, -220, -320];
   const isEmptyState = !loadingChats && !visibleChats.length;
   const fallbackUploadTextPattern =
-    /^Sent (a media file|a document|\d+ files|\d+ media files)$/i;
+    /^Sent (a media file|a document|a voice message|\d+ files|\d+ media files|\d+ voice messages)$/i;
   const normalizePreviewText = (value) => {
     if (typeof value === "string") {
       return value === "[object Object]" ? "" : value;
@@ -84,13 +85,21 @@ export default function ChatsListPanel({
         .toLowerCase()
         .startsWith("image/"),
     ).length;
-    const docCount = Math.max(0, files.length - videoCount - imageCount);
+    const audioCount = files.filter((file) =>
+      String(file.mimeType || "")
+        .toLowerCase()
+        .startsWith("audio/"),
+    ).length;
+    const docCount = Math.max(0, files.length - videoCount - imageCount - audioCount);
 
     const isMixedMedia = imageCount > 0 && videoCount > 0 && docCount === 0;
+    const hasVoiceOnly = audioCount > 0 && videoCount === 0 && imageCount === 0 && docCount === 0;
     const isFileOnlyBody = !body || fallbackUploadTextPattern.test(body);
     if (!isFileOnlyBody) {
       const icon =
-        isMixedMedia
+        hasVoiceOnly
+          ? "voice"
+          : isMixedMedia
           ? "image"
           : videoCount > 0
             ? "video"
@@ -103,9 +112,16 @@ export default function ChatsListPanel({
     if (files.length === 1) {
       if (videoCount === 1) return { icon: "video", text: "Sent a video" };
       if (imageCount === 1) return { icon: "image", text: "Sent a photo" };
+      if (audioCount === 1) return { icon: "voice", text: "Sent a voice message" };
       return { icon: "document", text: "Sent a document" };
     }
 
+    if (audioCount > 0 && videoCount === 0 && imageCount === 0 && docCount === 0) {
+      return {
+        icon: "voice",
+        text: `Sent ${audioCount} voice message${audioCount > 1 ? "s" : ""}`,
+      };
+    }
     if (videoCount > 0 && imageCount === 0 && docCount === 0) {
       return {
         icon: "video",
@@ -506,7 +522,12 @@ export default function ChatsListPanel({
                             You:
                           </span>
                           <span className="flex min-w-0 flex-1 items-center gap-1">
-                            {lastPreview.icon === "video" ? (
+                            {lastPreview.icon === "voice" ? (
+                              <Mic
+                                size={12}
+                                className="shrink-0 text-slate-500 dark:text-slate-400"
+                              />
+                            ) : lastPreview.icon === "video" ? (
                               <Video
                                 size={12}
                                 className="shrink-0 text-slate-500 dark:text-slate-400"
@@ -544,7 +565,12 @@ export default function ChatsListPanel({
                               {conv.last_sender_nickname || conv.last_sender_username}:
                             </span>
                           ) : null}
-                          {lastPreview.icon === "video" ? (
+                          {lastPreview.icon === "voice" ? (
+                            <Mic
+                              size={12}
+                              className="shrink-0 text-slate-500 dark:text-slate-400"
+                            />
+                          ) : lastPreview.icon === "video" ? (
                             <Video
                               size={12}
                               className="shrink-0 text-slate-500 dark:text-slate-400"

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Check, CheckCheck, Clock12, ClockFading, Eye, File, Ghost, ImageIcon, Video } from "../../icons/lucide.js";
+import { AlertCircle, Check, CheckCheck, Clock12, ClockFading, Eye, File, Ghost, ImageIcon, Mic, Video } from "../../icons/lucide.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { getAvatarStyle } from "../../utils/avatarColor.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
@@ -41,7 +41,10 @@ export function MessageItem({
   const hasFiles = messageFiles.length > 0;
   const getFileRenderType = messageFilesProps?.getFileRenderType;
   const hasMediaFiles = getFileRenderType
-    ? messageFiles.some((file) => getFileRenderType(file) !== "document")
+    ? messageFiles.some((file) => {
+        const type = getFileRenderType(file);
+        return type === "image" || type === "video";
+      })
     : true;
   const hasUploadInProgress =
     Array.isArray(msg._files) &&
@@ -320,11 +323,13 @@ export function MessageItem({
       replyBodyText,
     );
   const normalizedReplyPreview =
-    replyTarget?.icon === "video"
-      ? (isGenericReplyMediaText && !isPluralMediaSummary ? "Sent a video" : replyPreview)
-      : replyTarget?.icon === "image"
-        ? (isGenericReplyMediaText && !isPluralMediaSummary ? "Sent a photo" : replyPreview)
-        : replyPreview;
+    replyTarget?.icon === "voice"
+      ? (/^Sent (a voice message|\d+ voice messages)$/i.test(replyBodyText) ? "Sent a voice message" : replyPreview)
+      : replyTarget?.icon === "video"
+        ? (isGenericReplyMediaText && !isPluralMediaSummary ? "Sent a video" : replyPreview)
+        : replyTarget?.icon === "image"
+          ? (isGenericReplyMediaText && !isPluralMediaSummary ? "Sent a photo" : replyPreview)
+          : replyPreview;
   const replyPreviewHtml = useMemo(
     () => renderMarkdownInlinePlain(normalizedReplyPreview),
     [normalizedReplyPreview],
@@ -333,6 +338,7 @@ export function MessageItem({
     if (!replyTarget) return null;
     if (replyTarget.icon) return replyTarget.icon;
     if (/^Sent \d+ media files/i.test(replyPreview)) return "image";
+    if (/^Sent (a voice message|\d+ voice messages)/i.test(replyPreview)) return "voice";
     if (/^Sent (a video|\d+ videos)/i.test(replyPreview)) return "video";
     if (/^Sent (a photo|\d+ photos)/i.test(replyPreview)) return "image";
     if (/^Sent a media file/i.test(replyPreview)) return "image";
@@ -522,7 +528,9 @@ export function MessageItem({
                       dir={replyIsRtl ? "rtl" : "ltr"}
                       style={{ unicodeBidi: "plaintext" }}
                     >
-                      {derivedReplyIcon === "video" ? (
+                      {derivedReplyIcon === "voice" ? (
+                        <Mic size={11} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                      ) : derivedReplyIcon === "video" ? (
                         <Video size={11} className="shrink-0 text-slate-500 dark:text-slate-400" />
                       ) : derivedReplyIcon === "image" ? (
                         <ImageIcon size={11} className="shrink-0 text-slate-500 dark:text-slate-400" />
@@ -546,7 +554,7 @@ export function MessageItem({
               />
               {!(
                 (msg.files || []).length &&
-                /^Sent (a media file|a photo|a video|a document|\d+ (files|photos|videos|documents|media files))$/i.test(
+                /^Sent (a media file|a photo|a video|a document|a voice message|\d+ (files|photos|videos|documents|media files|voice messages))$/i.test(
                   bodyText.trim(),
                 )
               ) ? (
@@ -628,7 +636,9 @@ export function MessageItem({
                   dir={replyIsRtl ? "rtl" : "ltr"}
                   style={{ unicodeBidi: "plaintext" }}
                 >
-                  {derivedReplyIcon === "video" ? (
+                  {derivedReplyIcon === "voice" ? (
+                    <Mic size={11} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                  ) : derivedReplyIcon === "video" ? (
                     <Video size={11} className="shrink-0 text-slate-500 dark:text-slate-400" />
                   ) : derivedReplyIcon === "image" ? (
                     <ImageIcon size={11} className="shrink-0 text-slate-500 dark:text-slate-400" />
@@ -652,7 +662,7 @@ export function MessageItem({
             />
           {!(
             (msg.files || []).length &&
-              /^Sent (a media file|a photo|a video|a document|\d+ (files|photos|videos|documents|media files))$/i.test(
+              /^Sent (a media file|a photo|a video|a document|a voice message|\d+ (files|photos|videos|documents|media files|voice messages))$/i.test(
                 bodyText.trim(),
               )
           ) ? (

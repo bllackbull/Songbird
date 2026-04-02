@@ -488,7 +488,7 @@ function getUploadKind(uploadType, mimeType = "") {
   const type = String(mimeType || "").toLowerCase();
 
   if (uploadType === "media") {
-    if (type.startsWith("image/") || type.startsWith("video/")) {
+    if (type.startsWith("image/") || type.startsWith("video/") || type.startsWith("audio/")) {
       return "media";
     }
     return null;
@@ -1186,11 +1186,18 @@ function summarizeMessageFiles(rows = []) {
   const imageCount = rows.filter((file) =>
     String(file?.mime_type || "").toLowerCase().startsWith("image/"),
   ).length;
-  const docCount = Math.max(0, rows.length - videoCount - imageCount);
+  const audioCount = rows.filter((file) =>
+    String(file?.mime_type || "").toLowerCase().startsWith("audio/"),
+  ).length;
+  const docCount = Math.max(0, rows.length - videoCount - imageCount - audioCount);
   if (rows.length === 1) {
     if (videoCount === 1) return "Sent a video";
     if (imageCount === 1) return "Sent a photo";
+    if (audioCount === 1) return "Sent a voice message";
     return "Sent a document";
+  }
+  if (audioCount > 0 && videoCount === 0 && imageCount === 0 && docCount === 0) {
+    return `Sent ${audioCount} voice message${audioCount > 1 ? "s" : ""}`;
   }
   if (videoCount > 0 && imageCount === 0 && docCount === 0) {
     return `Sent ${videoCount} video${videoCount > 1 ? "s" : ""}`;

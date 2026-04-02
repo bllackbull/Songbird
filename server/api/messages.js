@@ -547,11 +547,18 @@ function registerMessageRoutes(app, deps) {
           const imageCount = files.filter((file) =>
             String(file.mimeType || "").toLowerCase().startsWith("image/"),
           ).length;
-          const docCount = Math.max(0, files.length - videoCount - imageCount);
+          const audioCount = files.filter((file) =>
+            String(file.mimeType || "").toLowerCase().startsWith("audio/"),
+          ).length;
+          const docCount = Math.max(0, files.length - videoCount - imageCount - audioCount);
           if (files.length === 1) {
             if (videoCount === 1) return "Sent a video";
             if (imageCount === 1) return "Sent a photo";
+            if (audioCount === 1) return "Sent a voice message";
             return "Sent a document";
+          }
+          if (audioCount > 0 && videoCount === 0 && imageCount === 0 && docCount === 0) {
+            return `Sent ${audioCount} voice message${audioCount > 1 ? "s" : ""}`;
           }
           if (videoCount > 0 && imageCount === 0 && docCount === 0) {
             return `Sent ${videoCount} video${videoCount > 1 ? "s" : ""}`;

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { File, ImageIcon, Paperclip, Play, Reply, Send, Close, Video } from "../../icons/lucide.js";
+import { File, ImageIcon, Mic, Paperclip, Play, Reply, Send, Close, Video } from "../../icons/lucide.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { renderMarkdownInlinePlain } from "../../utils/markdown.js";
 
@@ -12,12 +12,15 @@ export function MessageComposer({
   onClearReply,
   pendingUploadFiles,
   pendingUploadType,
+  pendingVoiceMessage,
   fileUploadEnabled,
   mediaInputRef,
   documentInputRef,
   onClearPendingUploads,
   onRemovePendingUpload,
   onUploadFilesSelected,
+  onVoiceRecorded,
+  onClearPendingVoiceMessage,
   uploadError,
   activeUploadProgress,
   messageMaxChars = null,
@@ -32,7 +35,24 @@ export function MessageComposer({
   const composerRef = useRef(null);
   const messageInputRef = useRef(null);
   const [isRtl, setIsRtl] = useState(false);
+  const [messageValue, setMessageValue] = useState("");
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingMs, setRecordingMs] = useState(0);
+  const recordingTimerRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const recordingStreamRef = useRef(null);
+  const recordingChunksRef = useRef([]);
+  const recordingStartRef = useRef(0);
+  const recordingDurationMsRef = useRef(0);
+  const isPressingMicRef = useRef(false);
+  const pendingStopRef = useRef(false);
   const maxTextareaHeight = 136;
+  const formatDuration = (totalSeconds) => {
+    const seconds = Math.max(0, Math.floor(Number(totalSeconds || 0)));
+    const minutes = Math.floor(seconds / 60);
+    const remainder = seconds % 60;
+    return `${minutes}:${String(remainder).padStart(2, "0")}`;
+  };
   const normalizeReplyBody = (value) => {
     if (typeof value === "string") return value === "[object Object]" ? "" : value;
     if (value && typeof value === "object") {
@@ -50,10 +70,13 @@ export function MessageComposer({
       /^Sent (a media file|a photo|a video|a document|\d+ (files|photos|videos|documents|media files))$/i.test(
         replyBodyNormalized,
       );
+    const isGenericReplyVoiceText =
+      /^Sent (a voice message|\d+ voice messages)$/i.test(replyBodyNormalized);
     const derivedReplyIcon = (() => {
     if (!replyTarget) return null;
     if (replyTarget.icon) return replyTarget.icon;
       if (/^Sent \d+ media files/i.test(replyBodyText)) return "image";
+      if (/^Sent (a voice message|\d+ voice messages)/i.test(replyBodyText)) return "voice";
       if (/^Sent (a video|\d+ videos)/i.test(replyBodyText)) return "video";
       if (/^Sent (a photo|\d+ photos)/i.test(replyBodyText)) return "image";
       if (/^Sent a media file/i.test(replyBodyText)) return "image";
@@ -61,11 +84,13 @@ export function MessageComposer({
       return null;
     })();
     const resolvedReplyText =
-      derivedReplyIcon === "video"
-        ? (isGenericReplyMediaText && !isPluralMediaSummary ? "Sent a video" : replyBodyText || "Message")
-        : derivedReplyIcon === "image"
-          ? (isGenericReplyMediaText && !isPluralMediaSummary ? "Sent a photo" : replyBodyText || "Message")
-          : replyBodyText || "Message";
+      derivedReplyIcon === "voice"
+        ? (isGenericReplyVoiceText ? "Sent a voice message" : replyBodyText || "Message")
+        : derivedReplyIcon === "video"
+          ? (isGenericReplyMediaText && !isPluralMediaSummary ? "Sent a video" : replyBodyText || "Message")
+          : derivedReplyIcon === "image"
+            ? (isGenericReplyMediaText && !isPluralMediaSummary ? "Sent a photo" : replyBodyText || "Message")
+            : replyBodyText || "Message";
     const resolvedReplyHtml = renderMarkdownInlinePlain(resolvedReplyText);
 
   const resizeTextarea = () => {
@@ -93,6 +118,212 @@ export function MessageComposer({
     resizeTextarea();
   }, [replyTarget]);
 
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) {
+        window.clearInterval(recordingTimerRef.current);
+      }
+      if (recordingStreamRef.current) {
+        recordingStreamRef.current.getTracks()?.forEach((track) => track.stop());
+        recordingStreamRef.current = null;
+      }
+    };
+  }, []);
+
+  const startRecordingTimer = () => {
+    if (recordingTimerRef.current) {
+      window.clearInterval(recordingTimerRef.current);
+    }
+    recordingStartRef.current = Date.now();
+    setRecordingMs(0);
+    recordingTimerRef.current = window.setInterval(() => {
+      setRecordingMs(Date.now() - recordingStartRef.current);
+    }, 200);
+  };
+
+  const stopRecordingTimer = () => {
+    if (recordingTimerRef.current) {
+      window.clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+  };
+
+  const stopRecording = () => {
+    const recorder = mediaRecorderRef.current;
+    const canStop = recorder && recorder.state !== "inactive";
+    if (!isRecording && !canStop) return;
+    recordingDurationMsRef.current = Date.now() - recordingStartRef.current;
+    setIsRecording(false);
+    stopRecordingTimer();
+    if (canStop) {
+      try {
+        if (recorder.state === "recording" && typeof recorder.requestData === "function") {
+          recorder.requestData();
+        }
+      } catch {
+        // no-op
+      }
+      try {
+        recorder.stop();
+      } catch {
+        // no-op
+      }
+    }
+    if (recordingStreamRef.current) {
+      recordingStreamRef.current.getTracks()?.forEach((track) => track.stop());
+      recordingStreamRef.current = null;
+    }
+  };
+
+  const createVoiceFileFromChunks = async (chunks, durationSeconds) => {
+    if (!chunks.length) return null;
+    const preferredTypes = [
+      "audio/webm;codecs=opus",
+      "audio/ogg;codecs=opus",
+      "audio/webm",
+      "audio/ogg",
+    ];
+    const mimeType =
+      preferredTypes.find((type) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(type)) ||
+      chunks[0].type ||
+      "audio/webm";
+    const ext = mimeType.includes("ogg") ? "ogg" : "webm";
+    const blob = new Blob(chunks, { type: mimeType });
+    const filename = `voice-message-${Date.now()}.${ext}`;
+    let file = blob;
+    try {
+      if (typeof File !== "undefined") {
+        file = new File([blob], filename, { type: mimeType });
+      } else {
+        file = blob;
+      }
+    } catch {
+      file = blob;
+    }
+    if (file && !file.name) {
+      Object.defineProperty(file, "name", { value: filename, configurable: true });
+    }
+    return {
+      file,
+      durationSeconds,
+      mimeType,
+    };
+  };
+
+  const requestMicrophoneStream = async () => {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Microphone access is not supported in this browser.");
+    }
+    if (navigator.permissions?.query) {
+      try {
+        await navigator.permissions.query({ name: "microphone" });
+      } catch {
+        // ignore permissions API failures
+      }
+    }
+    return navigator.mediaDevices.getUserMedia({ audio: true });
+  };
+
+  const startRecording = async () => {
+    if (isRecording) return;
+    if (pendingVoiceMessage) return;
+    if (!fileUploadEnabled) return;
+    if (uploadBusy) return;
+    if (pendingUploadFiles?.length) return;
+    setShowUploadMenu(false);
+    recordingChunksRef.current = [];
+    const stream = await requestMicrophoneStream();
+    if (!isPressingMicRef.current) {
+      stream.getTracks()?.forEach((track) => track.stop());
+      return;
+    }
+    recordingStreamRef.current = stream;
+    const options = {};
+    if (typeof MediaRecorder !== "undefined") {
+      if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+        options.mimeType = "audio/webm;codecs=opus";
+      } else if (MediaRecorder.isTypeSupported("audio/ogg;codecs=opus")) {
+        options.mimeType = "audio/ogg;codecs=opus";
+      }
+    }
+    const recorder = new MediaRecorder(stream, options);
+    mediaRecorderRef.current = recorder;
+    recorder.ondataavailable = (event) => {
+      if (event.data && event.data.size > 0) {
+        recordingChunksRef.current.push(event.data);
+      }
+    };
+    recorder.onerror = (event) => {
+      console.warn("[voice] recorder error", event);
+    };
+    recorder.onstop = async () => {
+      const fallbackDurationMs = Date.now() - recordingStartRef.current;
+      const durationMs = recordingDurationMsRef.current || fallbackDurationMs;
+      const chunks = recordingChunksRef.current;
+      recordingChunksRef.current = [];
+      recordingDurationMsRef.current = 0;
+      if (!chunks.length) {
+        console.warn("[voice] no audio chunks collected");
+        return;
+      }
+      if (durationMs <= 1000) {
+        return;
+      }
+      const durationSeconds = Math.max(1, Math.round(durationMs / 1000));
+      const payload = await createVoiceFileFromChunks(chunks, durationSeconds);
+      if (payload && typeof onVoiceRecorded === "function") {
+        onVoiceRecorded(payload);
+      }
+    };
+    recorder.start(250);
+    setIsRecording(true);
+    startRecordingTimer();
+    if (pendingStopRef.current || !isPressingMicRef.current) {
+      pendingStopRef.current = false;
+      stopRecording();
+    }
+  };
+
+  const handleMicPointerDown = async (event) => {
+    event.preventDefault();
+    if (micDisabled) return;
+    isPressingMicRef.current = true;
+    pendingStopRef.current = false;
+    try {
+      await startRecording();
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleMicPointerUp = (event) => {
+    event?.preventDefault?.();
+    isPressingMicRef.current = false;
+    const recorder = mediaRecorderRef.current;
+    if (isRecording || (recorder && recorder.state === "recording")) {
+      stopRecording();
+      return;
+    }
+    pendingStopRef.current = true;
+  };
+
+  useEffect(() => {
+    if (!isRecording) return;
+    const handleWindowPointerUp = (event) => handleMicPointerUp(event);
+    window.addEventListener("pointerup", handleWindowPointerUp);
+    window.addEventListener("pointercancel", handleWindowPointerUp);
+    return () => {
+      window.removeEventListener("pointerup", handleWindowPointerUp);
+      window.removeEventListener("pointercancel", handleWindowPointerUp);
+    };
+  }, [isRecording]);
+
+  const hasText = Boolean(String(messageValue || "").trim());
+  const hasPendingUploads = Boolean(pendingUploadFiles?.length);
+  const hasPendingVoice = Boolean(pendingVoiceMessage);
+  const micMode = !hasText && !hasPendingUploads && !hasPendingVoice && !isRecording;
+  const micDisabled = uploadBusy || !fileUploadEnabled;
+
   if (!activeChatId) return null;
 
   return (
@@ -109,6 +340,7 @@ export function MessageComposer({
         handleSend(event);
         requestAnimationFrame(() => {
           setIsRtl(false);
+          setMessageValue("");
           resizeTextarea();
           if (!isDesktop) {
             messageInputRef.current?.focus();
@@ -146,7 +378,9 @@ export function MessageComposer({
                 dir={replyIsRtl ? "rtl" : "ltr"}
                 style={{ unicodeBidi: "plaintext" }}
               >
-                {derivedReplyIcon === "video" ? (
+                {derivedReplyIcon === "voice" ? (
+                  <Mic size={12} className="shrink-0 text-slate-500 dark:text-slate-400" />
+                ) : derivedReplyIcon === "video" ? (
                   <Video size={12} className="shrink-0 text-slate-500 dark:text-slate-400" />
                 ) : derivedReplyIcon === "image" ? (
                   <ImageIcon size={12} className="shrink-0 text-slate-500 dark:text-slate-400" />
@@ -169,6 +403,31 @@ export function MessageComposer({
               >
                 <Close size={20} className="icon-anim-pop" />
               </button>
+          </div>
+        </div>
+      ) : null}
+      {pendingVoiceMessage ? (
+        <div className="rounded-2xl border border-emerald-200/80 bg-emerald-50/70 p-2 dark:border-emerald-500/30 dark:bg-slate-950/70">
+          <div className="flex items-start gap-3 px-1">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200">
+              <Mic size={20} className="icon-anim-sway" />
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate text-[11px] font-semibold text-emerald-700 dark:text-emerald-200">
+                Voice message
+              </span>
+              <span className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                {formatDuration(pendingVoiceMessage.durationSeconds || 0)}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => onClearPendingVoiceMessage?.()}
+              className="inline-flex h-9 w-9 items-center justify-center self-center rounded-full border border-rose-200 text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 hover:shadow-[0_0_16px_rgba(244,63,94,0.2)] dark:border-rose-500/30 dark:text-rose-200 dark:hover:bg-rose-500/10"
+              aria-label="Cancel voice message"
+            >
+              <Close size={20} className="icon-anim-pop" />
+            </button>
           </div>
         </div>
       ) : null}
@@ -286,124 +545,141 @@ export function MessageComposer({
         </div>
       ) : null}
       <div className="flex flex-row items-center gap-3">
-        <div className="relative" ref={uploadMenuRef}>
-          <button
-            type="button"
-            disabled={uploadBusy}
-            onClick={() => {
-              if (uploadBusy) return;
-              setShowUploadMenu((prev) => !prev);
-            }}
-            className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-transparent bg-transparent transition ${
-              !uploadBusy
-                ? "text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
-                : "cursor-not-allowed text-slate-400 dark:text-slate-500"
-            }`}
-            aria-label="Attach file"
-          >
-            <Paperclip size={18} className="icon-anim-sway" />
-          </button>
-          {showUploadMenu && !uploadBusy ? (
-            <div className="absolute bottom-12 left-0 z-40 w-44 rounded-xl border border-emerald-200/80 bg-white p-1.5 shadow-lg dark:border-emerald-500/30 dark:bg-slate-950">
+        {!isRecording ? (
+          <>
+            <div className="relative" ref={uploadMenuRef}>
               <button
                 type="button"
+                disabled={uploadBusy}
                 onClick={() => {
-                  mediaInputRef.current?.click();
-                  setShowUploadMenu(false);
+                  if (uploadBusy) return;
+                  setShowUploadMenu((prev) => !prev);
                 }}
-                className="flex w-full items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-left text-xs text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+                className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-transparent bg-transparent transition ${
+                  !uploadBusy
+                    ? "text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+                    : "cursor-not-allowed text-slate-400 dark:text-slate-500"
+                }`}
+                aria-label="Attach file"
               >
-                <ImageIcon size={15} className="icon-anim-sway" />
-                Photo or Video
+                <Paperclip size={18} className="icon-anim-sway" />
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  documentInputRef.current?.click();
-                  setShowUploadMenu(false);
+              {showUploadMenu && !uploadBusy ? (
+                <div className="absolute bottom-12 left-0 z-40 w-44 rounded-xl border border-emerald-200/80 bg-white p-1.5 shadow-lg dark:border-emerald-500/30 dark:bg-slate-950">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      mediaInputRef.current?.click();
+                      setShowUploadMenu(false);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-left text-xs text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+                  >
+                    <ImageIcon size={15} className="icon-anim-sway" />
+                    Photo or Video
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      documentInputRef.current?.click();
+                      setShowUploadMenu(false);
+                    }}
+                    className="mt-1 flex w-full items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-left text-xs text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+                  >
+                    <File size={15} className="icon-anim-lift" />
+                    Document
+                  </button>
+                </div>
+              ) : null}
+              <input
+                ref={mediaInputRef}
+                type="file"
+                accept="image/*,video/*"
+                multiple
+                className="sr-only"
+                disabled={uploadBusy}
+                onChange={(event) => {
+                  onUploadFilesSelected(
+                    event.target.files,
+                    "media",
+                    pendingUploadType === "media",
+                  );
+                  event.target.value = "";
                 }}
-                className="mt-1 flex w-full items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-left text-xs text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
-              >
-                <File size={15} className="icon-anim-lift" />
-                Document
-              </button>
+              />
+              <input
+                ref={documentInputRef}
+                type="file"
+                multiple
+                className="sr-only"
+                disabled={uploadBusy}
+                onChange={(event) => {
+                  onUploadFilesSelected(
+                    event.target.files,
+                    "document",
+                    pendingUploadType === "document",
+                  );
+                  event.target.value = "";
+                }}
+              />
             </div>
-          ) : null}
-          <input
-            ref={mediaInputRef}
-            type="file"
-            accept="image/*,video/*"
-            multiple
-            className="sr-only"
-            disabled={uploadBusy}
-            onChange={(event) => {
-              onUploadFilesSelected(
-                event.target.files,
-                "media",
-                pendingUploadType === "media",
-              );
-              event.target.value = "";
-            }}
-          />
-          <input
-            ref={documentInputRef}
-            type="file"
-            multiple
-            className="sr-only"
-            disabled={uploadBusy}
-            onChange={(event) => {
-              onUploadFilesSelected(
-                event.target.files,
-                "document",
-                pendingUploadType === "document",
-              );
-              event.target.value = "";
-            }}
-          />
-        </div>
-        <textarea
-          ref={messageInputRef}
-          name="message"
-          rows={1}
-          placeholder="Type a message"
-          maxLength={Number.isFinite(Number(messageMaxChars)) ? messageMaxChars : undefined}
-          lang={isRtl ? "fa" : "en"}
-          dir={isRtl ? "rtl" : "ltr"}
-          onInput={(event) => {
-            const value = event.currentTarget.value || "";
-            setIsRtl(hasPersian(value));
-            resizeTextarea();
-            if (typeof onMessageInput === "function") {
-              onMessageInput(value);
-            }
-          }}
-          onKeyDown={(event) => {
-            if (!isDesktop) return;
-            if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
-            event.preventDefault();
-            event.currentTarget.form?.requestSubmit();
-          }}
-          className={`chat-scroll min-w-0 flex-1 resize-none rounded-2xl border border-emerald-200 bg-white px-4 py-2 text-base text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${isRtl ? "text-right font-fa" : "text-left"}`}
-          style={{
-            minHeight: "44px",
-            maxHeight: `${maxTextareaHeight}px`,
-            unicodeBidi: "plaintext",
-            whiteSpace: "pre-wrap",
-            wordBreak: "normal",
-            overflowWrap: "break-word",
-            overflowX: "hidden",
-          }}
-        />
+            <textarea
+              ref={messageInputRef}
+              name="message"
+              rows={1}
+              placeholder="Type a message"
+              maxLength={Number.isFinite(Number(messageMaxChars)) ? messageMaxChars : undefined}
+              lang={isRtl ? "fa" : "en"}
+              dir={isRtl ? "rtl" : "ltr"}
+              onInput={(event) => {
+                const value = event.currentTarget.value || "";
+                setIsRtl(hasPersian(value));
+                setMessageValue(value);
+                resizeTextarea();
+                if (typeof onMessageInput === "function") {
+                  onMessageInput(value);
+                }
+              }}
+              onKeyDown={(event) => {
+                if (!isDesktop) return;
+                if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+                event.preventDefault();
+                event.currentTarget.form?.requestSubmit();
+              }}
+              className={`chat-scroll min-w-0 flex-1 resize-none rounded-2xl border border-emerald-200 bg-white px-4 py-2 text-base text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${isRtl ? "text-right font-fa" : "text-left"}`}
+              style={{
+                minHeight: "44px",
+                maxHeight: `${maxTextareaHeight}px`,
+                unicodeBidi: "plaintext",
+                whiteSpace: "pre-wrap",
+                wordBreak: "normal",
+                overflowWrap: "break-word",
+                overflowX: "hidden",
+              }}
+            />
+          </>
+        ) : (
+          <div className="flex min-w-0 flex-1 items-center justify-between rounded-2xl border border-emerald-200 bg-white px-4 py-2 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200">
+            <span className="text-xs font-semibold uppercase tracking-wide">Recording</span>
+            <span className="flex items-center gap-2 text-sm font-semibold">
+              <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-rose-500" />
+              {formatDuration(recordingMs / 1000)}
+            </span>
+            <span className="w-12" />
+          </div>
+        )}
         <button
-          type="submit"
+          type={micMode || isRecording ? "button" : "submit"}
+          onPointerDown={micMode ? handleMicPointerDown : undefined}
+          onPointerUp={isRecording ? handleMicPointerUp : undefined}
           onMouseDown={(event) => {
             if (!isDesktop) {
               event.preventDefault();
             }
           }}
-          className="inline-flex h-11 items-center justify-center rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-emerald-500/40"
+          disabled={(micMode || isRecording) && micDisabled}
+          className="inline-flex h-11 items-center justify-center rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-emerald-500/40 disabled:cursor-not-allowed disabled:opacity-70"
         >
-          <Send className="icon-anim-slide" />
+          {micMode || isRecording ? <Mic className="icon-anim-pop" /> : <Send className="icon-anim-slide" />}
         </button>
       </div>
     </form>

@@ -51,6 +51,9 @@ export default function ChatWindowPanel({
   insecureConnection,
   pendingUploadFiles,
   pendingUploadType,
+  pendingVoiceMessage,
+  onVoiceRecorded,
+  onClearPendingVoiceMessage,
   uploadError,
   activeUploadProgress,
   messageMaxChars = null,
@@ -524,16 +527,20 @@ export default function ChatWindowPanel({
 
   const getFileRenderType = (file) => {
     const explicitKind = String(file?.kind || "").toLowerCase();
+    const mimeType = String(file?.mimeType || "").toLowerCase();
+    const name = String(file?.name || "").toLowerCase();
+    if (mimeType.startsWith("audio/")) return "audio";
+    if (explicitKind === "voice" || explicitKind === "audio") return "audio";
     if (explicitKind === "document") return "document";
     if (explicitKind === "media") {
       const explicitMime = String(file?.mimeType || "").toLowerCase();
       if (explicitMime.startsWith("image/")) return "image";
       if (explicitMime.startsWith("video/")) return "video";
     }
-    const mimeType = String(file?.mimeType || "").toLowerCase();
-    const name = String(file?.name || "").toLowerCase();
+    if (mimeType.startsWith("audio/")) return "audio";
     if (mimeType.startsWith("image/")) return "image";
     if (mimeType.startsWith("video/")) return "video";
+    if (/\.(mp3|m4a|aac|wav|ogg|opus|webm)$/.test(name)) return "audio";
     if (/\.(gif|png|jpe?g|webp|bmp|svg)$/.test(name)) return "image";
     if (/\.(mp4|mov|webm|mkv|avi|m4v)$/.test(name)) return "video";
     return "document";
@@ -928,12 +935,15 @@ export default function ChatWindowPanel({
           onClearReply={onClearReply}
           pendingUploadFiles={pendingUploadFiles}
           pendingUploadType={pendingUploadType}
+          pendingVoiceMessage={pendingVoiceMessage}
           fileUploadEnabled={fileUploadEnabled}
           mediaInputRef={mediaInputRef}
           documentInputRef={documentInputRef}
           onClearPendingUploads={onClearPendingUploads}
           onRemovePendingUpload={onRemovePendingUpload}
           onUploadFilesSelected={onUploadFilesSelected}
+          onVoiceRecorded={onVoiceRecorded}
+          onClearPendingVoiceMessage={onClearPendingVoiceMessage}
           uploadError={uploadError}
           activeUploadProgress={activeUploadProgress}
           messageMaxChars={messageMaxChars}

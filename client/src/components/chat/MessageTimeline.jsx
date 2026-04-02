@@ -72,10 +72,10 @@ export function MessageTimeline({
               </button>
             </div>
             {group.items.map((msg, index) => {
-              const keyBase = msg?._clientId ?? msg?._serverId ?? msg?.id ?? "msg";
-              const keySuffix = msg?._serverId ?? msg?.id ?? msg?._queuedAt ?? index;
+              const stableKey =
+                msg?._clientId ?? msg?._serverId ?? msg?.id ?? `msg-${groupIndex}-${index}`;
               return (
-                <div key={`${keyBase}-${keySuffix}`}>
+                <div key={stableKey}>
                   {renderMessageItem(msg, { isFirstInGroup: index === 0 })}
                 </div>
               );
