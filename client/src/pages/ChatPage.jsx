@@ -533,6 +533,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     pushSubscribeStatus || "..."
   }${pushSubscribeError ? " | err:" + pushSubscribeError : ""}`;
   const pushRegistrationRef = useRef(null);
+  const lastPushRefreshRef = useRef(0);
+  const PUSH_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
+  const PUSH_RESUBSCRIBE_DEBOUNCE_MS = 2 * 60 * 1000;
 
   const persistNotificationsEnabled = (value) => {
     setNotificationsEnabled(value);
@@ -641,6 +644,19 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
   };
 
+  const maybeRefreshPushSubscription = async (reason = "resume") => {
+    if (typeof window === "undefined") return;
+    if (!notificationsSupported) return;
+    if (notificationPermission !== "granted") return;
+    if (!notificationsEnabled) return;
+    const now = Date.now();
+    const minInterval =
+      reason === "interval" ? PUSH_REFRESH_INTERVAL_MS : PUSH_RESUBSCRIBE_DEBOUNCE_MS;
+    if (now - lastPushRefreshRef.current < minInterval) return;
+    lastPushRefreshRef.current = now;
+    await ensurePushSubscription();
+  };
+
   const removePushSubscription = async () => {
     if (typeof window === "undefined") return;
     if (!("serviceWorker" in navigator)) return;
@@ -689,13 +705,33 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
     await ensurePushSubscription();
     try {
-      const res = await sendPushTest({ username: user.username });
-      const data = await res.json();
+      let res = await sendPushTest({ username: user.username });
+      let data = await res.json();
+      if (!res.ok && String(data?.error || "").toLowerCase().includes("no push subscription")) {
+        await ensurePushSubscription();
+        res = await sendPushTest({ username: user.username });
+        data = await res.json();
+      }
       if (!res.ok) {
         if (typeof window !== "undefined") {
           window.alert(data?.error || "Unable to send test notification.");
         }
         return;
+      }
+      try {
+        const reg =
+          pushRegistrationRef.current ||
+          (await navigator.serviceWorker.ready);
+        if (reg?.showNotification) {
+          await reg.showNotification("Songbird", {
+            body: "Test notification",
+            badge: "/icons/icon-192.png",
+            icon: "/icons/icon-192.png",
+            data: { url: "/" },
+          });
+        }
+      } catch {
+        // ignore local test notification failures
       }
     } catch {
       if (typeof window !== "undefined") {
@@ -2309,6 +2345,34 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (notificationPermission !== "granted") return;
     ensurePushSubscription();
   }, [notificationsEnabled, notificationPermission]);
+
+  useEffect(() => {
+    if (!notificationsEnabled) return;
+    if (notificationPermission !== "granted") return;
+    if (typeof window === "undefined") return;
+    const timer = window.setInterval(() => {
+      void maybeRefreshPushSubscription("interval");
+    }, PUSH_REFRESH_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [notificationsEnabled, notificationPermission]);
+
+  useEffect(() => {
+    if (typeof document === "undefined" || typeof window === "undefined") return;
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void maybeRefreshPushSubscription("resume");
+      }
+    };
+    const handleFocus = () => {
+      void maybeRefreshPushSubscription("focus");
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("focus", handleFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [notificationsEnabled, notificationPermission, notificationsSupported]);
 
   const uploadPendingMessageWithProgress = (pendingMessage, targetChatId) =>
     new Promise((resolve, reject) => {

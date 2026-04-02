@@ -80,6 +80,96 @@ const projectRootDir = path.resolve(serverDir, "..");
 dotenv.config({ path: path.join(projectRootDir, ".env") });
 dotenv.config({ path: path.join(serverDir, ".env"), override: true });
 
+function updateEnvValue(envPath, key, value) {
+  const safeValue = String(value ?? "");
+  let contents = "";
+  try {
+    contents = fs.existsSync(envPath) ? fs.readFileSync(envPath, "utf8") : "";
+  } catch (_) {
+    contents = "";
+  }
+  const lines = contents ? contents.split(/\r?\n/) : [];
+  let found = false;
+  const updated = lines.map((line) => {
+    if (line.startsWith(`${key}=`)) {
+      found = true;
+      return `${key}=${safeValue}`;
+    }
+    return line;
+  });
+  if (!found) {
+    updated.push(`${key}=${safeValue}`);
+  }
+  const next = updated.filter((line, idx, arr) => line.length > 0 || idx < arr.length - 1);
+  fs.writeFileSync(envPath, `${next.join("\n")}\n`);
+}
+
+function ensureValidVapidKeys() {
+  const envPath = path.join(projectRootDir, ".env");
+  const subject = String(process.env.VAPID_SUBJECT || "mailto:admin@example.com").trim();
+  let publicKey = String(process.env.VAPID_PUBLIC_KEY || "").trim();
+  let privateKey = String(process.env.VAPID_PRIVATE_KEY || "").trim();
+
+  const decodeBase64Url = (value) => {
+    const raw = String(value || "").trim();
+    if (!raw) return null;
+    try {
+      return Buffer.from(raw, "base64url");
+    } catch {
+      try {
+        const padded = raw.replace(/-/g, "+").replace(/_/g, "/");
+        return Buffer.from(padded, "base64");
+      } catch {
+        return null;
+      }
+    }
+  };
+
+  const isValidVapidPublicKey = (value) => {
+    const decoded = decodeBase64Url(value);
+    return decoded && decoded.length === 65;
+  };
+
+  const isValidVapidPrivateKey = (value) => {
+    const decoded = decodeBase64Url(value);
+    return decoded && decoded.length === 32;
+  };
+
+  const tryValidate = () => {
+    if (!publicKey || !privateKey) return false;
+    if (!isValidVapidPublicKey(publicKey) || !isValidVapidPrivateKey(privateKey)) {
+      return false;
+    }
+    try {
+      webpush.setVapidDetails(subject, publicKey, privateKey);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  };
+
+  if (tryValidate()) {
+    return { publicKey, privateKey, subject };
+  }
+
+  const keys = webpush.generateVAPIDKeys();
+  publicKey = keys.publicKey;
+  privateKey = keys.privateKey;
+  try {
+    updateEnvValue(envPath, "VAPID_PUBLIC_KEY", publicKey);
+    updateEnvValue(envPath, "VAPID_PRIVATE_KEY", privateKey);
+    if (!String(process.env.VAPID_SUBJECT || "").trim()) {
+      updateEnvValue(envPath, "VAPID_SUBJECT", subject);
+    }
+  } catch (error) {
+    console.warn("[push] Unable to update .env with regenerated VAPID keys:", String(error?.message || error));
+  }
+  process.env.VAPID_PUBLIC_KEY = publicKey;
+  process.env.VAPID_PRIVATE_KEY = privateKey;
+  process.env.VAPID_SUBJECT = subject;
+  return { publicKey, privateKey, subject };
+}
+
 const port = process.env.SERVER_PORT || process.env.PORT || 5174;
 const appEnv = process.env.APP_ENV || "production";
 const isProduction = appEnv === "production";
@@ -170,9 +260,10 @@ const MESSAGE_MAX_CHARS = readEnvInt(
   { min: 1, max: 20000 },
 );
 const ACCOUNT_CREATION = readEnvBool("ACCOUNT_CREATION", true);
-const VAPID_PUBLIC_KEY = String(process.env.VAPID_PUBLIC_KEY || "").trim();
-const VAPID_PRIVATE_KEY = String(process.env.VAPID_PRIVATE_KEY || "").trim();
-const VAPID_SUBJECT = String(process.env.VAPID_SUBJECT || "mailto:admin@example.com").trim();
+const vapid = ensureValidVapidKeys();
+const VAPID_PUBLIC_KEY = String(vapid.publicKey || "").trim();
+const VAPID_PRIVATE_KEY = String(vapid.privateKey || "").trim();
+const VAPID_SUBJECT = String(vapid.subject || "mailto:admin@example.com").trim();
 const PUSH_ENABLED = Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
 const sseClientsByUsername = new Map();
 const dataDir = path.resolve(serverDir, "..", "data");
