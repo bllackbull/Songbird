@@ -190,8 +190,9 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/songbird/server
-ExecStart=/usr/bin/env node index.js
+ExecStart=/usr/bin/node /opt/songbird/server/index.js
 Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target

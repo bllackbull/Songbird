@@ -1060,8 +1060,9 @@ Type=simple
 User=${SERVICE_USER}
 Group=${SERVICE_GROUP}
 WorkingDirectory=${INSTALL_DIR}/server
-ExecStart=/usr/bin/env node index.js
+ExecStart=/usr/bin/node /opt/songbird/server/index.js
 Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target

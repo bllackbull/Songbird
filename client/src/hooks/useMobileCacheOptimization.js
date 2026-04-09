@@ -61,6 +61,7 @@ export function useMobileCacheOptimization() {
     }
   }, []);
 
+  /* eslint-disable react-hooks/refs */
   return {
     isCacheDisabledForDevice,
     recordCacheError,
@@ -68,4 +69,5 @@ export function useMobileCacheOptimization() {
     isLowMemoryDevice: isLowMemoryDeviceRef.current,
     cacheErrorCount: cacheErrorCountRef.current,
   };
+  /* eslint-enable react-hooks/refs */
 }

@@ -343,7 +343,15 @@ export default function App() {
         body: JSON.stringify(payload),
         credentials: 'include',
       })
-      const data = await res.json()
+      let data = {}
+      const contentType = res.headers.get('content-type')
+      if (contentType && contentType.includes('application/json')) {
+        try {
+          data = await res.json()
+        } catch {
+          data = {}
+        }
+      }
       if (!res.ok) {
         throw new Error(data?.error || 'Unable to sign in.')
       }
@@ -399,7 +407,15 @@ export default function App() {
         body: JSON.stringify(payload),
         credentials: 'include',
       })
-      const registerData = await registerRes.json()
+      let registerData = {}
+      const contentType = registerRes.headers.get('content-type')
+      if (contentType && contentType.includes('application/json')) {
+        try {
+          registerData = await registerRes.json()
+        } catch {
+          registerData = {}
+        }
+      }
       if (!registerRes.ok) {
         throw new Error(registerData?.error || 'Unable to create account.')
       }
