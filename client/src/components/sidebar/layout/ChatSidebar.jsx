@@ -83,6 +83,7 @@ export default function ChatSidebar({
   testNotificationSent,
   notificationsDebugLine,
   onClearCache,
+  dataCacheStats,
   onDeleteAccount,
   onExitEdit,
   onEnterEdit,
@@ -147,7 +148,7 @@ export default function ChatSidebar({
   return (
     <aside
       className={
-        "relative flex h-full min-h-0 w-full flex-col overflow-hidden border-x border-slate-300/80 bg-white shadow-lg shadow-emerald-500/10 dark:border-white/5 dark:bg-slate-900 md:border md:w-[35%] md:shadow-xl md:shadow-emerald-500/15 " +
+        "relative flex h-full min-h-0 w-full flex-col overflow-hidden border-x border-slate-300/80 bg-white shadow-lg shadow-emerald-500/10 dark:border-white/5 dark:bg-slate-900 md:border md:w-[35%] md:pb-[88px] md:shadow-xl md:shadow-emerald-500/15 " +
         (mobileTab === "chat" ? "hidden md:block" : "block")
       }
     >
@@ -195,13 +196,13 @@ export default function ChatSidebar({
       />
 
       <div
-        className="min-h-0 flex-1 overflow-hidden py-4"
+        className="flex min-h-0 flex-1 flex-col overflow-hidden py-4"
         style={{ overscrollBehavior: "contain" }}
       >
         {mobileTab === "settings" ? (
           <div
             key={`settings-scroll-${scrollEpoch}`}
-            className="app-scroll flex h-full min-h-0 flex-col overflow-y-auto overflow-x-hidden px-6 pb-[104px]"
+            className="app-scroll flex h-full min-h-0 flex-col overflow-y-auto overflow-x-hidden px-6 pb-[calc(104px+env(safe-area-inset-bottom))] md:pb-6"
             style={{
               overscrollBehaviorY: "contain",
               overflowAnchor: "none",
@@ -246,6 +247,7 @@ export default function ChatSidebar({
               testNotificationSent={testNotificationSent}
               notificationsDebugLine={notificationsDebugLine}
               onClearCache={onClearCache}
+              dataCacheStats={dataCacheStats}
               onOpenOwnProfile={onOpenOwnProfile}
               onOpenSavedMessages={onOpenSavedMessages}
               onDeleteAccount={onDeleteAccount}
@@ -256,14 +258,14 @@ export default function ChatSidebar({
         <div
           className={
             mobileTab === "settings"
-              ? "hidden min-h-0 h-full"
-              : "flex min-h-0 h-full flex-col"
+              ? "hidden min-h-0 flex-1"
+              : "flex min-h-0 flex-1 flex-col"
           }
         >
           <div
             key={`chats-scroll-${scrollEpoch}`}
             ref={chatsScrollRef}
-            className="app-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-6 pb-[104px]"
+            className="app-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-6 pb-[calc(104px+env(safe-area-inset-bottom))] md:pb-6"
             style={{
               overscrollBehaviorY: "contain",
               overflowAnchor: "none",

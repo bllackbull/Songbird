@@ -41,9 +41,13 @@ export function MessageComposer({
   uploadMenuRef,
   handleVideoThumbLoadedMetadata,
   onComposerHeightChange,
+  onComposerFocusChange,
+  composerInputRef,
 }) {
   const composerRef = useRef(null);
-  const messageInputRef = useRef(null);
+  const fallbackInputRef = useRef(null);
+  const messageInputRef = composerInputRef || fallbackInputRef;
+  const keepFocusRef = useRef(false);
   const [isRtl, setIsRtl] = useState(false);
   const [messageValue, setMessageValue] = useState("");
   const [isRecording, setIsRecording] = useState(false);
@@ -57,6 +61,23 @@ export function MessageComposer({
   const isPressingMicRef = useRef(false);
   const pendingStopRef = useRef(false);
   const maxTextareaHeight = 136;
+  const openFilePicker = useCallback((inputRef) => {
+    const input = inputRef?.current;
+    if (!input || input.disabled) return;
+    try {
+      if (typeof input.showPicker === "function") {
+        input.showPicker();
+      } else {
+        input.click();
+      }
+    } catch {
+      try {
+        input.click();
+      } catch {
+        // ignore
+      }
+    }
+  }, []);
   const formatDuration = (totalSeconds) => {
     const seconds = Math.max(0, Math.floor(Number(totalSeconds || 0)));
     const minutes = Math.floor(seconds / 60);
@@ -354,6 +375,22 @@ export function MessageComposer({
     [micDisabled, startRecording],
   );
 
+  const restoreComposerFocus = useCallback(() => {
+    if (!keepFocusRef.current) return;
+    keepFocusRef.current = false;
+    requestAnimationFrame(() => {
+      messageInputRef.current?.focus?.({ preventScroll: true });
+      messageInputRef.current?.focus?.();
+    });
+  }, [messageInputRef]);
+
+  const captureComposerFocus = useCallback(() => {
+    if (typeof document === "undefined") return;
+    if (document.activeElement === messageInputRef.current) {
+      keepFocusRef.current = true;
+    }
+  }, [messageInputRef]);
+
   const handleMicPointerUp = useCallback(
     (event) => {
       event?.preventDefault?.();
@@ -361,11 +398,13 @@ export function MessageComposer({
       const recorder = mediaRecorderRef.current;
       if (isRecording || (recorder && recorder.state === "recording")) {
         stopRecording();
+        restoreComposerFocus();
         return;
       }
       pendingStopRef.current = true;
+      restoreComposerFocus();
     },
-    [isRecording, stopRecording],
+    [isRecording, restoreComposerFocus, stopRecording],
   );
 
   useEffect(() => {
@@ -379,12 +418,23 @@ export function MessageComposer({
     };
   }, [isRecording, handleMicPointerUp]);
 
+  useEffect(() => {
+    const handleWindowFocus = () => {
+      if (!keepFocusRef.current) return;
+      restoreComposerFocus();
+    };
+    window.addEventListener("focus", handleWindowFocus);
+    return () => {
+      window.removeEventListener("focus", handleWindowFocus);
+    };
+  }, [restoreComposerFocus]);
+
   if (!activeChatId) return null;
 
   return (
     <form
       ref={composerRef}
-      className="sticky bottom-0 z-30 flex flex-col gap-3 border-t border-slate-300/80 bg-white px-4 py-3 dark:border-emerald-500/20 dark:bg-slate-900 sm:px-6 md:static md:mt-auto md:shrink-0"
+      className="sticky bottom-0 z-30 flex shrink-0 flex-col gap-3 border-t border-slate-300/80 bg-white px-4 py-3 dark:border-emerald-500/20 dark:bg-slate-900 sm:px-6 md:static md:mt-auto"
       style={{
         bottom: isDesktop
           ? undefined
@@ -470,7 +520,14 @@ export function MessageComposer({
             </div>
             <button
               type="button"
-              onClick={onClearReply}
+              onClick={() => {
+                onClearReply?.();
+                restoreComposerFocus();
+              }}
+              onPointerDown={(event) => {
+                captureComposerFocus();
+                if (!isDesktop) event.preventDefault();
+              }}
               className="inline-flex h-9 w-9 items-center justify-center self-center rounded-full border border-rose-200 text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 hover:shadow-[0_0_16px_rgba(244,63,94,0.2)] dark:border-rose-500/30 dark:text-rose-200 dark:hover:bg-rose-500/10"
               aria-label="Cancel reply"
             >
@@ -495,7 +552,14 @@ export function MessageComposer({
             </div>
             <button
               type="button"
-              onClick={() => onClearPendingVoiceMessage?.()}
+              onClick={() => {
+                onClearPendingVoiceMessage?.();
+                restoreComposerFocus();
+              }}
+              onPointerDown={(event) => {
+                captureComposerFocus();
+                if (!isDesktop) event.preventDefault();
+              }}
               className="inline-flex h-9 w-9 items-center justify-center self-center rounded-full border border-rose-200 text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 hover:shadow-[0_0_16px_rgba(244,63,94,0.2)] dark:border-rose-500/30 dark:text-rose-200 dark:hover:bg-rose-500/10"
               aria-label="Cancel voice message"
             >
@@ -518,10 +582,15 @@ export function MessageComposer({
                 onClick={() => {
                   if (!fileUploadEnabled) return;
                   if (pendingUploadType === "media") {
-                    mediaInputRef.current?.click();
+                    openFilePicker(mediaInputRef);
                   } else {
-                    documentInputRef.current?.click();
+                    openFilePicker(documentInputRef);
                   }
+                  restoreComposerFocus();
+                }}
+                onPointerDown={(event) => {
+                  captureComposerFocus();
+                  if (!isDesktop) event.preventDefault();
                 }}
                 className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 transition ${
                   fileUploadEnabled
@@ -534,7 +603,14 @@ export function MessageComposer({
               </button>
               <button
                 type="button"
-                onClick={onClearPendingUploads}
+                onClick={() => {
+                  onClearPendingUploads?.();
+                  restoreComposerFocus();
+                }}
+                onPointerDown={(event) => {
+                  captureComposerFocus();
+                  if (!isDesktop) event.preventDefault();
+                }}
                 className="inline-flex items-center gap-1 rounded-full border border-rose-200/70 px-2 py-0.5 text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 dark:border-rose-500/30 dark:text-rose-300 dark:hover:bg-rose-900/30"
               >
                 <Close size={12} className="icon-anim-pop" />
@@ -556,7 +632,14 @@ export function MessageComposer({
                 >
                   <button
                     type="button"
-                    onClick={() => onRemovePendingUpload(item.id)}
+                    onClick={() => {
+                      onRemovePendingUpload?.(item.id);
+                      restoreComposerFocus();
+                    }}
+                    onPointerDown={(event) => {
+                      captureComposerFocus();
+                      if (!isDesktop) event.preventDefault();
+                    }}
                     className="absolute right-1 top-1 z-20 inline-flex h-5 w-5 items-center justify-center rounded-full border border-rose-200 bg-white/90 text-rose-600 dark:border-rose-500/30 dark:bg-slate-900 dark:text-rose-200"
                     aria-label="Remove file"
                   >
@@ -628,9 +711,14 @@ export function MessageComposer({
               <button
                 type="button"
                 disabled={uploadBusy}
+                onPointerDown={(event) => {
+                  captureComposerFocus();
+                  if (!isDesktop) event.preventDefault();
+                }}
                 onClick={() => {
                   if (uploadBusy) return;
                   setShowUploadMenu((prev) => !prev);
+                  restoreComposerFocus();
                 }}
                 className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-transparent bg-transparent transition ${
                   !uploadBusy
@@ -645,8 +733,12 @@ export function MessageComposer({
                 <div className="absolute bottom-12 left-0 z-40 w-44 rounded-xl border border-emerald-200/80 bg-white p-1.5 shadow-lg dark:border-emerald-500/30 dark:bg-slate-950">
                   <button
                     type="button"
+                    onPointerDown={(event) => {
+                      captureComposerFocus();
+                      if (!isDesktop) event.preventDefault();
+                    }}
                     onClick={() => {
-                      mediaInputRef.current?.click();
+                      openFilePicker(mediaInputRef);
                       setShowUploadMenu(false);
                     }}
                     className="flex w-full items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-left text-xs text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
@@ -656,8 +748,12 @@ export function MessageComposer({
                   </button>
                   <button
                     type="button"
+                    onPointerDown={(event) => {
+                      captureComposerFocus();
+                      if (!isDesktop) event.preventDefault();
+                    }}
                     onClick={() => {
-                      documentInputRef.current?.click();
+                      openFilePicker(documentInputRef);
                       setShowUploadMenu(false);
                     }}
                     className="mt-1 flex w-full items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-left text-xs text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
@@ -681,6 +777,7 @@ export function MessageComposer({
                     pendingUploadType === "media",
                   );
                   event.target.value = "";
+                  restoreComposerFocus();
                 }}
               />
               <input
@@ -696,6 +793,7 @@ export function MessageComposer({
                     pendingUploadType === "document",
                   );
                   event.target.value = "";
+                  restoreComposerFocus();
                 }}
               />
             </div>
@@ -720,6 +818,8 @@ export function MessageComposer({
                   onMessageInput(value);
                 }
               }}
+              onFocus={() => onComposerFocusChange?.(true)}
+              onBlur={() => onComposerFocusChange?.(false)}
               onKeyDown={(event) => {
                 if (!isDesktop) return;
                 if (
@@ -757,7 +857,13 @@ export function MessageComposer({
         )}
         <button
           type={micMode || isRecording ? "button" : "submit"}
-          onPointerDown={micMode ? handleMicPointerDown : undefined}
+          onPointerDown={(event) => {
+            captureComposerFocus();
+            if (!isDesktop) event.preventDefault();
+            if (micMode) {
+              handleMicPointerDown(event);
+            }
+          }}
           onPointerUp={isRecording ? handleMicPointerUp : undefined}
           onMouseDown={(event) => {
             if (!isDesktop) {

@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v3";
+const CACHE_VERSION = "v4";
 const CACHE_NAME = `songbird-${CACHE_VERSION}`;
 const APP_SHELL = ["/", "/index.html", "/manifest.webmanifest"];
 
@@ -37,14 +37,48 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api/")) return;
+  const isNavigation = event.request.mode === "navigate";
   event.respondWith(
-    caches
-      .match(event.request)
-      .then(
-        (cached) =>
-          cached ||
-          fetch(event.request).catch(() => cached || Response.error()),
-      ),
+    (async () => {
+      const cache = await caches.open(CACHE_NAME);
+      if (isNavigation) {
+        const cachedIndex = await cache.match("/index.html");
+        const update = fetch(event.request)
+          .then((response) => {
+            if (response && response.ok) {
+              cache.put("/index.html", response.clone());
+              self.clients
+                .matchAll({ type: "window", includeUncontrolled: true })
+                .then((clientsArr) => {
+                  clientsArr.forEach((client) =>
+                    client.postMessage({ type: "APP_SHELL_UPDATED" }),
+                  );
+                })
+                .catch(() => null);
+            }
+            return response;
+          })
+          .catch(() => null);
+        event.waitUntil(update);
+        if (cachedIndex) return cachedIndex;
+        const network = await update;
+        if (network) return network;
+        return cachedIndex || Response.error();
+      }
+      const cached = await cache.match(event.request);
+      const revalidate = fetch(event.request)
+        .then((response) => {
+          if (response && response.ok) {
+            cache.put(event.request, response.clone());
+          }
+          return response;
+        })
+        .catch(() => null);
+      event.waitUntil(revalidate);
+      if (cached) return cached;
+      const network = await revalidate;
+      return network || cached || Response.error();
+    })(),
   );
 });
 

@@ -130,15 +130,7 @@ export const isCacheExpired = (entry, ttlMs) => {
   return Date.now() - Number(entry.updatedAt) > ttlMs;
 };
 
-export const readChatListCache = (username) => {
-  const cached = readLocalCache(buildChatListCacheKey(username));
-  if (!cached || cached.version !== CHAT_CACHE_VERSION) return null;
-  if (isCacheExpired(cached, CHAT_PAGE_CONFIG.cacheTtlMs)) {
-    removeLocalCache(buildChatListCacheKey(username));
-    return null;
-  }
-  return cached;
-};
+export const readChatListCache = () => null;
 
 export const readChatListCacheAsync = async (username) => {
   const cached = await readIdbCache(
@@ -156,22 +148,7 @@ export const readChatListCacheAsync = async (username) => {
   return cached;
 };
 
-export const readMessagesCache = (username, chatId) => {
-  const key = buildMessagesCacheKey(username, chatId);
-  const cached = readLocalCache(key);
-  if (!cached || cached.version !== CHAT_CACHE_VERSION) return null;
-  if (isCacheExpired(cached, CHAT_PAGE_CONFIG.cacheTtlMs)) {
-    removeLocalCache(key);
-    return null;
-  }
-  if (Array.isArray(cached.messages)) {
-    cached.messages = cached.messages.filter((msg) => {
-      const id = Number(msg?.id || msg?._serverId || 0);
-      return Number.isFinite(id) && id > 0;
-    });
-  }
-  return cached;
-};
+export const readMessagesCache = () => null;
 
 export const readMessagesCacheAsync = async (username, chatId) => {
   const key = buildMessagesCacheKey(username, chatId);
@@ -190,10 +167,7 @@ export const readMessagesCacheAsync = async (username, chatId) => {
   return cached;
 };
 
-export const readMessagesIndex = (username) => {
-  const index = readLocalCache(buildMessagesIndexKey(username));
-  return Array.isArray(index) ? index : [];
-};
+export const readMessagesIndex = () => [];
 
 export const readMessagesIndexAsync = async (username) => {
   const cached = await readIdbCache(
@@ -203,14 +177,25 @@ export const readMessagesIndexAsync = async (username) => {
   return Array.isArray(cached) ? cached : [];
 };
 
-export const readChannelSeenCache = (username, chatId) => {
-  const cached = readLocalCache(buildChannelSeenCacheKey(username, chatId));
+export const readChannelSeenCache = () => ({});
+
+export const readChannelSeenCacheAsync = async (username, chatId) => {
+  const cached = await readIdbCache(
+    CACHE_STORES.channelSeen,
+    buildChannelSeenCacheKey(username, chatId),
+  );
   if (!cached || typeof cached !== "object") return {};
   if (cached.version !== 1 || typeof cached.counts !== "object") return {};
   return cached.counts || {};
 };
 
-export const writeChannelSeenCache = (username, chatId, counts = {}) => {
+export const writeChannelSeenCache = () => {};
+
+export const writeChannelSeenCacheAsync = async (
+  username,
+  chatId,
+  counts = {},
+) => {
   if (!username || !chatId || typeof counts !== "object") return;
   const entries = Object.entries(counts)
     .map(([key, value]) => [Number(key), Number(value)])
@@ -223,16 +208,19 @@ export const writeChannelSeenCache = (username, chatId, counts = {}) => {
     acc[id] = value;
     return acc;
   }, {});
-  writeLocalCache(buildChannelSeenCacheKey(username, chatId), {
-    version: 1,
-    updatedAt: Date.now(),
-    counts: trimmed,
-  });
+  await writeIdbCache(
+    CACHE_STORES.channelSeen,
+    buildChannelSeenCacheKey(username, chatId),
+    {
+      version: 1,
+      updatedAt: Date.now(),
+      counts: trimmed,
+    },
+  );
 };
 
-export const writeMessagesIndex = (username, index) => {
-  writeLocalCache(buildMessagesIndexKey(username), index);
-  void writeIdbCache(
+export const writeMessagesIndex = async (username, index) => {
+  await writeIdbCache(
     CACHE_STORES.index,
     buildMessagesIndexKey(username),
     index,
@@ -251,7 +239,6 @@ export const pruneMessagesIndex = (username, index) => {
   index.forEach((entry) => {
     const chatId = Number(entry?.chatId);
     if (!chatId || keepIds.has(chatId)) return;
-    removeLocalCache(buildMessagesCacheKey(username, chatId));
     void deleteIdbCache(
       CACHE_STORES.messages,
       buildMessagesCacheKey(username, chatId),
@@ -260,9 +247,9 @@ export const pruneMessagesIndex = (username, index) => {
   return trimmed;
 };
 
-export const updateMessagesIndex = (username, chatId, updatedAt) => {
+export const updateMessagesIndex = async (username, chatId, updatedAt) => {
   if (!username || !chatId) return;
-  const index = readMessagesIndex(username);
+  const index = await readMessagesIndexAsync(username);
   const next = index.filter(
     (entry) => Number(entry?.chatId) !== Number(chatId),
   );
@@ -271,12 +258,12 @@ export const updateMessagesIndex = (username, chatId, updatedAt) => {
     updatedAt: Number(updatedAt) || Date.now(),
   });
   const trimmed = pruneMessagesIndex(username, next);
-  writeMessagesIndex(username, trimmed);
+  await writeMessagesIndex(username, trimmed);
 };
 
-export const evictOldestMessageCaches = (username, maxToRemove = 3) => {
+export const evictOldestMessageCaches = async (username, maxToRemove = 3) => {
   if (!username) return;
-  const index = readMessagesIndex(username);
+  const index = await readMessagesIndexAsync(username);
   if (!index.length) return;
   const sorted = index
     .filter((entry) => Number(entry?.chatId) > 0)
@@ -285,7 +272,6 @@ export const evictOldestMessageCaches = (username, maxToRemove = 3) => {
   if (!toRemove.length) return;
   const removeIds = new Set(toRemove.map((entry) => Number(entry.chatId)));
   removeIds.forEach((chatId) => {
-    removeLocalCache(buildMessagesCacheKey(username, chatId));
     void deleteIdbCache(
       CACHE_STORES.messages,
       buildMessagesCacheKey(username, chatId),
@@ -294,7 +280,108 @@ export const evictOldestMessageCaches = (username, maxToRemove = 3) => {
   const remaining = index.filter(
     (entry) => !removeIds.has(Number(entry?.chatId)),
   );
-  writeMessagesIndex(username, remaining);
+  await writeMessagesIndex(username, remaining);
+};
+
+export const migrateLocalCacheToIdb = async (username) => {
+  if (!username) return;
+  if (!canUseLocalStorage() || !canUseIdb()) return;
+  const normalized = String(username || "").toLowerCase();
+  const chatListKey = buildChatListCacheKey(normalized);
+  const messagesIndexKey = buildMessagesIndexKey(normalized);
+
+  try {
+    const chatList = readLocalCache(chatListKey);
+    if (chatList && chatList.version === CHAT_CACHE_VERSION) {
+      await writeIdbCache(CACHE_STORES.chatList, chatListKey, chatList);
+      removeLocalCache(chatListKey);
+    }
+  } catch {
+    // ignore migration failures
+  }
+
+  try {
+    const index = readLocalCache(messagesIndexKey);
+    if (Array.isArray(index) && index.length) {
+      await writeIdbCache(CACHE_STORES.index, messagesIndexKey, index);
+      removeLocalCache(messagesIndexKey);
+    }
+  } catch {
+    // ignore migration failures
+  }
+
+  try {
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i);
+      if (!key) continue;
+      if (!key.startsWith(`${CHAT_MESSAGES_CACHE_KEY}:${normalized}:`)) continue;
+      const cached = readLocalCache(key);
+      if (!cached || cached.version !== CHAT_CACHE_VERSION) continue;
+      await writeIdbCache(CACHE_STORES.messages, key, cached);
+      removeLocalCache(key);
+    }
+  } catch {
+    // ignore migration failures
+  }
+
+  try {
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i);
+      if (!key) continue;
+      if (!key.startsWith(`${CHANNEL_SEEN_CACHE_KEY}:${normalized}:`)) continue;
+      const cached = readLocalCache(key);
+      if (!cached || cached.version !== 1) continue;
+      await writeIdbCache(CACHE_STORES.channelSeen, key, cached);
+      removeLocalCache(key);
+    }
+  } catch {
+    // ignore migration failures
+  }
+
+  try {
+    const mediaThumbs = readLocalCache(MEDIA_THUMB_CACHE_KEY);
+    if (mediaThumbs && mediaThumbs.version === 1) {
+      await writeIdbCache(
+        CACHE_STORES.mediaThumbs,
+        MEDIA_THUMB_CACHE_KEY,
+        mediaThumbs,
+      );
+      removeLocalCache(MEDIA_THUMB_CACHE_KEY);
+    }
+  } catch {
+    // ignore migration failures
+  }
+
+  try {
+    const mediaPosters = readLocalCache(MEDIA_POSTER_CACHE_KEY);
+    if (mediaPosters && mediaPosters.version === 1) {
+      await writeIdbCache(
+        CACHE_STORES.mediaPosters,
+        MEDIA_POSTER_CACHE_KEY,
+        mediaPosters,
+      );
+      removeLocalCache(MEDIA_POSTER_CACHE_KEY);
+    }
+  } catch {
+    // ignore migration failures
+  }
+
+  try {
+    const waveforms = readLocalCache(VOICE_WAVEFORM_CACHE_KEY);
+    if (waveforms && waveforms.v === 1) {
+      await writeIdbCache(
+        CACHE_STORES.voiceWaveforms,
+        VOICE_WAVEFORM_CACHE_KEY,
+        {
+          ...waveforms,
+          updatedAt: waveforms.updatedAt || Date.now(),
+        },
+      );
+      removeLocalCache(VOICE_WAVEFORM_CACHE_KEY);
+    }
+  } catch {
+    // ignore migration failures
+  }
 };
 
 export const isCacheableMessage = (message) => {

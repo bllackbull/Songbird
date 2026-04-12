@@ -1,5 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Download, File, Pause, Play } from "../../../icons/lucide.js";
+import { CACHE_STORES } from "../../../utils/cacheDb.js";
+import { canUseIdb, readIdbCache, writeIdbCache } from "../../../utils/chatCache.js";
 
 const VOICE_WAVEFORM_CACHE_KEY = "voice-waveform-cache-v1";
 const VOICE_WAVEFORM_CACHE_MAX = 160;
@@ -9,38 +11,52 @@ const VOICE_AUDIO_POOL = new Map();
 const VOICE_WAVEFORM_BARS_PER_SECOND = 3;
 const VOICE_WAVEFORM_MAX_BARS = 36;
 
-const readWaveformCache = () => {
-  if (typeof window === "undefined") return;
+let waveformCacheLoaded = false;
+let waveformCachePromise = null;
+
+const ensureWaveformCacheLoaded = () => {
+  if (waveformCacheLoaded) return Promise.resolve();
+  if (waveformCachePromise) return waveformCachePromise;
+  waveformCachePromise = (async () => {
+    if (!canUseIdb()) {
+      waveformCacheLoaded = true;
+      return;
+    }
+    try {
+      const cached = await readIdbCache(
+        CACHE_STORES.voiceWaveforms,
+        VOICE_WAVEFORM_CACHE_KEY,
+      );
+      if (cached?.v === 1 && Array.isArray(cached.entries)) {
+        cached.entries.forEach(([key, peaks]) => {
+          if (!key || !Array.isArray(peaks)) return;
+          VOICE_WAVEFORM_CACHE.set(key, peaks);
+        });
+      }
+    } catch {
+      // ignore
+    } finally {
+      waveformCacheLoaded = true;
+    }
+  })();
+  return waveformCachePromise;
+};
+
+const persistWaveformCache = async () => {
+  if (!canUseIdb()) return;
   try {
-    const raw = window.localStorage.getItem(VOICE_WAVEFORM_CACHE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
-    if (!parsed || parsed.v !== 1 || !Array.isArray(parsed.entries)) return;
-    parsed.entries.forEach(([key, peaks]) => {
-      if (!key || !Array.isArray(peaks)) return;
-      VOICE_WAVEFORM_CACHE.set(key, peaks);
+    const entries = Array.from(VOICE_WAVEFORM_CACHE.entries()).slice(
+      -VOICE_WAVEFORM_CACHE_MAX,
+    );
+    await writeIdbCache(CACHE_STORES.voiceWaveforms, VOICE_WAVEFORM_CACHE_KEY, {
+      v: 1,
+      updatedAt: Date.now(),
+      entries,
     });
   } catch {
     // ignore
   }
 };
-
-const persistWaveformCache = () => {
-  if (typeof window === "undefined") return;
-  try {
-    const entries = Array.from(VOICE_WAVEFORM_CACHE.entries()).slice(
-      -VOICE_WAVEFORM_CACHE_MAX,
-    );
-    window.localStorage.setItem(
-      VOICE_WAVEFORM_CACHE_KEY,
-      JSON.stringify({ v: 1, entries }),
-    );
-  } catch {
-    // ignore
-  }
-};
-
-readWaveformCache();
 
 const formatSeconds = (value) => {
   const totalSeconds = Math.max(0, Number(value || 0));
@@ -166,7 +182,7 @@ const VoiceMessageChip = memo(
           VOICE_WAVEFORM_PROMISES.delete(cacheKey);
           if (!loaded?.length) return;
           VOICE_WAVEFORM_CACHE.set(cacheKey, loaded);
-          persistWaveformCache();
+          void persistWaveformCache();
           if (isPlaying) {
             pendingPeaksRef.current = loaded;
             return;
@@ -178,20 +194,27 @@ const VoiceMessageChip = memo(
     };
 
     useEffect(() => {
-      const cached = VOICE_WAVEFORM_CACHE.get(cacheKey);
-      if (cached && cached.length) {
-        setPeaks(cached);
-        return;
-      }
-      setPeaks(
-        buildFallbackWaveform(
-          cacheKey,
-          getTargetBars(fileDuration || duration),
-        ),
-      );
-      if (serverUrl) {
-        ensureWaveform();
-      }
+      let isActive = true;
+      void ensureWaveformCacheLoaded().then(() => {
+        if (!isActive) return;
+        const cached = VOICE_WAVEFORM_CACHE.get(cacheKey);
+        if (cached && cached.length) {
+          setPeaks(cached);
+          return;
+        }
+        setPeaks(
+          buildFallbackWaveform(
+            cacheKey,
+            getTargetBars(fileDuration || duration),
+          ),
+        );
+        if (serverUrl) {
+          ensureWaveform();
+        }
+      });
+      return () => {
+        isActive = false;
+      };
     }, [cacheKey, serverUrl, duration, ensureWaveform, fileDuration]);
 
     useEffect(() => {
@@ -376,7 +399,7 @@ const VoiceMessageChip = memo(
                 VOICE_WAVEFORM_PROMISES.delete(cacheKey);
                 if (!loaded?.length) return;
                 VOICE_WAVEFORM_CACHE.set(cacheKey, loaded);
-                persistWaveformCache();
+                void persistWaveformCache();
                 if (isPlaying) {
                   pendingPeaksRef.current = loaded;
                   return;
@@ -519,26 +542,15 @@ export function MessageFiles({
 
   const canPersistMediaCache = () => {
     if (typeof window === "undefined") return false;
-    try {
-      if (
-        window.matchMedia("(max-width: 767px) and (pointer: coarse)").matches
-      ) {
-        return false;
-      }
-      const testKey = "__songbird_media_cache__";
-      window.localStorage.setItem(testKey, "1");
-      window.localStorage.removeItem(testKey);
-      return true;
-    } catch {
-      return false;
-    }
+    if (!canUseIdb()) return false;
+    return true;
   };
 
-  const writeMediaCache = (key, payload) => {
+  const writeMediaCache = async (store, key, payload) => {
     if (typeof window === "undefined") return;
     if (!canPersistMediaCache()) return;
     try {
-      window.localStorage.setItem(key, JSON.stringify(payload));
+      await writeIdbCache(store, key, payload);
     } catch (_) {
       // ignore storage failures
     }
@@ -633,7 +645,7 @@ export function MessageFiles({
         if (typeof window !== "undefined") {
           try {
             const compact = Object.fromEntries(Object.entries(next).slice(-80));
-            writeMediaCache(videoPosterCacheKey, {
+            void writeMediaCache(CACHE_STORES.mediaPosters, videoPosterCacheKey, {
               version: mediaCacheVersion,
               updatedAt: Date.now(),
               posters: compact,
@@ -658,7 +670,7 @@ export function MessageFiles({
       if (typeof window !== "undefined") {
         try {
           const persisted = Array.from(next);
-          writeMediaCache(mediaThumbCacheKey, {
+          void writeMediaCache(CACHE_STORES.mediaThumbs, mediaThumbCacheKey, {
             version: mediaCacheVersion,
             updatedAt: Date.now(),
             items: persisted.slice(-250),

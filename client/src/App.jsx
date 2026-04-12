@@ -1,13 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import logo from './assets/songbird-logo.svg'
 import ChatPage from './pages/ChatPage.jsx'
 import AuthPage from './pages/AuthPage.jsx'
 import InvitePage from './pages/InvitePage.jsx'
 import { APP_CONFIG } from './settings/appConfig.js'
+import InstallBar from './components/pwa/InstallBar.jsx'
+import InstallGuideModal from './components/pwa/InstallGuideModal.jsx'
 
 const API_BASE = ''
 const AUTH_REDIRECT_KEY = 'songbird-auth-redirect'
 const OPEN_CHAT_ID_KEY = 'songbird-open-chat-id'
+const PWA_INSTALL_DISMISS_KEY = 'songbird-pwa-install-dismissed'
 
 function getRoute(pathname) {
   if (pathname === '/signup') return 'signup'
@@ -37,11 +40,35 @@ export default function App() {
   const [authChecked, setAuthChecked] = useState(false)
   const [authLoading, setAuthLoading] = useState(false)
   const accountCreationEnabled = APP_CONFIG.accountCreationEnabled
+  const isStandaloneDisplay =
+    window.matchMedia?.('(display-mode: standalone)')?.matches ||
+    window.navigator?.standalone
+  const isIOS = /iP(ad|hone|od)/i.test(navigator.userAgent)
+  const isIOSFirefox = /FxiOS/i.test(navigator.userAgent)
   const isIOSSafari =
-    /iP(ad|hone|od)/i.test(navigator.userAgent) &&
+    isIOS &&
     /Safari/i.test(navigator.userAgent) &&
     !/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo/i.test(navigator.userAgent)
+  const [installPromptEvent, setInstallPromptEvent] = useState(null)
+  const [showInstallBanner, setShowInstallBanner] = useState(false)
+  const [installDismissed, setInstallDismissed] = useState(() => {
+    return localStorage.getItem(PWA_INSTALL_DISMISS_KEY) === '1'
+  })
+  const [installForceHidden, setInstallForceHidden] = useState(false)
+  const [showIosInstallBanner, setShowIosInstallBanner] = useState(() => {
+    if (!isIOS || isStandaloneDisplay) return false
+    return localStorage.getItem(PWA_INSTALL_DISMISS_KEY) !== '1'
+  })
+  const [showInstallGuide, setShowInstallGuide] = useState(false)
+  const installBarRef = useRef(null)
+  const [installBarHeight, setInstallBarHeight] = useState(0)
   const themeRefreshTimersRef = useRef([])
+  const isDesktopViewport =
+    window.matchMedia?.('(min-width: 768px)')?.matches || false
+  const showInstallBar =
+    !isStandaloneDisplay &&
+    !installDismissed &&
+    (showInstallBanner || showIosInstallBanner || isDesktopViewport)
 
   function normalizeSessionUser(data) {
     if (!data?.username) return null
@@ -218,15 +245,89 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    if (isStandaloneDisplay) return
+    const dismissed = localStorage.getItem(PWA_INSTALL_DISMISS_KEY) === '1'
+    if (dismissed) return
+    const handleBeforeInstallPrompt = (event) => {
+      event.preventDefault()
+      setInstallPromptEvent(event)
+      setShowInstallBanner(true)
+    }
+    const handleInstalled = () => {
+      setInstallPromptEvent(null)
+      setShowInstallBanner(false)
+      setShowIosInstallBanner(false)
+      setInstallDismissed(true)
+      localStorage.setItem(PWA_INSTALL_DISMISS_KEY, '1')
+    }
+    const handleHideInstall = () => setInstallForceHidden(true)
+    const handleShowInstall = () => setInstallForceHidden(false)
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
+    window.addEventListener('appinstalled', handleInstalled)
+    window.addEventListener('songbird-hide-install-bar', handleHideInstall)
+    window.addEventListener('songbird-show-install-bar', handleShowInstall)
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
+      window.removeEventListener('appinstalled', handleInstalled)
+      window.removeEventListener('songbird-hide-install-bar', handleHideInstall)
+      window.removeEventListener('songbird-show-install-bar', handleShowInstall)
+    }
+  }, [isStandaloneDisplay])
+
+  useLayoutEffect(() => {
+    const barNode = installBarRef.current
+    if (!barNode) {
+      setInstallBarHeight(0)
+      return
+    }
+    const measure = () => {
+      const rect = barNode.getBoundingClientRect()
+      setInstallBarHeight(Number(rect?.height || 0))
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => measure())
+    observer.observe(barNode)
+    return () => observer.disconnect()
+  }, [showInstallBanner, showIosInstallBanner])
+
+  useEffect(() => {
     const root = document.documentElement
+    const effectiveHeight =
+      showInstallBar && !installForceHidden ? `${installBarHeight}px` : '0px'
+    root.style.setProperty('--install-bar-height', effectiveHeight)
+    root.style.setProperty(
+      '--install-bar-opacity',
+      showInstallBar && !installForceHidden ? '1' : '0',
+    )
+    root.style.setProperty(
+      '--install-bar-pe',
+      showInstallBar && !installForceHidden ? 'auto' : 'none',
+    )
+    root.style.setProperty(
+      '--install-bar-translate',
+      showInstallBar && !installForceHidden ? '0%' : '-110%',
+    )
+  }, [installBarHeight, installForceHidden, showInstallBar])
+
+  useEffect(() => {
+    const root = document.documentElement
+    if (isIOSFirefox) {
+      root.style.setProperty('--vv-bottom-offset', '0px')
+      root.style.setProperty('--mobile-bottom-offset', '0px')
+      root.style.setProperty('--vv-top-offset', '0px')
+      return
+    }
     const viewport = window.visualViewport
     if (!viewport) {
       root.style.setProperty('--vv-bottom-offset', '0px')
       root.style.setProperty('--mobile-bottom-offset', '0px')
+      root.style.setProperty('--vv-top-offset', '0px')
       return
     }
 
     const updateViewportOffset = () => {
+      const topOffset = Math.max(0, Number(viewport.offsetTop || 0))
       const activeEl = document.activeElement
       const focusedEditable =
         !!activeEl &&
@@ -240,6 +341,10 @@ export default function App() {
       const offset = focusedEditable && keyboardLikelyOpen ? 0 : 0
       root.style.setProperty('--vv-bottom-offset', `${offset}px`)
       root.style.setProperty('--mobile-bottom-offset', `${offset}px`)
+      root.style.setProperty(
+        '--vv-top-offset',
+        `${focusedEditable && keyboardLikelyOpen ? topOffset : 0}px`,
+      )
     }
 
     updateViewportOffset()
@@ -254,7 +359,7 @@ export default function App() {
       window.removeEventListener('focusin', updateViewportOffset)
       window.removeEventListener('focusout', updateViewportOffset)
     }
-  }, [])
+  }, [isIOSFirefox])
 
 
   useEffect(() => {
@@ -437,9 +542,31 @@ export default function App() {
     ? 'min-h-screen bg-gradient-to-b from-white via-emerald-50/70 to-white text-slate-900 transition-colors duration-300 dark:bg-gradient-to-b dark:from-emerald-950 dark:via-slate-950 dark:to-slate-900 dark:text-slate-100'
     : 'h-[100dvh] bg-white text-slate-900 transition-colors duration-300 dark:bg-slate-950 dark:text-slate-100'
 
+  const effectiveInstallBarHeight =
+    showInstallBar && !installForceHidden ? installBarHeight : 0
+  const appContainerStyle = {
+    paddingTop: 'var(--install-bar-height, 0px)',
+    transition: 'padding-top 220ms ease',
+  }
+  const authContainerStyle =
+    isAuthRoute && showInstallBar
+      ? {
+          minHeight: 'calc(100dvh - var(--install-bar-height, 0px))',
+          height: 'calc(100dvh - var(--install-bar-height, 0px))',
+          maxHeight: 'calc(100dvh - var(--install-bar-height, 0px))',
+        }
+      : undefined
+
   return (
-    <div className={appShellClass}>
-      <div className={isAuthRoute ? 'relative min-h-screen overflow-hidden' : 'relative h-full min-h-0 overflow-hidden'}>
+    <div className={appShellClass} style={appContainerStyle}>
+      <div
+        className={
+          isAuthRoute
+            ? 'relative min-h-screen app-scroll overflow-y-auto'
+            : 'relative h-full min-h-0 overflow-hidden'
+        }
+        style={authContainerStyle}
+      >
         {!isAuthRoute ? (
           <>
             {isIOSSafari ? (
@@ -484,17 +611,21 @@ export default function App() {
         ) : null}
         {isAuthRoute ? (
           <>
-            <div className="pointer-events-none absolute -top-40 left-1/2 h-96 w-96 -translate-x-1/2 rounded-full bg-emerald-400/30 blur-[130px]" />
-            <div className="pointer-events-none absolute bottom-0 right-0 h-80 w-80 translate-x-1/3 rounded-full bg-lime-400/40 blur-[120px]" />
+            <div className="pointer-events-none fixed -top-40 left-1/2 h-96 w-96 -translate-x-1/2 rounded-full bg-emerald-400/30 blur-[130px]" />
+            <div className="pointer-events-none fixed bottom-0 right-0 h-80 w-80 translate-x-1/3 rounded-full bg-lime-400/40 blur-[120px]" />
           </>
         ) : null}
 
         <div
           className={
             isAuthRoute
-              ? 'app-scroll mx-auto flex min-h-screen w-full max-w-6xl flex-col overflow-y-auto px-4 pb-8 pt-6 sm:px-6 sm:pb-16 sm:pt-10'
-              : 'relative z-10 flex h-full min-h-0 w-full flex-col px-0 pb-0 pt-0'
+              ? 'mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 pb-8 pt-6 sm:px-6 sm:pb-16 sm:pt-10'
+              : 'relative flex h-full min-h-0 w-full flex-col px-0 pb-0 pt-0'
           }
+          style={{
+            ...(authContainerStyle || {}),
+            zIndex: 'var(--app-z, 20)',
+          }}
         >
           {isAuthRoute ? (
             <header className="flex flex-wrap items-center justify-center gap-3 text-center sm:gap-4">
@@ -509,7 +640,7 @@ export default function App() {
             </header>
           ) : null}
 
-          <main className={isAuthRoute ? 'app-scroll flex flex-1 items-center justify-center overflow-y-auto px-1 py-6 sm:mt-0 sm:px-0 sm:py-8' : 'flex min-h-0 flex-1'}>
+          <main className={isAuthRoute ? 'flex flex-1 items-center justify-center px-1 py-6 sm:mt-0 sm:px-0 sm:py-8' : 'flex min-h-0 flex-1'}>
             {route === 'login' && (
               <AuthPage
                 mode="login"
@@ -564,6 +695,47 @@ export default function App() {
           </main>
         </div>
       </div>
+
+      <InstallBar
+        ref={installBarRef}
+        show={showInstallBar}
+        iconSrc="/icons/icon-192.png"
+        onDismiss={() => {
+          setShowInstallBanner(false)
+          setShowIosInstallBanner(false)
+          setInstallDismissed(true)
+          localStorage.setItem(PWA_INSTALL_DISMISS_KEY, '1')
+        }}
+        onInstall={async () => {
+          const isDesktop =
+            window.matchMedia?.('(min-width: 768px)')?.matches || false
+          if (installPromptEvent) {
+            try {
+              await installPromptEvent.prompt()
+              const choice = await installPromptEvent.userChoice
+              if (choice?.outcome !== 'accepted') {
+                setInstallDismissed(true)
+                localStorage.setItem(PWA_INSTALL_DISMISS_KEY, '1')
+              }
+            } catch {
+              setShowInstallGuide(true)
+            } finally {
+              setInstallPromptEvent(null)
+              setShowInstallBanner(false)
+            }
+            return
+          }
+          if (!isDesktop) {
+            setShowInstallGuide(true)
+          }
+        }}
+      />
+
+      <InstallGuideModal
+        open={showInstallGuide}
+        iconSrc="/icons/icon-192.png"
+        onClose={() => setShowInstallGuide(false)}
+      />
     </div>
   )
 }

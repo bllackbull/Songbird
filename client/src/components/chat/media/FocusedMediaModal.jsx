@@ -39,6 +39,49 @@ export function FocusedMediaModal({
 }) {
   if (!focusedMedia) return null;
 
+  const handleMobileSave = async (event) => {
+    event?.preventDefault?.();
+    const url = focusedMedia.downloadUrl || focusedMedia.url;
+    if (!url) return;
+    const filename = focusedMedia.name || "media";
+    const tryFallbackDownload = () => {
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      link.rel = "noopener noreferrer";
+      link.target = "_blank";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    };
+
+    const canShareFiles =
+      typeof navigator !== "undefined" &&
+      typeof navigator.share === "function" &&
+      typeof navigator.canShare === "function";
+
+    if (!canShareFiles) {
+      tryFallbackDownload();
+      return;
+    }
+
+    try {
+      const res = await fetch(url, { credentials: "include" });
+      const blob = await res.blob();
+      const file = new File([blob], filename, { type: blob.type || undefined });
+      if (!navigator.canShare({ files: [file] })) {
+        tryFallbackDownload();
+        return;
+      }
+      await navigator.share({
+        files: [file],
+        title: focusedMedia.name || "Media",
+      });
+    } catch {
+      tryFallbackDownload();
+    }
+  };
+
   return (
     <div
       className={`fixed inset-0 z-[200] transition-opacity duration-200 ${
@@ -67,14 +110,14 @@ export function FocusedMediaModal({
           >
             <Close size={18} className="icon-anim-pop" />
           </button>
-          <a
-            href={focusedMedia.downloadUrl || focusedMedia.url}
-            download={focusedMedia.name || "media"}
+          <button
+            type="button"
+            onClick={handleMobileSave}
             className="pointer-events-auto relative z-50 group inline-flex h-9 items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-[0_0_22px_rgba(16,185,129,0.45)]"
           >
             <Download size={15} className="icon-anim-drop" />
             Save
-          </a>
+          </button>
         </div>
       ) : null}
       {isDesktop ? (

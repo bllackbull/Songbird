@@ -25,6 +25,14 @@ import {
   useFocusedMedia,
   useFloatingDayChip,
 } from "./index.js";
+import { CACHE_STORES } from "../../utils/cacheDb.js";
+import {
+  MEDIA_POSTER_CACHE_KEY,
+  MEDIA_THUMB_CACHE_KEY,
+  canUseIdb,
+  deleteIdbCache,
+  readIdbCache,
+} from "../../utils/chatCache.js";
 
 export default function ChatWindowPanel({
   mobileTab,
@@ -40,6 +48,9 @@ export default function ChatWindowPanel({
   groupAvatarUrl = "",
   channelSeenCounts = null,
   chatScrollRef,
+  composerInputRef,
+  smoothScrollLockRef,
+  isAtBottomRef,
   onChatScroll,
   onStartReached,
   messages,
@@ -77,6 +88,7 @@ export default function ChatWindowPanel({
   onOpenMention,
   mentionRefreshToken = 0,
   onUserScrollIntent,
+  canSwipeReply = true,
   fileUploadEnabled = true,
   fileUploadInProgress = false,
   showComposer = true,
@@ -84,11 +96,11 @@ export default function ChatWindowPanel({
   showStatus = true,
   headerAvatarIcon = null,
   headerAvatarColor = null,
+  permissionsPrompt = null,
 }) {
   const MEDIA_CACHE_VERSION = 1;
   const MEDIA_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-  const MEDIA_THUMB_CACHE_KEY = "chat-media-thumbs-v2";
-  const VIDEO_POSTER_CACHE_KEY = "chat-video-posters-v3";
+  const VIDEO_POSTER_CACHE_KEY = MEDIA_POSTER_CACHE_KEY;
   const [isDesktop, setIsDesktop] = useState(
     typeof window !== "undefined"
       ? window.matchMedia("(min-width: 768px)").matches
@@ -109,37 +121,29 @@ export default function ChatWindowPanel({
     headerClickable && typeof onOpenHeaderProfile === "function";
 
   const readMediaCache = useCallback(
-    (key) => {
-      if (typeof window === "undefined") return null;
-      try {
-        const raw = window.localStorage.getItem(key);
-        if (!raw) return null;
-        const parsed = JSON.parse(raw);
-        if (!parsed || parsed.version !== MEDIA_CACHE_VERSION) return null;
-        const updatedAt = Number(parsed.updatedAt || 0);
-        if (!Number.isFinite(updatedAt)) return null;
-        if (Date.now() - updatedAt > MEDIA_CACHE_TTL_MS) {
-          window.localStorage.removeItem(key);
-          return null;
-        }
-        return parsed;
-      } catch (_) {
+    async (store, key) => {
+      if (!canUseIdb()) return null;
+      const cached = await readIdbCache(store, key);
+      if (!cached || cached.version !== MEDIA_CACHE_VERSION) return null;
+      const updatedAt = Number(cached.updatedAt || 0);
+      if (!Number.isFinite(updatedAt)) return null;
+      if (Date.now() - updatedAt > MEDIA_CACHE_TTL_MS) {
+        await deleteIdbCache(store, key);
         return null;
       }
+      return cached;
     },
     [MEDIA_CACHE_TTL_MS, MEDIA_CACHE_VERSION],
   );
 
-  const [loadedMediaThumbs, setLoadedMediaThumbs] = useState(() => {
-    if (typeof window === "undefined") return new Set();
-    try {
-      const cached = readMediaCache(MEDIA_THUMB_CACHE_KEY);
-      const items = Array.isArray(cached?.items) ? cached.items : [];
-      return new Set(items.map((item) => String(item)));
-    } catch (_) {
-      return new Set();
-    }
-  });
+  const [loadedMediaThumbs, setLoadedMediaThumbs] = useState(
+    () => new Set(),
+  );
+  const [composerFocused, setComposerFocused] = useState(false);
+  const [headerOffset, setHeaderOffset] = useState(0);
+  const ua =
+    typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
+  const isIOSFirefox = /FxiOS/i.test(ua);
   const touchStartXRef = useRef(0);
   const touchStartYRef = useRef(0);
   const touchDxRef = useRef(0);
@@ -151,16 +155,7 @@ export default function ChatWindowPanel({
   const [showUploadMenu, setShowUploadMenu] = useState(false);
   const [composerHeight, setComposerHeight] = useState(80);
   const [mediaAspectByKey, setMediaAspectByKey] = useState(() => ({}));
-  const [videoPosterByUrl, setVideoPosterByUrl] = useState(() => {
-    if (typeof window === "undefined") return {};
-    try {
-      const cached = readMediaCache(VIDEO_POSTER_CACHE_KEY);
-      const posters = cached?.posters;
-      return posters && typeof posters === "object" ? posters : {};
-    } catch (_) {
-      return {};
-    }
-  });
+  const [videoPosterByUrl, setVideoPosterByUrl] = useState(() => ({}));
   const uploadBusy = !fileUploadEnabled || fileUploadInProgress;
   const timelineBottomSpacerPx = 4;
   const [hideInsecureTooltip, setHideInsecureTooltip] = useState(() => {
@@ -175,6 +170,8 @@ export default function ChatWindowPanel({
       window.location.hostname.endsWith(".localhost"));
   const insecureTooltipRef = useRef(null);
   const [insecureTooltipHeight, setInsecureTooltipHeight] = useState(0);
+  const permissionBannerRef = useRef(null);
+  const [permissionBannerHeight, setPermissionBannerHeight] = useState(0);
   useEffect(() => {
     if (!insecureConnection) return;
     if (typeof window === "undefined") return;
@@ -199,6 +196,54 @@ export default function ChatWindowPanel({
     observer.observe(node);
     return () => observer.disconnect();
   }, [insecureConnection, hideInsecureTooltip]);
+  useLayoutEffect(() => {
+    if (isDesktop || isIOSFirefox || !composerFocused) {
+      setHeaderOffset(0);
+      return;
+    }
+    const root = document.documentElement;
+    const viewport = window.visualViewport;
+    if (!viewport) {
+      setHeaderOffset(12);
+      return;
+    }
+    const update = () => {
+      const raw =
+        root?.style?.getPropertyValue?.("--vv-top-offset") ||
+        window.getComputedStyle(root).getPropertyValue("--vv-top-offset");
+      const vvTop = Number(String(raw || "").replace("px", "")) || 0;
+      const next = Math.min(Math.max(0, vvTop), 0);
+      setHeaderOffset(next);
+    };
+    update();
+    viewport.addEventListener("resize", update);
+    viewport.addEventListener("scroll", update);
+    window.addEventListener("focusin", update);
+    window.addEventListener("focusout", update);
+    return () => {
+      viewport.removeEventListener("resize", update);
+      viewport.removeEventListener("scroll", update);
+      window.removeEventListener("focusin", update);
+      window.removeEventListener("focusout", update);
+    };
+  }, [composerFocused, isDesktop, isIOSFirefox]);
+  useLayoutEffect(() => {
+    if (!permissionsPrompt?.show) {
+      setPermissionBannerHeight(0);
+      return;
+    }
+    const node = permissionBannerRef.current;
+    if (!node || typeof window === "undefined") return;
+    const measure = () => {
+      const rect = node.getBoundingClientRect();
+      setPermissionBannerHeight(Number(rect?.height || 0));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => measure());
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [permissionsPrompt?.show]);
   const {
     focusedMedia,
     setFocusedMedia,
@@ -283,6 +328,7 @@ export default function ChatWindowPanel({
     return () => media.removeListener(update);
   }, []);
 
+
   useEffect(() => {
     const last = messages[messages.length - 1];
     if (!last) {
@@ -351,33 +397,118 @@ export default function ChatWindowPanel({
     onUserScrollIntent?.();
   }, [onUserScrollIntent, resetFloatingLocks]);
 
-  const handleComposerResize = useCallback(() => {
-    if (!activeChatId || userScrolledUp) return;
+  const isSmoothScrollLocked = useCallback(() => {
+    if (!smoothScrollLockRef) return false;
+    return Number(smoothScrollLockRef.current || 0) > Date.now();
+  }, [smoothScrollLockRef]);
+  const shouldIgnoreSmoothLock = useCallback(
+    () => Boolean(isAtBottomRef?.current),
+    [isAtBottomRef],
+  );
+
+  const scrollToBottomImmediate = useCallback(() => {
     const container = chatScrollRef?.current;
     if (!container) return;
     container.scrollTo({
       top: container.scrollHeight + 1000,
       behavior: "auto",
     });
-  }, [activeChatId, chatScrollRef, userScrolledUp]);
+  }, [chatScrollRef]);
+
+  const handleComposerResize = useCallback(() => {
+    if (
+      !activeChatId ||
+      userScrolledUp ||
+      (isSmoothScrollLocked() && !shouldIgnoreSmoothLock())
+    )
+      return;
+    scrollToBottomImmediate();
+  }, [
+    activeChatId,
+    isSmoothScrollLocked,
+    scrollToBottomImmediate,
+    shouldIgnoreSmoothLock,
+    userScrolledUp,
+  ]);
 
   useEffect(() => {
     if (!activeChatId || !pendingUploadFiles?.length) return;
-    const scrollToBottomInstant = () => {
-      const container = chatScrollRef?.current;
-      if (!container) return;
-      container.scrollTo({
-        top: container.scrollHeight + 1000,
-        behavior: "auto",
-      });
-    };
-    const raf = requestAnimationFrame(scrollToBottomInstant);
+    if (
+      userScrolledUp ||
+      (isSmoothScrollLocked() && !shouldIgnoreSmoothLock())
+    )
+      return;
+    const raf = requestAnimationFrame(scrollToBottomImmediate);
     return () => cancelAnimationFrame(raf);
   }, [
     activeChatId,
     pendingUploadFiles?.length,
     messages.length,
     chatScrollRef,
+    isSmoothScrollLocked,
+    scrollToBottomImmediate,
+    shouldIgnoreSmoothLock,
+    userScrolledUp,
+  ]);
+
+  useEffect(() => {
+    if (
+      !activeChatId ||
+      userScrolledUp ||
+      (isSmoothScrollLocked() && !shouldIgnoreSmoothLock())
+    )
+      return;
+    const raf1 = requestAnimationFrame(scrollToBottomImmediate);
+    const raf2 = requestAnimationFrame(scrollToBottomImmediate);
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [
+    activeChatId,
+    userScrolledUp,
+    composerHeight,
+    pendingUploadFiles?.length,
+    pendingVoiceMessage,
+    replyTarget,
+    chatScrollRef,
+    isSmoothScrollLocked,
+    scrollToBottomImmediate,
+    shouldIgnoreSmoothLock,
+  ]);
+
+  useEffect(() => {
+    if (isDesktop || !activeChatId || userScrolledUp || !composerFocused) return;
+    if (typeof window === "undefined") return;
+    if (isSmoothScrollLocked() && !shouldIgnoreSmoothLock()) return;
+    const viewport = window.visualViewport;
+    const run = () => {
+      if (userScrolledUp) return;
+      if (isSmoothScrollLocked() && !shouldIgnoreSmoothLock()) return;
+      requestAnimationFrame(scrollToBottomImmediate);
+    };
+    const raf1 = requestAnimationFrame(scrollToBottomImmediate);
+    const raf2 = requestAnimationFrame(scrollToBottomImmediate);
+    viewport?.addEventListener("resize", run);
+    viewport?.addEventListener("scroll", run);
+    window.addEventListener("resize", run);
+    window.addEventListener("orientationchange", run);
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      viewport?.removeEventListener("resize", run);
+      viewport?.removeEventListener("scroll", run);
+      window.removeEventListener("resize", run);
+      window.removeEventListener("orientationchange", run);
+    };
+  }, [
+    activeChatId,
+    composerFocused,
+    isDesktop,
+    isSmoothScrollLocked,
+    scrollToBottomImmediate,
+    shouldIgnoreSmoothLock,
+    userScrolledUp,
   ]);
 
   useEffect(() => {
@@ -449,16 +580,59 @@ export default function ChatWindowPanel({
   }, [uploadBusy]);
 
   useEffect(() => {
+    if (!replyTarget) return;
+    if (composerFocused) return;
+    const node = composerInputRef?.current;
+    if (!node) return;
+    window.setTimeout(() => {
+      node?.focus?.({ preventScroll: true });
+      node?.focus?.();
+    }, 0);
+  }, [replyTarget, composerFocused, composerInputRef]);
+
+
+
+  useEffect(() => {
     setFocusedMedia(null);
     setFocusVisible(false);
   }, [activeChatId, setFocusedMedia, setFocusVisible]);
 
   useEffect(() => {
-    const cached = readMediaCache(MEDIA_THUMB_CACHE_KEY);
-    const items = Array.isArray(cached?.items) ? cached.items : [];
-    setLoadedMediaThumbs(new Set(items.map((item) => String(item))));
-    setMediaAspectByKey({});
-  }, [activeChatId, readMediaCache, MEDIA_THUMB_CACHE_KEY]);
+    let isActive = true;
+    void (async () => {
+      const cached = await readMediaCache(
+        CACHE_STORES.mediaThumbs,
+        MEDIA_THUMB_CACHE_KEY,
+      );
+      const items = Array.isArray(cached?.items) ? cached.items : [];
+      if (isActive) {
+        setLoadedMediaThumbs(new Set(items.map((item) => String(item))));
+        setMediaAspectByKey({});
+      }
+    })();
+    return () => {
+      isActive = false;
+    };
+  }, [activeChatId, readMediaCache]);
+
+  useEffect(() => {
+    let isActive = true;
+    void (async () => {
+      const cached = await readMediaCache(
+        CACHE_STORES.mediaPosters,
+        VIDEO_POSTER_CACHE_KEY,
+      );
+      const posters = cached?.posters;
+      if (isActive) {
+        setVideoPosterByUrl(
+          posters && typeof posters === "object" ? posters : {},
+        );
+      }
+    })();
+    return () => {
+      isActive = false;
+    };
+  }, [activeChatId, readMediaCache, VIDEO_POSTER_CACHE_KEY]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -510,14 +684,12 @@ export default function ChatWindowPanel({
           : undefined,
       paddingBottom: activeChatId
         ? showComposer
-          ? `max(1rem, calc(env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px) + ${
-              isDesktop ? "1rem" : "1rem"
-            }))`
-          : `max(1rem, calc(env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px)))`
+          ? "0.75rem"
+          : "0.5rem"
         : undefined,
       overflowAnchor: "none",
     }),
-    [activeChatId, insecureConnection, isDark, isDesktop, showComposer],
+    [activeChatId, insecureConnection, isDark, showComposer],
   );
 
   const handleTouchStart = (event) => {
@@ -551,7 +723,7 @@ export default function ChatWindowPanel({
     }
   };
 
-  const getFileRenderType = (file) => {
+  const getFileRenderType = useCallback((file) => {
     const explicitKind = String(file?.kind || "").toLowerCase();
     const mimeType = String(file?.mimeType || "").toLowerCase();
     const name = String(file?.name || "").toLowerCase();
@@ -570,9 +742,10 @@ export default function ChatWindowPanel({
     if (/\.(gif|png|jpe?g|webp|bmp|svg)$/.test(name)) return "image";
     if (/\.(mp4|mov|webm|mkv|avi|m4v)$/.test(name)) return "video";
     return "document";
-  };
+  }, []);
 
-  const handleVideoThumbLoadedMetadata = (event) => {
+  const handleVideoThumbLoadedMetadata = useCallback(
+    (event) => {
     const video = event.currentTarget;
     try {
       if (!isMobileTouchDevice) return;
@@ -586,24 +759,62 @@ export default function ChatWindowPanel({
     } catch (_) {
       // no-op
     }
-  };
+    },
+    [isMobileTouchDevice],
+  );
 
-  const messageFilesProps = {
-    isDesktop,
-    loadedMediaThumbs,
-    setLoadedMediaThumbs,
-    mediaAspectByKey,
-    setMediaAspectByKey,
-    videoPosterByUrl,
-    setVideoPosterByUrl,
-    videoPosterCacheKey: VIDEO_POSTER_CACHE_KEY,
-    mediaThumbCacheKey: MEDIA_THUMB_CACHE_KEY,
-    mediaCacheVersion: MEDIA_CACHE_VERSION,
-    openFocusMedia,
-    onMessageMediaLoaded,
-    handleVideoThumbLoadedMetadata,
-    getFileRenderType,
-  };
+  const messageFilesProps = useMemo(
+    () => ({
+      isDesktop,
+      loadedMediaThumbs,
+      setLoadedMediaThumbs,
+      mediaAspectByKey,
+      setMediaAspectByKey,
+      videoPosterByUrl,
+      setVideoPosterByUrl,
+      videoPosterCacheKey: VIDEO_POSTER_CACHE_KEY,
+      mediaThumbCacheKey: MEDIA_THUMB_CACHE_KEY,
+      mediaCacheVersion: MEDIA_CACHE_VERSION,
+      openFocusMedia,
+      onMessageMediaLoaded,
+      handleVideoThumbLoadedMetadata,
+      getFileRenderType,
+    }),
+    [
+      isDesktop,
+      loadedMediaThumbs,
+      mediaAspectByKey,
+      videoPosterByUrl,
+      openFocusMedia,
+      onMessageMediaLoaded,
+      handleVideoThumbLoadedMetadata,
+      getFileRenderType,
+    ],
+  );
+
+  const handleComposerFocusChange = useCallback(
+    (nextFocused) => {
+      const focused = Boolean(nextFocused);
+      setComposerFocused(focused);
+      if (isDesktop) return;
+      if (!focused) {
+        setKeyboardOffset(0);
+        return;
+      }
+      if (typeof window === "undefined") {
+        setKeyboardOffset(12);
+        return;
+      }
+      const viewport = window.visualViewport;
+      if (!viewport) {
+        setKeyboardOffset(12);
+        return;
+      }
+      const next = Math.max(0, Number(viewport.offsetTop || 0));
+      setKeyboardOffset(next > 0 ? next : 12);
+    },
+    [isDesktop],
+  );
 
   const renderMessageItem = (msg, options = {}) => (
     <MessageItem
@@ -617,6 +828,7 @@ export default function ChatWindowPanel({
       isDesktop={isDesktop}
       isMobileTouchDevice={isMobileTouchDevice}
       onReply={onReplyToMessage}
+      canSwipeReply={canSwipeReply}
       isGroupChat={isGroupChat}
       isChannelChat={isChannelChat}
       chatName={activeFallbackTitle}
@@ -674,22 +886,36 @@ export default function ChatWindowPanel({
   return (
     <section
       className={
-        "fixed inset-0 top-0 z-20 md:relative md:inset-auto md:top-auto md:z-auto flex h-full flex-1 flex-col overflow-hidden border-x border-slate-300/80 bg-white shadow-xl shadow-emerald-500/10 dark:border-white/5 dark:bg-slate-900 md:border md:w-[65%] md:shadow-2xl md:shadow-emerald-500/15 transition-transform duration-300 ease-out will-change-transform " +
+        "fixed inset-0 top-0 md:relative md:inset-auto md:top-auto flex h-full flex-1 flex-col overflow-hidden border-x border-slate-300/80 bg-white shadow-xl shadow-emerald-500/10 dark:border-white/5 dark:bg-slate-900 md:border md:w-[65%] md:shadow-2xl md:shadow-emerald-500/15 transition-transform duration-300 ease-out will-change-transform " +
         (mobileTab === "chat"
           ? "transform-none"
           : "translate-x-full md:transform-none")
       }
-      style={{ paddingTop: "max(0px, env(safe-area-inset-top))" }}
+      style={{
+        top: "0px",
+        height: "100%",
+        zIndex: isDesktop ? "auto" : "var(--app-z, 20)",
+        paddingTop:
+          "max(0px, calc(env(safe-area-inset-top) + var(--vv-top-offset, 0px)))",
+      }}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
     >
       {activeChatId ? (
         <>
-          <div
-            className="fixed inset-x-0 z-30 flex h-[72px] items-center justify-between gap-3 border-b border-slate-300/80 bg-white px-6 py-4 dark:border-emerald-500/20 dark:bg-slate-900 md:sticky md:top-0 md:inset-x-auto md:z-20"
-            style={{ top: "max(0px, env(safe-area-inset-top))" }}
-          >
+          <div className="sticky top-0 z-30 shrink-0">
+            <div
+              className="flex h-[72px] items-center justify-between gap-3 border-b border-slate-300/80 bg-white px-6 py-4 dark:border-emerald-500/20 dark:bg-slate-900"
+              style={{
+                transform:
+                  !isDesktop && composerFocused
+                    ? `translateY(${headerOffset}px)`
+                    : "translateY(0px)",
+                transition: !isDesktop ? "transform 140ms ease-out" : "none",
+                willChange: !isDesktop ? "transform" : "auto",
+              }}
+            >
             <button
               type="button"
               onClick={closeChat}
@@ -858,8 +1084,8 @@ export default function ChatWindowPanel({
                 {activePeerInitials}
               </div>
             )}
+            </div>
           </div>
-          <div className="h-[72px] md:hidden" />
         </>
       ) : null}
 
@@ -899,17 +1125,64 @@ export default function ChatWindowPanel({
         </div>
       ) : null}
 
+      {permissionsPrompt?.show && activeChatId ? (
+        <div className="w-full">
+          <div
+            ref={permissionBannerRef}
+            className="flex w-full flex-col gap-2 border-y border-emerald-200/70 bg-emerald-50/70 px-4 py-3 text-xs font-semibold text-emerald-700 shadow-sm dark:border-emerald-500/30 dark:bg-slate-900/70 dark:text-emerald-200"
+          >
+            {permissionsPrompt?.notification?.show ? (
+              <div className="flex items-center justify-between gap-3">
+                <span>Enable notifications for message alerts</span>
+                <button
+                  type="button"
+                  onClick={permissionsPrompt.notification.onRequest}
+                  className="rounded-full border border-emerald-200 bg-white px-3 py-1 text-[11px] font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+                >
+                  Allow
+                </button>
+              </div>
+            ) : null}
+            {permissionsPrompt?.microphone?.show ? (
+              <div className="flex items-center justify-between gap-3">
+                <span>Enable microphone for voice messages</span>
+                <button
+                  type="button"
+                  onClick={permissionsPrompt.microphone.onRequest}
+                  className="rounded-full border border-emerald-200 bg-white px-3 py-1 text-[11px] font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+                >
+                  Allow
+                </button>
+              </div>
+            ) : null}
+            <div className="flex items-center justify-end">
+              <button
+                type="button"
+                onClick={permissionsPrompt.onDismiss}
+                className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-slate-600"
+              >
+                Not now
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex-1 min-h-0">
         {activeChatId && floatingDay.key && isTimelineScrollable ? (
           <div
             className="absolute left-1/2 z-[3] -translate-x-1/2"
             style={{
-              top: `calc(env(safe-area-inset-top) + 84px + ${
+              top: `calc(84px + ${
                 insecureConnection &&
                 activeChatId &&
                 !hideInsecureTooltip &&
                 !isLocalhost
                   ? Math.max(0, (insecureTooltipHeight || 56) + 16)
+                  : 0
+              }px + ${
+                permissionsPrompt?.show
+                  ? Math.max(0, (permissionBannerHeight || 48) + 12)
                   : 0
               }px)`,
             }}
@@ -959,11 +1232,11 @@ export default function ChatWindowPanel({
       </div>
 
       {showComposer ? (
-        <MessageComposer
-          activeChatId={activeChatId}
-          isDesktop={isDesktop}
-          handleSend={handleSend}
-          onComposerResize={handleComposerResize}
+          <MessageComposer
+            activeChatId={activeChatId}
+            isDesktop={isDesktop}
+            handleSend={handleSend}
+            onComposerResize={handleComposerResize}
           replyTarget={replyTarget}
           onClearReply={onClearReply}
           pendingUploadFiles={pendingUploadFiles}
@@ -984,12 +1257,16 @@ export default function ChatWindowPanel({
           uploadBusy={uploadBusy}
           showUploadMenu={showUploadMenu}
           setShowUploadMenu={setShowUploadMenu}
-          uploadMenuRef={uploadMenuRef}
-          handleVideoThumbLoadedMetadata={handleVideoThumbLoadedMetadata}
-          onComposerHeightChange={(value) => {
-            setComposerHeight(Math.max(80, Number(value || 80)));
-          }}
-        />
+            uploadMenuRef={uploadMenuRef}
+            handleVideoThumbLoadedMetadata={handleVideoThumbLoadedMetadata}
+            onComposerHeightChange={(value) => {
+              setComposerHeight(Math.max(80, Number(value || 80)));
+            }}
+            onComposerFocusChange={(nextFocused) => {
+              setComposerFocused(Boolean(nextFocused));
+            }}
+            composerInputRef={composerInputRef}
+          />
       ) : null}
 
       {activeChatId && userScrolledUp ? (

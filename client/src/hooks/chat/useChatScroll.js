@@ -5,6 +5,7 @@ export function useChatScroll({
   canMarkReadInCurrentView,
   chatScrollRef,
   clearUnreadAlignTimers,
+  smoothScrollLockRef,
   messages,
   user,
   isAppActive,
@@ -22,20 +23,47 @@ export function useChatScroll({
   setUserScrolledUp,
 }) {
   const CHAT_BOTTOM_THRESHOLD_PX = 120;
-  const JUMP_TO_LATEST_SECOND_SNAP_DELAY_MS = 320;
   const JUMP_TO_LATEST_SECOND_SNAP_THRESHOLD_PX = 24;
   const pendingScrollToBottomRef = useRef(false);
+
+  const setSmoothScrollLock = useCallback(
+    (durationMs = 480) => {
+      const next = Date.now() + durationMs;
+      if (smoothScrollLockRef) {
+        smoothScrollLockRef.current = next;
+      }
+    },
+    [smoothScrollLockRef],
+  );
+
+  const smoothScrollToBottom = useCallback(() => {
+    const container = chatScrollRef.current;
+    if (!container) return;
+    setSmoothScrollLock();
+    const previousBehavior = container.style.scrollBehavior;
+    container.style.scrollBehavior = "smooth";
+    requestAnimationFrame(() => {
+      container.scrollTop = container.scrollHeight + 1000;
+    });
+    window.setTimeout(() => {
+      container.style.scrollBehavior = previousBehavior || "";
+    }, 420);
+  }, [chatScrollRef]);
 
   const scrollChatToBottom = useCallback(
     (behavior = "auto") => {
       const container = chatScrollRef.current;
       if (!container) return;
+      if (behavior === "smooth") {
+        smoothScrollToBottom();
+        return;
+      }
       container.scrollTo({
         top: container.scrollHeight + 1000,
         behavior,
       });
     },
-    [chatScrollRef],
+    [chatScrollRef, smoothScrollToBottom],
   );
 
   const handleChatScroll = useCallback(
@@ -133,14 +161,14 @@ export function useChatScroll({
     pendingScrollToUnreadRef.current = null;
     suppressScrolledUpRef.current = true;
     scrollChatToBottom("smooth");
-    window.setTimeout(() => {
+    requestAnimationFrame(() => {
       const next = chatScrollRef.current;
       if (!next) return;
       const distance = next.scrollHeight - (next.scrollTop + next.clientHeight);
       if (distance > JUMP_TO_LATEST_SECOND_SNAP_THRESHOLD_PX) {
         scrollChatToBottom("smooth");
       }
-    }, JUMP_TO_LATEST_SECOND_SNAP_DELAY_MS);
+    });
     setUnreadInChat(0);
     isAtBottomRef.current = true;
     setIsAtBottom(true);

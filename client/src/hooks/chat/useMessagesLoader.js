@@ -353,8 +353,16 @@ export function useMessagesLoader({
           // and a transient fetch returns empty before server echo settles.
           return basePrev;
         }
+        const normalizeBody = (value) => normalizeMessageBody(value).trim();
         const isPendingMessageAcknowledged = (pending, serverMessages) => {
           if (!pending || !serverMessages.length) return false;
+          const pendingServerId = Number(pending?._serverId || 0);
+          if (
+            pendingServerId &&
+            serverMessages.some((serverMsg) => Number(serverMsg.id) === pendingServerId)
+          ) {
+            return true;
+          }
           const pendingHasFiles =
             Array.isArray(pending.files) && pending.files.length > 0;
           const pendingProgress = Number(pending._uploadProgress ?? 100);
@@ -371,9 +379,11 @@ export function useMessagesLoader({
           const pendingFiles = Array.isArray(pending.files)
             ? pending.files
             : [];
+          const pendingBody = normalizeBody(pending.body || "");
           return serverMessages.some((serverMsg) => {
             if (serverMsg.username !== pending.username) return false;
-            if ((serverMsg.body || "") !== (pending.body || "")) return false;
+            const serverBody = normalizeBody(serverMsg.body || "");
+            if (serverBody !== pendingBody) return false;
             const serverFiles = Array.isArray(serverMsg.files)
               ? serverMsg.files
               : [];
@@ -402,7 +412,9 @@ export function useMessagesLoader({
             const pendingProgress = Number(pending._uploadProgress || 0);
             if (pendingProgress >= 100) return false;
             if (serverMsg.username !== pending.username) return false;
-            if ((serverMsg.body || "") !== (pending.body || "")) return false;
+            const serverBody = normalizeBody(serverMsg.body || "");
+            const pendingBody = normalizeBody(pending.body || "");
+            if (serverBody !== pendingBody) return false;
             const serverFiles = Array.isArray(serverMsg.files)
               ? serverMsg.files
               : [];

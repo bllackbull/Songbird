@@ -14,7 +14,7 @@ export default function SidebarFooter({
   settingsButtonRef,
 }) {
   return (
-    <div className="absolute bottom-0 left-0 right-0 hidden h-[88px] border-t border-slate-300/80 bg-white px-6 py-4 dark:border-emerald-500/20 dark:bg-slate-900 md:block">
+    <div className="hidden h-[88px] border-t border-slate-300/80 bg-white px-6 py-4 dark:border-emerald-500/20 dark:bg-slate-900 md:absolute md:bottom-0 md:left-0 md:right-0 md:block">
       <div className="flex h-full items-center justify-between">
         <button
           type="button"

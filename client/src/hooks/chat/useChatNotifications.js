@@ -55,6 +55,12 @@ export function useChatNotifications({
     }
     return Notification.permission;
   });
+  const getCurrentPermission = useCallback(() => {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      return "unsupported";
+    }
+    return Notification.permission;
+  }, []);
 
   const uaString =
     typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
@@ -105,25 +111,79 @@ export function useChatNotifications({
     try {
       const result = await Notification.requestPermission();
       setNotificationPermission(result);
+      return result;
     } catch {
+      return getCurrentPermission();
       // ignore
     }
-  }, [notificationsSupported]);
+  }, [getCurrentPermission, notificationsSupported]);
 
   const ensurePushSubscription = useCallback(async () => {
     if (typeof window === "undefined") return;
     if (!("serviceWorker" in navigator)) {
       setPushSubscribeStatus("no-sw");
-      return;
+      return null;
     }
     if (!notificationsSupported) {
       setPushSubscribeStatus("unsupported");
-      return;
+      return null;
     }
-    if (notificationPermission !== "granted") {
+    const permission = getCurrentPermission();
+    if (permission !== notificationPermission) {
+      setNotificationPermission(permission);
+    }
+    if (permission !== "granted") {
       setPushSubscribeStatus("no-perm");
-      return;
+      return null;
     }
+    if (!user?.username) {
+      setPushSubscribeStatus("no-user");
+      return null;
+    }
+    const shouldRetryAfterError = (error) => {
+      const message = String(error?.message || error || "").toLowerCase();
+      if (!message) return false;
+      return (
+        message.includes("push service error") ||
+        message.includes("invalidstate") ||
+        message.includes("invalid state") ||
+        message.includes("registration failed")
+      );
+    };
+    const cleanupExistingSubscription = async (reg) => {
+      try {
+        const existing = await reg.pushManager.getSubscription();
+        if (!existing) return;
+        const endpoint = existing.endpoint;
+        await existing.unsubscribe();
+        if (endpoint) {
+          await unsubscribePush({ username: user?.username, endpoint });
+        }
+      } catch {
+        // ignore cleanup failures
+      }
+    };
+    const subscribeWithRetry = async (reg, applicationServerKey) => {
+      try {
+        let subscription = await reg.pushManager.getSubscription();
+        if (!subscription) {
+          subscription = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey,
+          });
+        }
+        return subscription;
+      } catch (error) {
+        if (!shouldRetryAfterError(error)) {
+          throw error;
+        }
+        await cleanupExistingSubscription(reg);
+        return reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey,
+        });
+      }
+    };
     try {
       setPushSubscribeStatus("...");
       setPushSubscribeError("");
@@ -131,30 +191,24 @@ export function useChatNotifications({
         pushRegistrationRef.current || (await navigator.serviceWorker.ready);
       if (!reg?.pushManager) {
         setPushSubscribeStatus("no-push");
-        return;
+        return null;
       }
       const keyRes = await fetchPushPublicKey();
       const keyData = await keyRes.json();
       if (!keyRes.ok || !keyData?.publicKey) {
         setPushSubscribeStatus("no-key");
-        return;
+        return null;
       }
       const applicationServerKey = urlBase64ToUint8Array(keyData.publicKey);
       setPushVapidLength(getVapidKeyLength(keyData.publicKey));
       if (!applicationServerKey || applicationServerKey.length < 1) {
         setPushSubscribeStatus("bad-key");
-        return;
+        return null;
       }
-      let subscription = await reg.pushManager.getSubscription();
-      if (!subscription) {
-        subscription = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey,
-        });
-      }
+      const subscription = await subscribeWithRetry(reg, applicationServerKey);
       if (!subscription) {
         setPushSubscribeStatus("no-sub");
-        return;
+        return null;
       }
       const json = subscription.toJSON();
       const res = await subscribePush({
@@ -164,19 +218,23 @@ export function useChatNotifications({
       if (!res.ok) {
         setPushSubscribeStatus("err");
         setPushSubscribeError(String(res.status || "err"));
-        return;
+        return null;
       }
       setPushSubscribeStatus("ok");
+      return subscription;
     } catch (err) {
       setPushSubscribeStatus("err");
       const message = String(err?.message || err || "subscribe failed");
       setPushSubscribeError(message);
+      return null;
     }
   }, [
     fetchPushPublicKey,
+    getCurrentPermission,
     notificationPermission,
     notificationsSupported,
     subscribePush,
+    unsubscribePush,
     user,
   ]);
 
@@ -235,9 +293,11 @@ export function useChatNotifications({
     if (!notificationsEnabled) {
       persistNotificationsEnabled(true);
     }
-    if (notificationPermission !== "granted") {
-      await requestNotificationPermission();
+    let permission = notificationPermission;
+    if (permission !== "granted") {
+      permission = await requestNotificationPermission();
     }
+    if (permission !== "granted") return;
     await ensurePushSubscription();
   }, [
     ensurePushSubscription,
@@ -254,9 +314,11 @@ export function useChatNotifications({
     if (!notificationsSupported) return;
     setTestNotificationSent(true);
     window.setTimeout(() => setTestNotificationSent(false), 12000);
-    if (notificationPermission !== "granted") {
-      await requestNotificationPermission();
+    let permission = notificationPermission;
+    if (permission !== "granted") {
+      permission = await requestNotificationPermission();
     }
+    if (permission !== "granted") return;
     await ensurePushSubscription();
     try {
       let res = await sendPushTest({ username: user?.username });

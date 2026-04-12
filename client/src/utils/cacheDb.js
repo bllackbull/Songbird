@@ -1,11 +1,14 @@
 const DB_NAME = "songbird-cache";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 const STORES = {
   chatList: "chatList",
   messages: "messages",
   index: "messagesIndex",
   channelSeen: "channelSeen",
+  mediaThumbs: "mediaThumbs",
+  mediaPosters: "mediaPosters",
+  voiceWaveforms: "voiceWaveforms",
 };
 
 let dbPromise;
@@ -39,7 +42,13 @@ const withStore = async (storeName, mode, callback) => {
     const tx = db.transaction(storeName, mode);
     const store = tx.objectStore(storeName);
     const result = callback(store, tx);
-    tx.oncomplete = () => resolve(result ?? true);
+    tx.oncomplete = () => {
+      if (result && typeof result.then === "function") {
+        result.then(resolve).catch(() => resolve(null));
+        return;
+      }
+      resolve(result ?? true);
+    };
     tx.onerror = () => resolve(null);
     tx.onabort = () => resolve(null);
   });

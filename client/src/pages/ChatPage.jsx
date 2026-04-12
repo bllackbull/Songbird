@@ -25,9 +25,14 @@ import { useChatCacheStats } from "../hooks/chat/useChatCacheStats.js";
 import { useChatNotifications } from "../hooks/chat/useChatNotifications.js";
 import { useDiscoverSearch } from "../hooks/chat/useDiscoverSearch.js";
 import { useActiveChatState } from "../hooks/chat/useActiveChatState.js";
+import { useAppActivity } from "../hooks/chat/useAppActivity.js";
+import { useDmUsernames } from "../hooks/chat/useDmUsernames.js";
+import { useHealthCheck } from "../hooks/chat/useHealthCheck.js";
 import { useMessagesLoader } from "../hooks/chat/useMessagesLoader.js";
+import { useMobileViewport } from "../hooks/chat/useMobileViewport.js";
 import { useNewChatSearch } from "../hooks/chat/useNewChatSearch.js";
 import { useNewGroupModal } from "../hooks/chat/useNewGroupModal.js";
+import { useResumeRefresh } from "../hooks/chat/useResumeRefresh.js";
 import { Bookmark } from "../icons/lucide.js";
 import { CACHE_STORES } from "../utils/cacheDb.js";
 import {
@@ -35,25 +40,19 @@ import {
   buildChatListCacheKey,
   buildMessagesCacheKey,
   canUseIdb,
-  canUseLocalStorage,
   deleteIdbCache,
-  evictOldestMessageCaches,
   normalizeMessageBody,
   normalizeMessagesForRender,
   pruneMessagesIndex,
-  readChannelSeenCache,
-  readChatListCache,
   readChatListCacheAsync,
-  readMessagesCache,
   readMessagesCacheAsync,
-  readMessagesIndex,
   readMessagesIndexAsync,
-  removeLocalCache,
   sanitizeMessagesForCache,
-  updateMessagesIndex,
-  writeChannelSeenCache,
+  readChannelSeenCacheAsync,
+  writeChannelSeenCacheAsync,
   writeIdbCache,
-  writeLocalCache,
+  migrateLocalCacheToIdb,
+  updateMessagesIndex,
   writeMessagesIndex,
 } from "../utils/chatCache.js";
 import {
@@ -119,7 +118,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [showSettings, setShowSettings] = useState(false);
   const [mobileTab, setMobileTab] = useState("chats");
   const [settingsPanel, setSettingsPanel] = useState(null);
-  const dmUsernamesRef = useRef(new Set());
   const [chatsSearchFocused, setChatsSearchFocused] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [profileModalMember, setProfileModalMember] = useState(null);
@@ -141,7 +139,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [uploadError, setUploadError] = useState("");
   const [activeUploadProgress, setActiveUploadProgress] = useState(null);
   const [replyTarget, setReplyTarget] = useState(null);
+  const updateToastTimerRef = useRef(null);
   const chatScrollRef = useRef(null);
+  const composerInputRef = useRef(null);
   const lastMessageIdRef = useRef(null);
   const isAtBottomRef = useRef(true);
   const userScrolledUpRef = useRef(false);
@@ -156,6 +156,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const suppressScrolledUpRef = useRef(false);
   const shouldAutoMarkReadRef = useRef(true);
   const openingChatRef = useRef(false);
+  const smoothScrollLockRef = useRef(0);
   const pendingUploadFilesRef = useRef([]);
   const pendingVoiceMessageRef = useRef(null);
   const prevUploadProgressRef = useRef(null);
@@ -174,6 +175,27 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     settingsPanel,
     messagesCacheRef,
   });
+  const { isAppActive } = useAppActivity();
+  const { isMobileViewport } = useMobileViewport();
+  const { isConnected } = useHealthCheck({
+    fetchHealth,
+    intervalMs: CHAT_PAGE_CONFIG.healthCheckIntervalMs,
+  });
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const root = document.documentElement;
+    if (isMobileViewport && activeChatId) {
+      root.style.setProperty("--app-z", "40");
+    } else {
+      root.style.setProperty("--app-z", "20");
+    }
+    return () => {
+      root.style.setProperty("--app-z", "20");
+    };
+  }, [activeChatId, isMobileViewport]);
+
+  const { dmUsernamesRef } = useDmUsernames({ chats, user });
   const {
     notificationsModalOpen,
     setNotificationsModalOpen,
@@ -195,6 +217,110 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     unsubscribePush,
     sendPushTest,
   });
+
+  useEffect(() => {
+    if (typeof navigator === "undefined") return;
+    if (!("serviceWorker" in navigator)) return;
+    const handleSwMessage = (event) => {
+      if (event?.data?.type !== "APP_SHELL_UPDATED") return;
+      setIsUpdatingChats(true);
+      if (updateToastTimerRef.current) {
+        window.clearTimeout(updateToastTimerRef.current);
+      }
+      updateToastTimerRef.current = window.setTimeout(() => {
+        setIsUpdatingChats(false);
+      }, 2000);
+    };
+    navigator.serviceWorker.addEventListener("message", handleSwMessage);
+    return () => {
+      navigator.serviceWorker.removeEventListener("message", handleSwMessage);
+      if (updateToastTimerRef.current) {
+        window.clearTimeout(updateToastTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isMobileViewport) return;
+    if (activeChatId) {
+      window.dispatchEvent(new Event("songbird-hide-install-bar"));
+    } else {
+      window.dispatchEvent(new Event("songbird-show-install-bar"));
+    }
+  }, [activeChatId, isMobileViewport]);
+  const [microphonePermission, setMicrophonePermission] = useState("unknown");
+  const [microphonePermissionSupported, setMicrophonePermissionSupported] =
+    useState(false);
+  const [permissionsPromptDismissed, setPermissionsPromptDismissed] = useState(
+    () => {
+      if (typeof window === "undefined") return false;
+      return (
+        window.sessionStorage.getItem("songbird-permissions-dismissed") === "1"
+      );
+    },
+  );
+  const requestMicrophonePermission = useCallback(async () => {
+    if (typeof navigator === "undefined") return;
+    if (!navigator.mediaDevices?.getUserMedia) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream?.getTracks?.().forEach((track) => track.stop());
+      setMicrophonePermission("granted");
+    } catch (err) {
+      const message = String(err?.name || err?.message || "");
+      if (message.toLowerCase().includes("notallowed")) {
+        setMicrophonePermission("denied");
+      }
+    }
+  }, []);
+  const dismissPermissionsPrompt = useCallback(() => {
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem("songbird-permissions-dismissed", "1");
+    }
+    setPermissionsPromptDismissed(true);
+  }, []);
+  const requestNotificationsPermission = useCallback(async () => {
+    if (notificationPermission !== "default") return;
+    await handleToggleNotifications();
+  }, [handleToggleNotifications, notificationPermission]);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined") return;
+    let active = true;
+    let permissionStatus = null;
+    const handlePermissionChange = () => {
+      if (!active || !permissionStatus) return;
+      setMicrophonePermission(permissionStatus.state || "prompt");
+    };
+    const refresh = async () => {
+      const supported = Boolean(navigator.mediaDevices?.getUserMedia);
+      if (!active) return;
+      setMicrophonePermissionSupported(supported);
+      if (!supported) {
+        setMicrophonePermission("unsupported");
+        return;
+      }
+      if (!navigator.permissions?.query) {
+        setMicrophonePermission("prompt");
+        return;
+      }
+      try {
+        permissionStatus = await navigator.permissions.query({
+          name: "microphone",
+        });
+        if (!active) return;
+        setMicrophonePermission(permissionStatus.state || "prompt");
+        permissionStatus.addEventListener?.("change", handlePermissionChange);
+      } catch {
+        setMicrophonePermission("prompt");
+      }
+    };
+    refresh();
+    return () => {
+      active = false;
+      permissionStatus?.removeEventListener?.("change", handlePermissionChange);
+    };
+  }, [isAppActive]);
   const {
     newChatOpen,
     setNewChatOpen,
@@ -280,7 +406,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [statusSelection, setStatusSelection] = useState(
     user?.status || "online",
   );
-  const [isConnected, setIsConnected] = useState(false);
   const [isUpdatingChats, setIsUpdatingChats] = useState(false);
   const [sidebarScrollEpoch, setSidebarScrollEpoch] = useState(0);
   const [activePeer, setActivePeer] = useState(null);
@@ -288,14 +413,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     status: "offline",
     lastSeen: null,
   });
-  const [isAppActive, setIsAppActive] = useState(
-    document.visibilityState === "visible" && document.hasFocus(),
-  );
-  const [isMobileViewport, setIsMobileViewport] = useState(
-    typeof window !== "undefined"
-      ? window.matchMedia("(max-width: 767px)").matches
-      : false,
-  );
 
   const settingsMenuRef = useRef(null);
   const settingsButtonRef = useRef(null);
@@ -308,9 +425,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const loadChatsRef = useRef(null);
   const scheduleMessageRefreshRef = useRef(null);
   const presenceStateRef = useRef(new Map());
-  const wasAppActiveRef = useRef(
-    document.visibilityState === "visible" && document.hasFocus(),
-  );
 
   const clearUnreadAlignTimers = () => {
     unreadAlignTimersRef.current.forEach((timer) => window.clearTimeout(timer));
@@ -440,6 +554,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     canMarkReadInCurrentView,
     chatScrollRef,
     clearUnreadAlignTimers,
+    smoothScrollLockRef,
     messages,
     user,
     isAppActive,
@@ -507,22 +622,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   useEffect(() => {
     if (!user?.username) return;
-    const cached = readChatListCache(user.username);
-    if (cached && Array.isArray(cached.chats) && cached.chats.length > 0) {
-      const normalizedCached = cached.chats.map((chat) => ({
-        ...chat,
-        last_message: normalizeMessageBody(chat.last_message),
-      }));
-      setChats((prev) => (prev.length ? prev : normalizedCached));
-      setLoadingChats(false);
-      return;
-    }
     if (!canUseIdb()) return;
     let isActive = true;
     void (async () => {
       const idbCached = await readChatListCacheAsync(user.username);
       if (!isActive || !idbCached) return;
-      if (!Array.isArray(idbCached.chats) || idbCached.chats.length === 0) return;
+      if (!Array.isArray(idbCached.chats) || idbCached.chats.length === 0)
+        return;
       const normalizedCached = idbCached.chats.map((chat) => ({
         ...chat,
         last_message: normalizeMessageBody(chat.last_message),
@@ -537,7 +643,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   useEffect(() => {
     if (!user?.username) return;
-    const index = readMessagesIndex(user.username);
+    void migrateLocalCacheToIdb(user.username);
+  }, [user?.username]);
+
+  useEffect(() => {
+    if (!user?.username) return;
     const pruneIndex = (items) => {
       if (!items.length) return;
       const now = Date.now();
@@ -546,7 +656,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         const updatedAt = Number(entry?.updatedAt);
         if (!chatId || !Number.isFinite(updatedAt)) return false;
         if (now - updatedAt > CHAT_PAGE_CONFIG.cacheTtlMs) {
-          removeLocalCache(buildMessagesCacheKey(user.username, chatId));
           void deleteIdbCache(CACHE_STORES.messages, buildMessagesCacheKey(user.username, chatId));
           return false;
         }
@@ -557,10 +666,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         writeMessagesIndex(user.username, trimmed);
       }
     };
-    if (index.length) {
-      pruneIndex(index);
-      return;
-    }
     if (!canUseIdb()) return;
     let isActive = true;
     void (async () => {
@@ -638,85 +743,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, [user, isAppActive]);
 
   useEffect(() => {
-    const usernames = new Set();
-    (chats || []).forEach((chat) => {
-      if (chat.type !== "dm") return;
-      const members = Array.isArray(chat.members) ? chat.members : [];
-      const other =
-        members.find(
-          (member) =>
-            String(member?.username || "").toLowerCase() !==
-            String(user.username || "").toLowerCase(),
-        ) || null;
-      const otherUsername = String(
-        other?.username ||
-          chat?.username ||
-          chat?.peer_username ||
-          chat?.dm_username ||
-          "",
-      )
-        .toLowerCase()
-        .trim();
-      if (otherUsername && otherUsername !== String(user.username || "").toLowerCase()) {
-        usernames.add(otherUsername);
-      }
-    });
-    dmUsernamesRef.current = usernames;
-  }, [chats, user.username]);
-
-
-  useEffect(() => {
-    let isMounted = true;
-    const checkHealth = async () => {
-      try {
-        const res = await fetchHealth();
-        if (!res.ok) throw new Error("Not connected");
-        const data = await res.json();
-        if (isMounted) {
-          setIsConnected(Boolean(data?.ok));
-        }
-      } catch {
-        if (isMounted) {
-          setIsConnected(false);
-        }
-      }
-    };
-    checkHealth();
-    const interval = setInterval(
-      checkHealth,
-      CHAT_PAGE_CONFIG.healthCheckIntervalMs,
-    );
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const media = window.matchMedia("(max-width: 767px)");
-    const update = () => setIsMobileViewport(media.matches);
-    update();
-    if (media.addEventListener) {
-      media.addEventListener("change", update);
-      return () => media.removeEventListener("change", update);
-    }
-    media.addListener(update);
-    return () => media.removeListener(update);
-  }, []);
-
-  useEffect(() => {
     if (user && activeChatId) {
       const openedChatId = Number(activeChatId);
       const openedChat = chats.find((chat) => chat.id === openedChatId);
       let cached = messagesCacheRef.current.get(openedChatId) || null;
-      if (!cached && user?.username) {
-        const persisted = readMessagesCache(user.username, openedChatId);
-        if (persisted && Array.isArray(persisted.messages)) {
-          cached = persisted;
-          messagesCacheRef.current.set(openedChatId, persisted);
-        }
-      }
+      // IDB async load below will hydrate if needed.
       const hasCachedMessages = Array.isArray(cached?.messages) && cached.messages.length > 0;
       openingHadUnreadRef.current = Boolean((openedChat?.unread_count || 0) > 0);
       openingUnreadCountRef.current = Number(openedChat?.unread_count || 0);
@@ -760,7 +791,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         typeof document !== "undefined" &&
         document.visibilityState === "visible" &&
         document.hasFocus();
-      if (!hasCachedMessages && user?.username && canUseIdb()) {
+      if (user?.username && canUseIdb()) {
         const activeId = openedChatId;
         void (async () => {
           const idbCached = await readMessagesCacheAsync(user.username, activeId);
@@ -1004,7 +1035,24 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
     channelSeenQueueRef.current = [];
     channelSeenLoadedRef.current = new Set();
-    setChannelSeenCounts(readChannelSeenCache(user?.username, activeChatId));
+    if (canUseIdb()) {
+      let isActive = true;
+      void (async () => {
+        const counts = await readChannelSeenCacheAsync(
+          user?.username,
+          activeChatId,
+        );
+        if (isActive) {
+          setChannelSeenCounts(counts);
+        }
+      })();
+      requestAnimationFrame(() => {
+        enqueueChannelSeenCounts();
+      });
+      return () => {
+        isActive = false;
+      };
+    }
     requestAnimationFrame(() => {
       enqueueChannelSeenCounts();
     });
@@ -1027,7 +1075,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   useEffect(() => {
     if (!isActiveChannelChat || !activeChatId) return;
-    writeChannelSeenCache(user?.username, activeChatId, channelSeenCounts);
+    if (!canUseIdb()) return;
+    void writeChannelSeenCacheAsync(
+      user?.username,
+      activeChatId,
+      channelSeenCounts,
+    );
   }, [channelSeenCounts, isActiveChannelChat, activeChatId, user?.username]);
 
   const handleChatScrollWithSeen = useCallback(
@@ -1184,6 +1237,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           String(member.role || "").toLowerCase() === "owner",
       ),
   );
+  const canSwipeReply = !isActiveChannelChat || canCurrentUserEditGroup;
   const canCurrentUserViewInvite = Boolean(
     !mentionProfile &&
     (isActiveGroupChat || isActiveChannelChat) &&
@@ -1518,41 +1572,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, [showSettings, settingsPanel]);
 
   useEffect(() => {
-    const syncActiveState = () => {
-      setIsAppActive(
-        document.visibilityState === "visible" && document.hasFocus(),
-      );
-    };
-    syncActiveState();
-    document.addEventListener("visibilitychange", syncActiveState);
-    window.addEventListener("focus", syncActiveState);
-    window.addEventListener("blur", syncActiveState);
-    return () => {
-      document.removeEventListener("visibilitychange", syncActiveState);
-      window.removeEventListener("focus", syncActiveState);
-      window.removeEventListener("blur", syncActiveState);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!user?.username) {
-      wasAppActiveRef.current = isAppActive;
-      return;
-    }
-    const becameActive = isAppActive && !wasAppActiveRef.current;
-    wasAppActiveRef.current = isAppActive;
-    if (!becameActive) return;
-    loadChatsRef.current?.({ silent: true, showUpdating: true });
-    const activeId = Number(activeChatIdRef.current || 0);
-    if (activeId > 0) {
-      scheduleMessageRefreshRef.current?.(activeId, {
-        delayMs: 120,
-        preserveHistory: true,
-      });
-    }
-  }, [isAppActive, user?.username]);
-
-  useEffect(() => {
     const activeId = activeChatIdRef.current;
     if (
       !activeId ||
@@ -1577,6 +1596,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         isMarkingReadRef.current = false;
       });
   }, [messages, user?.username, isAppActive, canMarkReadInCurrentView]);
+
+  useResumeRefresh({
+    isAppActive,
+    user,
+    loadChatsRef,
+    scheduleMessageRefreshRef,
+    activeChatIdRef,
+  });
 
   useChatEvents({
     username: user?.username,
@@ -1670,7 +1697,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     onChatListChanged: (payload) => {
       const deletedChatId = Number(payload?.chatId || 0);
       const currentActiveId = Number(activeChatIdRef.current || 0);
-      setMentionRefreshToken((prev) => prev + 1);
       // If the deleted/changed chat is the active one, close it
       if (deletedChatId && deletedChatId === currentActiveId) {
         closeChat();
@@ -2005,7 +2031,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       updatedAt: Date.now(),
     };
     messagesCacheRef.current.set(Number(activeChatId), cachePayload);
-    if (user?.username && canUseLocalStorage()) {
+    if (user?.username) {
       const storagePayload = {
         ...cachePayload,
         messages: sanitizeMessagesForCache(messages),
@@ -2015,15 +2041,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }
       messagesCacheWriteTimerRef.current = setTimeout(() => {
         const key = buildMessagesCacheKey(user.username, activeChatId);
-        let ok = writeLocalCache(key, storagePayload);
-        if (!ok) {
-          evictOldestMessageCaches(user.username, 4);
-          ok = writeLocalCache(key, storagePayload);
-        }
-        if (ok) {
-          updateMessagesIndex(user.username, activeChatId, cachePayload.updatedAt);
-        }
         void writeIdbCache(CACHE_STORES.messages, key, storagePayload);
+        void updateMessagesIndex(user.username, activeChatId, cachePayload.updatedAt);
       }, 600);
     }
     return () => {
@@ -2174,7 +2193,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         updatedAt: Date.now(),
         chats: normalizedPatched,
       };
-      writeLocalCache(buildChatListCacheKey(user.username), chatListPayload);
       void writeIdbCache(
         CACHE_STORES.chatList,
         buildChatListCacheKey(user.username),
@@ -2296,10 +2314,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       previewUrl,
       kind: "voice",
     });
-    if (activeChatId) {
+    if (activeChatId && !userScrolledUpRef.current) {
       pendingScrollToBottomRef.current = true;
-      userScrolledUpRef.current = false;
-      setUserScrolledUp(false);
       isAtBottomRef.current = true;
       setIsAtBottom(true);
       scrollChatToBottom("auto");
@@ -2580,10 +2596,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
     setPendingUploadFiles((prev) => (append ? [...prev, ...nextItems] : nextItems));
     setPendingUploadType(uploadType);
-    if (activeChatId) {
+    if (activeChatId && !userScrolledUpRef.current) {
       pendingScrollToBottomRef.current = true;
-      userScrolledUpRef.current = false;
-      setUserScrolledUp(false);
       isAtBottomRef.current = true;
       setIsAtBottom(true);
       scrollChatToBottom("auto");
@@ -3663,6 +3677,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     allowStartReachedRef.current = true;
   };
   const usernamePattern = /^[a-z0-9._]+$/;
+  const shouldPromptNotifications =
+    notificationsSupported && notificationPermission === "default";
+  const shouldPromptMicrophone =
+    microphonePermissionSupported && microphonePermission === "prompt";
+  const showPermissionsPrompt =
+    !permissionsPromptDismissed &&
+    (shouldPromptNotifications || shouldPromptMicrophone);
 
   return (
     <div
@@ -3780,6 +3801,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         groupAvatarUrl={activeGroupAvatarUrl}
         channelSeenCounts={channelSeenCounts}
         chatScrollRef={chatScrollRef}
+        composerInputRef={composerInputRef}
+        smoothScrollLockRef={smoothScrollLockRef}
+        isAtBottomRef={isAtBottomRef}
         onChatScroll={handleChatScrollWithSeen}
         onStartReached={handleStartReached}
         messages={messages}
@@ -3818,6 +3842,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         onOpenMessageSenderProfile={openMemberProfileFromMessage}
         onOpenMention={openMentionProfile}
         onUserScrollIntent={handleUserScrollIntent}
+        canSwipeReply={canSwipeReply}
         fileUploadEnabled={CHAT_PAGE_CONFIG.fileUploadEnabled}
         fileUploadInProgress={fileUploadInProgress || activeUploadProgress !== null}
         showComposer={canSendInActiveChat}
@@ -3826,6 +3851,20 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         headerAvatarIcon={activeHeaderAvatarIcon}
         headerAvatarColor={headerAvatarColor}
         mentionRefreshToken={mentionRefreshToken}
+        permissionsPrompt={{
+          show: showPermissionsPrompt,
+          notification: {
+            show: shouldPromptNotifications,
+            status: notificationPermission,
+            onRequest: requestNotificationsPermission,
+          },
+          microphone: {
+            show: shouldPromptMicrophone,
+            status: microphonePermission,
+            onRequest: requestMicrophonePermission,
+          },
+          onDismiss: dismissPermissionsPrompt,
+        }}
       />
 
       <MobileTabMenu

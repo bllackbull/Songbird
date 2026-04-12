@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   Check,
@@ -10,6 +10,7 @@ import {
   Ghost,
   ImageIcon,
   Mic,
+  Reply,
   Video,
 } from "../../../icons/lucide.js";
 import { hasPersian } from "../../../utils/fontUtils.js";
@@ -22,7 +23,7 @@ import {
 } from "../../../utils/markdown.js";
 import { resolveMention } from "../../../utils/mentions.js";
 
-export function MessageItem({
+export const MessageItem = memo(function MessageItem({
   msg,
   isFirstInGroup,
   user,
@@ -42,6 +43,7 @@ export function MessageItem({
   mentionRefreshToken = 0,
   onReply,
   onJumpToMessage,
+  canSwipeReply = true,
 }) {
   const isOwn = !isChannelChat && msg.username === user.username;
   const isRead = Boolean(msg.read_at);
@@ -216,30 +218,6 @@ export function MessageItem({
         markValid(el);
       });
     });
-    const refreshMentions = () => {
-      const nodes = container.querySelectorAll(".sb-mention");
-      nodes.forEach((node) => {
-        const el = node;
-        const rawMention =
-          el.dataset.mention ||
-          String(el.textContent || "")
-            .trim()
-            .replace(/^@/, "");
-        const mention = String(rawMention || "").toLowerCase();
-        if (!mention) return;
-        resolveMention(mention, user.username, {
-          force: true,
-          fallbackToCacheOnError: true,
-        }).then((result) => {
-          if (!result || result.status !== "valid") {
-            markInvalid(el);
-            return;
-          }
-          markValid(el);
-        });
-      });
-    };
-    const refreshTimer = window.setInterval(refreshMentions, 15000);
     if (mentionDebugEnabled) {
       const totalMentions = container.querySelectorAll(".sb-mention").length;
       const activeMentions =
@@ -286,7 +264,6 @@ export function MessageItem({
     });
     return () => {
       container.removeEventListener("click", handleMentionClick);
-      window.clearInterval(refreshTimer);
     };
   }, [markdownHtml, mentionRefreshToken, user.username, mentionDebugEnabled]);
 
@@ -412,6 +389,91 @@ export function MessageItem({
   const trackingSwipeRef = useRef(false);
   const [swipeOffset, setSwipeOffset] = useState(0);
   const [isSwiping, setIsSwiping] = useState(false);
+  const swipeOffsetRef = useRef(0);
+  const swipeRafRef = useRef(0);
+  const swipeUserSelectRef = useRef(null);
+  const swipeTouchCalloutRef = useRef(null);
+  const swipeEndLockRef = useRef(false);
+  const swipeProgress = Math.min(Math.abs(swipeOffset) / 70, 1);
+  const showSwipeHint = !isDesktop && isMobileTouchDevice && canSwipeReply;
+
+  const queueSwipeOffset = (value) => {
+    swipeOffsetRef.current = value;
+    if (swipeRafRef.current) return;
+    swipeRafRef.current = window.requestAnimationFrame(() => {
+      swipeRafRef.current = 0;
+      setSwipeOffset(swipeOffsetRef.current);
+    });
+  };
+
+  const resetSwipe = useCallback(() => {
+    trackingSwipeRef.current = false;
+    setIsSwiping(false);
+    swipeOffsetRef.current = 0;
+    if (swipeRafRef.current) {
+      window.cancelAnimationFrame(swipeRafRef.current);
+      swipeRafRef.current = 0;
+    }
+    if (swipeUserSelectRef.current !== null) {
+      document.body.style.userSelect = swipeUserSelectRef.current;
+      swipeUserSelectRef.current = null;
+    }
+    if (swipeTouchCalloutRef.current !== null) {
+      document.body.style.webkitTouchCallout = swipeTouchCalloutRef.current;
+      swipeTouchCalloutRef.current = null;
+    }
+    setSwipeOffset(0);
+  }, []);
+
+  const handleSwipeEnd = useCallback(() => {
+    if (swipeEndLockRef.current) return;
+    swipeEndLockRef.current = true;
+    const dx = touchDxRef.current;
+    const dy = Math.abs(touchDyRef.current);
+    const swipeOffset = swipeOffsetRef.current;
+    const shouldReply = (swipeOffset < -24 || dx < -24) && dy < 90;
+    resetSwipe();
+    if (shouldReply) {
+      onReply?.(msg);
+    }
+    window.setTimeout(() => {
+      swipeEndLockRef.current = false;
+    }, 0);
+  }, [msg, onReply, resetSwipe]);
+
+  useEffect(() => {
+    return () => {
+      if (swipeRafRef.current) {
+        window.cancelAnimationFrame(swipeRafRef.current);
+        swipeRafRef.current = 0;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleWindowTouchEnd = () => {
+      if (trackingSwipeRef.current) {
+        handleSwipeEnd();
+        return;
+      }
+      if (swipeOffsetRef.current === 0) return;
+      resetSwipe();
+    };
+    window.addEventListener("touchend", handleWindowTouchEnd, { passive: true });
+    window.addEventListener("touchcancel", handleWindowTouchEnd, {
+      passive: true,
+    });
+    window.addEventListener("pointerup", handleWindowTouchEnd, { passive: true });
+    window.addEventListener("pointercancel", handleWindowTouchEnd, {
+      passive: true,
+    });
+    return () => {
+      window.removeEventListener("touchend", handleWindowTouchEnd);
+      window.removeEventListener("touchcancel", handleWindowTouchEnd);
+      window.removeEventListener("pointerup", handleWindowTouchEnd);
+      window.removeEventListener("pointercancel", handleWindowTouchEnd);
+    };
+  }, [handleSwipeEnd, resetSwipe]);
 
   return (
     <div
@@ -445,51 +507,98 @@ export function MessageItem({
       ) : null}
       {!msg?._systemEvent ? (
         <div
-          className={`flex w-full max-w-full px-3 md:px-0 ${
+          className={`relative flex w-full max-w-full px-3 md:px-0 ${
             isOwn ? "justify-end" : "justify-start"
           }`}
-          style={{ touchAction: "pan-y" }}
+          style={{
+            touchAction: "pan-y",
+            userSelect: isSwiping ? "none" : "text",
+          }}
           onTouchStart={(event) => {
             if (isDesktop || !isMobileTouchDevice || !onReply) return;
+            if (!canSwipeReply) return;
+            const target = event.target;
+            if (
+              target &&
+              target.closest?.(
+                "input, textarea, select, label, [contenteditable='true']",
+              )
+            ) {
+              return;
+            }
             const touch = event.touches?.[0];
             if (!touch) return;
             trackingSwipeRef.current = true;
-            setIsSwiping(true);
+            setIsSwiping(false);
             touchStartXRef.current = touch.clientX;
             touchStartYRef.current = touch.clientY;
             touchDxRef.current = 0;
             touchDyRef.current = 0;
+            swipeOffsetRef.current = 0;
+            if (swipeUserSelectRef.current === null && typeof document !== "undefined") {
+              swipeUserSelectRef.current = document.body.style.userSelect || "";
+              document.body.style.userSelect = "none";
+            }
+            if (swipeTouchCalloutRef.current === null && typeof document !== "undefined") {
+              swipeTouchCalloutRef.current =
+                document.body.style.webkitTouchCallout || "";
+              document.body.style.webkitTouchCallout = "none";
+            }
           }}
           onTouchMove={(event) => {
-            if (!trackingSwipeRef.current) return;
+            if (!trackingSwipeRef.current || !canSwipeReply) return;
             const touch = event.touches?.[0];
             if (!touch) return;
             const dx = touch.clientX - touchStartXRef.current;
             const dy = touch.clientY - touchStartYRef.current;
             touchDxRef.current = dx;
             touchDyRef.current = dy;
-            if (Math.abs(dx) < Math.abs(dy)) {
+            const absDx = Math.abs(dx);
+            const absDy = Math.abs(dy);
+            if (!isSwiping && absDy > absDx * 2.4 && absDy > 28) {
+              resetSwipe();
               return;
+            }
+            if (!isSwiping) {
+              if (absDx < 3 && absDy < 3) {
+                return;
+              }
+              const horizontalIntent = absDx > 3 && absDx > absDy * 0.15;
+              if (!horizontalIntent) {
+                return;
+              }
+              setIsSwiping(true);
             }
             if (event.cancelable) {
               event.preventDefault();
             }
             if (dx < 0) {
-              setSwipeOffset(Math.max(dx, -70));
+              queueSwipeOffset(Math.max(dx, -90));
+            } else {
+              queueSwipeOffset(0);
             }
           }}
           onTouchEnd={() => {
             if (!trackingSwipeRef.current) return;
-            trackingSwipeRef.current = false;
-            setIsSwiping(false);
-            const dx = touchDxRef.current;
-            const dy = Math.abs(touchDyRef.current);
-            setSwipeOffset(0);
-            if (dx < -32 && dy < 50) {
-              onReply?.(msg);
-            }
+            handleSwipeEnd();
           }}
+          onTouchCancel={handleSwipeEnd}
         >
+          {showSwipeHint ? (
+            <div className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2">
+              <div
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/30"
+                style={{
+                  opacity: swipeProgress,
+                  transform: `translateX(${52 - swipeProgress * 60}px) scale(${
+                    0.5 + swipeProgress * 0.7
+                  })`,
+                }}
+              >
+                <Reply size={16} />
+              </div>
+            </div>
+          ) : null}
           {!isOwn && isGroupChat && !isChannelChat ? (
             <div className="flex min-w-0 max-w-full items-end gap-2">
               <button
@@ -547,6 +656,7 @@ export function MessageItem({
                     ? `translateX(${swipeOffset}px)`
                     : undefined,
                   transition: isSwiping ? "none" : "transform 160ms ease",
+                  willChange: isSwiping ? "transform" : "auto",
                 }}
               >
                 <button
@@ -676,6 +786,7 @@ export function MessageItem({
                   ? `translateX(${swipeOffset}px)`
                   : undefined,
                 transition: isSwiping ? "none" : "transform 160ms ease",
+                willChange: isSwiping ? "transform" : "auto",
               }}
             >
               {!isOwn && isGroupChat && !isChannelChat ? (
@@ -845,4 +956,22 @@ export function MessageItem({
       ) : null}
     </div>
   );
-}
+}, (prev, next) => {
+  if (prev.msg !== next.msg) return false;
+  if (prev.unreadMarkerId !== next.unreadMarkerId) return false;
+  if (prev.isDesktop !== next.isDesktop) return false;
+  if (prev.isMobileTouchDevice !== next.isMobileTouchDevice) return false;
+  if (prev.isGroupChat !== next.isGroupChat) return false;
+  if (prev.isChannelChat !== next.isChannelChat) return false;
+  if (prev.chatName !== next.chatName) return false;
+  if (prev.chatColor !== next.chatColor) return false;
+  if (prev.seenCount !== next.seenCount) return false;
+  if (prev.mentionRefreshToken !== next.mentionRefreshToken) return false;
+  if (prev.user?.username !== next.user?.username) return false;
+  if (prev.messageFilesProps !== next.messageFilesProps) {
+    const prevFiles = Array.isArray(prev.msg?.files) ? prev.msg.files : [];
+    const nextFiles = Array.isArray(next.msg?.files) ? next.msg.files : [];
+    if (prevFiles.length || nextFiles.length) return false;
+  }
+  return true;
+});

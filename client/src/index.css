@@ -45,6 +45,7 @@
 :root {
   --vv-bottom-offset: 0px;
   --mobile-bottom-offset: 0px;
+  --vv-top-offset: 0px;
 }
 
 * {
@@ -57,12 +58,19 @@ html, body, #root {
   overflow: hidden;
 }
 
+html,
+body {
+  touch-action: pan-y;
+  -ms-touch-action: pan-y;
+}
+
 
 body {
   margin: 0;
   font-family: 'DM Sans', system-ui, sans-serif;
   background-color: #ffffff;
   overscroll-behavior: none;
+  user-select: text;
   /* Prevent Safari zoom on input focus */
   -webkit-font-smoothing: antialiased;
   -webkit-touch-callout: none;
@@ -608,6 +616,15 @@ label:hover .icon-anim-drop {
   cursor: pointer;
 }
 
+.sb-link,
+.sb-mention-active {
+  padding: 2px 4px;
+  margin: -2px -4px;
+  border-radius: 6px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
 .sb-mention-debug {
   position: absolute;
   top: -8px;
@@ -701,9 +718,8 @@ label:hover .icon-anim-drop {
   margin-left: auto;
 }
 
-.sb-markdown-code,
-.sb-markdown code {
-  display: inline-block;
+.sb-markdown-code {
+  display: block;
   width: 100%;
   margin: 0.12rem 0;
   padding: 0.1rem 0.35rem;
@@ -716,6 +732,23 @@ label:hover .icon-anim-drop {
   word-break: break-word;
   overflow-wrap: anywhere;
   max-inline-size: 100%;
+  box-sizing: border-box;
+  cursor: text;
+}
+
+.sb-markdown code {
+  display: inline;
+  width: auto;
+  margin: 0 0.1rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.12);
+  color: #0f172a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.82em;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
   box-sizing: border-box;
   cursor: text;
 }

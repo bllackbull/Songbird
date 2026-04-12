@@ -654,6 +654,38 @@ function registerMessageRoutes(app, deps) {
           });
         }
 
+        try {
+          const members = listChatMembers(Number(chatId));
+          const mutedRows = listMutedUserIdsForChat(Number(chatId));
+          const mutedIds = new Set(
+            mutedRows.map((row) => Number(row?.user_id || 0)).filter(Boolean),
+          );
+          const recipientIds = members
+            .filter((member) => Number(member.id) !== Number(user.id))
+            .map((member) => Number(member.id))
+            .filter(
+              (memberId) =>
+                Number.isFinite(memberId) &&
+                memberId > 0 &&
+                !mutedIds.has(Number(memberId)),
+            );
+          if (recipientIds.length) {
+            const title =
+              chat.type === "dm"
+                ? user.nickname || user.username
+                : chat.name || (chat.type === "channel" ? "Channel" : "Group");
+            const notifyBody =
+              trimmedBody || fileSummaryText || "New message";
+            await sendPushNotificationToUsers(recipientIds, {
+              title,
+              body: notifyBody,
+              data: { url: "/" },
+            });
+          }
+        } catch {
+          // ignore push failures
+        }
+
         debugLog("api:messages/upload:done", {
           chatId,
           messageId: Number(messageId),
