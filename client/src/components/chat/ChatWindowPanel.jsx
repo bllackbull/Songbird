@@ -10,9 +10,11 @@ import {
   AlertCircle,
   ArrowDown,
   ArrowLeft,
+  Bell,
   Close,
   Ghost,
   LoaderCircle,
+  Mic,
 } from "../../icons/lucide.js";
 import { getAvatarStyle } from "../../utils/avatarColor.js";
 import { hasPersian } from "../../utils/fontUtils.js";
@@ -402,8 +404,12 @@ export default function ChatWindowPanel({
     return Number(smoothScrollLockRef.current || 0) > Date.now();
   }, [smoothScrollLockRef]);
   const shouldIgnoreSmoothLock = useCallback(
-    () => Boolean(isAtBottomRef?.current),
-    [isAtBottomRef],
+    () =>
+      Boolean(
+        isAtBottomRef?.current &&
+          !(Number(smoothScrollLockRef?.current || 0) > Date.now()),
+      ),
+    [isAtBottomRef, smoothScrollLockRef],
   );
 
   const scrollToBottomImmediate = useCallback(() => {
@@ -1131,39 +1137,60 @@ export default function ChatWindowPanel({
             ref={permissionBannerRef}
             className="flex w-full flex-col gap-2 border-y border-emerald-200/70 bg-emerald-50/70 px-4 py-3 text-xs font-semibold text-emerald-700 shadow-sm dark:border-emerald-500/30 dark:bg-slate-900/70 dark:text-emerald-200"
           >
-            {permissionsPrompt?.notification?.show ? (
-              <div className="flex items-center justify-between gap-3">
-                <span>Enable notifications for message alerts</span>
-                <button
-                  type="button"
-                  onClick={permissionsPrompt.notification.onRequest}
-                  className="rounded-full border border-emerald-200 bg-white px-3 py-1 text-[11px] font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
-                >
-                  Allow
-                </button>
+            {permissionsPrompt?.notification?.show &&
+            permissionsPrompt?.mode === "notification" ? (
+              <div className="flex w-full items-center justify-between gap-3">
+                <span className="flex min-w-0 items-center gap-2">
+                  <Bell className="h-4 w-4 shrink-0" />
+                  <span className="truncate">
+                    Enable notifications for message alerts
+                  </span>
+                </span>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={permissionsPrompt.notification.onRequest}
+                    className="inline-flex h-8 items-center rounded-full bg-emerald-500 px-4 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-emerald-500/40"
+                  >
+                    Allow
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => permissionsPrompt.onDismiss?.("notification")}
+                    className="inline-flex h-8 items-center justify-center rounded-full border border-rose-200 px-3 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 hover:shadow-[0_0_16px_rgba(244,63,94,0.2)] dark:border-rose-500/30 dark:text-rose-200 dark:hover:bg-rose-500/10"
+                  >
+                    Not now
+                  </button>
+                </div>
               </div>
             ) : null}
-            {permissionsPrompt?.microphone?.show ? (
-              <div className="flex items-center justify-between gap-3">
-                <span>Enable microphone for voice messages</span>
-                <button
-                  type="button"
-                  onClick={permissionsPrompt.microphone.onRequest}
-                  className="rounded-full border border-emerald-200 bg-white px-3 py-1 text-[11px] font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
-                >
-                  Allow
-                </button>
+            {permissionsPrompt?.microphone?.show &&
+            permissionsPrompt?.mode === "microphone" ? (
+              <div className="flex w-full items-center justify-between gap-3">
+                <span className="flex min-w-0 items-center gap-2">
+                  <Mic className="h-4 w-4 shrink-0" />
+                  <span className="truncate">
+                    Enable microphone for voice messages
+                  </span>
+                </span>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={permissionsPrompt.microphone.onRequest}
+                    className="inline-flex h-8 items-center rounded-full bg-emerald-500 px-4 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-emerald-500/40"
+                  >
+                    Allow
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => permissionsPrompt.onDismiss?.("microphone")}
+                    className="inline-flex h-8 items-center justify-center rounded-full border border-rose-200 px-3 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 hover:shadow-[0_0_16px_rgba(244,63,94,0.2)] dark:border-rose-500/30 dark:text-rose-200 dark:hover:bg-rose-500/10"
+                  >
+                    Not now
+                  </button>
+                </div>
               </div>
             ) : null}
-            <div className="flex items-center justify-end">
-              <button
-                type="button"
-                onClick={permissionsPrompt.onDismiss}
-                className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-slate-600"
-              >
-                Not now
-              </button>
-            </div>
           </div>
         </div>
       ) : null}

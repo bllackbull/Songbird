@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ClockFading,
   Download,
@@ -37,7 +38,260 @@ export function FocusedMediaModal({
   focusExpiryWarning,
   getFocusAspectRatio,
 }) {
-  if (!focusedMedia) return null;
+  const [zoomScale, setZoomScale] = useState(1);
+  const zoomScaleRef = useRef(1);
+  const zoomOffsetRef = useRef({ x: 0, y: 0 });
+  const zoomRafRef = useRef(0);
+  const [isInteracting, setIsInteracting] = useState(false);
+  const isInteractingRef = useRef(false);
+  const lastZoomStateUpdateRef = useRef(0);
+  const mediaViewportRef = useRef(null);
+  const mediaZoomLayerRef = useRef(null);
+  const touchStateRef = useRef({
+    pinching: false,
+    panning: false,
+    delegateSwipe: false,
+    startDistance: 0,
+    startScale: 1,
+    startMidX: 0,
+    startMidY: 0,
+    startOffsetX: 0,
+    startOffsetY: 0,
+    lastPanX: 0,
+    lastPanY: 0,
+  });
+  const lastTapRef = useRef({ time: 0, x: 0, y: 0 });
+
+  const clampZoomOffset = useCallback((scale, x, y) => {
+    const viewport = mediaViewportRef.current;
+    const zoomLayer = mediaZoomLayerRef.current;
+    if (!viewport || !zoomLayer || scale <= 1) {
+      return { x: 0, y: 0 };
+    }
+    const viewportWidth = viewport.clientWidth || 0;
+    const viewportHeight = viewport.clientHeight || 0;
+    const mediaWidth = zoomLayer.offsetWidth || viewportWidth;
+    const mediaHeight = zoomLayer.offsetHeight || viewportHeight;
+    const maxX = Math.max(0, (mediaWidth * scale - viewportWidth) / 2);
+    const maxY = Math.max(0, (mediaHeight * scale - viewportHeight) / 2);
+    return {
+      x: Math.max(-maxX, Math.min(maxX, x)),
+      y: Math.max(-maxY, Math.min(maxY, y)),
+    };
+  }, []);
+
+  const applyZoomTransform = useCallback((scale, offset) => {
+    const zoomLayer = mediaZoomLayerRef.current;
+    if (!zoomLayer) return;
+    zoomLayer.style.transform = `translate3d(${offset.x}px, ${offset.y}px, 0) scale(${scale})`;
+  }, []);
+
+  const updateZoom = useCallback(
+    (nextScale, nextX, nextY) => {
+      const clampedScale = Math.max(1, Math.min(4, Number(nextScale) || 1));
+      const nextOffset =
+        clampedScale <= 1
+          ? { x: 0, y: 0 }
+          : clampZoomOffset(clampedScale, nextX, nextY);
+      const roundedOffset = {
+        x: Math.round((nextOffset.x || 0) * 10) / 10,
+        y: Math.round((nextOffset.y || 0) * 10) / 10,
+      };
+      zoomScaleRef.current = clampedScale;
+      zoomOffsetRef.current = roundedOffset;
+      if (!zoomRafRef.current) {
+        zoomRafRef.current = requestAnimationFrame((now) => {
+          zoomRafRef.current = 0;
+          applyZoomTransform(zoomScaleRef.current, zoomOffsetRef.current);
+          const shouldUpdateState =
+            !isInteractingRef.current || now - lastZoomStateUpdateRef.current > 90;
+          if (shouldUpdateState) {
+            lastZoomStateUpdateRef.current = now;
+            setZoomScale(zoomScaleRef.current);
+          }
+        });
+      }
+    },
+    [applyZoomTransform, clampZoomOffset],
+  );
+
+  const zoomToPoint = useCallback(
+    (scale, clientX, clientY) => {
+      const viewport = mediaViewportRef.current;
+      if (!viewport) {
+        updateZoom(scale, 0, 0);
+        return;
+      }
+      const rect = viewport.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const dx = clientX - centerX;
+      const dy = clientY - centerY;
+      const nextX = -dx * (scale - 1);
+      const nextY = -dy * (scale - 1);
+      updateZoom(scale, nextX, nextY);
+    },
+    [updateZoom],
+  );
+
+  useEffect(() => {
+    setZoomScale(1);
+    applyZoomTransform(1, { x: 0, y: 0 });
+    zoomScaleRef.current = 1;
+    zoomOffsetRef.current = { x: 0, y: 0 };
+    setIsInteracting(false);
+    isInteractingRef.current = false;
+    touchStateRef.current = {
+      pinching: false,
+      panning: false,
+      delegateSwipe: false,
+      startDistance: 0,
+      startScale: 1,
+      startMidX: 0,
+      startMidY: 0,
+      startOffsetX: 0,
+      startOffsetY: 0,
+      lastPanX: 0,
+      lastPanY: 0,
+    };
+  }, [focusedMedia?.url, focusedMedia?.type, isMobileTouchDevice, applyZoomTransform]);
+
+  useEffect(() => {
+    return () => {
+      if (zoomRafRef.current) {
+        cancelAnimationFrame(zoomRafRef.current);
+        zoomRafRef.current = 0;
+      }
+    };
+  }, []);
+
+  const handleMediaTouchStart = (event) => {
+    if (isDesktop || !isMobileTouchDevice) return;
+    const touches = event.touches || [];
+    const state = touchStateRef.current;
+
+    if (touches.length >= 2) {
+      const [t1, t2] = touches;
+      const distance = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+      const midX = (t1.clientX + t2.clientX) / 2;
+      const midY = (t1.clientY + t2.clientY) / 2;
+      state.pinching = true;
+      state.panning = false;
+      state.delegateSwipe = false;
+      state.startDistance = distance || 1;
+      state.startScale = zoomScaleRef.current;
+      state.startMidX = midX;
+      state.startMidY = midY;
+      state.startOffsetX = zoomOffsetRef.current.x;
+      state.startOffsetY = zoomOffsetRef.current.y;
+      event.preventDefault();
+      if (!isInteractingRef.current) {
+        isInteractingRef.current = true;
+        setIsInteracting(true);
+      }
+      return;
+    }
+
+    const touch = touches[0];
+    if (!touch) return;
+
+    if (zoomScaleRef.current > 1.001) {
+      state.panning = true;
+      state.pinching = false;
+      state.delegateSwipe = false;
+      state.lastPanX = touch.clientX;
+      state.lastPanY = touch.clientY;
+      event.preventDefault();
+      if (!isInteractingRef.current) {
+        isInteractingRef.current = true;
+        setIsInteracting(true);
+      }
+      return;
+    }
+
+    state.delegateSwipe = true;
+    handleFocusTouchStart?.(event);
+  };
+
+  const handleMediaTouchMove = (event) => {
+    if (isDesktop || !isMobileTouchDevice) return;
+    const touches = event.touches || [];
+    const state = touchStateRef.current;
+
+    if (touches.length >= 2 && state.pinching) {
+      const [t1, t2] = touches;
+      const distance = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+      const ratio = distance / (state.startDistance || 1);
+      const midX = (t1.clientX + t2.clientX) / 2;
+      const midY = (t1.clientY + t2.clientY) / 2;
+      const nextScale = state.startScale * ratio;
+      const nextX = state.startOffsetX + (midX - state.startMidX);
+      const nextY = state.startOffsetY + (midY - state.startMidY);
+      updateZoom(nextScale, nextX, nextY);
+      event.preventDefault();
+      return;
+    }
+
+    if (touches.length === 1 && state.panning) {
+      const touch = touches[0];
+      const dx = touch.clientX - state.lastPanX;
+      const dy = touch.clientY - state.lastPanY;
+      state.lastPanX = touch.clientX;
+      state.lastPanY = touch.clientY;
+      updateZoom(
+        zoomScaleRef.current,
+        zoomOffsetRef.current.x + dx,
+        zoomOffsetRef.current.y + dy,
+      );
+      event.preventDefault();
+    }
+  };
+
+  const handleMediaTouchEnd = (event) => {
+    if (isDesktop || !isMobileTouchDevice) return;
+    const state = touchStateRef.current;
+    const touches = event.touches || [];
+
+    if (touches.length >= 2) return;
+
+    if (touches.length === 1) {
+      const touch = touches[0];
+      state.pinching = false;
+      state.panning = zoomScaleRef.current > 1.001;
+      state.lastPanX = touch.clientX;
+      state.lastPanY = touch.clientY;
+      return;
+    }
+
+    state.pinching = false;
+    state.panning = false;
+    if (isInteractingRef.current) {
+      isInteractingRef.current = false;
+      setIsInteracting(false);
+    }
+    if (zoomScaleRef.current <= 1.001) {
+      updateZoom(1, 0, 0);
+    }
+    if (state.delegateSwipe) {
+      handleFocusTouchEnd?.(event);
+    }
+    state.delegateSwipe = false;
+
+    const tap = event.changedTouches?.[0];
+    if (!tap) return;
+    const now = Date.now();
+    const lastTap = lastTapRef.current;
+    const dt = now - lastTap.time;
+    const dist = Math.hypot(tap.clientX - lastTap.x, tap.clientY - lastTap.y);
+    lastTapRef.current = { time: now, x: tap.clientX, y: tap.clientY };
+    if (dt < 260 && dist < 28) {
+      if (zoomScaleRef.current <= 1.001) {
+        zoomToPoint(2.2, tap.clientX, tap.clientY);
+      } else {
+        updateZoom(1, 0, 0);
+      }
+    }
+  };
 
   const handleMobileSave = async (event) => {
     event?.preventDefault?.();
@@ -82,6 +336,11 @@ export function FocusedMediaModal({
     }
   };
 
+  if (!focusedMedia) return null;
+
+  const controlsHidden = zoomScale > 1.01;
+  const controlsVisible = focusVisible && !controlsHidden;
+
   return (
     <div
       className={`fixed inset-0 z-[200] transition-opacity duration-200 ${
@@ -96,9 +355,9 @@ export function FocusedMediaModal({
       {!isDesktop ? (
         <div
           className={`pointer-events-auto absolute left-0 right-0 z-50 flex items-center justify-between px-6 py-4 transition-all duration-200 ${
-            focusVisible
+            controlsVisible
               ? "opacity-100 translate-y-0"
-              : "opacity-0 -translate-y-1"
+              : "opacity-0 -translate-y-2 pointer-events-none"
           }`}
           style={{ top: "max(0px, env(safe-area-inset-top))" }}
         >
@@ -124,9 +383,9 @@ export function FocusedMediaModal({
         <>
           <div
             className={`pointer-events-auto absolute left-6 top-4 z-50 transition-all duration-200 ${
-              focusVisible
+              controlsVisible
                 ? "opacity-100 translate-y-0"
-                : "opacity-0 -translate-y-1"
+                : "opacity-0 -translate-y-2 pointer-events-none"
             }`}
           >
             <button
@@ -140,9 +399,9 @@ export function FocusedMediaModal({
           </div>
           <div
             className={`pointer-events-auto absolute right-6 top-4 z-50 transition-all duration-200 ${
-              focusVisible
+              controlsVisible
                 ? "opacity-100 translate-y-0"
-                : "opacity-0 -translate-y-1"
+                : "opacity-0 -translate-y-2 pointer-events-none"
             }`}
           >
             <a
@@ -196,16 +455,12 @@ export function FocusedMediaModal({
             <div
               className="relative mx-auto flex w-fit max-w-full flex-col items-center"
               onClick={(event) => event.stopPropagation()}
-              onTouchStart={
-                isMobileTouchDevice && !isDesktop
-                  ? handleFocusTouchStart
-                  : undefined
-              }
-              onTouchEnd={
-                isMobileTouchDevice && !isDesktop
-                  ? handleFocusTouchEnd
-                  : undefined
-              }
+              onTouchStart={handleMediaTouchStart}
+              onTouchMove={handleMediaTouchMove}
+              onTouchEnd={handleMediaTouchEnd}
+              onTouchCancel={handleMediaTouchEnd}
+              ref={mediaViewportRef}
+              style={{ touchAction: "none" }}
             >
               {focusedMedia.processing ? (
                 <div
@@ -215,7 +470,16 @@ export function FocusedMediaModal({
                   <div className="h-full w-full animate-pulse rounded-2xl bg-slate-200/80 dark:bg-slate-800/80" />
                 </div>
               ) : (
-                <div className="relative mx-auto flex w-fit max-w-full items-center justify-center">
+                <div
+                  className="relative mx-auto flex w-fit max-w-full items-center justify-center"
+                  ref={mediaZoomLayerRef}
+                style={{
+                  transformOrigin: "center center",
+                  transition: isInteracting ? "none" : "transform 160ms ease-out",
+                  willChange: "transform",
+                  backfaceVisibility: "hidden",
+                }}
+                >
                   <video
                     key={focusedMedia.url}
                     ref={focusedVideoRef}
@@ -229,6 +493,7 @@ export function FocusedMediaModal({
                     onCanPlay={handleFocusedVideoCanPlay}
                     onError={handleFocusedVideoError}
                     className="mx-auto block max-h-[72vh] w-auto max-w-full cursor-pointer rounded-2xl bg-transparent object-contain md:max-h-[78vh] md:[transform:translateZ(0)] md:[backface-visibility:hidden]"
+                    style={{ backfaceVisibility: "hidden" }}
                   />
                   {!focusedMediaLoaded ? (
                     <div className="pointer-events-none absolute inset-0 animate-pulse rounded-2xl bg-slate-200/80 dark:bg-slate-800/80" />
@@ -251,25 +516,37 @@ export function FocusedMediaModal({
             <div
               className="relative mx-auto flex w-fit max-w-full flex-col items-center"
               onClick={(event) => event.stopPropagation()}
-              onTouchStart={
-                isMobileTouchDevice && !isDesktop
-                  ? handleFocusTouchStart
-                  : undefined
-              }
-              onTouchEnd={
-                isMobileTouchDevice && !isDesktop
-                  ? handleFocusTouchEnd
-                  : undefined
-              }
+              onTouchStart={handleMediaTouchStart}
+              onTouchMove={handleMediaTouchMove}
+              onTouchEnd={handleMediaTouchEnd}
+              onTouchCancel={handleMediaTouchEnd}
+              ref={mediaViewportRef}
+              style={{ touchAction: "none" }}
             >
-              <img
-                src={focusedMedia.url}
-                alt={focusedMedia.name || "media"}
-                onLoad={onFocusedImageLoad}
-                className={`mx-auto max-h-[78vh] w-auto max-w-full rounded-2xl object-contain transition-opacity duration-150 ${
-                  focusedMediaLoaded ? "opacity-100" : "opacity-0"
-                }`}
-              />
+              <div
+                ref={mediaZoomLayerRef}
+                style={{
+                  transformOrigin: "center center",
+                  transition: isInteracting ? "none" : "transform 160ms ease-out",
+                  willChange: "transform",
+                  backfaceVisibility: "hidden",
+                  transformStyle: "preserve-3d",
+                  contain: "paint",
+                }}
+              >
+                <img
+                  src={focusedMedia.url}
+                  alt={focusedMedia.name || "media"}
+                  onLoad={onFocusedImageLoad}
+                  className={`mx-auto max-h-[78vh] w-auto max-w-full rounded-2xl object-contain transition-opacity duration-150 ${
+                    focusedMediaLoaded ? "opacity-100" : "opacity-0"
+                  }`}
+                  style={{
+                    backfaceVisibility: "hidden",
+                    transform: "translateZ(0)",
+                  }}
+                />
+              </div>
               {!focusedMediaLoaded ? (
                 <div
                   className="absolute inset-0 min-h-[240px] w-[min(92vw,920px)] animate-pulse rounded-2xl bg-slate-200/80 dark:bg-slate-800/80"
@@ -284,7 +561,11 @@ export function FocusedMediaModal({
       </div>
       {focusedMedia?.type === "video" ? (
         <div
-          className="absolute inset-x-0 bottom-0 z-20 px-4 pb-4 md:px-6"
+          className={`absolute inset-x-0 bottom-0 z-20 px-4 pb-4 transition-all duration-200 md:px-6 ${
+            controlsVisible
+              ? "opacity-100 translate-y-0"
+              : "opacity-0 translate-y-2 pointer-events-none"
+          }`}
           style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
           onClick={(event) => event.stopPropagation()}
         >
@@ -352,7 +633,11 @@ export function FocusedMediaModal({
       ) : null}
       {focusExpiryWarning ? (
         <div
-          className="absolute inset-x-0 top-0 z-10 flex justify-center px-4 pt-5 md:px-6"
+          className={`absolute inset-x-0 top-0 z-10 flex justify-center px-4 pt-5 transition-all duration-200 md:px-6 ${
+            controlsVisible
+              ? "opacity-100 translate-y-0"
+              : "opacity-0 -translate-y-2 pointer-events-none"
+          }`}
           onClick={(event) => event.stopPropagation()}
         >
           <div

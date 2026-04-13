@@ -25,9 +25,19 @@ export function useChatScroll({
   const CHAT_BOTTOM_THRESHOLD_PX = 120;
   const JUMP_TO_LATEST_SECOND_SNAP_THRESHOLD_PX = 24;
   const pendingScrollToBottomRef = useRef(false);
+  const smoothScrollAnimRef = useRef(null);
+  const cancelSmoothScroll = useCallback(() => {
+    if (smoothScrollAnimRef.current) {
+      cancelAnimationFrame(smoothScrollAnimRef.current);
+      smoothScrollAnimRef.current = null;
+    }
+    if (smoothScrollLockRef) {
+      smoothScrollLockRef.current = 0;
+    }
+  }, [smoothScrollLockRef]);
 
   const setSmoothScrollLock = useCallback(
-    (durationMs = 480) => {
+    (durationMs = 680) => {
       const next = Date.now() + durationMs;
       if (smoothScrollLockRef) {
         smoothScrollLockRef.current = next;
@@ -40,30 +50,56 @@ export function useChatScroll({
     const container = chatScrollRef.current;
     if (!container) return;
     setSmoothScrollLock();
-    const previousBehavior = container.style.scrollBehavior;
-    container.style.scrollBehavior = "smooth";
-    requestAnimationFrame(() => {
-      container.scrollTop = container.scrollHeight + 1000;
-    });
-    window.setTimeout(() => {
-      container.style.scrollBehavior = previousBehavior || "";
-    }, 420);
-  }, [chatScrollRef]);
+    if (smoothScrollAnimRef.current) {
+      cancelAnimationFrame(smoothScrollAnimRef.current);
+      smoothScrollAnimRef.current = null;
+    }
+    const startTop = container.scrollTop;
+    const maxScrollTop = Math.max(
+      0,
+      container.scrollHeight - container.clientHeight,
+    );
+    const targetTop = container.scrollHeight + 1000;
+    const distance = targetTop - startTop;
+    if (Math.abs(distance) < 2) {
+      container.scrollTop = maxScrollTop;
+      return;
+    }
+    const durationMs = 620;
+    const startTime = performance.now();
+    const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+    const step = (now) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(1, elapsed / durationMs);
+      const easedTop = startTop + distance * easeOutCubic(progress);
+      container.scrollTop = easedTop;
+      if (progress < 1) {
+        smoothScrollAnimRef.current = requestAnimationFrame(step);
+      } else {
+        smoothScrollAnimRef.current = null;
+        container.scrollTop = Math.max(
+          0,
+          container.scrollHeight - container.clientHeight,
+        );
+      }
+    };
+    smoothScrollAnimRef.current = requestAnimationFrame(step);
+  }, [chatScrollRef, setSmoothScrollLock]);
 
   const scrollChatToBottom = useCallback(
     (behavior = "auto") => {
       const container = chatScrollRef.current;
       if (!container) return;
-      if (behavior === "smooth") {
-        smoothScrollToBottom();
-        return;
-      }
-      container.scrollTo({
-        top: container.scrollHeight + 1000,
-        behavior,
-      });
-    },
-    [chatScrollRef, smoothScrollToBottom],
+    if (behavior === "smooth") {
+      smoothScrollToBottom();
+      return;
+    }
+    container.scrollTo({
+      top: container.scrollHeight + 1000,
+      behavior,
+    });
+  },
+  [chatScrollRef, smoothScrollToBottom],
   );
 
   const handleChatScroll = useCallback(
@@ -209,6 +245,10 @@ export function useChatScroll({
         window.clearTimeout(mediaLoadSnapTimerRef.current);
         mediaLoadSnapTimerRef.current = null;
       }
+      if (smoothScrollAnimRef.current) {
+        cancelAnimationFrame(smoothScrollAnimRef.current);
+        smoothScrollAnimRef.current = null;
+      }
     };
   }, [mediaLoadSnapTimerRef]);
 
@@ -217,5 +257,6 @@ export function useChatScroll({
     handleJumpToLatest,
     handleMessageMediaLoaded,
     scrollChatToBottom,
+    cancelSmoothScroll,
   };
 }

@@ -32,6 +32,10 @@ export default function InvitePage({
     const text = await res.text().catch(() => "");
     return { error: text };
   };
+  const normalizeInviteError = (value) =>
+    String(value || "")
+      .replace(/removed from this group/gi, "removed from this chat")
+      .replace(/join this group/gi, "join this chat");
 
   useEffect(() => {
     if (!token) {
@@ -51,14 +55,20 @@ export default function InvitePage({
         }
         const data = await parseResponseBody(res);
         if (!res.ok) {
-          throw new Error(data?.error || "Unable to validate invite link.");
+          throw new Error(
+            normalizeInviteError(
+              data?.error || "Unable to validate invite link.",
+            ),
+          );
         }
         if (!mounted) return;
         setGroup(data?.group || null);
         setAlreadyMember(Boolean(data?.alreadyMember));
       } catch (err) {
         if (!mounted) return;
-        setError(err.message || "Unable to validate invite link.");
+        setError(
+          normalizeInviteError(err.message || "Unable to validate invite link."),
+        );
       } finally {
         if (mounted) setLoading(false);
       }
@@ -87,11 +97,13 @@ export default function InvitePage({
           onNavigateChat?.(Number(checkData.group.id));
           return;
         }
-        throw new Error(data?.error || "Unable to join this group.");
+        throw new Error(
+          normalizeInviteError(data?.error || "Unable to join this chat."),
+        );
       }
       onNavigateChat?.(Number(data?.id || 0));
     } catch (err) {
-      setError(err.message || "Unable to join this group.");
+      setError(normalizeInviteError(err.message || "Unable to join this chat."));
     } finally {
       setJoining(false);
     }

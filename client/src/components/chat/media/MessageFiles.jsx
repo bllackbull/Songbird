@@ -539,6 +539,7 @@ export function MessageFiles({
 }) {
   if (!files.length) return null;
   const resolveFileRenderType = getFileRenderType || (() => "document");
+  const thumbFallbackTimersRef = useRef(new Map());
 
   const canPersistMediaCache = () => {
     if (typeof window === "undefined") return false;
@@ -621,6 +622,11 @@ export function MessageFiles({
     return { base, ext: `.${extRaw}` };
   };
 
+  const getStableFileKey = (file) => {
+    const stableId = file?._localId || file?.id || "";
+    return stableId || `${file?.name || "file"}-${file?.sizeBytes || 0}`;
+  };
+
   const cacheVideoPoster = (videoUrl, videoEl) => {
     if (!videoUrl || !videoEl || videoPosterByUrl[videoUrl]) return;
     try {
@@ -663,6 +669,11 @@ export function MessageFiles({
   };
 
   const markMediaThumbLoaded = (thumbKey) => {
+    const timerId = thumbFallbackTimersRef.current.get(thumbKey);
+    if (timerId) {
+      window.clearTimeout(timerId);
+      thumbFallbackTimersRef.current.delete(thumbKey);
+    }
     setLoadedMediaThumbs((prev) => {
       if (prev.has(thumbKey)) return prev;
       const next = new Set(prev);
@@ -683,6 +694,51 @@ export function MessageFiles({
     });
     onMessageMediaLoaded?.();
   };
+
+  const scheduleThumbFallback = (thumbKey, delayMs) => {
+    if (typeof window === "undefined") return;
+    if (loadedMediaThumbs.has(thumbKey)) return;
+    if (thumbFallbackTimersRef.current.has(thumbKey)) return;
+    const fallbackDelay =
+      typeof delayMs === "number" ? delayMs : isDesktop ? 2200 : 1500;
+    const timerId = window.setTimeout(() => {
+      thumbFallbackTimersRef.current.delete(thumbKey);
+      markMediaThumbLoaded(thumbKey);
+    }, fallbackDelay);
+    thumbFallbackTimersRef.current.set(thumbKey, timerId);
+  };
+
+  useEffect(() => {
+    const activeThumbs = new Set();
+    files.forEach((file) => {
+      const renderType = resolveFileRenderType(file);
+      if (renderType !== "image" && renderType !== "video") return;
+      if (!file?.url) return;
+      const key = getStableFileKey(file);
+      const thumbKey = `thumb-${key}`;
+      activeThumbs.add(thumbKey);
+      const cachedPoster =
+        renderType === "video" && file.url ? videoPosterByUrl[file.url] : "";
+      const thumbLoaded =
+        loadedMediaThumbs.has(thumbKey) || Boolean(cachedPoster);
+      if (!thumbLoaded) {
+        scheduleThumbFallback(thumbKey);
+      }
+    });
+    const timers = thumbFallbackTimersRef.current;
+    Array.from(timers.keys()).forEach((thumbKey) => {
+      if (!activeThumbs.has(thumbKey)) {
+        window.clearTimeout(timers.get(thumbKey));
+        timers.delete(thumbKey);
+      }
+    });
+  }, [
+    files,
+    loadedMediaThumbs,
+    resolveFileRenderType,
+    videoPosterByUrl,
+    isDesktop,
+  ]);
 
   const handleVideoThumbReady = (event, thumbKey, videoUrl) => {
     const video = event.currentTarget;
@@ -739,8 +795,7 @@ export function MessageFiles({
         const isTranscodedOutput = videoUrl.includes("-h264-");
         const isProcessingVideo =
           isVideo && file?.processing === true && !isTranscodedOutput;
-        const stableId = file._localId || file.id || "";
-        const key = stableId || `${file.name}-${file.sizeBytes || 0}`;
+        const key = getStableFileKey(file);
         const mediaDownloadName =
           file?.name ||
           file?.originalName ||
@@ -807,6 +862,7 @@ export function MessageFiles({
                     );
                     markMediaThumbLoaded(thumbKey);
                   }}
+                  onError={() => markMediaThumbLoaded(thumbKey)}
                   loading={isDesktop ? "lazy" : "eager"}
                   decoding={isDesktop ? "async" : "sync"}
                   fetchPriority={
@@ -817,7 +873,7 @@ export function MessageFiles({
                 {isDesktop && !thumbLoaded ? (
                   <div className="pointer-events-none absolute inset-0 animate-pulse bg-emerald-100/70 dark:bg-slate-800/80" />
                 ) : null}
-                {!mediaAspectRatio ? (
+                {!mediaAspectRatio && !thumbLoaded ? (
                   <div
                     className="pointer-events-none w-full animate-pulse bg-emerald-100/70 dark:bg-slate-800/80"
                     style={{ height: "180px" }}
@@ -889,6 +945,7 @@ export function MessageFiles({
                         markMediaThumbLoaded(thumbKey);
                       }
                     }}
+                    onLoadStart={() => scheduleThumbFallback(thumbKey)}
                     onCanPlay={(event) =>
                       handleVideoThumbReady(event, thumbKey, file.url)
                     }
@@ -907,7 +964,7 @@ export function MessageFiles({
                 {!thumbLoaded && isDesktop ? (
                   <div className="pointer-events-none absolute inset-0 animate-pulse bg-slate-200/80 dark:bg-slate-800/80" />
                 ) : null}
-                {!mediaAspectRatio ? (
+                {!mediaAspectRatio && !thumbLoaded ? (
                   <div
                     className="pointer-events-none w-full animate-pulse bg-slate-200/80 dark:bg-slate-800/80"
                     style={{ height: "180px" }}

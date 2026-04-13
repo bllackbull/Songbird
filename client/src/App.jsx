@@ -1,8 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import logo from './assets/songbird-logo.svg'
-import ChatPage from './pages/ChatPage.jsx'
-import AuthPage from './pages/AuthPage.jsx'
-import InvitePage from './pages/InvitePage.jsx'
 import { APP_CONFIG } from './settings/appConfig.js'
 import InstallBar from './components/pwa/InstallBar.jsx'
 import InstallGuideModal from './components/pwa/InstallGuideModal.jsx'
@@ -11,6 +8,36 @@ const API_BASE = ''
 const AUTH_REDIRECT_KEY = 'songbird-auth-redirect'
 const OPEN_CHAT_ID_KEY = 'songbird-open-chat-id'
 const PWA_INSTALL_DISMISS_KEY = 'songbird-pwa-install-dismissed'
+const PWA_PERMISSIONS_PROMPT_KEY = 'songbird-pwa-permissions-prompt'
+const AuthPage = lazy(() => import('./pages/AuthPage.jsx'))
+const ChatPage = lazy(() => import('./pages/ChatPage.jsx'))
+const InvitePage = lazy(() => import('./pages/InvitePage.jsx'))
+
+function RouteLoadingFallback({ themeColor, onVisibleChange = null }) {
+  const [dots, setDots] = useState(0)
+  useEffect(() => {
+    onVisibleChange?.(true)
+    const timer = window.setInterval(() => {
+      setDots((prev) => (prev + 1) % 4)
+    }, 180)
+    return () => {
+      window.clearInterval(timer)
+      onVisibleChange?.(false)
+    }
+  }, [onVisibleChange])
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex min-h-screen w-full items-center justify-center"
+      style={{ backgroundColor: themeColor }}
+    >
+      <div className="flex flex-col items-center gap-3 text-center text-emerald-700 dark:text-emerald-300">
+        <img src={logo} alt="Songbird logo" className="h-10 w-10 animate-pulse" />
+        <p className="text-xs font-semibold tracking-wide">{`Loading${'.'.repeat(dots)}`}</p>
+      </div>
+    </div>
+  )
+}
 
 function getRoute(pathname) {
   if (pathname === '/signup') return 'signup'
@@ -60,6 +87,7 @@ export default function App() {
     return localStorage.getItem(PWA_INSTALL_DISMISS_KEY) !== '1'
   })
   const [showInstallGuide, setShowInstallGuide] = useState(false)
+  const [routeChunkLoading, setRouteChunkLoading] = useState(false)
   const installBarRef = useRef(null)
   const [installBarHeight, setInstallBarHeight] = useState(0)
   const themeRefreshTimersRef = useRef([])
@@ -259,6 +287,7 @@ export default function App() {
       setShowIosInstallBanner(false)
       setInstallDismissed(true)
       localStorage.setItem(PWA_INSTALL_DISMISS_KEY, '1')
+      localStorage.setItem(PWA_PERMISSIONS_PROMPT_KEY, 'pending')
     }
     const handleHideInstall = () => setInstallForceHidden(true)
     const handleShowInstall = () => setInstallForceHidden(false)
@@ -309,6 +338,38 @@ export default function App() {
       showInstallBar && !installForceHidden ? '0%' : '-110%',
     )
   }, [installBarHeight, installForceHidden, showInstallBar])
+
+  useEffect(() => {
+    if (!isStandaloneDisplay) return
+    if (typeof window === 'undefined') return
+    const flag = localStorage.getItem(PWA_PERMISSIONS_PROMPT_KEY)
+    if (flag !== 'pending') return
+    localStorage.setItem(PWA_PERMISSIONS_PROMPT_KEY, 'done')
+    const triggerPrompts = () => {
+      if (typeof Notification !== 'undefined') {
+        try {
+          if (
+            typeof Notification.requestPermission === 'function' &&
+            Notification.permission === 'default'
+          ) {
+            Notification.requestPermission().catch(() => {})
+          }
+        } catch {
+          // ignore
+        }
+      }
+      if (navigator.mediaDevices?.getUserMedia) {
+        navigator.mediaDevices
+          .getUserMedia({ audio: true })
+          .then((stream) => {
+            stream?.getTracks?.().forEach((track) => track.stop())
+          })
+          .catch(() => {})
+      }
+    }
+    const timer = window.setTimeout(triggerPrompts, 600)
+    return () => window.clearTimeout(timer)
+  }, [isStandaloneDisplay])
 
   useEffect(() => {
     const root = document.documentElement
@@ -542,8 +603,6 @@ export default function App() {
     ? 'min-h-screen bg-gradient-to-b from-white via-emerald-50/70 to-white text-slate-900 transition-colors duration-300 dark:bg-gradient-to-b dark:from-emerald-950 dark:via-slate-950 dark:to-slate-900 dark:text-slate-100'
     : 'h-[100dvh] bg-white text-slate-900 transition-colors duration-300 dark:bg-slate-950 dark:text-slate-100'
 
-  const effectiveInstallBarHeight =
-    showInstallBar && !installForceHidden ? installBarHeight : 0
   const appContainerStyle = {
     paddingTop: 'var(--install-bar-height, 0px)',
     transition: 'padding-top 220ms ease',
@@ -624,7 +683,7 @@ export default function App() {
           }
           style={{
             ...(authContainerStyle || {}),
-            zIndex: 'var(--app-z, 20)',
+            zIndex: routeChunkLoading ? '70' : 'var(--app-z, 20)',
           }}
         >
           {isAuthRoute ? (
@@ -641,57 +700,66 @@ export default function App() {
           ) : null}
 
           <main className={isAuthRoute ? 'flex flex-1 items-center justify-center px-1 py-6 sm:mt-0 sm:px-0 sm:py-8' : 'flex min-h-0 flex-1'}>
-            {route === 'login' && (
-              <AuthPage
-                mode="login"
-                isDark={isDark}
-                onToggleTheme={toggleTheme}
-                onSubmit={handleLogin}
-                onSwitchMode={() => {
-                  setAuthStatus('')
-                  navigate('/signup')
-                }}
-                status={authStatus}
-                loading={authLoading}
-                showSigningOverlay={authLoading}
-                allowSignup={accountCreationEnabled}
-              />
-            )}
-            {route === 'signup' && (
-              <AuthPage
-                mode="signup"
-                isDark={isDark}
-                onToggleTheme={toggleTheme}
-                onSubmit={handleSignup}
-                onSwitchMode={() => {
-                  setAuthStatus('')
-                  navigate('/login')
-                }}
-                status={authStatus}
-                loading={authLoading}
-                showSigningOverlay={false}
-                allowSignup={accountCreationEnabled}
-              />
-            )}
-            {route === 'chat' && user ? (
-              <ChatPage user={user} setUser={setUser} isDark={isDark} setIsDark={setIsDark} toggleTheme={toggleTheme} />
-            ) : null}
-            {route === 'invite' && user ? (
-              <InvitePage
-                token={inviteToken}
-                user={user}
-                isDark={isDark}
-                onToggleTheme={toggleTheme}
-                onNavigateChat={(chatId = 0) => {
-                  const nextChatId = Number(chatId || 0)
-                  if (nextChatId > 0) {
-                    window.sessionStorage.setItem(OPEN_CHAT_ID_KEY, String(nextChatId))
-                  }
-                  navigate('/chat', true)
-                }}
-                onRequireLogin={() => navigate('/login', true)}
-              />
-            ) : null}
+            <Suspense
+              fallback={
+                <RouteLoadingFallback
+                  themeColor={safeAreaThemeColor}
+                  onVisibleChange={setRouteChunkLoading}
+                />
+              }
+            >
+              {route === 'login' && (
+                <AuthPage
+                  mode="login"
+                  isDark={isDark}
+                  onToggleTheme={toggleTheme}
+                  onSubmit={handleLogin}
+                  onSwitchMode={() => {
+                    setAuthStatus('')
+                    navigate('/signup')
+                  }}
+                  status={authStatus}
+                  loading={authLoading}
+                  showSigningOverlay={authLoading}
+                  allowSignup={accountCreationEnabled}
+                />
+              )}
+              {route === 'signup' && (
+                <AuthPage
+                  mode="signup"
+                  isDark={isDark}
+                  onToggleTheme={toggleTheme}
+                  onSubmit={handleSignup}
+                  onSwitchMode={() => {
+                    setAuthStatus('')
+                    navigate('/login')
+                  }}
+                  status={authStatus}
+                  loading={authLoading}
+                  showSigningOverlay={false}
+                  allowSignup={accountCreationEnabled}
+                />
+              )}
+              {route === 'chat' && user ? (
+                <ChatPage user={user} setUser={setUser} isDark={isDark} setIsDark={setIsDark} toggleTheme={toggleTheme} />
+              ) : null}
+              {route === 'invite' && user ? (
+                <InvitePage
+                  token={inviteToken}
+                  user={user}
+                  isDark={isDark}
+                  onToggleTheme={toggleTheme}
+                  onNavigateChat={(chatId = 0) => {
+                    const nextChatId = Number(chatId || 0)
+                    if (nextChatId > 0) {
+                      window.sessionStorage.setItem(OPEN_CHAT_ID_KEY, String(nextChatId))
+                    }
+                    navigate('/chat', true)
+                  }}
+                  onRequireLogin={() => navigate('/login', true)}
+                />
+              ) : null}
+            </Suspense>
           </main>
         </div>
       </div>
@@ -739,4 +807,3 @@ export default function App() {
     </div>
   )
 }
-

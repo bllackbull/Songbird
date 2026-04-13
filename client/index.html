@@ -9,6 +9,32 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#ecfdf5" />
+    <style>
+      html,
+      body {
+        background: #ffffff;
+      }
+      html.sb-preload-dark,
+      html.sb-preload-dark body {
+        background: #020617;
+      }
+    </style>
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("songbird-theme");
+          var isDark = stored === "dark";
+          if (isDark) {
+            var root = document.documentElement;
+            root.classList.add("dark", "sb-preload-dark");
+            root.style.colorScheme = "dark";
+            root.style.backgroundColor = "#020617";
+            var meta = document.querySelector('meta[name="theme-color"]');
+            if (meta) meta.setAttribute("content", "#020617");
+          }
+        } catch (_) {}
+      })();
+    </script>
     <title>Songbird</title>
   </head>
   <body>

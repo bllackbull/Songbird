@@ -1,12 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import MobileTabMenu from "../components/navigation/MobileTabMenu.jsx";
 import ChatWindowPanel from "../components/chat/ChatWindowPanel.jsx";
-import ChatProfileModal from "../components/modals/ChatProfileModal.jsx";
-import DeleteChatsModal from "../components/modals/DeleteChatsModal.jsx";
-import GroupInviteLinkModal from "../components/modals/GroupInviteLinkModal.jsx";
-import NewChatModal from "../components/modals/NewChatModal.jsx";
-import NewGroupModal from "../components/modals/NewGroupModal.jsx";
-import { DesktopSettingsModal, NotificationsSettingsModal } from "../components/settings/index.js";
 import { ChatSidebar } from "../components/sidebar/index.js";
 import { CHAT_PAGE_CONFIG } from "../settings/chatPageConfig.js";
 import { getAvatarInitials } from "../utils/avatarInitials.js";
@@ -103,6 +97,23 @@ import {
   UPLOAD_PROGRESS_HIDE_DELAY_MS,
 } from "../utils/chatPageConstants.js";
 
+const ChatProfileModal = lazy(() => import("../components/modals/ChatProfileModal.jsx"));
+const DeleteChatsModal = lazy(() => import("../components/modals/DeleteChatsModal.jsx"));
+const LeaveGroupModal = lazy(() => import("../components/modals/LeaveGroupModal.jsx"));
+const GroupInviteLinkModal = lazy(() => import("../components/modals/GroupInviteLinkModal.jsx"));
+const NewChatModal = lazy(() => import("../components/modals/NewChatModal.jsx"));
+const NewGroupModal = lazy(() => import("../components/modals/NewGroupModal.jsx"));
+const DesktopSettingsModal = lazy(() =>
+  import("../components/settings/modals/DesktopSettingsModal.jsx").then((mod) => ({
+    default: mod.DesktopSettingsModal,
+  })),
+);
+const NotificationsSettingsModal = lazy(() =>
+  import("../components/settings/modals/NotificationsSettingsModal.jsx").then((mod) => ({
+    default: mod.NotificationsSettingsModal,
+  })),
+);
+
  
 
 export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme }) {
@@ -129,6 +140,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [selectedChats, setSelectedChats] = useState([]);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [pendingDeleteIds, setPendingDeleteIds] = useState([]);
+  const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(false);
+  const [pendingLeaveChatId, setPendingLeaveChatId] = useState(null);
   const [, setIsAtBottom] = useState(true);
   const [userScrolledUp, setUserScrolledUp] = useState(false);
   const [unreadInChat, setUnreadInChat] = useState(0);
@@ -251,14 +264,24 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [microphonePermission, setMicrophonePermission] = useState("unknown");
   const [microphonePermissionSupported, setMicrophonePermissionSupported] =
     useState(false);
-  const [permissionsPromptDismissed, setPermissionsPromptDismissed] = useState(
-    () => {
-      if (typeof window === "undefined") return false;
-      return (
-        window.sessionStorage.getItem("songbird-permissions-dismissed") === "1"
-      );
-    },
-  );
+  const PERMISSION_DISMISS_PREFIX = "songbird-permission-dismiss-";
+  const PERMISSION_DISMISS_MS = 3 * 24 * 60 * 60 * 1000;
+  const readPermissionDismissed = (kind) => {
+    if (typeof window === "undefined") return false;
+    const key = `${PERMISSION_DISMISS_PREFIX}${kind}`;
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return false;
+    const until = Number(raw);
+    if (!Number.isFinite(until) || until <= Date.now()) {
+      window.localStorage.removeItem(key);
+      return false;
+    }
+    return true;
+  };
+  const [permissionsDismissed, setPermissionsDismissed] = useState(() => ({
+    notification: readPermissionDismissed("notification"),
+    microphone: readPermissionDismissed("microphone"),
+  }));
   const requestMicrophonePermission = useCallback(async () => {
     if (typeof navigator === "undefined") return;
     if (!navigator.mediaDevices?.getUserMedia) return;
@@ -273,12 +296,17 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }
     }
   }, []);
-  const dismissPermissionsPrompt = useCallback(() => {
-    if (typeof window !== "undefined") {
-      window.sessionStorage.setItem("songbird-permissions-dismissed", "1");
-    }
-    setPermissionsPromptDismissed(true);
-  }, []);
+  const dismissPermissionsPrompt = useCallback(
+    (mode) => {
+      if (typeof window === "undefined") return;
+      const kind = mode || "notification";
+      const key = `${PERMISSION_DISMISS_PREFIX}${kind}`;
+      const until = Date.now() + PERMISSION_DISMISS_MS;
+      window.localStorage.setItem(key, String(until));
+      setPermissionsDismissed((prev) => ({ ...prev, [kind]: true }));
+    },
+    [PERMISSION_DISMISS_MS],
+  );
   const requestNotificationsPermission = useCallback(async () => {
     if (notificationPermission !== "default") return;
     await handleToggleNotifications();
@@ -549,6 +577,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     handleJumpToLatest,
     handleMessageMediaLoaded,
     scrollChatToBottom,
+    cancelSmoothScroll,
   } = useChatScroll({
     activeChatId,
     canMarkReadInCurrentView,
@@ -1258,6 +1287,21 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setConfirmDeleteOpen(true);
   };
 
+  const requestLeaveGroupById = (chatId) => {
+    const id = Number(chatId || 0);
+    if (!id) return;
+    setPendingLeaveChatId(id);
+    setConfirmLeaveOpen(true);
+  };
+
+  const confirmLeaveGroupById = async () => {
+    const id = Number(pendingLeaveChatId || 0);
+    if (!id) return;
+    setConfirmLeaveOpen(false);
+    setPendingLeaveChatId(null);
+    await handleLeaveGroupById(id);
+  };
+
   const confirmDeleteChats = async () => {
     const idsToHide = pendingDeleteIds.length
       ? pendingDeleteIds
@@ -1838,6 +1882,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           );
           const keepPendingUntilServerEcho = hasFiles && uploadType === "media" && hasMediaVideo;
           const serverId = Number(data.id) || null;
+          const awaitingServerEcho = Boolean(serverId);
           const index = prev.findIndex((msg) => msg?._clientId === clientId);
           if (index >= 0) {
             return prev.map((msg) =>
@@ -1848,7 +1893,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                     _delivery: keepPendingUntilServerEcho ? "sending" : "sent",
                     _processingPending:
                       keepPendingUntilServerEcho || Boolean(msg?._processingPending),
-                    _awaitingServerEcho: true,
+                    _awaitingServerEcho: awaitingServerEcho,
                     _uploadProgress: 100,
                     read_at:
                       isSavedChat && !msg.read_at
@@ -1902,7 +1947,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               _uploadType: uploadType || "document",
               _files: files,
               _uploadProgress: 100,
-              _awaitingServerEcho: true,
+              _awaitingServerEcho: awaitingServerEcho,
               _processingPending: keepPendingUntilServerEcho,
               _serverId: serverId,
               replyTo: pendingMessage.replyTo || null,
@@ -3674,16 +3719,31 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
   };
   const handleUserScrollIntent = () => {
+    cancelSmoothScroll?.();
     allowStartReachedRef.current = true;
   };
   const usernamePattern = /^[a-z0-9._]+$/;
   const shouldPromptNotifications =
-    notificationsSupported && notificationPermission === "default";
+    notificationsSupported &&
+    notificationPermission === "default" &&
+    !permissionsDismissed.notification;
   const shouldPromptMicrophone =
-    microphonePermissionSupported && microphonePermission === "prompt";
-  const showPermissionsPrompt =
-    !permissionsPromptDismissed &&
-    (shouldPromptNotifications || shouldPromptMicrophone);
+    microphonePermissionSupported &&
+    microphonePermission === "prompt" &&
+    !permissionsDismissed.microphone;
+  const activePermissionPrompt = shouldPromptNotifications
+    ? "notification"
+    : shouldPromptMicrophone
+      ? "microphone"
+      : null;
+  const showPermissionsPrompt = Boolean(activePermissionPrompt);
+
+  useEffect(() => {
+    setPermissionsDismissed({
+      notification: readPermissionDismissed("notification"),
+      microphone: readPermissionDismissed("microphone"),
+    });
+  }, [isAppActive, notificationPermission, microphonePermission]);
 
   return (
     <div
@@ -3853,6 +3913,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         mentionRefreshToken={mentionRefreshToken}
         permissionsPrompt={{
           show: showPermissionsPrompt,
+          mode: activePermissionPrompt,
           notification: {
             show: shouldPromptNotifications,
             status: notificationPermission,
@@ -3863,7 +3924,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             status: microphonePermission,
             onRequest: requestMicrophonePermission,
           },
-          onDismiss: dismissPermissionsPrompt,
+          onDismiss: (mode) =>
+            dismissPermissionsPrompt(mode || activePermissionPrompt),
         }}
       />
 
@@ -3877,157 +3939,196 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         onSettings={() => setMobileTab("settings")}
       />
 
-      <NewChatModal
-        open={newChatOpen}
-        newChatUsername={newChatUsername}
-        setNewChatUsername={setNewChatUsername}
-        newChatError={newChatError}
-        setNewChatError={setNewChatError}
-        newChatResults={newChatResults}
-        newChatSelection={newChatSelection}
-        setNewChatSelection={setNewChatSelection}
-        newChatLoading={newChatLoading}
-        canStartChat={canStartChat}
-        startDirectMessage={startDirectMessage}
-        onClose={closeNewChatModal}
-      />
+      {newChatOpen ? (
+        <Suspense fallback={null}>
+          <NewChatModal
+            open={newChatOpen}
+            newChatUsername={newChatUsername}
+            setNewChatUsername={setNewChatUsername}
+            newChatError={newChatError}
+            setNewChatError={setNewChatError}
+            newChatResults={newChatResults}
+            newChatSelection={newChatSelection}
+            setNewChatSelection={setNewChatSelection}
+            newChatLoading={newChatLoading}
+            canStartChat={canStartChat}
+            startDirectMessage={startDirectMessage}
+            onClose={closeNewChatModal}
+          />
+        </Suspense>
+      ) : null}
 
-      <DeleteChatsModal
-        open={confirmDeleteOpen}
-        pendingDeleteIds={pendingDeleteIds}
-        selectedChats={selectedChats}
-        setConfirmDeleteOpen={setConfirmDeleteOpen}
-        confirmDeleteChats={confirmDeleteChats}
-      />
+      {confirmDeleteOpen ? (
+        <Suspense fallback={null}>
+          <DeleteChatsModal
+            open={confirmDeleteOpen}
+            pendingDeleteIds={pendingDeleteIds}
+            selectedChats={selectedChats}
+            setConfirmDeleteOpen={setConfirmDeleteOpen}
+            confirmDeleteChats={confirmDeleteChats}
+          />
+        </Suspense>
+      ) : null}
 
-      <NewGroupModal
-        open={newGroupOpen}
-        groupForm={newGroupForm}
-        setGroupForm={setNewGroupForm}
-        groupSearchQuery={newGroupSearch}
-        setGroupSearchQuery={setNewGroupSearch}
-        groupSearchResults={newGroupSearchResults}
-        groupSearchLoading={newGroupSearchLoading}
-        selectedGroupMembers={newGroupMembers}
-        setSelectedGroupMembers={setNewGroupMembers}
-        groupError={newGroupError}
-        setGroupError={setNewGroupError}
-        creatingGroup={creatingGroup}
-        onCreate={handleCreateGroup}
-        onClose={closeNewGroupModal}
-        title={
-          editingGroup
-            ? `Edit ${groupModalType === "channel" ? "channel" : "group"}`
-            : `New ${groupModalType === "channel" ? "channel" : "group"}`
-        }
-        submitLabel={editingGroup ? "Save" : "Create"}
-        avatarPreview={groupAvatarPreview}
-        avatarColor={editingGroup ? activeChat?.group_color || "#10b981" : "#10b981"}
-        avatarName={
-          newGroupForm.nickname ||
-          newGroupForm.username ||
-          (groupModalType === "channel" ? "Channel" : "Group")
-        }
-        onAvatarChange={handleGroupAvatarChange}
-        onAvatarRemove={handleGroupAvatarRemove}
-        showAvatarField={editingGroup}
-        hideSelectedMemberChips={false}
-        fileUploadEnabled={CHAT_PAGE_CONFIG.fileUploadEnabled}
-        showInviteManagement={editingGroup}
-        currentInviteLink={editGroupInviteLink}
-        regeneratingInviteLink={regeneratingGroupInviteLink}
-        onRegenerateInvite={handleRegenerateGroupInvite}
-        entityLabel={groupModalType === "channel" ? "Channel" : "Group"}
-        onDeleteChat={editingGroup ? handleDeleteActiveGroup : null}
-      />
+      {confirmLeaveOpen ? (
+        <Suspense fallback={null}>
+          <LeaveGroupModal
+            open={confirmLeaveOpen}
+            onClose={() => {
+              setConfirmLeaveOpen(false);
+              setPendingLeaveChatId(null);
+            }}
+            onConfirm={confirmLeaveGroupById}
+            isChannel={(() => {
+              const leaveId = Number(pendingLeaveChatId || 0);
+              if (!leaveId) return false;
+              return chats.some(
+                (chat) => Number(chat.id) === leaveId && chat.type === "channel",
+              );
+            })()}
+          />
+        </Suspense>
+      ) : null}
 
-      <GroupInviteLinkModal
-        open={groupInviteOpen}
-        inviteLink={createdGroupInviteLink}
-        onClose={() => setGroupInviteOpen(false)}
-      />
+      {newGroupOpen ? (
+        <Suspense fallback={null}>
+          <NewGroupModal
+            open={newGroupOpen}
+            groupForm={newGroupForm}
+            setGroupForm={setNewGroupForm}
+            groupSearchQuery={newGroupSearch}
+            setGroupSearchQuery={setNewGroupSearch}
+            groupSearchResults={newGroupSearchResults}
+            groupSearchLoading={newGroupSearchLoading}
+            selectedGroupMembers={newGroupMembers}
+            setSelectedGroupMembers={setNewGroupMembers}
+            groupError={newGroupError}
+            setGroupError={setNewGroupError}
+            creatingGroup={creatingGroup}
+            onCreate={handleCreateGroup}
+            onClose={closeNewGroupModal}
+            title={
+              editingGroup
+                ? `Edit ${groupModalType === "channel" ? "channel" : "group"}`
+                : `New ${groupModalType === "channel" ? "channel" : "group"}`
+            }
+            submitLabel={editingGroup ? "Save" : "Create"}
+            avatarPreview={groupAvatarPreview}
+            avatarColor={editingGroup ? activeChat?.group_color || "#10b981" : "#10b981"}
+            avatarName={
+              newGroupForm.nickname ||
+              newGroupForm.username ||
+              (groupModalType === "channel" ? "Channel" : "Group")
+            }
+            onAvatarChange={handleGroupAvatarChange}
+            onAvatarRemove={handleGroupAvatarRemove}
+            showAvatarField={editingGroup}
+            hideSelectedMemberChips={false}
+            fileUploadEnabled={CHAT_PAGE_CONFIG.fileUploadEnabled}
+            showInviteManagement={editingGroup}
+            currentInviteLink={editGroupInviteLink}
+            regeneratingInviteLink={regeneratingGroupInviteLink}
+            onRegenerateInvite={handleRegenerateGroupInvite}
+            entityLabel={groupModalType === "channel" ? "Channel" : "Group"}
+            onDeleteChat={editingGroup ? handleDeleteActiveGroup : null}
+          />
+        </Suspense>
+      ) : null}
 
-      <ChatProfileModal
-        open={profileModalOpen}
-        chat={
-          mentionProfileChat ||
-          ((mentionProfileUser || profileModalMember)
-            ? { ...(activeChat || {}), type: "dm" }
-            : activeChat)
-        }
-        targetUser={profileTargetUser}
-        currentUser={user}
-        muted={activeChatMuted}
-        inviteLink={profileInviteLink}
-        canViewInvite={canCurrentUserViewInvite}
-        readOnly={Boolean(
-          mentionProfile &&
-            mentionProfile.kind !== "user" &&
-            !mentionProfileChat?.isMember,
-        )}
-        showJoinAction={canJoinMentionChat}
-        onJoinChat={handleJoinMentionChat}
-        showMembers={shouldShowMembersList}
-        membersBatchSize={CHAT_PAGE_CONFIG.newChatSearchMaxResults}
-        onClose={closeProfileModal}
-        onOpenChat={handleOpenProfileChat}
-        onToggleMute={() =>
-          toggleMuteChat(mentionProfileChat?.id || activeChat?.id)
-        }
-        onLeaveGroup={() =>
-          handleLeaveGroupById(mentionProfileChat?.id || activeChat?.id)
-        }
-        onOpenMember={openMemberProfileFromList}
-        onRemoveMember={handleRemoveGroupMember}
-        onEditGroup={openEditGroupFromProfile}
-        onEditSelfProfile={openSelfProfileEditor}
-      />
+      {groupInviteOpen ? (
+        <Suspense fallback={null}>
+          <GroupInviteLinkModal
+            open={groupInviteOpen}
+            inviteLink={createdGroupInviteLink}
+            onClose={() => setGroupInviteOpen(false)}
+          />
+        </Suspense>
+      ) : null}
 
-      <NotificationsSettingsModal
-        open={notificationsModalOpen}
-        onClose={() => setNotificationsModalOpen(false)}
-        notificationsActive={notificationsActive}
-        notificationsDisabled={notificationsDisabled}
-        notificationStatusLabel={notificationStatusLabel}
-        onToggleNotifications={handleToggleNotifications}
-        onTestPush={handleTestPush}
-        testNotificationSent={testNotificationSent}
-        notificationsEnabled={notificationsEnabled}
-        debugLine={notificationsDebugLine}
-      />
+      {profileModalOpen ? (
+        <Suspense fallback={null}>
+          <ChatProfileModal
+            open={profileModalOpen}
+            chat={
+              mentionProfileChat ||
+              ((mentionProfileUser || profileModalMember)
+                ? { ...(activeChat || {}), type: "dm" }
+                : activeChat)
+            }
+            targetUser={profileTargetUser}
+            currentUser={user}
+            muted={activeChatMuted}
+            inviteLink={profileInviteLink}
+            canViewInvite={canCurrentUserViewInvite}
+            readOnly={Boolean(
+              mentionProfile &&
+                mentionProfile.kind !== "user" &&
+                !mentionProfileChat?.isMember,
+            )}
+            showJoinAction={canJoinMentionChat}
+            onJoinChat={handleJoinMentionChat}
+            showMembers={shouldShowMembersList}
+            membersBatchSize={CHAT_PAGE_CONFIG.newChatSearchMaxResults}
+            onClose={closeProfileModal}
+            onOpenChat={handleOpenProfileChat}
+            onToggleMute={() =>
+              toggleMuteChat(mentionProfileChat?.id || activeChat?.id)
+            }
+            onLeaveGroup={() =>
+              requestLeaveGroupById(mentionProfileChat?.id || activeChat?.id)
+            }
+            onOpenMember={openMemberProfileFromList}
+            onRemoveMember={handleRemoveGroupMember}
+            onEditGroup={openEditGroupFromProfile}
+            onEditSelfProfile={openSelfProfileEditor}
+          />
+        </Suspense>
+      ) : null}
 
-        {settingsPanel && mobileTab !== "settings" ? (
-        <DesktopSettingsModal
-          settingsPanel={settingsPanel}
-          setSettingsPanel={setSettingsPanel}
-          handleProfileSave={handleProfileSave}
-          avatarPreview={avatarPreview}
-          profileForm={profileForm}
-          handleAvatarChange={handleAvatarChange}
-          handleAvatarRemove={handleAvatarRemove}
-          setProfileForm={setProfileForm}
-          statusSelection={statusSelection}
-          setStatusSelection={setStatusSelection}
-          handlePasswordSave={handlePasswordSave}
-          passwordForm={passwordForm}
-          setPasswordForm={setPasswordForm}
-          userColor={userColor}
-          profileError={profileError}
-          passwordError={passwordError}
-          fileUploadEnabled={CHAT_PAGE_CONFIG.fileUploadEnabled}
-          onClearCache={handleClearCache}
-          dataCacheStats={dataCacheStats}
-          currentUser={user}
-          onDeleteAccount={handleDeleteAccount}
-        />
+      {notificationsModalOpen ? (
+        <Suspense fallback={null}>
+          <NotificationsSettingsModal
+            open={notificationsModalOpen}
+            onClose={() => setNotificationsModalOpen(false)}
+            notificationsActive={notificationsActive}
+            notificationsDisabled={notificationsDisabled}
+            notificationStatusLabel={notificationStatusLabel}
+            onToggleNotifications={handleToggleNotifications}
+            onTestPush={handleTestPush}
+            testNotificationSent={testNotificationSent}
+            notificationsEnabled={notificationsEnabled}
+            debugLine={notificationsDebugLine}
+          />
+        </Suspense>
+      ) : null}
+
+      {settingsPanel && mobileTab !== "settings" ? (
+        <Suspense fallback={null}>
+          <DesktopSettingsModal
+            settingsPanel={settingsPanel}
+            setSettingsPanel={setSettingsPanel}
+            handleProfileSave={handleProfileSave}
+            avatarPreview={avatarPreview}
+            profileForm={profileForm}
+            handleAvatarChange={handleAvatarChange}
+            handleAvatarRemove={handleAvatarRemove}
+            setProfileForm={setProfileForm}
+            statusSelection={statusSelection}
+            setStatusSelection={setStatusSelection}
+            handlePasswordSave={handlePasswordSave}
+            passwordForm={passwordForm}
+            setPasswordForm={setPasswordForm}
+            userColor={userColor}
+            profileError={profileError}
+            passwordError={passwordError}
+            fileUploadEnabled={CHAT_PAGE_CONFIG.fileUploadEnabled}
+            onClearCache={handleClearCache}
+            dataCacheStats={dataCacheStats}
+            currentUser={user}
+            onDeleteAccount={handleDeleteAccount}
+          />
+        </Suspense>
       ) : null}
     </div>
   );
 }
-
-
-
-
-
-
-

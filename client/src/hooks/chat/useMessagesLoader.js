@@ -530,6 +530,45 @@ export function useMessagesLoader({
           );
         }
 
+        // Final reconciliation pass: prevent duplicate rows that represent
+        // the same logical message (server id first, then optimistic client id).
+        const mergedNextDeduped = [];
+        const serverIdentityMap = new Map();
+        const clientIdentityMap = new Map();
+        mergedNext.forEach((msg) => {
+          const serverId = Number(msg?._serverId || msg?.id || 0);
+          const hasServerId = Number.isFinite(serverId) && serverId > 0;
+          const clientId = String(msg?._clientId || "").trim();
+          const identityKey = hasServerId ? `s:${serverId}` : clientId ? `c:${clientId}` : "";
+          if (!identityKey) {
+            mergedNextDeduped.push(msg);
+            return;
+          }
+          const map = hasServerId ? serverIdentityMap : clientIdentityMap;
+          const existingIndex = map.get(identityKey);
+          if (existingIndex === undefined) {
+            map.set(identityKey, mergedNextDeduped.length);
+            mergedNextDeduped.push(msg);
+            return;
+          }
+          const existing = mergedNextDeduped[existingIndex];
+          const existingHasServerId = Number.isFinite(
+            Number(existing?._serverId || existing?.id || 0),
+          );
+          // Prefer server-backed rows over optimistic ones.
+          if (hasServerId && !existingHasServerId) {
+            mergedNextDeduped[existingIndex] = msg;
+            return;
+          }
+          // Otherwise keep the row with richer server reconciliation state.
+          const existingAwaiting = Boolean(existing?._awaitingServerEcho);
+          const nextAwaiting = Boolean(msg?._awaitingServerEcho);
+          if (existingAwaiting && !nextAwaiting) {
+            mergedNextDeduped[existingIndex] = msg;
+          }
+        });
+        mergedNext = mergedNextDeduped;
+
         if (options.preserveHistory) {
           const mergedById = new Map();
           mergedNext.forEach((msg) => {
