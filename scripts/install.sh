@@ -1011,11 +1011,7 @@ collect_install_options() {
 
 
   SERVER_PORT="$(prompt_port)"
-  if [[ "$DEPLOY_MODE" == "ip" ]]; then
-    CLIENT_PORT="$(prompt_client_port)"
-  else
-    CLIENT_PORT="$DEFAULT_CLIENT_PORT"
-  fi
+  CLIENT_PORT="$(prompt_client_port)"
 
   if [[ "$(prompt_yes_no "Allow account creation via website?" "yes")" == "yes" ]]; then
     ACCOUNT_CREATION="true"
@@ -1521,7 +1517,7 @@ install_songbird() {
   log "Songbird has been installed successfully."
   if [[ "$DEPLOY_MODE" == "domain" ]]; then
     for d in "${DOMAIN_NAMES[@]}"; do
-      log "Visit: https://${d}"
+      log "Visit: https://${d}:${CLIENT_PORT}"
     done
   else
     log "Visit: http://<your-server-ip>:${CLIENT_PORT}"

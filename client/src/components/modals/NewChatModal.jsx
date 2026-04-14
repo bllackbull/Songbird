@@ -18,6 +18,7 @@ export default function NewChatModal({
   onClose,
 }) {
   if (!open) return null;
+  const dmSearchHasPersian = hasPersian(newChatUsername || "");
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-6">
@@ -47,7 +48,12 @@ export default function NewChatModal({
                 setNewChatSelection(null);
               }}
               placeholder="username"
-              className="w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-14 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
+              lang={dmSearchHasPersian ? "fa" : "en"}
+              dir={dmSearchHasPersian ? "rtl" : "ltr"}
+              className={`w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-14 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
+                dmSearchHasPersian ? "font-fa text-right" : "text-left"
+              }`}
+              style={{ unicodeBidi: "plaintext" }}
             />
             {newChatUsername.trim() ? (
               <button

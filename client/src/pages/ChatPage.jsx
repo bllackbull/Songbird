@@ -69,6 +69,7 @@ import {
   markMessagesRead,
   pingPresence,
   searchUsers,
+  sendTypingIndicator,
   sendMessage,
   removeGroupMember,
   regenerateGroupInviteLink,
@@ -198,7 +199,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   useEffect(() => {
     if (typeof document === "undefined") return;
     const root = document.documentElement;
-    if (isMobileViewport && activeChatId) {
+    const hasTopLayerModal = Boolean(
+      profileModalOpen || (settingsPanel && mobileTab !== "settings"),
+    );
+    if (hasTopLayerModal) {
+      root.style.setProperty("--app-z", "90");
+    } else if (isMobileViewport && activeChatId) {
       root.style.setProperty("--app-z", "40");
     } else {
       root.style.setProperty("--app-z", "20");
@@ -206,7 +212,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     return () => {
       root.style.setProperty("--app-z", "20");
     };
-  }, [activeChatId, isMobileViewport]);
+  }, [activeChatId, isMobileViewport, mobileTab, profileModalOpen, settingsPanel]);
 
   const { dmUsernamesRef } = useDmUsernames({ chats, user });
   const {
@@ -441,6 +447,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     status: "offline",
     lastSeen: null,
   });
+  const [typingByChat, setTypingByChat] = useState({});
 
   const settingsMenuRef = useRef(null);
   const settingsButtonRef = useRef(null);
@@ -453,11 +460,137 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const loadChatsRef = useRef(null);
   const scheduleMessageRefreshRef = useRef(null);
   const presenceStateRef = useRef(new Map());
+  const typingStateRef = useRef({
+    chatId: 0,
+    isTyping: false,
+    lastSentAt: 0,
+  });
+  const typingStopTimerRef = useRef(null);
+  const typingExpiryTimersRef = useRef(new Map());
 
   const clearUnreadAlignTimers = () => {
     unreadAlignTimersRef.current.forEach((timer) => window.clearTimeout(timer));
     unreadAlignTimersRef.current = [];
   };
+
+  const TYPING_IDLE_TIMEOUT_MS = 3000;
+  const TYPING_SIGNAL_THROTTLE_MS = 1500;
+  const TYPING_REMOTE_TTL_MS = 5000;
+
+  const clearTypingExpiryTimer = useCallback((chatId, username) => {
+    const key = `${Number(chatId || 0)}:${String(username || "").toLowerCase()}`;
+    const timer = typingExpiryTimersRef.current.get(key);
+    if (timer) {
+      window.clearTimeout(timer);
+      typingExpiryTimersRef.current.delete(key);
+    }
+  }, []);
+
+  const removeTypingUser = useCallback((chatId, username) => {
+    const normalizedUsername = String(username || "").toLowerCase();
+    const numericChatId = Number(chatId || 0);
+    if (!numericChatId || !normalizedUsername) return;
+    setTypingByChat((prev) => {
+      const chatTyping = prev?.[numericChatId];
+      if (!chatTyping || !chatTyping[normalizedUsername]) return prev;
+      const nextChatTyping = { ...chatTyping };
+      delete nextChatTyping[normalizedUsername];
+      if (!Object.keys(nextChatTyping).length) {
+        const next = { ...prev };
+        delete next[numericChatId];
+        return next;
+      }
+      return {
+        ...prev,
+        [numericChatId]: nextChatTyping,
+      };
+    });
+  }, []);
+
+  const setTypingUser = useCallback(
+    (chatId, username, nickname = "") => {
+      const normalizedUsername = String(username || "").toLowerCase();
+      const numericChatId = Number(chatId || 0);
+      if (!numericChatId || !normalizedUsername) return;
+      setTypingByChat((prev) => {
+        const chatTyping = prev?.[numericChatId] || {};
+        const nextChatTyping = {
+          ...chatTyping,
+          [normalizedUsername]: {
+            username: normalizedUsername,
+            nickname: String(nickname || "").trim() || normalizedUsername,
+            updatedAt: Date.now(),
+          },
+        };
+        return {
+          ...prev,
+          [numericChatId]: nextChatTyping,
+        };
+      });
+    },
+    [],
+  );
+
+  const scheduleTypingExpiry = useCallback(
+    (chatId, username) => {
+      const normalizedUsername = String(username || "").toLowerCase();
+      const numericChatId = Number(chatId || 0);
+      if (!numericChatId || !normalizedUsername) return;
+      clearTypingExpiryTimer(numericChatId, normalizedUsername);
+      const key = `${numericChatId}:${normalizedUsername}`;
+      const timer = window.setTimeout(() => {
+        typingExpiryTimersRef.current.delete(key);
+        removeTypingUser(numericChatId, normalizedUsername);
+      }, TYPING_REMOTE_TTL_MS);
+      typingExpiryTimersRef.current.set(key, timer);
+    },
+    [clearTypingExpiryTimer, removeTypingUser, TYPING_REMOTE_TTL_MS],
+  );
+
+  const sendTypingSignal = useCallback(
+    (chatId, isTyping) => {
+      const numericChatId = Number(chatId || 0);
+      const currentUsername = String(usernameRef.current || "").toLowerCase();
+      if (!numericChatId || !currentUsername) return;
+      const activeChatType = String(activeChatTypeRef.current || "").toLowerCase();
+      if (Boolean(isTyping) && activeChatType === "channel") return;
+      const canBroadcastTyping =
+        String(user?.status || "").toLowerCase() === "online";
+      if (!canBroadcastTyping && Boolean(isTyping)) return;
+      sendTypingIndicator({
+        chatId: numericChatId,
+        username: currentUsername,
+        isTyping: Boolean(isTyping),
+      }).catch(() => null);
+    },
+    [user?.status],
+  );
+
+  const clearLocalTypingStopTimer = useCallback(() => {
+    if (typingStopTimerRef.current) {
+      window.clearTimeout(typingStopTimerRef.current);
+      typingStopTimerRef.current = null;
+    }
+  }, []);
+
+  const stopTypingIndicator = useCallback(
+    (chatIdOverride = null) => {
+      const targetChatId =
+        Number(chatIdOverride || 0) ||
+        Number(typingStateRef.current.chatId || activeChatIdRef.current || 0);
+      if (!targetChatId) return;
+      clearLocalTypingStopTimer();
+      if (typingStateRef.current.isTyping) {
+        sendTypingSignal(targetChatId, false);
+      }
+      typingStateRef.current = {
+        chatId: targetChatId,
+        isTyping: false,
+        lastSentAt: Date.now(),
+      };
+    },
+    [clearLocalTypingStopTimer, sendTypingSignal],
+  );
 
   const handleStartReply = (msg) => {
     if (!msg) return;
@@ -886,6 +1019,41 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, [activeChatId]);
 
   useEffect(() => {
+    return () => {
+      const current = typingStateRef.current;
+      if (current.isTyping && current.chatId) {
+        sendTypingSignal(current.chatId, false);
+      }
+      clearLocalTypingStopTimer();
+      typingExpiryTimersRef.current.forEach((timer) => {
+        window.clearTimeout(timer);
+      });
+      typingExpiryTimersRef.current.clear();
+    };
+  }, [clearLocalTypingStopTimer, sendTypingSignal]);
+
+  useEffect(() => {
+    const status = String(user?.status || "").toLowerCase();
+    if (status !== "online") {
+      stopTypingIndicator(activeChatIdRef.current);
+    }
+  }, [stopTypingIndicator, user?.status]);
+
+  useEffect(() => {
+    const currentState = typingStateRef.current;
+    const currentChatId = Number(activeChatId || 0);
+    if (!currentState.isTyping) return;
+    if (!currentState.chatId || currentState.chatId === currentChatId) return;
+    sendTypingSignal(currentState.chatId, false);
+    clearLocalTypingStopTimer();
+    typingStateRef.current = {
+      chatId: currentState.chatId,
+      isTyping: false,
+      lastSentAt: Date.now(),
+    };
+  }, [activeChatId, clearLocalTypingStopTimer, sendTypingSignal]);
+
+  useEffect(() => {
     const prev = prevUploadProgressRef.current;
     const now = activeUploadProgress;
     // When upload bar closes, force a final snap to bottom.
@@ -934,6 +1102,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const activeHeaderAvatarIcon = isActiveSavedChat ? (
     <Bookmark size={18} className="text-white" />
   ) : null;
+
+  useEffect(() => {
+    if (canSendInActiveChat) return;
+    stopTypingIndicator(activeChatIdRef.current);
+  }, [canSendInActiveChat, stopTypingIndicator]);
 
   const {
     loadMessages,
@@ -1219,6 +1392,71 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         : peerPresence.status === "online"
           ? "online"
           : "offline";
+  const activeTypingUsers = useMemo(() => {
+    const chatId = Number(activeChatId || 0);
+    if (!chatId) return [];
+    const typingMap = typingByChat?.[chatId];
+    if (!typingMap || typeof typingMap !== "object") return [];
+    const selfUsername = String(user?.username || "").toLowerCase();
+    const membersByUsername = new Map(
+      (Array.isArray(activeMembers) ? activeMembers : []).map((member) => [
+        String(member?.username || "").toLowerCase(),
+        member,
+      ]),
+    );
+    return Object.values(typingMap)
+      .map((entry) => ({
+        username: String(entry?.username || "").toLowerCase(),
+        nickname: String(entry?.nickname || "").trim(),
+      }))
+      .filter((entry) => entry.username && entry.username !== selfUsername)
+      .filter((entry) => {
+        if (isActiveGroupChat || isActiveChannelChat) return true;
+        const peerUsername = String(activeHeaderPeer?.username || "").toLowerCase();
+        return peerUsername && entry.username === peerUsername;
+      })
+      .map((entry) => {
+        const member = membersByUsername.get(entry.username);
+        const displayName =
+          String(member?.nickname || "").trim() ||
+          String(entry.nickname || "").trim() ||
+          String(member?.username || "").trim() ||
+          entry.username;
+        return {
+          username: entry.username,
+          displayName,
+        };
+      });
+  }, [
+    activeChatId,
+    activeHeaderPeer?.username,
+    activeMembers,
+    isActiveChannelChat,
+    isActiveGroupChat,
+    typingByChat,
+    user?.username,
+  ]);
+  const typingIndicator = useMemo(() => {
+    if (!activeTypingUsers.length) return null;
+    if (isActiveChannelChat) return null;
+    if (isActiveGroupChat) {
+      if (activeTypingUsers.length === 1) {
+        return {
+          type: "group_single",
+          name: activeTypingUsers[0].displayName,
+          label: `${activeTypingUsers[0].displayName} is typing`,
+        };
+      }
+      return {
+        type: "group_multi",
+        label: `${activeTypingUsers.length.toLocaleString("en-US")} members are typing`,
+      };
+    }
+    return {
+      type: "dm",
+      label: "typing",
+    };
+  }, [activeTypingUsers, isActiveChannelChat, isActiveGroupChat]);
   const activeMembersLabel = Number(activeMembers.length || 0)
     .toLocaleString("en-US");
   const activeHeaderSubtitle = isActiveGroupChat || isActiveChannelChat
@@ -1226,6 +1464,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     : isActiveSavedChat
       ? ""
       : peerStatusLabel;
+  const resolvedHeaderSubtitle =
+    !isActiveSavedChat && typingIndicator?.label
+      ? typingIndicator.label
+      : activeHeaderSubtitle;
   const activeChatMuted = Boolean(activeChat?._muted);
   const mentionProfileUser =
     mentionProfile?.kind === "user"
@@ -1649,6 +1891,66 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     activeChatIdRef,
   });
 
+  const pruneDeletedMessagesFromCache = useCallback(
+    (chatId, messageIds = []) => {
+      const numericChatId = Number(chatId || 0);
+      const deletedIds = Array.from(
+        new Set(
+          (Array.isArray(messageIds) ? messageIds : [])
+            .map((id) => Number(id))
+            .filter((id) => Number.isFinite(id) && id > 0),
+        ),
+      );
+      if (!numericChatId || !deletedIds.length) return;
+      const deletedSet = new Set(deletedIds);
+
+      const pruneCachePayload = (cached) => {
+        if (!cached || !Array.isArray(cached.messages)) {
+          return { changed: false, value: cached };
+        }
+        const nextMessages = cached.messages.filter((msg) => {
+          const serverId = Number(msg?._serverId || msg?.id || 0);
+          return !deletedSet.has(serverId);
+        });
+        if (nextMessages.length === cached.messages.length) {
+          return { changed: false, value: cached };
+        }
+        return {
+          changed: true,
+          value: {
+            ...cached,
+            messages: nextMessages,
+            lastMessageId: nextMessages.length
+              ? Number(nextMessages[nextMessages.length - 1]?.id || 0)
+              : 0,
+            updatedAt: Date.now(),
+          },
+        };
+      };
+
+      const memoryCached = messagesCacheRef.current.get(numericChatId);
+      const nextMemory = pruneCachePayload(memoryCached);
+      if (nextMemory.changed) {
+        messagesCacheRef.current.set(numericChatId, nextMemory.value);
+      }
+
+      if (!user?.username || !canUseIdb()) return;
+      const key = buildMessagesCacheKey(user.username, numericChatId);
+      void (async () => {
+        const idbCached = await readMessagesCacheAsync(user.username, numericChatId);
+        const nextIdb = pruneCachePayload(idbCached);
+        if (!nextIdb.changed) return;
+        await writeIdbCache(CACHE_STORES.messages, key, nextIdb.value);
+        await updateMessagesIndex(
+          user.username,
+          numericChatId,
+          Number(nextIdb.value?.updatedAt || Date.now()),
+        );
+      })();
+    },
+    [user?.username],
+  );
+
   useChatEvents({
     username: user?.username,
     getSseStreamUrl,
@@ -1666,13 +1968,18 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setChats,
     sseReconnectRef,
     onIncomingMessage: (payload, meta = {}) => {
+      const payloadChatId = Number(payload?.chatId || 0);
+      const sender = String(payload?.username || "").trim().toLowerCase();
+      if (payloadChatId && sender) {
+        clearTypingExpiryTimer(payloadChatId, sender);
+        removeTypingUser(payloadChatId, sender);
+      }
       if (typeof window === "undefined" || !("Notification" in window)) return;
       if (!notificationsActive) return;
-      const sender = String(payload?.username || "").trim();
+      const senderName = String(payload?.username || "").trim();
       const isOwnEvent =
-        sender.toLowerCase() === String(user?.username || "").toLowerCase();
+        senderName.toLowerCase() === String(user?.username || "").toLowerCase();
       if (isOwnEvent) return;
-      const payloadChatId = Number(payload?.chatId || 0);
       const appVisible =
         document.visibilityState === "visible" && document.hasFocus();
       if (appVisible) {
@@ -1687,11 +1994,29 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             (member) => member.username !== user?.username,
           );
           title = other?.nickname || other?.username || "Deleted account";
+        } else if (chat.type === "group") {
+          const groupName = chat.name || "Group";
+          const senderLabel = senderName
+            ? (() => {
+                const senderMember = (chat.members || []).find(
+                  (member) =>
+                    String(member?.username || "").toLowerCase() ===
+                    String(senderName || "").toLowerCase(),
+                );
+                return (
+                  senderMember?.nickname ||
+                  senderMember?.username ||
+                  String(payload?.nickname || "").trim() ||
+                  senderName
+                );
+              })()
+            : "";
+          title = senderLabel ? `${groupName} (${senderLabel})` : groupName;
         } else {
           title = chat.name || "Chat";
         }
-      } else if (sender) {
-        title = sender;
+      } else if (senderName) {
+        title = senderName;
       }
       const messageBody = normalizeMessageBody(meta?.body ?? payload?.body).trim();
       const summaryText = String(payload?.summaryText || "").trim();
@@ -1706,8 +2031,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             : messageBody;
         const body = baseBody
           ? truncateText(baseBody, NOTIFICATION_PREVIEW_MAX_CHARS)
-          : sender
-            ? `New message from ${sender}.`
+          : senderName
+            ? `New message from ${senderName}.`
             : "New message.";
       try {
         const notification = new Notification(title, {
@@ -1721,6 +2046,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       } catch {
         // ignore notification errors
       }
+    },
+    onMessageDeleted: (payload) => {
+      const payloadChatId = Number(payload?.chatId || 0);
+      const messageIds = Array.isArray(payload?.messageIds)
+        ? payload.messageIds
+        : [];
+      pruneDeletedMessagesFromCache(payloadChatId, messageIds);
     },
     onChatRead: (payload) => {
       const payloadChatId = Number(payload?.chatId || 0);
@@ -1738,9 +2070,37 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     onPresenceUpdate: (payload) => {
       applyPresenceUpdate(payload);
     },
+    onTypingUpdate: (payload) => {
+      const payloadChatId = Number(payload?.chatId || 0);
+      const sender = String(payload?.username || "").toLowerCase();
+      if (!payloadChatId || !sender) return;
+      if (sender === String(user?.username || "").toLowerCase()) return;
+      const chat = chats.find((item) => Number(item?.id) === payloadChatId);
+      if (String(chat?.type || "").toLowerCase() === "channel") {
+        clearTypingExpiryTimer(payloadChatId, sender);
+        removeTypingUser(payloadChatId, sender);
+        return;
+      }
+      const isTyping = Boolean(payload?.isTyping);
+      if (!isTyping) {
+        clearTypingExpiryTimer(payloadChatId, sender);
+        removeTypingUser(payloadChatId, sender);
+        return;
+      }
+      setTypingUser(payloadChatId, sender, payload?.nickname || payload?.username || sender);
+      scheduleTypingExpiry(payloadChatId, sender);
+    },
     onChatListChanged: (payload) => {
       const deletedChatId = Number(payload?.chatId || 0);
       const currentActiveId = Number(activeChatIdRef.current || 0);
+      if (deletedChatId) {
+        setTypingByChat((prev) => {
+          if (!prev?.[deletedChatId]) return prev;
+          const next = { ...prev };
+          delete next[deletedChatId];
+          return next;
+        });
+      }
       // If the deleted/changed chat is the active one, close it
       if (deletedChatId && deletedChatId === currentActiveId) {
         closeChat();
@@ -2657,19 +3017,70 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const handleMessageInput = useCallback(
     (value) => {
-      if (!uploadError) return;
-      if (!String(uploadError).toLowerCase().includes("message must be")) return;
       const trimmed = String(value || "").trim();
-      if (trimmed.length <= APP_CONFIG.messageMaxChars) {
+      if (
+        uploadError &&
+        String(uploadError).toLowerCase().includes("message must be") &&
+        trimmed.length <= APP_CONFIG.messageMaxChars
+      ) {
         setUploadError("");
       }
+
+      const chatId = Number(activeChatId || 0);
+      const activeType = String(activeChatTypeRef.current || "").toLowerCase();
+      if (!chatId || !canSendInActiveChat || activeType === "channel") {
+        stopTypingIndicator(chatId);
+        return;
+      }
+
+      const shouldType = Boolean(trimmed.length);
+      const typingState = typingStateRef.current;
+      const now = Date.now();
+
+      if (typingState.chatId !== chatId && typingState.isTyping) {
+        stopTypingIndicator(typingState.chatId);
+      }
+
+      if (!shouldType) {
+        stopTypingIndicator(chatId);
+        return;
+      }
+
+      clearLocalTypingStopTimer();
+      typingStopTimerRef.current = window.setTimeout(() => {
+        stopTypingIndicator(chatId);
+      }, TYPING_IDLE_TIMEOUT_MS);
+
+      const shouldSendTypingSignal =
+        !typingState.isTyping ||
+        typingState.chatId !== chatId ||
+        now - Number(typingState.lastSentAt || 0) >= TYPING_SIGNAL_THROTTLE_MS;
+
+      if (shouldSendTypingSignal) {
+        sendTypingSignal(chatId, true);
+        typingStateRef.current = {
+          chatId,
+          isTyping: true,
+          lastSentAt: now,
+        };
+      }
     },
-    [uploadError],
+    [
+      activeChatId,
+      canSendInActiveChat,
+      clearLocalTypingStopTimer,
+      sendTypingSignal,
+      stopTypingIndicator,
+      uploadError,
+      TYPING_IDLE_TIMEOUT_MS,
+      TYPING_SIGNAL_THROTTLE_MS,
+    ],
   );
 
   async function handleSend(event) {
     event.preventDefault();
     if (!activeChatId) return;
+    stopTypingIndicator(activeChatId);
     userScrolledUpRef.current = false;
     setUserScrolledUp(false);
     isAtBottomRef.current = true;
@@ -3853,7 +4264,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         closeChat={closeChat}
         activeHeaderPeer={activeHeaderAvatar}
         activeFallbackTitle={activeFallbackTitle}
-        peerStatusLabel={activeHeaderSubtitle}
+        peerStatusLabel={resolvedHeaderSubtitle}
+        typingIndicator={typingIndicator}
         isGroupChat={isActiveGroupChat}
         isChannelChat={isActiveChannelChat}
         isSavedChat={isActiveSavedChat}
@@ -3906,6 +4318,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         fileUploadEnabled={CHAT_PAGE_CONFIG.fileUploadEnabled}
         fileUploadInProgress={fileUploadInProgress || activeUploadProgress !== null}
         showComposer={canSendInActiveChat}
+        isChannelMuted={activeChatMuted}
+        onToggleChannelMute={() => toggleMuteChat(activeChat?.id)}
         headerClickable={!isActiveSavedChat}
         showStatus={!isActiveSavedChat}
         headerAvatarIcon={activeHeaderAvatarIcon}

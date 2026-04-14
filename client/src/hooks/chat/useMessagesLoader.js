@@ -137,17 +137,22 @@ export function useMessagesLoader({
           rawTargetName.length > maxNameLength
             ? `${rawTargetName.slice(0, maxNameLength)}...`
             : rawTargetName;
+        const isolatedTargetName = `\u2068${shortTargetName || "A member"}\u2069`;
         const normalizedSystemType = String(
           systemMatch?.[1] || "",
         ).toLowerCase();
-        const systemText =
+        const systemSuffix =
           normalizedSystemType === "left"
-            ? `${shortTargetName || "A member"} left the group`
+            ? "left the group"
             : normalizedSystemType === "removed"
-              ? `${shortTargetName || "A member"} was removed from the group`
+              ? "was removed from the group"
               : normalizedSystemType
-                ? `${shortTargetName || "A member"} joined the group`
+                ? "joined the group"
                 : "";
+        const systemText =
+          systemSuffix && isolatedTargetName
+            ? `${isolatedTargetName} ${systemSuffix}`
+            : "";
         return {
           ...msg,
           body: normalizedBody,
@@ -159,7 +164,12 @@ export function useMessagesLoader({
           _processingPending: isOwnProcessingVideo,
           _systemEvent:
             allowSystemEvents && normalizedSystemType
-              ? { type: normalizedSystemType, text: systemText }
+              ? {
+                  type: normalizedSystemType,
+                  text: systemText,
+                  name: shortTargetName || "A member",
+                  suffix: systemSuffix,
+                }
               : null,
         };
       });

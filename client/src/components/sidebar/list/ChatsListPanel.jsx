@@ -10,6 +10,7 @@ import {
   Bookmark,
   Megaphone,
   Users,
+  VolumeX,
   Video,
 } from "../../../icons/lucide.js";
 import { getAvatarStyle } from "../../../utils/avatarColor.js";
@@ -564,20 +565,31 @@ export default function ChatsListPanel({
                     >
                       {name}
                     </span>
+                    {conv._muted ? (
+                      <VolumeX
+                        size={15}
+                        className="-translate-y-px shrink-0 text-slate-400 dark:text-slate-500"
+                        aria-label="Muted chat"
+                      />
+                    ) : null}
                   </p>
                   <p
-                    className="mt-1 w-full min-w-0 overflow-hidden text-xs leading-[1.35] text-slate-500 dark:text-slate-400"
-                    style={{ unicodeBidi: "plaintext" }}
+                    className="mt-1 w-full min-w-0 overflow-hidden whitespace-nowrap text-xs leading-[1.35] text-slate-500 dark:text-slate-400"
+                    style={{ unicodeBidi: "isolate" }}
                   >
                     {conv.last_message ||
                     (conv.last_message_files || []).length ? (
                       conv.last_sender_username === user.username &&
                       !isChannelOwner ? (
-                        <span className="flex w-full min-w-0 items-center gap-1 align-middle leading-[1.35]">
+                        <span
+                          className="flex w-full min-w-0 items-baseline gap-1 align-middle leading-[1.35]"
+                          dir="ltr"
+                          style={{ unicodeBidi: "isolate" }}
+                        >
                           <span className="shrink-0 font-bold text-slate-500 dark:text-slate-400">
                             You:
                           </span>
-                          <span className="flex min-w-0 flex-1 items-center gap-1">
+                          <span className="flex min-w-0 flex-1 items-baseline gap-1">
                             {lastPreview.icon === "voice" ? (
                               <Mic
                                 size={12}
@@ -602,7 +614,7 @@ export default function ChatsListPanel({
                             <span
                               dir="auto"
                               className={`block min-w-0 max-w-full flex-1 truncate leading-[1.35] ${hasPersian(lastPreview.text) ? "font-fa" : ""}`}
-                              style={{ unicodeBidi: "plaintext" }}
+                              style={{ unicodeBidi: "isolate" }}
                               dangerouslySetInnerHTML={{
                                 __html: String(lastPreviewHtml || ""),
                               }}
@@ -610,21 +622,38 @@ export default function ChatsListPanel({
                           </span>
                         </span>
                       ) : (
-                        <span className="flex w-full min-w-0 items-center gap-1 align-middle leading-[1.35]">
+                        <span
+                          className="flex w-full min-w-0 items-baseline gap-1 align-middle leading-[1.35]"
+                          dir="ltr"
+                          style={{ unicodeBidi: "isolate" }}
+                        >
                           {isGroup &&
                           (conv.last_sender_nickname ||
                             conv.last_sender_username) ? (
                             <span
-                              className="shrink-0 max-w-[40%] truncate font-bold text-slate-500 dark:text-slate-400"
-                              dir="auto"
+                              className="shrink-0 inline-flex min-w-0 max-w-[48%] items-baseline font-bold text-slate-500 dark:text-slate-400"
+                              dir="ltr"
+                              style={{ unicodeBidi: "isolate" }}
                               title={
                                 conv.last_sender_nickname ||
                                 conv.last_sender_username
                               }
                             >
-                              {conv.last_sender_nickname ||
-                                conv.last_sender_username}
-                              :
+                              <bdi
+                                dir="auto"
+                                className={`min-w-0 truncate ${
+                                  hasPersian(
+                                    conv.last_sender_nickname ||
+                                      conv.last_sender_username,
+                                  )
+                                    ? "font-fa"
+                                    : ""
+                                }`}
+                              >
+                                {conv.last_sender_nickname ||
+                                  conv.last_sender_username}
+                              </bdi>
+                              <span className="shrink-0">:</span>
                             </span>
                           ) : null}
                           {lastPreview.icon === "voice" ? (
@@ -651,7 +680,7 @@ export default function ChatsListPanel({
                           <span
                             dir="auto"
                             className={`block min-w-0 max-w-full flex-1 truncate leading-[1.35] ${hasPersian(lastPreview.text) ? "font-fa" : ""}`}
-                            style={{ unicodeBidi: "plaintext" }}
+                            style={{ unicodeBidi: "isolate" }}
                             dangerouslySetInnerHTML={{
                               __html: String(lastPreviewHtml || ""),
                             }}
@@ -661,7 +690,7 @@ export default function ChatsListPanel({
                     ) : null}
                   </p>
                 </div>
-                <div className="ml-auto flex min-w-[68px] flex-shrink-0 flex-col items-end gap-1 self-start">
+                <div className="ml-auto flex min-w-[58px] flex-shrink-0 flex-col items-end gap-1 self-start">
                   <div className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
                     {isOwnLastMessage && !isChannelOwner ? (
                       <span

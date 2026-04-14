@@ -255,7 +255,8 @@ export function useFocusedMedia({ isDesktop, isMobileTouchDevice }) {
           title: `This file will be auto-deleted in ${hours} hour${hours === 1 ? "" : "s"}.`,
         };
       }
-      const days = Math.max(1, Math.ceil(diffMs / dayMs));
+      const dayDisplayBiasMs = 55 * minuteMs;
+      const days = Math.max(1, Math.floor((diffMs + dayDisplayBiasMs) / dayMs));
       return {
         danger: days <= 1,
         label: `${days}d`,

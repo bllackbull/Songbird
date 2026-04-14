@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { Eye, EyeOff, LoaderCircle } from "../../icons/lucide.js";
+import { hasPersian } from "../../utils/fontUtils.js";
 import { NICKNAME_MAX, USERNAME_MAX } from "../../utils/nameLimits.js";
 
 export default function AuthFormFields({
@@ -16,11 +18,17 @@ export default function AuthFormFields({
   onSubmit,
   onReset,
 }) {
+  const [nicknameHasPersian, setNicknameHasPersian] = useState(false);
+  const [usernameHasPersian, setUsernameHasPersian] = useState(false);
   return (
     <form
       className="mt-4 space-y-3 sm:mt-6 sm:space-y-4"
       onSubmit={onSubmit}
-      onReset={onReset}
+      onReset={(event) => {
+        setNicknameHasPersian(false);
+        setUsernameHasPersian(false);
+        onReset?.(event);
+      }}
     >
       {!isLogin && canSignup ? (
         <label className="block">
@@ -34,14 +42,25 @@ export default function AuthFormFields({
               required
               placeholder="Songbird Sage"
               maxLength={NICKNAME_MAX}
-              onInput={(event) =>
-                setNicknameLength(
-                  String(event.currentTarget.value || "").length,
-                )
-              }
-              className="w-full rounded-2xl border border-emerald-200 bg-white px-3 py-2 pr-14 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-100 sm:px-4 sm:py-3 sm:text-sm"
+              onInput={(event) => {
+                const value = String(event.currentTarget.value || "");
+                setNicknameLength(value.length);
+                setNicknameHasPersian(hasPersian(value));
+              }}
+              lang={nicknameHasPersian ? "fa" : "en"}
+              dir={nicknameHasPersian ? "rtl" : "ltr"}
+              className={`w-full rounded-2xl border border-emerald-200 bg-white py-2 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-100 sm:py-3 sm:text-sm ${
+                nicknameHasPersian
+                  ? "pl-3 pr-14 sm:pl-4 sm:pr-16"
+                  : "pl-3 pr-14 sm:pl-4 sm:pr-16"
+              } ${
+                nicknameHasPersian ? "font-fa text-right" : "text-left"
+              }`}
+              style={{ unicodeBidi: "plaintext" }}
             />
-            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 dark:text-slate-500 sm:text-[11px]">
+            <span
+              className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 dark:text-slate-500 sm:text-[11px]"
+            >
               {nicknameLength}/{NICKNAME_MAX}
             </span>
           </div>
@@ -62,13 +81,26 @@ export default function AuthFormFields({
             autoCapitalize="none"
             placeholder="songbird.sage"
             maxLength={USERNAME_MAX}
-            onInput={(event) =>
-              setUsernameLength(String(event.currentTarget.value || "").length)
-            }
-            className="w-full rounded-2xl border border-emerald-200 bg-white px-3 py-2 pr-14 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-100 sm:px-4 sm:py-3 sm:text-sm"
+            onInput={(event) => {
+              const value = String(event.currentTarget.value || "");
+              setUsernameLength(value.length);
+              setUsernameHasPersian(hasPersian(value));
+            }}
+            lang={usernameHasPersian ? "fa" : "en"}
+            dir={usernameHasPersian ? "rtl" : "ltr"}
+            className={`w-full rounded-2xl border border-emerald-200 bg-white py-2 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-100 sm:py-3 sm:text-sm ${
+              usernameHasPersian
+                ? "pl-3 pr-14 sm:pl-4 sm:pr-16"
+                : "pl-3 pr-14 sm:pl-4 sm:pr-16"
+            } ${
+              usernameHasPersian ? "font-fa text-right" : "text-left"
+            }`}
+            style={{ unicodeBidi: "plaintext" }}
           />
           {!isLogin && canSignup ? (
-            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 dark:text-slate-500 sm:text-[11px]">
+            <span
+              className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 dark:text-slate-500 sm:text-[11px]"
+            >
               {usernameLength}/{USERNAME_MAX}
             </span>
           ) : null}

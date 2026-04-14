@@ -17,18 +17,26 @@ export function useChatEvents({
   setChats,
   sseReconnectRef,
   onIncomingMessage,
+  onMessageDeleted,
   onChatRead,
   onPresenceUpdate,
+  onTypingUpdate,
   onChatListChanged,
 }) {
   const onIncomingMessageRef = useRef(onIncomingMessage);
+  const onMessageDeletedRef = useRef(onMessageDeleted);
   const onChatReadRef = useRef(onChatRead);
   const onPresenceUpdateRef = useRef(onPresenceUpdate);
+  const onTypingUpdateRef = useRef(onTypingUpdate);
   const onChatListChangedRef = useRef(onChatListChanged);
 
   useEffect(() => {
     onIncomingMessageRef.current = onIncomingMessage;
   }, [onIncomingMessage]);
+
+  useEffect(() => {
+    onMessageDeletedRef.current = onMessageDeleted;
+  }, [onMessageDeleted]);
 
   useEffect(() => {
     onChatReadRef.current = onChatRead;
@@ -37,6 +45,10 @@ export function useChatEvents({
   useEffect(() => {
     onPresenceUpdateRef.current = onPresenceUpdate;
   }, [onPresenceUpdate]);
+
+  useEffect(() => {
+    onTypingUpdateRef.current = onTypingUpdate;
+  }, [onTypingUpdate]);
 
   useEffect(() => {
     onChatListChangedRef.current = onChatListChanged;
@@ -69,12 +81,17 @@ export function useChatEvents({
           payload.type !== "chat_read" &&
           payload.type !== "chat_message_deleted" &&
           payload.type !== "chat_list_changed" &&
-          payload.type !== "presence_update"
+          payload.type !== "presence_update" &&
+          payload.type !== "chat_typing"
         ) {
           return;
         }
         if (payload.type === "presence_update") {
           onPresenceUpdateRef.current?.(payload);
+          return;
+        }
+        if (payload.type === "chat_typing") {
+          onTypingUpdateRef.current?.(payload);
           return;
         }
         void loadChatsRef.current?.({ silent: true });
@@ -90,6 +107,9 @@ export function useChatEvents({
         const isIncomingMessage =
           payload.type === "chat_message" && !isOwnEvent;
         const isDeleteEvent = payload.type === "chat_message_deleted";
+        if (isDeleteEvent) {
+          onMessageDeletedRef.current?.(payload);
+        }
         if (isIncomingMessage) {
           onIncomingMessageRef.current?.(payload, {
             isActiveChat: currentActiveId && payloadChatId === currentActiveId,

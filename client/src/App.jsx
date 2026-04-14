@@ -52,11 +52,22 @@ function getInviteToken(pathname) {
 }
 
 export default function App() {
+  const resolveAutoThemeIsDark = () => {
+    try {
+      if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+        return true
+      }
+      return window.matchMedia('(prefers-color-scheme: dark)').matches
+    } catch {
+      return true
+    }
+  }
+
   const [isDark, setIsDark] = useState(() => {
     const stored = localStorage.getItem('songbird-theme')
     if (stored === 'light') return false
     if (stored === 'dark') return true
-    return true
+    return resolveAutoThemeIsDark()
   })
   const [route, setRoute] = useState(() => getRoute(window.location.pathname))
   const [inviteToken, setInviteToken] = useState(() =>

@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowDown,
   Bookmark,
@@ -99,6 +100,7 @@ export default function ChatProfileModal({
   const isReadOnly = Boolean(readOnly);
   const canSeeMembers =
     showMembers && !isReadOnly && (isGroup || (isChannel && isOwner));
+  const memberQueryHasPersian = hasPersian(memberQuery || "");
 
   const sortedMembers = useMemo(() => {
     const query = memberQuery.trim().toLowerCase();
@@ -137,9 +139,10 @@ export default function ChatProfileModal({
   const visibleMembers = sortedMembers.slice(0, memberLimit);
   const hasMoreMembers = sortedMembers.length > memberLimit;
   if (!open) return null;
+  if (typeof document === "undefined") return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-5">
+  return createPortal(
+    <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/45 px-5">
       <div className="app-scroll max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-3xl border border-emerald-100/70 bg-white p-5 shadow-xl dark:border-emerald-500/30 dark:bg-slate-950">
         <div className="mb-3 flex items-center justify-between">
           {!isReadOnly && (isGroup || isChannel) && isOwner ? (
@@ -334,7 +337,12 @@ export default function ChatProfileModal({
                   setMemberLimit(membersBatchSize);
                 }}
                 placeholder="Search members"
-                className="w-full rounded-2xl border border-emerald-200 bg-white px-4 py-2.5 pr-14 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
+                lang={memberQueryHasPersian ? "fa" : "en"}
+                dir={memberQueryHasPersian ? "rtl" : "ltr"}
+                className={`w-full rounded-2xl border border-emerald-200 bg-white px-4 py-2.5 pr-14 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
+                  memberQueryHasPersian ? "font-fa text-right" : "text-left"
+                }`}
+                style={{ unicodeBidi: "plaintext" }}
               />
               {memberQuery.trim() ? (
                 <button
@@ -446,6 +454,7 @@ export default function ChatProfileModal({
           </div>
         ) : null}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

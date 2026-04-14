@@ -93,9 +93,6 @@ export function MessageComposer({
     }
     return "";
   };
-  const replyIsRtl = replyTarget
-    ? hasPersian(normalizeReplyBody(replyTarget.body))
-    : false;
   const replyBodyText = normalizeReplyBody(replyTarget?.body);
   const replyBodyNormalized = String(replyBodyText || "").trim();
   const isPluralMediaSummary =
@@ -473,8 +470,15 @@ export function MessageComposer({
             </div>
             <div className="flex min-w-0 flex-1 flex-col">
               <span
-                className="truncate text-[11px] font-semibold text-emerald-700 dark:text-emerald-200"
+                className={`truncate text-[11px] font-semibold text-emerald-700 dark:text-emerald-200 ${
+                  hasPersian(
+                    replyTarget.displayName || replyTarget.username || "message",
+                  )
+                    ? "font-fa"
+                    : ""
+                }`}
                 dir="auto"
+                style={{ unicodeBidi: "isolate" }}
                 title={
                   replyTarget.displayName || replyTarget.username || "message"
                 }
@@ -483,11 +487,9 @@ export function MessageComposer({
                 {replyTarget.displayName || replyTarget.username || "message"}
               </span>
               <span
-                className={`mt-1 flex min-w-0 items-center gap-1 text-xs text-slate-600 dark:text-slate-300 ${
-                  replyIsRtl ? "font-fa text-right" : "text-left"
-                }`}
-                dir={replyIsRtl ? "rtl" : "ltr"}
-                style={{ unicodeBidi: "plaintext" }}
+                className="mt-1 flex min-w-0 items-baseline gap-1 text-xs text-slate-600 dark:text-slate-300"
+                dir="ltr"
+                style={{ unicodeBidi: "isolate" }}
               >
                 {derivedReplyIcon === "voice" ? (
                   <Mic
@@ -511,7 +513,11 @@ export function MessageComposer({
                   />
                 ) : null}
                 <span
-                  className="min-w-0 truncate"
+                  className={`min-w-0 truncate ${
+                    hasPersian(resolvedReplyText) ? "font-fa" : ""
+                  }`}
+                  dir="auto"
+                  style={{ unicodeBidi: "isolate" }}
                   dangerouslySetInnerHTML={{
                     __html: String(resolvedReplyHtml || ""),
                   }}

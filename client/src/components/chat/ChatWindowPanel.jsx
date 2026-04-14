@@ -43,6 +43,7 @@ export default function ChatWindowPanel({
   activeHeaderPeer,
   activeFallbackTitle,
   peerStatusLabel,
+  typingIndicator = null,
   isGroupChat = false,
   isChannelChat = false,
   _isSavedChat = false,
@@ -94,6 +95,8 @@ export default function ChatWindowPanel({
   fileUploadEnabled = true,
   fileUploadInProgress = false,
   showComposer = true,
+  isChannelMuted = false,
+  onToggleChannelMute,
   headerClickable = true,
   showStatus = true,
   headerAvatarIcon = null,
@@ -119,8 +122,15 @@ export default function ChatWindowPanel({
     groupAvatarColor ||
     "#10b981";
   const activePeerInitials = getAvatarInitials(activeFallbackTitle || "S");
+  const showChannelMuteFooter = Boolean(
+    activeChatId &&
+      isChannelChat &&
+      !showComposer &&
+      typeof onToggleChannelMute === "function",
+  );
   const canOpenHeaderProfile =
     headerClickable && typeof onOpenHeaderProfile === "function";
+  const isTypingActive = Boolean(typingIndicator?.label);
 
   const readMediaCache = useCallback(
     async (store, key) => {
@@ -160,6 +170,11 @@ export default function ChatWindowPanel({
   const [videoPosterByUrl, setVideoPosterByUrl] = useState(() => ({}));
   const uploadBusy = !fileUploadEnabled || fileUploadInProgress;
   const timelineBottomSpacerPx = 4;
+  const jumpButtonBaseBottomPx = showComposer
+    ? Math.max(80, composerHeight + 8)
+    : showChannelMuteFooter
+      ? 94
+      : 24;
   const [hideInsecureTooltip, setHideInsecureTooltip] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem("songbird-insecure-dismissed") === "1";
@@ -424,6 +439,7 @@ export default function ChatWindowPanel({
   const handleComposerResize = useCallback(() => {
     if (
       !activeChatId ||
+      !isAtBottomRef?.current ||
       userScrolledUp ||
       (isSmoothScrollLocked() && !shouldIgnoreSmoothLock())
     )
@@ -431,6 +447,7 @@ export default function ChatWindowPanel({
     scrollToBottomImmediate();
   }, [
     activeChatId,
+    isAtBottomRef,
     isSmoothScrollLocked,
     scrollToBottomImmediate,
     shouldIgnoreSmoothLock,
@@ -440,6 +457,7 @@ export default function ChatWindowPanel({
   useEffect(() => {
     if (!activeChatId || !pendingUploadFiles?.length) return;
     if (
+      !isAtBottomRef?.current ||
       userScrolledUp ||
       (isSmoothScrollLocked() && !shouldIgnoreSmoothLock())
     )
@@ -448,6 +466,7 @@ export default function ChatWindowPanel({
     return () => cancelAnimationFrame(raf);
   }, [
     activeChatId,
+    isAtBottomRef,
     pendingUploadFiles?.length,
     messages.length,
     chatScrollRef,
@@ -460,6 +479,7 @@ export default function ChatWindowPanel({
   useEffect(() => {
     if (
       !activeChatId ||
+      !isAtBottomRef?.current ||
       userScrolledUp ||
       (isSmoothScrollLocked() && !shouldIgnoreSmoothLock())
     )
@@ -472,6 +492,7 @@ export default function ChatWindowPanel({
     };
   }, [
     activeChatId,
+    isAtBottomRef,
     userScrolledUp,
     composerHeight,
     pendingUploadFiles?.length,
@@ -485,11 +506,12 @@ export default function ChatWindowPanel({
 
   useEffect(() => {
     if (isDesktop || !activeChatId || userScrolledUp || !composerFocused) return;
+    if (!isAtBottomRef?.current) return;
     if (typeof window === "undefined") return;
     if (isSmoothScrollLocked() && !shouldIgnoreSmoothLock()) return;
     const viewport = window.visualViewport;
     const run = () => {
-      if (userScrolledUp) return;
+      if (userScrolledUp || !isAtBottomRef?.current) return;
       if (isSmoothScrollLocked() && !shouldIgnoreSmoothLock()) return;
       requestAnimationFrame(scrollToBottomImmediate);
     };
@@ -511,6 +533,31 @@ export default function ChatWindowPanel({
     activeChatId,
     composerFocused,
     isDesktop,
+    isAtBottomRef,
+    isSmoothScrollLocked,
+    scrollToBottomImmediate,
+    shouldIgnoreSmoothLock,
+    userScrolledUp,
+  ]);
+
+  useEffect(() => {
+    if (!activeChatId || isDesktop || composerFocused || userScrolledUp) return;
+    if (!isAtBottomRef?.current) return;
+    if (isSmoothScrollLocked() && !shouldIgnoreSmoothLock()) return;
+    const run = () => requestAnimationFrame(scrollToBottomImmediate);
+    const t0 = window.setTimeout(run, 0);
+    const t1 = window.setTimeout(run, 120);
+    const t2 = window.setTimeout(run, 260);
+    return () => {
+      window.clearTimeout(t0);
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [
+    activeChatId,
+    composerFocused,
+    isDesktop,
+    isAtBottomRef,
     isSmoothScrollLocked,
     scrollToBottomImmediate,
     shouldIgnoreSmoothLock,
@@ -689,13 +736,13 @@ export default function ChatWindowPanel({
             : "0.75rem"
           : undefined,
       paddingBottom: activeChatId
-        ? showComposer
+        ? showComposer || showChannelMuteFooter
           ? "0.75rem"
           : "0.5rem"
         : undefined,
       overflowAnchor: "none",
     }),
-    [activeChatId, insecureConnection, isDark, showComposer],
+    [activeChatId, insecureConnection, isDark, showComposer, showChannelMuteFooter],
   );
 
   const handleTouchStart = (event) => {
@@ -975,14 +1022,66 @@ export default function ChatWindowPanel({
                   </span>
                 )}
                 {showStatus ? (
-                  <p className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                  <p className="flex min-w-0 max-w-[70vw] items-center gap-2 text-xs text-slate-500 dark:text-slate-400 sm:max-w-[42vw] md:max-w-[30vw]">
                     {!isConnected ? (
                       <>
                         <LoaderCircle className="h-4 w-4 animate-spin text-emerald-500" />
                         Connecting...
                       </>
+                    ) : isTypingActive ? (
+                      <>
+                        <span
+                          className="sb-typing-dots inline-flex h-2.5 items-center gap-1"
+                          aria-hidden="true"
+                        >
+                          <span className="sb-typing-dot" />
+                          <span className="sb-typing-dot" />
+                          <span className="sb-typing-dot" />
+                        </span>
+                        {typingIndicator?.type === "group_single" ? (
+                          <span
+                            className="flex min-w-0 items-center gap-1 truncate leading-[1.2]"
+                            title={`${typingIndicator?.name || ""} is typing`}
+                          >
+                            <span
+                              className={`min-w-0 truncate ${
+                                hasPersian(typingIndicator?.name) ? "font-fa sb-fa-baseline-fix" : ""
+                              }`}
+                              dir="auto"
+                              style={{ unicodeBidi: "isolate" }}
+                            >
+                              {typingIndicator?.name}
+                            </span>
+                            <span
+                              className="shrink-0"
+                              dir="ltr"
+                              style={{ unicodeBidi: "isolate" }}
+                            >
+                              is typing
+                            </span>
+                          </span>
+                        ) : (
+                          <span
+                            className={`block min-w-0 truncate leading-[1.2] ${
+                              hasPersian(typingIndicator?.label) ? "font-fa sb-fa-baseline-fix" : ""
+                            }`}
+                            dir="auto"
+                            style={{ unicodeBidi: "plaintext" }}
+                            title={typingIndicator?.label}
+                          >
+                            {typingIndicator?.label}
+                          </span>
+                        )}
+                      </>
                     ) : isGroupChat || isChannelChat ? (
-                      <span className="whitespace-nowrap text-[11px] sm:text-xs">
+                      <span
+                        className={`block min-w-0 truncate whitespace-nowrap text-[11px] leading-[1.2] sm:text-xs ${
+                          hasPersian(peerStatusLabel) ? "font-fa sb-fa-baseline-fix" : ""
+                        }`}
+                        dir="auto"
+                        style={{ unicodeBidi: "plaintext" }}
+                        title={peerStatusLabel}
+                      >
                         {peerStatusLabel}
                       </span>
                     ) : (
@@ -994,7 +1093,16 @@ export default function ChatWindowPanel({
                               : "bg-slate-400"
                           }`}
                         />
-                        {peerStatusLabel}
+                        <span
+                          className={`block min-w-0 truncate leading-[1.2] ${
+                            hasPersian(peerStatusLabel) ? "font-fa sb-fa-baseline-fix" : ""
+                          }`}
+                          dir="auto"
+                          style={{ unicodeBidi: "plaintext" }}
+                          title={peerStatusLabel}
+                        >
+                          {peerStatusLabel}
+                        </span>
                       </>
                     )}
                   </p>
@@ -1296,6 +1404,28 @@ export default function ChatWindowPanel({
           />
       ) : null}
 
+      {showChannelMuteFooter ? (
+        <div
+          className="sticky bottom-0 z-30 flex min-h-[68px] shrink-0 items-center justify-center border-t border-slate-300/80 bg-white px-4 py-3 dark:border-emerald-500/20 dark:bg-slate-900 sm:px-6 md:static md:mt-auto"
+          style={{
+            bottom: isDesktop
+              ? undefined
+              : "max(0px, var(--mobile-bottom-offset, 0px))",
+            paddingBottom: isDesktop
+              ? "0.75rem"
+              : "max(0.75rem, calc(env(safe-area-inset-bottom) + 0.5rem))",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => onToggleChannelMute?.()}
+            className="inline-flex h-11 items-center rounded-2xl border border-emerald-200 bg-white px-6 text-sm font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+          >
+            {isChannelMuted ? "Unmute" : "Mute"}
+          </button>
+        </div>
+      ) : null}
+
       {activeChatId && userScrolledUp ? (
         <button
           type="button"
@@ -1303,8 +1433,10 @@ export default function ChatWindowPanel({
           className="absolute inline-flex h-11 w-11 items-center justify-center rounded-full border border-emerald-200 bg-white text-emerald-700 shadow-lg transition hover:border-emerald-300 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
           style={{
             bottom: isDesktop
-              ? `${showComposer ? Math.max(80, composerHeight + 8) : 24}px`
-              : `calc(${showComposer ? Math.max(80, composerHeight + 8) : 24}px + env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px))`,
+              ? `${jumpButtonBaseBottomPx}px`
+              : `calc(${
+                  jumpButtonBaseBottomPx
+                }px + env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px))`,
             right: "0.85rem",
             transform: "none",
           }}

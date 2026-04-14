@@ -43,11 +43,13 @@ export function DesktopSettingsModal({
   const resolvedUserColor = userColor || "#10b981";
   const profileIdentity = profileForm.nickname || profileForm.username || "S";
   const profileInitials = getAvatarInitials(profileIdentity);
+  const nicknameHasPersian = hasPersian(profileForm.nickname || "");
+  const usernameHasPersian = hasPersian(profileForm.username || "");
   const nicknameLength = String(profileForm.nickname || "").length;
   const usernameLength = String(profileForm.username || "").length;
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-6">
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 px-6">
       <div className="w-full max-w-md rounded-2xl border border-emerald-100/70 bg-white p-6 shadow-xl dark:border-emerald-500/30 dark:bg-slate-950">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-emerald-700 dark:text-emerald-200">
@@ -139,7 +141,12 @@ export function DesktopSettingsModal({
                     }))
                   }
                   maxLength={NICKNAME_MAX}
-                  className="w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-16 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
+                  lang={nicknameHasPersian ? "fa" : "en"}
+                  dir={nicknameHasPersian ? "rtl" : "ltr"}
+                  className={`w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-16 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
+                    nicknameHasPersian ? "font-fa text-right" : "text-left"
+                  }`}
+                  style={{ unicodeBidi: "plaintext" }}
                 />
                 <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400 dark:text-slate-500">
                   {nicknameLength}/{NICKNAME_MAX}
@@ -163,7 +170,12 @@ export function DesktopSettingsModal({
                   pattern="[a-zA-Z0-9._]+"
                   title="Use english letters, numbers, dot (.), and underscore (_)."
                   autoCapitalize="none"
-                  className="w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-16 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
+                  lang={usernameHasPersian ? "fa" : "en"}
+                  dir={usernameHasPersian ? "rtl" : "ltr"}
+                  className={`w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-16 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
+                    usernameHasPersian ? "font-fa text-right" : "text-left"
+                  }`}
+                  style={{ unicodeBidi: "plaintext" }}
                 />
                 <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400 dark:text-slate-500">
                   {usernameLength}/{USERNAME_MAX}

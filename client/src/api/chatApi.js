@@ -262,6 +262,13 @@ export const sendMessage = (payload) =>
     body: JSON.stringify(payload),
   });
 
+export const sendTypingIndicator = (payload) =>
+  apiFetch(`${API_BASE}/api/messages/typing`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
 export const deletePendingMessage = (clientId) =>
   apiFetch(`${API_BASE}/api/messages/pending/${clientId}`, {
     method: "DELETE",

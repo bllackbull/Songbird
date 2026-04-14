@@ -303,7 +303,8 @@ export const MessageItem = memo(function MessageItem({
       const hours = Math.max(1, Math.ceil(diffMs / hourMs));
       return { label: `${hours}h`, danger: true };
     }
-    const days = Math.max(1, Math.ceil(diffMs / dayMs));
+    const dayDisplayBiasMs = 55 * minuteMs;
+    const days = Math.max(1, Math.floor((diffMs + dayDisplayBiasMs) / dayMs));
     return { label: `${days}d`, danger: days <= 1 };
   };
   const expiryBadge = formatExpiryBadge();
@@ -370,7 +371,6 @@ export const MessageItem = memo(function MessageItem({
       return "document";
     return null;
   })();
-  const replyIsRtl = hasPersian(normalizedReplyPreview);
   const isDeletedAuthor =
     String(msg.username || "").toLowerCase() === "deleted" ||
     String(msg.nickname || "").toLowerCase() === "deleted user";
@@ -500,8 +500,27 @@ export const MessageItem = memo(function MessageItem({
       ) : null}
       {msg?._systemEvent ? (
         <div className="flex justify-center px-3 py-1 md:px-0">
-          <span className="rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200">
-            {msg._systemEvent.text}
+          <span
+            className="inline-flex max-w-full items-center justify-center rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-center text-[11px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+            style={{ lineHeight: 1.35 }}
+          >
+            <span className="min-w-0 truncate">
+              <span
+                className={`min-w-0 truncate ${
+                  hasPersian(msg?._systemEvent?.name) ? "font-fa sb-fa-baseline-fix" : ""
+                }`}
+                dir="auto"
+                style={{ unicodeBidi: "isolate" }}
+              >
+                {msg?._systemEvent?.name || "A member"}
+              </span>{" "}
+              <span
+                dir="ltr"
+                style={{ unicodeBidi: "isolate" }}
+              >
+                {msg?._systemEvent?.suffix || ""}
+              </span>
+            </span>
           </span>
         </div>
       ) : null}
@@ -640,7 +659,7 @@ export const MessageItem = memo(function MessageItem({
               </button>
               <div
                 data-message-bubble
-                className={`relative rounded-2xl px-4 py-3 text-sm shadow-sm overflow-visible min-w-0 max-w-[min(76%,calc(100%-2.25rem))] md:max-w-[min(80%,calc(100%-2.25rem))] ${
+                className={`relative flex-none rounded-2xl px-4 py-3 text-sm shadow-sm overflow-visible min-w-0 max-w-[82%] sm:max-w-[86%] md:max-w-[min(84%,calc(100%-2rem))] ${
                   hasFiles
                     ? hasMediaFiles
                       ? "w-[min(52vw,18rem)] md:w-[min(44vw,22rem)] md:min-w-[12rem]"
@@ -669,9 +688,9 @@ export const MessageItem = memo(function MessageItem({
                   disabled={!canOpenSenderProfile}
                   className={`mb-1 block max-w-[60vw] truncate text-[11px] font-semibold transition ${
                     canOpenSenderProfile ? "hover:underline" : ""
-                  } sm:max-w-[40vw] md:max-w-[28vw] ${hasPersian(senderName) ? "font-fa text-right" : "text-left"}`}
-                  style={{ color: String(senderColor) }}
+                  } sm:max-w-[40vw] md:max-w-[28vw] ${hasPersian(senderName) ? "font-fa" : ""}`}
                   dir="auto"
+                  style={{ color: String(senderColor), unicodeBidi: "isolate" }}
                   title={senderName}
                 >
                   {senderName}
@@ -685,19 +704,21 @@ export const MessageItem = memo(function MessageItem({
                   >
                     <span className="min-w-0 flex-1">
                       <span
-                        className="block max-w-full truncate whitespace-nowrap text-[10px] font-semibold"
-                        style={{ color: String(replyColor) }}
+                        className={`block max-w-full truncate whitespace-nowrap text-[10px] font-semibold ${
+                          hasPersian(replyDisplayName) ? "font-fa" : ""
+                        }`}
                         dir="auto"
+                        style={{ color: String(replyColor), unicodeBidi: "isolate" }}
                         title={replyDisplayName}
                       >
                         {replyDisplayName}
                       </span>
                       <span
-                        className={`flex max-w-full items-center gap-1 truncate whitespace-nowrap ${
-                          replyIsRtl ? "font-fa text-right" : "text-left"
+                        className={`flex max-w-full items-baseline gap-1 truncate whitespace-nowrap ${
+                          hasPersian(normalizedReplyPreview) ? "font-fa" : ""
                         }`}
-                        dir={replyIsRtl ? "rtl" : "ltr"}
-                        style={{ unicodeBidi: "plaintext" }}
+                        dir="ltr"
+                        style={{ unicodeBidi: "isolate" }}
                       >
                         {derivedReplyIcon === "voice" ? (
                           <Mic
@@ -722,6 +743,8 @@ export const MessageItem = memo(function MessageItem({
                         ) : null}
                         <span
                           className="min-w-0 truncate"
+                          dir="auto"
+                          style={{ unicodeBidi: "isolate" }}
                           dangerouslySetInnerHTML={{
                             __html: String(replyPreviewHtml || ""),
                           }}
@@ -791,9 +814,9 @@ export const MessageItem = memo(function MessageItem({
             >
               {!isOwn && isGroupChat && !isChannelChat ? (
                 <p
-                  className={`mb-1 max-w-[60vw] truncate text-[11px] font-semibold sm:max-w-[40vw] md:max-w-[28vw] ${hasPersian(senderName) ? "font-fa text-right" : "text-left"}`}
-                  style={{ color: String(senderColor) }}
+                  className={`mb-1 max-w-[60vw] truncate text-[11px] font-semibold sm:max-w-[40vw] md:max-w-[28vw] ${hasPersian(senderName) ? "font-fa" : ""}`}
                   dir="auto"
+                  style={{ color: String(senderColor), unicodeBidi: "isolate" }}
                   title={senderName}
                 >
                   {senderName}
@@ -808,19 +831,21 @@ export const MessageItem = memo(function MessageItem({
                 >
                   <span className="min-w-0 flex-1">
                     <span
-                      className="block max-w-full truncate whitespace-nowrap text-[10px] font-semibold"
-                      style={{ color: String(replyColor) }}
+                      className={`block max-w-full truncate whitespace-nowrap text-[10px] font-semibold ${
+                        hasPersian(replyDisplayName) ? "font-fa" : ""
+                      }`}
                       dir="auto"
+                      style={{ color: String(replyColor), unicodeBidi: "isolate" }}
                       title={replyDisplayName}
                     >
                       {replyDisplayName}
                     </span>
                     <span
-                      className={`flex max-w-full items-center gap-1 truncate whitespace-nowrap ${
-                        replyIsRtl ? "font-fa text-right" : "text-left"
+                      className={`flex max-w-full items-baseline gap-1 truncate whitespace-nowrap ${
+                        hasPersian(normalizedReplyPreview) ? "font-fa" : ""
                       }`}
-                      dir={replyIsRtl ? "rtl" : "ltr"}
-                      style={{ unicodeBidi: "plaintext" }}
+                      dir="ltr"
+                      style={{ unicodeBidi: "isolate" }}
                     >
                       {derivedReplyIcon === "voice" ? (
                         <Mic
@@ -845,6 +870,8 @@ export const MessageItem = memo(function MessageItem({
                       ) : null}
                       <span
                         className="min-w-0 truncate"
+                        dir="auto"
+                        style={{ unicodeBidi: "isolate" }}
                         dangerouslySetInnerHTML={{
                           __html: String(replyPreviewHtml || ""),
                         }}

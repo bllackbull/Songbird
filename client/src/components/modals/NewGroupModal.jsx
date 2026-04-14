@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Close,
   Copy,
@@ -48,11 +48,15 @@ export default function NewGroupModal({
 }) {
   const [copiedRegenerateLink, setCopiedRegenerateLink] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const groupSearchInputRef = useRef(null);
   if (!open) return null;
 
   const selectedMemberNames = new Set(
     selectedGroupMembers.map((member) => String(member?.username || "")),
   );
+  const nicknameHasPersian = hasPersian(groupForm.nickname || "");
+  const usernameHasPersian = hasPersian(groupForm.username || "");
+  const groupSearchHasPersian = hasPersian(groupSearchQuery || "");
 
   return (
     <>
@@ -148,7 +152,12 @@ export default function NewGroupModal({
                   }}
                   maxLength={NICKNAME_MAX}
                   placeholder={`My ${entityLabel.toLowerCase()}`}
-                  className="w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-16 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
+                  lang={nicknameHasPersian ? "fa" : "en"}
+                  dir={nicknameHasPersian ? "rtl" : "ltr"}
+                  className={`w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-16 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
+                    nicknameHasPersian ? "font-fa text-right" : "text-left"
+                  }`}
+                  style={{ unicodeBidi: "plaintext" }}
                 />
                 <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400 dark:text-slate-500">
                   {String(groupForm.nickname || "").length}/{NICKNAME_MAX}
@@ -172,7 +181,12 @@ export default function NewGroupModal({
                   }}
                   maxLength={USERNAME_MAX}
                   placeholder={`my${entityLabel.toLowerCase()}`}
-                  className="w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-16 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
+                  lang={usernameHasPersian ? "fa" : "en"}
+                  dir={usernameHasPersian ? "rtl" : "ltr"}
+                  className={`w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-16 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
+                    usernameHasPersian ? "font-fa text-right" : "text-left"
+                  }`}
+                  style={{ unicodeBidi: "plaintext" }}
                 />
                 <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400 dark:text-slate-500">
                   {String(groupForm.username || "").length}/{USERNAME_MAX}
@@ -315,13 +329,19 @@ export default function NewGroupModal({
               </div>
               <div className="relative mt-2">
                 <input
+                  ref={groupSearchInputRef}
                   value={groupSearchQuery}
                   onChange={(event) => {
                     setGroupSearchQuery(event.target.value);
                     setGroupError("");
                   }}
                   placeholder="username"
-                  className="w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-14 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
+                  lang={groupSearchHasPersian ? "fa" : "en"}
+                  dir={groupSearchHasPersian ? "rtl" : "ltr"}
+                  className={`w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-14 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
+                    groupSearchHasPersian ? "font-fa text-right" : "text-left"
+                  }`}
+                  style={{ unicodeBidi: "plaintext" }}
                 />
                 {groupSearchQuery.trim() ? (
                   <button
@@ -345,6 +365,7 @@ export default function NewGroupModal({
                         <button
                           key={result.username}
                           type="button"
+                          onMouseDown={(event) => event.preventDefault()}
                           onClick={() => {
                             if (selected) {
                               setSelectedGroupMembers((prev) =>
@@ -353,6 +374,7 @@ export default function NewGroupModal({
                                     member.username !== result.username,
                                 ),
                               );
+                              groupSearchInputRef.current?.focus?.();
                               return;
                             }
                             setSelectedGroupMembers((prev) => [
@@ -360,6 +382,7 @@ export default function NewGroupModal({
                               result,
                             ]);
                             setGroupSearchQuery("");
+                            groupSearchInputRef.current?.focus?.();
                           }}
                           className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left text-sm font-medium transition ${
                             selected

@@ -22,10 +22,12 @@ export function useChatScroll({
   setIsAtBottom,
   setUserScrolledUp,
 }) {
-  const CHAT_BOTTOM_THRESHOLD_PX = 120;
+  const CHAT_BOTTOM_THRESHOLD_PX = 24;
+  const SCROLLED_UP_INDICATOR_THRESHOLD_PX = 160;
   const JUMP_TO_LATEST_SECOND_SNAP_THRESHOLD_PX = 24;
   const pendingScrollToBottomRef = useRef(false);
   const smoothScrollAnimRef = useRef(null);
+  const lastScrollTopRef = useRef(0);
   const cancelSmoothScroll = useCallback(() => {
     if (smoothScrollAnimRef.current) {
       cancelAnimationFrame(smoothScrollAnimRef.current);
@@ -105,15 +107,22 @@ export function useChatScroll({
   const handleChatScroll = useCallback(
     (event) => {
       const target = event.currentTarget;
+      const previousTop = Number(lastScrollTopRef.current || 0);
+      const currentTop = Number(target.scrollTop || 0);
+      const scrolledUpByUser = Boolean(
+        event?.isTrusted && currentTop < previousTop - 1,
+      );
+      lastScrollTopRef.current = currentTop;
       const threshold = CHAT_BOTTOM_THRESHOLD_PX;
+      const distanceFromBottom =
+        target.scrollHeight - currentTop - target.clientHeight;
       const atBottom =
-        target.scrollHeight - target.scrollTop - target.clientHeight <
-        threshold;
+        distanceFromBottom < threshold;
       if (isAtBottomRef.current !== atBottom) {
         isAtBottomRef.current = atBottom;
         setIsAtBottom(atBottom);
       }
-      if (atBottom) {
+      if (atBottom && !scrolledUpByUser) {
         suppressScrolledUpRef.current = false;
         unreadAnchorLockUntilRef.current = 0;
         clearUnreadAlignTimers();
@@ -131,6 +140,9 @@ export function useChatScroll({
           return;
         }
         if (!userScrolledUpRef.current) {
+          if (distanceFromBottom < SCROLLED_UP_INDICATOR_THRESHOLD_PX) {
+            return;
+          }
           pendingScrollToBottomRef.current = false;
           pendingScrollToUnreadRef.current = null;
           userScrolledUpRef.current = true;
@@ -190,6 +202,7 @@ export function useChatScroll({
       unreadAnchorLockUntilRef,
       user,
       userScrolledUpRef,
+      SCROLLED_UP_INDICATOR_THRESHOLD_PX,
     ],
   );
 

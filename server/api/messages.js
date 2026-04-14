@@ -318,6 +318,55 @@ function registerMessageRoutes(app, deps) {
     res.json({ ok: true, counts });
   });
 
+  app.post("/api/messages/typing", (req, res) => {
+    const session = requireSession(req, res);
+    if (!session) return;
+
+    const { chatId, username, isTyping } = req.body || {};
+    if (!chatId || !username || typeof isTyping !== "boolean") {
+      return res.status(400).json({
+        error: "Chat id, username, and isTyping are required.",
+      });
+    }
+    if (!requireSessionUsernameMatch(res, session, username)) return;
+
+    const user = findUserByUsername(String(username || "").toLowerCase());
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+    const numericChatId = Number(chatId);
+    if (!isMember(numericChatId, user.id)) {
+      return res.status(403).json({ error: "Not a member of this chat." });
+    }
+
+    const chat = findChatById(numericChatId);
+    if (!chat) {
+      return res.status(404).json({ error: "Chat not found." });
+    }
+    if (String(chat.type || "").toLowerCase() === "channel") {
+      return res.json({ ok: true, skipped: true });
+    }
+
+    // Invisible users should not broadcast typing start state.
+    if (
+      Boolean(isTyping) &&
+      String(user.status || "").toLowerCase() === "invisible"
+    ) {
+      return res.json({ ok: true, skipped: true });
+    }
+
+    emitChatEvent(numericChatId, {
+      type: "chat_typing",
+      chatId: numericChatId,
+      username: user.username,
+      nickname: user.nickname || user.username,
+      isTyping: Boolean(isTyping),
+      createdAt: new Date().toISOString(),
+    });
+
+    return res.json({ ok: true });
+  });
+
   app.post(
     "/api/messages/upload",
     uploadFiles.array("files", MESSAGE_FILE_LIMITS.maxFiles),

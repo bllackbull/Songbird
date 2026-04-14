@@ -39,8 +39,9 @@ export default function SidebarFooter({
           )}
           <div className="min-w-0">
             <p
-              className="truncate text-sm font-semibold text-emerald-700 transition group-hover:text-emerald-600 dark:text-emerald-200 dark:group-hover:text-emerald-300"
+              className={`truncate text-sm font-semibold text-emerald-700 transition group-hover:text-emerald-600 dark:text-emerald-200 dark:group-hover:text-emerald-300 ${hasPersian(displayName) ? "font-fa" : ""}`}
               dir="auto"
+              style={{ unicodeBidi: "plaintext" }}
               title={displayName}
             >
               {displayName}
