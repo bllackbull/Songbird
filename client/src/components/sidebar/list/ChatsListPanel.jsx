@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   CheckCheck,
@@ -47,6 +48,10 @@ export default function ChatsListPanel({
   onOpenDiscoveredGroup,
   onOpenSavedMessages,
 }) {
+  const SIDEBAR_INITIAL_RENDER = 40;
+  const SIDEBAR_RENDER_BATCH = 24;
+  const loadMoreRef = useRef(null);
+  const [renderLimit, setRenderLimit] = useState(SIDEBAR_INITIAL_RENDER);
   const wiggleDurations = [640, 700, 760, 820, 880, 940];
   const wiggleDelays = [-80, -170, -260, -120, -220, -320];
   const isEmptyState = !loadingChats && !visibleChats.length;
@@ -168,6 +173,36 @@ export default function ChatsListPanel({
     (Array.isArray(discoverGroups) && discoverGroups.length > 0) ||
     (Array.isArray(discoverChannels) && discoverChannels.length > 0) ||
     Boolean(discoverSaved);
+  const sidebarChats = useMemo(() => {
+    if (showSearchMode) return visibleChats;
+    const safeLimit = Math.max(SIDEBAR_INITIAL_RENDER, renderLimit);
+    return visibleChats.slice(0, safeLimit);
+  }, [renderLimit, showSearchMode, visibleChats]);
+
+  useEffect(() => {
+    if (showSearchMode) return;
+    if (renderLimit >= visibleChats.length) return;
+    const node = loadMoreRef.current;
+    if (!node || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        setRenderLimit((prev) =>
+          Math.min(visibleChats.length, prev + SIDEBAR_RENDER_BATCH),
+        );
+      },
+      {
+        root: null,
+        rootMargin: "360px 0px",
+        threshold: 0.01,
+      },
+    );
+    observer.observe(node);
+    return () => {
+      observer.disconnect();
+    };
+  }, [renderLimit, showSearchMode, visibleChats.length]);
+
   const resolveDmChatId = (username) => {
     const target = String(username || "").toLowerCase();
     if (!target) return null;
@@ -455,8 +490,8 @@ export default function ChatsListPanel({
             </div>
           </div>
         ))
-      ) : !showSearchMode && visibleChats.length ? (
-        visibleChats.map((conv, index) => {
+      ) : !showSearchMode && sidebarChats.length ? (
+        sidebarChats.map((conv, index) => {
           const members = conv.members || [];
           const other =
             conv.type === "dm"
@@ -812,6 +847,9 @@ export default function ChatsListPanel({
             <p className="mt-1">Search or use + button to start chatting.</p>
           </div>
         </div>
+      ) : null}
+      {!showSearchMode && renderLimit < visibleChats.length ? (
+        <div ref={loadMoreRef} className="h-8 w-full" aria-hidden="true" />
       ) : null}
     </div>
   );

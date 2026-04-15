@@ -26,6 +26,7 @@ import { useMessagesLoader } from "../hooks/chat/useMessagesLoader.js";
 import { useMobileViewport } from "../hooks/chat/useMobileViewport.js";
 import { useNewChatSearch } from "../hooks/chat/useNewChatSearch.js";
 import { useNewGroupModal } from "../hooks/chat/useNewGroupModal.js";
+import { usePerfTelemetry } from "../hooks/chat/usePerfTelemetry.js";
 import { useResumeRefresh } from "../hooks/chat/useResumeRefresh.js";
 import { Bookmark } from "../icons/lucide.js";
 import { CACHE_STORES } from "../utils/cacheDb.js";
@@ -98,22 +99,134 @@ import {
   UPLOAD_PROGRESS_HIDE_DELAY_MS,
 } from "../utils/chatPageConstants.js";
 
-const ChatProfileModal = lazy(() => import("../components/modals/ChatProfileModal.jsx"));
-const DeleteChatsModal = lazy(() => import("../components/modals/DeleteChatsModal.jsx"));
-const LeaveGroupModal = lazy(() => import("../components/modals/LeaveGroupModal.jsx"));
-const GroupInviteLinkModal = lazy(() => import("../components/modals/GroupInviteLinkModal.jsx"));
-const NewChatModal = lazy(() => import("../components/modals/NewChatModal.jsx"));
-const NewGroupModal = lazy(() => import("../components/modals/NewGroupModal.jsx"));
-const DesktopSettingsModal = lazy(() =>
+const loadChatProfileModal = () => import("../components/modals/ChatProfileModal.jsx");
+const loadDeleteChatsModal = () => import("../components/modals/DeleteChatsModal.jsx");
+const loadLeaveGroupModal = () => import("../components/modals/LeaveGroupModal.jsx");
+const loadGroupInviteLinkModal = () => import("../components/modals/GroupInviteLinkModal.jsx");
+const loadNewChatModal = () => import("../components/modals/NewChatModal.jsx");
+const loadNewGroupModal = () => import("../components/modals/NewGroupModal.jsx");
+const loadDesktopSettingsModal = () =>
   import("../components/settings/modals/DesktopSettingsModal.jsx").then((mod) => ({
     default: mod.DesktopSettingsModal,
-  })),
-);
-const NotificationsSettingsModal = lazy(() =>
+  }));
+const loadNotificationsSettingsModal = () =>
   import("../components/settings/modals/NotificationsSettingsModal.jsx").then((mod) => ({
     default: mod.NotificationsSettingsModal,
-  })),
-);
+  }));
+
+const ChatProfileModal = lazy(loadChatProfileModal);
+const DeleteChatsModal = lazy(loadDeleteChatsModal);
+const LeaveGroupModal = lazy(loadLeaveGroupModal);
+const GroupInviteLinkModal = lazy(loadGroupInviteLinkModal);
+const NewChatModal = lazy(loadNewChatModal);
+const NewGroupModal = lazy(loadNewGroupModal);
+const DesktopSettingsModal = lazy(loadDesktopSettingsModal);
+const NotificationsSettingsModal = lazy(loadNotificationsSettingsModal);
+
+const preloadChatPageCriticalChunks = () =>
+  Promise.allSettled([
+    loadNewChatModal(),
+    loadDesktopSettingsModal(),
+    loadNotificationsSettingsModal(),
+  ]);
+
+const preloadChatPageLazyChunks = () =>
+  Promise.allSettled([
+    loadChatProfileModal(),
+    loadDeleteChatsModal(),
+    loadLeaveGroupModal(),
+    loadGroupInviteLinkModal(),
+    loadNewChatModal(),
+    loadNewGroupModal(),
+    loadDesktopSettingsModal(),
+    loadNotificationsSettingsModal(),
+  ]);
+
+const resolveChunkPreloadMode = () => {
+  if (typeof navigator === "undefined") return "eager";
+  const connection =
+    navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  if (!connection) return "eager";
+  if (connection.saveData) return "idle";
+  const effectiveType = String(connection.effectiveType || "").toLowerCase();
+  if (effectiveType === "slow-2g" || effectiveType === "2g") return "idle";
+  return "eager";
+};
+
+const IN_MEMORY_MESSAGES_CACHE_MAX_CHATS = 8;
+const IN_MEMORY_MESSAGES_PER_CHAT = 480;
+const IN_MEMORY_MESSAGES_CACHE_STALE_MS = 20 * 60 * 1000;
+
+const pruneMessagesForMemory = (messages) => {
+  const list = Array.isArray(messages) ? messages : [];
+  if (list.length <= IN_MEMORY_MESSAGES_PER_CHAT) return list;
+  return list.slice(-IN_MEMORY_MESSAGES_PER_CHAT);
+};
+
+const normalizeMessagesCachePayloadForMemory = (payload) => {
+  if (!payload || !Array.isArray(payload.messages)) return payload;
+  const trimmedMessages = pruneMessagesForMemory(payload.messages);
+  if (trimmedMessages === payload.messages) return payload;
+  const nextLastMessageId = trimmedMessages.length
+    ? Number(trimmedMessages[trimmedMessages.length - 1]?.id || 0)
+    : 0;
+  return {
+    ...payload,
+    messages: trimmedMessages,
+    hasOlderMessages: true,
+    lastMessageId: nextLastMessageId,
+    updatedAt: Date.now(),
+  };
+};
+
+const readMessagesCacheMemory = (cacheMap, chatId) => {
+  const numericChatId = Number(chatId || 0);
+  if (!numericChatId || !cacheMap?.has(numericChatId)) return null;
+  const value = cacheMap.get(numericChatId);
+  cacheMap.delete(numericChatId);
+  cacheMap.set(numericChatId, value);
+  return value;
+};
+
+const pruneMessagesCacheMemory = (cacheMap, activeChatId = null) => {
+  if (!cacheMap || !cacheMap.size) return;
+  const activeId = Number(activeChatId || 0);
+  const now = Date.now();
+  const staleKeys = [];
+  cacheMap.forEach((value, key) => {
+    const updatedAt = Number(value?.updatedAt || 0);
+    if (!updatedAt) return;
+    if (activeId && Number(key) === activeId) return;
+    if (now - updatedAt > IN_MEMORY_MESSAGES_CACHE_STALE_MS) {
+      staleKeys.push(key);
+    }
+  });
+  staleKeys.forEach((key) => cacheMap.delete(key));
+  while (cacheMap.size > IN_MEMORY_MESSAGES_CACHE_MAX_CHATS) {
+    const oldestKey = cacheMap.keys().next().value;
+    if (oldestKey === undefined) break;
+    if (activeId && Number(oldestKey) === activeId && cacheMap.size > 1) {
+      const activeValue = cacheMap.get(oldestKey);
+      cacheMap.delete(oldestKey);
+      cacheMap.set(oldestKey, activeValue);
+      continue;
+    }
+    cacheMap.delete(oldestKey);
+  }
+};
+
+const writeMessagesCacheMemory = (cacheMap, chatId, payload, activeChatId = null) => {
+  const numericChatId = Number(chatId || 0);
+  if (!numericChatId || !payload || !cacheMap) return;
+  const normalized = normalizeMessagesCachePayloadForMemory(payload);
+  cacheMap.set(numericChatId, normalized);
+  if (cacheMap.size > 1) {
+    const current = cacheMap.get(numericChatId);
+    cacheMap.delete(numericChatId);
+    cacheMap.set(numericChatId, current);
+  }
+  pruneMessagesCacheMemory(cacheMap, activeChatId || numericChatId);
+};
 
  
 
@@ -183,7 +296,76 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const channelSeenLatestRefreshRef = useRef(0);
   const messagesCacheRef = useRef(new Map());
   const messagesCacheWriteTimerRef = useRef(null);
+  const messageBlobUrlsRef = useRef(new Set());
   const [sseConnected, setSseConnected] = useState(false);
+  const lazyChunksPreloadedRef = useRef(false);
+
+  useEffect(() => {
+    if (lazyChunksPreloadedRef.current) return;
+    let cancelled = false;
+    let idleId = null;
+    let criticalTimerId = null;
+    let timerId = null;
+    const mode = resolveChunkPreloadMode();
+    const eagerNetwork = mode === "eager";
+
+    const warmCritical = () => {
+      if (cancelled) return;
+      void preloadChatPageCriticalChunks();
+    };
+
+    const warm = () => {
+      if (cancelled) return;
+      if (lazyChunksPreloadedRef.current) return;
+      lazyChunksPreloadedRef.current = true;
+      void preloadChatPageLazyChunks();
+    };
+    const handleFirstIntent = () => {
+      warm();
+    };
+    window.addEventListener("pointerdown", handleFirstIntent, {
+      once: true,
+      passive: true,
+      capture: true,
+    });
+    window.addEventListener("keydown", handleFirstIntent, {
+      once: true,
+      passive: true,
+      capture: true,
+    });
+
+    criticalTimerId = window.setTimeout(warmCritical, eagerNetwork ? 90 : 240);
+    if (eagerNetwork) {
+      timerId = window.setTimeout(warm, 120);
+    } else if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
+      idleId = window.requestIdleCallback(warm, { timeout: 1500 });
+    } else {
+      timerId = window.setTimeout(warm, 900);
+    }
+    return () => {
+      cancelled = true;
+      window.removeEventListener("pointerdown", handleFirstIntent, {
+        capture: true,
+      });
+      window.removeEventListener("keydown", handleFirstIntent, {
+        capture: true,
+      });
+      if (
+        idleId !== null &&
+        typeof window !== "undefined" &&
+        typeof window.cancelIdleCallback === "function"
+      ) {
+        window.cancelIdleCallback(idleId);
+      }
+      if (timerId !== null && typeof window !== "undefined") {
+        window.clearTimeout(timerId);
+      }
+      if (criticalTimerId !== null && typeof window !== "undefined") {
+        window.clearTimeout(criticalTimerId);
+      }
+    };
+  }, []);
+
   const { dataCacheStats, handleClearCache } = useChatCacheStats({
     user,
     settingsPanel,
@@ -467,6 +649,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   });
   const typingStopTimerRef = useRef(null);
   const typingExpiryTimersRef = useRef(new Map());
+  const loadChatsAbortRef = useRef(null);
+  const loadChatsInFlightRef = useRef(false);
+  const queuedLoadChatsOptionsRef = useRef(null);
 
   const clearUnreadAlignTimers = () => {
     unreadAlignTimersRef.current.forEach((timer) => window.clearTimeout(timer));
@@ -748,6 +933,38 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, [user?.username]);
 
   useEffect(() => {
+    const nextBlobUrls = new Set();
+    const appendIfBlob = (value) => {
+      const url = String(value || "");
+      if (url.startsWith("blob:")) {
+        nextBlobUrls.add(url);
+      }
+    };
+    messages.forEach((msg) => {
+      const pendingFiles = Array.isArray(msg?._files) ? msg._files : [];
+      pendingFiles.forEach((file) => {
+        appendIfBlob(file?._localUrl);
+        appendIfBlob(file?.url);
+      });
+      const messageFiles = Array.isArray(msg?.files) ? msg.files : [];
+      messageFiles.forEach((file) => {
+        appendIfBlob(file?._localUrl);
+        appendIfBlob(file?.url);
+      });
+    });
+
+    messageBlobUrlsRef.current.forEach((url) => {
+      if (nextBlobUrls.has(url)) return;
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        // ignore invalid/revoked object URLs
+      }
+    });
+    messageBlobUrlsRef.current = nextBlobUrls;
+  }, [messages]);
+
+  useEffect(() => {
     return () => {
       pendingUploadFilesRef.current.forEach((file) => {
         if (file.previewUrl) {
@@ -760,6 +977,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (pendingGroupAvatarFile?.previewUrl) {
         URL.revokeObjectURL(pendingGroupAvatarFile.previewUrl);
       }
+      messageBlobUrlsRef.current.forEach((url) => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch {
+          // ignore invalid/revoked object URLs
+        }
+      });
+      messageBlobUrlsRef.current.clear();
       clearUnreadAlignTimers();
     };
   }, [pendingGroupAvatarFile]);
@@ -810,6 +1035,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   useEffect(() => {
     if (!user?.username) return;
+    pruneMessagesCacheMemory(messagesCacheRef.current, activeChatIdRef.current);
+  }, [user?.username]);
+
+  useEffect(() => {
+    pruneMessagesCacheMemory(messagesCacheRef.current, activeChatId);
+  }, [activeChatId, chats.length]);
+
+  useEffect(() => {
+    if (!user?.username) return;
     const pruneIndex = (items) => {
       if (!items.length) return;
       const now = Date.now();
@@ -848,6 +1082,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   useEffect(() => {
     return () => {
+      messagesCacheRef.current.clear();
       if (mediaLoadSnapTimerRef.current) {
         window.clearTimeout(mediaLoadSnapTimerRef.current);
       }
@@ -857,6 +1092,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (channelSeenTimerRef.current) {
         window.clearTimeout(channelSeenTimerRef.current);
       }
+      if (loadChatsAbortRef.current) {
+        loadChatsAbortRef.current.abort();
+        loadChatsAbortRef.current = null;
+      }
+      loadChatsInFlightRef.current = false;
+      queuedLoadChatsOptionsRef.current = null;
     };
   }, []);
 
@@ -881,13 +1122,36 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
   }, [chats]);
 
+  const getNetworkBackoffMultiplier = () => {
+    if (typeof navigator === "undefined") return 1;
+    const connection =
+      navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (!connection) return 1;
+    let factor = 1;
+    if (connection.saveData) {
+      factor = Math.max(factor, 2.2);
+    }
+    const effectiveType = String(connection.effectiveType || "").toLowerCase();
+    if (effectiveType === "slow-2g" || effectiveType === "2g") {
+      factor = Math.max(factor, 2.5);
+    } else if (effectiveType === "3g") {
+      factor = Math.max(factor, 1.6);
+    }
+    return factor;
+  };
+
   useEffect(() => {
-    if (!user || sseConnected) return;
+    if (!user || sseConnected || !isAppActive) return;
+    const backoff = getNetworkBackoffMultiplier();
+    const intervalMs = Math.max(
+      3000,
+      Math.round(CHAT_PAGE_CONFIG.chatsRefreshIntervalMs * backoff),
+    );
     const interval = setInterval(() => {
       void loadChats({ silent: true });
-    }, CHAT_PAGE_CONFIG.chatsRefreshIntervalMs);
+    }, intervalMs);
     return () => clearInterval(interval);
-  }, [user, sseConnected]);
+  }, [user, sseConnected, isAppActive]);
 
   useEffect(() => {
     if (!user) return;
@@ -908,7 +1172,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (user && activeChatId) {
       const openedChatId = Number(activeChatId);
       const openedChat = chats.find((chat) => chat.id === openedChatId);
-      let cached = messagesCacheRef.current.get(openedChatId) || null;
+      let cached = readMessagesCacheMemory(messagesCacheRef.current, openedChatId) || null;
       // IDB async load below will hydrate if needed.
       const hasCachedMessages = Array.isArray(cached?.messages) && cached.messages.length > 0;
       openingHadUnreadRef.current = Boolean((openedChat?.unread_count || 0) > 0);
@@ -959,7 +1223,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           const idbCached = await readMessagesCacheAsync(user.username, activeId);
           if (!idbCached || !Array.isArray(idbCached.messages)) return;
           if (Number(activeChatIdRef.current) !== activeId) return;
-          messagesCacheRef.current.set(activeId, idbCached);
+          writeMessagesCacheMemory(
+            messagesCacheRef.current,
+            activeId,
+            idbCached,
+            activeChatIdRef.current,
+          );
           setMessages((prev) =>
             prev.length ? prev : normalizeMessagesForRender(idbCached.messages),
           );
@@ -1150,6 +1419,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     CHAT_PAGE_CONFIG,
     listMessagesByQuery,
     markMessagesRead,
+  });
+  usePerfTelemetry({
+    activeChatId,
+    messagesLength: messages.length,
+    loadingMessages,
   });
 
   const getVisibleChannelMessageIds = useCallback(() => {
@@ -1928,10 +2202,18 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         };
       };
 
-      const memoryCached = messagesCacheRef.current.get(numericChatId);
+      const memoryCached = readMessagesCacheMemory(
+        messagesCacheRef.current,
+        numericChatId,
+      );
       const nextMemory = pruneCachePayload(memoryCached);
       if (nextMemory.changed) {
-        messagesCacheRef.current.set(numericChatId, nextMemory.value);
+        writeMessagesCacheMemory(
+          messagesCacheRef.current,
+          numericChatId,
+          nextMemory.value,
+          activeChatIdRef.current,
+        );
       }
 
       if (!user?.username || !canUseIdb()) return;
@@ -2393,7 +2675,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, [activeChatId]);
 
   useEffect(() => {
-    if (!activeChatId) return;
+    if (!activeChatId || !isAppActive) return;
     const interval = setInterval(() => {
       const pending = messages.filter(
         (msg) => msg._delivery === "sending" && !msg._awaitingServerEcho,
@@ -2404,10 +2686,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       });
     }, CHAT_PAGE_CONFIG.pendingRetryIntervalMs);
     return () => clearInterval(interval);
-  }, [activeChatId, messages]);
+  }, [activeChatId, messages, isAppActive]);
 
   useEffect(() => {
-    if (!activeChatId) return;
+    if (!activeChatId || !isAppActive) return;
     const needsMediaSync = messages.some((msg) => {
       const isOwn = msg.username === user.username;
       if (!isOwn) return false;
@@ -2419,11 +2701,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       return false;
     });
     if (!needsMediaSync) return;
+    const backoff = getNetworkBackoffMultiplier();
+    const mediaSyncIntervalMs = Math.max(2000, Math.round(2500 * backoff));
     const interval = setInterval(() => {
       void loadMessages(activeChatId, { silent: true, preserveHistory: true });
-    }, 2500);
+    }, mediaSyncIntervalMs);
     return () => clearInterval(interval);
-  }, [activeChatId, messages, user.username, isMobileViewport, sseConnected]);
+  }, [activeChatId, messages, user.username, isMobileViewport, sseConnected, isAppActive]);
 
   useEffect(() => {
     if (!activeChatId) return;
@@ -2435,7 +2719,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       lastMessageId: messages.length ? Number(messages[messages.length - 1]?.id || 0) : 0,
       updatedAt: Date.now(),
     };
-    messagesCacheRef.current.set(Number(activeChatId), cachePayload);
+    writeMessagesCacheMemory(
+      messagesCacheRef.current,
+      Number(activeChatId),
+      cachePayload,
+      activeChatIdRef.current,
+    );
     if (user?.username) {
       const storagePayload = {
         ...cachePayload,
@@ -2467,6 +2756,29 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, [settingsPanel, profileError, passwordError]);
 
   async function loadChats(options = {}) {
+    if (loadChatsInFlightRef.current) {
+      const queued = {
+        silent: Boolean(options.silent),
+        showUpdating: Boolean(options.showUpdating),
+      };
+      if (queuedLoadChatsOptionsRef.current) {
+        queuedLoadChatsOptionsRef.current = {
+          silent:
+            queuedLoadChatsOptionsRef.current.silent && queued.silent,
+          showUpdating:
+            queuedLoadChatsOptionsRef.current.showUpdating || queued.showUpdating,
+        };
+      } else {
+        queuedLoadChatsOptionsRef.current = queued;
+      }
+      return;
+    }
+    loadChatsInFlightRef.current = true;
+    if (loadChatsAbortRef.current) {
+      loadChatsAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    loadChatsAbortRef.current = controller;
     const showUpdating = Boolean(options.showUpdating);
     if (!options.silent) {
       setLoadingChats(true);
@@ -2475,7 +2787,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       setIsUpdatingChats(true);
     }
     try {
-      const res = await listChatsForUser(user.username, { cache: "no-store" });
+      const res = await listChatsForUser(user.username, {
+        cache: "no-store",
+        signal: controller.signal,
+      });
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data?.error || "Failed to load chats.");
@@ -2625,14 +2940,26 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           window.sessionStorage.removeItem(OPEN_CHAT_ID_KEY);
         }
       }
-    } catch {
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        return;
+      }
       // Keep sidebar usable even when polling fails.
     } finally {
+      if (loadChatsAbortRef.current === controller) {
+        loadChatsAbortRef.current = null;
+      }
+      loadChatsInFlightRef.current = false;
+      const queued = queuedLoadChatsOptionsRef.current;
+      queuedLoadChatsOptionsRef.current = null;
       if (!options.silent) {
         setLoadingChats(false);
       }
       if (showUpdating) {
         setIsUpdatingChats(false);
+      }
+      if (queued) {
+        void loadChats(queued);
       }
     }
   }

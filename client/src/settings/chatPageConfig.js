@@ -83,6 +83,22 @@ export const CHAT_PAGE_CONFIG = {
     integer: true,
     min: 250,
   }),
+  voiceWaveformMaxDecodeBytes: readEnvNumber(
+    "CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES",
+    5 * 1024 * 1024,
+    {
+      integer: true,
+      min: 64 * 1024,
+    },
+  ),
+  voiceWaveformMaxDecodeSeconds: readEnvNumber(
+    "CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS",
+    8 * 60,
+    {
+      integer: true,
+      min: 10,
+    },
+  ),
   cacheTtlMs:
     readEnvNumber("CHAT_CACHE_TTL", 24, {
       integer: true,

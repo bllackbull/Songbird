@@ -1,8 +1,19 @@
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import hljs from "highlight.js/lib/common";
 
 const SCHEME_PATTERN = "[a-z][a-z0-9+.-]*";
+const SIMPLE_LINK_PATTERN = /\b(?:https?:\/\/|www\.)\S+/i;
+const SIMPLE_MENTION_PATTERN = /(^|[^a-z0-9._])@[a-z0-9._]{3,}/i;
+const COMPLEX_MARKDOWN_INLINE_PATTERN = /[`*_#[\]()>|~]/;
+const COMPLEX_MARKDOWN_LINE_PATTERN = /(^|\n)\s*(?:[-+*]\s+|\d+\.\s+|>)/;
+const MAX_CACHE_ENTRIES = 350;
+const MAX_CACHEABLE_TEXT_LENGTH = 8192;
+
+const blockCache = new Map();
+const inlineCache = new Map();
+const inlinePlainCache = new Map();
+let hljsModule = null;
+let hljsLoadPromise = null;
 
 const escapeHtml = (value) =>
   String(value || "").replace(/[&<>"']/g, (char) => {
@@ -138,11 +149,16 @@ const configureMarkdown = () => {
       : String(infostring || "")
           .trim()
           .split(/\s+/)[0];
-    let highlighted = "";
-    if (lang && hljs.getLanguage(lang)) {
-      highlighted = hljs.highlight(codeText, { language: lang }).value;
-    } else {
-      highlighted = hljs.highlightAuto(codeText).value;
+    let highlighted = escapeHtml(codeText);
+    const hljs = hljsModule;
+    if (hljs) {
+      if (lang && hljs.getLanguage(lang)) {
+        highlighted = hljs.highlight(codeText, { language: lang }).value;
+      } else {
+        highlighted = hljs.highlightAuto(codeText).value;
+      }
+    } else if (codeText.length > 24 || lang) {
+      void loadHighlighter();
     }
     const safeLang = lang ? `language-${escapeHtml(lang)}` : "language-plain";
     return `<pre class="sb-markdown-code"><code class="hljs ${safeLang}">${highlighted}</code></pre>`;
@@ -251,41 +267,111 @@ const fallbackBlockHtml = (raw) =>
 
 const fallbackInlineHtml = (raw) => escapeHtml(raw);
 
+const loadHighlighter = () => {
+  if (hljsModule) return Promise.resolve(hljsModule);
+  if (hljsLoadPromise) return hljsLoadPromise;
+  hljsLoadPromise = import("highlight.js/lib/common")
+    .then((mod) => {
+      hljsModule = mod?.default || mod || null;
+      return hljsModule;
+    })
+    .catch(() => null)
+    .finally(() => {
+      hljsLoadPromise = null;
+    });
+  return hljsLoadPromise;
+};
+
+export const preloadMarkdownHighlighter = () => {
+  void loadHighlighter();
+};
+
+const shouldUseMarkdownParser = (raw) => {
+  if (!raw) return false;
+  if (SIMPLE_LINK_PATTERN.test(raw)) return true;
+  if (SIMPLE_MENTION_PATTERN.test(raw)) return true;
+  if (COMPLEX_MARKDOWN_INLINE_PATTERN.test(raw)) return true;
+  if (COMPLEX_MARKDOWN_LINE_PATTERN.test(raw)) return true;
+  return false;
+};
+
+const readFromCache = (cache, key) => {
+  if (!key || key.length > MAX_CACHEABLE_TEXT_LENGTH) return null;
+  if (!cache.has(key)) return null;
+  const value = cache.get(key);
+  cache.delete(key);
+  cache.set(key, value);
+  return value;
+};
+
+const writeToCache = (cache, key, value) => {
+  if (!key || key.length > MAX_CACHEABLE_TEXT_LENGTH) return value;
+  cache.set(key, value);
+  if (cache.size > MAX_CACHE_ENTRIES) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey !== undefined) cache.delete(oldestKey);
+  }
+  return value;
+};
+
 export const renderMarkdownBlock = (text) => {
-  configureMarkdown();
   const raw = normalizeMarkdownInput(text);
   if (!raw) return "";
+  const cached = readFromCache(blockCache, raw);
+  if (cached !== null) return cached;
+  if (!shouldUseMarkdownParser(raw)) {
+    return writeToCache(blockCache, raw, fallbackBlockHtml(raw));
+  }
+  configureMarkdown();
   const parsed = marked.parse(raw);
   const parsedHtml = typeof parsed === "string" ? parsed : String(parsed || "");
   const limited = limitHtmlNesting(parsedHtml);
   const cleaned = cleanupMarkdownHtml(sanitize(limited));
   if (cleaned.includes("[object Object]")) {
-    return fallbackBlockHtml(raw);
+    return writeToCache(blockCache, raw, fallbackBlockHtml(raw));
   }
-  return cleaned;
+  return writeToCache(blockCache, raw, cleaned);
 };
 
 export const renderMarkdownInline = (text) => {
-  configureMarkdown();
   const raw = normalizeMarkdownInput(text);
   if (!raw) return "";
+  const cached = readFromCache(inlineCache, raw);
+  if (cached !== null) return cached;
+  if (!shouldUseMarkdownParser(raw)) {
+    return writeToCache(
+      inlineCache,
+      raw,
+      fallbackInlineHtml(raw).replace(/\n/g, "<br />"),
+    );
+  }
+  configureMarkdown();
   const parsed = marked.parseInline(raw);
   const parsedHtml = typeof parsed === "string" ? parsed : String(parsed || "");
   const limited = limitHtmlNesting(parsedHtml);
   const cleaned = cleanupMarkdownHtml(sanitize(limited));
   if (cleaned.includes("[object Object]")) {
-    return fallbackInlineHtml(raw);
+    return writeToCache(inlineCache, raw, fallbackInlineHtml(raw));
   }
-  return cleaned;
+  return writeToCache(inlineCache, raw, cleaned);
 };
 
 export const renderMarkdownInlinePlain = (text) => {
-  const html = renderMarkdownInline(text);
-  return html
+  const raw = normalizeMarkdownInput(text);
+  if (!raw) return "";
+  const cached = readFromCache(inlinePlainCache, raw);
+  if (cached !== null) return cached;
+  if (!shouldUseMarkdownParser(raw)) {
+    const simple = escapeHtml(raw).replace(/\r?\n+/g, " ").replace(/\s+/g, " ").trim();
+    return writeToCache(inlinePlainCache, raw, simple);
+  }
+  const html = renderMarkdownInline(raw);
+  const plain = html
     .replace(/<a\b[^>]*>(.*?)<\/a>/gi, "$1")
     .replace(/<span\b[^>]*data-mention=[^>]*>(.*?)<\/span>/gi, "$1")
     .replace(/<br\s*\/?>/gi, " ")
     .replace(/\r?\n+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+  return writeToCache(inlinePlainCache, raw, plain);
 };

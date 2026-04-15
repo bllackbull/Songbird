@@ -119,6 +119,7 @@ export default function InvitePage({
 
   const groupType = group?.type === "channel" ? "Channel" : "Group";
   const groupName = group?.name || groupType;
+  const groupNameHasPersian = hasPersian(groupName);
   const groupInitials = getAvatarInitials(groupName);
   const rawGroupAvatarUrl = String(group?.avatarUrl || "").trim();
   const groupAvatarUrl = rawGroupAvatarUrl.startsWith("/uploads/")
@@ -184,16 +185,24 @@ export default function InvitePage({
                   {groupInitials}
                 </div>
               )}
-              <p
-                className="truncate text-base font-semibold text-emerald-800 dark:text-emerald-200"
-                dir="auto"
-                title={groupName}
-              >
-                {groupName}
+              <p className="w-full text-center">
+                <span
+                  className={`mx-auto block w-fit max-w-full truncate text-base font-semibold text-emerald-800 dark:text-emerald-200 ${
+                    groupNameHasPersian ? "font-fa text-right" : "text-center"
+                  }`}
+                  dir="auto"
+                  style={{ unicodeBidi: "plaintext" }}
+                  title={groupName}
+                >
+                  {groupName}
+                </span>
               </p>
               <p
-                className="mt-1 truncate text-xs text-slate-600 dark:text-slate-300"
+                className={`mt-1 w-full truncate text-xs text-slate-600 dark:text-slate-300 ${
+                  hasPersian(group?.username || "") ? "font-fa text-right" : "text-center"
+                }`}
                 dir="auto"
+                style={{ unicodeBidi: "plaintext" }}
                 title={group?.username || "group"}
               >
                 @{group?.username || "group"}

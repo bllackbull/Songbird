@@ -696,6 +696,12 @@ label:hover .icon-anim-drop {
   color: inherit;
   direction: ltr;
   unicode-bidi: isolate;
+  display: inline-block;
+  max-inline-size: 100%;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
+  line-break: auto;
 }
 
 .sb-mention-active {
@@ -710,6 +716,13 @@ label:hover .icon-anim-drop {
   border-radius: 6px;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
+}
+
+/* Firefox can wrap a short mention token (e.g. @pouya) at the last character. */
+@-moz-document url-prefix() {
+  .sb-mention-active {
+    margin: 0;
+  }
 }
 
 .sb-mention-debug {

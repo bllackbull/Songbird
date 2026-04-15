@@ -29,6 +29,8 @@ DEFAULT_FILE_UPLOAD="true"
 DEFAULT_MAX_UPLOAD="78643200"
 DEFAULT_RETENTION_DAYS="7"
 DEFAULT_ACCOUNT_CREATION="true"
+DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES="5242880"
+DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS="480"
 NODE_MAJOR="24"
 SCRIPT_REMOTE_URL="${SCRIPT_REMOTE_URL:-https://raw.githubusercontent.com/bllackbull/Songbird/main/scripts/install.sh}"
 LOG_LINES="${LOG_LINES:-100}"
@@ -828,11 +830,15 @@ write_env_from_example() {
   local existing_subject
   local existing_server_port
   local existing_client_port
+  local existing_voice_waveform_max_decode_bytes
+  local existing_voice_waveform_max_decode_seconds
   existing_public_key="$(get_existing_env_value "VAPID_PUBLIC_KEY" "")"
   existing_private_key="$(get_existing_env_value "VAPID_PRIVATE_KEY" "")"
   existing_subject="$(get_existing_env_value "VAPID_SUBJECT" "mailto:admin@example.com")"
   existing_server_port="$(get_existing_env_value_with_fallback "SERVER_PORT" "PORT" "$DEFAULT_SERVER_PORT")"
   existing_client_port="$(get_existing_env_value "CLIENT_PORT" "$DEFAULT_CLIENT_PORT")"
+  existing_voice_waveform_max_decode_bytes="$(get_existing_env_value "CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES" "$DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES")"
+  existing_voice_waveform_max_decode_seconds="$(get_existing_env_value "CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS" "$DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS")"
 
   run_silent run_as_root cp "$example_file" "$env_file"
   replace_env_value "$env_file" "SERVER_PORT" "$existing_server_port"
@@ -843,6 +849,8 @@ write_env_from_example() {
   replace_env_value "$env_file" "FILE_UPLOAD" "$FILE_UPLOAD"
   replace_env_value "$env_file" "FILE_UPLOAD_MAX_TOTAL_SIZE" "$MAX_UPLOAD"
   replace_env_value "$env_file" "MESSAGE_FILE_RETENTION" "$RETENTION_DAYS"
+  replace_env_value "$env_file" "CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES" "$existing_voice_waveform_max_decode_bytes"
+  replace_env_value "$env_file" "CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS" "$existing_voice_waveform_max_decode_seconds"
   replace_env_value "$env_file" "VAPID_PUBLIC_KEY" "$existing_public_key"
   replace_env_value "$env_file" "VAPID_PRIVATE_KEY" "$existing_private_key"
   if [[ -n "$CERTBOT_EMAIL" ]]; then
@@ -888,6 +896,8 @@ CHAT_PEER_PRESENCE_POLL_INTERVAL=3000
 CHAT_HEALTH_CHECK_INTERVAL=10000
 CHAT_SSE_RECONNECT_DELAY=2000
 CHAT_SEARCH_MAX_RESULTS=5
+CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES=${DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES}
+CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS=${DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS}
 NICKNAME_MAX=24
 USERNAME_MAX=16
 VAPID_PUBLIC_KEY=${existing_public_key}

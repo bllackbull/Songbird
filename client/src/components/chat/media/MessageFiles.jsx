@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Download, File, Pause, Play } from "../../../icons/lucide.js";
+import { CHAT_PAGE_CONFIG } from "../../../settings/chatPageConfig.js";
 import { CACHE_STORES } from "../../../utils/cacheDb.js";
 import { canUseIdb, readIdbCache, writeIdbCache } from "../../../utils/chatCache.js";
 
@@ -8,11 +9,24 @@ const VOICE_WAVEFORM_CACHE_MAX = 160;
 const VOICE_WAVEFORM_CACHE = new Map();
 const VOICE_WAVEFORM_PROMISES = new Map();
 const VOICE_AUDIO_POOL = new Map();
+const VOICE_AUDIO_LAST_USED_AT = new Map();
 const VOICE_WAVEFORM_BARS_PER_SECOND = 3;
 const VOICE_WAVEFORM_MAX_BARS = 36;
+const VOICE_WAVEFORM_MAX_DECODE_BYTES = Math.max(
+  64 * 1024,
+  Number(CHAT_PAGE_CONFIG.voiceWaveformMaxDecodeBytes || 5 * 1024 * 1024),
+);
+const VOICE_WAVEFORM_MAX_DECODE_SECONDS = Math.max(
+  10,
+  Number(CHAT_PAGE_CONFIG.voiceWaveformMaxDecodeSeconds || 8 * 60),
+);
+const VOICE_WAVEFORM_MAX_PARALLEL = 1;
+const VOICE_AUDIO_POOL_MAX = 10;
 
 let waveformCacheLoaded = false;
 let waveformCachePromise = null;
+let activeWaveformDecodes = 0;
+const waveformDecodeQueue = [];
 
 const ensureWaveformCacheLoaded = () => {
   if (waveformCacheLoaded) return Promise.resolve();
@@ -30,7 +44,7 @@ const ensureWaveformCacheLoaded = () => {
       if (cached?.v === 1 && Array.isArray(cached.entries)) {
         cached.entries.forEach(([key, peaks]) => {
           if (!key || !Array.isArray(peaks)) return;
-          VOICE_WAVEFORM_CACHE.set(key, peaks);
+          upsertWaveformCache(key, peaks);
         });
       }
     } catch {
@@ -96,24 +110,148 @@ const getWaveformPeaks = (buffer, count = 20) => {
   return peaks;
 };
 
-const loadAudioWaveform = async (audioUrl, cacheKey, countOverride) => {
+const runNextWaveformDecode = () => {
+  if (activeWaveformDecodes >= VOICE_WAVEFORM_MAX_PARALLEL) return;
+  const next = waveformDecodeQueue.shift();
+  if (!next) return;
+  activeWaveformDecodes += 1;
+  next()
+    .catch(() => null)
+    .finally(() => {
+      activeWaveformDecodes = Math.max(0, activeWaveformDecodes - 1);
+      runNextWaveformDecode();
+    });
+};
+
+const queueWaveformDecode = (task) =>
+  new Promise((resolve, reject) => {
+    waveformDecodeQueue.push(async () => {
+      try {
+        const result = await task();
+        resolve(result);
+      } catch (error) {
+        reject(error);
+      }
+    });
+    runNextWaveformDecode();
+  });
+
+const upsertWaveformCache = (cacheKey, peaks) => {
+  if (!cacheKey || !Array.isArray(peaks) || !peaks.length) return;
+  VOICE_WAVEFORM_CACHE.set(cacheKey, peaks);
+  if (VOICE_WAVEFORM_CACHE.size > 1) {
+    const recent = VOICE_WAVEFORM_CACHE.get(cacheKey);
+    VOICE_WAVEFORM_CACHE.delete(cacheKey);
+    VOICE_WAVEFORM_CACHE.set(cacheKey, recent);
+  }
+  while (VOICE_WAVEFORM_CACHE.size > VOICE_WAVEFORM_CACHE_MAX) {
+    const oldestKey = VOICE_WAVEFORM_CACHE.keys().next().value;
+    if (oldestKey === undefined) break;
+    VOICE_WAVEFORM_CACHE.delete(oldestKey);
+  }
+};
+
+const destroyPooledAudio = (poolKey) => {
+  if (!poolKey) return;
+  const pooled = VOICE_AUDIO_POOL.get(poolKey);
+  if (pooled) {
+    try {
+      pooled.pause();
+      pooled.currentTime = 0;
+      pooled.src = "";
+    } catch (_) {
+      // ignore cleanup issues
+    }
+  }
+  VOICE_AUDIO_POOL.delete(poolKey);
+  VOICE_AUDIO_LAST_USED_AT.delete(poolKey);
+};
+
+const touchPooledAudio = (poolKey) => {
+  if (!poolKey) return;
+  VOICE_AUDIO_LAST_USED_AT.set(poolKey, Date.now());
+  if (VOICE_AUDIO_LAST_USED_AT.size > 1) {
+    const value = VOICE_AUDIO_LAST_USED_AT.get(poolKey);
+    VOICE_AUDIO_LAST_USED_AT.delete(poolKey);
+    VOICE_AUDIO_LAST_USED_AT.set(poolKey, value);
+  }
+};
+
+const trimVoiceAudioPool = (keepKey = null) => {
+  const keep = keepKey ? String(keepKey) : "";
+  while (VOICE_AUDIO_POOL.size > VOICE_AUDIO_POOL_MAX) {
+    const oldestKey = VOICE_AUDIO_LAST_USED_AT.keys().next().value;
+    if (oldestKey === undefined) break;
+    if (keep && String(oldestKey) === keep && VOICE_AUDIO_POOL.size > 1) {
+      const keepValue = VOICE_AUDIO_LAST_USED_AT.get(oldestKey);
+      VOICE_AUDIO_LAST_USED_AT.delete(oldestKey);
+      VOICE_AUDIO_LAST_USED_AT.set(oldestKey, keepValue);
+      continue;
+    }
+    destroyPooledAudio(oldestKey);
+  }
+};
+
+const loadAudioWaveform = async (
+  audioUrl,
+  cacheKey,
+  countOverride,
+  options = {},
+) => {
   if (!audioUrl || typeof window === "undefined") return null;
   if (VOICE_WAVEFORM_CACHE.has(cacheKey)) {
     return VOICE_WAVEFORM_CACHE.get(cacheKey);
   }
+  const declaredBytes = Number(options?.sizeBytes || 0);
+  if (
+    Number.isFinite(declaredBytes) &&
+    declaredBytes > VOICE_WAVEFORM_MAX_DECODE_BYTES
+  ) {
+    return null;
+  }
+  const declaredDuration = Number(options?.durationSeconds || 0);
+  if (
+    Number.isFinite(declaredDuration) &&
+    declaredDuration > VOICE_WAVEFORM_MAX_DECODE_SECONDS
+  ) {
+    return null;
+  }
   try {
-    const response = await fetch(audioUrl);
-    const arrayBuffer = await response.arrayBuffer();
-    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextCtor) return null;
-    const context = new AudioContextCtor();
-    const buffer = await context.decodeAudioData(arrayBuffer.slice(0));
-    const peaks = getWaveformPeaks(buffer, countOverride || 20);
-    VOICE_WAVEFORM_CACHE.set(cacheKey, peaks);
-    if (typeof context.close === "function") {
-      context.close();
-    }
-    return peaks;
+    return await queueWaveformDecode(async () => {
+      const response = await fetch(audioUrl);
+      if (!response.ok) return null;
+      const headerLength = Number(response.headers.get("content-length") || 0);
+      if (
+        Number.isFinite(headerLength) &&
+        headerLength > VOICE_WAVEFORM_MAX_DECODE_BYTES
+      ) {
+        return null;
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      if (arrayBuffer.byteLength > VOICE_WAVEFORM_MAX_DECODE_BYTES) {
+        return null;
+      }
+      const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextCtor) return null;
+      const context = new AudioContextCtor();
+      try {
+        const buffer = await context.decodeAudioData(arrayBuffer.slice(0));
+        const duration = Number(buffer?.duration || 0);
+        if (
+          Number.isFinite(duration) &&
+          duration > VOICE_WAVEFORM_MAX_DECODE_SECONDS
+        ) {
+          return null;
+        }
+        const peaks = getWaveformPeaks(buffer, countOverride || 20);
+        upsertWaveformCache(cacheKey, peaks);
+        return peaks;
+      } finally {
+        if (typeof context.close === "function") {
+          void context.close().catch(() => null);
+        }
+      }
+    });
   } catch (_) {
     return null;
   }
@@ -130,6 +268,7 @@ const VoiceMessageChip = memo(
     const stableSrcRef = useRef(audioUrl);
     const [stableSrc, setStableSrc] = useState(audioUrl);
     const [isPlaying, setIsPlaying] = useState(false);
+    const [isStarting, setIsStarting] = useState(false);
     const [progress, setProgress] = useState(0);
     const [debugInfo, setDebugInfo] = useState(null);
     const cacheKeyRef = useRef(
@@ -170,27 +309,67 @@ const VoiceMessageChip = memo(
     const pendingPeaksRef = useRef(null);
     const rafRef = useRef(0);
     const playStartRef = useRef(null);
+    const userPausedRef = useRef(false);
+    const autoResumeAttemptsRef = useRef(0);
+    const playRequestTokenRef = useRef(0);
+    const playInFlightRef = useRef(false);
+    const waveformRequestedRef = useRef(false);
+    const waveformWarmupTimerRef = useRef(0);
+    const fileSizeBytes = Number(file?.sizeBytes || 0);
+    const canDecodeWaveform =
+      Number(fileDuration || duration || 0) <= VOICE_WAVEFORM_MAX_DECODE_SECONDS &&
+      (!Number.isFinite(fileSizeBytes) ||
+        fileSizeBytes <= 0 ||
+        fileSizeBytes <= VOICE_WAVEFORM_MAX_DECODE_BYTES);
 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     const ensureWaveform = () => {
       if (!serverUrl) return;
       if (VOICE_WAVEFORM_CACHE.has(cacheKey)) return;
       if (VOICE_WAVEFORM_PROMISES.has(cacheKey)) return;
+      if (!canDecodeWaveform) return;
       const targetBars = getTargetBars(duration);
-      const promise = loadAudioWaveform(serverUrl, cacheKey, targetBars).then(
-        (loaded) => {
-          VOICE_WAVEFORM_PROMISES.delete(cacheKey);
-          if (!loaded?.length) return;
-          VOICE_WAVEFORM_CACHE.set(cacheKey, loaded);
-          void persistWaveformCache();
-          if (isPlaying) {
-            pendingPeaksRef.current = loaded;
-            return;
-          }
-          setPeaks(loaded);
-        },
-      );
+      const promise = loadAudioWaveform(serverUrl, cacheKey, targetBars, {
+        sizeBytes: fileSizeBytes,
+        durationSeconds: fileDuration || duration || 0,
+      }).then((loaded) => {
+        VOICE_WAVEFORM_PROMISES.delete(cacheKey);
+        if (!loaded?.length) return;
+        upsertWaveformCache(cacheKey, loaded);
+        void persistWaveformCache();
+        if (isPlaying) {
+          pendingPeaksRef.current = loaded;
+          return;
+        }
+        setPeaks(loaded);
+      });
       VOICE_WAVEFORM_PROMISES.set(cacheKey, promise);
+    };
+
+    const scheduleWaveformWarmup = () => {
+      if (waveformRequestedRef.current) return;
+      if (typeof window === "undefined") {
+        waveformRequestedRef.current = true;
+        ensureWaveform();
+        return;
+      }
+      if (waveformWarmupTimerRef.current) {
+        window.clearTimeout(waveformWarmupTimerRef.current);
+      }
+      waveformWarmupTimerRef.current = window.setTimeout(() => {
+        waveformWarmupTimerRef.current = 0;
+        if (waveformRequestedRef.current) return;
+        waveformRequestedRef.current = true;
+        if (typeof window.requestIdleCallback === "function") {
+          window.requestIdleCallback(
+            () => {
+              ensureWaveform();
+            },
+            { timeout: 1200 },
+          );
+          return;
+        }
+        ensureWaveform();
+      }, 700);
     };
 
     useEffect(() => {
@@ -208,14 +387,11 @@ const VoiceMessageChip = memo(
             getTargetBars(fileDuration || duration),
           ),
         );
-        if (serverUrl) {
-          ensureWaveform();
-        }
       });
       return () => {
         isActive = false;
       };
-    }, [cacheKey, serverUrl, duration, ensureWaveform, fileDuration]);
+    }, [cacheKey, duration, fileDuration]);
 
     useEffect(() => {
       if (!audioUrl) return;
@@ -241,11 +417,14 @@ const VoiceMessageChip = memo(
           }
         }
         audioRef.current = existing;
+        touchPooledAudio(cacheKey);
         return existing;
       }
       const nextAudio = new Audio(currentSrc);
       nextAudio.preload = "none";
       VOICE_AUDIO_POOL.set(cacheKey, nextAudio);
+      touchPooledAudio(cacheKey);
+      trimVoiceAudioPool(cacheKey);
       audioRef.current = nextAudio;
       return nextAudio;
     };
@@ -269,6 +448,9 @@ const VoiceMessageChip = memo(
     const getCurrentTimeEstimate = (audio) => {
       if (!audio) return 0;
       const base = Number(audio.currentTime || 0);
+      if (playInFlightRef.current || isStarting) {
+        return base;
+      }
       const total = getEffectiveTotal(audio);
       if (!total) return base;
       const durationVal = Number(audio.duration || 0);
@@ -278,10 +460,6 @@ const VoiceMessageChip = memo(
         durationVal < 1000000
       ) {
         return base;
-      }
-      if (typeof performance !== "undefined" && playStartRef.current !== null) {
-        const elapsed = (performance.now() - playStartRef.current) / 1000;
-        return Math.max(base, elapsed);
       }
       return base;
     };
@@ -322,6 +500,22 @@ const VoiceMessageChip = memo(
       }
     };
 
+    const tryAutoResumePlayback = (audio) => {
+      if (!audio) return;
+      const maxAttempts = 2;
+      if (autoResumeAttemptsRef.current >= maxAttempts) return;
+      autoResumeAttemptsRef.current += 1;
+      window.setTimeout(() => {
+        if (!audio || !audio.paused) return;
+        playInFlightRef.current = true;
+        setIsStarting(true);
+        audio.play().catch(() => {
+          playInFlightRef.current = false;
+          setIsStarting(false);
+        });
+      }, 140);
+    };
+
     useEffect(() => {
       const audio = getOrCreateAudio();
       if (!audio) return () => {};
@@ -350,32 +544,64 @@ const VoiceMessageChip = memo(
           return;
         }
         setIsPlaying(false);
+        setIsStarting(false);
         setProgress(1);
         stopProgressLoop();
         applyPendingPeaks();
       };
       const handlePlay = () => {
         if (!isCurrentAudio()) return;
+        userPausedRef.current = false;
+        autoResumeAttemptsRef.current = 0;
+        playInFlightRef.current = false;
+        setIsStarting(false);
         playStartRef.current =
           typeof performance !== "undefined"
             ? performance.now() - Number(audio.currentTime || 0) * 1000
             : null;
         setIsPlaying(true);
         startProgressLoop(audio);
+        scheduleWaveformWarmup();
       };
       const handlePlaying = () => {
         if (!isCurrentAudio()) return;
+        userPausedRef.current = false;
+        autoResumeAttemptsRef.current = 0;
+        playInFlightRef.current = false;
+        setIsStarting(false);
         playStartRef.current =
           typeof performance !== "undefined"
             ? performance.now() - Number(audio.currentTime || 0) * 1000
             : null;
         setIsPlaying(true);
         startProgressLoop(audio);
+        scheduleWaveformWarmup();
       };
       const handlePause = () => {
         if (!isCurrentAudio()) return;
+        const total = getEffectiveTotal(audio);
+        const currentTime = getCurrentTimeEstimate(audio);
+        if (
+          playInFlightRef.current &&
+          !userPausedRef.current &&
+          Number(currentTime || 0) <= 0.05
+        ) {
+          return;
+        }
+        const endedNaturally =
+          Number.isFinite(total) && total > 0 && currentTime + 0.18 >= total;
+        const shouldAutoResume =
+          !userPausedRef.current &&
+          !endedNaturally &&
+          !audio.ended &&
+          !audio.seeking &&
+          Number(currentTime || 0) > 0.02;
+        if (shouldAutoResume) {
+          tryAutoResumePlayback(audio);
+        }
         playStartRef.current = null;
         setIsPlaying(false);
+        setIsStarting(false);
         stopProgressLoop();
         applyPendingPeaks();
       };
@@ -388,27 +614,6 @@ const VoiceMessageChip = memo(
             : fileDurationRef.current || 0;
         if (effectiveTotal > 0) {
           setDuration(effectiveTotal);
-          const targetBars = getTargetBars(effectiveTotal);
-          if (!VOICE_WAVEFORM_CACHE.has(cacheKey) && serverUrl) {
-            if (!VOICE_WAVEFORM_PROMISES.has(cacheKey)) {
-              const promise = loadAudioWaveform(
-                serverUrl,
-                cacheKey,
-                targetBars,
-              ).then((loaded) => {
-                VOICE_WAVEFORM_PROMISES.delete(cacheKey);
-                if (!loaded?.length) return;
-                VOICE_WAVEFORM_CACHE.set(cacheKey, loaded);
-                void persistWaveformCache();
-                if (isPlaying) {
-                  pendingPeaksRef.current = loaded;
-                  return;
-                }
-                setPeaks(loaded);
-              });
-              VOICE_WAVEFORM_PROMISES.set(cacheKey, promise);
-            }
-          }
         }
       };
       audio.addEventListener("timeupdate", handleTime);
@@ -432,17 +637,61 @@ const VoiceMessageChip = memo(
     const togglePlay = () => {
       const audio = getOrCreateAudio();
       if (!audio || !serverUrl) return;
-      if (isPlaying) {
+      if (isPlaying || isStarting) {
+        playRequestTokenRef.current += 1;
+        playInFlightRef.current = false;
+        userPausedRef.current = true;
         audio.pause();
         setIsPlaying(false);
+        setIsStarting(false);
+        stopProgressLoop();
       } else {
-        audio.preload = "auto";
-        setIsPlaying(true);
-        startProgressLoop(audio);
-        audio.play().catch(() => {
-          setIsPlaying(false);
-          stopProgressLoop();
+        userPausedRef.current = false;
+        autoResumeAttemptsRef.current = 0;
+        if (!waveformRequestedRef.current) {
+          scheduleWaveformWarmup();
+        }
+        const releaseKeys = [];
+        VOICE_AUDIO_POOL.forEach((pooledAudio, pooledKey) => {
+          if (pooledKey === cacheKey) return;
+          try {
+            pooledAudio.pause();
+          } catch (_) {
+            // ignore
+          }
+          releaseKeys.push(pooledKey);
         });
+        releaseKeys.forEach((poolKey) => {
+          destroyPooledAudio(poolKey);
+        });
+        const requestToken = playRequestTokenRef.current + 1;
+        playRequestTokenRef.current = requestToken;
+        playInFlightRef.current = true;
+        audio.preload = "auto";
+        setIsStarting(true);
+        audio
+          .play()
+          .then(() => {
+            if (requestToken !== playRequestTokenRef.current || userPausedRef.current) {
+              try {
+                audio.pause();
+              } catch (_) {
+                // ignore
+              }
+              setIsStarting(false);
+              setIsPlaying(false);
+              stopProgressLoop();
+              return;
+            }
+            playInFlightRef.current = false;
+          })
+          .catch(() => {
+            if (requestToken !== playRequestTokenRef.current) return;
+            playInFlightRef.current = false;
+            setIsStarting(false);
+            setIsPlaying(false);
+            stopProgressLoop();
+          });
       }
     };
 
@@ -451,6 +700,20 @@ const VoiceMessageChip = memo(
       return Math.max(0, Math.floor(progress * peaks.length));
     }, [peaks.length, progress]);
 
+    useEffect(() => {
+      return () => {
+        if (
+          waveformWarmupTimerRef.current &&
+          typeof window !== "undefined"
+        ) {
+          window.clearTimeout(waveformWarmupTimerRef.current);
+          waveformWarmupTimerRef.current = 0;
+        }
+        destroyPooledAudio(cacheKey);
+      };
+    }, [cacheKey]);
+
+    const hasActivePlayback = isPlaying || isStarting;
     const canPlay = Boolean(serverUrl);
     const waveformMaxHeight = 32;
     return (
@@ -460,9 +723,11 @@ const VoiceMessageChip = memo(
           onClick={togglePlay}
           disabled={!canPlay}
           className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-emerald-200 bg-emerald-100 text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-200/70 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200"
-          aria-label={isPlaying ? "Pause voice message" : "Play voice message"}
+          aria-label={
+            hasActivePlayback ? "Pause voice message" : "Play voice message"
+          }
         >
-          {isPlaying ? (
+          {hasActivePlayback ? (
             <Pause size={14} />
           ) : (
             <Play size={14} className="translate-x-[1px]" />

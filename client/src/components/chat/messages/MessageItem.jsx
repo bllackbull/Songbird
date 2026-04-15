@@ -150,6 +150,11 @@ export const MessageItem = memo(function MessageItem({
   useEffect(() => {
     const container = messageBodyRef.current;
     if (!container) return;
+    const mayContainMentionSyntax = /(^|[^a-z0-9._])@[a-z0-9._]{3,}/i.test(
+      bodyText,
+    );
+    const mayContainCodeBlocks =
+      typeof markdownHtml === "string" && markdownHtml.includes("sb-code-block");
     const markInvalid = (el) => {
       const now = Date.now();
       const lastValid = Number(el.dataset.sbMentionValidAt || 0);
@@ -167,7 +172,9 @@ export const MessageItem = memo(function MessageItem({
         delete el.dataset.sbMentionInvalidAt;
       }
     };
-    wrapMentionsInContainer(container);
+    if (mayContainMentionSyntax) {
+      wrapMentionsInContainer(container);
+    }
     const handleMentionClick = (event) => {
       const target = event?.target;
       if (!target || typeof target.closest !== "function") return;
@@ -181,7 +188,6 @@ export const MessageItem = memo(function MessageItem({
       const mention = String(rawMention || "").toLowerCase();
       if (!mention) return;
       resolveMention(mention, user.username, {
-        force: true,
         fallbackToCacheOnError: true,
       }).then((result) => {
         if (!result || result.status !== "valid") {
@@ -194,30 +200,9 @@ export const MessageItem = memo(function MessageItem({
         }
       });
     };
-    container.addEventListener("click", handleMentionClick);
-    const mentionVersion = String(mentionRefreshToken || 0);
-    const mentionEls = container.querySelectorAll(".sb-mention");
-    mentionEls.forEach((node) => {
-      const el = node;
-      if (el.dataset.sbMentionEnhanced === mentionVersion) return;
-      const rawMention =
-        el.dataset.mention ||
-        String(el.textContent || "")
-          .trim()
-          .replace(/^@/, "");
-      const mention = String(rawMention || "").toLowerCase();
-      if (!mention) return;
-      el.dataset.sbMentionEnhanced = mentionVersion;
-      resolveMention(mention, user.username, {
-        fallbackToCacheOnError: true,
-      }).then((result) => {
-        if (!result || result.status !== "valid") {
-          markInvalid(el);
-          return;
-        }
-        markValid(el);
-      });
-    });
+    if (mayContainMentionSyntax) {
+      container.addEventListener("click", handleMentionClick);
+    }
     if (mentionDebugEnabled) {
       const totalMentions = container.querySelectorAll(".sb-mention").length;
       const activeMentions =
@@ -236,36 +221,70 @@ export const MessageItem = memo(function MessageItem({
         };
       });
     }
-    const blocks = container.querySelectorAll(".sb-code-block");
-    blocks.forEach((block) => {
-      if (block.dataset.sbEnhanced === "1") return;
-      block.dataset.sbEnhanced = "1";
-      const codeEl = block.querySelector("pre.sb-code > code");
-      const button = block.querySelector(".sb-code-copy");
-      if (!codeEl || !button) return;
-      button.addEventListener("click", async () => {
-        try {
-          await navigator.clipboard.writeText(codeEl.textContent || "");
-          button.dataset.state = "copied";
-          button.setAttribute("aria-label", "Copied");
-          window.setTimeout(() => {
-            button.dataset.state = "idle";
-            button.setAttribute("aria-label", "Copy code");
-          }, 1200);
-        } catch {
-          button.dataset.state = "error";
-          button.setAttribute("aria-label", "Copy failed");
-          window.setTimeout(() => {
-            button.dataset.state = "idle";
-            button.setAttribute("aria-label", "Copy code");
-          }, 1200);
+    if (mayContainCodeBlocks) {
+      const enhanceCodeBlocks = () => {
+        const blocks = container.querySelectorAll(".sb-code-block");
+        blocks.forEach((block) => {
+          if (block.dataset.sbEnhanced === "1") return;
+          block.dataset.sbEnhanced = "1";
+          const codeEl = block.querySelector("pre.sb-code > code");
+          const button = block.querySelector(".sb-code-copy");
+          if (!codeEl || !button) return;
+          button.addEventListener("click", async () => {
+            try {
+              await navigator.clipboard.writeText(codeEl.textContent || "");
+              button.dataset.state = "copied";
+              button.setAttribute("aria-label", "Copied");
+              window.setTimeout(() => {
+                button.dataset.state = "idle";
+                button.setAttribute("aria-label", "Copy code");
+              }, 1200);
+            } catch {
+              button.dataset.state = "error";
+              button.setAttribute("aria-label", "Copy failed");
+              window.setTimeout(() => {
+                button.dataset.state = "idle";
+                button.setAttribute("aria-label", "Copy code");
+              }, 1200);
+            }
+          });
+        });
+      };
+      let idleId = null;
+      let timerId = null;
+      if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
+        idleId = window.requestIdleCallback(enhanceCodeBlocks, { timeout: 600 });
+      } else {
+        timerId = window.setTimeout(enhanceCodeBlocks, 40);
+      }
+      return () => {
+        if (mayContainMentionSyntax) {
+          container.removeEventListener("click", handleMentionClick);
         }
-      });
-    });
+        if (
+          idleId !== null &&
+          typeof window !== "undefined" &&
+          typeof window.cancelIdleCallback === "function"
+        ) {
+          window.cancelIdleCallback(idleId);
+        }
+        if (timerId !== null && typeof window !== "undefined") {
+          window.clearTimeout(timerId);
+        }
+      };
+    }
     return () => {
-      container.removeEventListener("click", handleMentionClick);
+      if (mayContainMentionSyntax) {
+        container.removeEventListener("click", handleMentionClick);
+      }
     };
-  }, [markdownHtml, mentionRefreshToken, user.username, mentionDebugEnabled]);
+  }, [
+    markdownHtml,
+    mentionRefreshToken,
+    user.username,
+    mentionDebugEnabled,
+    bodyText,
+  ]);
 
   const formatSeenCount = (value) => {
     const count = Math.max(1, Number(value || 0));

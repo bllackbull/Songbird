@@ -1,4 +1,5 @@
 import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import logo from './assets/songbird-logo.svg'
 import { APP_CONFIG } from './settings/appConfig.js'
 import InstallBar from './components/pwa/InstallBar.jsx'
@@ -9,9 +10,24 @@ const AUTH_REDIRECT_KEY = 'songbird-auth-redirect'
 const OPEN_CHAT_ID_KEY = 'songbird-open-chat-id'
 const PWA_INSTALL_DISMISS_KEY = 'songbird-pwa-install-dismissed'
 const PWA_PERMISSIONS_PROMPT_KEY = 'songbird-pwa-permissions-prompt'
-const AuthPage = lazy(() => import('./pages/AuthPage.jsx'))
-const ChatPage = lazy(() => import('./pages/ChatPage.jsx'))
-const InvitePage = lazy(() => import('./pages/InvitePage.jsx'))
+const ROUTE_CHUNK_TELEMETRY_KEY = 'songbird-route-chunk-telemetry-v1'
+const loadAuthPage = () => import('./pages/AuthPage.jsx')
+const loadChatPage = () => import('./pages/ChatPage.jsx')
+const loadInvitePage = () => import('./pages/InvitePage.jsx')
+const AuthPage = lazy(loadAuthPage)
+const ChatPage = lazy(loadChatPage)
+const InvitePage = lazy(loadInvitePage)
+
+function getPreloadMode() {
+  if (typeof navigator === 'undefined') return 'eager'
+  const connection =
+    navigator.connection || navigator.mozConnection || navigator.webkitConnection
+  if (!connection) return 'eager'
+  if (connection.saveData) return 'idle'
+  const effectiveType = String(connection.effectiveType || '').toLowerCase()
+  if (effectiveType === 'slow-2g' || effectiveType === '2g') return 'idle'
+  return 'eager'
+}
 
 function RouteLoadingFallback({ themeColor, onVisibleChange = null }) {
   const [dots, setDots] = useState(0)
@@ -26,9 +42,9 @@ function RouteLoadingFallback({ themeColor, onVisibleChange = null }) {
     }
   }, [onVisibleChange])
 
-  return (
+  const content = (
     <div
-      className="fixed inset-0 z-[60] flex min-h-screen w-full items-center justify-center"
+      className="fixed inset-0 z-[1200] flex min-h-screen w-full items-center justify-center"
       style={{ backgroundColor: themeColor }}
     >
       <div className="flex flex-col items-center gap-3 text-center text-emerald-700 dark:text-emerald-300">
@@ -37,6 +53,8 @@ function RouteLoadingFallback({ themeColor, onVisibleChange = null }) {
       </div>
     </div>
   )
+  if (typeof document === 'undefined' || !document.body) return content
+  return createPortal(content, document.body)
 }
 
 function getRoute(pathname) {
@@ -99,6 +117,8 @@ export default function App() {
   })
   const [showInstallGuide, setShowInstallGuide] = useState(false)
   const [routeChunkLoading, setRouteChunkLoading] = useState(false)
+  const preloadedRoutesRef = useRef(new Set())
+  const routeChunkLoadStartRef = useRef(0)
   const installBarRef = useRef(null)
   const [installBarHeight, setInstallBarHeight] = useState(0)
   const themeRefreshTimersRef = useRef([])
@@ -314,6 +334,120 @@ export default function App() {
     }
   }, [isStandaloneDisplay])
 
+  useEffect(() => {
+    if (routeChunkLoading) {
+      routeChunkLoadStartRef.current = performance.now()
+      return
+    }
+    const startedAt = Number(routeChunkLoadStartRef.current || 0)
+    if (!startedAt) return
+    routeChunkLoadStartRef.current = 0
+    const durationMs = Math.max(0, performance.now() - startedAt)
+    if (durationMs < 20) return
+    try {
+      const raw = localStorage.getItem(ROUTE_CHUNK_TELEMETRY_KEY)
+      const parsed = JSON.parse(raw || '[]')
+      const items = Array.isArray(parsed) ? parsed : []
+      items.push({
+        t: Date.now(),
+        route,
+        durationMs: Math.round(durationMs),
+      })
+      localStorage.setItem(
+        ROUTE_CHUNK_TELEMETRY_KEY,
+        JSON.stringify(items.slice(-80)),
+      )
+    } catch {
+      // ignore telemetry storage failures
+    }
+  }, [route, routeChunkLoading])
+
+  useEffect(() => {
+    let cancelled = false
+    let idleId = null
+    let timerId = null
+    const mode = getPreloadMode()
+
+    const preloadKey = (key, loader) => {
+      if (preloadedRoutesRef.current.has(key)) return
+      preloadedRoutesRef.current.add(key)
+      void loader().catch(() => {
+        preloadedRoutesRef.current.delete(key)
+      })
+    }
+
+    const preloadLikelyRoutes = () => {
+      if (cancelled) return
+      if (route === 'login' || route === 'signup') {
+        preloadKey('chat', loadChatPage)
+        return
+      }
+      if (route === 'invite') {
+        preloadKey('chat', loadChatPage)
+        preloadKey('auth', loadAuthPage)
+        return
+      }
+      if (route === 'chat') {
+        preloadKey('invite', loadInvitePage)
+        return
+      }
+      preloadKey('auth', loadAuthPage)
+    }
+
+    const warmupMarkdownRendering = () => {
+      if (cancelled) return
+      if (route !== 'chat') return
+      void import('./utils/markdown.js')
+        .then((mod) => {
+          mod?.preloadMarkdownHighlighter?.()
+        })
+        .catch(() => {})
+    }
+
+    const triggerPreload = () => {
+      preloadLikelyRoutes()
+      warmupMarkdownRendering()
+    }
+
+    if (mode === 'eager') {
+      timerId = window.setTimeout(triggerPreload, 80)
+    } else if (typeof window.requestIdleCallback === 'function') {
+      idleId = window.requestIdleCallback(triggerPreload, { timeout: 1600 })
+    } else {
+      timerId = window.setTimeout(triggerPreload, 650)
+    }
+
+    window.addEventListener('pointerdown', triggerPreload, {
+      once: true,
+      passive: true,
+      capture: true,
+    })
+    window.addEventListener('keydown', triggerPreload, {
+      once: true,
+      passive: true,
+      capture: true,
+    })
+
+    return () => {
+      cancelled = true
+      if (timerId !== null) {
+        window.clearTimeout(timerId)
+      }
+      if (
+        idleId !== null &&
+        typeof window.cancelIdleCallback === 'function'
+      ) {
+        window.cancelIdleCallback(idleId)
+      }
+      window.removeEventListener('pointerdown', triggerPreload, {
+        capture: true,
+      })
+      window.removeEventListener('keydown', triggerPreload, {
+        capture: true,
+      })
+    }
+  }, [route])
+
   useLayoutEffect(() => {
     const barNode = installBarRef.current
     if (!barNode) {
@@ -348,7 +482,11 @@ export default function App() {
       '--install-bar-translate',
       showInstallBar && !installForceHidden ? '0%' : '-110%',
     )
-  }, [installBarHeight, installForceHidden, showInstallBar])
+    root.style.setProperty(
+      '--install-bar-z',
+      routeChunkLoading ? '10' : '40',
+    )
+  }, [installBarHeight, installForceHidden, showInstallBar, routeChunkLoading])
 
   useEffect(() => {
     if (!isStandaloneDisplay) return
@@ -786,10 +924,11 @@ export default function App() {
           localStorage.setItem(PWA_INSTALL_DISMISS_KEY, '1')
         }}
         onInstall={async () => {
-          const isDesktop =
-            window.matchMedia?.('(min-width: 768px)')?.matches || false
           if (installPromptEvent) {
             try {
+              if (typeof installPromptEvent.prompt !== 'function') {
+                throw new Error('Install prompt unavailable')
+              }
               await installPromptEvent.prompt()
               const choice = await installPromptEvent.userChoice
               if (choice?.outcome !== 'accepted') {
@@ -804,15 +943,14 @@ export default function App() {
             }
             return
           }
-          if (!isDesktop) {
-            setShowInstallGuide(true)
-          }
+          setShowInstallGuide(true)
         }}
       />
 
       <InstallGuideModal
         open={showInstallGuide}
         iconSrc="/icons/icon-192.png"
+        isDesktop={isDesktopViewport}
         onClose={() => setShowInstallGuide(false)}
       />
     </div>

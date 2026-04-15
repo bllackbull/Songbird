@@ -29,6 +29,8 @@ export function useChatEvents({
   const onPresenceUpdateRef = useRef(onPresenceUpdate);
   const onTypingUpdateRef = useRef(onTypingUpdate);
   const onChatListChangedRef = useRef(onChatListChanged);
+  const loadChatsTimerRef = useRef(null);
+  const loadChatsScheduledRef = useRef(false);
 
   useEffect(() => {
     onIncomingMessageRef.current = onIncomingMessage;
@@ -58,6 +60,15 @@ export function useChatEvents({
     if (!username) return;
     let source = null;
     let isMounted = true;
+    const scheduleLoadChats = () => {
+      if (loadChatsScheduledRef.current) return;
+      loadChatsScheduledRef.current = true;
+      loadChatsTimerRef.current = window.setTimeout(() => {
+        loadChatsScheduledRef.current = false;
+        loadChatsTimerRef.current = null;
+        void loadChatsRef.current?.({ silent: true });
+      }, 180);
+    };
 
     const connect = () => {
       if (!isMounted) return;
@@ -94,7 +105,7 @@ export function useChatEvents({
           onTypingUpdateRef.current?.(payload);
           return;
         }
-        void loadChatsRef.current?.({ silent: true });
+        scheduleLoadChats();
         const payloadChatId = Number(payload.chatId || 0);
         const currentActiveId = activeChatIdRef.current;
         const isOwnEvent =
@@ -189,6 +200,11 @@ export function useChatEvents({
       if (sseReconnectRef.current) {
         clearTimeout(sseReconnectRef.current);
       }
+      if (loadChatsTimerRef.current) {
+        clearTimeout(loadChatsTimerRef.current);
+        loadChatsTimerRef.current = null;
+      }
+      loadChatsScheduledRef.current = false;
     };
   }, [
     activeChatIdRef,

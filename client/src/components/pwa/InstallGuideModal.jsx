@@ -4,6 +4,7 @@ export default function InstallGuideModal({
   open,
   onClose,
   iconSrc = "/icons/icon-192.png",
+  isDesktop = false,
 }) {
   if (!open) return null;
 
@@ -40,7 +41,11 @@ export default function InstallGuideModal({
                 <rect x="5" y="11" width="14" height="10" rx="2" />
               </svg>
             </span>
-            <span>Tap the Share button.</span>
+            <span>
+              {isDesktop
+                ? "Open the browser menu."
+                : "Tap the Share button."}
+            </span>
           </div>
           <div className="flex items-start gap-3">
             <span className="relative -top-0.5 inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200">
@@ -58,7 +63,11 @@ export default function InstallGuideModal({
                 <path d="M8 12h8" />
               </svg>
             </span>
-            <span>Select "Add to Home Screen".</span>
+            <span>
+              {isDesktop
+                ? 'Choose "Install app".'
+                : 'Select "Add to Home Screen".'}
+            </span>
           </div>
           <div className="flex items-start gap-3">
             <span className="relative -top-0.5 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200">

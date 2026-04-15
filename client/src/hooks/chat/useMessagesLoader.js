@@ -1,4 +1,6 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+const SILENT_FETCH_TRACK_MAX_CHATS = 40;
 
 export function useMessagesLoader({
   user,
@@ -41,9 +43,61 @@ export function useMessagesLoader({
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const messageFetchInFlightRef = useRef(false);
   const queuedSilentMessageRefreshRef = useRef(null);
+  const messageFetchAbortRef = useRef(null);
+  const messageFetchRequestIdRef = useRef(0);
+  const lastSilentFetchByChatRef = useRef(new Map());
+
+  const markSilentFetchAt = (chatId, timestamp) => {
+    const key = Number(chatId || 0);
+    if (!key) return;
+    const map = lastSilentFetchByChatRef.current;
+    map.set(key, Number(timestamp || Date.now()));
+    if (map.size > 1) {
+      const value = map.get(key);
+      map.delete(key);
+      map.set(key, value);
+    }
+    while (map.size > SILENT_FETCH_TRACK_MAX_CHATS) {
+      const oldestKey = map.keys().next().value;
+      if (oldestKey === undefined) break;
+      map.delete(oldestKey);
+    }
+  };
+
+  useEffect(
+    () => () => {
+      if (messageFetchAbortRef.current) {
+        messageFetchAbortRef.current.abort();
+        messageFetchAbortRef.current = null;
+      }
+      queuedSilentMessageRefreshRef.current = null;
+      messageFetchInFlightRef.current = false;
+    },
+    [],
+  );
 
   async function loadMessages(chatId, options = {}) {
     const requestChatId = Number(chatId);
+    const isSilentRefresh = Boolean(options.silent);
+    if (isSilentRefresh) {
+      const now = Date.now();
+      const lastAt = Number(lastSilentFetchByChatRef.current.get(requestChatId) || 0);
+      if (lastAt && now - lastAt < 320) {
+        queuedSilentMessageRefreshRef.current = {
+          chatId: requestChatId,
+          options: { ...options, silent: true },
+        };
+        return;
+      }
+      markSilentFetchAt(requestChatId, now);
+    }
+    const requestId = messageFetchRequestIdRef.current + 1;
+    messageFetchRequestIdRef.current = requestId;
+    if (messageFetchAbortRef.current) {
+      messageFetchAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    messageFetchAbortRef.current = controller;
     if (!options.silent) {
       setLoadingMessages(true);
     }
@@ -77,9 +131,15 @@ export function useMessagesLoader({
       }
       const res = await listMessagesByQuery(
         Object.fromEntries(query.entries()),
-        { cache: "no-store" },
+        { cache: "no-store", signal: controller.signal },
       );
+      if (requestId !== messageFetchRequestIdRef.current) {
+        return;
+      }
       const data = await res.json();
+      if (requestId !== messageFetchRequestIdRef.current) {
+        return;
+      }
       if (!res.ok) {
         throw new Error(data?.error || "Failed to load messages.");
       }
@@ -299,15 +359,19 @@ export function useMessagesLoader({
               : [];
             const mergedFiles =
               serverFiles.length && localFiles.length === serverFiles.length
-                ? serverFiles.map((file, idx) => ({
-                    ...file,
-                    _localId:
-                      localFiles[idx]?._localId || localFiles[idx]?.id || null,
-                    _localUrl:
-                      localFiles[idx]?.url ||
-                      localFiles[idx]?._localUrl ||
-                      null,
-                  }))
+                ? serverFiles.map((file, idx) => {
+                    const serverUrl = String(file?.url || "");
+                    const localUrl =
+                      localFiles[idx]?.url || localFiles[idx]?._localUrl || null;
+                    const keepLocalUrl =
+                      !serverUrl || serverUrl.startsWith("blob:");
+                    return {
+                      ...file,
+                      _localId:
+                        localFiles[idx]?._localId || localFiles[idx]?.id || null,
+                      _localUrl: keepLocalUrl ? localUrl : null,
+                    };
+                  })
                 : serverFiles;
             return {
               ...serverMsg,
@@ -719,9 +783,15 @@ export function useMessagesLoader({
           () => null,
         );
       }
-    } catch {
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        return;
+      }
       // Keep chat window free of transient fetch errors.
     } finally {
+      if (messageFetchAbortRef.current === controller) {
+        messageFetchAbortRef.current = null;
+      }
       messageFetchInFlightRef.current = false;
       if (queuedSilentMessageRefreshRef.current) {
         const queued = queuedSilentMessageRefreshRef.current;

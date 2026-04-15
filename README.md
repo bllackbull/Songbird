@@ -432,6 +432,8 @@ cp .env.example .env
 | `CHAT_HEALTH_CHECK_INTERVAL` | `integer` | `10000` | Connection health check interval (milliseconds). |
 | `CHAT_SSE_RECONNECT_DELAY` | `integer` | `2000` | Delay before reconnecting SSE after error (milliseconds). |
 | `CHAT_SEARCH_MAX_RESULTS` | `integer` | `5` | Max users shown in search results. |
+| `CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES` | `integer` | `5242880` | Max audio file size (bytes) allowed for client-side waveform decode. |
+| `CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS` | `integer` | `480` | Max audio duration (seconds) allowed for client-side waveform decode. |
 | `NICKNAME_MAX` | `integer` | `24` | Max nickname length for users and groups. |
 | `USERNAME_MAX` | `integer` | `16` | Max username length for users and groups. |
 | `VAPID_PUBLIC_KEY` | `string` | `-` | Web Push public key (required for push notifications). |

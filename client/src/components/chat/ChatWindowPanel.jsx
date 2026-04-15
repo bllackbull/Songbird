@@ -1351,6 +1351,7 @@ export default function ChatWindowPanel({
           </div>
         ) : (
           <MessageTimeline
+            key={`timeline-${Number(activeChatId || 0)}`}
             loadingMessages={loadingMessages}
             messages={messages}
             groupedMessages={groupedMessages}
