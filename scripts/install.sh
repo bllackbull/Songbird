@@ -434,11 +434,11 @@ validate_backup_zip() {
     printf "Backup zip appears empty or unreadable.\n"
     return 1
   fi
-  if ! echo "$listing" | grep -qE '(^|/)(songbird\.db)$'; then
+  if ! echo "$listing" | grep -qE '(^|/)data/songbird\.db$|(^|/)(songbird\.db)$'; then
     printf "Backup zip missing songbird.db.\n"
     return 1
   fi
-  if ! echo "$listing" | grep -qE '(^|/)uploads(/|$)'; then
+  if ! echo "$listing" | grep -qE '(^|/)data/uploads(/|$)|(^|/)uploads(/|$)'; then
     printf "Backup zip missing uploads/ directory.\n"
     return 1
   fi
@@ -475,10 +475,16 @@ prepare_source_root_for_data_copy() {
 extract_backup_zip() {
   local zip_path="$1"
   local tmp_dir="$2"
+  local password="${3:-}"
 
-  run_silent run_as_root unzip -q "$zip_path" -d "$tmp_dir"
+  if [[ -n "$password" ]]; then
+    run_silent run_as_root unzip -P "$password" -q "$zip_path" -d "$tmp_dir"
+  else
+    run_silent run_as_root unzip -q "$zip_path" -d "$tmp_dir"
+  fi
 
   local source_dir="$tmp_dir"
+  local env_src="$tmp_dir/.env"
   if [[ -d "$tmp_dir/data" ]]; then
     source_dir="$tmp_dir/data"
   fi
@@ -490,7 +496,11 @@ extract_backup_zip() {
     return 1
   fi
 
-  printf "%s" "$source_dir"
+  if [[ ! -f "$env_src" && -f "$source_dir/.env" ]]; then
+    env_src="$source_dir/.env"
+  fi
+
+  printf "%s|%s" "$source_dir" "$env_src"
 }
 
 detect_os() {
@@ -832,6 +842,7 @@ write_env_from_example() {
   local existing_client_port
   local existing_voice_waveform_max_decode_bytes
   local existing_voice_waveform_max_decode_seconds
+  local existing_storage_encryption_key
   existing_public_key="$(get_existing_env_value "VAPID_PUBLIC_KEY" "")"
   existing_private_key="$(get_existing_env_value "VAPID_PRIVATE_KEY" "")"
   existing_subject="$(get_existing_env_value "VAPID_SUBJECT" "mailto:admin@example.com")"
@@ -839,6 +850,7 @@ write_env_from_example() {
   existing_client_port="$(get_existing_env_value "CLIENT_PORT" "$DEFAULT_CLIENT_PORT")"
   existing_voice_waveform_max_decode_bytes="$(get_existing_env_value "CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES" "$DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES")"
   existing_voice_waveform_max_decode_seconds="$(get_existing_env_value "CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS" "$DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS")"
+  existing_storage_encryption_key="$(get_existing_env_value "STORAGE_ENCRYPTION_KEY" "")"
 
   run_silent run_as_root cp "$example_file" "$env_file"
   replace_env_value "$env_file" "SERVER_PORT" "$existing_server_port"
@@ -851,6 +863,7 @@ write_env_from_example() {
   replace_env_value "$env_file" "MESSAGE_FILE_RETENTION" "$RETENTION_DAYS"
   replace_env_value "$env_file" "CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES" "$existing_voice_waveform_max_decode_bytes"
   replace_env_value "$env_file" "CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS" "$existing_voice_waveform_max_decode_seconds"
+  replace_env_value "$env_file" "STORAGE_ENCRYPTION_KEY" "$existing_storage_encryption_key"
   replace_env_value "$env_file" "VAPID_PUBLIC_KEY" "$existing_public_key"
   replace_env_value "$env_file" "VAPID_PRIVATE_KEY" "$existing_private_key"
   if [[ -n "$CERTBOT_EMAIL" ]]; then
@@ -864,9 +877,11 @@ write_env_from_example() {
 
 write_env_fallback() {
   local env_file="$1"
+  local existing_storage_encryption_key
   local existing_public_key
   local existing_private_key
   local existing_subject
+  existing_storage_encryption_key="$(get_existing_env_value "STORAGE_ENCRYPTION_KEY" "")"
   existing_public_key="$(get_existing_env_value "VAPID_PUBLIC_KEY" "")"
   existing_private_key="$(get_existing_env_value "VAPID_PRIVATE_KEY" "")"
   existing_subject="$(get_existing_env_value "VAPID_SUBJECT" "mailto:admin@example.com")"
@@ -900,6 +915,7 @@ CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES=${DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_BY
 CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS=${DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS}
 NICKNAME_MAX=24
 USERNAME_MAX=16
+STORAGE_ENCRYPTION_KEY=${existing_storage_encryption_key}
 VAPID_PUBLIC_KEY=${existing_public_key}
 VAPID_PRIVATE_KEY=${existing_private_key}
 VAPID_SUBJECT=${existing_subject}
@@ -1201,11 +1217,20 @@ restore_backup_if_provided() {
   local tmp_dir
   tmp_dir="$(mktemp -d)"
 
-  local source_dir
-  source_dir="$(extract_backup_zip "$DB_BACKUP_PATH" "$tmp_dir")" || {
+  local extract_result=""
+  if ! extract_result="$(extract_backup_zip "$DB_BACKUP_PATH" "$tmp_dir" 2>/dev/null)"; then
+    local backup_password=""
+    backup_password="$(prompt_secret "Backup password (leave blank if not encrypted)")"
     run_silent run_as_root rm -rf "$tmp_dir"
-    fail "Backup zip does not contain expected songbird.db and uploads/ directory."
-  }
+    tmp_dir="$(mktemp -d)"
+    extract_result="$(extract_backup_zip "$DB_BACKUP_PATH" "$tmp_dir" "$backup_password")" || {
+      run_silent run_as_root rm -rf "$tmp_dir"
+      fail "Backup zip does not contain expected .env, songbird.db, and uploads/ content."
+    }
+  fi
+
+  local source_dir="${extract_result%%|*}"
+  local env_src="${extract_result#*|}"
 
   local db_src="$source_dir/songbird.db"
   local uploads_src="$source_dir/uploads"
@@ -1213,6 +1238,9 @@ restore_backup_if_provided() {
   run_silent run_as_root rm -rf "$INSTALL_DIR/data"
   run_silent run_as_root mkdir -p "$INSTALL_DIR/data"
 
+  if [[ -f "$env_src" ]]; then
+    run_silent run_as_root cp -a "$env_src" "$INSTALL_DIR/.env"
+  fi
   if [[ -f "$db_src" ]]; then
     run_silent run_as_root cp -a "$db_src" "$INSTALL_DIR/data/"
   fi
@@ -1221,7 +1249,7 @@ restore_backup_if_provided() {
   fi
 
   run_silent run_as_root rm -rf "$tmp_dir"
-  log "Backup restored into ${INSTALL_DIR}/data."
+  log "Backup restored into ${INSTALL_DIR}."
   apply_ownership
 }
 
@@ -1704,6 +1732,43 @@ db_backup() {
   press_enter_to_continue
 }
 
+db_help() {
+  run_db_command npm --prefix server run db:help
+  press_enter_to_continue
+}
+
+db_vacuum() {
+  if [[ "$(prompt_yes_no "This will run VACUUM and rewrite the database file. Continue?" "no")" != "yes" ]]; then
+    log "VACUUM canceled."
+    return 0
+  fi
+  run_db_command npm --prefix server run db:vacuum -- -y
+  press_enter_to_continue
+}
+
+db_restore() {
+  if [[ "$(prompt_yes_no "This will replace ${INSTALL_DIR}/.env and ${INSTALL_DIR}/data. Continue?" "no")" != "yes" ]]; then
+    log "Restore canceled."
+    return 0
+  fi
+  run_db_command npm --prefix server run db:restore -- -y
+  press_enter_to_continue
+}
+
+db_help() {
+  run_db_command npm --prefix server run db:help
+  press_enter_to_continue
+}
+
+db_vacuum() {
+  if [[ "$(prompt_yes_no "This will run VACUUM and rewrite the database file. Continue?" "no")" != "yes" ]]; then
+    log "VACUUM canceled."
+    return 0
+  fi
+  run_db_command npm --prefix server run db:vacuum -- -y
+  press_enter_to_continue
+}
+
 db_inspect() {
   local kind="$1"
   local limit=""
@@ -1856,6 +1921,126 @@ db_user_generate() {
   press_enter_to_continue
 }
 
+db_chat_create() {
+  local type=""
+  local name=""
+  local username=""
+  local visibility=""
+  local owner=""
+  local members=""
+
+  prompt_read "Type (group/channel, default: group): " type
+  type="${type#"${type%%[![:space:]]*}"}"
+  type="${type%"${type##*[![:space:]]}"}"
+  [[ -z "$type" ]] && type="group"
+
+  name="$(prompt_non_empty "Chat name")"
+  username="$(prompt_non_empty "Chat username/handle (without @)")"
+  prompt_read "Visibility (public/private, default: public): " visibility
+  visibility="${visibility#"${visibility%%[![:space:]]*}"}"
+  visibility="${visibility%"${visibility##*[![:space:]]}"}"
+  [[ -z "$visibility" ]] && visibility="public"
+  owner="$(prompt_non_empty "Owner username or id")"
+  prompt_read "Add members (comma separated usernames/ids, optional): " members
+
+  run_db_command npm --prefix server run db:chat:create -- \
+    --type "$type" \
+    --name "$name" \
+    --owner "$owner" \
+    --username "$username" \
+    --visibility "$visibility" \
+    --users "$members"
+  press_enter_to_continue
+}
+
+db_chat_add() {
+  local chat=""
+  local users=""
+  local add_all="no"
+
+  chat="$(prompt_non_empty "Chat id or username")"
+  add_all="$(prompt_yes_no "Add all users in the database to this chat?" "no")"
+
+  if [[ "$add_all" == "yes" ]]; then
+    run_db_command npm --prefix server run db:chat:add -- "$chat" --all
+    press_enter_to_continue
+    return 0
+  fi
+
+  users="$(prompt_non_empty "Usernames or ids (comma separated)")"
+  users="$(printf "%s" "$users" | tr ',' ' ')"
+  run_db_command npm --prefix server run db:chat:add -- "$chat" $users
+  press_enter_to_continue
+}
+
+db_chat_edit() {
+  local chat=""
+  local name=""
+  local username=""
+  local visibility=""
+  local color=""
+  local owner=""
+  local invites=""
+  local args=()
+
+  chat="$(prompt_non_empty "Chat id or username")"
+  prompt_read "New chat name (optional): " name
+  prompt_read "New chat username/handle (optional, without @): " username
+  prompt_read "Visibility (public/private, optional): " visibility
+  prompt_read "Color hex (optional, example: #10b981): " color
+  prompt_read "New owner username or id (optional): " owner
+  prompt_read "Member invites setting (allow/disallow/skip, default: skip): " invites
+
+  args+=("$chat")
+  [[ -n "$name" ]] && args+=(--name "$name")
+  [[ -n "$username" ]] && args+=(--username "$username")
+  [[ -n "$visibility" ]] && args+=(--visibility "$visibility")
+  [[ -n "$color" ]] && args+=(--color "$color")
+  [[ -n "$owner" ]] && args+=(--owner "$owner")
+  if [[ "${invites,,}" == "allow" ]]; then
+    args+=(--allow-member-invites)
+  elif [[ "${invites,,}" == "disallow" ]]; then
+    args+=(--disallow-member-invites)
+  fi
+
+  run_db_command npm --prefix server run db:chat:edit -- "${args[@]}"
+  press_enter_to_continue
+}
+
+db_user_edit() {
+  local user=""
+  local username=""
+  local nickname=""
+  local avatar_url=""
+  local status=""
+  local color=""
+  local args=()
+
+  user="$(prompt_non_empty "User id or username")"
+  prompt_read "New username (optional): " username
+  prompt_read "New display name (optional): " nickname
+  prompt_read "Avatar URL (optional): " avatar_url
+  prompt_read "Status (online/invisible, optional): " status
+  prompt_read "Color hex (optional, example: #10b981): " color
+
+  args+=("$user")
+  [[ -n "$username" ]] && args+=(--username "$username")
+  [[ -n "$nickname" ]] && args+=(--nickname "$nickname")
+  [[ -n "$avatar_url" ]] && args+=(--avatar-url "$avatar_url")
+  [[ -n "$status" ]] && args+=(--status "$status")
+  [[ -n "$color" ]] && args+=(--color "$color")
+
+  run_db_command npm --prefix server run db:user:edit -- "${args[@]}"
+  press_enter_to_continue
+}
+
+db_user_ban() {
+  local user=""
+  user="$(prompt_non_empty "User id or username")"
+  run_db_command npm --prefix server run db:user:ban -- "$user"
+  press_enter_to_continue
+}
+
 db_restore_backup() {
   local backup_input=""
   while true; do
@@ -1896,36 +2081,52 @@ show_db_menu() {
     show_banner
     printf "\n"
     printf "Manage Database\n"
-    printf $'1) 👁️  Inspect database (summary)\n'
-    printf $'2) 👁️  Inspect chats metadata\n'
-    printf $'3) 👁️  Inspect users\n'
-    printf $'4) 👁️  Inspect files\n'
-    printf $'5) 📤  Backup database\n'
-    printf $'6) 🔄️  Reset database\n'
-    printf $'7) 🗑️  Delete database\n'
-    printf $'8) 🗑️  Delete chats\n'
-    printf $'9) 🗑️  Delete users\n'
-    printf $'10) 🧹  Delete files\n'
-    printf $'11) 👤  Create user\n'
-    printf $'12) 👥  Generate users (bulk)\n'
-    printf $'13) ↩️  Go back\n\n'
+    printf "1) 👁️  Inspect database (summary)\n"
+    printf "2) 👁️  Inspect chats metadata\n"
+    printf "3) 👁️  Inspect users\n"
+    printf "4) 👁️  Inspect files\n"
+    printf "5) 📤  Backup database\n"
+    printf "6) ♻️  Restore backup\n"
+    printf "7) 🧹  Vacuum database\n"
+    printf "8) 🔄️  Reset database\n"
+    printf "9) 🗑️  Delete database\n"
+    printf "10) 🗑️  Delete chats\n"
+    printf "11) 🗑️  Delete users\n"
+    printf "12) 🚫  Ban/unban user\n"
+    printf "13) 🗑️  Delete files\n"
+    printf "14) 👤  Create user\n"
+    printf "15) 👥  Generate users (bulk)\n"
+    printf "16) 💬  Create group/channel\n"
+    printf "17) ➕  Add members to chat\n"
+    printf "18) ✏️  Edit chat\n"
+    printf "19) ✏️ Edit user\n"
+    printf "20) ❔  Show help\n"
+    printf "21) ↩️  Go back\n\n"
 
-    prompt_read "Choose an option [1-13]: " choice
+    prompt_read "Choose an option [1-21]: " choice
     case "$choice" in
       1) db_inspect "all" ;;
       2) db_inspect "chat" ;;
       3) db_inspect "user" ;;
       4) db_inspect "file" ;;
       5) db_backup ;;
-      6) db_reset ;;
-      7) db_delete ;;
-      8) db_chat_delete ;;
-      9) db_user_delete ;;
-      10) db_file_delete ;;
-      11) db_user_create ;;
-      12) db_user_generate ;;
-      13) return ;;
-      *) printf "Invalid choice. Select a number from 1 to 13.\n" ;;
+      6) db_restore ;;
+      7) db_vacuum ;;
+      8) db_reset ;;
+      9) db_delete ;;
+      10) db_chat_delete ;;
+      11) db_user_delete ;;
+      12) db_user_ban ;;
+      13) db_file_delete ;;
+      14) db_user_create ;;
+      15) db_user_generate ;;
+      16) db_chat_create ;;
+      17) db_chat_add ;;
+      18) db_chat_edit ;;
+      19) db_user_edit ;;
+      20) db_help ;;
+      21) return ;;
+      *) printf "Invalid choice. Select a number from 1 to 21.\n" ;;
     esac
   done
 }

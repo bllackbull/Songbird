@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { createPortal } from "react-dom";
 import { Close, Eye, EyeOff, Trash, Upload } from "../../../icons/lucide.js";
 import { getAvatarStyle } from "../../../utils/avatarColor.js";
 import { hasPersian } from "../../../utils/fontUtils.js";
@@ -40,6 +41,7 @@ export function DesktopSettingsModal({
     [setSettingsPanel],
   );
   if (!settingsPanel) return null;
+  if (typeof document === "undefined") return null;
   const resolvedUserColor = userColor || "#10b981";
   const profileIdentity = profileForm.nickname || profileForm.username || "S";
   const profileInitials = getAvatarInitials(profileIdentity);
@@ -48,8 +50,8 @@ export function DesktopSettingsModal({
   const nicknameLength = String(profileForm.nickname || "").length;
   const usernameLength = String(profileForm.username || "").length;
 
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 px-6">
+  return createPortal(
+    <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/40 px-6">
       <div className="w-full max-w-md rounded-2xl border border-emerald-100/70 bg-white p-6 shadow-xl dark:border-emerald-500/30 dark:bg-slate-950">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-emerald-700 dark:text-emerald-200">
@@ -370,6 +372,7 @@ export function DesktopSettingsModal({
           await onDeleteAccount?.(password);
         }}
       />
-    </div>
+    </div>,
+    document.body,
   );
 }

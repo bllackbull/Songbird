@@ -1,11 +1,21 @@
 import path from "node:path";
 import fs from "node:fs";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
+import dotenv from "dotenv";
 import initSqlJs from "sql.js";
 import { migrations } from "./migrations/index.js";
 import { setUserColor } from "./settings/colors.js";
+import {
+  ensureStorageEncryptionKey,
+  storageEncryption,
+} from "./lib/storageEncryption.js";
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
+const projectRootDir = path.resolve(serverDir, "..");
+dotenv.config({ path: path.join(projectRootDir, ".env") });
+dotenv.config({ path: path.join(serverDir, ".env"), override: true });
+ensureStorageEncryptionKey({ projectRootDir, fsImpl: fs, pathImpl: path, cryptoImpl: crypto });
 const dataDir = path.resolve(serverDir, "..", "data");
 const dbPath = path.join(dataDir, "songbird.db");
 
@@ -74,6 +84,26 @@ function runWithoutSave(sql, params = []) {
 function getLastInsertId() {
   const row = getRow("SELECT last_insert_rowid() AS id");
   return row?.id;
+}
+
+function decryptMessageRow(row) {
+  if (!row) return row;
+
+  const next = { ...row };
+
+  if (typeof next.body === "string") {
+    next.body = storageEncryption.decryptText(next.body);
+  }
+
+  if (typeof next.last_message === "string") {
+    next.last_message = storageEncryption.decryptText(next.last_message);
+  }
+
+  if (typeof next.reply_body === "string") {
+    next.reply_body = storageEncryption.decryptText(next.reply_body);
+  }
+
+  return next;
 }
 
 function tableExists(name) {
@@ -147,14 +177,14 @@ export function getCurrentSchemaVersion() {
 
 export function findUserByUsername(username) {
   return getRow(
-    "SELECT id, username, nickname, avatar_url, color, status, password_hash FROM users WHERE username = ?",
+    "SELECT id, username, nickname, avatar_url, color, status, password_hash, banned FROM users WHERE username = ?",
     [username],
   );
 }
 
 export function findUserById(id) {
   return getRow(
-    "SELECT id, username, nickname, avatar_url, color, status, password_hash FROM users WHERE id = ?",
+    "SELECT id, username, nickname, avatar_url, color, status, password_hash, banned FROM users WHERE id = ?",
     [id],
   );
 }
@@ -168,7 +198,7 @@ export function listUsers(excludeUsername) {
   }
 
   return getAll(
-    "SELECT id, username, nickname, avatar_url, color, status FROM users ORDER BY username",
+    "SELECT id, username, nickname, avatar_url, color, status, banned FROM users ORDER BY username",
   );
 }
 
@@ -177,13 +207,13 @@ export function searchUsers(query, excludeUsername) {
 
   if (excludeUsername) {
     return getAll(
-      "SELECT id, username, nickname, avatar_url, color, status FROM users WHERE username != ? AND (username LIKE ? OR nickname LIKE ?) ORDER BY username",
+      "SELECT id, username, nickname, avatar_url, color, status, banned FROM users WHERE username != ? AND (username LIKE ? OR nickname LIKE ?) ORDER BY username",
       [excludeUsername, like, like],
     );
   }
 
   return getAll(
-    "SELECT id, username, nickname, avatar_url, color, status FROM users WHERE username LIKE ? OR nickname LIKE ? ORDER BY username",
+    "SELECT id, username, nickname, avatar_url, color, status, banned FROM users WHERE username LIKE ? OR nickname LIKE ? ORDER BY username",
     [like, like],
   );
 }
@@ -737,13 +767,14 @@ export function listChatsForUser(userId) {
     ORDER BY last_message_id DESC, c.created_at DESC
   `,
     [userId, userId, userId],
-  );
+  ).map(decryptMessageRow);
 }
 
 export function createMessage(chatId, userId, body, replyToMessageId = null) {
+  const storedBody = storageEncryption.encryptText(body);
   run(
     "INSERT INTO chat_messages (chat_id, user_id, body, reply_to_message_id) VALUES (?, ?, ?, ?)",
-    [chatId, userId, body, replyToMessageId || null],
+    [chatId, userId, storedBody, replyToMessageId || null],
   );
 
   const id = getLastInsertId();
@@ -805,9 +836,11 @@ export function ensureSavedChatForUser(userId) {
 }
 
 export function findMessageById(messageId) {
-  return getRow(
+  return decryptMessageRow(
+    getRow(
     "SELECT id, chat_id, user_id, body, created_at FROM chat_messages WHERE id = ?",
     [messageId],
+    ),
   );
 }
 
@@ -900,7 +933,7 @@ export function getMessages(chatId, options = {}) {
   const totalCount = Number(totalRow?.total || 0);
 
   return {
-    messages: rows,
+    messages: rows.map(decryptMessageRow),
     hasMore,
     totalCount,
   };
@@ -985,6 +1018,14 @@ export function updateUserPassword(userId, passwordHash) {
 
 export function updateUserStatus(userId, status) {
   run("UPDATE users SET status = ? WHERE id = ?", [status, userId]);
+}
+
+export function setUserBanned(userId, banned) {
+  run("UPDATE users SET banned = ? WHERE id = ?", [banned ? 1 : 0, Number(userId)]);
+}
+
+export function deleteSessionsByUserId(userId) {
+  run("DELETE FROM sessions WHERE user_id = ?", [Number(userId)]);
 }
 
 export function updateLastSeen(userId) {
@@ -1211,10 +1252,11 @@ export function getSession(token) {
   return getRow(
     `
     SELECT sessions.id AS session_id, sessions.token, users.id, users.username, users.nickname,
-           users.avatar_url, users.color, users.status
+           users.avatar_url, users.color, users.status, users.banned
     FROM sessions
     JOIN users ON users.id = sessions.user_id
     WHERE sessions.token = ?
+      AND COALESCE(users.banned, 0) = 0
   `,
     [token],
   );

@@ -22,6 +22,7 @@ const readEnvBool = (key, fallback) => {
 };
 
 export const APP_CONFIG = {
+  debugEnabled: readEnvBool("APP_DEBUG", false),
   accountCreationEnabled: readEnvBool("ACCOUNT_CREATION", true),
   messageMaxChars: readEnvNumber(["MESSAGE_MAX_CHARS", "MESSAGE_MAX"], 4000, {
     integer: true,

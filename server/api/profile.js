@@ -264,7 +264,7 @@ function registerProfileRoutes(app, deps) {
       return res.status(400).json({ error: "Username and status are required." });
     }
 
-    const allowed = new Set(["online", "idle", "invisible"]);
+    const allowed = new Set(["online", "invisible"]);
     if (!allowed.has(status)) {
       return res.status(400).json({ error: "Invalid status." });
     }

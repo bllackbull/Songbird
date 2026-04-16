@@ -48,7 +48,7 @@ export function createInspector({ fs, dataDir, adminGetRow, adminGetAll }) {
 
     if (mode === "all" || mode === "user") {
       snapshot.users = adminGetAll(
-        `SELECT id, username, nickname, status, avatar_url, created_at
+        `SELECT id, username, nickname, status, banned, avatar_url, created_at
          FROM users
          ORDER BY id ASC
          LIMIT ?`,
@@ -60,13 +60,20 @@ export function createInspector({ fs, dataDir, adminGetRow, adminGetAll }) {
       snapshot.chats = adminGetAll(
         `SELECT c.id, c.type, c.name,
                 (SELECT COUNT(*) FROM chat_members cm WHERE cm.chat_id = c.id) AS members,
+                (SELECT GROUP_CONCAT(cm.user_id, ',') FROM chat_members cm WHERE cm.chat_id = c.id ORDER BY cm.user_id ASC) AS member_ids_csv,
                 (SELECT COUNT(*) FROM chat_messages m WHERE m.chat_id = c.id) AS messages,
                 c.created_at
          FROM chats c
          ORDER BY c.id ASC
          LIMIT ?`,
         [safeLimit],
-      );
+      ).map((chat) => ({
+        ...chat,
+        member_ids: String(chat.member_ids_csv || "")
+          .split(",")
+          .map((id) => Number(id))
+          .filter((id) => Number.isFinite(id) && id > 0),
+      }));
     }
 
     if (mode === "all" || mode === "file") {

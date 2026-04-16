@@ -1001,9 +1001,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         avatarUrl: user.avatarUrl || "",
       });
       setAvatarPreview(user.avatarUrl || "");
-      setStatusSelection(
-        user.status === "idle" ? "online" : user.status || "online",
-      );
+      setStatusSelection(user.status || "online");
     }
   }, [user, pendingAvatarFile]);
 
@@ -1581,8 +1579,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const displayName = user.nickname || user.username;
   const displayInitials = getAvatarInitials(displayName);
-  const statusValueRaw = user.status || "online";
-  const statusValue = statusValueRaw === "idle" ? "online" : statusValueRaw;
+  const statusValue = user.status || "online";
   const statusDotClass =
     statusValue === "invisible"
       ? "bg-slate-400"

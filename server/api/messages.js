@@ -43,6 +43,7 @@ function registerMessageRoutes(app, deps) {
     requireSessionUsernameMatch,
     sanitizeDurationSeconds,
     sanitizePositiveInt,
+    storageEncryption,
     uploadFiles,
     uploadRootDir,
     enqueueVideoTranscodeJob,
@@ -587,6 +588,14 @@ function registerMessageRoutes(app, deps) {
             }),
           );
         }
+
+        normalizedFiles.forEach((file) => {
+          const storedName = path.basename(String(file?.storedName || "").trim());
+          if (!storedName) return;
+
+          const inputPath = path.join(uploadRootDir, storedName);
+          storageEncryption.encryptFileInPlace(inputPath);
+        });
 
         const summarizeFiles = (files) => {
           if (!Array.isArray(files) || files.length === 0) return "";

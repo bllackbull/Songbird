@@ -49,7 +49,7 @@ function printSnapshot(snapshot) {
     console.log("Users:");
     snapshot.users.forEach((row) => {
       console.log(
-        `  id=${row.id} username=${row.username} nickname=${row.nickname || ""} status=${row.status}`,
+        `  id=${row.id} username=${row.username} nickname=${row.nickname || ""} status=${row.status} banned=${Number(row.banned || 0) ? "yes" : "no"}`,
       );
     });
   }
@@ -57,7 +57,7 @@ function printSnapshot(snapshot) {
     console.log("Chats:");
     snapshot.chats.forEach((row) => {
       console.log(
-        `  id=${row.id} type=${row.type} name=${row.name || ""} members=${row.members} messages=${row.messages}`,
+        `  id=${row.id} type=${row.type} name=${row.name || ""} members=${row.members} member_ids=[${Array.isArray(row.member_ids) ? row.member_ids.join(", ") : ""}] messages=${row.messages}`,
       );
     });
   }
@@ -122,7 +122,7 @@ if (remote) {
 
     if (kind === "all" || kind === "user") {
       snapshot.users = dbApi.getAll(
-        `SELECT id, username, nickname, status, avatar_url, created_at
+        `SELECT id, username, nickname, status, banned, avatar_url, created_at
          FROM users
          ORDER BY id ASC
          LIMIT ?`,
@@ -133,13 +133,20 @@ if (remote) {
       snapshot.chats = dbApi.getAll(
         `SELECT c.id, c.type, c.name,
                 (SELECT COUNT(*) FROM chat_members cm WHERE cm.chat_id = c.id) AS members,
+                (SELECT GROUP_CONCAT(cm.user_id, ',') FROM chat_members cm WHERE cm.chat_id = c.id ORDER BY cm.user_id ASC) AS member_ids_csv,
                 (SELECT COUNT(*) FROM chat_messages m WHERE m.chat_id = c.id) AS messages,
                 c.created_at
          FROM chats c
          ORDER BY c.id ASC
          LIMIT ?`,
         [limit],
-      );
+      ).map((chat) => ({
+        ...chat,
+        member_ids: String(chat.member_ids_csv || "")
+          .split(",")
+          .map((id) => Number(id))
+          .filter((id) => Number.isFinite(id) && id > 0),
+      }));
     }
     if (kind === "all" || kind === "file") {
       snapshot.messageFiles = dbApi.getAll(

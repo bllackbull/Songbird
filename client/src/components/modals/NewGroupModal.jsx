@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Close,
   Copy,
@@ -50,6 +51,7 @@ export default function NewGroupModal({
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const groupSearchInputRef = useRef(null);
   if (!open) return null;
+  if (typeof document === "undefined") return null;
 
   const selectedMemberNames = new Set(
     selectedGroupMembers.map((member) => String(member?.username || "")),
@@ -58,9 +60,9 @@ export default function NewGroupModal({
   const usernameHasPersian = hasPersian(groupForm.username || "");
   const groupSearchHasPersian = hasPersian(groupSearchQuery || "");
 
-  return (
+  return createPortal(
     <>
-      <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-6">
+      <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/40 px-6">
         <div className="app-scroll max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-2xl border border-emerald-100/70 bg-white p-6 shadow-xl dark:border-emerald-500/30 dark:bg-slate-950">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-emerald-700 dark:text-emerald-200">
@@ -540,6 +542,7 @@ export default function NewGroupModal({
           await onDeleteChat?.(password);
         }}
       />
-    </>
+    </>,
+    document.body,
   );
 }

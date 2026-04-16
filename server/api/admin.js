@@ -1,3 +1,14 @@
+import {
+  normalizeChatType,
+  normalizeGroupUsername,
+  normalizeHexColor,
+  normalizeVisibility,
+  parseListValue,
+  resolveChatRow,
+  resolveUserRow,
+} from "../lib/dbToolHelpers.js";
+import { storageEncryption } from "../lib/storageEncryption.js";
+
 function registerAdminRoutes(app, deps) {
   const {
     adminGetAll,
@@ -412,6 +423,448 @@ function registerAdminRoutes(app, deps) {
         });
       }
 
+      if (action === "create_chat") {
+        const type = normalizeChatType(payload.type);
+        const name = String(payload.name || "").trim();
+        const ownerSelector = String(payload.owner || "").trim();
+        const username = normalizeGroupUsername(payload.username);
+        const visibility = normalizeVisibility(payload.visibility);
+        const memberSelectors = Array.isArray(payload.memberSelectors)
+          ? payload.memberSelectors
+          : parseListValue(payload.memberSelectors);
+
+        if (!name || !ownerSelector || !username) {
+          return res.status(400).json({
+            error: "Chat name, owner, and username are required.",
+          });
+        }
+
+        const owner = resolveUserRow(
+          { getRow: adminGetRow, getAll: adminGetAll },
+          ownerSelector,
+        );
+        if (!owner?.id) {
+          return res.status(404).json({ error: "Owner user not found." });
+        }
+
+        const userConflict = adminGetRow("SELECT id FROM users WHERE username = ?", [
+          username,
+        ]);
+        if (userConflict?.id) {
+          return res.status(409).json({ error: "Chat username already exists." });
+        }
+        const chatConflict = adminGetRow(
+          "SELECT id FROM chats WHERE type IN ('group', 'channel') AND group_username IN (?, ?)",
+          [username, `@${username}`],
+        );
+        if (chatConflict?.id) {
+          return res.status(409).json({ error: "Chat username already exists." });
+        }
+
+        const ownerUsername = String(owner.username || "").toLowerCase();
+        const members = Array.from(
+          new Map(
+            memberSelectors
+              .map((selector) =>
+                resolveUserRow({ getRow: adminGetRow, getAll: adminGetAll }, selector),
+              )
+              .filter((row) => row?.id)
+              .map((row) => [Number(row.id), row]),
+          ).values(),
+        ).filter(
+          (row) => String(row?.username || "").toLowerCase() !== ownerUsername,
+        );
+
+        const inviteToken = deps.crypto.randomBytes(24).toString("hex");
+        const fallbackColor =
+          String(adminGetRow("SELECT color FROM users WHERE id = ?", [Number(owner.id)])?.color || "")
+            .trim() || "#10b981";
+
+        let row = null;
+        adminRun("BEGIN");
+        try {
+          adminRun(
+            `INSERT INTO chats (
+              name, type, group_username, group_visibility, invite_token, created_by_user_id, group_color, allow_member_invites, group_avatar_url
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              name,
+              type,
+              username || null,
+              visibility,
+              inviteToken,
+              Number(owner.id),
+              fallbackColor,
+              1,
+              null,
+            ],
+          );
+          row = adminGetRow(
+            `SELECT id, name, type, group_username, group_visibility, created_by_user_id
+             FROM chats
+             WHERE rowid = last_insert_rowid()`,
+          );
+          if (!row?.id) {
+            throw new Error("Failed to create chat.");
+          }
+          adminRun(
+            "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",
+            [Number(row.id), Number(owner.id), "owner"],
+          );
+          members.forEach((member) => {
+            adminRun(
+              "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",
+              [Number(row.id), Number(member.id), "member"],
+            );
+          });
+          adminRun("COMMIT");
+        } catch (error) {
+          adminRun("ROLLBACK");
+          throw error;
+        }
+        adminSave();
+
+        return res.json({
+          ok: true,
+          result: {
+            id: Number(row.id),
+            type: row.type,
+            name: row.name || "",
+            addedMembers: members.length + 1,
+          },
+        });
+      }
+
+      if (action === "add_chat_members") {
+        const chatSelector = String(payload.chatSelector || "").trim();
+        const addAllUsers = Boolean(payload.addAllUsers);
+        const rawSelectors = Array.isArray(payload.userSelectors)
+          ? payload.userSelectors
+          : parseListValue(payload.userSelectors);
+
+        const chat = resolveChatRow(
+          { getRow: adminGetRow, getAll: adminGetAll },
+          chatSelector,
+        );
+        if (!chat?.id) {
+          return res.status(404).json({ error: "Chat not found." });
+        }
+
+        const users = addAllUsers
+          ? adminGetAll("SELECT id, username FROM users ORDER BY id ASC")
+          : Array.from(
+              new Map(
+                rawSelectors
+                  .flatMap((selector) => parseListValue(selector))
+                  .map((selector) =>
+                    resolveUserRow({ getRow: adminGetRow, getAll: adminGetAll }, selector),
+                  )
+                  .filter((row) => row?.id)
+                  .map((row) => [Number(row.id), row]),
+              ).values(),
+            );
+
+        if (!users.length) {
+          return res.status(404).json({ error: "No users matched." });
+        }
+
+        let addedCount = 0;
+        adminRun("BEGIN");
+        try {
+          users.forEach((user) => {
+            const exists = adminGetRow(
+              "SELECT 1 AS member FROM chat_members WHERE chat_id = ? AND user_id = ?",
+              [Number(chat.id), Number(user.id)],
+            );
+            if (exists?.member) return;
+            adminRun(
+              "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",
+              [Number(chat.id), Number(user.id), "member"],
+            );
+            addedCount += 1;
+          });
+          adminRun("COMMIT");
+        } catch (error) {
+          adminRun("ROLLBACK");
+          throw error;
+        }
+        adminSave();
+
+        return res.json({
+          ok: true,
+          result: { chatId: Number(chat.id), addedCount },
+        });
+      }
+
+      if (action === "edit_chat") {
+        const chatSelector = String(payload.chatSelector || "").trim();
+        const chat = resolveChatRow(
+          { getRow: adminGetRow, getAll: adminGetAll },
+          chatSelector,
+        );
+        if (!chat?.id) {
+          return res.status(404).json({ error: "Chat not found." });
+        }
+
+        const nextName =
+          payload.name === undefined ? String(chat.name || "") : String(payload.name || "").trim();
+        const nextUsername =
+          payload.username === undefined
+            ? normalizeGroupUsername(chat.group_username)
+            : normalizeGroupUsername(payload.username);
+        const nextVisibility =
+          payload.visibility === undefined
+            ? normalizeVisibility(chat.group_visibility)
+            : normalizeVisibility(payload.visibility);
+        const nextColor =
+          payload.color === undefined
+            ? String(chat.group_color || "").trim() || null
+            : normalizeHexColor(payload.color);
+        const allowMemberInvites =
+          payload.allowMemberInvites === null || payload.allowMemberInvites === undefined
+            ? Number(chat.allow_member_invites || 0)
+              ? 1
+              : 0
+            : payload.allowMemberInvites
+              ? 1
+              : 0;
+
+        if (payload.color !== undefined && !nextColor) {
+          return res.status(400).json({ error: "Invalid color." });
+        }
+
+        if (nextUsername) {
+          const userConflict = adminGetRow("SELECT id FROM users WHERE username = ?", [
+            nextUsername,
+          ]);
+          if (userConflict?.id) {
+            return res.status(409).json({ error: "Chat username already exists." });
+          }
+          const chatConflict = adminGetRow(
+            "SELECT id FROM chats WHERE type IN ('group', 'channel') AND group_username IN (?, ?) AND id != ?",
+            [nextUsername, `@${nextUsername}`, Number(chat.id)],
+          );
+          if (chatConflict?.id) {
+            return res.status(409).json({ error: "Chat username already exists." });
+          }
+        }
+
+        let nextOwner = null;
+        if (payload.owner !== undefined) {
+          nextOwner = resolveUserRow(
+            { getRow: adminGetRow, getAll: adminGetAll },
+            payload.owner,
+          );
+          if (!nextOwner?.id) {
+            return res.status(404).json({ error: "New owner user not found." });
+          }
+        }
+
+        adminRun("BEGIN");
+        try {
+          adminRun(
+            `UPDATE chats
+             SET name = ?, group_username = ?, group_visibility = ?, group_color = ?, allow_member_invites = ?, created_by_user_id = COALESCE(?, created_by_user_id)
+             WHERE id = ? AND type IN ('group', 'channel')`,
+            [
+              nextName || null,
+              nextUsername || null,
+              nextVisibility,
+              nextColor,
+              allowMemberInvites,
+              nextOwner?.id ? Number(nextOwner.id) : null,
+              Number(chat.id),
+            ],
+          );
+
+          if (nextOwner?.id) {
+            adminRun(
+              "UPDATE chat_members SET role = 'member' WHERE chat_id = ? AND role = 'owner'",
+              [Number(chat.id)],
+            );
+            adminRun(
+              "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, 'owner')",
+              [Number(chat.id), Number(nextOwner.id)],
+            );
+            adminRun(
+              "UPDATE chat_members SET role = 'owner' WHERE chat_id = ? AND user_id = ?",
+              [Number(chat.id), Number(nextOwner.id)],
+            );
+          }
+          adminRun("COMMIT");
+        } catch (error) {
+          adminRun("ROLLBACK");
+          throw error;
+        }
+        adminSave();
+
+        const updated = resolveChatRow(
+          { getRow: adminGetRow, getAll: adminGetAll },
+          String(chat.id),
+        );
+        return res.json({
+          ok: true,
+          result: {
+            id: Number(updated.id),
+            type: updated.type,
+            name: updated.name || "",
+            owner: nextOwner?.username || null,
+          },
+        });
+      }
+
+      if (action === "edit_user") {
+        const userSelector = String(payload.userSelector || "").trim();
+        const user = resolveUserRow(
+          { getRow: adminGetRow, getAll: adminGetAll },
+          userSelector,
+        );
+        if (!user?.id) {
+          return res.status(404).json({ error: "User not found." });
+        }
+
+        const nextUsername =
+          payload.username === undefined
+            ? String(user.username || "")
+            : String(payload.username || "").trim().toLowerCase();
+        const nextNickname =
+          payload.nickname === undefined
+            ? user.nickname || null
+            : String(payload.nickname || "").trim() || null;
+        const nextAvatarUrl =
+          payload.avatarUrl === undefined
+            ? user.avatar_url || null
+            : String(payload.avatarUrl || "").trim() || null;
+        const nextStatus =
+          payload.status === undefined
+            ? String(user.status || "online").toLowerCase()
+            : String(payload.status || "").trim().toLowerCase();
+        const nextColor =
+          payload.color === undefined
+            ? String(user.color || "").trim() || null
+            : normalizeHexColor(payload.color);
+
+        if (nextUsername.length < 3) {
+          return res.status(400).json({ error: "Username must be at least 3 characters." });
+        }
+        if (USERNAME_MAX && nextUsername.length > USERNAME_MAX) {
+          return res.status(400).json({
+            error: `Username must be at most ${USERNAME_MAX} characters.`,
+          });
+        }
+        if (USERNAME_REGEX && !USERNAME_REGEX.test(nextUsername)) {
+          return res.status(400).json({
+            error: "Invalid username. Allowed: lowercase english letters, numbers, ., _",
+          });
+        }
+        if (nextNickname && nextNickname.length > (NICKNAME_MAX || 0)) {
+          return res.status(400).json({
+            error: `Nickname must be at most ${NICKNAME_MAX} characters.`,
+          });
+        }
+        if (!["online", "invisible"].includes(nextStatus)) {
+          return res.status(400).json({ error: "Invalid status." });
+        }
+        if (payload.color !== undefined && !nextColor) {
+          return res.status(400).json({ error: "Invalid color." });
+        }
+
+        if (nextUsername !== String(user.username || "").toLowerCase()) {
+          const userConflict = adminGetRow("SELECT id FROM users WHERE username = ?", [
+            nextUsername,
+          ]);
+          if (userConflict?.id) {
+            return res.status(409).json({ error: "Username already exists." });
+          }
+          const chatConflict = adminGetRow(
+            "SELECT id FROM chats WHERE type IN ('group', 'channel') AND group_username IN (?, ?)",
+            [nextUsername, `@${nextUsername}`],
+          );
+          if (chatConflict?.id) {
+            return res.status(409).json({ error: "Username already exists." });
+          }
+        }
+
+        adminRun(
+          `UPDATE users
+           SET username = ?, nickname = ?, avatar_url = ?, color = ?, status = ?
+           WHERE id = ?`,
+          [
+            nextUsername,
+            nextNickname,
+            nextAvatarUrl,
+            nextColor,
+            nextStatus,
+            Number(user.id),
+          ],
+        );
+        adminSave();
+
+        const updated = resolveUserRow(
+          { getRow: adminGetRow, getAll: adminGetAll },
+          String(user.id),
+        );
+        return res.json({
+          ok: true,
+          result: {
+            id: Number(updated.id),
+            username: updated.username,
+            nickname: updated.nickname || null,
+            color: updated.color || null,
+          },
+        });
+      }
+
+      if (action === "toggle_user_ban") {
+        const userSelector = String(payload.userSelector || "").trim();
+        const user = resolveUserRow(
+          { getRow: adminGetRow, getAll: adminGetAll },
+          userSelector,
+        );
+        if (!user?.id) {
+          return res.status(404).json({ error: "User not found." });
+        }
+
+        const nextBanned = Number(user.banned || 0) ? 0 : 1;
+        const sessionsRow = adminGetRow(
+          "SELECT COUNT(*) AS count FROM sessions WHERE user_id = ?",
+          [Number(user.id)],
+        );
+
+        adminRun("BEGIN");
+        try {
+          adminRun("UPDATE users SET banned = ? WHERE id = ?", [
+            nextBanned,
+            Number(user.id),
+          ]);
+          adminRun("DELETE FROM sessions WHERE user_id = ?", [Number(user.id)]);
+          adminRun("COMMIT");
+        } catch (error) {
+          adminRun("ROLLBACK");
+          throw error;
+        }
+        adminSave();
+
+        return res.json({
+          ok: true,
+          result: {
+            id: Number(user.id),
+            username: user.username,
+            banned: Boolean(nextBanned),
+            sessionsExpired: Number(sessionsRow?.count || 0),
+          },
+        });
+      }
+
+      if (action === "vacuum_db") {
+        adminRun("VACUUM");
+        adminSave();
+        return res.json({
+          ok: true,
+          result: { vacuumed: true },
+        });
+      }
+
       if (action === "generate_users") {
         const count = Math.max(
           1,
@@ -618,7 +1071,12 @@ function registerAdminRoutes(app, deps) {
                 : rawBody;
             adminRun(
               "INSERT INTO chat_messages (chat_id, user_id, body, created_at, read_at, read_by_user_id) VALUES (?, ?, ?, ?, NULL, NULL)",
-              [chatId, senderId, body, timestamps[index]],
+              [
+                chatId,
+                senderId,
+                storageEncryption.encryptText(body),
+                timestamps[index],
+              ],
             );
           }
 
@@ -718,7 +1176,12 @@ function registerAdminRoutes(app, deps) {
             adminRun(
               `INSERT INTO chat_messages (chat_id, user_id, body, created_at)
                VALUES (?, ?, ?, ?)`,
-              [chatId, userId, `Demo message ${index + 1}`, stamp],
+              [
+                chatId,
+                userId,
+                storageEncryption.encryptText(`Demo message ${index + 1}`),
+                stamp,
+              ],
             );
             created += 1;
           });

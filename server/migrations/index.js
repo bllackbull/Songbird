@@ -12,6 +12,8 @@ import { migration011ChatMutes } from "./011-chat-mutes.js";
 import { migration012GroupRemovedMembers } from "./012-group-removed-members.js";
 import { migration013MessageReads } from "./013-message-reads.js";
 import { migration as migration014PushSubscriptions } from "./014-push-subscriptions.js";
+import { migration015RemoveIdleStatus } from "./015-remove-idle-status.js";
+import { migration016UserBans } from "./016-user-bans.js";
 
 export const migrations = [
   migration001InitialSchema,
@@ -28,4 +30,6 @@ export const migrations = [
   migration012GroupRemovedMembers,
   migration013MessageReads,
   migration014PushSubscriptions,
+  migration015RemoveIdleStatus,
+  migration016UserBans,
 ];

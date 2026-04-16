@@ -335,6 +335,10 @@ export default function App() {
   }, [isStandaloneDisplay])
 
   useEffect(() => {
+    if (!APP_CONFIG.debugEnabled) {
+      routeChunkLoadStartRef.current = 0
+      return
+    }
     if (routeChunkLoading) {
       routeChunkLoadStartRef.current = performance.now()
       return
@@ -756,14 +760,17 @@ export default function App() {
     paddingTop: 'var(--install-bar-height, 0px)',
     transition: 'padding-top 220ms ease',
   }
-  const authContainerStyle =
-    isAuthRoute && showInstallBar
-      ? {
-          minHeight: 'calc(100dvh - var(--install-bar-height, 0px))',
-          height: 'calc(100dvh - var(--install-bar-height, 0px))',
-          maxHeight: 'calc(100dvh - var(--install-bar-height, 0px))',
-        }
-      : undefined
+  const authViewportStyle = isAuthRoute
+    ? {
+        minHeight: 'calc(100dvh - var(--install-bar-height, 0px))',
+        height: 'calc(100dvh - var(--install-bar-height, 0px))',
+      }
+    : undefined
+  const authContentStyle = isAuthRoute
+    ? {
+        minHeight: 'calc(100dvh - var(--install-bar-height, 0px))',
+      }
+    : undefined
 
   return (
     <div className={appShellClass} style={appContainerStyle}>
@@ -773,7 +780,7 @@ export default function App() {
             ? 'relative min-h-screen app-scroll overflow-y-auto'
             : 'relative h-full min-h-0 overflow-hidden'
         }
-        style={authContainerStyle}
+        style={authViewportStyle}
       >
         {!isAuthRoute ? (
           <>
@@ -831,7 +838,7 @@ export default function App() {
               : 'relative flex h-full min-h-0 w-full flex-col px-0 pb-0 pt-0'
           }
           style={{
-            ...(authContainerStyle || {}),
+            ...(authContentStyle || {}),
             zIndex: routeChunkLoading ? '70' : 'var(--app-z, 20)',
           }}
         >

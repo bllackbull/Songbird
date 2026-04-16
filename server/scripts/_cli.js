@@ -84,6 +84,19 @@ export function getFlagValue(args = [], flagName) {
   return null
 }
 
+export function hasFlag(args = [], flagName) {
+  const normalizedFlag = String(flagName).toLowerCase()
+  if (args.some((arg) => String(arg).toLowerCase() === normalizedFlag)) {
+    return true
+  }
+  const envKey = `npm_config_${String(flagName)
+    .replace(/^-+/, '')
+    .replace(/-/g, '_')
+    .toLowerCase()}`
+  const envValue = String(process.env[envKey] || '').trim().toLowerCase()
+  return envValue === 'true' || envValue === '1'
+}
+
 export async function confirmAction({ prompt, force = false, forceHint }) {
   if (force) return true
   if (!input.isTTY) {
@@ -103,6 +116,59 @@ export async function confirmAction({ prompt, force = false, forceHint }) {
       if (answer === 'n' || answer === 'no') return false
     }
   } finally {
+    rl.close()
+  }
+}
+
+export async function promptInput({ prompt, required = false } = {}) {
+  if (!input.isTTY) {
+    console.error('Interactive input required, but no TTY is available.')
+    process.exit(1)
+  }
+  const rl = readline.createInterface({ input, output })
+  try {
+    while (true) {
+      const answer = String(await rl.question(prompt || '')).trim()
+      if (!required || answer) return answer
+    }
+  } finally {
+    rl.close()
+  }
+}
+
+export async function promptSecret({ prompt, required = false } = {}) {
+  if (!input.isTTY) {
+    console.error('Interactive secret input required, but no TTY is available.')
+    process.exit(1)
+  }
+  const rl = readline.createInterface({
+    input,
+    output,
+    terminal: true,
+  })
+  const originalWrite = rl._writeToOutput?.bind(rl)
+  rl._writeToOutput = (stringToWrite) => {
+    if (rl.stdoutMuted) {
+      rl.output.write('*')
+      return
+    }
+    if (originalWrite) {
+      originalWrite(stringToWrite)
+      return
+    }
+    rl.output.write(stringToWrite)
+  }
+  try {
+    while (true) {
+      rl.stdoutMuted = false
+      rl.output.write(prompt || '')
+      rl.stdoutMuted = true
+      const answer = String(await rl.question('')).trim()
+      rl.output.write('\n')
+      if (!required || answer) return answer
+    }
+  } finally {
+    rl.stdoutMuted = false
     rl.close()
   }
 }

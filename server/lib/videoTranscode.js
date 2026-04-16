@@ -11,6 +11,7 @@ export function createVideoTranscodeManager({
   debugLog,
   uploadRootDir,
   transcodeVideosToH264,
+  storageEncryption,
 }) {
   const TRANSCODED_VIDEO_NAME_TAG = "-h264-";
   const videoTranscodeQueue = [];
@@ -228,6 +229,10 @@ export function createVideoTranscodeManager({
     const parsed = path.parse(inputStoredName);
     const outputName = `${parsed.name}-h264-${crypto.randomBytes(4).toString("hex")}.mp4`;
     const outputPath = path.join(uploadRootDir, outputName);
+    const decryptedInput = storageEncryption.decryptFileToTempPath(
+      inputPath,
+      inputStoredName,
+    );
 
     try {
       debugLog("video-transcode:start", {
@@ -243,7 +248,7 @@ export function createVideoTranscodeManager({
         "error",
         "-y",
         "-i",
-        inputPath,
+        decryptedInput.path,
         "-c:v",
         "libx264",
         "-preset",
@@ -263,6 +268,7 @@ export function createVideoTranscodeManager({
 
       const outputStat = fs.statSync(outputPath);
       const outputMeta = await probeVideoMetadata(outputPath);
+      storageEncryption.encryptFileInPlace(outputPath);
 
       fs.unlinkSync(inputPath);
 
@@ -305,7 +311,9 @@ export function createVideoTranscodeManager({
             messageId,
           ])
         : null;
-      const messageBody = String(messageRow?.body || "").trim();
+      const messageBody = storageEncryption
+        .decryptText(String(messageRow?.body || "").trim())
+        .trim();
       const filesForMessage = messageId
         ? listMessageFilesByMessageIds([messageId])
         : [];
@@ -339,6 +347,8 @@ export function createVideoTranscodeManager({
         inputStoredName,
         error: String(error?.message || error),
       });
+    } finally {
+      decryptedInput.cleanup();
     }
   };
 
@@ -402,11 +412,21 @@ export function createVideoTranscodeManager({
       const inputPath = path.join(uploadRootDir, storedName);
       if (!fs.existsSync(inputPath)) continue;
 
+      const decryptedInput = storageEncryption.decryptFileToTempPath(
+        inputPath,
+        storedName,
+      );
+
       probesRemaining -= 1;
 
       // Sequential probing avoids burst-spawning ffprobe processes under load.
       // eslint-disable-next-line no-await-in-loop
-      const meta = await probeVideoMetadata(inputPath);
+      let meta;
+      try {
+        meta = await probeVideoMetadata(decryptedInput.path);
+      } finally {
+        decryptedInput.cleanup();
+      }
       probedCount += 1;
       const nextWidth =
         hasWidth || !Number.isFinite(Number(meta?.widthPx))

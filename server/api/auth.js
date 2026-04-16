@@ -110,6 +110,10 @@ function registerAuthRoutes(app, deps) {
     const trimmed = username.trim().toLowerCase();
     const user = findUserByUsername(trimmed);
 
+    if (user?.banned) {
+      return res.status(403).json({ error: "Account is banned." });
+    }
+
     if (!user || !bcrypt.compareSync(password, user.password_hash)) {
       return res.status(401).json({ error: "Invalid credentials." });
     }

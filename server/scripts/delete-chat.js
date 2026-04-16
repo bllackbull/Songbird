@@ -1,4 +1,4 @@
-import { confirmAction, getCliArgs, getPositionalArgs, hasForceYes } from './_cli.js'
+import { confirmAction, getCliArgs, getPositionalArgs, hasForceYes, hasFlag } from './_cli.js'
 import {
   openDatabase,
   removeStoredFiles,
@@ -61,7 +61,7 @@ function deleteChatsByIds(dbApi, chatIds) {
 async function main() {
   const args = getCliArgs()
   const force = hasForceYes(args)
-  const hasAll = args.some((arg) => String(arg).toLowerCase() === '--all')
+  const hasAll = hasFlag(args, '--all')
   const requestedChatIds = parseChatIds(args)
   const positionalArgs = getPositionalArgs(args)
 

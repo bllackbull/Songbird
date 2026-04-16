@@ -1,4 +1,4 @@
-import { confirmAction, getCliArgs, getPositionalArgs, hasForceYes } from './_cli.js'
+import { confirmAction, getCliArgs, getPositionalArgs, hasForceYes, hasFlag } from './_cli.js'
 import {
   openDatabase,
   removeStoredFiles,
@@ -36,7 +36,7 @@ async function main() {
   const args = getCliArgs()
   const selectors = getPositionalArgs(args)
   const force = hasForceYes(args)
-  const hasAll = args.some((arg) => String(arg).toLowerCase() === '--all')
+  const hasAll = hasFlag(args, '--all')
 
   const dbApi = await openDatabase()
   try {

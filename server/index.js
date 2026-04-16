@@ -18,6 +18,7 @@ import { createVideoTranscodeManager } from "./lib/videoTranscode.js";
 import { createMessageFileJobs } from "./lib/messageFileJobs.js";
 import { createInspector } from "./lib/inspect.js";
 import { createSessionHelpers } from "./lib/sessions.js";
+import { storageEncryption } from "./lib/storageEncryption.js";
 import { buildTimestampSchedule } from "./lib/timeUtils.js";
 import { isLoopbackRequest, parseUploadFileMetadata } from "./lib/requestUtils.js";
 import { USER_COLORS, setUserColor } from "./settings/colors.js";
@@ -227,6 +228,7 @@ const uploadTools = createUploadTools({
   fileUploadMaxSize: FILE_UPLOAD_MAX_SIZE,
   fileUploadMaxFiles: FILE_UPLOAD_MAX_FILES,
   fileUploadMaxTotalSize: FILE_UPLOAD_MAX_TOTAL_SIZE,
+  storageEncryption,
 });
 
 const {
@@ -275,6 +277,7 @@ const videoTranscoder = createVideoTranscodeManager({
   debugLog,
   uploadRootDir,
   transcodeVideosToH264: TRANSCODE_VIDEOS_TO_H264,
+  storageEncryption,
 });
 const {
   enqueueVideoTranscodeJob,
@@ -324,6 +327,58 @@ const {
   requireSession,
   requireSessionUsernameMatch,
 } = sessionHelpers;
+
+function backfillStorageEncryption() {
+  if (!storageEncryption.isEnabled()) return;
+
+  try {
+    const pendingMessages = adminGetAll(
+      `SELECT id, body
+       FROM chat_messages
+       WHERE body IS NOT NULL
+         AND body != ''`,
+    );
+    let encryptedMessages = 0;
+
+    pendingMessages.forEach((row) => {
+      const body = String(row?.body || "");
+      const nextBody = storageEncryption.encryptText(body);
+      if (nextBody === body) return;
+
+      adminRun("UPDATE chat_messages SET body = ? WHERE id = ?", [
+        nextBody,
+        Number(row.id),
+      ]);
+      encryptedMessages += 1;
+    });
+
+    const fileRows = adminGetAll("SELECT stored_name FROM chat_message_files");
+    let encryptedFiles = 0;
+
+    fileRows.forEach((row) => {
+      const storedName = path.basename(String(row?.stored_name || "").trim());
+      if (!storedName) return;
+
+      const filePath = path.join(uploadRootDir, storedName);
+      if (!fs.existsSync(filePath)) return;
+
+      if (storageEncryption.encryptFileInPlace(filePath)) {
+        encryptedFiles += 1;
+      }
+    });
+
+    if (encryptedMessages > 0 || encryptedFiles > 0) {
+      adminSave();
+      console.log(
+        `[storage-encryption] encrypted ${encryptedMessages} message(s) and ${encryptedFiles} file(s) at rest.`,
+      );
+    }
+  } catch (error) {
+    console.error(
+      `[storage-encryption] backfill failed: ${String(error?.message || error)}`,
+    );
+  }
+}
 
 registerUploadRoutes(app, { express, adminGetRow });
 
@@ -450,6 +505,7 @@ const apiDeps = {
   uploadRootDir,
   upsertPushSubscription,
   sendPushNotificationToUsers,
+  storageEncryption,
 };
 
 registerApiRoutes(app, apiDeps);
@@ -512,6 +568,8 @@ if (MESSAGE_FILE_RETENTION_DAYS > 0) {
     expiryCleanupTimer.unref();
   }
 }
+
+backfillStorageEncryption();
 
 app.listen(port, () => {
   console.log(`Songbird server running on http://localhost:${port}`);

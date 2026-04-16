@@ -5,6 +5,7 @@ import {
   getNpmOriginalArgs,
 } from "./_cli.js";
 import { openDatabase, runAdminActionViaServer } from "./_db-admin.js";
+import { storageEncryption } from "../lib/storageEncryption.js";
 
 const SAMPLE_MESSAGES = [
   "Hello there",
@@ -251,7 +252,12 @@ async function main() {
             : rawBody;
         dbApi.run(
           "INSERT INTO chat_messages (chat_id, user_id, body, created_at, read_at, read_by_user_id) VALUES (?, ?, ?, ?, NULL, NULL)",
-          [chatId, senderId, body, timestamps[index]],
+          [
+            chatId,
+            senderId,
+            storageEncryption.encryptText(body),
+            timestamps[index],
+          ],
         );
       }
 

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { APP_CONFIG } from "../../settings/appConfig.js";
 
 const PERF_TELEMETRY_KEY = "songbird-perf-telemetry-v1";
 const PERF_MAX_ENTRIES = 120;
@@ -39,6 +40,7 @@ export function usePerfTelemetry({ activeChatId, messagesLength, loadingMessages
   const openStartRef = useRef(null);
 
   useEffect(() => {
+    if (!APP_CONFIG.debugEnabled) return;
     if (typeof window === "undefined" || typeof PerformanceObserver === "undefined") {
       return;
     }
@@ -65,6 +67,10 @@ export function usePerfTelemetry({ activeChatId, messagesLength, loadingMessages
   }, []);
 
   useEffect(() => {
+    if (!APP_CONFIG.debugEnabled) {
+      openStartRef.current = null;
+      return;
+    }
     const chatId = Number(activeChatId || 0);
     if (!chatId) {
       openStartRef.current = null;
@@ -74,6 +80,7 @@ export function usePerfTelemetry({ activeChatId, messagesLength, loadingMessages
   }, [activeChatId]);
 
   useEffect(() => {
+    if (!APP_CONFIG.debugEnabled) return;
     if (loadingMessages) return;
     const chatId = Number(activeChatId || 0);
     if (!chatId) return;

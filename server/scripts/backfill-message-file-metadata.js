@@ -6,6 +6,7 @@ import {
   listMessageFilesNeedingMetadata,
   updateMessageFileMetadata,
 } from '../db.js'
+import { storageEncryption } from '../lib/storageEncryption.js'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const serverDir = path.resolve(scriptDir, '..')
@@ -190,29 +191,36 @@ for (const row of rows) {
     continue
   }
 
+  const decryptedFile = storageEncryption.decryptFileToTempPath(
+    filePath,
+    String(row.stored_name || ''),
+  )
+  const inspectPath = decryptedFile.path || filePath
+
   const mimeType = String(row.mime_type || '').toLowerCase()
   let width = null
   let height = null
   let durationSeconds = null
 
   if (isImageMime(mimeType)) {
-    const imageMeta = parseImageDimensions(filePath)
+    const imageMeta = parseImageDimensions(inspectPath)
     if (imageMeta) {
       width = imageMeta.width
       height = imageMeta.height
     } else if (ffprobeAvailable) {
-      const fallbackMeta = probeVideoMetadata(filePath)
+      const fallbackMeta = probeVideoMetadata(inspectPath)
       width = fallbackMeta?.width ?? null
       height = fallbackMeta?.height ?? null
     }
   } else if (isVideoMime(mimeType)) {
     if (ffprobeAvailable) {
-      const videoMeta = probeVideoMetadata(filePath)
+      const videoMeta = probeVideoMetadata(inspectPath)
       width = videoMeta?.width ?? null
       height = videoMeta?.height ?? null
       durationSeconds = videoMeta?.durationSeconds ?? null
     }
   } else {
+    decryptedFile.cleanup()
     skippedUnknown += 1
     continue
   }
@@ -221,13 +229,17 @@ for (const row of rows) {
     (width && !row.width_px) ||
     (height && !row.height_px) ||
     (durationSeconds !== null && !row.duration_seconds)
-  if (!hasAnyNewMetadata) continue
+  if (!hasAnyNewMetadata) {
+    decryptedFile.cleanup()
+    continue
+  }
 
   updateMessageFileMetadata(row.id, {
     widthPx: width,
     heightPx: height,
     durationSeconds,
   })
+  decryptedFile.cleanup()
   updated += 1
 }
 

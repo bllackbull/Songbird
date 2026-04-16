@@ -10,6 +10,7 @@ export function createUploadTools({
   fileUploadMaxSize,
   fileUploadMaxFiles,
   fileUploadMaxTotalSize,
+  storageEncryption,
 }) {
   const MESSAGE_FILE_LIMITS = {
     maxFiles: fileUploadMaxFiles,
@@ -328,34 +329,11 @@ export function createUploadTools({
         );
       }
 
-      return res.sendFile(filePath);
+      const fileBuffer = storageEncryption.decryptFileToBuffer(filePath);
+      if (!fileBuffer) return res.status(404).end();
+
+      return res.send(fileBuffer);
     });
-
-    app.use(
-      "/api/uploads/messages",
-      express.static(uploadRootDir, {
-        etag: true,
-        lastModified: true,
-        maxAge: "365d",
-        immutable: true,
-        setHeaders: (res, servedPath) => {
-          // Uploaded message files are content-addressed by generated filename.
-          // They can be cached aggressively by browsers and CDNs.
-          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-          res.setHeader("Vary", "Accept-Encoding");
-          res.setHeader("X-Content-Type-Options", "nosniff");
-
-          const ext = path.extname(String(servedPath || "")).toLowerCase();
-
-          if (!SAFE_INLINE_MESSAGE_EXTENSIONS.has(ext)) {
-            res.setHeader(
-              "Content-Disposition",
-              'attachment; filename="download"',
-            );
-          }
-        },
-      }),
-    );
 
     app.use(
       "/api/uploads/avatars",
@@ -392,5 +370,6 @@ export function createUploadTools({
     ensureAvatarExists,
     isDangerousUploadFile,
     registerUploadRoutes,
+    storageEncryption,
   };
 }
