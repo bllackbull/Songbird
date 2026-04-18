@@ -96,6 +96,7 @@ export default function ChatWindowPanel({
   onOpenMessageSenderProfile,
   onOpenMention,
   onOpenForwardOrigin,
+  onForwardMessage,
   onOpenContextMenu,
   mentionRefreshToken = 0,
   onUserScrollIntent,
@@ -109,6 +110,8 @@ export default function ChatWindowPanel({
   showStatus = true,
   headerAvatarIcon = null,
   headerAvatarColor = null,
+  microphonePermissionStatus = "unknown",
+  onRequestMicrophonePermission = null,
   permissionsPrompt = null,
   copyToastVisible = false,
 }) {
@@ -948,6 +951,7 @@ export default function ChatWindowPanel({
       onOpenSenderProfile={onOpenMessageSenderProfile}
       onOpenMention={onOpenMention}
       onOpenForwardOrigin={onOpenForwardOrigin}
+      onForwardMessage={onForwardMessage}
       mentionRefreshToken={mentionRefreshToken}
       onOpenContextMenu={onOpenContextMenu}
       onJumpToMessage={(messageId) => {
@@ -1110,6 +1114,35 @@ export default function ChatWindowPanel({
                             >
                               {typingIndicator?.name}
                             </span>
+                          </span>
+                        ) : typingIndicator?.type === "group_pair" ? (
+                          <span
+                            className="block min-w-0 truncate whitespace-nowrap leading-[1.2]"
+                            title={typingIndicator?.fullLabel || typingIndicator?.label || ""}
+                            dir="ltr"
+                            style={{ unicodeBidi: "isolate" }}
+                          >
+                            <bdi
+                              className={`min-w-0 truncate ${
+                                hasPersian(typingIndicator?.firstName)
+                                  ? "font-fa sb-fa-baseline-fix"
+                                  : ""
+                              }`}
+                              dir="auto"
+                            >
+                              {typingIndicator?.firstName}
+                            </bdi>
+                            <span className="px-1">and</span>
+                            <bdi
+                              className={`min-w-0 truncate ${
+                                hasPersian(typingIndicator?.secondName)
+                                  ? "font-fa sb-fa-baseline-fix"
+                                  : ""
+                              }`}
+                              dir="auto"
+                            >
+                              {typingIndicator?.secondName}
+                            </bdi>
                           </span>
                         ) : (
                           <span
@@ -1487,6 +1520,8 @@ export default function ChatWindowPanel({
               setComposerFocused(Boolean(nextFocused));
             }}
             composerInputRef={composerInputRef}
+            microphonePermissionStatus={microphonePermissionStatus}
+            onRequestMicrophonePermission={onRequestMicrophonePermission}
           />
       ) : null}
 

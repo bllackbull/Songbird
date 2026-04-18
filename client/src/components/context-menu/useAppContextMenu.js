@@ -93,16 +93,6 @@ export function useAppContextMenu({
             icon: Reply,
             onSelect: () => onReplyToMessage?.(message),
           },
-          ...(files.length
-            ? [
-                {
-                  id: "save",
-                  label: "Save",
-                  icon: Download,
-                  onSelect: () => onSaveMessageFiles?.(message),
-                },
-              ]
-            : []),
           ...(hasText
             ? [
                 {
@@ -121,6 +111,16 @@ export function useAppContextMenu({
                   label: "Edit",
                   icon: Pencil,
                   onSelect: () => onEditMessage?.(message),
+                },
+              ]
+            : []),
+          ...(files.length
+            ? [
+                {
+                  id: "save",
+                  label: "Save",
+                  icon: Download,
+                  onSelect: () => onSaveMessageFiles?.(message),
                 },
               ]
             : []),

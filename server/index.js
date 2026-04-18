@@ -488,6 +488,7 @@ const apiDeps = {
   parseCookies,
   parseUploadFileMetadata,
   path,
+  projectRootDir,
   probeVideoMetadata,
   regenerateGroupInviteToken,
   removeAllMessageUploads,

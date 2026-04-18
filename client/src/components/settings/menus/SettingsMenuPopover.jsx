@@ -16,6 +16,7 @@ export function SettingsMenuPopover({
   onToggleNotifications,
   onOpenNotifications,
   onOpenSavedMessages,
+  onOpenWhatsNew,
 }) {
   if (!showSettings) return null;
   const notificationsOn =
@@ -41,6 +42,7 @@ export function SettingsMenuPopover({
         onToggleNotifications={onToggleNotifications}
         onOpenNotifications={onOpenNotifications}
         onOpenSavedMessages={onOpenSavedMessages}
+        onOpenWhatsNew={onOpenWhatsNew}
       />
     </div>
   );

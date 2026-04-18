@@ -47,6 +47,8 @@ export function MessageComposer({
   onComposerHeightChange,
   onComposerFocusChange,
   composerInputRef,
+  microphonePermissionStatus = "unknown",
+  onRequestMicrophonePermission,
 }) {
   const composerRef = useRef(null);
   const fallbackInputRef = useRef(null);
@@ -112,7 +114,7 @@ export function MessageComposer({
       replyBodyNormalized,
     );
   const isGenericReplyMediaText =
-    /^Sent (a media file|a photo|a video|a document|\d+ (files|photos|videos|documents|media files))$/i.test(
+    /^Sent (a media file|a file|a photo|a video|a document|\d+ (files|photos|videos|documents|media files))$/i.test(
       replyBodyNormalized,
     );
   const isGenericReplyVoiceText =
@@ -126,7 +128,7 @@ export function MessageComposer({
     if (/^Sent (a video|\d+ videos)/i.test(replyBodyText)) return "video";
     if (/^Sent (a photo|\d+ photos)/i.test(replyBodyText)) return "image";
     if (/^Sent a media file/i.test(replyBodyText)) return "image";
-    if (/^Sent (a document|\d+ documents|\d+ files)/i.test(replyBodyText))
+    if (/^Sent (a file|a document|\d+ documents|\d+ files)/i.test(replyBodyText))
       return "document";
     return null;
   })();
@@ -411,6 +413,16 @@ export function MessageComposer({
     async (event) => {
       event.preventDefault();
       if (micDisabled) return;
+      if (microphonePermissionStatus === "prompt") {
+        try {
+          await onRequestMicrophonePermission?.();
+        } catch {
+          // ignore prompt failures
+        }
+        isPressingMicRef.current = false;
+        pendingStopRef.current = false;
+        return;
+      }
       isPressingMicRef.current = true;
       pendingStopRef.current = false;
       try {
@@ -419,7 +431,7 @@ export function MessageComposer({
         // ignore
       }
     },
-    [micDisabled, startRecording],
+    [micDisabled, microphonePermissionStatus, onRequestMicrophonePermission, startRecording],
   );
 
   const restoreComposerFocus = useCallback(() => {
@@ -598,22 +610,22 @@ export function MessageComposer({
                 {derivedReplyIcon === "voice" ? (
                   <Mic
                     size={12}
-                    className="shrink-0 text-slate-500 dark:text-slate-400"
+                    className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                   />
                 ) : derivedReplyIcon === "video" ? (
                   <Video
                     size={12}
-                    className="shrink-0 text-slate-500 dark:text-slate-400"
+                    className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                   />
                 ) : derivedReplyIcon === "image" ? (
                   <ImageIcon
                     size={12}
-                    className="shrink-0 text-slate-500 dark:text-slate-400"
+                    className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                   />
                 ) : derivedReplyIcon === "document" ? (
                   <File
                     size={12}
-                    className="shrink-0 text-slate-500 dark:text-slate-400"
+                    className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                   />
                 ) : null}
                 <span
@@ -986,7 +998,11 @@ export function MessageComposer({
             ((micMode || isRecording) && micDisabled) ||
             (!micMode && !isRecording && !canSubmitMessage)
           }
-          className="inline-flex h-11 items-center justify-center rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-emerald-500/40 disabled:cursor-not-allowed disabled:opacity-70"
+          className={`inline-flex h-11 items-center justify-center rounded-2xl px-4 py-2 text-sm font-semibold text-white shadow-lg transition disabled:cursor-not-allowed disabled:opacity-70 ${
+            isRecording
+              ? "bg-rose-500 shadow-rose-500/30 hover:bg-rose-400 hover:shadow-rose-500/40"
+              : "bg-emerald-500 shadow-emerald-500/30 hover:bg-emerald-400 hover:shadow-emerald-500/40"
+          }`}
         >
           {micMode || isRecording ? (
             <Mic className="icon-anim-pop" />

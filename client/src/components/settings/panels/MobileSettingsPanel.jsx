@@ -11,6 +11,7 @@ import { getAvatarInitials } from "../../../utils/avatarInitials.js";
 import { NICKNAME_MAX, USERNAME_MAX } from "../../../utils/nameLimits.js";
 import { InlineError } from "../common/InlineError.jsx";
 import { SettingsMenuActions } from "../menus/SettingsMenuActions.jsx";
+import { AboutSettingsPanel } from "./AboutSettingsPanel.jsx";
 import { DataSettingsPanel } from "./DataSettingsPanel.jsx";
 import { NotificationsSettingsPanel } from "./NotificationsSettingsPanel.jsx";
 import ConfirmPasswordModal from "../../modals/ConfirmPasswordModal.jsx";
@@ -56,6 +57,10 @@ export function MobileSettingsPanel({
   onOpenOwnProfile,
   onOpenSavedMessages,
   onDeleteAccount,
+  appInfo,
+  appInfoLoading,
+  appInfoError,
+  onOpenWhatsNew,
 }) {
   const handleClosePanel = useCallback(
     () => setSettingsPanel(null),
@@ -130,6 +135,7 @@ export function MobileSettingsPanel({
               onToggleNotifications={onToggleNotifications}
               onOpenNotifications={openNotificationsPanel}
               onOpenSavedMessages={onOpenSavedMessages}
+              onOpenWhatsNew={onOpenWhatsNew}
             />
           </div>
         </div>
@@ -499,6 +505,31 @@ export function MobileSettingsPanel({
               Done
             </button>
           </div>
+        </div>
+      ) : null}
+
+      {settingsPanel === "about" ? (
+        <div className="md:hidden">
+          <div className="mb-4 flex items-center gap-2 rounded-2xl border border-emerald-100/70 bg-white/80 p-4 dark:border-emerald-500/30 dark:bg-slate-950/60">
+            <button
+              type="button"
+              onClick={() => setSettingsPanel(null)}
+              className="inline-flex items-center justify-center rounded-full border border-emerald-200 p-2 text-emerald-700 transition hover:bg-emerald-50 dark:border-emerald-500/30 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+              aria-label="Back"
+            >
+              <ArrowLeft size={18} />
+            </button>
+            <h4 className="text-sm font-semibold text-emerald-700 dark:text-emerald-200">
+              About
+            </h4>
+          </div>
+          <AboutSettingsPanel
+            appInfo={appInfo}
+            appInfoLoading={appInfoLoading}
+            appInfoError={appInfoError}
+            onDone={handleClosePanel}
+            variant="mobile"
+          />
         </div>
       ) : null}
 

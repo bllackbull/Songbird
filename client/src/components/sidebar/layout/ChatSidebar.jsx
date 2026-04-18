@@ -88,6 +88,9 @@ export default function ChatSidebar({
   onClearCache,
   dataCacheStats,
   onDeleteAccount,
+  appInfo,
+  appInfoLoading,
+  appInfoError,
   onExitEdit,
   onEnterEdit,
   onDeleteChats,
@@ -95,6 +98,7 @@ export default function ChatSidebar({
   onOpenOwnProfile,
   settingsButtonRef,
   displayInitials,
+  onOpenWhatsNew,
 }) {
   const chatsScrollRef = useRef(null);
   const chatsContentRef = useRef(null);
@@ -196,6 +200,7 @@ export default function ChatSidebar({
         onToggleNotifications={onToggleNotifications}
         onOpenNotifications={onOpenNotifications}
         onOpenSavedMessages={onOpenSavedMessages}
+        onOpenWhatsNew={onOpenWhatsNew}
       />
 
       <div
@@ -254,6 +259,10 @@ export default function ChatSidebar({
               onOpenOwnProfile={onOpenOwnProfile}
               onOpenSavedMessages={onOpenSavedMessages}
               onDeleteAccount={onDeleteAccount}
+              appInfo={appInfo}
+              appInfoLoading={appInfoLoading}
+              appInfoError={appInfoError}
+              onOpenWhatsNew={onOpenWhatsNew}
             />
           </div>
         ) : null}

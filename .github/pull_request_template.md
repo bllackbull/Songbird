@@ -1,10 +1,10 @@
-## 📌 Summary
+## Summary
 
 Briefly describe what this PR introduces or changes.
 
 ---
 
-## 🚀 Type of Change
+## Type of Change
 
 - [ ] feat (New feature)
 - [ ] fix (Bug fix)
@@ -15,7 +15,9 @@ Briefly describe what this PR introduces or changes.
 
 ---
 
-## 🧠 What’s Included
+## What's Included
+
+Keep this list aligned with the user-facing entries you added to `CHANGELOG.md`.
 
 - 
 - 
@@ -23,14 +25,14 @@ Briefly describe what this PR introduces or changes.
 
 ---
 
-## 🔍 Why This Change Is Needed
+## Why This Change Is Needed
 
 Explain the motivation behind this update.
 What problem does it solve or improve?
 
 ---
 
-## 🧪 Testing
+## Testing
 
 Describe how this was tested:
 
@@ -40,24 +42,25 @@ Describe how this was tested:
 
 ---
 
-## ⚠ Breaking Changes
+## Breaking Changes
 
 If this introduces breaking changes, describe them here.
 
-If none, write:  
+If none, write:
 `None`
 
 ---
 
-## 📷 Screenshots (if applicable)
+## Screenshots (if applicable)
 
 Add screenshots or recordings if UI-related.
 
 ---
 
-## ✅ Checklist
+## Checklist
 
 - [ ] Code follows project structure
 - [ ] Commit messages follow conventions
 - [ ] No unnecessary console logs
+- [ ] Updated `CHANGELOG.md` when user-facing behavior changed
 - [ ] Ready for merge

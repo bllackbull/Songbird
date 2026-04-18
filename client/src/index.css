@@ -1031,6 +1031,26 @@ label:hover .icon-anim-drop {
   box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.32);
 }
 
+.sb-inline-code-copyable[data-copy-state="copied"] {
+  background: rgba(16, 185, 129, 0.18);
+  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.28);
+}
+
+.sb-inline-code-copyable[data-copy-state="error"] {
+  background: rgba(244, 63, 94, 0.14);
+  box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.24);
+}
+
+.dark .sb-inline-code-copyable[data-copy-state="copied"] {
+  background: rgba(16, 185, 129, 0.24);
+  box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.32);
+}
+
+.dark .sb-inline-code-copyable[data-copy-state="error"] {
+  background: rgba(244, 63, 94, 0.18);
+  box-shadow: 0 0 0 1px rgba(251, 113, 133, 0.3);
+}
+
 .sb-code code {
   background: transparent;
   padding: 0;

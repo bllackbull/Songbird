@@ -450,10 +450,19 @@ export const normalizeMessageForRender = (message) => {
       .toLowerCase()
       .startsWith("audio/"),
   );
+  const nonAudioCount = files.filter(
+    (file) =>
+      !String(file?.mimeType || "")
+        .toLowerCase()
+        .startsWith("audio/"),
+  ).length;
   if (hasAudio) {
     const genericBodyPattern =
-      /^Sent (a media file|a document|a file|\d+ files|\d+ media files)$/i;
-    if (!normalizedBody || genericBodyPattern.test(normalizedBody)) {
+      /^Sent (a media file|a document|a file|\d+ (files|documents|media files))$/i;
+    if (
+      (!normalizedBody || genericBodyPattern.test(normalizedBody)) &&
+      nonAudioCount === 0
+    ) {
       normalizedBody = "Sent a voice message";
     }
   }

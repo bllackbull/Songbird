@@ -2,7 +2,9 @@ import {
   Bell,
   Bookmark,
   Database,
+  Info,
   LogOut,
+  Rocket,
   ShieldCheck,
   User,
 } from "../../../icons/lucide.js";
@@ -21,6 +23,7 @@ export function SettingsMenuActions({
   _onToggleNotifications,
   onOpenNotifications,
   onOpenSavedMessages,
+  onOpenWhatsNew,
 }) {
   const isMobile = variant === "mobile";
   const buttonBase = isMobile
@@ -77,6 +80,22 @@ export function SettingsMenuActions({
         setIsDark={setIsDark}
         thick={isMobile}
       />
+      <button
+        type="button"
+        onClick={() => onOpenWhatsNew?.()}
+        className={`mt-1 ${buttonBase} ${accentHover}`}
+      >
+        <Rocket size={18} className="icon-anim-sway" />
+        What's new
+      </button>
+      <button
+        type="button"
+        onClick={() => setSettingsPanel("about")}
+        className={`mt-1 ${buttonBase} ${accentHover}`}
+      >
+        <Info size={18} className="icon-anim-sway" />
+        About
+      </button>
       <button
         type="button"
         onClick={handleLogout}

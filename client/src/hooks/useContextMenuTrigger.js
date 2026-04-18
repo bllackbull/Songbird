@@ -7,6 +7,7 @@ export function useContextMenuTrigger({
   disabled = false,
   isMobile = false,
   holdDelayMs = DEFAULT_HOLD_DELAY_MS,
+  moveTolerancePx = MOVE_TOLERANCE_PX,
   onOpen,
 }) {
   const holdTimerRef = useRef(null);
@@ -80,13 +81,21 @@ export function useContextMenuTrigger({
 
     const onPointerMove = (event) => {
       if (!isMobile || !pointerRef.current.active) return;
+      if (event.defaultPrevented) {
+        cancelPointer(event);
+        return;
+      }
       const dx = Math.abs(
         Number(event.clientX || 0) - pointerRef.current.startX,
       );
       const dy = Math.abs(
         Number(event.clientY || 0) - pointerRef.current.startY,
       );
-      if (dx > MOVE_TOLERANCE_PX || dy > MOVE_TOLERANCE_PX) {
+      if (dy > 6 && dy > dx) {
+        cancelPointer(event);
+        return;
+      }
+      if (dx > moveTolerancePx || dy > moveTolerancePx) {
         cancelPointer(event);
       }
     };
@@ -106,5 +115,5 @@ export function useContextMenuTrigger({
       onPointerCancel: cancelPointer,
       onClickCapture,
     };
-  }, [disabled, holdDelayMs, isMobile, onOpen]);
+  }, [disabled, holdDelayMs, isMobile, moveTolerancePx, onOpen]);
 }

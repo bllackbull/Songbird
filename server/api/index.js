@@ -1,3 +1,4 @@
+import { registerAppRoutes } from "./app.js";
 import { registerAdminRoutes } from "./admin.js";
 import { registerAuthRoutes } from "./auth.js";
 import { registerChatRoutes } from "./chats.js";
@@ -9,6 +10,7 @@ import { registerProfileRoutes } from "./profile.js";
 
 function registerApiRoutes(app, deps) {
   registerHealthRoutes(app, deps);
+  registerAppRoutes(app, deps);
   registerAuthRoutes(app, deps);
   registerPresenceRoutes(app, deps);
   registerProfileRoutes(app, deps);

@@ -841,7 +841,7 @@ ensure_offline_source_ready() {
   local zip_path=""
   zip_path="$(find_offline_source_zip)" || zip_path=""
   if [[ -z "$zip_path" ]]; then
-    log "Offline ${mode_label} requires /songbird.zip to be available at the filesystem root."
+    warn "Offline ${mode_label} requires /songbird.zip to be available at the filesystem root."
     press_enter_to_continue
     return 1
   fi
@@ -1434,7 +1434,7 @@ configure_certbot_ip_ssl() {
     --email "$CERTBOT_EMAIL" \
     --deploy-hook "systemctl reload nginx" \
     --ip-address "$CERTBOT_IP_ADDRESS" || {
-      log "ERROR: Certbot failed for IP ${CERTBOT_IP_ADDRESS}"
+      warn "ERROR: Certbot failed for IP ${CERTBOT_IP_ADDRESS}"
       return 1
     }
 
@@ -1507,7 +1507,7 @@ configure_ssl_if_needed() {
     --nginx \
     --non-interactive \
     --cert-name "${DOMAIN_NAMES[0]}" \
-    "${all_d_args[@]}" || { log "ERROR: Failed to configure nginx SSL"; return 1; }
+    "${all_d_args[@]}" || { warn "ERROR: Failed to configure nginx SSL"; return 1; }
 
   log "Nginx SSL configured for: ${DOMAIN_NAMES[*]}"
 }
@@ -1561,7 +1561,7 @@ restore_backup_if_provided() {
   elif run_as_root test -f "$INSTALL_DIR/.env"; then
     log "Legacy backup detected; keeping existing .env in place."
   else
-    warn "Legacy backup detected without .env. Restore completed, but ${INSTALL_DIR}/.env still needs valid values."
+    log "Legacy backup detected without .env. Restore completed, but ${INSTALL_DIR}/.env still needs valid values."
   fi
   if [[ -f "$db_src" ]]; then
     run_silent run_as_root cp -a "$db_src" "$INSTALL_DIR/data/"

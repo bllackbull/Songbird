@@ -19,6 +19,7 @@ import { getAvatarStyle } from "../../../utils/avatarColor.js";
 import { hasPersian } from "../../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../../utils/avatarInitials.js";
 import { renderMarkdownInlinePlain } from "../../../utils/markdown.js";
+import { summarizeFiles } from "../../../utils/messagePreview.js";
 import Avatar from "../../common/Avatar.jsx";
 
 export default function ChatsListPanel({
@@ -61,7 +62,7 @@ export default function ChatsListPanel({
   const wiggleDelays = [-80, -170, -260, -120, -220, -320];
   const isEmptyState = !loadingChats && !visibleChats.length;
   const fallbackUploadTextPattern =
-    /^Sent (a media file|a document|a voice message|\d+ files|\d+ media files|\d+ voice messages)$/i;
+    /^Sent (a media file|a file|a document|a voice message|\d+ (files|documents|media files|voice messages))$/i;
   const normalizePreviewText = (value) => {
     if (typeof value === "string") {
       return value === "[object Object]" ? "" : value;
@@ -86,87 +87,29 @@ export default function ChatsListPanel({
       };
     }
 
-    const videoCount = files.filter((file) =>
-      String(file.mimeType || "")
-        .toLowerCase()
-        .startsWith("video/"),
-    ).length;
-    const imageCount = files.filter((file) =>
-      String(file.mimeType || "")
-        .toLowerCase()
-        .startsWith("image/"),
-    ).length;
-    const audioCount = files.filter((file) =>
-      String(file.mimeType || "")
-        .toLowerCase()
-        .startsWith("audio/"),
-    ).length;
-    const docCount = Math.max(
-      0,
-      files.length - videoCount - imageCount - audioCount,
-    );
-
-    const isMixedMedia = imageCount > 0 && videoCount > 0 && docCount === 0;
-    const hasVoiceOnly =
-      audioCount > 0 && videoCount === 0 && imageCount === 0 && docCount === 0;
+    const summaryText = summarizeFiles(files);
+    const summaryIcon = /^Sent (a voice message|\d+ voice messages)$/i.test(
+      summaryText,
+    )
+      ? "voice"
+      : /^Sent (a video|\d+ videos)$/i.test(summaryText)
+        ? "video"
+        : /^Sent (a photo|\d+ photos|a media file|\d+ media files)$/i.test(
+              summaryText,
+            )
+          ? "image"
+          : files.length
+            ? "document"
+            : null;
     const isFileOnlyBody = !body || fallbackUploadTextPattern.test(body);
     if (!isFileOnlyBody) {
-      const icon = hasVoiceOnly
-        ? "voice"
-        : isMixedMedia
-          ? "image"
-          : videoCount > 0
-            ? "video"
-            : imageCount > 0
-              ? "image"
-              : "document";
-      return { icon, text: body };
+      return { icon: summaryIcon, text: body };
     }
 
-    if (files.length === 1) {
-      if (videoCount === 1) return { icon: "video", text: "Sent a video" };
-      if (imageCount === 1) return { icon: "image", text: "Sent a photo" };
-      if (audioCount === 1)
-        return { icon: "voice", text: "Sent a voice message" };
-      return { icon: "document", text: "Sent a document" };
-    }
-
-    if (
-      audioCount > 0 &&
-      videoCount === 0 &&
-      imageCount === 0 &&
-      docCount === 0
-    ) {
-      return {
-        icon: "voice",
-        text: `Sent ${audioCount} voice message${audioCount > 1 ? "s" : ""}`,
-      };
-    }
-    if (videoCount > 0 && imageCount === 0 && docCount === 0) {
-      return {
-        icon: "video",
-        text: `Sent ${videoCount} video${videoCount > 1 ? "s" : ""}`,
-      };
-    }
-    if (imageCount > 0 && videoCount === 0 && docCount === 0) {
-      return {
-        icon: "image",
-        text: `Sent ${imageCount} photo${imageCount > 1 ? "s" : ""}`,
-      };
-    }
-    if (docCount > 0 && imageCount === 0 && videoCount === 0) {
-      return {
-        icon: "document",
-        text: `Sent ${docCount} document${docCount > 1 ? "s" : ""}`,
-      };
-    }
-    if (isMixedMedia) {
-      return {
-        icon: "image",
-        text: `Sent ${files.length} media files`,
-      };
-    }
-    return { icon: "document", text: `Sent ${files.length} files` };
+    return {
+      icon: summaryIcon,
+      text: summaryText,
+    };
   };
 
   const hasDiscoverQuery = Boolean(String(chatsSearchQuery || "").trim());
@@ -643,22 +586,22 @@ export default function ChatsListPanel({
                             {lastPreview.icon === "voice" ? (
                               <Mic
                                 size={12}
-                                className="shrink-0 text-slate-500 dark:text-slate-400"
+                                className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                               />
                             ) : lastPreview.icon === "video" ? (
                               <Video
                                 size={12}
-                                className="shrink-0 text-slate-500 dark:text-slate-400"
+                                className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                               />
                             ) : lastPreview.icon === "image" ? (
                               <ImageIcon
                                 size={12}
-                                className="shrink-0 text-slate-500 dark:text-slate-400"
+                                className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                               />
                             ) : lastPreview.icon === "document" ? (
                               <File
                                 size={12}
-                                className="shrink-0 text-slate-500 dark:text-slate-400"
+                                className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                               />
                             ) : null}
                             <span
@@ -709,22 +652,22 @@ export default function ChatsListPanel({
                           {lastPreview.icon === "voice" ? (
                             <Mic
                               size={12}
-                              className="shrink-0 text-slate-500 dark:text-slate-400"
+                              className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                             />
                           ) : lastPreview.icon === "video" ? (
                             <Video
                               size={12}
-                              className="shrink-0 text-slate-500 dark:text-slate-400"
+                              className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                             />
                           ) : lastPreview.icon === "image" ? (
                             <ImageIcon
                               size={12}
-                              className="shrink-0 text-slate-500 dark:text-slate-400"
+                              className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                             />
                           ) : lastPreview.icon === "document" ? (
                             <File
                               size={12}
-                              className="shrink-0 text-slate-500 dark:text-slate-400"
+                              className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                             />
                           ) : null}
                           <span

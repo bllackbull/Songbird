@@ -24,8 +24,12 @@ import {
   renderMarkdownInlinePlain,
 } from "../../../utils/markdown.js";
 import { copyTextToClipboard } from "../../../utils/clipboard.js";
-import { extractMessageBodyText } from "../../../utils/messageContent.js";
+import {
+  extractMessageBodyText,
+  FILE_SUMMARY_PATTERN,
+} from "../../../utils/messageContent.js";
 import { resolveMention } from "../../../utils/mentions.js";
+import { summarizeFiles } from "../../../utils/messagePreview.js";
 import Avatar from "../../common/Avatar.jsx";
 
 export const MessageItem = memo(function MessageItem({
@@ -48,6 +52,7 @@ export const MessageItem = memo(function MessageItem({
   onOpenForwardOrigin,
   mentionRefreshToken = 0,
   onReply,
+  onForwardMessage,
   onJumpToMessage,
   canSwipeReply = true,
   onOpenContextMenu,
@@ -79,6 +84,9 @@ export const MessageItem = memo(function MessageItem({
         : null;
   const messageFiles = Array.isArray(msg.files) ? msg.files : [];
   const hasFiles = messageFiles.length > 0;
+  const generatedSummaryText = hasFiles
+    ? summarizeFiles(messageFiles, String(msg?._uploadType || "").toLowerCase())
+    : "";
   const getFileRenderType = messageFilesProps?.getFileRenderType;
   const hasMediaFiles = getFileRenderType
     ? messageFiles.some((file) => {
@@ -96,6 +104,23 @@ export const MessageItem = memo(function MessageItem({
     Boolean(msg._processingPending);
   const isFailed = msg._delivery === "failed";
   const bodyText = extractMessageBodyText(msg?.body);
+  const normalizedBodyText = String(bodyText || "").trim();
+  const hasMixedVoiceAndOtherFiles =
+    hasFiles &&
+    messageFiles.some((file) =>
+      String(file?.mimeType || "").toLowerCase().startsWith("audio/"),
+    ) &&
+    messageFiles.some(
+      (file) =>
+        !String(file?.mimeType || "").toLowerCase().startsWith("audio/"),
+    );
+  const shouldHideGeneratedFileBody =
+    hasFiles &&
+    (!normalizedBodyText ||
+      FILE_SUMMARY_PATTERN.test(normalizedBodyText) ||
+      normalizedBodyText === generatedSummaryText ||
+      (hasMixedVoiceAndOtherFiles &&
+        /^Sent a voice message$/i.test(normalizedBodyText)));
   const messageBodyRef = useRef(null);
   const suppressCodeClickUntilRef = useRef(0);
   const mentionDebugEnabled =
@@ -434,7 +459,7 @@ export const MessageItem = memo(function MessageItem({
       replyBodyText,
     );
   const isGenericReplyMediaText =
-    /^Sent (a media file|a photo|a video|a document|\d+ (files|photos|videos|documents|media files))$/i.test(
+    /^Sent (a media file|a file|a photo|a video|a document|\d+ (files|photos|videos|documents|media files))$/i.test(
       replyBodyText,
     );
   const normalizedReplyPreview =
@@ -464,7 +489,7 @@ export const MessageItem = memo(function MessageItem({
     if (/^Sent (a video|\d+ videos)/i.test(replyPreview)) return "video";
     if (/^Sent (a photo|\d+ photos)/i.test(replyPreview)) return "image";
     if (/^Sent a media file/i.test(replyPreview)) return "image";
-    if (/^Sent (a document|\d+ documents|\d+ files)/i.test(replyPreview))
+    if (/^Sent (a file|a document|\d+ documents|\d+ files)/i.test(replyPreview))
       return "document";
     return null;
   })();
@@ -506,6 +531,10 @@ export const MessageItem = memo(function MessageItem({
   const messageContextMenu = {
     disabled: !onOpenContextMenu,
     isMobile: contextMenuMobileEnabled,
+    holdDelayMs:
+      contextMenuMobileEnabled && canSwipeReply ? 900 : undefined,
+    moveTolerancePx:
+      contextMenuMobileEnabled && canSwipeReply ? 0 : undefined,
     onOpen: ({ event, targetEl, isMobile }) =>
       onOpenContextMenu?.({
         kind: "message",
@@ -532,7 +561,7 @@ export const MessageItem = memo(function MessageItem({
   const swipeUserSelectRef = useRef(null);
   const swipeTouchCalloutRef = useRef(null);
   const swipeEndLockRef = useRef(false);
-  const swipeProgress = Math.min(Math.abs(swipeOffset) / 70, 1);
+  const swipeProgress = Math.min(Math.abs(swipeOffset) / 90, 1);
   const showSwipeHint = !isDesktop && isMobileTouchDevice && canSwipeReply;
 
   const queueSwipeOffset = (value) => {
@@ -571,7 +600,7 @@ export const MessageItem = memo(function MessageItem({
     const dx = touchDxRef.current;
     const dy = Math.abs(touchDyRef.current);
     const swipeOffset = swipeOffsetRef.current;
-    const shouldReply = (swipeOffset < -24 || dx < -24) && dy < 90;
+    const shouldReply = (swipeOffset <= -90 || dx <= -90) && dy < 90;
     resetSwipe();
     if (shouldReply) {
       onReply?.(msg);
@@ -764,7 +793,7 @@ export const MessageItem = memo(function MessageItem({
                 className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/30"
                 style={{
                   opacity: swipeProgress,
-                  transform: `translateX(${52 - swipeProgress * 60}px) scale(${
+                  transform: `translateX(${124 - swipeProgress * 124}px) scale(${
                     0.5 + swipeProgress * 0.7
                   })`,
                 }}
@@ -897,22 +926,22 @@ export const MessageItem = memo(function MessageItem({
                         {derivedReplyIcon === "voice" ? (
                           <Mic
                             size={11}
-                            className="shrink-0 text-slate-500 dark:text-slate-400"
+                            className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                           />
                         ) : derivedReplyIcon === "video" ? (
                           <Video
                             size={11}
-                            className="shrink-0 text-slate-500 dark:text-slate-400"
+                            className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                           />
                         ) : derivedReplyIcon === "image" ? (
                           <ImageIcon
                             size={11}
-                            className="shrink-0 text-slate-500 dark:text-slate-400"
+                            className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                           />
                         ) : derivedReplyIcon === "document" ? (
                           <File
                             size={11}
-                            className="shrink-0 text-slate-500 dark:text-slate-400"
+                            className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                           />
                         ) : null}
                         <span
@@ -932,12 +961,7 @@ export const MessageItem = memo(function MessageItem({
                   docFullWidth={isGroupChat && !isOwn && !isDesktop}
                   {...messageFilesProps}
                 />
-                {!(
-                  (msg.files || []).length &&
-                  /^Sent (a media file|a photo|a video|a document|a voice message|\d+ (files|photos|videos|documents|media files|voice messages))$/i.test(
-                    bodyText.trim(),
-                  )
-                ) ? (
+                {!shouldHideGeneratedFileBody ? (
                   <div
                     ref={messageBodyRef}
                     dir={hasPersian(bodyText) ? "rtl" : "ltr"}
@@ -1044,27 +1068,27 @@ export const MessageItem = memo(function MessageItem({
                       dir="ltr"
                       style={{ unicodeBidi: "isolate" }}
                     >
-                      {derivedReplyIcon === "voice" ? (
-                        <Mic
-                          size={11}
-                          className="shrink-0 text-slate-500 dark:text-slate-400"
-                        />
-                      ) : derivedReplyIcon === "video" ? (
-                        <Video
-                          size={11}
-                          className="shrink-0 text-slate-500 dark:text-slate-400"
-                        />
-                      ) : derivedReplyIcon === "image" ? (
-                        <ImageIcon
-                          size={11}
-                          className="shrink-0 text-slate-500 dark:text-slate-400"
-                        />
-                      ) : derivedReplyIcon === "document" ? (
-                        <File
-                          size={11}
-                          className="shrink-0 text-slate-500 dark:text-slate-400"
-                        />
-                      ) : null}
+                        {derivedReplyIcon === "voice" ? (
+                          <Mic
+                            size={11}
+                            className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
+                          />
+                        ) : derivedReplyIcon === "video" ? (
+                          <Video
+                            size={11}
+                            className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
+                          />
+                        ) : derivedReplyIcon === "image" ? (
+                          <ImageIcon
+                            size={11}
+                            className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
+                          />
+                        ) : derivedReplyIcon === "document" ? (
+                          <File
+                            size={11}
+                            className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
+                          />
+                        ) : null}
                       <span
                         className="min-w-0 truncate"
                         dir="auto"
@@ -1082,12 +1106,7 @@ export const MessageItem = memo(function MessageItem({
                 docFullWidth={isGroupChat && !isOwn && !isDesktop}
                 {...messageFilesProps}
               />
-              {!(
-                (msg.files || []).length &&
-                /^Sent (a media file|a photo|a video|a document|a voice message|\d+ (files|photos|videos|documents|media files|voice messages))$/i.test(
-                  bodyText.trim(),
-                )
-              ) ? (
+              {!shouldHideGeneratedFileBody ? (
                 <div
                   ref={messageBodyRef}
                   dir={hasPersian(bodyText) ? "rtl" : "ltr"}
@@ -1175,6 +1194,16 @@ export const MessageItem = memo(function MessageItem({
                   </span>
                 ) : null}
               </div>
+              {isChannelChat && typeof onForwardMessage === "function" ? (
+                <button
+                  type="button"
+                  onClick={() => onForwardMessage(msg)}
+                  className="absolute bottom-2 -right-12 inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                  aria-label="Forward message"
+                >
+                  <Forward size={15} className="icon-anim-pop" />
+                </button>
+              ) : null}
             </ContextMenuSurface>
           )}
         </div>

@@ -30,6 +30,7 @@ import { useNewChatSearch } from "../hooks/chat/useNewChatSearch.js";
 import { useNewGroupModal } from "../hooks/chat/useNewGroupModal.js";
 import { usePerfTelemetry } from "../hooks/chat/usePerfTelemetry.js";
 import { useResumeRefresh } from "../hooks/chat/useResumeRefresh.js";
+import { useAppReleaseInfo } from "../hooks/useAppReleaseInfo.js";
 import { Bookmark } from "../icons/lucide.js";
 import { CLIPBOARD_COPY_EVENT } from "../utils/clipboard.js";
 import { CACHE_STORES } from "../utils/cacheDb.js";
@@ -126,6 +127,7 @@ const loadNotificationsSettingsModal = () =>
   import("../components/settings/modals/NotificationsSettingsModal.jsx").then((mod) => ({
     default: mod.NotificationsSettingsModal,
   }));
+const loadWhatsNewModal = () => import("../components/modals/WhatsNewModal.jsx");
 
 const ChatProfileModal = lazy(loadChatProfileModal);
 const DeleteChatsModal = lazy(loadDeleteChatsModal);
@@ -137,12 +139,14 @@ const NewChatModal = lazy(loadNewChatModal);
 const NewGroupModal = lazy(loadNewGroupModal);
 const DesktopSettingsModal = lazy(loadDesktopSettingsModal);
 const NotificationsSettingsModal = lazy(loadNotificationsSettingsModal);
+const WhatsNewModal = lazy(loadWhatsNewModal);
 
 const preloadChatPageCriticalChunks = () =>
   Promise.allSettled([
     loadNewChatModal(),
     loadDesktopSettingsModal(),
     loadNotificationsSettingsModal(),
+    loadWhatsNewModal(),
   ]);
 
 const preloadChatPageLazyChunks = () =>
@@ -157,6 +161,7 @@ const preloadChatPageLazyChunks = () =>
     loadNewGroupModal(),
     loadDesktopSettingsModal(),
     loadNotificationsSettingsModal(),
+    loadWhatsNewModal(),
   ]);
 
 const resolveChunkPreloadMode = () => {
@@ -404,6 +409,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     settingsPanel,
     messagesCacheRef,
   });
+  const {
+    appInfo,
+    appInfoLoading,
+    appInfoError,
+    whatsNewOpen,
+    openWhatsNew,
+    dismissWhatsNew,
+  } = useAppReleaseInfo();
   const { isAppActive } = useAppActivity();
   const { isMobileViewport } = useMobileViewport();
   const { isConnected } = useHealthCheck({
@@ -509,8 +522,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [microphonePermission, setMicrophonePermission] = useState("unknown");
   const [microphonePermissionSupported, setMicrophonePermissionSupported] =
     useState(false);
+  const [permissionPromptDelayUntil, setPermissionPromptDelayUntil] = useState(0);
   const PERMISSION_DISMISS_PREFIX = "songbird-permission-dismiss-";
   const PERMISSION_DISMISS_MS = 3 * 24 * 60 * 60 * 1000;
+  const PERMISSION_PROMPT_DELAY_MS = 1000;
   const readPermissionDismissed = (kind) => {
     if (typeof window === "undefined") return false;
     const key = `${PERMISSION_DISMISS_PREFIX}${kind}`;
@@ -549,8 +564,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       const until = Date.now() + PERMISSION_DISMISS_MS;
       window.localStorage.setItem(key, String(until));
       setPermissionsDismissed((prev) => ({ ...prev, [kind]: true }));
+      setPermissionPromptDelayUntil(Date.now() + PERMISSION_PROMPT_DELAY_MS);
     },
-    [PERMISSION_DISMISS_MS],
+    [PERMISSION_DISMISS_MS, PERMISSION_PROMPT_DELAY_MS],
   );
   const requestNotificationsPermission = useCallback(async () => {
     if (notificationPermission !== "default") return;
@@ -1195,20 +1211,16 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, [pendingGroupAvatarFile]);
 
   useEffect(() => {
-    if (user) {
-      if (pendingAvatarFile?.previewUrl) {
-        URL.revokeObjectURL(pendingAvatarFile.previewUrl);
-      }
-      setPendingAvatarFile(null);
-      setProfileForm({
-        nickname: user.nickname || "",
-        username: user.username || "",
-        avatarUrl: user.avatarUrl || "",
-      });
-      setAvatarPreview(user.avatarUrl || "");
-      setStatusSelection(user.status || "online");
-    }
-  }, [user, pendingAvatarFile]);
+    if (!user) return;
+    setPendingAvatarFile(null);
+    setProfileForm({
+      nickname: user.nickname || "",
+      username: user.username || "",
+      avatarUrl: user.avatarUrl || "",
+    });
+    setAvatarPreview(user.avatarUrl || "");
+    setStatusSelection(user.status || "online");
+  }, [user]);
 
   useEffect(() => {
     if (!user?.username) return;
@@ -1781,6 +1793,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   };
   const handleDeleteChats = () => requestDeleteChats(selectedChats);
   const handleOpenSettings = () => setShowSettings((prev) => !prev);
+  const handleOpenWhatsNew = () => {
+    setShowSettings(false);
+    openWhatsNew();
+  };
 
   const displayName = user.nickname || user.username;
   const displayInitials = getAvatarInitials(displayName);
@@ -1936,6 +1952,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         const second = buildTypingDisplayName(activeTypingUsers[1].displayName, 16);
         return {
           type: "group_pair",
+          firstName: first,
+          secondName: second,
           label: `${first} and ${second}`,
           fullLabel: `${activeTypingUsers[0].displayName} and ${activeTypingUsers[1].displayName}`,
         };
@@ -2946,7 +2964,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           const createdAt = pendingMessage?._createdAt || new Date().toISOString();
           const pendingDate = parseServerDate(createdAt);
           const pendingDayKey = `${pendingDate.getFullYear()}-${pendingDate.getMonth()}-${pendingDate.getDate()}`;
-          const pendingBody = String(pendingMessage?.body || "").trim() || "Sent a file";
+          const pendingBody = String(pendingMessage?.body || "").trim();
           const messageFiles = files.map((file) => ({
             id: file.id,
             _localId: file._localId || file.id,
@@ -3836,10 +3854,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
 
     const pendingFilesSummary = hasAnyPendingFiles
-      ? summarizeFiles([
-          ...pendingUploadFiles,
-          ...(hasPendingVoice && pendingVoiceMessage ? [pendingVoiceMessage] : []),
-        ])
+      ? summarizeFiles(
+          [
+            ...pendingUploadFiles,
+            ...(hasPendingVoice && pendingVoiceMessage
+              ? [pendingVoiceMessage]
+              : []),
+          ],
+          hasPendingFiles ? pendingUploadType : "",
+        )
       : "";
     const isSavedChat = isActiveSavedChat;
 
@@ -3848,11 +3871,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const queuedAt = Date.now();
     const pendingDate = parseServerDate(createdAt);
     const pendingDayKey = `${pendingDate.getFullYear()}-${pendingDate.getMonth()}-${pendingDate.getDate()}`;
-    const fallbackBody =
-      trimmedBody ||
-      (hasPendingFiles
-        ? pendingFilesSummary || `Sent ${pendingUploadFiles.length} files`
-        : "");
+    const fallbackBody = trimmedBody || "";
     const pendingFiles = hasAnyPendingFiles
       ? [
           ...pendingUploadFiles.map((item) => {
@@ -3941,9 +3960,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         _files: pendingFiles,
         _createdAt: createdAt,
         _dayKey: pendingDayKey,
-        body:
-          trimmedBody ||
-          (isEditingMessage ? String(editTarget?.body || "") : fallbackBody),
+        body: trimmedBody || (isEditingMessage ? String(editTarget?.body || "") : ""),
         replyTo: replyPayload,
         read_at: isSavedChat ? createdAt : null,
         read_by_user_id: isSavedChat ? Number(user?.id || 0) : null,
@@ -3980,7 +3997,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       {
         id: tempId,
         username: user.username,
-        body: fallbackBody,
+        body: trimmedBody,
         created_at: createdAt,
         read_at: isSavedChat ? createdAt : null,
         read_by_user_id: isSavedChat ? Number(user?.id || 0) : null,
@@ -4027,7 +4044,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       _delivery: "sending",
       _uploadType: effectiveUploadType,
       _files: pendingFiles,
-      body: fallbackBody,
+      body: trimmedBody,
       replyTo: replyPayload,
     };
     await sendPendingMessage(pendingMessage);
@@ -4913,12 +4930,29 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     microphonePermissionSupported &&
     microphonePermission === "prompt" &&
     !permissionsDismissed.microphone;
+  const permissionPromptDelayActive =
+    permissionPromptDelayUntil > Date.now();
   const activePermissionPrompt = shouldPromptNotifications
     ? "notification"
     : shouldPromptMicrophone
       ? "microphone"
       : null;
-  const showPermissionsPrompt = Boolean(activePermissionPrompt);
+  const showPermissionsPrompt = Boolean(
+    activePermissionPrompt && !permissionPromptDelayActive,
+  );
+
+  useEffect(() => {
+    if (!permissionPromptDelayUntil) return undefined;
+    const remainingMs = permissionPromptDelayUntil - Date.now();
+    if (remainingMs <= 0) {
+      setPermissionPromptDelayUntil(0);
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      setPermissionPromptDelayUntil(0);
+    }, remainingMs);
+    return () => window.clearTimeout(timer);
+  }, [permissionPromptDelayUntil]);
 
   useEffect(() => {
     setPermissionsDismissed({
@@ -5023,6 +5057,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         onClearCache={handleClearCache}
         dataCacheStats={dataCacheStats}
         onDeleteAccount={handleDeleteAccount}
+        appInfo={appInfo}
+        appInfoLoading={appInfoLoading}
+        appInfoError={appInfoError}
         onExitEdit={handleExitEdit}
         onEnterEdit={handleEnterEdit}
         onDeleteChats={handleDeleteChats}
@@ -5030,6 +5067,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         onOpenOwnProfile={openOwnProfileModal}
         settingsButtonRef={settingsButtonRef}
         displayInitials={displayInitials}
+        onOpenWhatsNew={handleOpenWhatsNew}
       />
 
       <ChatWindowPanel
@@ -5091,6 +5129,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         onOpenMessageSenderProfile={openMemberProfileFromMessage}
         onOpenMention={openMentionProfile}
         onOpenForwardOrigin={handleOpenForwardOrigin}
+        onForwardMessage={handleOpenForwardModal}
         onOpenContextMenu={openContextMenu}
         onUserScrollIntent={handleUserScrollIntent}
         canSwipeReply={canSwipeReply}
@@ -5105,6 +5144,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         headerAvatarColor={headerAvatarColor}
         mentionRefreshToken={mentionRefreshToken}
         copyToastVisible={copyToastVisible}
+        microphonePermissionStatus={microphonePermission}
+        onRequestMicrophonePermission={requestMicrophonePermission}
         permissionsPrompt={{
           show: showPermissionsPrompt,
           mode: activePermissionPrompt,
@@ -5359,6 +5400,21 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             dataCacheStats={dataCacheStats}
             currentUser={user}
             onDeleteAccount={handleDeleteAccount}
+            appInfo={appInfo}
+            appInfoLoading={appInfoLoading}
+            appInfoError={appInfoError}
+            onOpenWhatsNew={handleOpenWhatsNew}
+          />
+        </Suspense>
+      ) : null}
+
+      {whatsNewOpen ? (
+        <Suspense fallback={null}>
+          <WhatsNewModal
+            open={whatsNewOpen}
+            version={appInfo?.version || ""}
+            changelog={appInfo?.changelog || ""}
+            onClose={() => dismissWhatsNew(true)}
           />
         </Suspense>
       ) : null}

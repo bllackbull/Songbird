@@ -6,7 +6,22 @@ export const truncateText = (text, maxChars) => {
   return `${value.slice(0, maxChars).trimEnd()}...`;
 };
 
-export const summarizeFiles = (files = []) => {
+const isDocumentModeFiles = (files = [], uploadMode = "") => {
+  const normalizedMode = String(uploadMode || "").toLowerCase();
+  if (normalizedMode === "document") return true;
+  const nonAudioFiles = (Array.isArray(files) ? files : []).filter((file) => {
+    const mimeType = String(file?.mimeType || "").toLowerCase();
+    return !mimeType.startsWith("audio/");
+  });
+  return (
+    nonAudioFiles.length > 0 &&
+    nonAudioFiles.every(
+      (file) => String(file?.kind || "").toLowerCase() === "document",
+    )
+  );
+};
+
+const getFileSummaryMeta = (files = [], uploadMode = "") => {
   if (!Array.isArray(files) || files.length === 0) return "";
   const videoCount = files.filter((file) =>
     String(file?.mimeType || "")
@@ -27,33 +42,77 @@ export const summarizeFiles = (files = []) => {
     0,
     files.length - videoCount - imageCount - audioCount,
   );
+  const documentMode = isDocumentModeFiles(files, uploadMode);
+  const activeTypes = [
+    audioCount > 0 ? "audio" : null,
+    videoCount > 0 ? "video" : null,
+    imageCount > 0 ? "image" : null,
+    docCount > 0 ? "document" : null,
+  ].filter(Boolean);
+  const hasMixedAudio = audioCount > 0 && files.length > audioCount;
+  const hasMixedMediaOnly =
+    activeTypes.length === 2 &&
+    imageCount > 0 &&
+    videoCount > 0 &&
+    audioCount === 0 &&
+    docCount === 0;
+
   if (files.length === 1) {
-    if (videoCount === 1) return "Sent a video";
-    if (imageCount === 1) return "Sent a photo";
-    if (audioCount === 1) return "Sent a voice message";
-    return "Sent a document";
+    if (documentMode && audioCount === 0) {
+      return { text: "Sent a document", icon: "document" };
+    }
+    if (videoCount === 1) return { text: "Sent a video", icon: "video" };
+    if (imageCount === 1) return { text: "Sent a photo", icon: "image" };
+    if (audioCount === 1) {
+      return { text: "Sent a voice message", icon: "voice" };
+    }
+    return { text: "Sent a document", icon: "document" };
   }
-  if (
-    audioCount > 0 &&
-    videoCount === 0 &&
-    imageCount === 0 &&
-    docCount === 0
-  ) {
-    return `Sent ${audioCount} voice message${audioCount > 1 ? "s" : ""}`;
+  if (audioCount > 0 && videoCount === 0 && imageCount === 0 && docCount === 0) {
+    return {
+      text: `Sent ${audioCount} voice message${audioCount > 1 ? "s" : ""}`,
+      icon: "voice",
+    };
   }
   if (videoCount > 0 && imageCount === 0 && docCount === 0) {
-    return `Sent ${videoCount} video${videoCount > 1 ? "s" : ""}`;
+    return {
+      text: `Sent ${videoCount} video${videoCount > 1 ? "s" : ""}`,
+      icon: "video",
+    };
   }
   if (imageCount > 0 && videoCount === 0 && docCount === 0) {
-    return `Sent ${imageCount} photo${imageCount > 1 ? "s" : ""}`;
+    return {
+      text: `Sent ${imageCount} photo${imageCount > 1 ? "s" : ""}`,
+      icon: "image",
+    };
   }
   if (docCount > 0 && imageCount === 0 && videoCount === 0) {
-    return `Sent ${docCount} document${docCount > 1 ? "s" : ""}`;
+    return {
+      text: `Sent ${docCount} document${docCount > 1 ? "s" : ""}`,
+      icon: "document",
+    };
   }
-  if (imageCount > 0 && videoCount > 0 && docCount === 0) {
-    return `Sent ${files.length} media files`;
+  if (documentMode || hasMixedAudio || activeTypes.length > 2 || (docCount > 0 && activeTypes.length > 1)) {
+    return {
+      text: `Sent ${files.length} document${files.length > 1 ? "s" : ""}`,
+      icon: "document",
+    };
   }
-  return `Sent ${files.length} files`;
+  if (hasMixedMediaOnly) {
+    return {
+      text: `Sent ${files.length} media files`,
+      icon: "image",
+    };
+  }
+  return {
+    text: `Sent ${files.length} document${files.length > 1 ? "s" : ""}`,
+    icon: "document",
+  };
+};
+
+export const summarizeFiles = (files = [], uploadMode = "") => {
+  const summary = getFileSummaryMeta(files, uploadMode);
+  return typeof summary === "string" ? summary : summary?.text || "";
 };
 
 export const resolveReplyPreview = (msg) => {
@@ -83,31 +142,25 @@ export const resolveReplyPreview = (msg) => {
     0,
     files.length - videoCount - imageCount - audioCount,
   );
-  const isMixedMedia = imageCount > 0 && videoCount > 0 && docCount === 0;
-  const hasVoiceOnly =
-    audioCount > 0 && videoCount === 0 && imageCount === 0 && docCount === 0;
-  const icon = hasVoiceOnly
-    ? "voice"
-    : isMixedMedia
-      ? "image"
-      : videoCount > 0
-        ? "video"
-        : imageCount > 0
-          ? "image"
-          : files.length
-            ? "document"
-            : null;
-  let summary = summarizeFiles(files);
+  const summaryMeta = getFileSummaryMeta(files);
+  const icon =
+    typeof summaryMeta === "string" ? (docCount > 0 ? "document" : null) : summaryMeta?.icon || null;
+  let summary =
+    typeof summaryMeta === "string" ? summaryMeta : summaryMeta?.text || "";
   if (!summary && /^Sent a media file$/i.test(rawBody)) {
     if (videoCount === 1 && imageCount === 0) summary = "Sent a video";
     if (imageCount === 1 && videoCount === 0) summary = "Sent a photo";
   }
   const isGenericBody =
     !rawBody ||
-    /^Sent (a media file|a document|a voice message|\d+ files|\d+ media files|\d+ voice messages)$/i.test(
+    /^Sent (a media file|a file|a document|a voice message|\d+ (files|documents|media files|voice messages))$/i.test(
       rawBody,
     );
-  if (isMixedMedia && (isGenericBody || /^Sent \d+ files$/i.test(rawBody))) {
+  if (
+    icon === "image" &&
+    /^Sent \d+ media files$/i.test(summary || "") &&
+    (isGenericBody || /^Sent \d+ files$/i.test(rawBody))
+  ) {
     summary = `Sent ${files.length} media files`;
   }
   const text =

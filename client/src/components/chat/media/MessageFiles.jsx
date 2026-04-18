@@ -10,6 +10,7 @@ const VOICE_WAVEFORM_CACHE = new Map();
 const VOICE_WAVEFORM_PROMISES = new Map();
 const VOICE_AUDIO_POOL = new Map();
 const VOICE_AUDIO_LAST_USED_AT = new Map();
+const VOICE_AUDIO_POSITIONS = new Map();
 const VOICE_WAVEFORM_BARS_PER_SECOND = 3;
 const VOICE_WAVEFORM_MAX_BARS = 36;
 const VOICE_WAVEFORM_MAX_DECODE_BYTES = Math.max(
@@ -289,6 +290,11 @@ const VoiceMessageChip = memo(
     const fileDurationRef = useRef(fileDuration);
     const [duration, setDuration] = useState(fileDuration);
     const cacheKey = cacheKeyRef.current;
+    const getStoredResumeTime = () =>
+      Math.max(
+        0,
+        Number(VOICE_AUDIO_POSITIONS.get(cacheKey) || resumeTimeRef.current || 0),
+      );
     const getTargetBars = (value) =>
       Math.max(
         12,
@@ -309,6 +315,7 @@ const VoiceMessageChip = memo(
     const pendingPeaksRef = useRef(null);
     const rafRef = useRef(0);
     const playStartRef = useRef(null);
+    const resumeTimeRef = useRef(0);
     const userPausedRef = useRef(false);
     const autoResumeAttemptsRef = useRef(0);
     const playRequestTokenRef = useRef(0);
@@ -406,12 +413,13 @@ const VoiceMessageChip = memo(
       if (!currentSrc) return null;
       const existing = VOICE_AUDIO_POOL.get(cacheKey);
       if (existing) {
-        if (existing.src !== currentSrc) {
+        if (existing._sbSourceKey !== currentSrc) {
           try {
             existing.pause();
             existing.currentTime = 0;
             existing.src = currentSrc;
             existing.preload = "none";
+            existing._sbSourceKey = currentSrc;
           } catch (_) {
             // ignore cleanup errors
           }
@@ -422,6 +430,20 @@ const VoiceMessageChip = memo(
       }
       const nextAudio = new Audio(currentSrc);
       nextAudio.preload = "none";
+      nextAudio._sbSourceKey = currentSrc;
+      const resumeTime = getStoredResumeTime();
+      if (Number.isFinite(resumeTime) && resumeTime > 0) {
+        const applyResumeTime = () => {
+          try {
+            nextAudio.currentTime = resumeTime;
+          } catch (_) {
+            // ignore seek errors before metadata is available
+          }
+        };
+        nextAudio.addEventListener("loadedmetadata", applyResumeTime, {
+          once: true,
+        });
+      }
       VOICE_AUDIO_POOL.set(cacheKey, nextAudio);
       touchPooledAudio(cacheKey);
       trimVoiceAudioPool(cacheKey);
@@ -528,6 +550,8 @@ const VoiceMessageChip = memo(
           return;
         }
         const currentTime = getCurrentTimeEstimate(audio);
+        resumeTimeRef.current = Math.min(total, Math.max(0, currentTime));
+        VOICE_AUDIO_POSITIONS.set(cacheKey, resumeTimeRef.current);
         setProgress(Math.min(1, Math.max(0, currentTime / total)));
       };
       const applyPendingPeaks = () => {
@@ -545,6 +569,8 @@ const VoiceMessageChip = memo(
         }
         setIsPlaying(false);
         setIsStarting(false);
+        resumeTimeRef.current = 0;
+        VOICE_AUDIO_POSITIONS.set(cacheKey, 0);
         setProgress(1);
         stopProgressLoop();
         applyPendingPeaks();
@@ -596,6 +622,17 @@ const VoiceMessageChip = memo(
           !audio.ended &&
           !audio.seeking &&
           Number(currentTime || 0) > 0.02;
+        resumeTimeRef.current = endedNaturally
+          ? 0
+          : Math.max(0, Number(currentTime || 0));
+        VOICE_AUDIO_POSITIONS.set(cacheKey, resumeTimeRef.current);
+        if (Number.isFinite(total) && total > 0) {
+          setProgress(
+            endedNaturally
+              ? 1
+              : Math.min(1, Math.max(0, Number(currentTime || 0) / total)),
+          );
+        }
         if (shouldAutoResume) {
           tryAutoResumePlayback(audio);
         }
@@ -641,6 +678,13 @@ const VoiceMessageChip = memo(
         playRequestTokenRef.current += 1;
         playInFlightRef.current = false;
         userPausedRef.current = true;
+        const total = getEffectiveTotal(audio);
+        const currentTime = getCurrentTimeEstimate(audio);
+        resumeTimeRef.current =
+          Number.isFinite(total) && total > 0 && currentTime + 0.05 >= total
+            ? 0
+            : Math.max(0, Number(currentTime || 0));
+        VOICE_AUDIO_POSITIONS.set(cacheKey, resumeTimeRef.current);
         audio.pause();
         setIsPlaying(false);
         setIsStarting(false);
@@ -669,6 +713,32 @@ const VoiceMessageChip = memo(
         playInFlightRef.current = true;
         audio.preload = "auto";
         setIsStarting(true);
+        const currentTime = Number(audio.currentTime || 0);
+        const total = getEffectiveTotal(audio);
+        const resumeTime = getStoredResumeTime();
+        if (
+          Number.isFinite(total) &&
+          total > 0 &&
+          currentTime + 0.05 >= total
+        ) {
+          try {
+            audio.currentTime = 0;
+          } catch (_) {
+            // ignore seek errors
+          }
+          resumeTimeRef.current = 0;
+          VOICE_AUDIO_POSITIONS.set(cacheKey, 0);
+        } else if (
+          Number.isFinite(resumeTime) &&
+          resumeTime > 0 &&
+          currentTime <= 0.05
+        ) {
+          try {
+            audio.currentTime = resumeTime;
+          } catch (_) {
+            // ignore seek errors
+          }
+        }
         audio
           .play()
           .then(() => {
@@ -714,6 +784,8 @@ const VoiceMessageChip = memo(
     }, [cacheKey]);
 
     const hasActivePlayback = isPlaying || isStarting;
+    const hasProgressPosition =
+      progress > 0 || Number(resumeTimeRef.current || 0) > 0;
     const canPlay = Boolean(serverUrl);
     const waveformMaxHeight = 32;
     return (
@@ -754,7 +826,7 @@ const VoiceMessageChip = memo(
           </div>
           <span className="text-[10px] text-slate-900/80 dark:text-emerald-200/80">
             {canPlay
-              ? isPlaying
+              ? hasActivePlayback || hasProgressPosition
                 ? `${formatSeconds((progress || 0) * (duration || file?.durationSeconds || 0))} / ${formatSeconds(duration || file?.durationSeconds || 0)}`
                 : formatSeconds(duration || file?.durationSeconds || 0)
               : "Processing..."}

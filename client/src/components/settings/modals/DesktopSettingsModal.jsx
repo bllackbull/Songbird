@@ -5,6 +5,7 @@ import { hasPersian } from "../../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../../utils/avatarInitials.js";
 import { NICKNAME_MAX, USERNAME_MAX } from "../../../utils/nameLimits.js";
 import { InlineError } from "../common/InlineError.jsx";
+import { AboutSettingsPanel } from "../panels/AboutSettingsPanel.jsx";
 import { DataSettingsPanel } from "../panels/DataSettingsPanel.jsx";
 import ConfirmPasswordModal from "../../modals/ConfirmPasswordModal.jsx";
 import Avatar from "../../common/Avatar.jsx";
@@ -31,6 +32,9 @@ export function DesktopSettingsModal({
   dataCacheStats,
   currentUser,
   onDeleteAccount,
+  appInfo,
+  appInfoLoading,
+  appInfoError,
 }) {
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
@@ -52,14 +56,16 @@ export function DesktopSettingsModal({
 
   return createPortal(
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/40 px-6">
-      <div className="w-full max-w-md rounded-2xl border border-emerald-100/70 bg-white p-6 shadow-xl dark:border-emerald-500/30 dark:bg-slate-950">
-        <div className="flex items-center justify-between">
+      <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-emerald-100/70 bg-white shadow-xl dark:border-emerald-500/30 dark:bg-slate-950">
+        <div className="flex items-center justify-between border-b border-emerald-100/70 px-6 py-5 dark:border-emerald-500/20">
           <h3 className="text-lg font-semibold text-emerald-700 dark:text-emerald-200">
             {settingsPanel === "profile"
               ? "Edit profile"
               : settingsPanel === "security"
                 ? "Security"
-                : "Data"}
+                : settingsPanel === "data"
+                  ? "Data"
+                  : "About"}
           </h3>
           <button
             type="button"
@@ -71,7 +77,10 @@ export function DesktopSettingsModal({
         </div>
 
         {settingsPanel === "profile" ? (
-          <form className="mt-4 space-y-4" onSubmit={handleProfileSave}>
+          <form
+            className="app-scroll mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto px-6 pb-6"
+            onSubmit={handleProfileSave}
+          >
             <label className="block">
               <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
                 Profile photo
@@ -228,7 +237,10 @@ export function DesktopSettingsModal({
         ) : null}
 
         {settingsPanel === "security" ? (
-          <form className="mt-4 space-y-4" onSubmit={handlePasswordSave}>
+          <form
+            className="app-scroll mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto px-6 pb-6"
+            onSubmit={handlePasswordSave}
+          >
             <label className="block">
               <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
                 Current password
@@ -343,12 +355,24 @@ export function DesktopSettingsModal({
         ) : null}
 
         {settingsPanel === "data" ? (
-          <div className="mt-4">
+          <div className="app-scroll mt-4 min-h-0 flex-1 overflow-y-auto px-6 pb-6">
             <DataSettingsPanel
               dataCacheStats={dataCacheStats}
               onClearCache={onClearCache}
               onClose={handleClosePanel}
               user={currentUser}
+              variant="desktop"
+            />
+          </div>
+        ) : null}
+
+        {settingsPanel === "about" ? (
+          <div className="mt-4 min-h-0 flex-1 px-6 pb-6">
+            <AboutSettingsPanel
+              appInfo={appInfo}
+              appInfoLoading={appInfoLoading}
+              appInfoError={appInfoError}
+              onDone={handleClosePanel}
               variant="desktop"
             />
           </div>

@@ -28,3 +28,15 @@ jobs:
         run: npx semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync GitHub Release Notes From CHANGELOG
+        run: |
+          TAG="$(git tag --points-at HEAD | tail -n 1)"
+          if [ -z "$TAG" ]; then
+            echo "No new release tag on HEAD; skipping changelog sync."
+            exit 0
+          fi
+          RELEASE_TAG="$TAG" node scripts/sync-github-release-from-changelog.cjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
