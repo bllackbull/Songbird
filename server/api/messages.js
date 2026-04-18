@@ -22,6 +22,7 @@ function registerMessageRoutes(app, deps) {
     fs,
     findChatById,
     findMessageById,
+    findUserById,
     findUserByUsername,
     getMessages,
     hideMessageForEveryone,
@@ -68,6 +69,48 @@ function registerMessageRoutes(app, deps) {
     return new Date(
       baseMs + Number(MESSAGE_TEXT_RETENTION_DAYS) * 24 * 60 * 60 * 1000,
     ).toISOString();
+  };
+
+  const normalizeForwardOriginAvatarUrl = (userId, avatarUrl) => {
+    const normalized = ensureAvatarExists(userId, avatarUrl);
+    return String(normalized || "").trim() || null;
+  };
+
+  const deriveForwardOrigin = (sourceMessage, sourceChat) => {
+    if (String(sourceChat?.type || "").toLowerCase() === "channel") {
+      const label =
+        String(sourceChat?.name || "").trim() ||
+        String(sourceChat?.group_username || "").trim() ||
+        "Channel";
+
+      return {
+        sourceChatId: Number(sourceChat?.id || 0) || null,
+        label,
+        sourceUserId: null,
+        sourceUsername: null,
+        sourceAvatarUrl: null,
+        sourceColor: null,
+      };
+    }
+
+    const sourceUser = findUserById(Number(sourceMessage?.user_id || 0));
+    const sourceUserId = Number(sourceUser?.id || sourceMessage?.user_id || 0) || null;
+    const sourceUsername = String(sourceUser?.username || "").trim() || null;
+    const label =
+      String(sourceUser?.nickname || "").trim() ||
+      String(sourceUser?.username || "").trim() ||
+      "Deleted user";
+
+    return {
+      sourceChatId: null,
+      label,
+      sourceUserId,
+      sourceUsername,
+      sourceAvatarUrl: sourceUser
+        ? normalizeForwardOriginAvatarUrl(sourceUser.id, sourceUser.avatar_url)
+        : null,
+      sourceColor: String(sourceUser?.color || "").trim() || null,
+    };
   };
 
   const reuseMessageFilesForForward = (sourceMessageId, targetMessageId) => {
@@ -1112,8 +1155,6 @@ function registerMessageRoutes(app, deps) {
       sourceMessageId,
       targetChatIds = [],
       body,
-      forwardedFromLabel,
-      forwardedFromChatId,
     } = req.body || {};
     if (!username || !sourceMessageId || !Array.isArray(targetChatIds) || !targetChatIds.length) {
       return res.status(400).json({
@@ -1131,9 +1172,17 @@ function registerMessageRoutes(app, deps) {
     if (!sourceMessage) {
       return res.status(404).json({ error: "Source message not found." });
     }
+    if (sourceMessage.hidden_everyone_at) {
+      return res.status(410).json({ error: "Source message is no longer available." });
+    }
     if (!isMember(Number(sourceMessage.chat_id), user.id)) {
       return res.status(403).json({ error: "You cannot forward from this chat." });
     }
+    const sourceChat = findChatById(Number(sourceMessage.chat_id));
+    if (!sourceChat) {
+      return res.status(404).json({ error: "Source chat not found." });
+    }
+    const forwardOrigin = deriveForwardOrigin(sourceMessage, sourceChat);
 
     const forwardBody = String(body || "");
     if (!forwardBody.trim()) {
@@ -1185,12 +1234,12 @@ function registerMessageRoutes(app, deps) {
         return res.status(500).json({ error: "Unable to forward message." });
       }
       setMessageForwardOrigin(nextMessageId, {
-        sourceChatId: Number(forwardedFromChatId || 0) || null,
-        label: String(forwardedFromLabel || "").trim(),
-        sourceUserId: Number(req.body?.forwardedFromUserId || 0) || null,
-        sourceUsername: String(req.body?.forwardedFromUsername || "").trim(),
-        sourceAvatarUrl: String(req.body?.forwardedFromAvatarUrl || "").trim(),
-        sourceColor: String(req.body?.forwardedFromColor || "").trim(),
+        sourceChatId: forwardOrigin.sourceChatId,
+        label: forwardOrigin.label,
+        sourceUserId: forwardOrigin.sourceUserId,
+        sourceUsername: forwardOrigin.sourceUsername,
+        sourceAvatarUrl: forwardOrigin.sourceAvatarUrl,
+        sourceColor: forwardOrigin.sourceColor,
       });
       reuseMessageFilesForForward(sourceMessage.id, nextMessageId);
       if (String(targetChat.type || "").toLowerCase() === "saved") {
