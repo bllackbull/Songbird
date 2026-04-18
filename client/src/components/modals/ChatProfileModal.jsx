@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import ContextMenuSurface from "../context-menu/ContextMenuSurface.jsx";
 import {
   ArrowDown,
   Bookmark,
@@ -12,9 +13,10 @@ import {
   Volume2,
   VolumeX,
 } from "../../icons/lucide.js";
-import { getAvatarStyle } from "../../utils/avatarColor.js";
+import { copyTextToClipboard } from "../../utils/clipboard.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import { hasPersian } from "../../utils/fontUtils.js";
+import Avatar from "../common/Avatar.jsx";
 
 const MEMBERS_BATCH_SIZE = 10;
 
@@ -32,6 +34,7 @@ export default function ChatProfileModal({
   onLeaveGroup,
   onOpenMember,
   onRemoveMember,
+  onOpenUserContextMenu,
   onEditGroup,
   onEditSelfProfile,
   showJoinAction = false,
@@ -177,24 +180,17 @@ export default function ChatProfileModal({
         </div>
 
         <div className="text-center">
-          {profileAvatarUrl ? (
-            <img
-              src={profileAvatarUrl}
-              alt={profileName}
-              className="mx-auto h-20 w-20 rounded-full object-cover"
-            />
-          ) : (
-            <div
-              className={`mx-auto flex h-20 w-20 items-center justify-center rounded-full text-2xl font-bold ${hasPersian(initials) ? "font-fa" : ""}`}
-              style={getAvatarStyle(profileColor)}
-            >
-              {isSaved ? (
-                <Bookmark size={24} className="text-white" />
-              ) : (
-                initials
-              )}
-            </div>
-          )}
+          <Avatar
+            src={profileAvatarUrl}
+            alt={profileName}
+            name={profileName}
+            color={profileColor}
+            initials={initials}
+            placeholderContent={
+              isSaved ? <Bookmark size={24} className="text-white" /> : initials
+            }
+            className="mx-auto h-20 w-20 text-2xl font-bold"
+          />
           <p
             className={`mt-3 text-lg font-semibold ${hasPersian(profileName) ? "font-fa" : ""}`}
             dir="auto"
@@ -296,19 +292,7 @@ export default function ChatProfileModal({
                   const value = String(inviteLink || "");
                   if (!value) return;
                   try {
-                    if (navigator.clipboard && window.isSecureContext) {
-                      await navigator.clipboard.writeText(value);
-                    } else {
-                      const el = document.createElement("textarea");
-                      el.value = value;
-                      el.setAttribute("readonly", "");
-                      el.style.position = "absolute";
-                      el.style.left = "-9999px";
-                      document.body.appendChild(el);
-                      el.select();
-                      document.execCommand("copy");
-                      document.body.removeChild(el);
-                    }
+                    await copyTextToClipboard(value);
                     setCopiedInviteLink(true);
                     window.setTimeout(() => setCopiedInviteLink(false), 1400);
                   } catch {
@@ -365,29 +349,42 @@ export default function ChatProfileModal({
                 const memberIsOwner =
                   String(member.role || "").toLowerCase() === "owner";
                 return (
-                  <div
+                  <ContextMenuSurface
+                    as="div"
                     key={`member-row-${member.id}`}
                     className="flex items-center gap-2 rounded-xl border border-emerald-100/80 bg-white/80 px-2 py-2 transition hover:border-emerald-300 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] dark:border-emerald-500/20 dark:bg-slate-900/70 dark:hover:border-emerald-500/35 dark:hover:shadow-[0_0_18px_rgba(16,185,129,0.12)]"
+                    contextMenu={{
+                      isMobile:
+                        typeof window !== "undefined" &&
+                        window.matchMedia("(max-width: 767px) and (pointer: coarse)")
+                          .matches,
+                      onOpen: ({ event, targetEl, isMobile }) =>
+                        onOpenUserContextMenu?.({
+                          kind: "user",
+                          event,
+                          targetEl,
+                          isMobile,
+                          data: {
+                            member,
+                            sourceChatType: chat?.type || "",
+                            onOpenProfile: onOpenMember,
+                          },
+                        }),
+                    }}
                   >
                     <button
                       type="button"
                       onClick={() => onOpenMember?.(member)}
                       className="flex min-w-0 flex-1 items-center gap-2 text-left"
                     >
-                      {member.avatar_url ? (
-                        <img
-                          src={member.avatar_url}
-                          alt={label}
-                          className="h-8 w-8 rounded-full object-cover"
-                        />
-                      ) : (
-                        <div
-                          className={`flex h-8 w-8 items-center justify-center rounded-full text-xs ${hasPersian(memberInitials) ? "font-fa" : ""}`}
-                          style={getAvatarStyle(member.color || "#10b981")}
-                        >
-                          {memberInitials}
-                        </div>
-                      )}
+                      <Avatar
+                        src={member.avatar_url}
+                        alt={label}
+                        name={label}
+                        color={member.color || "#10b981"}
+                        initials={memberInitials}
+                        className="h-8 w-8 text-xs"
+                      />
                       <div className="min-w-0">
                         <p
                           className={`truncate text-sm font-semibold ${hasPersian(label) ? "font-fa" : ""}`}
@@ -426,7 +423,7 @@ export default function ChatProfileModal({
                         Remove
                       </button>
                     ) : null}
-                  </div>
+                  </ContextMenuSurface>
                 );
               })}
             </div>

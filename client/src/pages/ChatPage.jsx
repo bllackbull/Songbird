@@ -2,6 +2,8 @@ import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import MobileTabMenu from "../components/navigation/MobileTabMenu.jsx";
 import ChatWindowPanel from "../components/chat/ChatWindowPanel.jsx";
 import { ChatSidebar } from "../components/sidebar/index.js";
+import AppContextMenu from "../components/context-menu/AppContextMenu.jsx";
+import { useAppContextMenu } from "../components/context-menu/useAppContextMenu.js";
 import { CHAT_PAGE_CONFIG } from "../settings/chatPageConfig.js";
 import { getAvatarInitials } from "../utils/avatarInitials.js";
 import { NICKNAME_MAX, USERNAME_MAX } from "../utils/nameLimits.js";
@@ -29,7 +31,9 @@ import { useNewGroupModal } from "../hooks/chat/useNewGroupModal.js";
 import { usePerfTelemetry } from "../hooks/chat/usePerfTelemetry.js";
 import { useResumeRefresh } from "../hooks/chat/useResumeRefresh.js";
 import { Bookmark } from "../icons/lucide.js";
+import { CLIPBOARD_COPY_EVENT } from "../utils/clipboard.js";
 import { CACHE_STORES } from "../utils/cacheDb.js";
+import { downloadMessageFiles } from "../utils/fileDownload.js";
 import {
   CHAT_CACHE_VERSION,
   buildChatListCacheKey,
@@ -50,15 +54,19 @@ import {
   updateMessagesIndex,
   writeMessagesIndex,
 } from "../utils/chatCache.js";
+import { getMessageFiles } from "../utils/messageContent.js";
 import {
   createDmChat,
   discoverUsersAndGroups,
   createChannelChat,
   createGroupChat,
+  deleteMessage,
   deleteAccount,
   deleteGroupChat,
+  editMessage,
   fetchHealth,
   fetchPresence,
+  getChatPreview,
   getGroupInviteLink,
   getMessagesUploadUrl,
   getSseStreamUrl,
@@ -81,6 +89,7 @@ import {
   uploadGroupAvatar,
   getSavedMessagesChat,
   fetchPushPublicKey,
+  forwardMessage,
   subscribePush,
   unsubscribePush,
   sendPushTest,
@@ -101,6 +110,10 @@ import {
 
 const loadChatProfileModal = () => import("../components/modals/ChatProfileModal.jsx");
 const loadDeleteChatsModal = () => import("../components/modals/DeleteChatsModal.jsx");
+const loadDeleteMessageScopeModal = () =>
+  import("../components/modals/DeleteMessageScopeModal.jsx");
+const loadForwardMessageModal = () =>
+  import("../components/modals/ForwardMessageModal.jsx");
 const loadLeaveGroupModal = () => import("../components/modals/LeaveGroupModal.jsx");
 const loadGroupInviteLinkModal = () => import("../components/modals/GroupInviteLinkModal.jsx");
 const loadNewChatModal = () => import("../components/modals/NewChatModal.jsx");
@@ -116,6 +129,8 @@ const loadNotificationsSettingsModal = () =>
 
 const ChatProfileModal = lazy(loadChatProfileModal);
 const DeleteChatsModal = lazy(loadDeleteChatsModal);
+const DeleteMessageScopeModal = lazy(loadDeleteMessageScopeModal);
+const ForwardMessageModal = lazy(loadForwardMessageModal);
 const LeaveGroupModal = lazy(loadLeaveGroupModal);
 const GroupInviteLinkModal = lazy(loadGroupInviteLinkModal);
 const NewChatModal = lazy(loadNewChatModal);
@@ -134,6 +149,8 @@ const preloadChatPageLazyChunks = () =>
   Promise.allSettled([
     loadChatProfileModal(),
     loadDeleteChatsModal(),
+    loadDeleteMessageScopeModal(),
+    loadForwardMessageModal(),
     loadLeaveGroupModal(),
     loadGroupInviteLinkModal(),
     loadNewChatModal(),
@@ -266,7 +283,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [uploadError, setUploadError] = useState("");
   const [activeUploadProgress, setActiveUploadProgress] = useState(null);
   const [replyTarget, setReplyTarget] = useState(null);
+  const [editTarget, setEditTarget] = useState(null);
+  const [messageDeleteScopeOpen, setMessageDeleteScopeOpen] = useState(false);
+  const [pendingDeleteMessage, setPendingDeleteMessage] = useState(null);
+  const [forwardMessageTarget, setForwardMessageTarget] = useState(null);
+  const [forwardSavedChat, setForwardSavedChat] = useState(null);
+  const [copyToastVisible, setCopyToastVisible] = useState(false);
   const updateToastTimerRef = useRef(null);
+  const copyToastTimerRef = useRef(null);
   const chatScrollRef = useRef(null);
   const composerInputRef = useRef(null);
   const lastMessageIdRef = useRef(null);
@@ -299,6 +323,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const messageBlobUrlsRef = useRef(new Set());
   const [sseConnected, setSseConnected] = useState(false);
   const lazyChunksPreloadedRef = useRef(false);
+
+  useEffect(() => {
+    setReplyTarget(null);
+    setEditTarget(null);
+    setMessageDeleteScopeOpen(false);
+    setPendingDeleteMessage(null);
+    setForwardMessageTarget(null);
+    setForwardSavedChat(null);
+  }, [activeChatId]);
 
   useEffect(() => {
     if (lazyChunksPreloadedRef.current) return;
@@ -440,6 +473,30 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }
     };
   }, []);
+
+  const showCopiedToast = useCallback(() => {
+    setCopyToastVisible(true);
+    if (copyToastTimerRef.current) {
+      window.clearTimeout(copyToastTimerRef.current);
+    }
+    copyToastTimerRef.current = window.setTimeout(() => {
+      setCopyToastVisible(false);
+    }, 1400);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleClipboardCopy = () => {
+      showCopiedToast();
+    };
+    window.addEventListener(CLIPBOARD_COPY_EVENT, handleClipboardCopy);
+    return () => {
+      window.removeEventListener(CLIPBOARD_COPY_EVENT, handleClipboardCopy);
+      if (copyToastTimerRef.current) {
+        window.clearTimeout(copyToastTimerRef.current);
+      }
+    };
+  }, [showCopiedToast]);
 
   useEffect(() => {
     if (!isMobileViewport) return;
@@ -781,6 +838,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (!msg) return;
     const targetId = Number(msg.id || msg._serverId || 0);
     if (!targetId) return;
+    setEditTarget(null);
     // In channel chats, show the channel name instead of the message author's name
     const replyName = isActiveChannelChat
       ? (activeChat?.name || "Channel")
@@ -822,6 +880,153 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         scrollChatToBottom("auto");
       }, 80);
     }
+  };
+
+  const handleStartEdit = (msg) => {
+    if (!msg) return;
+    const targetId = Number(msg.id || msg._serverId || 0);
+    if (!targetId) return;
+    setReplyTarget(null);
+    setEditTarget({
+      id: targetId,
+      username: msg.username || "",
+      nickname: msg.nickname || "",
+      displayName:
+        msg.nickname || msg.username || activeChat?.name || "Unknown",
+      body: msg.body || "",
+      files: Array.isArray(msg.files) ? msg.files : [],
+    });
+    if (!userScrolledUpRef.current) {
+      pendingScrollToBottomRef.current = true;
+      scrollChatToBottom("auto");
+      requestAnimationFrame(() => {
+        scrollChatToBottom("auto");
+      });
+      window.setTimeout(() => {
+        scrollChatToBottom("auto");
+      }, 80);
+    }
+  };
+
+  const handleClearEdit = () => {
+    setEditTarget(null);
+  };
+
+  const handleOpenForwardModal = (message) => {
+    if (!message) return;
+    void (async () => {
+      try {
+        let savedChat = chats.find((chat) => String(chat?.type || "").toLowerCase() === "saved");
+        if (!savedChat) {
+          const res = await getSavedMessagesChat(user.username);
+          const data = await res.json();
+          if (res.ok && Number(data?.id || 0)) {
+            savedChat = {
+              id: Number(data.id),
+              type: "saved",
+              name: "Saved messages",
+              members: [],
+              group_color: "#10b981",
+              group_avatar_url: "",
+              last_outgoing_time: null,
+              last_time: null,
+            };
+          }
+        }
+        setForwardSavedChat(savedChat || null);
+      } catch {
+        // ignore
+      } finally {
+        setForwardMessageTarget(message);
+      }
+    })();
+  };
+
+  const handleSaveMessageFiles = useCallback((message) => {
+    const files = getMessageFiles(message);
+    if (!files.length) return;
+    downloadMessageFiles(files);
+  }, []);
+
+  const handleOpenForwardOrigin = async (target) => {
+    if (!target) return;
+    if (target.kind === "self") {
+      openOwnProfileModal();
+      return;
+    }
+    if (target.kind === "user") {
+      openMemberProfileFromList({
+        id: Number(target.userId || 0) || null,
+        username: target.username || "",
+        nickname: target.nickname || "",
+        avatar_url: target.avatar_url || "",
+        color: target.color || "#10b981",
+        status: "online",
+        role: "",
+      });
+      return;
+    }
+    const numericChatId = Number(target.chatId || 0);
+    if (!numericChatId) return;
+    let targetChat = chats.find((chat) => Number(chat.id) === numericChatId);
+    if (!targetChat) {
+      try {
+        const res = await getChatPreview({
+          chatId: numericChatId,
+          username: user.username,
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data?.error || "Unable to open forwarded chat.");
+        }
+        targetChat = {
+          id: Number(data?.id || numericChatId),
+          type: data?.type || "group",
+          name: data?.name || "Chat",
+          group_username: data?.username || "",
+          group_visibility: data?.visibility || "public",
+          group_color: data?.color || "#10b981",
+          group_avatar_url: data?.avatarUrl || "",
+          invite_token: data?.inviteToken || "",
+          membersCount: Number(data?.membersCount || 0),
+          members: [],
+          _previewOnly: true,
+          _isMember: Boolean(data?.isMember),
+        };
+      } catch {
+        return;
+      }
+    }
+    if (String(targetChat.type || "").toLowerCase() === "dm") {
+      const peer = (targetChat.members || []).find(
+        (member) =>
+          String(member?.username || "").toLowerCase() !==
+          String(user?.username || "").toLowerCase(),
+      );
+      if (peer) {
+        openMemberProfileFromList(peer);
+      }
+      return;
+    }
+    setMentionProfile({
+      kind: String(targetChat.type || "group").toLowerCase(),
+      chatId: Number(targetChat.id || 0),
+      name: targetChat.name || "Chat",
+      username: targetChat.group_username || "",
+      visibility: targetChat.group_visibility || "public",
+      color: targetChat.group_color || "#10b981",
+      avatarUrl: targetChat.group_avatar_url || "",
+      inviteToken: targetChat.invite_token || "",
+      membersCount:
+        Array.isArray(targetChat.members) && targetChat.members.length
+          ? targetChat.members.length
+          : Number(targetChat.membersCount || 0),
+      isMember:
+        targetChat._previewOnly === true
+          ? Boolean(targetChat._isMember)
+          : true,
+    });
+    setProfileModalOpen(true);
   };
 
   const scheduleUnreadAnchorAlignment = (unreadId) => {
@@ -1707,27 +1912,47 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     typingByChat,
     user?.username,
   ]);
+  const buildTypingDisplayName = useCallback((value, maxChars = 22) => {
+    const text = String(value || "").trim();
+    if (!text) return "";
+    if (text.length <= maxChars) return text;
+    return `${text.slice(0, Math.max(1, maxChars - 1)).trimEnd()}…`;
+  }, []);
   const typingIndicator = useMemo(() => {
     if (!activeTypingUsers.length) return null;
     if (isActiveChannelChat) return null;
     if (isActiveGroupChat) {
       if (activeTypingUsers.length === 1) {
+        const name = buildTypingDisplayName(activeTypingUsers[0].displayName, 28);
         return {
           type: "group_single",
-          name: activeTypingUsers[0].displayName,
-          label: `${activeTypingUsers[0].displayName} is typing`,
+          name,
+          label: name,
+          fullLabel: activeTypingUsers[0].displayName,
         };
       }
+      if (activeTypingUsers.length === 2) {
+        const first = buildTypingDisplayName(activeTypingUsers[0].displayName, 16);
+        const second = buildTypingDisplayName(activeTypingUsers[1].displayName, 16);
+        return {
+          type: "group_pair",
+          label: `${first} and ${second}`,
+          fullLabel: `${activeTypingUsers[0].displayName} and ${activeTypingUsers[1].displayName}`,
+        };
+      }
+      const first = buildTypingDisplayName(activeTypingUsers[0].displayName, 18);
+      const othersCount = activeTypingUsers.length - 1;
       return {
         type: "group_multi",
-        label: `${activeTypingUsers.length.toLocaleString("en-US")} members are typing`,
+        label: `${first} and ${othersCount.toLocaleString("en-US")} others`,
+        fullLabel: `${activeTypingUsers[0].displayName} and ${othersCount.toLocaleString("en-US")} others`,
       };
     }
     return {
       type: "dm",
       label: "typing",
     };
-  }, [activeTypingUsers, isActiveChannelChat, isActiveGroupChat]);
+  }, [activeTypingUsers, buildTypingDisplayName, isActiveChannelChat, isActiveGroupChat]);
   const activeMembersLabel = Number(activeMembers.length || 0)
     .toLocaleString("en-US");
   const activeHeaderSubtitle = isActiveGroupChat || isActiveChannelChat
@@ -1786,6 +2011,27 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       (canCurrentUserEditGroup || Boolean(Number(activeChat?.allow_member_invites || 0))),
   );
 
+  const handleMarkChatSeen = useCallback(
+    async (chat) => {
+      const chatId = Number(chat?.id || 0);
+      if (!chatId) return;
+      setChats((prev) =>
+        prev.map((item) =>
+          Number(item.id) === chatId ? { ...item, unread_count: 0 } : item,
+        ),
+      );
+      if (Number(activeChatId || 0) === chatId) {
+        setUnreadInChat(0);
+      }
+      try {
+        await markMessagesRead({ chatId, username: user.username });
+      } catch {
+        // Keep the UI quiet for now; this menu is intentionally lightweight.
+      }
+    },
+    [activeChatId, user.username],
+  );
+
   const toggleSelectChat = (chatId) => {
     setSelectedChats((prev) =>
       prev.includes(chatId)
@@ -1799,6 +2045,91 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setPendingDeleteIds(ids);
     setConfirmDeleteOpen(true);
   };
+
+  const canDeleteMessageForEveryone = useCallback(
+    (message) => {
+      if (String(activeChat?.type || "").toLowerCase() === "saved") return false;
+      const messageAuthor = String(message?.username || "").toLowerCase();
+      const currentUsername = String(user?.username || "").toLowerCase();
+      if (!messageAuthor) return false;
+      if (messageAuthor === currentUsername) return true;
+      return canCurrentUserEditGroup;
+    },
+    [activeChat?.type, canCurrentUserEditGroup, user?.username],
+  );
+
+  const canEditMessageFromContext = useCallback(
+    (message) =>
+      String(message?.username || "").toLowerCase() ===
+      String(user?.username || "").toLowerCase(),
+    [user?.username],
+  );
+
+  function handleDeleteMessageRequest(message, options = {}) {
+    if (!message) return;
+    const allowDeleteForEveryone =
+      options?.allowDeleteForEveryone ?? canDeleteMessageForEveryone(message);
+    setPendingDeleteMessage(message);
+    setMessageDeleteScopeOpen(true);
+  }
+
+  async function handleForwardMessageSubmit(targetChatIds = []) {
+    const sourceMessageId = Number(
+      forwardMessageTarget?._serverId || forwardMessageTarget?.id || 0,
+    );
+    if (!sourceMessageId || !user?.username || !activeChatId) return;
+
+    const originalAuthorLabel = String(
+      forwardMessageTarget?.nickname ||
+        forwardMessageTarget?.username ||
+        user?.nickname ||
+        user?.username ||
+        "yourself",
+    ).trim();
+    const originalForwardLabel = isActiveChannelChat
+      ? String(activeChat?.name || activeFallbackTitle || "Channel").trim()
+      : originalAuthorLabel;
+
+    const body = String(forwardMessageTarget?.body || "");
+
+    try {
+      const res = await forwardMessage({
+        username: user.username,
+        sourceMessageId,
+        targetChatIds,
+        body,
+        forwardedFromChatId: isActiveChannelChat ? Number(activeChatId) : null,
+        forwardedFromLabel: originalForwardLabel,
+        forwardedFromUserId: isActiveChannelChat
+          ? null
+          : Number(forwardMessageTarget?.user_id || 0) || Number(user?.id || 0) || null,
+        forwardedFromUsername: isActiveChannelChat
+          ? ""
+          : String(
+              forwardMessageTarget?.username || user?.username || "",
+            ).trim(),
+        forwardedFromAvatarUrl: isActiveChannelChat
+          ? ""
+          : String(
+              forwardMessageTarget?.avatar_url || user?.avatarUrl || "",
+            ).trim(),
+        forwardedFromColor: isActiveChannelChat
+          ? ""
+          : String(
+              forwardMessageTarget?.color || user?.color || "#10b981",
+            ).trim(),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || "Unable to forward message.");
+      }
+      setForwardMessageTarget(null);
+      setForwardSavedChat(null);
+      await loadChats({ silent: true });
+    } catch (error) {
+      setUploadError(String(error?.message || "Unable to forward message."));
+    }
+  }
 
   const requestLeaveGroupById = (chatId) => {
     const id = Number(chatId || 0);
@@ -2230,6 +2561,41 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     [user?.username],
   );
 
+  function applyDeletedMessageLocally(messageId) {
+    const numericMessageId = Number(messageId || 0);
+    if (!numericMessageId) return;
+    setMessages((prev) =>
+      prev.filter((msg) => Number(msg?._serverId || msg?.id || 0) !== numericMessageId),
+    );
+    if (activeChatId) {
+      pruneDeletedMessagesFromCache(activeChatId, [numericMessageId]);
+    }
+  }
+
+  async function performDeleteMessage(message, scope = "self") {
+    const messageId = Number(message?.id || message?._serverId || 0);
+    if (!activeChatId || !messageId || !user?.username) return;
+    try {
+      const res = await deleteMessage({
+        chatId: Number(activeChatId),
+        username: user.username,
+        messageId,
+        scope,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || "Unable to delete message.");
+      }
+      applyDeletedMessageLocally(messageId);
+      await loadChats({ silent: true });
+    } catch (error) {
+      setUploadError(String(error?.message || "Unable to delete message."));
+    } finally {
+      setMessageDeleteScopeOpen(false);
+      setPendingDeleteMessage(null);
+    }
+  }
+
   useChatEvents({
     username: user?.username,
     getSseStreamUrl,
@@ -2402,6 +2768,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (pendingMessage.replyTo?.id) {
         form.append("replyToMessageId", String(pendingMessage.replyTo.id));
       }
+      if (pendingMessage._editMessageId) {
+        form.append("editMessageId", String(pendingMessage._editMessageId));
+      }
       const fileMeta = [];
       pendingMessage._files.forEach((item) => {
         if (item?.file instanceof Blob) {
@@ -2469,6 +2838,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
     const clientId = pendingMessage._clientId;
     const hasFiles = Array.isArray(pendingMessage._files) && pendingMessage._files.length > 0;
+    const isEditingExistingMessage = Number(pendingMessage?._editMessageId || 0) > 0;
     if (!clientId || sendingClientIdsRef.current.has(clientId)) return;
 
     const maxMessageChars = APP_CONFIG.messageMaxChars;
@@ -2500,16 +2870,39 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         }
         data = await uploadPendingMessageWithProgress(pendingMessage, targetChatId);
       } else {
-        const res = await sendMessage({
-          username: user.username,
-          body: pendingMessage.body,
-          chatId: targetChatId,
-          replyToMessageId: pendingMessage.replyTo?.id || null,
-        });
+        const res = isEditingExistingMessage
+          ? await editMessage({
+              username: user.username,
+              body: pendingMessage.body,
+              chatId: targetChatId,
+              messageId: pendingMessage._editMessageId,
+            })
+          : await sendMessage({
+              username: user.username,
+              body: pendingMessage.body,
+              chatId: targetChatId,
+              replyToMessageId: pendingMessage.replyTo?.id || null,
+            });
         data = await res.json();
         if (!res.ok) {
           throw new Error(data?.error || "Unable to send message.");
         }
+      }
+
+      if (isEditingExistingMessage) {
+        if (hasFiles && isTargetActive) {
+          setActiveUploadProgress(100);
+          setTimeout(() => setActiveUploadProgress(null), UPLOAD_PROGRESS_HIDE_DELAY_MS);
+        }
+        if (isTargetActive) {
+          scheduleMessageRefreshRef.current?.(targetChatId, {
+            preserveHistory: true,
+            pruneMissing: true,
+          });
+        }
+        await loadChats({ silent: true });
+        setEditTarget(null);
+        return;
       }
 
       if (isTargetActive) {
@@ -2534,6 +2927,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                       keepPendingUntilServerEcho || Boolean(msg?._processingPending),
                     _awaitingServerEcho: awaitingServerEcho,
                     _uploadProgress: 100,
+                    expiresAt:
+                      hasFiles
+                        ? msg.expiresAt
+                        : data?.expiresAt || msg.expiresAt || null,
                     read_at:
                       isSavedChat && !msg.read_at
                         ? msg.created_at || new Date().toISOString()
@@ -2589,6 +2986,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               _awaitingServerEcho: awaitingServerEcho,
               _processingPending: keepPendingUntilServerEcho,
               _serverId: serverId,
+              expiresAt: hasFiles ? null : data?.expiresAt || null,
               replyTo: pendingMessage.replyTo || null,
               files: messageFiles,
             },
@@ -3405,10 +3803,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     event.preventDefault();
     if (!activeChatId) return;
     stopTypingIndicator(activeChatId);
-    userScrolledUpRef.current = false;
-    setUserScrolledUp(false);
-    isAtBottomRef.current = true;
-    setIsAtBottom(true);
+    const isEditingMessage = Number(editTarget?.id || 0) > 0;
+    const shouldSnapToBottom = !(isEditingMessage && userScrolledUpRef.current);
+    if (shouldSnapToBottom) {
+      userScrolledUpRef.current = false;
+      setUserScrolledUp(false);
+      isAtBottomRef.current = true;
+      setIsAtBottom(true);
+    }
     shouldAutoMarkReadRef.current = true;
     setUnreadMarkerId(null);
     unreadMarkerIdRef.current = null;
@@ -3505,7 +3907,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             : []),
         ]
       : [];
-    const replyPayload = replyTarget
+    const replyPayload = !isEditingMessage && replyTarget
       ? {
           id: replyTarget.id,
           username: replyTarget.username,
@@ -3527,24 +3929,49 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       form.reset();
       clearPendingUploads();
       clearPendingVoiceMessage();
-      pendingScrollToBottomRef.current = true;
+      pendingScrollToBottomRef.current = shouldSnapToBottom;
 
       const pendingMessage = {
         _clientId: tempId,
         _chatId: Number(activeChatId),
         _queuedAt: queuedAt,
         _delivery: "sending",
+        _editMessageId: isEditingMessage ? Number(editTarget.id) : null,
         _uploadType: effectiveUploadType,
         _files: pendingFiles,
         _createdAt: createdAt,
         _dayKey: pendingDayKey,
-        body: fallbackBody,
+        body:
+          trimmedBody ||
+          (isEditingMessage ? String(editTarget?.body || "") : fallbackBody),
         replyTo: replyPayload,
         read_at: isSavedChat ? createdAt : null,
         read_by_user_id: isSavedChat ? Number(user?.id || 0) : null,
       };
       await sendPendingMessage(pendingMessage);
       setReplyTarget(null);
+      setEditTarget(null);
+      return;
+    }
+
+    if (isEditingMessage) {
+      form.reset();
+      clearPendingUploads();
+      clearPendingVoiceMessage();
+      pendingScrollToBottomRef.current = shouldSnapToBottom;
+      const pendingMessage = {
+        _clientId: tempId,
+        _chatId: Number(activeChatId),
+        _queuedAt: queuedAt,
+        _delivery: "sending",
+        _editMessageId: Number(editTarget.id),
+        _uploadType: effectiveUploadType,
+        _files: pendingFiles,
+        body: trimmedBody,
+      };
+      await sendPendingMessage(pendingMessage);
+      setReplyTarget(null);
+      setEditTarget(null);
       return;
     }
 
@@ -3586,7 +4013,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     form.reset();
     clearPendingUploads();
     clearPendingVoiceMessage();
-    pendingScrollToBottomRef.current = true;
+    pendingScrollToBottomRef.current = shouldSnapToBottom;
     setReplyTarget(null);
 
     if (!isConnected) {
@@ -4352,6 +4779,26 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
   }
 
+  const { contextMenu, closeContextMenu, openContextMenu } = useAppContextMenu({
+    activeChatId,
+    chats,
+    currentUsername: user?.username,
+    canCurrentUserEditGroup,
+    canEditMessage: canEditMessageFromContext,
+    canDeleteMessageForEveryone,
+    onReplyToMessage: handleStartReply,
+    onEditMessage: handleStartEdit,
+    onDeleteMessage: handleDeleteMessageRequest,
+    onForwardMessage: handleOpenForwardModal,
+    onSaveMessageFiles: handleSaveMessageFiles,
+    onOpenOrCreateDm: openOrCreateDmFromMember,
+    onOpenProfile: openMemberProfileFromList,
+    onRemoveGroupMember: handleRemoveGroupMember,
+    onMarkChatSeen: handleMarkChatSeen,
+    onToggleChatMute: toggleMuteChat,
+    onDeleteChats: requestDeleteChats,
+  });
+
   async function handleDeleteAccount(password) {
     if (!user?.username) return;
     const trimmed = String(password || "").trim();
@@ -4533,6 +4980,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         isSavedChatActive={isActiveSavedChat}
         onOpenDiscoveredUser={openDiscoverUser}
         onOpenDiscoveredGroup={openDiscoverGroup}
+        onOpenUserProfileContext={openMemberProfileFromList}
+        onOpenUserContextMenu={openContextMenu}
+        onOpenChatContextMenu={openContextMenu}
         showSettings={showSettings}
         settingsMenuRef={settingsMenuRef}
         setSettingsPanel={setSettingsPanel}
@@ -4585,6 +5035,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       <ChatWindowPanel
         mobileTab={mobileTab}
         activeChatId={activeChatId}
+        activeChat={activeChat}
         closeChat={closeChat}
         activeHeaderPeer={activeHeaderAvatar}
         activeFallbackTitle={activeFallbackTitle}
@@ -4633,10 +5084,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         onMessageInput={handleMessageInput}
         replyTarget={replyTarget}
         onClearReply={handleClearReply}
+        editTarget={editTarget}
+        onClearEdit={handleClearEdit}
         onReplyToMessage={handleStartReply}
         onOpenHeaderProfile={openActiveChatProfile}
         onOpenMessageSenderProfile={openMemberProfileFromMessage}
         onOpenMention={openMentionProfile}
+        onOpenForwardOrigin={handleOpenForwardOrigin}
+        onOpenContextMenu={openContextMenu}
         onUserScrollIntent={handleUserScrollIntent}
         canSwipeReply={canSwipeReply}
         fileUploadEnabled={CHAT_PAGE_CONFIG.fileUploadEnabled}
@@ -4649,6 +5104,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         headerAvatarIcon={activeHeaderAvatarIcon}
         headerAvatarColor={headerAvatarColor}
         mentionRefreshToken={mentionRefreshToken}
+        copyToastVisible={copyToastVisible}
         permissionsPrompt={{
           show: showPermissionsPrompt,
           mode: activePermissionPrompt,
@@ -4704,6 +5160,44 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             selectedChats={selectedChats}
             setConfirmDeleteOpen={setConfirmDeleteOpen}
             confirmDeleteChats={confirmDeleteChats}
+          />
+        </Suspense>
+      ) : null}
+
+      {messageDeleteScopeOpen ? (
+        <Suspense fallback={null}>
+          <DeleteMessageScopeModal
+            open={messageDeleteScopeOpen}
+            allowDeleteForEveryone={canDeleteMessageForEveryone(
+              pendingDeleteMessage,
+            )}
+            onClose={() => {
+              setMessageDeleteScopeOpen(false);
+              setPendingDeleteMessage(null);
+            }}
+            onConfirm={(deleteForEveryone) =>
+              performDeleteMessage(
+                pendingDeleteMessage,
+                deleteForEveryone ? "everyone" : "self",
+              )
+            }
+          />
+        </Suspense>
+      ) : null}
+
+      {forwardMessageTarget ? (
+        <Suspense fallback={null}>
+          <ForwardMessageModal
+            open={Boolean(forwardMessageTarget)}
+            chats={chats}
+            savedChat={forwardSavedChat}
+            currentUser={user}
+            sourceChatId={activeChatId}
+            onClose={() => {
+              setForwardMessageTarget(null);
+              setForwardSavedChat(null);
+            }}
+            onSubmit={handleForwardMessageSubmit}
           />
         </Suspense>
       ) : null}
@@ -4817,6 +5311,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             }
             onOpenMember={openMemberProfileFromList}
             onRemoveMember={handleRemoveGroupMember}
+            onOpenUserContextMenu={openContextMenu}
             onEditGroup={openEditGroupFromProfile}
             onEditSelfProfile={openSelfProfileEditor}
           />
@@ -4867,6 +5362,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           />
         </Suspense>
       ) : null}
+
+      <AppContextMenu menu={contextMenu} onClose={closeContextMenu} />
     </div>
   );
 }

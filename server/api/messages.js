@@ -4,22 +4,28 @@ function registerMessageRoutes(app, deps) {
     FILE_UPLOAD,
     MESSAGE_FILE_LIMITS,
     MESSAGE_FILE_RETENTION_DAYS,
+    MESSAGE_TEXT_RETENTION_DAYS,
     MESSAGE_MAX_CHARS,
     TRANSCODE_VIDEOS_TO_H264,
     cleanupMissingMessageFiles,
     computeExpiryIso,
+    crypto,
     createMessage,
     createMessageFiles,
+    editMessage,
     debugLog,
     decodeOriginalFilename,
     emitChatEvent,
     emitSseEvent,
     ensureAvatarExists,
     ensureFfmpegAvailable,
+    fs,
     findChatById,
     findMessageById,
     findUserByUsername,
     getMessages,
+    hideMessageForEveryone,
+    hideMessageForUser,
     getMessageReadCounts,
     getMessageAuthors,
     getMessageReadByUser,
@@ -43,13 +49,60 @@ function registerMessageRoutes(app, deps) {
     requireSessionUsernameMatch,
     sanitizeDurationSeconds,
     sanitizePositiveInt,
+    setMessageExpiresAt,
+    setMessageForwardOrigin,
     storageEncryption,
+    unhideChat,
     uploadFiles,
     uploadRootDir,
     enqueueVideoTranscodeJob,
     markMessagesRead,
     markMessageRead,
   } = deps;
+
+  const computeTextExpiryIso = (createdAt) => {
+    if (Number(MESSAGE_TEXT_RETENTION_DAYS || 0) <= 0) return null;
+    const base = new Date(createdAt || Date.now());
+    const baseMs = base.getTime();
+    if (!Number.isFinite(baseMs)) return null;
+    return new Date(
+      baseMs + Number(MESSAGE_TEXT_RETENTION_DAYS) * 24 * 60 * 60 * 1000,
+    ).toISOString();
+  };
+
+  const reuseMessageFilesForForward = (sourceMessageId, targetMessageId) => {
+    const sourceFiles = listMessageFilesByMessageIds([Number(sourceMessageId)]);
+    if (!sourceFiles.length) return [];
+
+    const reusedFiles = sourceFiles.flatMap((file) => {
+      const storedName = path.basename(String(file?.stored_name || "").trim());
+      if (!storedName) return [];
+      const sourcePath = path.join(uploadRootDir, storedName);
+      if (!fs.existsSync(sourcePath)) return [];
+
+      return [
+        {
+          kind: file.kind,
+          originalName: file.original_name,
+          storedName,
+          mimeType: file.mime_type,
+          sizeBytes: Number(file.size_bytes || 0),
+          widthPx: Number.isFinite(Number(file.width_px)) ? Number(file.width_px) : null,
+          heightPx: Number.isFinite(Number(file.height_px)) ? Number(file.height_px) : null,
+          durationSeconds: Number.isFinite(Number(file.duration_seconds))
+            ? Number(file.duration_seconds)
+            : null,
+          expiresAt: file.expires_at || null,
+        },
+      ];
+    });
+
+    if (reusedFiles.length) {
+      createMessageFiles(Number(targetMessageId), reusedFiles);
+    }
+
+    return reusedFiles;
+  };
 
   app.get("/api/messages", async (req, res) => {
     const session = requireSession(req, res);
@@ -82,6 +135,7 @@ function registerMessageRoutes(app, deps) {
       beforeId: beforeId > 0 ? beforeId : null,
       beforeCreatedAt: beforeCreatedAt || null,
       limit,
+      viewerUserId: user.id,
     });
 
     const cleanup = cleanupMissingMessageFiles(
@@ -102,6 +156,7 @@ function registerMessageRoutes(app, deps) {
         beforeId: beforeId > 0 ? beforeId : null,
         beforeCreatedAt: beforeCreatedAt || null,
         limit,
+        viewerUserId: user.id,
       });
       messages = refreshed.messages;
       hasMore = refreshed.hasMore;
@@ -173,6 +228,14 @@ function registerMessageRoutes(app, deps) {
           Number(message?.user_id || 0) === Number(user.id) ||
           readByMe.has(Number(message.id)),
         files: filesByMessageId[Number(message.id)] || [],
+        expiresAt: null,
+      }))
+      .map((message) => ({
+        ...message,
+        expiresAt:
+          Array.isArray(message.files) && message.files.length === 0
+            ? message.expires_at || null
+            : null,
       }))
       .filter((message) => {
         const isFromOther = Number(message?.user_id || 0) !== Number(user.id);
@@ -399,6 +462,7 @@ function registerMessageRoutes(app, deps) {
         const body = req.body?.body?.toString() || "";
         const trimmedBody = body.trim();
         const replyToMessageId = Number(req.body?.replyToMessageId || 0) || null;
+        const editMessageId = Number(req.body?.editMessageId || 0) || null;
         const maxMessageChars = Math.max(1, Number(MESSAGE_MAX_CHARS || 4000));
         if (body.length > maxMessageChars) {
           removeUploadedFiles(uploadedFiles);
@@ -461,6 +525,12 @@ function registerMessageRoutes(app, deps) {
               .json({ error: "Only channel owner can send messages." });
           }
         }
+        if (replyToMessageId && editMessageId) {
+          removeUploadedFiles(uploadedFiles);
+          return res.status(400).json({
+            error: "A message cannot be edited and replied to at the same time.",
+          });
+        }
         if (replyToMessageId) {
           const replyTarget = findMessageById(replyToMessageId);
           if (!replyTarget || Number(replyTarget.chat_id) !== Number(chatId)) {
@@ -468,6 +538,22 @@ function registerMessageRoutes(app, deps) {
             return res
               .status(400)
               .json({ error: "Reply target is not available in this chat." });
+          }
+        }
+        let editTarget = null;
+        if (editMessageId) {
+          editTarget = findMessageById(editMessageId);
+          if (!editTarget || Number(editTarget.chat_id) !== Number(chatId)) {
+            removeUploadedFiles(uploadedFiles);
+            return res.status(400).json({
+              error: "Edit target is not available in this chat.",
+            });
+          }
+          if (Number(editTarget.user_id || 0) !== Number(user.id)) {
+            removeUploadedFiles(uploadedFiles);
+            return res.status(403).json({
+              error: "Only the message author can edit this message.",
+            });
           }
         }
 
@@ -636,20 +722,31 @@ function registerMessageRoutes(app, deps) {
           (normalizedFiles.length === 1
             ? `Sent ${normalizedFiles[0].kind === "media" ? "a media file" : "a document"}`
             : `Sent ${normalizedFiles.length} files`);
-
-        const messageId = createMessage(
-          chatId,
-          user.id,
-          fallbackBody,
-          replyToMessageId,
-        );
-        if (!messageId) {
-          throw new Error("Unable to create message.");
-        }
-
-        createMessageFiles(messageId, normalizedFiles);
-        if (chat.type === "saved") {
-          markMessageRead(messageId, user.id);
+        let messageId = Number(editMessageId || 0);
+        if (editTarget) {
+          const editBody =
+            trimmedBody ||
+            editTarget.edited_body ||
+            editTarget.body ||
+            fallbackBody;
+          editMessage(messageId, editBody);
+          setMessageExpiresAt(messageId, null);
+          createMessageFiles(messageId, normalizedFiles);
+        } else {
+          messageId = createMessage(
+            chatId,
+            user.id,
+            fallbackBody,
+            replyToMessageId,
+            null,
+          );
+          if (!messageId) {
+            throw new Error("Unable to create message.");
+          }
+          createMessageFiles(messageId, normalizedFiles);
+          if (chat.type === "saved") {
+            markMessageRead(messageId, user.id);
+          }
         }
 
         let transcodeJobsQueued = 0;
@@ -689,7 +786,14 @@ function registerMessageRoutes(app, deps) {
           });
         }
 
-        if (shouldTranscodeVideos && hasVideoFiles && transcodeJobsQueued > 0) {
+        if (editTarget) {
+          emitChatEvent(chatId, {
+            type: "chat_message_updated",
+            chatId,
+            messageId: Number(messageId),
+            username: user.username,
+          });
+        } else if (shouldTranscodeVideos && hasVideoFiles && transcodeJobsQueued > 0) {
           // Only show pending-conversion videos to the uploader.
           emitSseEvent(user.username, {
             type: "chat_message",
@@ -712,36 +816,38 @@ function registerMessageRoutes(app, deps) {
           });
         }
 
-        try {
-          const members = listChatMembers(Number(chatId));
-          const mutedRows = listMutedUserIdsForChat(Number(chatId));
-          const mutedIds = new Set(
-            mutedRows.map((row) => Number(row?.user_id || 0)).filter(Boolean),
-          );
-          const recipientIds = members
-            .filter((member) => Number(member.id) !== Number(user.id))
-            .map((member) => Number(member.id))
-            .filter(
-              (memberId) =>
-                Number.isFinite(memberId) &&
-                memberId > 0 &&
-                !mutedIds.has(Number(memberId)),
+        if (!editTarget) {
+          try {
+            const members = listChatMembers(Number(chatId));
+            const mutedRows = listMutedUserIdsForChat(Number(chatId));
+            const mutedIds = new Set(
+              mutedRows.map((row) => Number(row?.user_id || 0)).filter(Boolean),
             );
-          if (recipientIds.length) {
-            const title =
-              chat.type === "dm"
-                ? user.nickname || user.username
-                : chat.name || (chat.type === "channel" ? "Channel" : "Group");
-            const notifyBody =
-              trimmedBody || fileSummaryText || "New message";
-            await sendPushNotificationToUsers(recipientIds, {
-              title,
-              body: notifyBody,
-              data: { url: "/" },
-            });
+            const recipientIds = members
+              .filter((member) => Number(member.id) !== Number(user.id))
+              .map((member) => Number(member.id))
+              .filter(
+                (memberId) =>
+                  Number.isFinite(memberId) &&
+                  memberId > 0 &&
+                  !mutedIds.has(Number(memberId)),
+              );
+            if (recipientIds.length) {
+              const title =
+                chat.type === "dm"
+                  ? user.nickname || user.username
+                  : chat.name || (chat.type === "channel" ? "Channel" : "Group");
+              const notifyBody =
+                trimmedBody || fileSummaryText || "New message";
+              await sendPushNotificationToUsers(recipientIds, {
+                title,
+                body: notifyBody,
+                data: { url: "/" },
+              });
+            }
+          } catch {
+            // ignore push failures
           }
-        } catch {
-          // ignore push failures
         }
 
         debugLog("api:messages/upload:done", {
@@ -821,7 +927,15 @@ function registerMessageRoutes(app, deps) {
       }
     }
 
-    const id = createMessage(Number(chatId), user.id, bodyText, replyToMessageId);
+    const createdAtIso = new Date().toISOString();
+    const expiresAt = computeTextExpiryIso(createdAtIso);
+    const id = createMessage(
+      Number(chatId),
+      user.id,
+      bodyText,
+      replyToMessageId,
+      expiresAt,
+    );
     if (!id) {
       return res.status(500).json({ error: "Unable to create message." });
     }
@@ -877,7 +991,225 @@ function registerMessageRoutes(app, deps) {
       // ignore push failures
     }
 
-    res.json({ id });
+    res.json({
+      id,
+      expiresAt,
+    });
+  });
+
+  app.post("/api/messages/edit", async (req, res) => {
+    const session = requireSession(req, res);
+    if (!session) return;
+
+    const { chatId, username, messageId, body } = req.body || {};
+    if (!chatId || !username || !messageId) {
+      return res.status(400).json({
+        error: "Chat, username, and message id are required.",
+      });
+    }
+    if (!requireSessionUsernameMatch(res, session, username)) return;
+
+    const bodyText = String(body || "");
+    if (bodyText === "[object Object]") {
+      return res.status(400).json({ error: "Invalid message body." });
+    }
+    const trimmedBody = bodyText.trim();
+    if (!trimmedBody) {
+      return res.status(400).json({ error: "Edited message cannot be empty." });
+    }
+    const maxMessageChars = Math.max(1, Number(MESSAGE_MAX_CHARS || 4000));
+    if (bodyText.length > maxMessageChars) {
+      return res.status(400).json({
+        error: `Message must be at most ${maxMessageChars} characters.`,
+      });
+    }
+
+    const user = findUserByUsername(String(username || "").toLowerCase());
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+    const numericChatId = Number(chatId);
+    if (!isMember(numericChatId, user.id)) {
+      return res.status(403).json({ error: "Not a member of this chat." });
+    }
+    const message = findMessageById(Number(messageId));
+    if (!message || Number(message.chat_id) !== numericChatId) {
+      return res.status(404).json({ error: "Message not found." });
+    }
+    if (Number(message.user_id || 0) !== Number(user.id)) {
+      return res.status(403).json({ error: "Only the author can edit this message." });
+    }
+
+    editMessage(messageId, trimmedBody);
+
+    emitChatEvent(numericChatId, {
+      type: "chat_message_updated",
+      chatId: numericChatId,
+      messageId: Number(messageId),
+      username: user.username,
+    });
+
+    res.json({ ok: true, id: Number(messageId) });
+  });
+
+  app.post("/api/messages/delete", async (req, res) => {
+    const session = requireSession(req, res);
+    if (!session) return;
+
+    const { chatId, username, messageId, scope } = req.body || {};
+    if (!chatId || !username || !messageId) {
+      return res.status(400).json({
+        error: "Chat, username, and message id are required.",
+      });
+    }
+    if (!requireSessionUsernameMatch(res, session, username)) return;
+
+    const user = findUserByUsername(String(username || "").toLowerCase());
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+    const numericChatId = Number(chatId);
+    if (!isMember(numericChatId, user.id)) {
+      return res.status(403).json({ error: "Not a member of this chat." });
+    }
+    const message = findMessageById(Number(messageId));
+    if (!message || Number(message.chat_id) !== numericChatId) {
+      return res.status(404).json({ error: "Message not found." });
+    }
+
+    const deleteScope = String(scope || "").toLowerCase() === "everyone"
+      ? "everyone"
+      : "self";
+
+    if (deleteScope === "everyone") {
+      const role = String(getChatMemberRole(numericChatId, user.id)).toLowerCase();
+      const canDeleteForEveryone =
+        Number(message.user_id || 0) === Number(user.id) || role === "owner";
+      if (!canDeleteForEveryone) {
+        return res.status(403).json({
+          error: "You cannot delete this message for everyone.",
+        });
+      }
+      hideMessageForEveryone(message.id);
+      emitChatEvent(numericChatId, {
+        type: "chat_message_deleted",
+        chatId: numericChatId,
+        messageIds: [Number(message.id)],
+      });
+      return res.json({ ok: true, scope: "everyone", id: Number(message.id) });
+    }
+
+    hideMessageForUser(message.id, user.id);
+    return res.json({ ok: true, scope: "self", id: Number(message.id) });
+  });
+
+  app.post("/api/messages/forward", async (req, res) => {
+    const session = requireSession(req, res);
+    if (!session) return;
+
+    const {
+      username,
+      sourceMessageId,
+      targetChatIds = [],
+      body,
+      forwardedFromLabel,
+      forwardedFromChatId,
+    } = req.body || {};
+    if (!username || !sourceMessageId || !Array.isArray(targetChatIds) || !targetChatIds.length) {
+      return res.status(400).json({
+        error: "Username, source message, and target chats are required.",
+      });
+    }
+    if (!requireSessionUsernameMatch(res, session, username)) return;
+
+    const user = findUserByUsername(String(username || "").toLowerCase());
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    const sourceMessage = findMessageById(Number(sourceMessageId));
+    if (!sourceMessage) {
+      return res.status(404).json({ error: "Source message not found." });
+    }
+    if (!isMember(Number(sourceMessage.chat_id), user.id)) {
+      return res.status(403).json({ error: "You cannot forward from this chat." });
+    }
+
+    const forwardBody = String(body || "");
+    if (!forwardBody.trim()) {
+      return res.status(400).json({ error: "Forwarded message body is required." });
+    }
+
+    const uniqueTargetChatIds = Array.from(
+      new Set(
+        targetChatIds
+          .map((id) => Number(id))
+          .filter((id) => Number.isFinite(id) && id > 0),
+      ),
+    );
+    if (!uniqueTargetChatIds.length) {
+      return res.status(400).json({ error: "Choose at least one target chat." });
+    }
+
+    const sourceFiles = listMessageFilesByMessageIds([Number(sourceMessage.id)]);
+    const forwardExpiresAt = sourceFiles.length
+      ? null
+      : computeTextExpiryIso(new Date().toISOString());
+
+    const forwardedIds = [];
+    for (const targetChatId of uniqueTargetChatIds) {
+      if (!isMember(targetChatId, user.id)) {
+        return res.status(403).json({ error: "Cannot send to one or more selected chats." });
+      }
+      const targetChat = findChatById(targetChatId);
+      if (!targetChat) {
+        return res.status(404).json({ error: "One of the selected chats was not found." });
+      }
+      if (String(targetChat.type || "").toLowerCase() === "channel") {
+        const role = String(getChatMemberRole(targetChatId, user.id)).toLowerCase();
+        if (role !== "owner") {
+          return res.status(403).json({
+            error: "You can only forward to channels you own.",
+          });
+        }
+      }
+
+      const nextMessageId = createMessage(
+        targetChatId,
+        user.id,
+        forwardBody,
+        null,
+        forwardExpiresAt,
+      );
+      if (!nextMessageId) {
+        return res.status(500).json({ error: "Unable to forward message." });
+      }
+      setMessageForwardOrigin(nextMessageId, {
+        sourceChatId: Number(forwardedFromChatId || 0) || null,
+        label: String(forwardedFromLabel || "").trim(),
+        sourceUserId: Number(req.body?.forwardedFromUserId || 0) || null,
+        sourceUsername: String(req.body?.forwardedFromUsername || "").trim(),
+        sourceAvatarUrl: String(req.body?.forwardedFromAvatarUrl || "").trim(),
+        sourceColor: String(req.body?.forwardedFromColor || "").trim(),
+      });
+      reuseMessageFilesForForward(sourceMessage.id, nextMessageId);
+      if (String(targetChat.type || "").toLowerCase() === "saved") {
+        markMessageRead(nextMessageId, user.id);
+        unhideChat(user.id, targetChatId);
+      }
+
+      emitChatEvent(targetChatId, {
+        type: "chat_message",
+        chatId: targetChatId,
+        messageId: Number(nextMessageId),
+        username: user.username,
+        body: forwardBody,
+        replyToMessageId: null,
+      });
+      forwardedIds.push(Number(nextMessageId));
+    }
+
+    return res.json({ ok: true, ids: forwardedIds });
   });
 }
 

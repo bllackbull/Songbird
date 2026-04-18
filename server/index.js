@@ -34,6 +34,7 @@ import {
   createChat,
   createMessageFiles,
   createMessage,
+  editMessage,
   createSession,
   deleteSession,
   createUser,
@@ -44,6 +45,8 @@ import {
   findChatByGroupUsername,
   findChatByInviteToken,
   findMessageById,
+  hideMessageForEveryone,
+  hideMessageForUser,
   findUserById,
   findUserByUsername,
   getMessageReadCounts,
@@ -55,6 +58,8 @@ import {
   markGroupMemberRemoved,
   regenerateGroupInviteToken,
   removeChatMember,
+  setMessageExpiresAt,
+  setMessageForwardOrigin,
   getSession,
   isMember,
   isGroupMemberRemoved,
@@ -207,6 +212,10 @@ const MESSAGE_FILE_RETENTION_DAYS = readEnvInt("MESSAGE_FILE_RETENTION", 7, {
   min: 0,
   max: 3650,
 });
+const MESSAGE_TEXT_RETENTION_DAYS = readEnvInt("MESSAGE_TEXT_RETENTION", 0, {
+  min: 0,
+  max: 3650,
+});
 
 const TRANSCODE_VIDEOS_TO_H264 = readEnvBool(
   "FILE_UPLOAD_TRANSCODE_VIDEOS",
@@ -221,6 +230,7 @@ const uploadTools = createUploadTools({
   path,
   crypto,
   multer,
+  adminGetRow,
   adminRun,
   adminSave,
   uploadRootDir,
@@ -395,6 +405,7 @@ const apiDeps = {
   FILE_UPLOAD,
   MESSAGE_FILE_LIMITS,
   MESSAGE_FILE_RETENTION_DAYS,
+  MESSAGE_TEXT_RETENTION_DAYS,
   TRANSCODE_VIDEOS_TO_H264,
   USER_COLORS,
   NICKNAME_MAX,
@@ -422,6 +433,7 @@ const apiDeps = {
   createChat,
   createMessage,
   createMessageFiles,
+  editMessage,
   createSession,
   createUser,
   crypto,
@@ -452,6 +464,8 @@ const apiDeps = {
   getUserPresence,
   hasEnoughFreeDiskSpace,
   hideChatsForUser,
+  hideMessageForEveryone,
+  hideMessageForUser,
   hydrateMissingVideoMetadata,
   inferMimeFromFilename,
   isDangerousUploadFile,
@@ -464,6 +478,7 @@ const apiDeps = {
   listChatsForUser,
   listMessageFilesByMessageIds,
   listUsers,
+  setMessageForwardOrigin,
   getChatMemberRole,
   setChatMemberRole,
   recordMessageReads,
@@ -490,6 +505,7 @@ const apiDeps = {
   searchPublicGroups,
   searchPublicChannels,
   setChatMuted,
+  setMessageExpiresAt,
   listMutedUserIdsForChat,
   setSessionCookie,
   setUserColor,
@@ -548,6 +564,117 @@ app.use((err, req, res, next) => {
   return next(err);
 });
 
+function cleanupExpiredTextOnlyMessages() {
+  if (MESSAGE_TEXT_RETENTION_DAYS <= 0) {
+    return { removedMessages: 0 };
+  }
+
+  const rows = adminGetAll(
+    `SELECT id, chat_id
+     FROM chat_messages
+     WHERE expires_at IS NOT NULL
+       AND expires_at != ''
+       AND hidden_everyone_at IS NULL
+       AND julianday(expires_at) <= julianday(?)
+       AND NOT EXISTS (
+         SELECT 1
+         FROM chat_message_files
+         WHERE chat_message_files.message_id = chat_messages.id
+       )`,
+    [new Date().toISOString()],
+  );
+
+  const messageIds = rows
+    .map((row) => Number(row?.id || 0))
+    .filter((id) => Number.isFinite(id) && id > 0);
+
+  if (!messageIds.length) {
+    return { removedMessages: 0 };
+  }
+
+  const deletedByChat = new Map();
+  rows.forEach((row) => {
+    const chatId = Number(row?.chat_id || 0);
+    const messageId = Number(row?.id || 0);
+    if (!chatId || !messageId) return;
+    const list = deletedByChat.get(chatId) || [];
+    list.push(messageId);
+    deletedByChat.set(chatId, list);
+  });
+
+  adminRun("BEGIN");
+  try {
+    chunkArray(messageIds, 500).forEach((chunk) => {
+      const placeholders = chunk.map(() => "?").join(", ");
+      adminRun(
+        `DELETE FROM chat_message_reads WHERE message_id IN (${placeholders})`,
+        chunk,
+      );
+      adminRun(
+        `DELETE FROM hidden_chat_messages WHERE message_id IN (${placeholders})`,
+        chunk,
+      );
+      adminRun(`DELETE FROM chat_messages WHERE id IN (${placeholders})`, chunk);
+    });
+    adminRun("COMMIT");
+  } catch (error) {
+    adminRun("ROLLBACK");
+    throw error;
+  }
+
+  adminSave();
+  deletedByChat.forEach((ids, chatId) => {
+    emitChatEvent(Number(chatId), {
+      type: "chat_message_deleted",
+      chatId: Number(chatId),
+      messageIds: ids,
+    });
+  });
+
+  return { removedMessages: messageIds.length };
+}
+
+function backfillTextMessageExpiry() {
+  if (MESSAGE_TEXT_RETENTION_DAYS <= 0) return 0;
+
+  const row = adminGetRow(
+    `SELECT COUNT(*) AS n
+     FROM chat_messages
+     WHERE (expires_at IS NULL OR expires_at = '')
+       AND hidden_everyone_at IS NULL
+       AND body IS NOT NULL
+       AND TRIM(body) != ''
+       AND body NOT LIKE '[[system:%]]'
+       AND NOT EXISTS (
+         SELECT 1
+         FROM chat_message_files
+         WHERE chat_message_files.message_id = chat_messages.id
+       )`,
+  );
+
+  const pending = Number(row?.n || 0);
+  if (!pending) return 0;
+
+  adminRun(
+    `UPDATE chat_messages
+     SET expires_at = datetime(created_at, '+' || ? || ' days')
+     WHERE (expires_at IS NULL OR expires_at = '')
+       AND hidden_everyone_at IS NULL
+       AND body IS NOT NULL
+       AND TRIM(body) != ''
+       AND body NOT LIKE '[[system:%]]'
+       AND NOT EXISTS (
+         SELECT 1
+         FROM chat_message_files
+         WHERE chat_message_files.message_id = chat_messages.id
+       )`,
+    [MESSAGE_TEXT_RETENTION_DAYS],
+  );
+
+  adminSave();
+  return pending;
+}
+
 if (MESSAGE_FILE_RETENTION_DAYS > 0) {
   try {
     backfillMessageFileExpiry();
@@ -566,6 +693,28 @@ if (MESSAGE_FILE_RETENTION_DAYS > 0) {
 
   if (typeof expiryCleanupTimer.unref === "function") {
     expiryCleanupTimer.unref();
+  }
+}
+
+if (MESSAGE_TEXT_RETENTION_DAYS > 0) {
+  try {
+    backfillTextMessageExpiry();
+    cleanupExpiredTextOnlyMessages();
+  } catch (_) {
+    // best effort startup cleanup
+  }
+
+  const textCleanupTimer = setInterval(() => {
+    try {
+      backfillTextMessageExpiry();
+      cleanupExpiredTextOnlyMessages();
+    } catch (_) {
+      // keep server alive if cleanup fails
+    }
+  }, MESSAGE_FILE_CLEANUP_INTERVAL_MS);
+
+  if (typeof textCleanupTimer.unref === "function") {
+    textCleanupTimer.unref();
   }
 }
 

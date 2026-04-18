@@ -28,12 +28,15 @@ DEFAULT_CLIENT_PORT="80"
 DEFAULT_FILE_UPLOAD="true"
 DEFAULT_MAX_UPLOAD="78643200"
 DEFAULT_RETENTION_DAYS="7"
+DEFAULT_TEXT_RETENTION_DAYS="0"
 DEFAULT_ACCOUNT_CREATION="true"
 DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES="5242880"
 DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS="480"
 NODE_MAJOR="24"
 SCRIPT_REMOTE_URL="${SCRIPT_REMOTE_URL:-https://raw.githubusercontent.com/bllackbull/Songbird/main/scripts/install.sh}"
 LOG_LINES="${LOG_LINES:-100}"
+CERT_INSTALL_DIR="/etc/ssl/songbird"
+ACME_WEBROOT="/var/lib/songbird/certbot"
 
 # Mirror URLs
 MIRROR_NODESOURCE="${MIRROR_NODESOURCE:-}"
@@ -51,6 +54,7 @@ CLIENT_PORT="$DEFAULT_CLIENT_PORT"
 FILE_UPLOAD="$DEFAULT_FILE_UPLOAD"
 MAX_UPLOAD="$DEFAULT_MAX_UPLOAD"
 RETENTION_DAYS="$DEFAULT_RETENTION_DAYS"
+TEXT_RETENTION_DAYS="$DEFAULT_TEXT_RETENTION_DAYS"
 ACCOUNT_CREATION="$DEFAULT_ACCOUNT_CREATION"
 NGINX_SERVER_NAME="_"
 CURRENT_ENV_FILE=""
@@ -59,6 +63,10 @@ PROMPT_FD_OUT=1
 DB_BACKUP_PATH=""
 SOURCE_MODE=""
 SOURCE_ZIP_PATH=""
+CERT_MODE="http"
+CERTBOT_IP_ADDRESS=""
+MANUAL_CERT_FULLCHAIN_PATH=""
+MANUAL_CERT_PRIVKEY_PATH=""
 
 log() {
   local timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
@@ -279,6 +287,21 @@ prompt_retention_days() {
   done
 }
 
+prompt_text_retention_days() {
+  local value=""
+  while true; do
+    prompt_read "Enter text-only message auto deletion interval in days (0 disables, default: $DEFAULT_TEXT_RETENTION_DAYS): " value
+    if [[ -z "$value" ]]; then
+      value="$DEFAULT_TEXT_RETENTION_DAYS"
+    fi
+    if [[ "$value" =~ ^[0-9]+$ ]]; then
+      printf "%s" "$value"
+      return 0
+    fi
+    printf "Please enter a non-negative integer.\n"
+  done
+}
+
 normalize_path_input() {
   local value="$1"
   if [[ "$value" == "~"* ]]; then
@@ -408,10 +431,9 @@ prompt_source_mode() {
     printf "\nSource Mode\n"
     printf "1) GitHub\n"
     printf "2) Offline\n"
-    prompt_read "Choose an option [1-2] (default: 1): " mode
+    prompt_read "Choose an option [1-2]: " mode
     mode="${mode#"${mode%%[![:space:]]*}"}"
     mode="${mode%"${mode##*[![:space:]]}"}"
-    [[ -z "$mode" ]] && mode="1"
     case "$mode" in
       1)
         SOURCE_MODE="github"
@@ -424,6 +446,98 @@ prompt_source_mode() {
       *) printf "Choose 1 or 2.\n" ;;
     esac
   done
+}
+
+prompt_deploy_mode() {
+  local mode=""
+  while true; do
+    printf "\nDeploy Mode\n"
+    printf "1) Domain\n"
+    printf "2) IP\n"
+    prompt_read "Choose an option [1-2]: " mode
+    mode="${mode#"${mode%%[![:space:]]*}"}"
+    mode="${mode%"${mode##*[![:space:]]}"}"
+    case "$mode" in
+      1)
+        DEPLOY_MODE="domain"
+        break
+        ;;
+      2)
+        DEPLOY_MODE="ip"
+        break
+        ;;
+      *) printf "Choose 1 or 2.\n" ;;
+    esac
+  done
+}
+
+prompt_cert_mode() {
+  local mode=""
+  while true; do
+    printf "\nCertificate Mode\n"
+    printf "1) Certbot\n"
+    printf "2) TLS certificate files\n"
+    printf "3) HTTP only\n"
+    prompt_read "Choose an option [1-3]: " mode
+    mode="${mode#"${mode%%[![:space:]]*}"}"
+    mode="${mode%"${mode##*[![:space:]]}"}"
+    case "$mode" in
+      1)
+        CERT_MODE="certbot"
+        break
+        ;;
+      2)
+        CERT_MODE="files"
+        break
+        ;;
+      3)
+        CERT_MODE="http"
+        break
+        ;;
+      *) printf "Choose 1, 2, or 3.\n" ;;
+    esac
+  done
+}
+
+prompt_backup_zip_path() {
+  local backup_input=""
+  while true; do
+    prompt_read "Enter the full path to the backup .zip file: " backup_input
+    if [[ -z "$backup_input" ]]; then
+      printf "Please provide a file path.\n"
+      continue
+    fi
+    local resolved=""
+    resolved="$(resolve_file_path "$backup_input")" || resolved=""
+    if [[ -z "$resolved" ]]; then
+      printf "File not found. Tried: %s\n" "$backup_input"
+      continue
+    fi
+    if [[ "${resolved,,}" != *.zip ]]; then
+      printf "Backup file must be a .zip archive.\n"
+      continue
+    fi
+    if ! validate_backup_zip "$resolved"; then
+      continue
+    fi
+    printf "%s" "$resolved"
+    return 0
+  done
+}
+
+prompt_install_backup_restore() {
+  DB_BACKUP_PATH=""
+  if [[ "$(prompt_yes_no "Restore database from a backup zip during installation?" "no")" != "yes" ]]; then
+    return 0
+  fi
+  local detected=""
+  detected="$(find_restore_backup_zip)" || detected=""
+  if [[ -n "$detected" ]]; then
+    log "Found backup zip: ${detected}"
+    DB_BACKUP_PATH="$detected"
+    return 0
+  fi
+  DB_BACKUP_PATH="$(prompt_backup_zip_path)"
 }
 
 validate_backup_zip() {
@@ -533,12 +647,14 @@ install_required_packages() {
     lsb-release
     build-essential
     nginx
-    python3-certbot-nginx
     ffmpeg
     nano
     zip
     unzip
   )
+  if [[ "$CERT_MODE" == "certbot" ]]; then
+    required_pkgs+=(python3-certbot-nginx)
+  fi
   local missing_pkgs=()
   local pkg=""
 
@@ -659,10 +775,46 @@ clone_repo() {
 prepare_install_dir_for_offline() {
   run_silent run_as_root mkdir -p "$INSTALL_DIR"
   if run_silent run_as_root test -n "$(run_silent run_as_root find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 -print -quit)"; then
-    warn "${INSTALL_DIR} is not empty. Clear it or use another install path for offline mode."
+    warn "${INSTALL_DIR} is not empty. Clear it before installation."
     press_enter_to_continue
-    return 0
+    return 1
   fi
+  return 0
+}
+
+find_offline_source_zip() {
+  local zip_name="songbird.zip"
+  local candidates=(
+    "$HOME/${zip_name}"
+    "/root/${zip_name}"
+    "/${zip_name}"
+  )
+  local candidate=""
+  for candidate in "${candidates[@]}"; do
+    if file_exists_path "$candidate"; then
+      printf "%s" "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+find_restore_backup_zip() {
+  local candidates=(
+    "$HOME"
+    "/root"
+    "/"
+  )
+  local dir=""
+  for dir in "${candidates[@]}"; do
+    local found=""
+    found="$(run_as_root_output bash -lc "ls -t '$dir'/songbird-backup-*.zip 2>/dev/null | head -1" | tr -d '\r\n')" || found=""
+    if [[ -n "$found" && -f "$found" ]]; then
+      printf "%s" "$found"
+      return 0
+    fi
+  done
+  return 1
 }
 
 resolve_offline_source_root() {
@@ -684,29 +836,23 @@ resolve_offline_source_root() {
   return 1
 }
 
-has_source_at_install_dir() {
-  if [[ ! -d "$INSTALL_DIR" ]]; then
-    return 1
-  fi
-  [[ -f "$INSTALL_DIR/package.json" && -d "$INSTALL_DIR/server" && -d "$INSTALL_DIR/client" ]]
-}
-
 ensure_offline_source_ready() {
   local mode_label="$1"
-  if ! has_source_at_install_dir; then
-    log "Offline ${mode_label} requires the source code at ${INSTALL_DIR}."
-    log "Copy or extract Songbird into ${INSTALL_DIR} and try again."
+  local zip_path=""
+  zip_path="$(find_offline_source_zip)" || zip_path=""
+  if [[ -z "$zip_path" ]]; then
+    log "Offline ${mode_label} requires /songbird.zip to be available at the filesystem root."
     press_enter_to_continue
     return 1
   fi
+  SOURCE_ZIP_PATH="$zip_path"
   return 0
 }
 
-install_source_from_zip() {
+extract_offline_source_zip() {
   local zip_path="$1"
-  have_cmd unzip || fail "unzip is required for offline installs. Install it first and retry."
-
-  prepare_install_dir_for_offline
+  local mode_label="$2"
+  have_cmd unzip || fail "unzip is required for offline ${mode_label}s. Install it first and retry."
 
   local tmp_dir
   tmp_dir="$(mktemp -d)"
@@ -717,6 +863,59 @@ install_source_from_zip() {
     run_silent run_as_root rm -rf "$tmp_dir"
     fail "Source zip does not appear to contain Songbird (missing server/client/package.json)."
   }
+
+  printf "%s|%s" "$tmp_dir" "$source_root"
+}
+
+read_version_value() {
+  local version_file="$1"
+  if [[ ! -f "$version_file" ]]; then
+    return 1
+  fi
+  local version=""
+  version="$(head -n 1 "$version_file" | tr -d '\r\n' | xargs)"
+  if [[ -z "$version" ]]; then
+    return 1
+  fi
+  printf "%s" "$version"
+}
+
+offline_source_is_newer() {
+  local source_root="$1"
+  local install_root="$2"
+
+  local source_version_file="$source_root/VERSION"
+  local install_version_file="$install_root/VERSION"
+  local source_version=""
+  local install_version=""
+
+  source_version="$(read_version_value "$source_version_file")" || {
+    warn "Offline source is missing VERSION. Skipping update."
+    return 1
+  }
+
+  install_version="$(read_version_value "$install_version_file")" || install_version=""
+  if [[ -z "$install_version" ]]; then
+    log "Installed app is missing VERSION. Treating offline source ${source_version} as newer."
+    return 0
+  fi
+
+  if dpkg --compare-versions "$source_version" gt "$install_version"; then
+    log "Offline source version ${source_version} is newer than installed version ${install_version}."
+    return 0
+  fi
+
+  log "Offline source version ${source_version} is not newer than installed version ${install_version}."
+  return 1
+}
+
+install_source_from_zip() {
+  local zip_path="$1"
+  prepare_install_dir_for_offline || return 1
+  local extract_result=""
+  extract_result="$(extract_offline_source_zip "$zip_path" "install")"
+  local tmp_dir="${extract_result%%|*}"
+  local source_root="${extract_result#*|}"
 
   prepare_source_root_for_data_copy "$zip_path" "$source_root" "install"
 
@@ -726,21 +925,15 @@ install_source_from_zip() {
   fi
   apply_ownership
   run_silent run_as_root rm -rf "$tmp_dir"
+  return 0
 }
 
 update_source_from_zip() {
   local zip_path="$1"
-  have_cmd unzip || fail "unzip is required for offline updates. Install it first and retry."
-
-  local tmp_dir
-  tmp_dir="$(mktemp -d)"
-  run_silent run_as_root unzip -q "$zip_path" -d "$tmp_dir"
-
-  local source_root
-  source_root="$(resolve_offline_source_root "$tmp_dir")" || {
-    run_silent run_as_root rm -rf "$tmp_dir"
-    fail "Source zip does not appear to contain Songbird (missing server/client/package.json)."
-  }
+  local extract_result=""
+  extract_result="$(extract_offline_source_zip "$zip_path" "update")"
+  local tmp_dir="${extract_result%%|*}"
+  local source_root="${extract_result#*|}"
 
   prepare_source_root_for_data_copy "$zip_path" "$source_root" "update"
 
@@ -861,6 +1054,7 @@ write_env_from_example() {
   replace_env_value "$env_file" "FILE_UPLOAD" "$FILE_UPLOAD"
   replace_env_value "$env_file" "FILE_UPLOAD_MAX_TOTAL_SIZE" "$MAX_UPLOAD"
   replace_env_value "$env_file" "MESSAGE_FILE_RETENTION" "$RETENTION_DAYS"
+  replace_env_value "$env_file" "MESSAGE_TEXT_RETENTION" "$TEXT_RETENTION_DAYS"
   replace_env_value "$env_file" "CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES" "$existing_voice_waveform_max_decode_bytes"
   replace_env_value "$env_file" "CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS" "$existing_voice_waveform_max_decode_seconds"
   replace_env_value "$env_file" "STORAGE_ENCRYPTION_KEY" "$existing_storage_encryption_key"
@@ -897,6 +1091,7 @@ FILE_UPLOAD_MAX_TOTAL_SIZE=${MAX_UPLOAD}
 FILE_UPLOAD_MAX_FILES=10
 FILE_UPLOAD_TRANSCODE_VIDEOS=true
 MESSAGE_FILE_RETENTION=${RETENTION_DAYS}
+MESSAGE_TEXT_RETENTION=${TEXT_RETENTION_DAYS}
 MESSAGE_MAX_CHARS=4000
 CHAT_PENDING_TEXT_TIMEOUT=300000
 CHAT_PENDING_FILE_TIMEOUT=1200000
@@ -978,6 +1173,7 @@ sync_values_from_env() {
   FILE_UPLOAD="$(get_existing_env_value "FILE_UPLOAD" "$DEFAULT_FILE_UPLOAD")"
   MAX_UPLOAD="$(get_existing_env_value "FILE_UPLOAD_MAX_TOTAL_SIZE" "$DEFAULT_MAX_UPLOAD")"
   RETENTION_DAYS="$(get_existing_env_value "MESSAGE_FILE_RETENTION" "$DEFAULT_RETENTION_DAYS")"
+  TEXT_RETENTION_DAYS="$(get_existing_env_value "MESSAGE_TEXT_RETENTION" "$DEFAULT_TEXT_RETENTION_DAYS")"
   ACCOUNT_CREATION="$(get_existing_env_value "ACCOUNT_CREATION" "$DEFAULT_ACCOUNT_CREATION")"
   CURRENT_ENV_FILE="$env_file"
 }
@@ -1000,21 +1196,7 @@ parse_domain_input() {
 
 
 collect_install_options() {
-  local mode=""
-  while true; do
-    prompt_read "Deploy behind a domain or server IP? [domain/ip] (default: domain): " mode
-    mode="$(printf "%s" "$mode" | tr '[:upper:]' '[:lower:]')"
-    [[ -z "$mode" ]] && mode="domain"
-    case "$mode" in
-      domain|ip)
-        DEPLOY_MODE="$mode"
-        break
-        ;;
-      *)
-        printf "Choose either 'domain' or 'ip'.\n"
-        ;;
-    esac
-  done
+  prompt_deploy_mode
 
   if [[ "$DEPLOY_MODE" == "domain" ]]; then
     local raw_domains=""
@@ -1030,10 +1212,39 @@ collect_install_options() {
       fi
       printf "Please enter at least one domain.\n"
     done
-    CERTBOT_EMAIL="$(prompt_non_empty "Enter email for Let's Encrypt renewal notices")"
   else
     NGINX_SERVER_NAME="_"
   fi
+
+  prompt_cert_mode
+
+  case "$CERT_MODE" in
+    certbot)
+      CERTBOT_EMAIL="$(prompt_non_empty "Enter email for Let's Encrypt renewal notices")"
+      if [[ "$DEPLOY_MODE" == "ip" ]]; then
+        CERTBOT_IP_ADDRESS="$(prompt_non_empty "Enter the public IP address for the TLS certificate")"
+        NGINX_SERVER_NAME="$CERTBOT_IP_ADDRESS"
+      fi
+      ;;
+    files)
+      while true; do
+        MANUAL_CERT_FULLCHAIN_PATH="$(prompt_non_empty "Enter path to fullchain.pem")"
+        MANUAL_CERT_FULLCHAIN_PATH="$(resolve_file_path "$MANUAL_CERT_FULLCHAIN_PATH")" || MANUAL_CERT_FULLCHAIN_PATH=""
+        if [[ -n "$MANUAL_CERT_FULLCHAIN_PATH" ]]; then
+          break
+        fi
+        printf "Could not find that fullchain.pem file.\n"
+      done
+      while true; do
+        MANUAL_CERT_PRIVKEY_PATH="$(prompt_non_empty "Enter path to privkey.pem")"
+        MANUAL_CERT_PRIVKEY_PATH="$(resolve_file_path "$MANUAL_CERT_PRIVKEY_PATH")" || MANUAL_CERT_PRIVKEY_PATH=""
+        if [[ -n "$MANUAL_CERT_PRIVKEY_PATH" ]]; then
+          break
+        fi
+        printf "Could not find that privkey.pem file.\n"
+      done
+      ;;
+  esac
 
 
   SERVER_PORT="$(prompt_port)"
@@ -1056,6 +1267,7 @@ collect_install_options() {
   else
     RETENTION_DAYS="0"
   fi
+  TEXT_RETENTION_DAYS="$(prompt_text_retention_days)"
 
 }
 
@@ -1095,15 +1307,38 @@ EOF
   run_as_root systemctl restart songbird.service
 }
 
-configure_nginx() {
+write_nginx_site_config() {
+  local mode="${1:-http}"
+  local cert_path="${2:-}"
+  local key_path="${3:-}"
   local server_name_line="server_name ${NGINX_SERVER_NAME};"
+  local listen_line="listen ${CLIENT_PORT} default_server;"
+  local ssl_block=""
+
+  if [[ "$mode" == "ssl" ]]; then
+    listen_line="listen ${CLIENT_PORT} ssl default_server;"
+    ssl_block=$(cat <<EOF
+  ssl_certificate ${cert_path};
+  ssl_certificate_key ${key_path};
+  ssl_session_cache shared:SSL:10m;
+  ssl_session_timeout 1d;
+EOF
+)
+  fi
 
   log "Creating Nginx config at ${NGINX_SITE_FILE}..."
+  run_silent run_as_root mkdir -p "$ACME_WEBROOT"
   run_silent run_as_root tee "$NGINX_SITE_FILE" >/dev/null <<EOF
 server {
-  listen ${CLIENT_PORT} default_server;
+  ${listen_line}
   ${server_name_line}
   client_max_body_size ${MAX_UPLOAD};
+${ssl_block}
+
+  location /.well-known/acme-challenge/ {
+    root ${ACME_WEBROOT};
+    default_type "text/plain";
+  }
 
   location /api/events {
     proxy_pass http://127.0.0.1:${SERVER_PORT};
@@ -1132,6 +1367,10 @@ server {
   }
 }
 EOF
+}
+
+configure_nginx() {
+  write_nginx_site_config "http"
 
   run_as_root ln -sfn "$NGINX_SITE_FILE" "$NGINX_ENABLED_FILE"
   if run_as_root test -f /etc/nginx/sites-enabled/default; then
@@ -1142,9 +1381,84 @@ EOF
   run_as_root systemctl reload nginx
 }
 
+install_ssl_files_into_nginx() {
+  local cert_path="$1"
+  local key_path="$2"
+
+  write_nginx_site_config "ssl" "$cert_path" "$key_path"
+  run_as_root nginx -t
+  run_as_root systemctl reload nginx
+  log "Nginx SSL configured."
+}
+
+configure_manual_ssl_files() {
+  if [[ ! -f "$MANUAL_CERT_FULLCHAIN_PATH" || ! -f "$MANUAL_CERT_PRIVKEY_PATH" ]]; then
+    fail "Manual certificate files were not found."
+  fi
+
+  run_silent run_as_root mkdir -p "$CERT_INSTALL_DIR"
+  run_silent run_as_root cp -a "$MANUAL_CERT_FULLCHAIN_PATH" "$CERT_INSTALL_DIR/fullchain.pem"
+  run_silent run_as_root cp -a "$MANUAL_CERT_PRIVKEY_PATH" "$CERT_INSTALL_DIR/privkey.pem"
+  run_silent run_as_root chmod 644 "$CERT_INSTALL_DIR/fullchain.pem"
+  run_silent run_as_root chmod 600 "$CERT_INSTALL_DIR/privkey.pem"
+
+  install_ssl_files_into_nginx "$CERT_INSTALL_DIR/fullchain.pem" "$CERT_INSTALL_DIR/privkey.pem"
+}
+
+ensure_certbot_supports_ip_certificates() {
+  local version_output=""
+  version_output="$(run_as_root_output certbot --version 2>/dev/null || true)"
+  local version=""
+  version="$(printf "%s" "$version_output" | sed -nE 's/.* ([0-9]+(\.[0-9]+)+).*/\1/p' | head -1)"
+  if [[ -z "$version" ]]; then
+    fail "Unable to determine certbot version for IP certificate setup."
+  fi
+  if ! dpkg --compare-versions "$version" ge "5.4"; then
+    fail "Certbot ${version} is too old for IP certificate setup. Version 5.4 or newer is required."
+  fi
+}
+
+configure_certbot_ip_ssl() {
+  [[ -n "$CERTBOT_IP_ADDRESS" ]] || fail "Missing public IP address for Certbot IP certificate setup."
+
+  ensure_certbot_supports_ip_certificates
+  run_silent run_as_root mkdir -p "$ACME_WEBROOT/.well-known/acme-challenge"
+
+  log "Requesting 6-day IP certificate for ${CERTBOT_IP_ADDRESS}..."
+  run_as_root certbot certonly \
+    --webroot \
+    --webroot-path "$ACME_WEBROOT" \
+    --preferred-profile shortlived \
+    --non-interactive \
+    --agree-tos \
+    --email "$CERTBOT_EMAIL" \
+    --deploy-hook "systemctl reload nginx" \
+    --ip-address "$CERTBOT_IP_ADDRESS" || {
+      log "ERROR: Certbot failed for IP ${CERTBOT_IP_ADDRESS}"
+      return 1
+    }
+
+  install_ssl_files_into_nginx \
+    "/etc/letsencrypt/live/${CERTBOT_IP_ADDRESS}/fullchain.pem" \
+    "/etc/letsencrypt/live/${CERTBOT_IP_ADDRESS}/privkey.pem"
+  log "Nginx SSL configured for IP ${CERTBOT_IP_ADDRESS}."
+}
+
 configure_ssl_if_needed() {
-  if [[ "$DEPLOY_MODE" != "domain" ]]; then
-    log "IP mode selected. Skipping Certbot SSL setup."
+  case "$CERT_MODE" in
+    http)
+      log "HTTP-only mode selected. Skipping TLS setup."
+      return 0
+      ;;
+    files)
+      log "Installing TLS certificate files into nginx..."
+      configure_manual_ssl_files
+      return 0
+      ;;
+  esac
+
+  if [[ "$DEPLOY_MODE" == "ip" ]]; then
+    configure_certbot_ip_ssl
     return 0
   fi
 
@@ -1225,7 +1539,7 @@ restore_backup_if_provided() {
     tmp_dir="$(mktemp -d)"
     extract_result="$(extract_backup_zip "$DB_BACKUP_PATH" "$tmp_dir" "$backup_password")" || {
       run_silent run_as_root rm -rf "$tmp_dir"
-      fail "Backup zip does not contain expected .env, songbird.db, and uploads/ content."
+      fail "Backup zip does not contain expected songbird.db and uploads/ content."
     }
   fi
 
@@ -1234,12 +1548,20 @@ restore_backup_if_provided() {
 
   local db_src="$source_dir/songbird.db"
   local uploads_src="$source_dir/uploads"
+  local backup_format="legacy"
+  if [[ "$source_dir" == */data ]]; then
+    backup_format="current"
+  fi
 
   run_silent run_as_root rm -rf "$INSTALL_DIR/data"
   run_silent run_as_root mkdir -p "$INSTALL_DIR/data"
 
   if [[ -f "$env_src" ]]; then
     run_silent run_as_root cp -a "$env_src" "$INSTALL_DIR/.env"
+  elif run_as_root test -f "$INSTALL_DIR/.env"; then
+    log "Legacy backup detected; keeping existing .env in place."
+  else
+    warn "Legacy backup detected without .env. Restore completed, but ${INSTALL_DIR}/.env still needs valid values."
   fi
   if [[ -f "$db_src" ]]; then
     run_silent run_as_root cp -a "$db_src" "$INSTALL_DIR/data/"
@@ -1249,7 +1571,7 @@ restore_backup_if_provided() {
   fi
 
   run_silent run_as_root rm -rf "$tmp_dir"
-  log "Backup restored into ${INSTALL_DIR}."
+  log "Backup restored into ${INSTALL_DIR} (format: ${backup_format})."
   apply_ownership
 }
 
@@ -1308,7 +1630,7 @@ update_nginx_runtime_values() {
     "$NGINX_SITE_FILE"
 
   run_silent run_as_root sed -i -E \
-    "s|listen [0-9]+ default_server;|listen ${CLIENT_PORT} default_server;|g" \
+    "s|listen [0-9]+( ssl)? default_server;|listen ${CLIENT_PORT}\1 default_server;|g" \
     "$NGINX_SITE_FILE"
 
   run_silent run_as_root sed -i -E \
@@ -1350,6 +1672,48 @@ update_songbird() {
     backup_database
   else
     warn "No Songbird install found at ${INSTALL_DIR}."
+    press_enter_to_continue
+    return 0
+  fi
+
+  prompt_source_mode
+
+  if [[ "$SOURCE_MODE" == "offline" ]]; then
+    ensure_offline_source_ready "update" || return 0
+
+    local offline_zip_path="$SOURCE_ZIP_PATH"
+    local extract_result=""
+    extract_result="$(extract_offline_source_zip "$offline_zip_path" "update")"
+    local tmp_dir="${extract_result%%|*}"
+    local source_root="${extract_result#*|}"
+
+    if ! offline_source_is_newer "$source_root" "$INSTALL_DIR"; then
+      run_silent run_as_root rm -rf "$tmp_dir"
+      log "Songbird is already up to date. No rebuild needed."
+      press_enter_to_continue
+      return 0
+    fi
+
+    run_silent run_as_root rm -rf "$tmp_dir"
+
+    log "Offline update available. Preparing to update Songbird..."
+    preserve_backup_and_restore_data
+    update_source_from_zip "$offline_zip_path"
+
+    log "Installing dependencies..."
+    install_songbird_dependencies
+    ensure_vapid_keys
+
+    log "Synchronizing database schema with latest version..."
+    run_migrations
+
+    apply_ownership
+
+    log "Restarting Songbird service..."
+    run_as_root systemctl restart songbird.service
+    run_as_root systemctl reload nginx
+
+    log "Update completed successfully."
     press_enter_to_continue
     return 0
   fi
@@ -1530,10 +1894,12 @@ install_songbird() {
   prompt_source_mode
   collect_install_options
   install_required_packages
+  prompt_install_backup_restore
   ensure_nodejs_from_nodesource
   ensure_service_user_exists
   if [[ "$SOURCE_MODE" == "offline" ]]; then
     ensure_offline_source_ready "install" || return 0
+    install_source_from_zip "$SOURCE_ZIP_PATH" || return 1
   else
     clone_repo || {
       warn "Failed to clone repository. Installation canceled."
@@ -1542,8 +1908,8 @@ install_songbird() {
     }
   fi
   ensure_log_dir
-  restore_backup_if_provided
   write_full_env_with_defaults
+  restore_backup_if_provided
   install_songbird_dependencies
   ensure_vapid_keys
   apply_ownership
@@ -1747,7 +2113,7 @@ db_vacuum() {
 }
 
 db_restore() {
-  if [[ "$(prompt_yes_no "This will replace ${INSTALL_DIR}/.env and ${INSTALL_DIR}/data. Continue?" "no")" != "yes" ]]; then
+  if [[ "$(prompt_yes_no "This will replace ${INSTALL_DIR}/data and update ${INSTALL_DIR}/.env when the backup includes it. Continue?" "no")" != "yes" ]]; then
     log "Restore canceled."
     return 0
   fi
@@ -2042,28 +2408,8 @@ db_user_ban() {
 }
 
 db_restore_backup() {
-  local backup_input=""
-  while true; do
-    prompt_read "Enter the full path to the backup .zip file: " backup_input
-    if [[ -z "$backup_input" ]]; then
-      printf "Please provide a file path.\n"
-      continue
-    fi
-    local resolved=""
-    resolved="$(resolve_file_path "$backup_input")" || resolved=""
-    if [[ -z "$resolved" ]]; then
-      printf "File not found. Tried: %s\n" "$backup_input"
-      continue
-    fi
-    if [[ "${resolved,,}" != *.zip ]]; then
-      printf "Backup file must be a .zip archive.\n"
-      continue
-    fi
-    if ! validate_backup_zip "$resolved"; then
-      continue
-    fi
-    break
-  done
+  local resolved=""
+  resolved="$(prompt_backup_zip_path)"
 
   if [[ "$(prompt_yes_no "This will replace ${INSTALL_DIR}/data. Continue?" "no")" != "yes" ]]; then
     log "Restore canceled."

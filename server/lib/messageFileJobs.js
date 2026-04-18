@@ -18,6 +18,26 @@ export function createMessageFileJobs({
     return chunks;
   };
 
+  const resolveSharedMessageIdsByStoredNames = (storedNames = []) => {
+    const normalized = Array.from(
+      new Set(
+        (Array.isArray(storedNames) ? storedNames : [])
+          .map((name) => path.basename(String(name || "").trim()))
+          .filter(Boolean),
+      ),
+    );
+    if (!normalized.length) return [];
+    const placeholders = normalized.map(() => "?").join(", ");
+    return adminGetAll(
+      `SELECT DISTINCT message_id
+       FROM chat_message_files
+       WHERE stored_name IN (${placeholders})`,
+      normalized,
+    )
+      .map((row) => Number(row?.message_id || 0))
+      .filter((id) => Number.isFinite(id) && id > 0);
+  };
+
   const cleanupMissingMessageFiles = (messageIds = []) => {
     const normalized = Array.from(
       new Set(
@@ -63,13 +83,17 @@ export function createMessageFileJobs({
       };
     }
 
-    const targetMessageIds = Array.from(missingMessageIds);
-    const placeholders = targetMessageIds.map(() => "?").join(", ");
+    const initialMessageIds = Array.from(missingMessageIds);
+    const initialPlaceholders = initialMessageIds.map(() => "?").join(", ");
     const allFilesRows = adminGetAll(
-      `SELECT stored_name FROM chat_message_files WHERE message_id IN (${placeholders})`,
-      targetMessageIds,
+      `SELECT stored_name FROM chat_message_files WHERE message_id IN (${initialPlaceholders})`,
+      initialMessageIds,
     );
     const storedNames = allFilesRows.map((row) => row.stored_name);
+    const targetMessageIds = Array.from(
+      new Set(resolveSharedMessageIdsByStoredNames(storedNames)),
+    );
+    const placeholders = targetMessageIds.map(() => "?").join(", ");
     const messageChatPairs = adminGetAll(
       `SELECT id, chat_id FROM chat_messages WHERE id IN (${placeholders})`,
       targetMessageIds,
@@ -123,15 +147,15 @@ export function createMessageFileJobs({
     const nowIso = new Date().toISOString();
 
     const rows = adminGetAll(
-      `SELECT DISTINCT message_id
+      `SELECT DISTINCT stored_name
        FROM chat_message_files
        WHERE expires_at IS NOT NULL AND expires_at != '' AND julianday(expires_at) <= julianday(?)`,
       [nowIso],
     );
-
-    const messageIds = rows
-      .map((row) => Number(row.message_id))
-      .filter((id) => Number.isFinite(id) && id > 0);
+    const storedNames = rows.map((row) => row.stored_name);
+    const messageIds = Array.from(
+      new Set(resolveSharedMessageIdsByStoredNames(storedNames)),
+    );
 
     if (!messageIds.length) {
       return { removedMessages: 0, removedFiles: 0 };
@@ -142,7 +166,7 @@ export function createMessageFileJobs({
       `SELECT stored_name FROM chat_message_files WHERE message_id IN (${placeholders})`,
       messageIds,
     );
-    const storedNames = fileRows.map((row) => row.stored_name);
+    const allStoredNames = fileRows.map((row) => row.stored_name);
 
     adminRun("BEGIN");
     try {
@@ -165,12 +189,12 @@ export function createMessageFileJobs({
       throw error;
     }
 
-    removeStoredFileNames(storedNames);
+    removeStoredFileNames(allStoredNames);
     adminSave();
 
     return {
       removedMessages: messageIds.length,
-      removedFiles: storedNames.length,
+      removedFiles: allStoredNames.length,
     };
   };
 

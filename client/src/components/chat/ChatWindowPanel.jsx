@@ -12,6 +12,7 @@ import {
   ArrowLeft,
   Bell,
   Close,
+  Copy,
   Ghost,
   LoaderCircle,
   Mic,
@@ -19,6 +20,7 @@ import {
 import { getAvatarStyle } from "../../utils/avatarColor.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
+import Avatar from "../common/Avatar.jsx";
 import {
   FocusedMediaModal,
   MessageComposer,
@@ -27,6 +29,7 @@ import {
   useFocusedMedia,
   useFloatingDayChip,
 } from "./index.js";
+import ContextMenuSurface from "../context-menu/ContextMenuSurface.jsx";
 import { CACHE_STORES } from "../../utils/cacheDb.js";
 import {
   MEDIA_POSTER_CACHE_KEY,
@@ -39,6 +42,7 @@ import {
 export default function ChatWindowPanel({
   mobileTab,
   activeChatId,
+  activeChat = null,
   closeChat,
   activeHeaderPeer,
   activeFallbackTitle,
@@ -85,10 +89,14 @@ export default function ChatWindowPanel({
   onClearPendingUploads,
   replyTarget,
   onClearReply,
+  editTarget,
+  onClearEdit,
   onReplyToMessage,
   onOpenHeaderProfile,
   onOpenMessageSenderProfile,
   onOpenMention,
+  onOpenForwardOrigin,
+  onOpenContextMenu,
   mentionRefreshToken = 0,
   onUserScrollIntent,
   canSwipeReply = true,
@@ -102,6 +110,7 @@ export default function ChatWindowPanel({
   headerAvatarIcon = null,
   headerAvatarColor = null,
   permissionsPrompt = null,
+  copyToastVisible = false,
 }) {
   const MEDIA_CACHE_VERSION = 1;
   const MEDIA_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -130,6 +139,49 @@ export default function ChatWindowPanel({
   );
   const canOpenHeaderProfile =
     headerClickable && typeof onOpenHeaderProfile === "function";
+  const canOpenHeaderChatMenu = Boolean(
+    onOpenContextMenu &&
+      activeChat &&
+      (isGroupChat || isChannelChat || _isSavedChat),
+  );
+  const canOpenHeaderUserMenu = Boolean(
+    onOpenContextMenu &&
+      activeHeaderPeer?.username &&
+      !isGroupChat &&
+      !isChannelChat &&
+      !_isSavedChat,
+  );
+  const headerUserContextMenu = {
+    disabled: !canOpenHeaderUserMenu,
+    isMobile: isMobileTouchDevice,
+    onOpen: ({ event, targetEl, isMobile }) =>
+      onOpenContextMenu?.({
+        kind: "user",
+        event,
+        targetEl,
+        isMobile,
+        data: {
+          member: activeHeaderPeer,
+          sourceChatType: "dm",
+          onOpenProfile: () => onOpenHeaderProfile?.(),
+        },
+      }),
+  };
+  const headerChatContextMenu = {
+    disabled: !canOpenHeaderChatMenu,
+    isMobile: isMobileTouchDevice,
+    onOpen: ({ event, targetEl, isMobile }) =>
+      onOpenContextMenu?.({
+        kind: "chat",
+        event,
+        targetEl,
+        isMobile,
+        data: { chat: activeChat },
+      }),
+  };
+  const headerPrimaryContextMenu = canOpenHeaderChatMenu
+    ? headerChatContextMenu
+    : headerUserContextMenu;
   const isTypingActive = Boolean(typingIndicator?.label);
 
   const readMediaCache = useCallback(
@@ -633,7 +685,7 @@ export default function ChatWindowPanel({
   }, [uploadBusy]);
 
   useEffect(() => {
-    if (!replyTarget) return;
+    if (!replyTarget && !editTarget) return;
     if (composerFocused) return;
     const node = composerInputRef?.current;
     if (!node) return;
@@ -641,7 +693,7 @@ export default function ChatWindowPanel({
       node?.focus?.({ preventScroll: true });
       node?.focus?.();
     }, 0);
-  }, [replyTarget, composerFocused, composerInputRef]);
+  }, [replyTarget, editTarget, composerFocused, composerInputRef]);
 
 
 
@@ -895,7 +947,9 @@ export default function ChatWindowPanel({
       }
       onOpenSenderProfile={onOpenMessageSenderProfile}
       onOpenMention={onOpenMention}
+      onOpenForwardOrigin={onOpenForwardOrigin}
       mentionRefreshToken={mentionRefreshToken}
+      onOpenContextMenu={onOpenContextMenu}
       onJumpToMessage={(messageId) => {
         const target = document.getElementById(`message-${messageId}`);
         if (target && typeof target.scrollIntoView === "function") {
@@ -977,7 +1031,11 @@ export default function ChatWindowPanel({
             >
               <ArrowLeft size={18} />
             </button>
-            <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1">
+            <ContextMenuSurface
+              as="div"
+              className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1"
+              contextMenu={headerPrimaryContextMenu}
+            >
               <>
                 {activeHeaderPeer?.isDeleted ? (
                   <span
@@ -1040,8 +1098,8 @@ export default function ChatWindowPanel({
                         </span>
                         {typingIndicator?.type === "group_single" ? (
                           <span
-                            className="flex min-w-0 items-center gap-1 truncate leading-[1.2]"
-                            title={`${typingIndicator?.name || ""} is typing`}
+                            className="block min-w-0 truncate whitespace-nowrap leading-[1.2]"
+                            title={typingIndicator?.fullLabel || typingIndicator?.name || ""}
                           >
                             <span
                               className={`min-w-0 truncate ${
@@ -1052,22 +1110,15 @@ export default function ChatWindowPanel({
                             >
                               {typingIndicator?.name}
                             </span>
-                            <span
-                              className="shrink-0"
-                              dir="ltr"
-                              style={{ unicodeBidi: "isolate" }}
-                            >
-                              is typing
-                            </span>
                           </span>
                         ) : (
                           <span
-                            className={`block min-w-0 truncate leading-[1.2] ${
+                            className={`block min-w-0 truncate whitespace-nowrap leading-[1.2] ${
                               hasPersian(typingIndicator?.label) ? "font-fa sb-fa-baseline-fix" : ""
                             }`}
                             dir="auto"
                             style={{ unicodeBidi: "plaintext" }}
-                            title={typingIndicator?.label}
+                            title={typingIndicator?.fullLabel || typingIndicator?.label}
                           >
                             {typingIndicator?.label}
                           </span>
@@ -1108,95 +1159,127 @@ export default function ChatWindowPanel({
                   </p>
                 ) : null}
               </>
-            </div>
+            </ContextMenuSurface>
             {headerAvatarIcon ? (
-              <div
+              <ContextMenuSurface
+                as="div"
                 className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full"
                 style={getAvatarStyle(activePeerColor)}
+                contextMenu={headerPrimaryContextMenu}
               >
                 {headerAvatarIcon}
-              </div>
+              </ContextMenuSurface>
             ) : activeHeaderPeer ? (
               activeHeaderPeer?.isDeleted ? (
-                <div
+                <ContextMenuSurface
+                  as="div"
                   className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full"
                   style={getAvatarStyle(activePeerColor)}
+                  contextMenu={headerPrimaryContextMenu}
                 >
                   <Ghost size={18} className="text-slate-600" />
-                </div>
+                </ContextMenuSurface>
               ) : activeHeaderPeer?.avatar_url ? (
                 canOpenHeaderProfile ? (
-                  <button
+                  <ContextMenuSurface
+                    as="button"
                     type="button"
                     onClick={onOpenHeaderProfile}
                     className="group"
+                    contextMenu={headerPrimaryContextMenu}
                   >
-                    <img
+                    <Avatar
                       src={activeHeaderPeer?.avatar_url}
                       alt={activeFallbackTitle}
-                      className="h-9 w-9 flex-shrink-0 rounded-full object-cover transition group-hover:ring-2 group-hover:ring-emerald-300"
+                      name={activeFallbackTitle}
+                      color={activePeerColor}
+                      initials={activePeerInitials}
+                      className="h-9 w-9 flex-shrink-0 transition group-hover:ring-2 group-hover:ring-emerald-300"
                     />
-                  </button>
+                  </ContextMenuSurface>
                 ) : (
-                  <img
-                    src={activeHeaderPeer?.avatar_url}
-                    alt={activeFallbackTitle}
-                    className="h-9 w-9 flex-shrink-0 rounded-full object-cover"
-                  />
+                  <ContextMenuSurface
+                    as="div"
+                    contextMenu={headerPrimaryContextMenu}
+                  >
+                    <Avatar
+                      src={activeHeaderPeer?.avatar_url}
+                      alt={activeFallbackTitle}
+                      name={activeFallbackTitle}
+                      color={activePeerColor}
+                      initials={activePeerInitials}
+                      className="h-9 w-9 flex-shrink-0"
+                    />
+                  </ContextMenuSurface>
                 )
               ) : canOpenHeaderProfile ? (
-                <button
+                <ContextMenuSurface
+                  as="button"
                   type="button"
                   onClick={onOpenHeaderProfile}
                   className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full transition hover:ring-2 hover:ring-emerald-300 ${hasPersian(activePeerInitials) ? "font-fa" : ""}`}
                   style={getAvatarStyle(activePeerColor)}
+                  contextMenu={headerPrimaryContextMenu}
                 >
                   {activePeerInitials}
-                </button>
+                </ContextMenuSurface>
               ) : (
-                <div
+                <ContextMenuSurface
+                  as="div"
                   className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ${hasPersian(activePeerInitials) ? "font-fa" : ""}`}
                   style={getAvatarStyle(activePeerColor)}
+                  contextMenu={headerPrimaryContextMenu}
                 >
                   {activePeerInitials}
-                </div>
+                </ContextMenuSurface>
               )
             ) : groupAvatarUrl ? (
               canOpenHeaderProfile ? (
-                <button
+                <ContextMenuSurface
+                  as="button"
                   type="button"
                   onClick={onOpenHeaderProfile}
                   className="group"
+                  contextMenu={headerPrimaryContextMenu}
                 >
                   <img
                     src={groupAvatarUrl}
                     alt={activeFallbackTitle}
                     className="h-9 w-9 flex-shrink-0 rounded-full object-cover transition group-hover:ring-2 group-hover:ring-emerald-300"
                   />
-                </button>
+                </ContextMenuSurface>
               ) : (
-                <img
-                  src={groupAvatarUrl}
-                  alt={activeFallbackTitle}
-                  className="h-9 w-9 flex-shrink-0 rounded-full object-cover"
-                />
+                <ContextMenuSurface
+                  as="div"
+                  contextMenu={headerPrimaryContextMenu}
+                >
+                  <img
+                    src={groupAvatarUrl}
+                    alt={activeFallbackTitle}
+                    className="h-9 w-9 flex-shrink-0 rounded-full object-cover"
+                  />
+                </ContextMenuSurface>
               )
             ) : canOpenHeaderProfile ? (
-              <button
-                type="button"
-                onClick={onOpenHeaderProfile}
-                className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full transition hover:ring-2 hover:ring-emerald-300 ${hasPersian(activePeerInitials) ? "font-fa" : ""}`}
-                style={getAvatarStyle(activePeerColor)}
-              >
-                {activePeerInitials}
-              </button>
-            ) : (
-              <div
+                <ContextMenuSurface
+                  as="button"
+                  type="button"
+                  onClick={onOpenHeaderProfile}
+                  className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full transition hover:ring-2 hover:ring-emerald-300 ${hasPersian(activePeerInitials) ? "font-fa" : ""}`}
+                  style={getAvatarStyle(activePeerColor)}
+                  contextMenu={headerPrimaryContextMenu}
+                >
+                  {activePeerInitials}
+                </ContextMenuSurface>
+              ) : (
+              <ContextMenuSurface
+                as="div"
                 className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ${hasPersian(activePeerInitials) ? "font-fa" : ""}`}
                 style={getAvatarStyle(activePeerColor)}
+                contextMenu={headerPrimaryContextMenu}
               >
                 {activePeerInitials}
-              </div>
+              </ContextMenuSurface>
             )}
             </div>
           </div>
@@ -1373,26 +1456,28 @@ export default function ChatWindowPanel({
             isDesktop={isDesktop}
             handleSend={handleSend}
             onComposerResize={handleComposerResize}
-          replyTarget={replyTarget}
-          onClearReply={onClearReply}
-          pendingUploadFiles={pendingUploadFiles}
-          pendingUploadType={pendingUploadType}
-          pendingVoiceMessage={pendingVoiceMessage}
-          fileUploadEnabled={fileUploadEnabled}
-          mediaInputRef={mediaInputRef}
-          documentInputRef={documentInputRef}
-          onClearPendingUploads={onClearPendingUploads}
-          onRemovePendingUpload={onRemovePendingUpload}
-          onUploadFilesSelected={onUploadFilesSelected}
-          onVoiceRecorded={onVoiceRecorded}
-          onClearPendingVoiceMessage={onClearPendingVoiceMessage}
-          uploadError={uploadError}
-          activeUploadProgress={activeUploadProgress}
-          messageMaxChars={messageMaxChars}
-          onMessageInput={onMessageInput}
-          uploadBusy={uploadBusy}
-          showUploadMenu={showUploadMenu}
-          setShowUploadMenu={setShowUploadMenu}
+            replyTarget={replyTarget}
+            onClearReply={onClearReply}
+            editTarget={editTarget}
+            onClearEdit={onClearEdit}
+            pendingUploadFiles={pendingUploadFiles}
+            pendingUploadType={pendingUploadType}
+            pendingVoiceMessage={pendingVoiceMessage}
+            fileUploadEnabled={fileUploadEnabled}
+            mediaInputRef={mediaInputRef}
+            documentInputRef={documentInputRef}
+            onClearPendingUploads={onClearPendingUploads}
+            onRemovePendingUpload={onRemovePendingUpload}
+            onUploadFilesSelected={onUploadFilesSelected}
+            onVoiceRecorded={onVoiceRecorded}
+            onClearPendingVoiceMessage={onClearPendingVoiceMessage}
+            uploadError={uploadError}
+            activeUploadProgress={activeUploadProgress}
+            messageMaxChars={messageMaxChars}
+            onMessageInput={onMessageInput}
+            uploadBusy={uploadBusy}
+            showUploadMenu={showUploadMenu}
+            setShowUploadMenu={setShowUploadMenu}
             uploadMenuRef={uploadMenuRef}
             handleVideoThumbLoadedMetadata={handleVideoThumbLoadedMetadata}
             onComposerHeightChange={(value) => {
@@ -1403,6 +1488,29 @@ export default function ChatWindowPanel({
             }}
             composerInputRef={composerInputRef}
           />
+      ) : null}
+
+      {activeChatId ? (
+        <div
+          className={`pointer-events-none absolute left-1/2 z-30 -translate-x-1/2 transition-all duration-200 ${
+            copyToastVisible
+              ? "translate-y-0 opacity-100"
+              : "translate-y-3 opacity-0"
+          }`}
+          style={{
+            bottom: isDesktop
+              ? `${showComposer ? composerHeight + 14 : showChannelMuteFooter ? 86 : 18}px`
+              : `calc(${
+                  showComposer ? composerHeight + 12 : showChannelMuteFooter ? 84 : 18
+                }px + env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px))`,
+          }}
+          aria-hidden={!copyToastVisible}
+        >
+          <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/70 bg-emerald-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30">
+            <Copy size={14} strokeWidth={2.4} className="icon-anim-pop" />
+            Copied
+          </div>
+        </div>
       ) : null}
 
       {showChannelMuteFooter ? (

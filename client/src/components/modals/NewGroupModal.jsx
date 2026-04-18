@@ -9,11 +9,13 @@ import {
   Trash,
   Upload,
 } from "../../icons/lucide.js";
+import { copyTextToClipboard } from "../../utils/clipboard.js";
 import { getAvatarStyle } from "../../utils/avatarColor.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import { NICKNAME_MAX, USERNAME_MAX } from "../../utils/nameLimits.js";
 import ConfirmPasswordModal from "./ConfirmPasswordModal.jsx";
+import Avatar from "../common/Avatar.jsx";
 
 export default function NewGroupModal({
   open,
@@ -277,23 +279,7 @@ export default function NewGroupModal({
                       const value = String(currentInviteLink || "");
                       if (!value) return;
                       try {
-                        if (
-                          typeof navigator !== "undefined" &&
-                          navigator.clipboard &&
-                          window.isSecureContext
-                        ) {
-                          await navigator.clipboard.writeText(value);
-                        } else {
-                          const el = document.createElement("textarea");
-                          el.value = value;
-                          el.setAttribute("readonly", "");
-                          el.style.position = "absolute";
-                          el.style.left = "-9999px";
-                          document.body.appendChild(el);
-                          el.select();
-                          document.execCommand("copy");
-                          document.body.removeChild(el);
-                        }
+                        await copyTextToClipboard(value);
                       } catch {
                         // ignore clipboard errors
                       }
@@ -392,20 +378,14 @@ export default function NewGroupModal({
                               : "border-emerald-100/70 bg-white/80 text-slate-700 hover:border-emerald-300 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900/50"
                           }`}
                         >
-                          {result.avatar_url ? (
-                            <img
-                              src={result.avatar_url}
-                              alt={label}
-                              className="h-8 w-8 rounded-full object-cover"
-                            />
-                          ) : (
-                            <div
-                              className={`flex h-8 w-8 items-center justify-center rounded-full ${hasPersian(avatarInitials) ? "font-fa" : ""}`}
-                              style={getAvatarStyle(result.color || "#10b981")}
-                            >
-                              {avatarInitials}
-                            </div>
-                          )}
+                          <Avatar
+                            src={result.avatar_url}
+                            alt={label}
+                            name={label}
+                            color={result.color || "#10b981"}
+                            initials={avatarInitials}
+                            className="h-8 w-8"
+                          />
                           <div className="min-w-0">
                             <p
                               className={`truncate font-semibold ${hasPersian(label) ? "font-fa" : ""}`}
@@ -453,20 +433,14 @@ export default function NewGroupModal({
                         }
                         className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200"
                       >
-                        {member.avatar_url ? (
-                          <img
-                            src={member.avatar_url}
-                            alt={label}
-                            className="h-4 w-4 rounded-full object-cover"
-                          />
-                        ) : (
-                          <div
-                            className={`flex h-4 w-4 items-center justify-center rounded-full text-[9px] ${hasPersian(initials) ? "font-fa" : ""}`}
-                            style={getAvatarStyle(member.color || "#10b981")}
-                          >
-                            {initials}
-                          </div>
-                        )}
+                        <Avatar
+                          src={member.avatar_url}
+                          alt={label}
+                          name={label}
+                          color={member.color || "#10b981"}
+                          initials={initials}
+                          className="h-4 w-4 text-[9px]"
+                        />
                         <span
                           className="max-w-[160px] truncate"
                           dir="auto"

@@ -6,7 +6,6 @@ import {
   Trash,
   Upload,
 } from "../../../icons/lucide.js";
-import { getAvatarStyle } from "../../../utils/avatarColor.js";
 import { hasPersian } from "../../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../../utils/avatarInitials.js";
 import { NICKNAME_MAX, USERNAME_MAX } from "../../../utils/nameLimits.js";
@@ -15,6 +14,7 @@ import { SettingsMenuActions } from "../menus/SettingsMenuActions.jsx";
 import { DataSettingsPanel } from "./DataSettingsPanel.jsx";
 import { NotificationsSettingsPanel } from "./NotificationsSettingsPanel.jsx";
 import ConfirmPasswordModal from "../../modals/ConfirmPasswordModal.jsx";
+import Avatar from "../../common/Avatar.jsx";
 
 export function MobileSettingsPanel({
   settingsPanel,
@@ -92,20 +92,14 @@ export function MobileSettingsPanel({
               onClick={onOpenOwnProfile}
               className="group flex w-full items-center gap-3 rounded-xl border border-transparent px-1 py-1 text-left transition hover:border-emerald-300 hover:bg-emerald-50/50 hover:shadow-[0_0_16px_rgba(16,185,129,0.18)] dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
             >
-              {user.avatarUrl ? (
-                <img
-                  src={user.avatarUrl}
-                  alt={displayName}
-                  className="h-10 w-10 rounded-full object-cover transition group-hover:ring-2 group-hover:ring-emerald-300"
-                />
-              ) : (
-                <div
-                  className={`flex h-10 w-10 items-center justify-center rounded-full transition group-hover:ring-2 group-hover:ring-emerald-300 ${hasPersian(displayInitials) ? "font-fa" : ""}`}
-                  style={getAvatarStyle(resolvedUserColor)}
-                >
-                  {displayInitials}
-                </div>
-              )}
+              <Avatar
+                src={user.avatarUrl}
+                alt={displayName}
+                name={displayName}
+                color={resolvedUserColor}
+                initials={displayInitials}
+                className="h-10 w-10 transition group-hover:ring-2 group-hover:ring-emerald-300"
+              />
               <div className="min-w-0">
                 <p
                   className={`truncate text-sm font-semibold text-emerald-700 dark:text-emerald-200 ${hasPersian(displayName) ? "font-fa" : ""}`}
@@ -162,20 +156,14 @@ export function MobileSettingsPanel({
                 Profile photo
               </span>
               <div className="mt-3 flex items-center gap-3">
-                {avatarPreview ? (
-                  <img
-                    src={avatarPreview}
-                    alt={profileForm.nickname || profileForm.username}
-                    className="h-12 w-12 rounded-full object-cover"
-                  />
-                ) : (
-                  <div
-                    className={`flex h-12 w-12 items-center justify-center rounded-full ${hasPersian(profileInitials) ? "font-fa" : ""}`}
-                    style={getAvatarStyle(resolvedUserColor)}
-                  >
-                    {profileInitials}
-                  </div>
-                )}
+                <Avatar
+                  src={avatarPreview}
+                  alt={profileForm.nickname || profileForm.username}
+                  name={profileIdentity}
+                  color={resolvedUserColor}
+                  initials={profileInitials}
+                  className="h-12 w-12"
+                />
                 <div className="flex items-center gap-2">
                   <label
                     htmlFor="profilePhotoInput2"

@@ -1,5 +1,8 @@
+import { createElement } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
+import { renderToStaticMarkup } from "react-dom/server";
+import { Check, Copy } from "../icons/lucide.js";
 
 const SCHEME_PATTERN = "[a-z][a-z0-9+.-]*";
 const SIMPLE_LINK_PATTERN = /\b(?:https?:\/\/|www\.)\S+/i;
@@ -14,6 +17,22 @@ const inlineCache = new Map();
 const inlinePlainCache = new Map();
 let hljsModule = null;
 let hljsLoadPromise = null;
+const COPY_ICON_HTML = renderToStaticMarkup(
+  createElement(Copy, {
+    size: 14,
+    strokeWidth: 2,
+    "aria-hidden": "true",
+    className: "sb-code-copy-lucide",
+  }),
+);
+const CHECK_ICON_HTML = renderToStaticMarkup(
+  createElement(Check, {
+    size: 14,
+    strokeWidth: 2.3,
+    "aria-hidden": "true",
+    className: "sb-code-copy-lucide",
+  }),
+);
 
 const escapeHtml = (value) =>
   String(value || "").replace(/[&<>"']/g, (char) => {
@@ -44,6 +63,20 @@ const normalizeMarkdownInput = (value) => {
   const str = String(value);
   return str === "[object Object]" ? "" : str;
 };
+
+const escapeMarkdownHtmlTags = (value) =>
+  String(value || "").replace(/<\/?[A-Za-z][^>\n]*>/g, (match) =>
+    escapeHtml(match),
+  );
+
+const containsHtmlLikeTag = (value) =>
+  /<\/?[A-Za-z][^>\n]*>/.test(String(value || ""));
+
+const containsFencedCode = (value) =>
+  /(^|\n)\s*(```|~~~)/.test(String(value || ""));
+
+const normalizeFenceIndentation = (value) =>
+  String(value || "").replace(/(^|\n)[ \t]+(?=```|~~~)/g, "$1");
 
 const coerceHtmlString = (value) => {
   if (typeof value === "string") return value;
@@ -161,7 +194,8 @@ const configureMarkdown = () => {
       void loadHighlighter();
     }
     const safeLang = lang ? `language-${escapeHtml(lang)}` : "language-plain";
-    return `<pre class="sb-markdown-code"><code class="hljs ${safeLang}">${highlighted}</code></pre>`;
+    const langLabel = escapeHtml(lang || "text");
+    return `<div class="sb-code-block" data-copyable="1"><div class="sb-code-header"><span class="sb-code-lang">${langLabel}</span><button type="button" class="sb-code-copy" aria-label="Copy code" data-state="idle"><span class="sb-code-copy-icons" aria-hidden="true"><span class="sb-code-copy-icon-host sb-code-copy-icon-copy-host">${COPY_ICON_HTML}</span><span class="sb-code-copy-icon-host sb-code-copy-icon-check-host">${CHECK_ICON_HTML}</span></span><span class="sb-sr-only">Copy code</span></button></div><pre class="sb-code"><code class="hljs ${safeLang}">${highlighted}</code></pre></div>`;
   };
 
   const autoLinkExtension = {
@@ -231,8 +265,31 @@ const configureMarkdown = () => {
 const sanitize = (html) => {
   const cleaned = DOMPurify.sanitize(String(html || ""), {
     ALLOW_DATA_ATTR: true,
-    ADD_ATTR: ["target", "rel", "class", "data-auto-link", "data-mention"],
+    ADD_ATTR: [
+      "target",
+      "rel",
+      "class",
+      "role",
+      "tabindex",
+      "aria-label",
+      "aria-hidden",
+      "viewBox",
+      "fill",
+      "stroke",
+      "stroke-width",
+      "stroke-linecap",
+      "stroke-linejoin",
+      "width",
+      "height",
+      "xmlns",
+      "data-auto-link",
+      "data-mention",
+      "data-copyable",
+      "data-state",
+    ],
     ADD_TAGS: [
+      "button",
+      "div",
       "em",
       "strong",
       "code",
@@ -248,6 +305,13 @@ const sanitize = (html) => {
       "h5",
       "h6",
       "span",
+      "svg",
+      "path",
+      "rect",
+      "line",
+      "polyline",
+      "polygon",
+      "circle",
     ],
     RETURN_TRUSTED_TYPE: false,
   });
@@ -266,6 +330,9 @@ const fallbackBlockHtml = (raw) =>
   escapeHtml(raw).replace(/\n/g, "<br />");
 
 const fallbackInlineHtml = (raw) => escapeHtml(raw);
+
+const isObjectStringFailure = (value) =>
+  String(value || "").trim() === "[object Object]";
 
 const loadHighlighter = () => {
   if (hljsModule) return Promise.resolve(hljsModule);
@@ -319,16 +386,24 @@ export const renderMarkdownBlock = (text) => {
   if (!raw) return "";
   const cached = readFromCache(blockCache, raw);
   if (cached !== null) return cached;
-  if (!shouldUseMarkdownParser(raw)) {
+  const normalizedRaw = normalizeFenceIndentation(raw);
+  const hasFencedCode = containsFencedCode(normalizedRaw);
+  if (containsHtmlLikeTag(normalizedRaw) && !hasFencedCode) {
     return writeToCache(blockCache, raw, fallbackBlockHtml(raw));
   }
+  const safeRaw = hasFencedCode
+    ? normalizedRaw
+    : escapeMarkdownHtmlTags(normalizedRaw);
+  if (!hasFencedCode && !shouldUseMarkdownParser(safeRaw)) {
+    return writeToCache(blockCache, raw, fallbackBlockHtml(safeRaw));
+  }
   configureMarkdown();
-  const parsed = marked.parse(raw);
+  const parsed = marked.parse(safeRaw);
   const parsedHtml = typeof parsed === "string" ? parsed : String(parsed || "");
   const limited = limitHtmlNesting(parsedHtml);
   const cleaned = cleanupMarkdownHtml(sanitize(limited));
-  if (cleaned.includes("[object Object]")) {
-    return writeToCache(blockCache, raw, fallbackBlockHtml(raw));
+  if (isObjectStringFailure(parsedHtml) || isObjectStringFailure(cleaned)) {
+    return writeToCache(blockCache, raw, fallbackBlockHtml(safeRaw));
   }
   return writeToCache(blockCache, raw, cleaned);
 };
@@ -338,20 +413,28 @@ export const renderMarkdownInline = (text) => {
   if (!raw) return "";
   const cached = readFromCache(inlineCache, raw);
   if (cached !== null) return cached;
-  if (!shouldUseMarkdownParser(raw)) {
+  if (containsHtmlLikeTag(raw)) {
     return writeToCache(
       inlineCache,
       raw,
       fallbackInlineHtml(raw).replace(/\n/g, "<br />"),
     );
   }
+  const safeRaw = escapeMarkdownHtmlTags(raw);
+  if (!shouldUseMarkdownParser(safeRaw)) {
+    return writeToCache(
+      inlineCache,
+      raw,
+      fallbackInlineHtml(safeRaw).replace(/\n/g, "<br />"),
+    );
+  }
   configureMarkdown();
-  const parsed = marked.parseInline(raw);
+  const parsed = marked.parseInline(safeRaw);
   const parsedHtml = typeof parsed === "string" ? parsed : String(parsed || "");
   const limited = limitHtmlNesting(parsedHtml);
   const cleaned = cleanupMarkdownHtml(sanitize(limited));
-  if (cleaned.includes("[object Object]")) {
-    return writeToCache(inlineCache, raw, fallbackInlineHtml(raw));
+  if (isObjectStringFailure(parsedHtml) || isObjectStringFailure(cleaned)) {
+    return writeToCache(inlineCache, raw, fallbackInlineHtml(safeRaw));
   }
   return writeToCache(inlineCache, raw, cleaned);
 };
@@ -361,6 +444,10 @@ export const renderMarkdownInlinePlain = (text) => {
   if (!raw) return "";
   const cached = readFromCache(inlinePlainCache, raw);
   if (cached !== null) return cached;
+  if (containsHtmlLikeTag(raw)) {
+    const plain = escapeHtml(raw).replace(/\r?\n+/g, " ").replace(/\s+/g, " ").trim();
+    return writeToCache(inlinePlainCache, raw, plain);
+  }
   if (!shouldUseMarkdownParser(raw)) {
     const simple = escapeHtml(raw).replace(/\r?\n+/g, " ").replace(/\s+/g, " ").trim();
     return writeToCache(inlinePlainCache, raw, simple);

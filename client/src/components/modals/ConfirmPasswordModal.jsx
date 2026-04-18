@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { Close, Eye, EyeOff } from "../../icons/lucide.js";
 
 export default function ConfirmPasswordModal({
@@ -33,9 +34,10 @@ export default function ConfirmPasswordModal({
   );
 
   if (!open) return null;
+  if (typeof document === "undefined") return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6">
+  return createPortal(
+    <div className="fixed inset-0 z-[320] flex items-center justify-center bg-black/40 px-6">
       <div className="w-full max-w-sm rounded-2xl border border-rose-100/70 bg-white p-6 shadow-xl dark:border-rose-500/30 dark:bg-slate-950">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-rose-600 dark:text-rose-300">
@@ -145,6 +147,7 @@ export default function ConfirmPasswordModal({
           </div>
         ) : null}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

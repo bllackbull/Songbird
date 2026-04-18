@@ -1,5 +1,5 @@
 import { Settings } from "../../../icons/lucide.js";
-import { getAvatarStyle } from "../../../utils/avatarColor.js";
+import Avatar from "../../common/Avatar.jsx";
 import { hasPersian } from "../../../utils/fontUtils.js";
 
 export default function SidebarFooter({
@@ -21,22 +21,14 @@ export default function SidebarFooter({
           onClick={onOpenOwnProfile}
           className="group flex items-center gap-3 text-left"
         >
-          {user.avatarUrl ? (
-            <img
-              src={user.avatarUrl}
-              alt={displayName}
-              className="h-10 w-10 rounded-full object-cover transition group-hover:ring-2 group-hover:ring-emerald-300"
-            />
-          ) : (
-            <div
-              className={`flex h-10 w-10 items-center justify-center rounded-full transition group-hover:ring-2 group-hover:ring-emerald-300 ${
-                hasPersian(displayInitials) ? "font-fa" : ""
-              }`}
-              style={getAvatarStyle(userColor)}
-            >
-              {displayInitials}
-            </div>
-          )}
+          <Avatar
+            src={user.avatarUrl}
+            alt={displayName}
+            name={displayName}
+            color={userColor}
+            initials={displayInitials}
+            className="h-10 w-10 transition group-hover:ring-2 group-hover:ring-emerald-300"
+          />
           <div className="min-w-0">
             <p
               className={`truncate text-sm font-semibold text-emerald-700 transition group-hover:text-emerald-600 dark:text-emerald-200 dark:group-hover:text-emerald-300 ${hasPersian(displayName) ? "font-fa" : ""}`}

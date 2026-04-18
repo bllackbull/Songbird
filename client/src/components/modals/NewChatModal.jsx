@@ -1,7 +1,7 @@
 import { Close } from "../../icons/lucide.js";
-import { getAvatarStyle } from "../../utils/avatarColor.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
+import Avatar from "../common/Avatar.jsx";
 
 export default function NewChatModal({
   open,
@@ -91,20 +91,14 @@ export default function NewChatModal({
                         : "border-emerald-100/70 bg-white/80 text-slate-700 hover:border-emerald-300 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900/50"
                     }`}
                   >
-                    {result.avatar_url ? (
-                      <img
-                        src={result.avatar_url}
-                        alt={result.nickname || result.username}
-                        className="h-8 w-8 rounded-full object-cover"
-                      />
-                    ) : (
-                      <div
-                        className={`flex h-8 w-8 items-center justify-center rounded-full ${hasPersian(avatarInitials) ? "font-fa" : ""}`}
-                        style={getAvatarStyle(result.color || "#10b981")}
-                      >
-                        {avatarInitials}
-                      </div>
-                    )}
+                    <Avatar
+                      src={result.avatar_url}
+                      alt={result.nickname || result.username}
+                      name={label}
+                      color={result.color || "#10b981"}
+                      initials={avatarInitials}
+                      className="h-8 w-8"
+                    />
                     <div className="min-w-0">
                       <p
                         className={`truncate font-semibold ${hasPersian(label) ? "font-fa" : ""}`}

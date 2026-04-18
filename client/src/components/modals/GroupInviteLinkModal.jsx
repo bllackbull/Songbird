@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Copy, Users } from "../../icons/lucide.js";
+import { copyTextToClipboard } from "../../utils/clipboard.js";
 
 export default function GroupInviteLinkModal({ open, inviteLink, onClose }) {
   const [copied, setCopied] = useState(false);
@@ -25,23 +26,7 @@ export default function GroupInviteLinkModal({ open, inviteLink, onClose }) {
               const value = String(inviteLink || "");
               if (!value) return;
               try {
-                if (
-                  typeof navigator !== "undefined" &&
-                  navigator.clipboard &&
-                  window.isSecureContext
-                ) {
-                  await navigator.clipboard.writeText(value);
-                } else {
-                  const el = document.createElement("textarea");
-                  el.value = value;
-                  el.setAttribute("readonly", "");
-                  el.style.position = "absolute";
-                  el.style.left = "-9999px";
-                  document.body.appendChild(el);
-                  el.select();
-                  document.execCommand("copy");
-                  document.body.removeChild(el);
-                }
+                await copyTextToClipboard(value);
                 setCopied(true);
                 window.setTimeout(() => setCopied(false), 1400);
               } catch {

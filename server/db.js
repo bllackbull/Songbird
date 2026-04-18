@@ -91,6 +91,10 @@ function decryptMessageRow(row) {
 
   const next = { ...row };
 
+  if (typeof next.edited_body === "string") {
+    next.edited_body = storageEncryption.decryptText(next.edited_body);
+  }
+
   if (typeof next.body === "string") {
     next.body = storageEncryption.decryptText(next.body);
   }
@@ -104,6 +108,16 @@ function decryptMessageRow(row) {
   }
 
   return next;
+}
+
+function getVisibleMessageFilterSql(alias = "chat_messages", viewerClause = "") {
+  const safeAlias = alias || "chat_messages";
+  return `${safeAlias}.hidden_everyone_at IS NULL
+    AND ${safeAlias}.id NOT IN (
+      SELECT hidden_chat_messages.message_id
+      FROM hidden_chat_messages
+      ${viewerClause}
+    )`;
 }
 
 function tableExists(name) {
@@ -582,6 +596,11 @@ export function deleteChatById(chatId) {
       [targetChatId],
     );
     runWithoutSave(
+      `DELETE FROM hidden_chat_messages
+       WHERE message_id IN (SELECT id FROM chat_messages WHERE chat_id = ?)`,
+      [targetChatId],
+    );
+    runWithoutSave(
       `DELETE FROM chat_message_files
        WHERE message_id IN (SELECT id FROM chat_messages WHERE chat_id = ?)`,
       [targetChatId],
@@ -708,6 +727,9 @@ export function deleteUserById(userId) {
 
     runWithoutSave("DELETE FROM sessions WHERE user_id = ?", [targetUserId]);
     runWithoutSave("DELETE FROM hidden_chats WHERE user_id = ?", [targetUserId]);
+    runWithoutSave("DELETE FROM hidden_chat_messages WHERE user_id = ?", [
+      targetUserId,
+    ]);
     runWithoutSave("DELETE FROM chat_message_reads WHERE user_id = ?", [targetUserId]);
     runWithoutSave("DELETE FROM push_subscriptions WHERE user_id = ?", [targetUserId]);
     runWithoutSave(
@@ -736,25 +758,44 @@ export function deleteUserById(userId) {
 }
 
 export function listChatsForUser(userId) {
+  const visibleChatMessagesWhere = `
+    chat_messages.chat_id = c.id
+    AND chat_messages.body NOT LIKE '[[system:%]]'
+    AND ${getVisibleMessageFilterSql("chat_messages", "WHERE hidden_chat_messages.user_id = ?")}
+  `;
+
   return getAll(
     `
     SELECT c.id, c.name, c.type, c.group_username, c.group_visibility, c.invite_token, c.group_color, c.allow_member_invites, c.group_avatar_url, c.created_by_user_id,
       COALESCE(mu.muted, 0) AS muted,
-      (SELECT id FROM chat_messages WHERE chat_id = c.id AND body NOT LIKE '[[system:%]]' ORDER BY id DESC LIMIT 1) AS last_message_id,
-      (SELECT body FROM chat_messages WHERE chat_id = c.id AND body NOT LIKE '[[system:%]]' ORDER BY id DESC LIMIT 1) AS last_message,
-      (SELECT created_at FROM chat_messages WHERE chat_id = c.id AND body NOT LIKE '[[system:%]]' ORDER BY id DESC LIMIT 1) AS last_time,
-      (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) AS message_count,
-      (SELECT user_id FROM chat_messages WHERE chat_id = c.id AND body NOT LIKE '[[system:%]]' ORDER BY id DESC LIMIT 1) AS last_sender_id,
-      (SELECT COALESCE(users.username, 'deleted') FROM chat_messages LEFT JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id AND chat_messages.body NOT LIKE '[[system:%]]' ORDER BY chat_messages.id DESC LIMIT 1) AS last_sender_username,
-      (SELECT COALESCE(users.nickname, 'Deleted user') FROM chat_messages LEFT JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id AND chat_messages.body NOT LIKE '[[system:%]]' ORDER BY chat_messages.id DESC LIMIT 1) AS last_sender_nickname,
-      (SELECT users.avatar_url FROM chat_messages LEFT JOIN users ON users.id = chat_messages.user_id WHERE chat_messages.chat_id = c.id AND chat_messages.body NOT LIKE '[[system:%]]' ORDER BY chat_messages.id DESC LIMIT 1) AS last_sender_avatar_url,
-      (SELECT read_at FROM chat_messages WHERE chat_id = c.id AND body NOT LIKE '[[system:%]]' ORDER BY id DESC LIMIT 1) AS last_message_read_at,
-      (SELECT read_by_user_id FROM chat_messages WHERE chat_id = c.id AND body NOT LIKE '[[system:%]]' ORDER BY id DESC LIMIT 1) AS last_message_read_by_user_id,
+      (SELECT id FROM chat_messages WHERE ${visibleChatMessagesWhere} ORDER BY id DESC LIMIT 1) AS last_message_id,
+      (SELECT COALESCE(chat_messages.edited_body, chat_messages.body) FROM chat_messages WHERE ${visibleChatMessagesWhere} ORDER BY id DESC LIMIT 1) AS last_message,
+      (SELECT created_at FROM chat_messages WHERE ${visibleChatMessagesWhere} ORDER BY id DESC LIMIT 1) AS last_time,
+      (SELECT COUNT(*) FROM chat_messages WHERE ${visibleChatMessagesWhere}) AS message_count,
+      (SELECT user_id FROM chat_messages WHERE ${visibleChatMessagesWhere} ORDER BY id DESC LIMIT 1) AS last_sender_id,
+      (SELECT COALESCE(users.username, 'deleted') FROM chat_messages LEFT JOIN users ON users.id = chat_messages.user_id WHERE ${visibleChatMessagesWhere} ORDER BY chat_messages.id DESC LIMIT 1) AS last_sender_username,
+      (SELECT COALESCE(users.nickname, 'Deleted user') FROM chat_messages LEFT JOIN users ON users.id = chat_messages.user_id WHERE ${visibleChatMessagesWhere} ORDER BY chat_messages.id DESC LIMIT 1) AS last_sender_nickname,
+      (SELECT users.avatar_url FROM chat_messages LEFT JOIN users ON users.id = chat_messages.user_id WHERE ${visibleChatMessagesWhere} ORDER BY chat_messages.id DESC LIMIT 1) AS last_sender_avatar_url,
+      (SELECT read_at FROM chat_messages WHERE ${visibleChatMessagesWhere} ORDER BY id DESC LIMIT 1) AS last_message_read_at,
+      (SELECT read_by_user_id FROM chat_messages WHERE ${visibleChatMessagesWhere} ORDER BY id DESC LIMIT 1) AS last_message_read_by_user_id,
+      (SELECT created_at
+         FROM chat_messages
+         WHERE chat_messages.chat_id = c.id
+           AND chat_messages.user_id = ?
+           AND ${getVisibleMessageFilterSql("chat_messages", "WHERE hidden_chat_messages.user_id = ?")}
+         ORDER BY chat_messages.id DESC
+         LIMIT 1) AS last_outgoing_time,
       (SELECT COUNT(*)
          FROM chat_messages cm
          WHERE cm.chat_id = c.id
            AND cm.body NOT LIKE '[[system:%]]'
+           AND cm.hidden_everyone_at IS NULL
            AND cm.user_id != ?
+           AND cm.id NOT IN (
+             SELECT hidden_chat_messages.message_id
+             FROM hidden_chat_messages
+             WHERE hidden_chat_messages.user_id = ?
+           )
            AND cm.id NOT IN (
              SELECT message_id FROM chat_message_reads WHERE user_id = ?
            )) AS unread_count
@@ -766,15 +807,40 @@ export function listChatsForUser(userId) {
       AND h.chat_id IS NULL
     ORDER BY last_message_id DESC, c.created_at DESC
   `,
-    [userId, userId, userId],
+    [
+      userId,
+      userId,
+      userId,
+      userId,
+      userId,
+      userId,
+      userId,
+      userId,
+      userId,
+      userId,
+      userId,
+      userId,
+      userId,
+      userId,
+      userId,
+      userId,
+    ],
   ).map(decryptMessageRow);
 }
 
-export function createMessage(chatId, userId, body, replyToMessageId = null) {
+export function createMessage(
+  chatId,
+  userId,
+  body,
+  replyToMessageId = null,
+  expiresAt = null,
+) {
   const storedBody = storageEncryption.encryptText(body);
   run(
-    "INSERT INTO chat_messages (chat_id, user_id, body, reply_to_message_id) VALUES (?, ?, ?, ?)",
-    [chatId, userId, storedBody, replyToMessageId || null],
+    `INSERT INTO chat_messages (
+      chat_id, user_id, body, reply_to_message_id, expires_at
+    ) VALUES (?, ?, ?, ?, ?)`,
+    [chatId, userId, storedBody, replyToMessageId || null, expiresAt || null],
   );
 
   const id = getLastInsertId();
@@ -838,9 +904,71 @@ export function ensureSavedChatForUser(userId) {
 export function findMessageById(messageId) {
   return decryptMessageRow(
     getRow(
-    "SELECT id, chat_id, user_id, body, created_at FROM chat_messages WHERE id = ?",
-    [messageId],
+      `SELECT id, chat_id, user_id, body, edited, edited_body, hidden_everyone_at,
+              forwarded_from_chat_id, forwarded_from_label, forwarded_from_user_id,
+              forwarded_from_username, forwarded_from_avatar_url, forwarded_from_color,
+              created_at, expires_at
+       FROM chat_messages
+       WHERE id = ?`,
+      [messageId],
     ),
+  );
+}
+
+export function setMessageExpiresAt(messageId, expiresAt = null) {
+  run("UPDATE chat_messages SET expires_at = ? WHERE id = ?", [
+    expiresAt || null,
+    Number(messageId),
+  ]);
+}
+
+export function editMessage(messageId, editedBody) {
+  run(
+    `UPDATE chat_messages
+     SET edited = 1,
+         edited_body = ?
+     WHERE id = ?`,
+    [storageEncryption.encryptText(String(editedBody || "")), Number(messageId)],
+  );
+}
+
+export function hideMessageForUser(messageId, userId) {
+  run(
+    `INSERT INTO hidden_chat_messages (message_id, user_id, hidden_at)
+     VALUES (?, ?, datetime('now'))
+     ON CONFLICT(user_id, message_id) DO UPDATE SET hidden_at = datetime('now')`,
+    [Number(messageId), Number(userId)],
+  );
+}
+
+export function hideMessageForEveryone(messageId) {
+  run(
+    `UPDATE chat_messages
+     SET hidden_everyone_at = datetime('now')
+     WHERE id = ?`,
+    [Number(messageId)],
+  );
+}
+
+export function setMessageForwardOrigin(messageId, payload = {}) {
+  run(
+    `UPDATE chat_messages
+     SET forwarded_from_chat_id = ?,
+         forwarded_from_label = ?,
+         forwarded_from_user_id = ?,
+         forwarded_from_username = ?,
+         forwarded_from_avatar_url = ?,
+         forwarded_from_color = ?
+     WHERE id = ?`,
+    [
+      Number(payload.sourceChatId) || null,
+      String(payload.label || "").trim() || null,
+      Number(payload.sourceUserId) || null,
+      String(payload.sourceUsername || "").trim() || null,
+      String(payload.sourceAvatarUrl || "").trim() || null,
+      String(payload.sourceColor || "").trim() || null,
+      Number(messageId),
+    ],
   );
 }
 
@@ -877,12 +1005,23 @@ export function getMessages(chatId, options = {}) {
     : 50;
   const beforeIdRaw = Number(options.beforeId || 0);
   const beforeCreatedAtRaw = String(options.beforeCreatedAt || "").trim();
+  const viewerUserIdRaw = Number(options.viewerUserId || 0);
+  const hasViewerUserId = Number.isFinite(viewerUserIdRaw) && viewerUserIdRaw > 0;
   const hasBeforeId = Number.isFinite(beforeIdRaw) && beforeIdRaw > 0;
   const hasBeforeCreatedAt = Boolean(beforeCreatedAtRaw);
   const hasBefore = hasBeforeId && hasBeforeCreatedAt;
 
-  const whereSql = hasBefore
-    ? `WHERE chat_messages.chat_id = ?
+  const visibilitySql = hasViewerUserId
+    ? `
+       AND ${getVisibleMessageFilterSql(
+         "chat_messages",
+         "WHERE hidden_chat_messages.user_id = ?",
+       )}`
+    : `
+       AND chat_messages.hidden_everyone_at IS NULL`;
+
+  const beforeSql = hasBefore
+    ? `
        AND (
          julianday(chat_messages.created_at) < julianday(?)
          OR (
@@ -890,22 +1029,42 @@ export function getMessages(chatId, options = {}) {
            AND chat_messages.id < ?
          )
        )`
-    : "WHERE chat_messages.chat_id = ?";
+    : "";
 
-  const params = hasBefore
-    ? [chatId, beforeCreatedAtRaw, beforeCreatedAtRaw, beforeIdRaw, limit + 1]
-    : [chatId, limit + 1];
+  const whereSql = `WHERE chat_messages.chat_id = ?${visibilitySql}${beforeSql}`;
+
+  const params = [chatId];
+  if (hasViewerUserId) {
+    params.push(viewerUserIdRaw);
+  }
+  if (hasBefore) {
+    params.push(beforeCreatedAtRaw, beforeCreatedAtRaw, beforeIdRaw);
+  }
+  params.push(limit + 1);
 
   const rowsDesc = getAll(
     `
-    SELECT chat_messages.id, chat_messages.body, chat_messages.created_at, chat_messages.read_at, chat_messages.read_by_user_id,
+    SELECT chat_messages.id,
+      COALESCE(chat_messages.edited_body, chat_messages.body) AS body,
+      chat_messages.edited,
+      chat_messages.edited_body,
+      chat_messages.forwarded_from_chat_id,
+      chat_messages.forwarded_from_label,
+      chat_messages.forwarded_from_user_id,
+      chat_messages.forwarded_from_username,
+      chat_messages.forwarded_from_avatar_url,
+      chat_messages.forwarded_from_color,
+      chat_messages.created_at,
+      chat_messages.expires_at,
+      chat_messages.read_at,
+      chat_messages.read_by_user_id,
       chat_messages.reply_to_message_id,
       users.id AS user_id,
       COALESCE(users.username, 'deleted') AS username,
       COALESCE(users.nickname, 'Deleted user') AS nickname,
       users.avatar_url, users.color,
       reply.id AS reply_id,
-      reply.body AS reply_body,
+      COALESCE(reply.edited_body, reply.body) AS reply_body,
       reply.created_at AS reply_created_at,
       reply.user_id AS reply_user_id,
       COALESCE(reply_user.username, 'deleted') AS reply_username,
@@ -926,8 +1085,19 @@ export function getMessages(chatId, options = {}) {
   const rows = rowsDesc.slice(0, limit).reverse();
 
   const totalRow = getRow(
-    "SELECT COUNT(*) AS total FROM chat_messages WHERE chat_id = ?",
-    [chatId],
+    hasViewerUserId
+      ? `SELECT COUNT(*) AS total
+         FROM chat_messages
+         WHERE chat_id = ?
+           AND ${getVisibleMessageFilterSql(
+             "chat_messages",
+             "WHERE hidden_chat_messages.user_id = ?",
+           )}`
+      : `SELECT COUNT(*) AS total
+         FROM chat_messages
+         WHERE chat_id = ?
+           AND chat_messages.hidden_everyone_at IS NULL`,
+    hasViewerUserId ? [chatId, viewerUserIdRaw] : [chatId],
   );
 
   const totalCount = Number(totalRow?.total || 0);

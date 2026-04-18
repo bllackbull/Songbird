@@ -218,6 +218,13 @@ export const joinPublicGroup = (chatId, payload) =>
     body: JSON.stringify(payload),
   });
 
+export const getChatPreview = ({ chatId, username }) =>
+  apiFetch(
+    `${API_BASE}/api/chats/${encodeURIComponent(chatId)}/preview?username=${encodeURIComponent(
+      username,
+    )}`,
+  );
+
 export const uploadGroupAvatar = (chatId, payload) =>
   apiFetch(`${API_BASE}/api/chats/group/${encodeURIComponent(chatId)}/avatar`, {
     method: "POST",
@@ -257,6 +264,27 @@ export const listMessagesByQuery = (params = {}, options = {}) => {
 
 export const sendMessage = (payload) =>
   apiFetch(`${API_BASE}/api/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+export const editMessage = (payload) =>
+  apiFetch(`${API_BASE}/api/messages/edit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+export const deleteMessage = (payload) =>
+  apiFetch(`${API_BASE}/api/messages/delete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+export const forwardMessage = (payload) =>
+  apiFetch(`${API_BASE}/api/messages/forward`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

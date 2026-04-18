@@ -3,6 +3,7 @@ export function createUploadTools({
   path,
   crypto,
   multer,
+  adminGetRow,
   adminRun,
   adminSave,
   uploadRootDir,
@@ -200,6 +201,11 @@ export function createUploadTools({
       try {
         const fileName = path.basename(String(storedName || "").trim());
         if (!fileName) return;
+        const stillReferenced = adminGetRow(
+          "SELECT 1 AS found FROM chat_message_files WHERE stored_name = ? LIMIT 1",
+          [fileName],
+        );
+        if (stillReferenced?.found) return;
 
         const filePath = path.join(uploadRootDir, fileName);
 

@@ -38,6 +38,7 @@ Notes:
   - Destructive/safety-sensitive commands support -y and --yes.
   - db:user:ban is a toggle: run it again to unban the user.
   - db:backup creates an encrypted zip containing .env and data/.
+  - db:restore also accepts legacy backups with songbird.db and uploads/ at the zip root.
 `;
 
 console.log(helpText.trim());

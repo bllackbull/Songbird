@@ -91,6 +91,7 @@ export function useChatEvents({
           payload.type !== "chat_message" &&
           payload.type !== "chat_read" &&
           payload.type !== "chat_message_deleted" &&
+          payload.type !== "chat_message_updated" &&
           payload.type !== "chat_list_changed" &&
           payload.type !== "presence_update" &&
           payload.type !== "chat_typing"
@@ -118,6 +119,7 @@ export function useChatEvents({
         const isIncomingMessage =
           payload.type === "chat_message" && !isOwnEvent;
         const isDeleteEvent = payload.type === "chat_message_deleted";
+        const isUpdateEvent = payload.type === "chat_message_updated";
         if (isDeleteEvent) {
           onMessageDeletedRef.current?.(payload);
         }
@@ -176,7 +178,10 @@ export function useChatEvents({
             });
             return;
           }
-          scheduleMessageRefreshRef.current?.(currentActiveId);
+          scheduleMessageRefreshRef.current?.(currentActiveId, {
+            preserveHistory: true,
+            pruneMissing: isUpdateEvent,
+          });
         }
       };
 

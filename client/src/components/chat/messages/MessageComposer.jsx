@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
+  Check,
+  Pencil,
   File,
   ImageIcon,
   Mic,
@@ -20,6 +22,8 @@ export function MessageComposer({
   onComposerResize,
   replyTarget,
   onClearReply,
+  editTarget,
+  onClearEdit,
   pendingUploadFiles,
   pendingUploadType,
   pendingVoiceMessage,
@@ -48,6 +52,8 @@ export function MessageComposer({
   const fallbackInputRef = useRef(null);
   const messageInputRef = composerInputRef || fallbackInputRef;
   const keepFocusRef = useRef(false);
+  const previousEditIdRef = useRef(0);
+  const appliedEditIdRef = useRef(0);
   const [isRtl, setIsRtl] = useState(false);
   const [messageValue, setMessageValue] = useState("");
   const [isRecording, setIsRecording] = useState(false);
@@ -94,6 +100,12 @@ export function MessageComposer({
     return "";
   };
   const replyBodyText = normalizeReplyBody(replyTarget?.body);
+  const editBodyText = normalizeReplyBody(editTarget?.body);
+  const editHasFiles = Array.isArray(editTarget?.files) && editTarget.files.length > 0;
+  const editBodyLooksLikeFileSummary =
+    /^Sent (a media file|a photo|a video|a document|a voice message|\d+ (files|photos|videos|documents|media files|voice messages))$/i.test(
+      String(editBodyText || "").trim(),
+    );
   const replyBodyNormalized = String(replyBodyText || "").trim();
   const isPluralMediaSummary =
     /^Sent \d+ (files|photos|videos|documents|media files)$/i.test(
@@ -137,9 +149,13 @@ export function MessageComposer({
   const hasText = Boolean(String(messageValue || "").trim());
   const hasPendingUploads = Boolean(pendingUploadFiles?.length);
   const hasPendingVoice = Boolean(pendingVoiceMessage);
+  const isEditMode = Boolean(editTarget);
   const micMode =
-    !hasText && !hasPendingUploads && !hasPendingVoice && !isRecording;
-  const micDisabled = uploadBusy || !fileUploadEnabled;
+    !isEditMode && !hasText && !hasPendingUploads && !hasPendingVoice && !isRecording;
+  const micDisabled = uploadBusy || !fileUploadEnabled || isEditMode;
+  const canSubmitMessage = isEditMode
+    ? hasText
+    : hasText || hasPendingUploads || hasPendingVoice;
 
   const resizeTextarea = useCallback(() => {
     const el = messageInputRef.current;
@@ -165,7 +181,41 @@ export function MessageComposer({
 
   useEffect(() => {
     resizeTextarea();
-  }, [replyTarget, resizeTextarea]);
+  }, [replyTarget, editTarget, resizeTextarea]);
+
+  useEffect(() => {
+    const nextEditId = Number(editTarget?.id || 0);
+    if (!nextEditId) return;
+    if (appliedEditIdRef.current === nextEditId) return;
+    appliedEditIdRef.current = nextEditId;
+    previousEditIdRef.current = nextEditId;
+    const nextValue =
+      editHasFiles && editBodyLooksLikeFileSummary ? "" : String(editBodyText || "");
+    setMessageValue(nextValue);
+    setIsRtl(hasPersian(nextValue));
+    if (typeof onMessageInput === "function") {
+      onMessageInput(nextValue);
+    }
+    requestAnimationFrame(() => {
+      resizeTextarea();
+      messageInputRef.current?.focus?.();
+    });
+  }, [editBodyText, editTarget?.id, messageInputRef, onMessageInput, resizeTextarea]);
+
+  useEffect(() => {
+    if (editTarget) return;
+    if (!previousEditIdRef.current) return;
+    previousEditIdRef.current = 0;
+    appliedEditIdRef.current = 0;
+    setMessageValue("");
+    setIsRtl(false);
+    if (typeof onMessageInput === "function") {
+      onMessageInput("");
+    }
+    requestAnimationFrame(() => {
+      resizeTextarea();
+    });
+  }, [editTarget, onMessageInput, resizeTextarea]);
 
   useEffect(() => {
     return () => {
@@ -441,10 +491,16 @@ export function MessageComposer({
           : "max(0.75rem, calc(env(safe-area-inset-bottom) + 0.5rem))",
       }}
       onSubmit={(event) => {
+        if (!canSubmitMessage) {
+          event.preventDefault();
+          return;
+        }
         handleSend(event);
         requestAnimationFrame(() => {
-          setIsRtl(false);
-          setMessageValue("");
+          if (!editTarget) {
+            setIsRtl(false);
+            setMessageValue("");
+          }
           resizeTextarea();
           if (!isDesktop) {
             messageInputRef.current?.focus();
@@ -462,7 +518,55 @@ export function MessageComposer({
         event.currentTarget?.requestSubmit?.();
       }}
     >
-      {replyTarget ? (
+      {editTarget ? (
+        <div className="rounded-2xl border border-emerald-200/80 bg-emerald-50/70 p-2 dark:border-emerald-500/30 dark:bg-slate-950/70">
+          <div className="flex items-start gap-3 px-1">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200">
+              <Pencil size={20} className="icon-anim-sway" />
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col">
+              <span
+                className={`truncate text-[11px] font-semibold text-emerald-700 dark:text-emerald-200 ${
+                  hasPersian(
+                    "Edit Message",
+                  )
+                    ? "font-fa"
+                    : ""
+                }`}
+                dir="auto"
+                style={{ unicodeBidi: "isolate" }}
+                title="Edit Message"
+              >
+                Edit Message
+              </span>
+              <span
+                className={`mt-1 min-w-0 truncate text-xs text-slate-600 dark:text-slate-300 ${
+                  hasPersian(editBodyText) ? "font-fa" : ""
+                }`}
+                dir="auto"
+                style={{ unicodeBidi: "isolate" }}
+              >
+                {editBodyText || "Message"}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                onClearEdit?.();
+                restoreComposerFocus();
+              }}
+              onPointerDown={(event) => {
+                captureComposerFocus();
+                if (!isDesktop) event.preventDefault();
+              }}
+              className="inline-flex h-9 w-9 items-center justify-center self-center rounded-full border border-rose-200 text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 hover:shadow-[0_0_16px_rgba(244,63,94,0.2)] dark:border-rose-500/30 dark:text-rose-200 dark:hover:bg-rose-500/10"
+              aria-label="Cancel edit"
+            >
+              <Close size={20} className="icon-anim-pop" />
+            </button>
+          </div>
+        </div>
+      ) : replyTarget ? (
         <div className="rounded-2xl border border-emerald-200/80 bg-emerald-50/70 p-2 dark:border-emerald-500/30 dark:bg-slate-950/70">
           <div className="flex items-start gap-3 px-1">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200">
@@ -808,6 +912,7 @@ export function MessageComposer({
               name="message"
               rows={1}
               placeholder="Type a message"
+              value={messageValue}
               maxLength={
                 Number.isFinite(Number(messageMaxChars))
                   ? messageMaxChars
@@ -834,6 +939,7 @@ export function MessageComposer({
                   event.isComposing
                 )
                   return;
+                if (!canSubmitMessage) return;
                 event.preventDefault();
                 event.currentTarget.form?.requestSubmit();
               }}
@@ -876,13 +982,20 @@ export function MessageComposer({
               event.preventDefault();
             }
           }}
-          disabled={(micMode || isRecording) && micDisabled}
+          disabled={
+            ((micMode || isRecording) && micDisabled) ||
+            (!micMode && !isRecording && !canSubmitMessage)
+          }
           className="inline-flex h-11 items-center justify-center rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-emerald-500/40 disabled:cursor-not-allowed disabled:opacity-70"
         >
           {micMode || isRecording ? (
             <Mic className="icon-anim-pop" />
           ) : (
-            <Send className="icon-anim-slide" />
+            editTarget ? (
+              <Check className="icon-anim-slide" />
+            ) : (
+              <Send className="icon-anim-slide" />
+            )
           )}
         </button>
       </div>

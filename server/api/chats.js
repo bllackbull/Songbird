@@ -474,6 +474,47 @@ function registerChatRoutes(app, deps) {
     });
   });
 
+  app.get("/api/chats/:chatId/preview", (req, res) => {
+    const session = requireSession(req, res);
+    if (!session) return;
+
+    const chatId = Number(req.params?.chatId || 0);
+    const username = String(req.query.username || "").trim();
+    if (!chatId || !username) {
+      return res.status(400).json({ error: "Chat id and username are required." });
+    }
+    if (!requireSessionUsernameMatch(res, session, username)) return;
+
+    const user = findUserByUsername(username.toLowerCase());
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    const chat = findChatById(chatId);
+    if (!chat || !["group", "channel"].includes(String(chat.type || "").toLowerCase())) {
+      return res.status(404).json({ error: "Chat not found." });
+    }
+
+    const isMemberFlag = isMember(chatId, user.id);
+    const visibility = String(chat.group_visibility || "public").trim().toLowerCase();
+    if (!isMemberFlag && visibility !== "public") {
+      return res.status(404).json({ error: "Chat not found." });
+    }
+
+    return res.json({
+      id: Number(chat.id),
+      type: chat.type === "channel" ? "channel" : "group",
+      name: chat.name || (chat.type === "channel" ? "Channel" : "Group"),
+      username: chat.group_username || "",
+      visibility: chat.group_visibility || "public",
+      color: chat.group_color || "#10b981",
+      avatarUrl: normalizeGroupAvatarUrl(chat.group_avatar_url),
+      inviteToken: chat.invite_token || "",
+      membersCount: listChatMembers(chatId).length,
+      isMember: Boolean(isMemberFlag),
+    });
+  });
+
   app.get("/api/chats/group/:chatId/invite-link", (req, res) => {
     const session = requireSession(req, res);
     if (!session) return;

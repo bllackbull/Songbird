@@ -7,6 +7,7 @@ import {
   ClockFading,
   Eye,
   File,
+  Forward,
   Ghost,
   ImageIcon,
   Mic,
@@ -16,12 +17,16 @@ import {
 import { hasPersian } from "../../../utils/fontUtils.js";
 import { getAvatarStyle } from "../../../utils/avatarColor.js";
 import { getAvatarInitials } from "../../../utils/avatarInitials.js";
+import ContextMenuSurface from "../../context-menu/ContextMenuSurface.jsx";
 import { MessageFiles } from "../media/MessageFiles.jsx";
 import {
   renderMarkdownBlock,
   renderMarkdownInlinePlain,
 } from "../../../utils/markdown.js";
+import { copyTextToClipboard } from "../../../utils/clipboard.js";
+import { extractMessageBodyText } from "../../../utils/messageContent.js";
 import { resolveMention } from "../../../utils/mentions.js";
+import Avatar from "../../common/Avatar.jsx";
 
 export const MessageItem = memo(function MessageItem({
   msg,
@@ -40,22 +45,38 @@ export const MessageItem = memo(function MessageItem({
   seenCount = null,
   onOpenSenderProfile,
   onOpenMention,
+  onOpenForwardOrigin,
   mentionRefreshToken = 0,
   onReply,
   onJumpToMessage,
   canSwipeReply = true,
+  onOpenContextMenu,
 }) {
   const isOwn = !isChannelChat && msg.username === user.username;
   const isRead = Boolean(msg.read_at);
-  const extractBodyText = (value) => {
-    if (typeof value === "string") {
-      return value === "[object Object]" ? "" : value;
-    }
-    if (value && typeof value === "object") {
-      return String(value.text || value.body || "");
-    }
-    return String(value ?? "");
-  };
+  const isEdited = Boolean(Number(msg?.edited || 0) || msg?._edited);
+  const forwardedFromChatId = Number(msg?.forwarded_from_chat_id || 0);
+  const forwardedFromUserId = Number(msg?.forwarded_from_user_id || 0);
+  const forwardedFromLabel = String(msg?.forwarded_from_label || "").trim();
+  const isForwarded = Boolean(forwardedFromLabel);
+  const forwardedLabelHasPersian = hasPersian(forwardedFromLabel);
+  const forwardedTarget = forwardedFromChatId
+    ? {
+        kind: "chat",
+        chatId: forwardedFromChatId,
+      }
+    : forwardedFromUserId
+      ? {
+          kind: "user",
+          userId: forwardedFromUserId,
+          username: msg?.forwarded_from_username || "",
+          nickname: forwardedFromLabel,
+          avatar_url: msg?.forwarded_from_avatar_url || "",
+          color: msg?.forwarded_from_color || "#10b981",
+        }
+      : forwardedFromLabel
+        ? { kind: "self" }
+        : null;
   const messageFiles = Array.isArray(msg.files) ? msg.files : [];
   const hasFiles = messageFiles.length > 0;
   const getFileRenderType = messageFilesProps?.getFileRenderType;
@@ -74,8 +95,9 @@ export const MessageItem = memo(function MessageItem({
     hasUploadInProgress ||
     Boolean(msg._processingPending);
   const isFailed = msg._delivery === "failed";
-  const bodyText = extractBodyText(msg?.body);
+  const bodyText = extractMessageBodyText(msg?.body);
   const messageBodyRef = useRef(null);
+  const suppressCodeClickUntilRef = useRef(0);
   const mentionDebugEnabled =
     typeof window !== "undefined" &&
     window.localStorage?.getItem("sb-debug-mentions") === "1";
@@ -153,8 +175,9 @@ export const MessageItem = memo(function MessageItem({
     const mayContainMentionSyntax = /(^|[^a-z0-9._])@[a-z0-9._]{3,}/i.test(
       bodyText,
     );
-    const mayContainCodeBlocks =
-      typeof markdownHtml === "string" && markdownHtml.includes("sb-code-block");
+    const mayContainCopyableCode =
+      typeof markdownHtml === "string" &&
+      (markdownHtml.includes("sb-code-block") || markdownHtml.includes("<code"));
     const markInvalid = (el) => {
       const now = Date.now();
       const lastValid = Number(el.dataset.sbMentionValidAt || 0);
@@ -221,46 +244,97 @@ export const MessageItem = memo(function MessageItem({
         };
       });
     }
-    if (mayContainCodeBlocks) {
-      const enhanceCodeBlocks = () => {
+    if (mayContainCopyableCode) {
+      const resetCodeButtonState = (button, state, label) => {
+        if (!button) return;
+        button.dataset.state = state;
+        button.setAttribute("aria-label", label);
+      };
+      const enhanceCodeElements = () => {
         const blocks = container.querySelectorAll(".sb-code-block");
         blocks.forEach((block) => {
           if (block.dataset.sbEnhanced === "1") return;
           block.dataset.sbEnhanced = "1";
-          const codeEl = block.querySelector("pre.sb-code > code");
-          const button = block.querySelector(".sb-code-copy");
-          if (!codeEl || !button) return;
-          button.addEventListener("click", async () => {
-            try {
-              await navigator.clipboard.writeText(codeEl.textContent || "");
-              button.dataset.state = "copied";
-              button.setAttribute("aria-label", "Copied");
-              window.setTimeout(() => {
-                button.dataset.state = "idle";
-                button.setAttribute("aria-label", "Copy code");
-              }, 1200);
-            } catch {
-              button.dataset.state = "error";
-              button.setAttribute("aria-label", "Copy failed");
-              window.setTimeout(() => {
-                button.dataset.state = "idle";
-                button.setAttribute("aria-label", "Copy code");
-              }, 1200);
-            }
-          });
+        });
+        const inlineCodes = container.querySelectorAll("code");
+        inlineCodes.forEach((codeEl) => {
+          if (codeEl.closest("pre")) return;
+          if (codeEl.dataset.sbEnhanced === "1") return;
+          codeEl.dataset.sbEnhanced = "1";
+          codeEl.tabIndex = 0;
+          codeEl.setAttribute("role", "button");
+          codeEl.setAttribute("aria-label", "Copy inline code");
+          codeEl.classList.add("sb-inline-code-copyable");
+        });
+      };
+      const handleCodeCopy = async ({ codeEl, button }) => {
+        if (!codeEl) return;
+        const copied = await copyTextToClipboard(codeEl.textContent || "");
+        if (!button) return;
+        if (copied) {
+          resetCodeButtonState(button, "copied", "Copied");
+        } else {
+          resetCodeButtonState(button, "error", "Copy failed");
+        }
+        window.setTimeout(() => {
+          resetCodeButtonState(button, "idle", "Copy code");
+        }, 1200);
+      };
+      const handleCodeBlockClick = (event) => {
+        if (Date.now() < suppressCodeClickUntilRef.current) return;
+        const target = event?.target;
+        if (!target || typeof target.closest !== "function") return;
+        const button = target.closest(".sb-code-copy");
+        const inlineCode = target.closest(".sb-inline-code-copyable");
+        if (inlineCode && container.contains(inlineCode)) {
+          event.preventDefault();
+          void handleCodeCopy({ codeEl: inlineCode, button: null });
+          return;
+        }
+        const block = button?.closest(".sb-code-block");
+        if (!button || !block || !container.contains(block)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        void handleCodeCopy({
+          codeEl: block.querySelector("pre.sb-code > code"),
+          button: block.querySelector(".sb-code-copy"),
+        });
+      };
+      const handleCodeBlockKeyDown = (event) => {
+        const target = event?.target;
+        if (!target || typeof target.closest !== "function") return;
+        const inlineCode = target.closest(".sb-inline-code-copyable");
+        if (inlineCode && container.contains(inlineCode)) {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          void handleCodeCopy({ codeEl: inlineCode, button: null });
+          return;
+        }
+        const button = target.closest(".sb-code-copy");
+        const block = button?.closest(".sb-code-block");
+        if (!button || !block || !container.contains(block)) return;
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        void handleCodeCopy({
+          codeEl: block.querySelector("pre.sb-code > code"),
+          button,
         });
       };
       let idleId = null;
       let timerId = null;
       if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
-        idleId = window.requestIdleCallback(enhanceCodeBlocks, { timeout: 600 });
+        idleId = window.requestIdleCallback(enhanceCodeElements, { timeout: 600 });
       } else {
-        timerId = window.setTimeout(enhanceCodeBlocks, 40);
+        timerId = window.setTimeout(enhanceCodeElements, 40);
       }
+      container.addEventListener("click", handleCodeBlockClick);
+      container.addEventListener("keydown", handleCodeBlockKeyDown);
       return () => {
         if (mayContainMentionSyntax) {
           container.removeEventListener("click", handleMentionClick);
         }
+        container.removeEventListener("click", handleCodeBlockClick);
+        container.removeEventListener("keydown", handleCodeBlockKeyDown);
         if (
           idleId !== null &&
           typeof window !== "undefined" &&
@@ -284,6 +358,7 @@ export const MessageItem = memo(function MessageItem({
     user.username,
     mentionDebugEnabled,
     bodyText,
+    onOpenForwardOrigin,
   ]);
 
   const formatSeenCount = (value) => {
@@ -303,11 +378,14 @@ export const MessageItem = memo(function MessageItem({
   };
   const formatExpiryBadge = () => {
     const files = Array.isArray(msg?.files) ? msg.files : [];
-    if (!files.length) return null;
-    const expiryMs = files
+    const expiryCandidates = files
       .map((file) => new Date(file?.expiresAt || "").getTime())
-      .filter((value) => Number.isFinite(value) && value > 0)
-      .sort((a, b) => a - b)[0];
+      .filter((value) => Number.isFinite(value) && value > 0);
+    const messageExpiryMs = new Date(msg?.expiresAt || "").getTime();
+    if (Number.isFinite(messageExpiryMs) && messageExpiryMs > 0) {
+      expiryCandidates.push(messageExpiryMs);
+    }
+    const expiryMs = expiryCandidates.sort((a, b) => a - b)[0];
     if (!expiryMs) return null;
     const diffMs = expiryMs - Date.now();
     if (diffMs <= 0) return null;
@@ -343,14 +421,14 @@ export const MessageItem = memo(function MessageItem({
       ? chatColor || "#10b981"
       : replyTarget?.color || "#10b981";
   const replyPreviewRaw =
-    extractBodyText(replyTarget?.body).trim() || "Message";
+    extractMessageBodyText(replyTarget?.body).trim() || "Message";
   const truncateReplyPreview = (value, maxChars = 90) => {
     const text = String(value || "");
     if (text.length <= maxChars) return text;
     return `${text.slice(0, maxChars).trimEnd()}...`;
   };
   const replyPreview = truncateReplyPreview(replyPreviewRaw);
-  const replyBodyText = extractBodyText(replyTarget?.body).trim();
+  const replyBodyText = extractMessageBodyText(replyTarget?.body).trim();
   const isPluralMediaSummary =
     /^Sent \d+ (files|photos|videos|documents|media files)$/i.test(
       replyBodyText,
@@ -400,12 +478,53 @@ export const MessageItem = memo(function MessageItem({
   const senderColor = isDeletedAuthor ? "#94a3b8" : msg.color || "#10b981";
   const canOpenSenderProfile =
     !isDeletedAuthor && typeof onOpenSenderProfile === "function";
+  const contextMenuMobileEnabled = !isDesktop && isMobileTouchDevice;
+  const senderMenuMember = {
+    id: Number(msg.user_id || 0) || null,
+    username: msg.username || "",
+    nickname: msg.nickname || "",
+    avatar_url: msg.avatar_url || "",
+    color: msg.color || "#10b981",
+    role: "",
+  };
+  const senderContextMenu = {
+    disabled: !canOpenSenderProfile || !onOpenContextMenu,
+    isMobile: contextMenuMobileEnabled,
+    onOpen: ({ event, targetEl, isMobile }) =>
+      onOpenContextMenu?.({
+        kind: "user",
+        event,
+        targetEl,
+        isMobile,
+        data: {
+          member: senderMenuMember,
+          sourceChatType: isGroupChat ? "group" : "dm",
+          onOpenProfile: () => onOpenSenderProfile?.(msg),
+        },
+      }),
+  };
+  const messageContextMenu = {
+    disabled: !onOpenContextMenu,
+    isMobile: contextMenuMobileEnabled,
+    onOpen: ({ event, targetEl, isMobile }) =>
+      onOpenContextMenu?.({
+        kind: "message",
+        event,
+        targetEl,
+        isMobile,
+        data: {
+          message: msg,
+        },
+      }),
+  };
 
   const touchStartXRef = useRef(0);
   const touchStartYRef = useRef(0);
   const touchDxRef = useRef(0);
   const touchDyRef = useRef(0);
   const trackingSwipeRef = useRef(false);
+  const swipeGestureActiveRef = useRef(false);
+  const activeSwipePointerIdRef = useRef(null);
   const [swipeOffset, setSwipeOffset] = useState(0);
   const [isSwiping, setIsSwiping] = useState(false);
   const swipeOffsetRef = useRef(0);
@@ -427,6 +546,8 @@ export const MessageItem = memo(function MessageItem({
 
   const resetSwipe = useCallback(() => {
     trackingSwipeRef.current = false;
+    swipeGestureActiveRef.current = false;
+    activeSwipePointerIdRef.current = null;
     setIsSwiping(false);
     swipeOffsetRef.current = 0;
     if (swipeRafRef.current) {
@@ -552,9 +673,10 @@ export const MessageItem = memo(function MessageItem({
             touchAction: "pan-y",
             userSelect: isSwiping ? "none" : "text",
           }}
-          onTouchStart={(event) => {
+          onPointerDownCapture={(event) => {
             if (isDesktop || !isMobileTouchDevice || !onReply) return;
             if (!canSwipeReply) return;
+            if (event.pointerType !== "touch") return;
             const target = event.target;
             if (
               target &&
@@ -564,14 +686,15 @@ export const MessageItem = memo(function MessageItem({
             ) {
               return;
             }
-            const touch = event.touches?.[0];
-            if (!touch) return;
+            activeSwipePointerIdRef.current = event.pointerId;
+            event.currentTarget.setPointerCapture?.(event.pointerId);
             trackingSwipeRef.current = true;
             setIsSwiping(false);
-            touchStartXRef.current = touch.clientX;
-            touchStartYRef.current = touch.clientY;
+            touchStartXRef.current = event.clientX;
+            touchStartYRef.current = event.clientY;
             touchDxRef.current = 0;
             touchDyRef.current = 0;
+            swipeGestureActiveRef.current = false;
             swipeOffsetRef.current = 0;
             if (swipeUserSelectRef.current === null && typeof document !== "undefined") {
               swipeUserSelectRef.current = document.body.style.userSelect || "";
@@ -583,12 +706,12 @@ export const MessageItem = memo(function MessageItem({
               document.body.style.webkitTouchCallout = "none";
             }
           }}
-          onTouchMove={(event) => {
+          onPointerMoveCapture={(event) => {
             if (!trackingSwipeRef.current || !canSwipeReply) return;
-            const touch = event.touches?.[0];
-            if (!touch) return;
-            const dx = touch.clientX - touchStartXRef.current;
-            const dy = touch.clientY - touchStartYRef.current;
+            if (event.pointerType !== "touch") return;
+            if (activeSwipePointerIdRef.current !== event.pointerId) return;
+            const dx = event.clientX - touchStartXRef.current;
+            const dy = event.clientY - touchStartYRef.current;
             touchDxRef.current = dx;
             touchDyRef.current = dy;
             const absDx = Math.abs(dx);
@@ -605,6 +728,7 @@ export const MessageItem = memo(function MessageItem({
               if (!horizontalIntent) {
                 return;
               }
+              swipeGestureActiveRef.current = true;
               setIsSwiping(true);
             }
             if (event.cancelable) {
@@ -616,11 +740,23 @@ export const MessageItem = memo(function MessageItem({
               queueSwipeOffset(0);
             }
           }}
-          onTouchEnd={() => {
+          onPointerUpCapture={(event) => {
             if (!trackingSwipeRef.current) return;
+            if (event.pointerType !== "touch") return;
+            if (activeSwipePointerIdRef.current !== event.pointerId) return;
+            if (swipeGestureActiveRef.current) {
+              suppressCodeClickUntilRef.current = Date.now() + 320;
+            }
             handleSwipeEnd();
           }}
-          onTouchCancel={handleSwipeEnd}
+          onPointerCancelCapture={(event) => {
+            if (event.pointerType !== "touch") return;
+            if (activeSwipePointerIdRef.current !== event.pointerId) return;
+            if (swipeGestureActiveRef.current) {
+              suppressCodeClickUntilRef.current = Date.now() + 320;
+            }
+            handleSwipeEnd();
+          }}
         >
           {showSwipeHint ? (
             <div className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2">
@@ -639,7 +775,8 @@ export const MessageItem = memo(function MessageItem({
           ) : null}
           {!isOwn && isGroupChat && !isChannelChat ? (
             <div className="flex min-w-0 max-w-full items-end gap-2">
-              <button
+              <ContextMenuSurface
+                as="button"
                 type="button"
                 onClick={
                   canOpenSenderProfile
@@ -648,35 +785,30 @@ export const MessageItem = memo(function MessageItem({
                 }
                 className={canOpenSenderProfile ? "group" : ""}
                 disabled={!canOpenSenderProfile}
+                contextMenu={senderContextMenu}
               >
-                {msg.avatar_url && !isDeletedAuthor ? (
-                  <img
-                    src={msg.avatar_url}
-                    alt={senderName}
-                    className={`h-7 w-7 shrink-0 rounded-full object-cover transition ${
-                      canOpenSenderProfile
-                        ? "group-hover:ring-2 group-hover:ring-emerald-300"
-                        : ""
-                    }`}
-                  />
-                ) : (
-                  <div
-                    className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] transition ${
-                      canOpenSenderProfile
-                        ? "group-hover:ring-2 group-hover:ring-emerald-300"
-                        : ""
-                    } ${hasPersian(senderInitials) ? "font-fa" : ""}`}
-                    style={getAvatarStyle(senderColor)}
-                  >
-                    {isDeletedAuthor ? (
+                <Avatar
+                  src={!isDeletedAuthor ? msg.avatar_url : ""}
+                  alt={senderName}
+                  name={senderName}
+                  color={senderColor}
+                  initials={senderInitials}
+                  placeholderContent={
+                    isDeletedAuthor ? (
                       <Ghost size={12} className="text-slate-600" />
                     ) : (
                       senderInitials
-                    )}
-                  </div>
-                )}
-              </button>
-              <div
+                    )
+                  }
+                  className={`h-7 w-7 shrink-0 text-[10px] transition ${
+                    canOpenSenderProfile
+                      ? "group-hover:ring-2 group-hover:ring-emerald-300"
+                      : ""
+                  }`}
+                />
+              </ContextMenuSurface>
+              <ContextMenuSurface
+                as="div"
                 data-message-bubble
                 className={`relative flex-none rounded-2xl px-4 py-3 text-sm shadow-sm overflow-visible min-w-0 max-w-[82%] sm:max-w-[86%] md:max-w-[min(84%,calc(100%-2rem))] ${
                   hasFiles
@@ -696,8 +828,10 @@ export const MessageItem = memo(function MessageItem({
                   transition: isSwiping ? "none" : "transform 160ms ease",
                   willChange: isSwiping ? "transform" : "auto",
                 }}
+                contextMenu={messageContextMenu}
               >
-                <button
+                <ContextMenuSurface
+                  as="button"
                   type="button"
                   onClick={
                     canOpenSenderProfile
@@ -711,9 +845,30 @@ export const MessageItem = memo(function MessageItem({
                   dir="auto"
                   style={{ color: String(senderColor), unicodeBidi: "isolate" }}
                   title={senderName}
+                  contextMenu={senderContextMenu}
                 >
                   {senderName}
-                </button>
+                </ContextMenuSurface>
+                {isForwarded ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenForwardOrigin?.(forwardedTarget)}
+                    className="mb-2 flex w-full items-center gap-1.5 self-start text-left text-[11px] font-semibold italic text-sky-400"
+                  >
+                    <Forward size={14} className="shrink-0" />
+                    <span className="shrink-0">Forwarded from</span>
+                    <span
+                      className={`min-w-0 max-w-[18rem] truncate ${
+                        forwardedLabelHasPersian ? "font-fa" : ""
+                      }`}
+                      dir="auto"
+                      style={{ unicodeBidi: "isolate" }}
+                      title={forwardedFromLabel}
+                    >
+                      {forwardedFromLabel}
+                    </span>
+                  </button>
+                ) : null}
                 {replyTarget ? (
                   <button
                     type="button"
@@ -786,7 +941,7 @@ export const MessageItem = memo(function MessageItem({
                   <div
                     ref={messageBodyRef}
                     dir={hasPersian(bodyText) ? "rtl" : "ltr"}
-                    className={`sb-markdown mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${
+                    className={`sb-markdown mt-1 break-words [overflow-wrap:anywhere] ${
                       hasPersian(bodyText) ? "font-fa text-right" : "text-left"
                     }`}
                     style={{ unicodeBidi: "plaintext" }}
@@ -802,11 +957,13 @@ export const MessageItem = memo(function MessageItem({
                 ) : null}
                 <div className="mt-2 flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
                   <span>{msg._timeLabel || formatTime(msg.created_at)}</span>
+                  {isEdited ? <span>edited</span> : null}
                 </div>
-              </div>
+              </ContextMenuSurface>
             </div>
           ) : (
-            <div
+            <ContextMenuSurface
+              as="div"
               data-message-bubble
               className={`relative rounded-2xl px-4 py-3 text-sm shadow-sm overflow-visible min-w-0 max-w-[78%] sm:max-w-[82%] md:max-w-[75%] ${
                 hasFiles
@@ -830,6 +987,7 @@ export const MessageItem = memo(function MessageItem({
                 transition: isSwiping ? "none" : "transform 160ms ease",
                 willChange: isSwiping ? "transform" : "auto",
               }}
+              contextMenu={messageContextMenu}
             >
               {!isOwn && isGroupChat && !isChannelChat ? (
                 <p
@@ -840,6 +998,26 @@ export const MessageItem = memo(function MessageItem({
                 >
                   {senderName}
                 </p>
+              ) : null}
+              {isForwarded ? (
+                <button
+                  type="button"
+                  onClick={() => onOpenForwardOrigin?.(forwardedTarget)}
+                  className="mb-2 flex w-full items-center gap-1.5 self-start text-left text-[11px] font-semibold italic text-sky-400"
+                >
+                  <Forward size={14} className="shrink-0" />
+                  <span className="shrink-0">Forwarded from</span>
+                  <span
+                    className={`min-w-0 max-w-[18rem] truncate ${
+                      forwardedLabelHasPersian ? "font-fa" : ""
+                    }`}
+                    dir="auto"
+                    style={{ unicodeBidi: "isolate" }}
+                    title={forwardedFromLabel}
+                  >
+                    {forwardedFromLabel}
+                  </span>
+                </button>
               ) : null}
               {replyTarget ? (
                 <button
@@ -913,7 +1091,7 @@ export const MessageItem = memo(function MessageItem({
                 <div
                   ref={messageBodyRef}
                   dir={hasPersian(bodyText) ? "rtl" : "ltr"}
-                  className={`sb-markdown mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${
+                  className={`sb-markdown mt-1 break-words [overflow-wrap:anywhere] ${
                     hasPersian(bodyText) ? "font-fa text-right" : "text-left"
                   }`}
                   style={{ unicodeBidi: "plaintext" }}
@@ -936,6 +1114,7 @@ export const MessageItem = memo(function MessageItem({
               >
                 <span className="inline-flex items-center gap-1">
                   <span>{msg._timeLabel || formatTime(msg.created_at)}</span>
+                  {isEdited ? <span>edited</span> : null}
                   {isOwn || isChannelChat ? (
                     <span
                       className={`inline-flex items-center gap-1 ${
@@ -996,7 +1175,7 @@ export const MessageItem = memo(function MessageItem({
                   </span>
                 ) : null}
               </div>
-            </div>
+            </ContextMenuSurface>
           )}
         </div>
       ) : null}

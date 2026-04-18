@@ -17,6 +17,9 @@ const backupDir = path.join(projectRootDir, "data", "backups");
 const filesystemRootDir = path.parse(projectRootDir).root;
 const unzipBinary = process.env.UNZIP_BIN || "unzip";
 const BACKUP_NAME_REGEX = /^songbird-backup-.*\.zip$/i;
+const serviceName = process.env.SONGBIRD_SERVICE_NAME || "songbird.service";
+const serviceUser = process.env.SONGBIRD_SERVICE_USER || "songbird";
+const serviceGroup = process.env.SONGBIRD_SERVICE_GROUP || serviceUser;
 
 function listBackupCandidates() {
   const candidates = [];
@@ -97,6 +100,84 @@ function extractBackup(zipPath, destinationDir, password) {
   }
 }
 
+function pathExists(targetPath) {
+  return fs.existsSync(targetPath);
+}
+
+function detectBackupLayout(extractedRoot) {
+  const currentEnvSrc = path.join(extractedRoot, ".env");
+  const currentDataSrc = path.join(extractedRoot, "data");
+  const currentDbSrc = path.join(currentDataSrc, "songbird.db");
+  const currentUploadsSrc = path.join(currentDataSrc, "uploads");
+  if (pathExists(currentDbSrc) && pathExists(currentUploadsSrc)) {
+    return {
+      kind: "current",
+      envSrc: pathExists(currentEnvSrc) ? currentEnvSrc : null,
+      dbSrc: currentDbSrc,
+      uploadsSrc: currentUploadsSrc,
+    };
+  }
+
+  const legacyDbSrc = path.join(extractedRoot, "songbird.db");
+  const legacyUploadsSrc = path.join(extractedRoot, "uploads");
+  if (pathExists(legacyDbSrc) && pathExists(legacyUploadsSrc)) {
+    return {
+      kind: "legacy",
+      envSrc: pathExists(currentEnvSrc) ? currentEnvSrc : null,
+      dbSrc: legacyDbSrc,
+      uploadsSrc: legacyUploadsSrc,
+    };
+  }
+
+  return null;
+}
+
+function applyOwnership(installRoot) {
+  if (typeof process.getuid !== "function" || process.getuid() !== 0) {
+    console.warn(
+      "Skipping ownership update because db:restore is not running as root.",
+    );
+    return;
+  }
+
+  try {
+    execFileSync("chown", ["-R", `${serviceUser}:${serviceGroup}`, installRoot], {
+      stdio: "pipe",
+    });
+  } catch (error) {
+    const message = error?.stderr?.toString?.() || error?.message || error;
+    console.warn(`Unable to apply ownership: ${message}`);
+  }
+
+  try {
+    execFileSync(
+      "git",
+      ["config", "--global", "--add", "safe.directory", installRoot],
+      { stdio: "pipe" },
+    );
+  } catch (error) {
+    const message = error?.stderr?.toString?.() || error?.message || error;
+    console.warn(`Unable to mark install as a safe git directory: ${message}`);
+  }
+}
+
+function restartSongbirdService() {
+  if (typeof process.getuid !== "function" || process.getuid() !== 0) {
+    console.warn(
+      `Skipping ${serviceName} restart because db:restore is not running as root.`,
+    );
+    return;
+  }
+
+  try {
+    execFileSync("systemctl", ["restart", serviceName], { stdio: "pipe" });
+    console.log(`Restarted ${serviceName}.`);
+  } catch (error) {
+    const message = error?.stderr?.toString?.() || error?.message || error;
+    console.warn(`Unable to restart ${serviceName}: ${message}`);
+  }
+}
+
 async function resolveBackupPath(args) {
   const fileFlag = getFlagValue(args, "--file");
   if (fileFlag) {
@@ -131,7 +212,7 @@ async function main() {
   const installRoot = projectRootDir;
 
   const confirmed = await confirmAction({
-    prompt: `Restore backup "${path.basename(zipPath)}" into ${installRoot} and replace .env/data?`,
+    prompt: `Restore backup "${path.basename(zipPath)}" into ${installRoot} and replace data plus .env when present?`,
     force,
     forceHint:
       "Refusing to restore backup in non-interactive mode without -y/--yes. Run: npm run db:restore -- -y",
@@ -161,28 +242,42 @@ async function main() {
   try {
     extractBackup(zipPath, tempDir, password);
 
-    const envSrc = path.join(tempDir, ".env");
-    const dataSrc = path.join(tempDir, "data");
-    const dbSrc = path.join(dataSrc, "songbird.db");
-    const uploadsSrc = path.join(dataSrc, "uploads");
-    if (
-      !fs.existsSync(envSrc) ||
-      !fs.existsSync(dbSrc) ||
-      !fs.existsSync(uploadsSrc)
-    ) {
+    const layout = detectBackupLayout(tempDir);
+    if (!layout) {
       console.error(
-        "Backup zip does not contain expected .env and data/ contents.",
+        "Backup zip does not contain expected songbird.db and uploads/ contents.",
       );
       process.exit(1);
     }
 
+    const envDest = path.join(installRoot, ".env");
+    const dataDest = path.join(installRoot, "data");
+    const dbDest = path.join(dataDest, "songbird.db");
+    const uploadsDest = path.join(dataDest, "uploads");
+
     fs.rmSync(path.join(installRoot, "data"), { recursive: true, force: true });
     fs.mkdirSync(installRoot, { recursive: true });
-    fs.copyFileSync(envSrc, path.join(installRoot, ".env"));
-    fs.cpSync(dataSrc, path.join(installRoot, "data"), { recursive: true });
+    fs.mkdirSync(dataDest, { recursive: true });
+
+    if (layout.envSrc) {
+      fs.copyFileSync(layout.envSrc, envDest);
+    } else if (fs.existsSync(envDest)) {
+      console.log("Legacy backup detected; keeping existing .env in place.");
+    } else {
+      console.warn(
+        "Legacy backup detected without .env. Restore completed, but the app also needs a valid .env file.",
+      );
+    }
+
+    fs.copyFileSync(layout.dbSrc, dbDest);
+    fs.cpSync(layout.uploadsSrc, uploadsDest, { recursive: true });
+
+    applyOwnership(installRoot);
+    restartSongbirdService();
 
     console.log(`Backup restored from: ${zipPath}`);
     console.log(`Restored into: ${installRoot}`);
+    console.log(`Backup format: ${layout.kind}`);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

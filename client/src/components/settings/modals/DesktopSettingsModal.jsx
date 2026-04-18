@@ -1,13 +1,13 @@
 import { useCallback, useState } from "react";
 import { createPortal } from "react-dom";
 import { Close, Eye, EyeOff, Trash, Upload } from "../../../icons/lucide.js";
-import { getAvatarStyle } from "../../../utils/avatarColor.js";
 import { hasPersian } from "../../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../../utils/avatarInitials.js";
 import { NICKNAME_MAX, USERNAME_MAX } from "../../../utils/nameLimits.js";
 import { InlineError } from "../common/InlineError.jsx";
 import { DataSettingsPanel } from "../panels/DataSettingsPanel.jsx";
 import ConfirmPasswordModal from "../../modals/ConfirmPasswordModal.jsx";
+import Avatar from "../../common/Avatar.jsx";
 
 export function DesktopSettingsModal({
   settingsPanel,
@@ -77,20 +77,14 @@ export function DesktopSettingsModal({
                 Profile photo
               </span>
               <div className="mt-3 flex items-center gap-4">
-                {avatarPreview ? (
-                  <img
-                    src={avatarPreview}
-                    alt={profileForm.nickname || profileForm.username}
-                    className="h-14 w-14 flex-shrink-0 rounded-full object-cover"
-                  />
-                ) : (
-                  <div
-                    className={`flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full ${hasPersian(profileInitials) ? "font-fa" : ""}`}
-                    style={getAvatarStyle(resolvedUserColor)}
-                  >
-                    {profileInitials}
-                  </div>
-                )}
+                <Avatar
+                  src={avatarPreview}
+                  alt={profileForm.nickname || profileForm.username}
+                  name={profileIdentity}
+                  color={resolvedUserColor}
+                  initials={profileInitials}
+                  className="h-14 w-14 flex-shrink-0"
+                />
                 <div className="flex w-full flex-col items-start gap-2 sm:flex-row sm:items-center">
                   <label
                     htmlFor="profilePhotoInput"

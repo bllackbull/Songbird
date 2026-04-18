@@ -1,3 +1,5 @@
+import { createPortal } from "react-dom";
+
 export default function LeaveGroupModal({
   open,
   onClose,
@@ -5,9 +7,10 @@ export default function LeaveGroupModal({
   isChannel = false,
 }) {
   if (!open) return null;
+  if (typeof document === "undefined") return null;
 
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-6">
+  return createPortal(
+    <div className="fixed inset-0 z-[320] flex items-center justify-center bg-black/40 px-6">
       <div className="w-full max-w-sm rounded-2xl border border-rose-100/70 bg-white p-6 shadow-xl dark:border-rose-500/30 dark:bg-slate-950">
         <h3 className="text-lg font-semibold text-rose-600 dark:text-rose-300">
           {isChannel ? "Leave channel" : "Leave group"}
@@ -34,6 +37,7 @@ export default function LeaveGroupModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

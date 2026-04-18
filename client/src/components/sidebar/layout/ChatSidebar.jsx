@@ -45,7 +45,10 @@ export default function ChatSidebar({
   isSavedChatActive,
   onOpenDiscoveredUser,
   onOpenDiscoveredGroup,
+  onOpenUserProfileContext,
   onOpenSavedMessages,
+  onOpenUserContextMenu,
+  onOpenChatContextMenu,
   showSettings,
   settingsMenuRef,
   setSettingsPanel,
@@ -302,7 +305,10 @@ export default function ChatSidebar({
                 isSavedChatActive={isSavedChatActive}
                 onOpenDiscoveredUser={onOpenDiscoveredUser}
                 onOpenDiscoveredGroup={onOpenDiscoveredGroup}
+                onOpenUserProfileContext={onOpenUserProfileContext}
                 onOpenSavedMessages={onOpenSavedMessages}
+                onOpenUserContextMenu={onOpenUserContextMenu}
+                onOpenChatContextMenu={onOpenChatContextMenu}
               />
             </div>
           </div>

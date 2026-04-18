@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import ContextMenuSurface from "../../context-menu/ContextMenuSurface.jsx";
 import {
   Check,
   CheckCheck,
@@ -18,6 +19,7 @@ import { getAvatarStyle } from "../../../utils/avatarColor.js";
 import { hasPersian } from "../../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../../utils/avatarInitials.js";
 import { renderMarkdownInlinePlain } from "../../../utils/markdown.js";
+import Avatar from "../../common/Avatar.jsx";
 
 export default function ChatsListPanel({
   loadingChats,
@@ -46,7 +48,10 @@ export default function ChatsListPanel({
   isSavedChatActive,
   onOpenDiscoveredUser,
   onOpenDiscoveredGroup,
+  onOpenUserProfileContext,
   onOpenSavedMessages,
+  onOpenUserContextMenu,
+  onOpenChatContextMenu,
 }) {
   const SIDEBAR_INITIAL_RENDER = 40;
   const SIDEBAR_RENDER_BATCH = 24;
@@ -253,31 +258,44 @@ export default function ChatsListPanel({
                 const isActive =
                   dmChatId && Number(activeChatId) === Number(dmChatId);
                 return (
-                  <button
+                  <ContextMenuSurface
                     key={`discover-user-${member.id}-${member.username}`}
+                    as="button"
                     type="button"
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => onOpenDiscoveredUser?.(member)}
+                    contextMenu={{
+                      isMobile:
+                        typeof window !== "undefined" &&
+                        window.matchMedia("(max-width: 767px) and (pointer: coarse)")
+                          .matches,
+                      onOpen: ({ event, targetEl, isMobile }) =>
+                        onOpenUserContextMenu?.({
+                          kind: "user",
+                          event,
+                          targetEl,
+                          isMobile,
+                          data: {
+                            member,
+                            sourceChatType: "discover",
+                            onOpenProfile: onOpenUserProfileContext,
+                          },
+                        }),
+                    }}
                     className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left text-sm transition ${
                       isActive
                         ? "border-emerald-400 bg-emerald-100 text-emerald-900 dark:border-emerald-400/60 dark:bg-emerald-500/20 dark:text-emerald-100"
                         : "border-slate-300/80 bg-white/90 text-slate-700 hover:border-emerald-300 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:border-emerald-300 focus-visible:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:outline-none dark:border-emerald-500/20 dark:bg-slate-950/60 dark:text-slate-200"
                     }`}
                   >
-                    {member.avatar_url ? (
-                      <img
-                        src={member.avatar_url}
-                        alt={label}
-                        className="h-9 w-9 rounded-full object-cover"
-                      />
-                    ) : (
-                      <div
-                        className={`flex h-9 w-9 items-center justify-center rounded-full text-xs ${hasPersian(initials) ? "font-fa" : ""}`}
-                        style={getAvatarStyle(member.color || "#10b981")}
-                      >
-                        {initials}
-                      </div>
-                    )}
+                    <Avatar
+                      src={member.avatar_url}
+                      alt={label}
+                      name={label}
+                      color={member.color || "#10b981"}
+                      initials={initials}
+                      className="h-9 w-9 text-xs"
+                    />
                     <div className="min-w-0">
                       <p
                         className={`truncate text-sm font-semibold ${hasPersian(label) ? "font-fa" : ""}`}
@@ -294,7 +312,7 @@ export default function ChatsListPanel({
                         @{member.username}
                       </p>
                     </div>
-                  </button>
+                  </ContextMenuSurface>
                 );
               })}
             </div>
@@ -438,10 +456,14 @@ export default function ChatsListPanel({
               <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-200">
                 Saved Messages
               </p>
-              <button
+              <ContextMenuSurface
                 type="button"
+                as="button"
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => onOpenSavedMessages?.()}
+                contextMenu={{
+                  disabled: true,
+                }}
                 className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left text-sm transition ${
                   isSavedChatActive
                     ? "border-emerald-400 bg-emerald-100 text-emerald-900 dark:border-emerald-400/60 dark:bg-emerald-500/20 dark:text-emerald-100"
@@ -462,7 +484,7 @@ export default function ChatsListPanel({
                     Personal notes
                   </p>
                 </div>
-              </button>
+              </ContextMenuSurface>
             </div>
           ) : null}
           {!showSearchEmptyState &&
@@ -555,34 +577,27 @@ export default function ChatsListPanel({
               style={wiggleStyle}
             >
               <div className="flex items-start gap-3">
-                {(
-                  isGroup || isChannel
-                    ? conv.group_avatar_url
-                    : other?.avatar_url
-                ) ? (
-                  <img
-                    src={
-                      isGroup || isChannel
-                        ? conv.group_avatar_url
-                        : other.avatar_url
-                    }
-                    alt={name}
-                    className="h-9 w-9 flex-shrink-0 rounded-full object-cover"
-                  />
-                ) : (
-                  <div
-                    className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ${hasPersian(avatarInitials) ? "font-fa" : ""}`}
-                    style={getAvatarStyle(avatarColor)}
-                  >
-                    {isSaved ? (
+                <Avatar
+                  src={
+                    isGroup || isChannel
+                      ? conv.group_avatar_url
+                      : other?.avatar_url
+                  }
+                  alt={name}
+                  name={name}
+                  color={avatarColor}
+                  initials={avatarInitials}
+                  placeholderContent={
+                    isSaved ? (
                       <Bookmark size={16} className="text-white" />
                     ) : isDeletedDm ? (
                       <Ghost size={16} className="text-slate-600" />
                     ) : (
                       avatarInitials
-                    )}
-                  </div>
-                )}
+                    )
+                  }
+                  className="h-9 w-9 flex-shrink-0"
+                />
                 <div className="min-w-0 flex-1">
                   <p className="flex min-w-0 items-center gap-1.5 font-semibold">
                     {isChannel ? (
@@ -796,8 +811,9 @@ export default function ChatsListPanel({
                   <Minus size={16} />
                 </button>
               ) : null}
-              <button
+              <ContextMenuSurface
                 type="button"
+                as="button"
                 onClick={() => {
                   if (editMode) return;
                   setActiveChatId(Number(conv.id));
@@ -816,10 +832,25 @@ export default function ChatsListPanel({
                   setUnreadInChat(0);
                   lastMessageIdRef.current = null;
                 }}
+                contextMenu={{
+                  disabled: editMode,
+                  isMobile:
+                    typeof window !== "undefined" &&
+                    window.matchMedia("(max-width: 767px) and (pointer: coarse)")
+                      .matches,
+                  onOpen: ({ event, targetEl, isMobile }) =>
+                    onOpenChatContextMenu?.({
+                      kind: "chat",
+                      event,
+                      targetEl,
+                      isMobile,
+                      data: { chat: conv },
+                    }),
+                }}
                 className={`min-w-0 flex-1 ${editMode ? "pointer-events-none" : ""}`}
               >
                 {card}
-              </button>
+              </ContextMenuSurface>
               {editMode ? (
                 <button
                   type="button"

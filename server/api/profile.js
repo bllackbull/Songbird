@@ -218,8 +218,17 @@ function registerProfileRoutes(app, deps) {
       removeAvatarByUrl(user.avatar_url);
     }
 
-    return res.json({
+    updateUserProfile(
+      user.id,
+      user.username,
+      user.nickname || null,
       avatarUrl,
+    );
+
+    const updated = findUserById(user.id);
+
+    return res.json({
+      avatarUrl: ensureAvatarExists(updated.id, updated.avatar_url) || avatarUrl,
       sizeBytes: Number(file.size || 0),
       maxFileSizeBytes: AVATAR_FILE_LIMITS.maxFileSizeBytes,
     });
