@@ -11,6 +11,7 @@ const OPEN_CHAT_ID_KEY = 'songbird-open-chat-id'
 const PWA_INSTALL_DISMISS_KEY = 'songbird-pwa-install-dismissed'
 const PWA_PERMISSIONS_PROMPT_KEY = 'songbird-pwa-permissions-prompt'
 const ROUTE_CHUNK_TELEMETRY_KEY = 'songbird-route-chunk-telemetry-v1'
+const CHUNK_RECOVERY_ATTEMPT_KEY = 'songbird-chunk-recovery-attempted'
 const loadAuthPage = () => import('./pages/AuthPage.jsx')
 const loadChatPage = () => import('./pages/ChatPage.jsx')
 const loadInvitePage = () => import('./pages/InvitePage.jsx')
@@ -69,7 +70,49 @@ function getInviteToken(pathname) {
   return pathname.slice('/invite/'.length).trim()
 }
 
+function isChunkLoadFailure(error) {
+  const text = String(error?.message || error || '')
+  return (
+    text.includes('Failed to fetch dynamically imported module') ||
+    text.includes('Importing a module script failed') ||
+    text.includes('error loading dynamically imported module') ||
+    text.includes('Unable to preload CSS for')
+  )
+}
+
 export default function App() {
+  async function recoverFromStaleShell() {
+    if (typeof window === 'undefined') return
+    if (window.sessionStorage.getItem(CHUNK_RECOVERY_ATTEMPT_KEY) === '1') return
+    window.sessionStorage.setItem(CHUNK_RECOVERY_ATTEMPT_KEY, '1')
+
+    try {
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations()
+        await Promise.all(
+          registrations.map((registration) => registration.unregister()),
+        )
+      }
+    } catch {
+      // ignore cleanup failures
+    }
+
+    try {
+      if (typeof window.caches?.keys === 'function') {
+        const keys = await window.caches.keys()
+        await Promise.all(
+          keys
+            .filter((key) => key.startsWith('songbird-'))
+            .map((key) => window.caches.delete(key)),
+        )
+      }
+    } catch {
+      // ignore cleanup failures
+    }
+
+    window.location.reload()
+  }
+
   const resolveAutoThemeIsDark = () => {
     try {
       if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
@@ -300,6 +343,31 @@ export default function App() {
   useEffect(() => {
     return () => {
       clearThemeRefreshTimers()
+    }
+  }, [])
+
+  useEffect(() => {
+    window.sessionStorage.removeItem(CHUNK_RECOVERY_ATTEMPT_KEY)
+  }, [])
+
+  useEffect(() => {
+    const handleError = (event) => {
+      if (!isChunkLoadFailure(event?.error || event?.message)) return
+      event.preventDefault?.()
+      void recoverFromStaleShell()
+    }
+
+    const handleRejection = (event) => {
+      if (!isChunkLoadFailure(event?.reason)) return
+      event.preventDefault?.()
+      void recoverFromStaleShell()
+    }
+
+    window.addEventListener('error', handleError)
+    window.addEventListener('unhandledrejection', handleRejection)
+    return () => {
+      window.removeEventListener('error', handleError)
+      window.removeEventListener('unhandledrejection', handleRejection)
     }
   }, [])
 

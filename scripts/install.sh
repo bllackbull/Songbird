@@ -161,6 +161,13 @@ run_in_install_dir_output() {
   fi
 }
 
+dir_has_entries() {
+  local target_dir="$1"
+  local first_entry=""
+  first_entry="$(run_as_root_output find "$target_dir" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null || true)"
+  [[ -n "$first_entry" ]]
+}
+
 init_prompt_io() {
   if [[ -r /dev/tty && -w /dev/tty ]]; then
     exec 3</dev/tty
@@ -530,14 +537,38 @@ prompt_install_backup_restore() {
   if [[ "$(prompt_yes_no "Restore database from a backup zip during installation?" "no")" != "yes" ]]; then
     return 0
   fi
+
+  local use_detected=""
   local detected=""
   detected="$(find_restore_backup_zip)" || detected=""
   if [[ -n "$detected" ]]; then
-    log "Found backup zip: ${detected}"
-    DB_BACKUP_PATH="$detected"
-    return 0
+    use_detected="$(prompt_yes_no "Use detected backup zip ${detected}?" "yes")"
+    if [[ "$use_detected" == "yes" ]]; then
+      DB_BACKUP_PATH="$detected"
+      return 0
+    fi
   fi
-  DB_BACKUP_PATH="$(prompt_backup_zip_path)"
+
+  while true; do
+    local backup_input=""
+    prompt_read "Enter the full path to the backup .zip file: " backup_input
+    if [[ -z "$backup_input" ]]; then
+      printf "Please provide a file path.\n"
+      continue
+    fi
+    local resolved=""
+    resolved="$(resolve_file_path "$backup_input")" || resolved=""
+    if [[ -z "$resolved" ]]; then
+      printf "File not found. Tried: %s\n" "$backup_input"
+      continue
+    fi
+    if [[ "${resolved,,}" != *.zip ]]; then
+      printf "Backup file must be a .zip archive.\n"
+      continue
+    fi
+    DB_BACKUP_PATH="$resolved"
+    return 0
+  done
 }
 
 validate_backup_zip() {
@@ -759,7 +790,7 @@ clone_repo() {
     return 0
   fi
 
-  if run_as_root test -n "$(run_as_root_output find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 -print -quit)"; then
+  if dir_has_entries "$INSTALL_DIR"; then
     if [[ "$(prompt_yes_no "${INSTALL_DIR} exists and is not empty. Delete it and re-clone from GitHub?" "no")" != "yes" ]]; then
       warn "Installation canceled. Clear ${INSTALL_DIR} or use offline mode."
       return 1
@@ -774,7 +805,7 @@ clone_repo() {
 
 prepare_install_dir_for_offline() {
   run_silent run_as_root mkdir -p "$INSTALL_DIR"
-  if run_silent run_as_root test -n "$(run_silent run_as_root find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 -print -quit)"; then
+  if dir_has_entries "$INSTALL_DIR"; then
     warn "${INSTALL_DIR} is not empty. Clear it before installation."
     press_enter_to_continue
     return 1
@@ -1897,8 +1928,8 @@ remove_songbird() {
 install_songbird() {
   prompt_source_mode
   collect_install_options
-  install_required_packages
   prompt_install_backup_restore
+  install_required_packages
   ensure_nodejs_from_nodesource
   ensure_service_user_exists
   if [[ "$SOURCE_MODE" == "offline" ]]; then

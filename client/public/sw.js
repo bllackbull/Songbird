@@ -1,6 +1,23 @@
-const CACHE_VERSION = "v0.9.0";
+const CACHE_VERSION = "v0.9.1";
 const CACHE_NAME = `songbird-${CACHE_VERSION}`;
-const APP_SHELL = ["/", "/index.html", "/manifest.webmanifest"];
+const APP_SHELL = [
+  "/manifest.webmanifest",
+  "/icons/icon-192.png",
+  "/icons/icon-512.png",
+];
+
+const isCacheableAssetPath = (pathname) => {
+  if (pathname.startsWith("/assets/")) return true;
+  if (pathname.startsWith("/icons/")) return true;
+  return (
+    pathname.endsWith(".js") ||
+    pathname.endsWith(".css") ||
+    pathname.endsWith(".woff2") ||
+    pathname.endsWith(".png") ||
+    pathname.endsWith(".svg") ||
+    pathname.endsWith(".ico")
+  );
+};
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
@@ -37,13 +54,13 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api/")) return;
+  if (url.pathname === "/sw.js") return;
   const isNavigation = event.request.mode === "navigate";
   event.respondWith(
     (async () => {
       const cache = await caches.open(CACHE_NAME);
       if (isNavigation) {
-        const cachedIndex = await cache.match("/index.html");
-        const update = fetch(event.request)
+        const network = await fetch(event.request, { cache: "no-store" })
           .then((response) => {
             if (response && response.ok) {
               cache.put("/index.html", response.clone());
@@ -59,12 +76,15 @@ self.addEventListener("fetch", (event) => {
             return response;
           })
           .catch(() => null);
-        event.waitUntil(update);
-        if (cachedIndex) return cachedIndex;
-        const network = await update;
         if (network) return network;
+        const cachedIndex = await cache.match("/index.html");
         return cachedIndex || Response.error();
       }
+
+      if (!isCacheableAssetPath(url.pathname)) {
+        return fetch(event.request).catch(() => Response.error());
+      }
+
       const cached = await cache.match(event.request);
       const revalidate = fetch(event.request)
         .then((response) => {

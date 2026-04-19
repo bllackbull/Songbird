@@ -532,10 +532,32 @@ if (isProduction) {
   app.use(staticLimiter);
 
   const clientDist = path.resolve(serverDir, "..", "client", "dist");
+  const setStaticCacheHeaders = (res, filePath) => {
+    const normalizedPath = String(filePath || "").replace(/\\/g, "/");
+    if (
+      normalizedPath.endsWith("/index.html") ||
+      normalizedPath.endsWith("/sw.js") ||
+      normalizedPath.endsWith("/manifest.webmanifest")
+    ) {
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      return;
+    }
+    if (normalizedPath.includes("/assets/")) {
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      return;
+    }
+    res.setHeader("Cache-Control", "public, max-age=3600");
+  };
 
-  app.use(express.static(clientDist));
+  app.use(
+    express.static(clientDist, {
+      index: false,
+      setHeaders: setStaticCacheHeaders,
+    }),
+  );
 
   app.get("*", (req, res) => {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.sendFile(path.join(clientDist, "index.html"));
   });
 }
