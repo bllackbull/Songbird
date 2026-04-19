@@ -31,10 +31,43 @@ const SQL = await initSqlJs({
 const fileExists = fs.existsSync(dbPath);
 const fileBuffer = fileExists ? fs.readFileSync(dbPath) : null;
 const db = fileBuffer ? new SQL.Database(fileBuffer) : new SQL.Database();
+const DB_SAVE_DEBOUNCE_MS = Math.max(
+  0,
+  Number(process.env.DB_SAVE_DEBOUNCE_MS || 150),
+);
+let pendingSaveTimer = null;
+let databaseDirty = false;
 
-function saveDatabase() {
+function writeDatabaseToDisk() {
   const data = db.export();
   fs.writeFileSync(dbPath, Buffer.from(data));
+  databaseDirty = false;
+}
+
+function saveDatabase() {
+  if (pendingSaveTimer) {
+    clearTimeout(pendingSaveTimer);
+    pendingSaveTimer = null;
+  }
+  if (!databaseDirty && fileExists) return;
+  writeDatabaseToDisk();
+}
+
+function scheduleDatabaseSave() {
+  databaseDirty = true;
+  if (pendingSaveTimer) return;
+  if (DB_SAVE_DEBOUNCE_MS <= 0) {
+    saveDatabase();
+    return;
+  }
+  pendingSaveTimer = setTimeout(() => {
+    pendingSaveTimer = null;
+    if (!databaseDirty) return;
+    writeDatabaseToDisk();
+  }, DB_SAVE_DEBOUNCE_MS);
+  if (typeof pendingSaveTimer?.unref === "function") {
+    pendingSaveTimer.unref();
+  }
 }
 
 function getRow(sql, params = []) {
@@ -70,7 +103,7 @@ function run(sql, params = []) {
   stmt.step();
   stmt.free();
 
-  saveDatabase();
+  scheduleDatabaseSave();
 }
 
 function runWithoutSave(sql, params = []) {
@@ -184,6 +217,14 @@ function runDatabaseMigrations() {
 runDatabaseMigrations();
 
 saveDatabase();
+
+process.once("beforeExit", () => {
+  saveDatabase();
+});
+
+process.once("exit", () => {
+  saveDatabase();
+});
 
 export function getCurrentSchemaVersion() {
   return getSchemaVersion();
@@ -771,7 +812,6 @@ export function listChatsForUser(userId) {
       (SELECT id FROM chat_messages WHERE ${visibleChatMessagesWhere} ORDER BY id DESC LIMIT 1) AS last_message_id,
       (SELECT COALESCE(chat_messages.edited_body, chat_messages.body) FROM chat_messages WHERE ${visibleChatMessagesWhere} ORDER BY id DESC LIMIT 1) AS last_message,
       (SELECT created_at FROM chat_messages WHERE ${visibleChatMessagesWhere} ORDER BY id DESC LIMIT 1) AS last_time,
-      (SELECT COUNT(*) FROM chat_messages WHERE ${visibleChatMessagesWhere}) AS message_count,
       (SELECT user_id FROM chat_messages WHERE ${visibleChatMessagesWhere} ORDER BY id DESC LIMIT 1) AS last_sender_id,
       (SELECT COALESCE(users.username, 'deleted') FROM chat_messages LEFT JOIN users ON users.id = chat_messages.user_id WHERE ${visibleChatMessagesWhere} ORDER BY chat_messages.id DESC LIMIT 1) AS last_sender_username,
       (SELECT COALESCE(users.nickname, 'Deleted user') FROM chat_messages LEFT JOIN users ON users.id = chat_messages.user_id WHERE ${visibleChatMessagesWhere} ORDER BY chat_messages.id DESC LIMIT 1) AS last_sender_nickname,

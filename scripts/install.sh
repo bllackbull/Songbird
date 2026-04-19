@@ -1669,7 +1669,11 @@ rebuild_and_restart_after_settings_change() {
 
 update_songbird() {
   if [[ -d "$INSTALL_DIR" ]]; then
-    backup_database
+    if [[ "$(prompt_yes_no "Create a database backup before updating?" "no")" == "yes" ]]; then
+      backup_database
+    else
+      log "Skipping pre-update backup."
+    fi
   else
     warn "No Songbird install found at ${INSTALL_DIR}."
     press_enter_to_continue

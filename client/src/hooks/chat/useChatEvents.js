@@ -106,13 +106,13 @@ export function useChatEvents({
           onTypingUpdateRef.current?.(payload);
           return;
         }
-        scheduleLoadChats();
         const payloadChatId = Number(payload.chatId || 0);
         const currentActiveId = activeChatIdRef.current;
         const isOwnEvent =
           String(payload?.username || "").toLowerCase() ===
           String(usernameRef.current || "").toLowerCase();
         if (payload.type === "chat_list_changed") {
+          scheduleLoadChats();
           onChatListChangedRef.current?.(payload);
           return;
         }
@@ -120,7 +120,45 @@ export function useChatEvents({
           payload.type === "chat_message" && !isOwnEvent;
         const isDeleteEvent = payload.type === "chat_message_deleted";
         const isUpdateEvent = payload.type === "chat_message_updated";
+        if (payload.type === "chat_message" && payloadChatId) {
+          const eventTime = new Date().toISOString();
+          const previewBody = String(
+            payload?.summaryText || payload?.body || "",
+          ).trim();
+          let foundChat = false;
+          setChats((prev) => {
+            const next = prev.map((chat) => {
+              if (Number(chat?.id) !== payloadChatId) return chat;
+              foundChat = true;
+              const isActiveChat =
+                Number(currentActiveId || 0) === Number(payloadChatId);
+              const currentUnread = Math.max(0, Number(chat?.unread_count || 0));
+              return {
+                ...chat,
+                last_message_id:
+                  Number(payload?.messageId || 0) || chat?.last_message_id || null,
+                last_message: previewBody || chat?.last_message || "",
+                last_time: eventTime,
+                last_sender_username:
+                  String(payload?.username || "").trim() ||
+                  chat?.last_sender_username ||
+                  "",
+                unread_count:
+                  !isOwnEvent && !isActiveChat ? currentUnread + 1 : currentUnread,
+              };
+            });
+            return next.sort((left, right) => {
+              const leftTime = left?.last_time ? Date.parse(left.last_time) : 0;
+              const rightTime = right?.last_time ? Date.parse(right.last_time) : 0;
+              return rightTime - leftTime;
+            });
+          });
+          if (!foundChat) {
+            scheduleLoadChats();
+          }
+        }
         if (isDeleteEvent) {
+          scheduleLoadChats();
           onMessageDeletedRef.current?.(payload);
         }
         if (isIncomingMessage) {
@@ -153,7 +191,14 @@ export function useChatEvents({
             setChats((prev) =>
               prev.map((chat) =>
                 Number(chat?.id) === payloadChatId
-                  ? { ...chat, last_message_read_at: nowIso }
+                  ? {
+                      ...chat,
+                      last_message_read_at: nowIso,
+                      unread_count:
+                        Number(currentActiveId || 0) === Number(payloadChatId)
+                          ? 0
+                          : Number(chat?.unread_count || 0),
+                    }
                   : chat,
               ),
             );
@@ -177,6 +222,9 @@ export function useChatEvents({
               pruneMissing: true,
             });
             return;
+          }
+          if (isUpdateEvent) {
+            scheduleLoadChats();
           }
           scheduleMessageRefreshRef.current?.(currentActiveId, {
             preserveHistory: true,

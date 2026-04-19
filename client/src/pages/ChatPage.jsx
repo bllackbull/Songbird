@@ -3018,9 +3018,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         }
       }
       pendingScrollToBottomRef.current = false;
-      await loadChats({ silent: true });
-      // Keep optimistic row stable and rely on SSE/polling for server echo.
-      // Immediate forced refetch here can race and cause first-message flicker.
+      // Keep optimistic row stable and let SSE/polling reconcile the final server row.
+      // Avoid forcing a full sidebar refresh on every successful send.
     } catch (error) {
       if (hasFiles) {
         if (isTargetActive) {
@@ -3211,7 +3210,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       const list = (data.chats || []).map((conv) => ({
         ...conv,
         id: Number(conv.id),
-        message_count: Number(conv.message_count || 0),
         last_message: normalizeMessageBody(conv.last_message),
         members: (conv.members || []).map((member) => ({
           ...member,
@@ -3243,10 +3241,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           dmByPeer.set(peerKey, chat);
           return;
         }
-        const existingCount = Number(existing.message_count || 0);
-        const nextCount = Number(chat.message_count || 0);
-        if (nextCount !== existingCount) {
-          if (nextCount > existingCount) {
+        const existingLastMessageId = Number(existing.last_message_id || 0);
+        const nextLastMessageId = Number(chat.last_message_id || 0);
+        if (nextLastMessageId !== existingLastMessageId) {
+          if (nextLastMessageId > existingLastMessageId) {
             dmByPeer.set(peerKey, chat);
           }
           return;
