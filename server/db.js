@@ -804,6 +804,23 @@ export function listChatsForUser(userId) {
     AND chat_messages.body NOT LIKE '[[system:%]]'
     AND ${getVisibleMessageFilterSql("chat_messages", "WHERE hidden_chat_messages.user_id = ?")}
   `;
+  const params = [
+    userId,
+    userId,
+    userId,
+    userId,
+    userId,
+    userId,
+    userId,
+    userId,
+    userId,
+    userId,
+    userId,
+    userId,
+    userId,
+    userId,
+    userId,
+  ];
 
   return getAll(
     `
@@ -847,24 +864,7 @@ export function listChatsForUser(userId) {
       AND h.chat_id IS NULL
     ORDER BY last_message_id DESC, c.created_at DESC
   `,
-    [
-      userId,
-      userId,
-      userId,
-      userId,
-      userId,
-      userId,
-      userId,
-      userId,
-      userId,
-      userId,
-      userId,
-      userId,
-      userId,
-      userId,
-      userId,
-      userId,
-    ],
+    params,
   ).map(decryptMessageRow);
 }
 
