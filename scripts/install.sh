@@ -1381,6 +1381,7 @@ write_nginx_site_config() {
   local listen_line="listen ${CLIENT_PORT} default_server;"
   local ssl_block=""
   local acme_block=""
+  local redirect_server_block=""
 
   if [[ "$mode" == "ssl" ]]; then
     listen_line="listen ${CLIENT_PORT} ssl default_server;"
@@ -1391,6 +1392,28 @@ write_nginx_site_config() {
   ssl_session_timeout 1d;
 EOF
 )
+
+    if [[ "$CLIENT_PORT" == "443" ]]; then
+      redirect_server_block=$(cat <<EOF
+
+server {
+  listen 80;
+  ${server_name_line}
+  return 301 https://\$host\$request_uri;
+}
+EOF
+)
+    elif [[ "$CLIENT_PORT" != "80" ]]; then
+      redirect_server_block=$(cat <<EOF
+
+server {
+  listen 80;
+  ${server_name_line}
+  return 301 https://\$host:${CLIENT_PORT}\$request_uri;
+}
+EOF
+)
+    fi
   fi
 
   if [[ "$mode" == "http" && "$DEPLOY_MODE" == "ip" && "$CERT_MODE" == "certbot" ]]; then
@@ -1440,6 +1463,7 @@ ${acme_block}
     proxy_cache_bypass \$http_upgrade;
   }
 }
+${redirect_server_block}
 EOF
 }
 
@@ -2263,11 +2287,20 @@ db_vacuum() {
 }
 
 db_restore() {
+  local backup_path=""
+  local backup_password=""
+
+  backup_path="$(prompt_backup_zip_path)"
   if [[ "$(prompt_yes_no "This will replace ${INSTALL_DIR}/data and update ${INSTALL_DIR}/.env when the backup includes it. Continue?" "no")" != "yes" ]]; then
     log "Restore canceled."
     return 0
   fi
-  run_db_command npm --prefix server run db:restore -- -y
+  backup_password="$(prompt_secret "Backup password (leave blank if not encrypted)")"
+  if [[ -n "$backup_password" ]]; then
+    run_db_command npm --prefix server run db:restore -- -y --file "$backup_path" --password "$backup_password"
+  else
+    run_db_command npm --prefix server run db:restore -- -y --file "$backup_path"
+  fi
   press_enter_to_continue
 }
 
@@ -2507,14 +2540,17 @@ db_chat_edit() {
   fi
 
   if [[ "$effective_visibility" == "private" ]]; then
-    prompt_read "Member invites setting for this private chat (allow/disallow/skip, default: skip): " invites
+    prompt_read "Member invites setting for this private chat (allow/deny, default: allow): " invites
+    invites="${invites#"${invites%%[![:space:]]*}"}"
+    invites="${invites%"${invites##*[![:space:]]}"}"
+    [[ -z "$invites" ]] && invites="allow"
   else
     log "Skipping member invites prompt because public chats always allow invites."
   fi
 
   if [[ "${invites,,}" == "allow" ]]; then
     args+=(--allow-member-invites)
-  elif [[ "${invites,,}" == "disallow" ]]; then
+  elif [[ "${invites,,}" == "deny" || "${invites,,}" == "disallow" ]]; then
     args+=(--disallow-member-invites)
   fi
 
