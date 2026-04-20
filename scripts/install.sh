@@ -1376,7 +1376,7 @@ EOF
 )
   fi
 
-  if [[ "$DEPLOY_MODE" == "ip" && "$CERT_MODE" == "certbot" ]]; then
+  if [[ "$mode" == "http" && "$DEPLOY_MODE" == "ip" && "$CERT_MODE" == "certbot" ]]; then
     run_silent run_as_root mkdir -p "$ACME_WEBROOT"
     acme_block=$(cat <<EOF
 
@@ -1470,13 +1470,21 @@ ensure_certbot_supports_ip_certificates() {
   if [[ -z "$version" ]]; then
     fail "Unable to determine certbot version for IP certificate setup."
   fi
-  if ! dpkg --compare-versions "$version" ge "5.4"; then
-    fail "Certbot ${version} is too old for IP certificate setup. Version 5.4 or newer is required."
+  if have_cmd dpkg; then
+    if dpkg --compare-versions "$version" ge "5.4"; then
+      return 0
+    fi
+  elif [[ "$(printf '%s\n%s\n' "5.4" "$version" | sort -V | tail -1)" == "$version" ]]; then
+    return 0
   fi
+  fail "Certbot ${version} is too old for IP certificate setup. Version 5.4 or newer is required."
 }
 
 configure_certbot_ip_ssl() {
   [[ -n "$CERTBOT_IP_ADDRESS" ]] || fail "Missing public IP address for Certbot IP certificate setup."
+  if [[ "$CLIENT_PORT" != "80" ]]; then
+    fail "6-day IP certificates require the nginx client port to stay on 80 during validation."
+  fi
 
   ensure_certbot_supports_ip_certificates
   run_silent run_as_root mkdir -p "$ACME_WEBROOT/.well-known/acme-challenge"
@@ -1637,8 +1645,10 @@ backup_database() {
     warn "Server directory not found; skipping DB backup."
     return 0
   fi
+  local backup_password=""
+  backup_password="$(prompt_secret "Backup password")"
   log "Backing up database before update..."
-  if ! run_in_install_dir "npm --prefix server run db:backup"; then
+  if ! run_in_install_dir "npm --prefix server run db:backup -- --password $(printf '%q' "$backup_password")"; then
     warn "DB backup command failed. Continuing, but verify backups manually."
   fi
 }
@@ -2153,14 +2163,68 @@ run_db_command() {
   run_as_root bash -lc "cd '$INSTALL_DIR' && ${escaped:1}"
 }
 
+resolve_chat_visibility_for_script() {
+  local chat_selector="$1"
+  [[ -n "$chat_selector" ]] || return 1
+
+  run_as_root env INSTALL_DIR="$INSTALL_DIR" CHAT_SELECTOR="$chat_selector" bash -lc '
+    cd "$INSTALL_DIR" || exit 1
+    node --input-type=module -e "
+      import { pathToFileURL } from \"node:url\";
+      const rootUrl = pathToFileURL(process.cwd() + \"/\");
+      const { openDatabase } = await import(new URL(\"./server/scripts/_db-admin.js\", rootUrl));
+      const { resolveChatRow } = await import(new URL(\"./server/lib/dbToolHelpers.js\", rootUrl));
+      const dbApi = await openDatabase();
+      try {
+        const chat = resolveChatRow(dbApi, String(process.env.CHAT_SELECTOR || \"\").trim());
+        if (!chat?.id) {
+          process.exit(2);
+        }
+        process.stdout.write(String(chat.group_visibility || \"public\").trim().toLowerCase() || \"public\");
+      } finally {
+        dbApi.close();
+      }
+    "
+  '
+}
+
+print_db_script_help() {
+  cat <<'EOF'
+Songbird Script Database Menu
+
+Use these menu actions inside this installer script:
+  1-4   Inspect database/chats/users/files
+  5     Backup database and uploads
+  6     Restore a backup zip
+  7     Vacuum the database
+  8-13  Reset/delete/ban file+chat+user data
+  14    Create one user
+  15    Generate users in bulk
+  16    Create a group or channel
+  17    Add members to a chat
+  18    Edit a chat
+  19    Edit a user
+
+Notes:
+  - "Ban/unban user" is a toggle and expires that user's sessions.
+  - Public chats always allow member invites. Invite settings only apply to private chats.
+  - Backups are encrypted zip files containing .env and data/.
+EOF
+}
+
 db_backup() {
+  local backup_password=""
+  backup_password="$(prompt_secret "Backup password")"
   log "Creating backup (db + uploads)..."
-  run_db_command npm --prefix server run db:backup
+  run_db_command npm --prefix server run db:backup -- --password "$backup_password"
   press_enter_to_continue
 }
 
 db_help() {
-  run_db_command npm --prefix server run db:help
+  clear
+  show_banner
+  printf "\n"
+  print_db_script_help
   press_enter_to_continue
 }
 
@@ -2179,20 +2243,6 @@ db_restore() {
     return 0
   fi
   run_db_command npm --prefix server run db:restore -- -y
-  press_enter_to_continue
-}
-
-db_help() {
-  run_db_command npm --prefix server run db:help
-  press_enter_to_continue
-}
-
-db_vacuum() {
-  if [[ "$(prompt_yes_no "This will run VACUUM and rewrite the database file. Continue?" "no")" != "yes" ]]; then
-    log "VACUUM canceled."
-    return 0
-  fi
-  run_db_command npm --prefix server run db:vacuum -- -y
   press_enter_to_continue
 }
 
@@ -2305,7 +2355,7 @@ db_user_create() {
   local username=""
   local password=""
 
-  prompt_read "Display name (optional): " nickname
+  nickname="$(prompt_non_empty "Nickname")"
   username="$(prompt_non_empty "Username (lowercase letters, numbers, ., _)")"
   password="$(prompt_secret "Password")"
 
@@ -2408,6 +2458,7 @@ db_chat_edit() {
   local color=""
   local owner=""
   local invites=""
+  local effective_visibility=""
   local args=()
 
   chat="$(prompt_non_empty "Chat id or username")"
@@ -2416,7 +2467,6 @@ db_chat_edit() {
   prompt_read "Visibility (public/private, optional): " visibility
   prompt_read "Color hex (optional, example: #10b981): " color
   prompt_read "New owner username or id (optional): " owner
-  prompt_read "Member invites setting (allow/disallow/skip, default: skip): " invites
 
   args+=("$chat")
   [[ -n "$name" ]] && args+=(--name "$name")
@@ -2424,6 +2474,19 @@ db_chat_edit() {
   [[ -n "$visibility" ]] && args+=(--visibility "$visibility")
   [[ -n "$color" ]] && args+=(--color "$color")
   [[ -n "$owner" ]] && args+=(--owner "$owner")
+
+  if [[ -n "$visibility" ]]; then
+    effective_visibility="${visibility,,}"
+  else
+    effective_visibility="$(resolve_chat_visibility_for_script "$chat" 2>/dev/null || true)"
+  fi
+
+  if [[ "$effective_visibility" == "private" ]]; then
+    prompt_read "Member invites setting for this private chat (allow/disallow/skip, default: skip): " invites
+  else
+    log "Skipping member invites prompt because public chats always allow invites."
+  fi
+
   if [[ "${invites,,}" == "allow" ]]; then
     args+=(--allow-member-invites)
   elif [[ "${invites,,}" == "disallow" ]]; then
@@ -2464,7 +2527,11 @@ db_user_edit() {
 db_user_ban() {
   local user=""
   user="$(prompt_non_empty "User id or username")"
-  run_db_command npm --prefix server run db:user:ban -- "$user"
+  if [[ "$(prompt_yes_no "Toggle ban state for ${user} ?" "no")" != "yes" ]]; then
+    log "Ban/unban canceled."
+    return 0
+  fi
+  run_db_command npm --prefix server run db:user:ban -- -y "$user"
   press_enter_to_continue
 }
 

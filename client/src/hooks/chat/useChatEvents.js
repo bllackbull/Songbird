@@ -22,6 +22,7 @@ export function useChatEvents({
   onPresenceUpdate,
   onTypingUpdate,
   onChatListChanged,
+  onSessionRevoked,
 }) {
   const onIncomingMessageRef = useRef(onIncomingMessage);
   const onMessageDeletedRef = useRef(onMessageDeleted);
@@ -29,6 +30,7 @@ export function useChatEvents({
   const onPresenceUpdateRef = useRef(onPresenceUpdate);
   const onTypingUpdateRef = useRef(onTypingUpdate);
   const onChatListChangedRef = useRef(onChatListChanged);
+  const onSessionRevokedRef = useRef(onSessionRevoked);
   const loadChatsTimerRef = useRef(null);
   const loadChatsScheduledRef = useRef(false);
 
@@ -55,6 +57,10 @@ export function useChatEvents({
   useEffect(() => {
     onChatListChangedRef.current = onChatListChanged;
   }, [onChatListChanged]);
+
+  useEffect(() => {
+    onSessionRevokedRef.current = onSessionRevoked;
+  }, [onSessionRevoked]);
 
   useEffect(() => {
     if (!username) return;
@@ -94,8 +100,13 @@ export function useChatEvents({
           payload.type !== "chat_message_updated" &&
           payload.type !== "chat_list_changed" &&
           payload.type !== "presence_update" &&
-          payload.type !== "chat_typing"
+          payload.type !== "chat_typing" &&
+          payload.type !== "session_revoked"
         ) {
+          return;
+        }
+        if (payload.type === "session_revoked") {
+          onSessionRevokedRef.current?.(payload);
           return;
         }
         if (payload.type === "presence_update") {

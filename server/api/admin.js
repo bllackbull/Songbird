@@ -31,6 +31,7 @@ function registerAdminRoutes(app, deps) {
     fs,
     path,
     emitChatEvent,
+    emitSseEvent,
   } = deps;
 
   app.post("/api/admin/db-tools", async (req, res) => {
@@ -362,8 +363,10 @@ function registerAdminRoutes(app, deps) {
         const nickname = String(payload.nickname || "").trim();
         const password = String(payload.password || "");
 
-        if (!rawUsername || !password) {
-          return res.status(400).json({ error: "Username and password are required." });
+        if (!nickname || !rawUsername || !password) {
+          return res.status(400).json({
+            error: "Nickname, username, and password are required.",
+          });
         }
         if (rawUsername.length < 3) {
           return res.status(400).json({ error: "Username must be at least 3 characters." });
@@ -404,7 +407,7 @@ function registerAdminRoutes(app, deps) {
         adminRun(
           `INSERT INTO users (username, nickname, avatar_url, color, status, password_hash, created_at, last_seen)
            VALUES (?, ?, NULL, ?, ?, ?, datetime('now'), datetime('now'))`,
-          [rawUsername, nickname || rawUsername, assignedColor, "online", passwordHash],
+          [rawUsername, nickname, assignedColor, "online", passwordHash],
         );
         adminSave();
 
@@ -620,14 +623,28 @@ function registerAdminRoutes(app, deps) {
           payload.color === undefined
             ? String(chat.group_color || "").trim() || null
             : normalizeHexColor(payload.color);
+        const effectiveVisibility = nextVisibility === "private" ? "private" : "public";
+        if (
+          effectiveVisibility !== "private" &&
+          payload.allowMemberInvites !== null &&
+          payload.allowMemberInvites !== undefined &&
+          !payload.allowMemberInvites
+        ) {
+          return res.status(400).json({
+            error:
+              "Member invites can only be changed for private chats. Public chats always allow member invites.",
+          });
+        }
         const allowMemberInvites =
-          payload.allowMemberInvites === null || payload.allowMemberInvites === undefined
-            ? Number(chat.allow_member_invites || 0)
-              ? 1
-              : 0
-            : payload.allowMemberInvites
-              ? 1
-              : 0;
+          effectiveVisibility === "private"
+            ? payload.allowMemberInvites === null || payload.allowMemberInvites === undefined
+              ? Number(chat.allow_member_invites || 0)
+                ? 1
+                : 0
+              : payload.allowMemberInvites
+                ? 1
+                : 0
+            : 1;
 
         if (payload.color !== undefined && !nextColor) {
           return res.status(400).json({ error: "Invalid color." });
@@ -724,23 +741,23 @@ function registerAdminRoutes(app, deps) {
         }
 
         const nextUsername =
-          payload.username === undefined
+          payload.username === undefined || payload.username === null
             ? String(user.username || "")
             : String(payload.username || "").trim().toLowerCase();
         const nextNickname =
-          payload.nickname === undefined
+          payload.nickname === undefined || payload.nickname === null
             ? user.nickname || null
             : String(payload.nickname || "").trim() || null;
         const nextAvatarUrl =
-          payload.avatarUrl === undefined
+          payload.avatarUrl === undefined || payload.avatarUrl === null
             ? user.avatar_url || null
             : String(payload.avatarUrl || "").trim() || null;
         const nextStatus =
-          payload.status === undefined
+          payload.status === undefined || payload.status === null
             ? String(user.status || "online").toLowerCase()
             : String(payload.status || "").trim().toLowerCase();
         const nextColor =
-          payload.color === undefined
+          payload.color === undefined || payload.color === null
             ? String(user.color || "").trim() || null
             : normalizeHexColor(payload.color);
 
@@ -844,6 +861,13 @@ function registerAdminRoutes(app, deps) {
           throw error;
         }
         adminSave();
+
+        if (nextBanned) {
+          emitSseEvent(user.username, {
+            type: "session_revoked",
+            reason: "banned",
+          });
+        }
 
         return res.json({
           ok: true,

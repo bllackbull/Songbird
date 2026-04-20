@@ -21,6 +21,7 @@ Reset/Delete:
 
 Users:
   npm run db:user:create -- --nickname "Songbird Sage" --username songbird.sage --password "12345678"
+  npm run db:user:create -- "Songbird Sage" songbird.sage "12345678"
   npm run db:user:generate -- --count=50 --password="12345678"
   npm run db:user:edit -- songbird.sage --nickname "Songbird Sage" --color "#ff6b6b"
   npm run db:user:ban -- songbird.sage -y

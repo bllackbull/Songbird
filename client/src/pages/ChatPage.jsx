@@ -2769,6 +2769,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         closeChat();
       }
     },
+    onSessionRevoked: () => {
+      handleLogout();
+    },
   });
 
   useEffect(() => {

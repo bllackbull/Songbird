@@ -89,14 +89,28 @@ async function main() {
         : normalizeVisibility(visibilityValue);
     const nextColor =
       normalizedColor || String(chat.group_color || "").trim() || null;
+    const effectiveVisibility =
+      nextVisibility === "private" ? "private" : "public";
+    if (
+      effectiveVisibility !== "private" &&
+      allowMemberInvites !== null &&
+      allowMemberInvites !== true
+    ) {
+      console.error(
+        "Member invites can only be changed for private chats. Public chats always allow member invites.",
+      );
+      process.exit(1);
+    }
     const nextAllowMemberInvites =
-      allowMemberInvites === null
-        ? Number(chat.allow_member_invites || 0)
-          ? 1
-          : 0
-        : allowMemberInvites
-          ? 1
-          : 0;
+      effectiveVisibility === "private"
+        ? allowMemberInvites === null
+          ? Number(chat.allow_member_invites || 0)
+            ? 1
+            : 0
+          : allowMemberInvites
+            ? 1
+            : 0
+        : 1;
 
     if (nextUsername) {
       const userConflict = dbApi.getRow(

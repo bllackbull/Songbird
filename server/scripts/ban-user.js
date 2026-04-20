@@ -30,7 +30,7 @@ async function main() {
 
     const nextBanned = Number(user.banned || 0) ? 0 : 1;
     const confirmed = await confirmAction({
-      prompt: `${nextBanned ? "Ban" : "Unban"} user "${user.username}" and expire all active sessions?`,
+      prompt: `${nextBanned ? "Ban" : "Unban"} user "${user.username}" ?`,
       force,
       forceHint:
         "Refusing to change ban state in non-interactive mode without -y/--yes. Run: npm run db:user:ban -- -y <user-id-or-username>",

@@ -532,7 +532,7 @@ export const MessageItem = memo(function MessageItem({
     disabled: !onOpenContextMenu,
     isMobile: contextMenuMobileEnabled,
     holdDelayMs:
-      contextMenuMobileEnabled && canSwipeReply ? 900 : undefined,
+      contextMenuMobileEnabled && canSwipeReply ? 650 : undefined,
     moveTolerancePx:
       contextMenuMobileEnabled && canSwipeReply ? 0 : undefined,
     onOpen: ({ event, targetEl, isMobile }) =>

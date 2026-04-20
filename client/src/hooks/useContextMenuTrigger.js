@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 
-const DEFAULT_HOLD_DELAY_MS = 420;
+const DEFAULT_HOLD_DELAY_MS = 300;
 const MOVE_TOLERANCE_PX = 12;
 
 export function useContextMenuTrigger({

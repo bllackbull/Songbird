@@ -61,9 +61,9 @@ async function main() {
 
   const remoteResult = await runAdminActionViaServer("edit_user", {
     userSelector,
-    username: usernameValue,
-    nickname: nicknameValue,
-    avatarUrl: avatarUrlValue,
+    username: usernameValue === null ? undefined : usernameValue,
+    nickname: nicknameValue === null ? undefined : nicknameValue,
+    avatarUrl: avatarUrlValue === null ? undefined : avatarUrlValue,
     status: nextStatus,
     color: normalizedColor,
   });
