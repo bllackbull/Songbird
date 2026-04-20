@@ -3,7 +3,16 @@
 set -uo pipefail
 
 handle_exit() {
-  clear
+  local exit_code=$?
+  if [[ "$exit_code" -eq 0 ]]; then
+    clear
+    return 0
+  fi
+
+  printf "\n[SONGBIRD] Script exited with code %s.\n" "$exit_code" >&2
+  if [[ -f "$LOG_FILE" ]]; then
+    printf "[SONGBIRD] Review the log at %s for the last recorded step.\n" "$LOG_FILE" >&2
+  fi
 }
 
 handle_interrupt() {
@@ -90,11 +99,19 @@ ensure_log_dir() {
 }
 
 warn() {
+  local timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
   printf "[%s] WARNING: %s\n" "SONGBIRD" "$*" >&2
+  if [[ -f "$LOG_FILE" ]]; then
+    printf "[%s] [SONGBIRD] WARNING: %s\n" "$timestamp" "$*" >> "$LOG_FILE" 2>/dev/null || true
+  fi
 }
 
 fail() {
+  local timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
   printf "[%s] ERROR: %s\n" "SONGBIRD" "$*" >&2
+  if [[ -f "$LOG_FILE" ]]; then
+    printf "[%s] [SONGBIRD] ERROR: %s\n" "$timestamp" "$*" >> "$LOG_FILE" 2>/dev/null || true
+  fi
   exit 1
 }
 
@@ -1427,6 +1444,7 @@ EOF
 }
 
 configure_nginx() {
+  log "Preparing initial HTTP nginx configuration..."
   write_nginx_site_config "http"
 
   run_as_root ln -sfn "$NGINX_SITE_FILE" "$NGINX_ENABLED_FILE"
@@ -1434,8 +1452,11 @@ configure_nginx() {
     run_as_root rm -f /etc/nginx/sites-enabled/default
   fi
 
+  log "Testing nginx configuration..."
   run_as_root nginx -t
+  log "Reloading nginx..."
   run_as_root systemctl reload nginx
+  log "Initial nginx configuration is active."
 }
 
 install_ssl_files_into_nginx() {
@@ -1454,8 +1475,9 @@ configure_manual_ssl_files() {
   fi
 
   run_silent run_as_root mkdir -p "$CERT_INSTALL_DIR"
-  run_silent run_as_root cp -a "$MANUAL_CERT_FULLCHAIN_PATH" "$CERT_INSTALL_DIR/fullchain.pem"
-  run_silent run_as_root cp -a "$MANUAL_CERT_PRIVKEY_PATH" "$CERT_INSTALL_DIR/privkey.pem"
+  run_silent run_as_root rm -f "$CERT_INSTALL_DIR/fullchain.pem" "$CERT_INSTALL_DIR/privkey.pem"
+  run_silent run_as_root cp -Lf "$MANUAL_CERT_FULLCHAIN_PATH" "$CERT_INSTALL_DIR/fullchain.pem"
+  run_silent run_as_root cp -Lf "$MANUAL_CERT_PRIVKEY_PATH" "$CERT_INSTALL_DIR/privkey.pem"
   run_silent run_as_root chmod 644 "$CERT_INSTALL_DIR/fullchain.pem"
   run_silent run_as_root chmod 600 "$CERT_INSTALL_DIR/privkey.pem"
 
@@ -1486,6 +1508,7 @@ configure_certbot_ip_ssl() {
     fail "6-day IP certificates require the nginx client port to stay on 80 during validation."
   fi
 
+  log "Checking certbot support for short-lived IP certificates..."
   ensure_certbot_supports_ip_certificates
   run_silent run_as_root mkdir -p "$ACME_WEBROOT/.well-known/acme-challenge"
 
@@ -1985,7 +2008,9 @@ install_songbird() {
   ensure_vapid_keys
   apply_ownership
   configure_systemd_service
+  log "Starting nginx setup..."
   configure_nginx
+  log "Starting TLS setup..."
   configure_ssl_if_needed
 
   log "Installation complete."
