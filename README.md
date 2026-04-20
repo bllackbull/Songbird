@@ -190,7 +190,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/songbird/server
-ExecStart=/usr/bin/node /opt/songbird/server/index.js
+ExecStart=/usr/bin/env node /opt/songbird/server/index.js
 Restart=on-failure
 RestartSec=5
 

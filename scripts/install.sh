@@ -67,6 +67,7 @@ CERT_MODE="http"
 CERTBOT_IP_ADDRESS=""
 MANUAL_CERT_FULLCHAIN_PATH=""
 MANUAL_CERT_PRIVKEY_PATH=""
+NODE_EXEC_PATH=""
 
 log() {
   local timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
@@ -771,6 +772,22 @@ ensure_nodejs_from_nodesource() {
   run_silent run_as_root apt-get install -y nodejs
 }
 
+resolve_node_exec_path() {
+  local node_path=""
+  if have_cmd node; then
+    node_path="$(command -v node)"
+  elif have_cmd nodejs; then
+    node_path="$(command -v nodejs)"
+  fi
+
+  if [[ -z "$node_path" ]]; then
+    fail "Node.js executable not found in PATH after installation."
+  fi
+
+  NODE_EXEC_PATH="$node_path"
+  log "Using Node.js executable for systemd service: ${NODE_EXEC_PATH}"
+}
+
 
 ensure_service_user_exists() {
   if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
@@ -1315,6 +1332,7 @@ apply_ownership() {
 
 configure_systemd_service() {
   log "Creating systemd service at ${SERVICE_FILE}..."
+  [[ -n "$NODE_EXEC_PATH" ]] || resolve_node_exec_path
   run_silent run_as_root tee "$SERVICE_FILE" >/dev/null <<EOF
 [Unit]
 Description=Songbird server
@@ -1325,7 +1343,7 @@ Type=simple
 User=${SERVICE_USER}
 Group=${SERVICE_GROUP}
 WorkingDirectory=${INSTALL_DIR}/server
-ExecStart=/usr/bin/node /opt/songbird/server/index.js
+ExecStart=${NODE_EXEC_PATH} ${INSTALL_DIR}/server/index.js
 Restart=on-failure
 RestartSec=5
 
@@ -1345,6 +1363,7 @@ write_nginx_site_config() {
   local server_name_line="server_name ${NGINX_SERVER_NAME};"
   local listen_line="listen ${CLIENT_PORT} default_server;"
   local ssl_block=""
+  local acme_block=""
 
   if [[ "$mode" == "ssl" ]]; then
     listen_line="listen ${CLIENT_PORT} ssl default_server;"
@@ -1357,19 +1376,26 @@ EOF
 )
   fi
 
+  if [[ "$DEPLOY_MODE" == "ip" && "$CERT_MODE" == "certbot" ]]; then
+    run_silent run_as_root mkdir -p "$ACME_WEBROOT"
+    acme_block=$(cat <<EOF
+
+  location /.well-known/acme-challenge/ {
+    root ${ACME_WEBROOT};
+    default_type "text/plain";
+  }
+EOF
+)
+  fi
+
   log "Creating Nginx config at ${NGINX_SITE_FILE}..."
-  run_silent run_as_root mkdir -p "$ACME_WEBROOT"
   run_silent run_as_root tee "$NGINX_SITE_FILE" >/dev/null <<EOF
 server {
   ${listen_line}
   ${server_name_line}
   client_max_body_size ${MAX_UPLOAD};
 ${ssl_block}
-
-  location /.well-known/acme-challenge/ {
-    root ${ACME_WEBROOT};
-    default_type "text/plain";
-  }
+${acme_block}
 
   location /api/events {
     proxy_pass http://127.0.0.1:${SERVER_PORT};
