@@ -74,6 +74,7 @@ CURRENT_ENV_FILE=""
 PROMPT_FD=0
 PROMPT_FD_OUT=1
 DB_BACKUP_PATH=""
+DB_BACKUP_PASSWORD=""
 SOURCE_MODE=""
 SOURCE_ZIP_PATH=""
 CERT_MODE="http"
@@ -581,11 +582,13 @@ select_backup_zip_path() {
 
 prompt_install_backup_restore() {
   DB_BACKUP_PATH=""
+  DB_BACKUP_PASSWORD=""
   if [[ "$(prompt_yes_no "Restore database from a backup zip during installation?" "no")" != "yes" ]]; then
     return 0
   fi
 
   DB_BACKUP_PATH="$(select_backup_zip_path)"
+  DB_BACKUP_PASSWORD="$(prompt_secret_optional "Backup password (leave blank if not encrypted)")"
   return 0
 }
 
@@ -929,7 +932,7 @@ find_restore_backup_zip() {
   local dir=""
   for dir in "${candidates[@]}"; do
     local found=""
-    found="$(run_as_root_output bash -lc "find '$dir' -maxdepth 1 -type f -name '*.zip' -printf '%T@\t%p\n' 2>/dev/null | sort -nr | head -1 | cut -f2-" | tr -d '\r\n')" || found=""
+    found="$(run_as_root_output bash -lc "find '$dir' -maxdepth 1 -type f -name 'songbird-backup-*.zip' -printf '%T@\t%p\n' 2>/dev/null | sort -nr | head -1 | cut -f2-" | tr -d '\r\n')" || found=""
     if [[ -n "$found" && -f "$found" ]]; then
       printf "%s" "$found"
       return 0
@@ -1604,6 +1607,7 @@ configure_lego_ip_ssl() {
     --accept-tos \
     --email "$CERTBOT_EMAIL" \
     --path "$LEGO_STATE_DIR" \
+    --disable-cn \
     --http \
     --http.webroot "$ACME_WEBROOT" \
     --domains "$CERTBOT_IP_ADDRESS" \
@@ -1631,7 +1635,7 @@ Wants=network-online.target
 Type=oneshot
 User=root
 Group=root
-ExecStart=${LEGO_BIN} --accept-tos --email ${CERTBOT_EMAIL} --path ${LEGO_STATE_DIR} --http --http.webroot ${ACME_WEBROOT} --domains ${CERTBOT_IP_ADDRESS} renew --dynamic --profile shortlived
+ExecStart=${LEGO_BIN} --accept-tos --email ${CERTBOT_EMAIL} --path ${LEGO_STATE_DIR} --disable-cn --http --http.webroot ${ACME_WEBROOT} --domains ${CERTBOT_IP_ADDRESS} renew --dynamic --profile shortlived
 ExecStartPost=/bin/bash -lc 'cat "${LEGO_STATE_DIR}/certificates/${CERTBOT_IP_ADDRESS}.crt" > "${CERT_INSTALL_DIR}/fullchain.pem" && if [[ -f "${LEGO_STATE_DIR}/certificates/${CERTBOT_IP_ADDRESS}.issuer.crt" ]]; then cat "${LEGO_STATE_DIR}/certificates/${CERTBOT_IP_ADDRESS}.issuer.crt" >> "${CERT_INSTALL_DIR}/fullchain.pem"; fi && cp -Lf "${LEGO_STATE_DIR}/certificates/${CERTBOT_IP_ADDRESS}.key" "${CERT_INSTALL_DIR}/privkey.pem" && chmod 644 "${CERT_INSTALL_DIR}/fullchain.pem" && chmod 600 "${CERT_INSTALL_DIR}/privkey.pem" && systemctl reload nginx'
 
 [Install]
@@ -1743,8 +1747,10 @@ restore_backup_if_provided() {
 
   local extract_result=""
   if ! extract_result="$(extract_backup_zip "$DB_BACKUP_PATH" "$tmp_dir" 2>/dev/null)"; then
-    local backup_password=""
-    backup_password="$(prompt_secret_optional "Backup password (leave blank if not encrypted)")"
+    local backup_password="${DB_BACKUP_PASSWORD:-}"
+    if [[ -z "$backup_password" ]]; then
+      backup_password="$(prompt_secret_optional "Backup password (leave blank if not encrypted)")"
+    fi
     run_silent run_as_root rm -rf "$tmp_dir"
     tmp_dir="$(mktemp -d)"
     extract_result="$(extract_backup_zip "$DB_BACKUP_PATH" "$tmp_dir" "$backup_password" 2>/dev/null)" || {

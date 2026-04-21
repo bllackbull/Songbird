@@ -16,6 +16,7 @@ const projectRootDir = path.resolve(serverDir, "..");
 const backupDir = path.join(projectRootDir, "data", "backups");
 const rootBackupDir = "/root";
 const unzipBinary = process.env.UNZIP_BIN || "unzip";
+const backupNamePattern = /^songbird-backup-.*\.zip$/i;
 const serviceName = process.env.SONGBIRD_SERVICE_NAME || "songbird.service";
 const serviceUser = process.env.SONGBIRD_SERVICE_USER || "songbird";
 const serviceGroup = process.env.SONGBIRD_SERVICE_GROUP || serviceUser;
@@ -27,7 +28,7 @@ function listZipFilesInDir(dirPath) {
 
   return fs
     .readdirSync(dirPath, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".zip"))
+    .filter((entry) => entry.isFile() && backupNamePattern.test(entry.name))
     .map((entry) => path.join(dirPath, entry.name))
     .sort((a, b) => {
       const aTime = fs.statSync(a).mtimeMs;
