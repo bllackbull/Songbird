@@ -318,11 +318,12 @@ prompt_port() {
 }
 
 prompt_client_port() {
+  local default_port="${1:-$DEFAULT_CLIENT_PORT}"
   local value=""
   while true; do
-    prompt_read "Enter client (nginx) port (default: $DEFAULT_CLIENT_PORT): " value
+    prompt_read "Enter client (nginx) port (default: $default_port): " value
     if [[ -z "$value" ]]; then
-      printf "%s" "$DEFAULT_CLIENT_PORT"
+      printf "%s" "$default_port"
       return 0
     fi
     if [[ "$value" =~ ^[0-9]+$ ]] && (( value >= 1 && value <= 65535 )); then
@@ -1396,11 +1397,13 @@ collect_install_options() {
 
 
   SERVER_PORT="$(prompt_port)"
-  if [[ "$DEPLOY_MODE" == "ip" && "$CERT_MODE" == "certbot" ]]; then
-    CLIENT_PORT="443"
-    log "Using nginx HTTPS port 443 for 6-day IP certificates."
+  if [[ "$CERT_MODE" == "http" ]]; then
+    CLIENT_PORT="$(prompt_client_port "$DEFAULT_CLIENT_PORT")"
   else
-    CLIENT_PORT="$(prompt_client_port)"
+    CLIENT_PORT="$(prompt_client_port "443")"
+  fi
+  if [[ "$CERT_MODE" != "http" ]]; then
+    log "Using HTTP redirect on port 80 and HTTPS on port ${CLIENT_PORT}."
   fi
 
   if [[ "$(prompt_yes_no "Allow account creation via website?" "yes")" == "yes" ]]; then
@@ -1476,11 +1479,7 @@ write_nginx_site_config() {
   fi
 
   if [[ "$mode" == "ssl" ]]; then
-    if [[ "$DEPLOY_MODE" == "ip" && "$CERT_MODE" == "certbot" ]]; then
-      listen_line="listen 443 ssl default_server;"
-    else
-      listen_line="listen ${CLIENT_PORT} ssl default_server;"
-    fi
+    listen_line="listen ${CLIENT_PORT} ssl default_server;"
     ssl_block=$(cat <<EOF
   ssl_certificate ${cert_path};
   ssl_certificate_key ${key_path};
@@ -1495,7 +1494,13 @@ EOF
 server {
   listen 80;
   ${server_name_line}
-  return 301 https://\$host\$request_uri;
+  location /.well-known/acme-challenge/ {
+    root ${ACME_WEBROOT};
+    default_type "text/plain";
+  }
+  if (\$request_uri !~ "^/\\.well-known/acme-challenge/") {
+    return 301 https://\$host$( [[ "$CLIENT_PORT" == "443" ]] && printf "" || printf ":%s" "$CLIENT_PORT" )\$request_uri;
+  }
 }
 EOF
 )
@@ -1891,13 +1896,16 @@ update_nginx_runtime_values() {
     "s|proxy_pass http://127\\.0\\.0\\.1:[0-9]+;|proxy_pass http://127.0.0.1:${SERVER_PORT};|g" \
     "$NGINX_SITE_FILE"
 
-  run_silent run_as_root sed -i -E \
-    "s|listen [0-9]+( ssl)? default_server;|listen ${CLIENT_PORT}\1 default_server;|g" \
-    "$NGINX_SITE_FILE"
+  local existing_cert=""
+  local existing_key=""
+  existing_cert="$(run_as_root_output grep -E '^\s*ssl_certificate ' "$NGINX_SITE_FILE" | head -n 1 | sed -E 's/^\s*ssl_certificate\s+([^;]+);/\1/' | tr -d '\r\n')" || existing_cert=""
+  existing_key="$(run_as_root_output grep -E '^\s*ssl_certificate_key ' "$NGINX_SITE_FILE" | head -n 1 | sed -E 's/^\s*ssl_certificate_key\s+([^;]+);/\1/' | tr -d '\r\n')" || existing_key=""
 
-  run_silent run_as_root sed -i -E \
-    "s|client_max_body_size [^;]+;|client_max_body_size ${MAX_UPLOAD};|g" \
-    "$NGINX_SITE_FILE"
+  if [[ -n "$existing_cert" && -n "$existing_key" ]]; then
+    write_nginx_site_config "ssl" "$existing_cert" "$existing_key"
+  else
+    write_nginx_site_config "http"
+  fi
 
   if run_as_root nginx -t; then
     run_as_root systemctl reload nginx
@@ -2191,7 +2199,15 @@ install_songbird() {
 
   log "Installation complete."
   log "Songbird has been installed successfully."
-  if [[ "$DEPLOY_MODE" == "domain" ]]; then
+  if [[ "$CERT_MODE" == "http" ]]; then
+    if [[ "$DEPLOY_MODE" == "domain" ]]; then
+      for d in "${DOMAIN_NAMES[@]}"; do
+        log "Visit: http://${d}:${CLIENT_PORT}"
+      done
+    else
+      log "Visit: http://<your-server-ip>:${CLIENT_PORT}"
+    fi
+  elif [[ "$DEPLOY_MODE" == "domain" ]]; then
     for d in "${DOMAIN_NAMES[@]}"; do
       if [[ "$CLIENT_PORT" == "443" ]]; then
         log "Visit: https://${d}"
@@ -2200,10 +2216,10 @@ install_songbird() {
       fi
     done
   else
-    if [[ "$CERT_MODE" == "certbot" ]]; then
+    if [[ "$CLIENT_PORT" == "443" ]]; then
       log "Visit: https://${CERTBOT_IP_ADDRESS}"
     else
-      log "Visit: http://<your-server-ip>:${CLIENT_PORT}"
+      log "Visit: https://${CERTBOT_IP_ADDRESS}:${CLIENT_PORT}"
     fi
   fi
 
