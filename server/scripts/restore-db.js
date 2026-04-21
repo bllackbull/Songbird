@@ -133,7 +133,10 @@ function unzipResultNeedsPassword(result) {
 }
 
 function extractBackup(zipPath, destinationDir, password) {
-  const args = ["-q", "-P", String(password || "")];
+  const args = ["-q"];
+  if (password) {
+    args.push("-P", password);
+  }
   args.push(zipPath, "-d", destinationDir);
   return runUnzip(args);
 }
