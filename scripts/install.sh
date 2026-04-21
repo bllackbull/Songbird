@@ -30,6 +30,8 @@ REPO_URL="${REPO_URL:-https://github.com/bllackbull/Songbird.git}"
 SERVICE_USER="songbird"
 SERVICE_GROUP="songbird"
 SERVICE_FILE="/etc/systemd/system/songbird.service"
+LEGO_RENEW_SERVICE_FILE="/etc/systemd/system/songbird-lego-renew.service"
+LEGO_RENEW_TIMER_FILE="/etc/systemd/system/songbird-lego-renew.timer"
 NGINX_SITE_FILE="/etc/nginx/sites-available/songbird"
 NGINX_ENABLED_FILE="/etc/nginx/sites-enabled/songbird"
 DEFAULT_SERVER_PORT="5174"
@@ -46,6 +48,8 @@ SCRIPT_REMOTE_URL="${SCRIPT_REMOTE_URL:-https://raw.githubusercontent.com/bllack
 LOG_LINES="${LOG_LINES:-100}"
 CERT_INSTALL_DIR="/etc/ssl/songbird"
 ACME_WEBROOT="/var/lib/songbird/certbot"
+LEGO_STATE_DIR="/var/lib/songbird/lego"
+LEGO_BIN="/usr/local/bin/lego"
 
 # Mirror URLs
 MIRROR_NODESOURCE="${MIRROR_NODESOURCE:-}"
@@ -701,7 +705,7 @@ install_required_packages() {
     zip
     unzip
   )
-  if [[ "$CERT_MODE" == "certbot" ]]; then
+  if [[ "$CERT_MODE" == "certbot" && "$DEPLOY_MODE" == "domain" ]]; then
     required_pkgs+=(python3-certbot-nginx)
   fi
   local missing_pkgs=()
@@ -811,6 +815,51 @@ ensure_service_user_exists() {
     log "Creating dedicated system user: ${SERVICE_USER}"
     run_silent run_as_root useradd --system --no-create-home --shell /usr/sbin/nologin "$SERVICE_USER"
   fi
+}
+
+map_lego_arch() {
+  local machine=""
+  machine="$(uname -m)"
+  case "$machine" in
+    x86_64|amd64) printf "amd64" ;;
+    aarch64|arm64) printf "arm64" ;;
+    armv7l|armv7) printf "armv7" ;;
+    armv6l|armv6) printf "armv6" ;;
+    i386|i686) printf "386" ;;
+    *) fail "Unsupported architecture for lego binary install: ${machine}" ;;
+  esac
+}
+
+ensure_lego_installed() {
+  if [[ -x "$LEGO_BIN" ]]; then
+    log "lego binary already installed at ${LEGO_BIN}."
+    return 0
+  fi
+
+  local latest_url=""
+  latest_url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/go-acme/lego/releases/latest)" || {
+    fail "Unable to resolve latest lego release URL."
+  }
+  local latest_tag="${latest_url##*/}"
+  [[ -n "$latest_tag" ]] || fail "Unable to determine latest lego release tag."
+
+  local arch=""
+  arch="$(map_lego_arch)"
+  local asset="lego_${latest_tag}_linux_${arch}.tar.gz"
+  local download_url="https://github.com/go-acme/lego/releases/download/${latest_tag}/${asset}"
+  local tmp_dir=""
+  tmp_dir="$(mktemp -d)"
+
+  log "Downloading lego ${latest_tag} for linux/${arch}..."
+  curl -fsSL "$download_url" -o "${tmp_dir}/${asset}" || {
+    run_silent run_as_root rm -rf "$tmp_dir"
+    fail "Unable to download lego binary from ${download_url}"
+  }
+
+  run_silent run_as_root tar -xzf "${tmp_dir}/${asset}" -C "$tmp_dir"
+  run_silent run_as_root install -m 755 "${tmp_dir}/lego" "$LEGO_BIN"
+  run_silent run_as_root rm -rf "$tmp_dir"
+  log "Installed lego at ${LEGO_BIN}."
 }
 
 clone_repo() {
@@ -1508,52 +1557,97 @@ configure_manual_ssl_files() {
   install_ssl_files_into_nginx "$CERT_INSTALL_DIR/fullchain.pem" "$CERT_INSTALL_DIR/privkey.pem"
 }
 
-ensure_certbot_supports_ip_certificates() {
-  local version_output=""
-  version_output="$(run_as_root_output certbot --version 2>/dev/null || true)"
-  local version=""
-  version="$(printf "%s" "$version_output" | sed -nE 's/.* ([0-9]+(\.[0-9]+)+).*/\1/p' | head -1)"
-  if [[ -z "$version" ]]; then
-    fail "Unable to determine certbot version for IP certificate setup."
-  fi
-  if have_cmd dpkg; then
-    if dpkg --compare-versions "$version" ge "5.4"; then
-      return 0
+install_lego_certificate_files() {
+  local cert_name="$1"
+  local cert_file="${LEGO_STATE_DIR}/certificates/${cert_name}.crt"
+  local issuer_file="${LEGO_STATE_DIR}/certificates/${cert_name}.issuer.crt"
+  local key_file="${LEGO_STATE_DIR}/certificates/${cert_name}.key"
+
+  [[ -f "$cert_file" ]] || fail "lego certificate file not found: ${cert_file}"
+  [[ -f "$key_file" ]] || fail "lego private key file not found: ${key_file}"
+
+  run_silent run_as_root mkdir -p "$CERT_INSTALL_DIR"
+  run_silent run_as_root env CERT_FILE="$cert_file" ISSUER_FILE="$issuer_file" FULLCHAIN_FILE="$CERT_INSTALL_DIR/fullchain.pem" bash -lc '
+    cat "$CERT_FILE" > "$FULLCHAIN_FILE"
+    if [[ -f "$ISSUER_FILE" ]]; then
+      cat "$ISSUER_FILE" >> "$FULLCHAIN_FILE"
     fi
-  elif [[ "$(printf '%s\n%s\n' "5.4" "$version" | sort -V | tail -1)" == "$version" ]]; then
-    return 0
-  fi
-  fail "Certbot ${version} is too old for IP certificate setup. Version 5.4 or newer is required."
+  ' || {
+    fail "Unable to assemble fullchain.pem from lego certificate files."
+  }
+  run_silent run_as_root cp -Lf "$key_file" "$CERT_INSTALL_DIR/privkey.pem"
+  run_silent run_as_root chmod 644 "$CERT_INSTALL_DIR/fullchain.pem"
+  run_silent run_as_root chmod 600 "$CERT_INSTALL_DIR/privkey.pem"
+
+  install_ssl_files_into_nginx "$CERT_INSTALL_DIR/fullchain.pem" "$CERT_INSTALL_DIR/privkey.pem"
 }
 
-configure_certbot_ip_ssl() {
+configure_lego_ip_ssl() {
   [[ -n "$CERTBOT_IP_ADDRESS" ]] || fail "Missing public IP address for Certbot IP certificate setup."
   if [[ "$CLIENT_PORT" != "80" ]]; then
     fail "6-day IP certificates require the nginx client port to stay on 80 during validation."
   fi
 
-  log "Checking certbot support for short-lived IP certificates..."
-  ensure_certbot_supports_ip_certificates
+  ensure_lego_installed
   run_silent run_as_root mkdir -p "$ACME_WEBROOT/.well-known/acme-challenge"
+  run_silent run_as_root mkdir -p "$LEGO_STATE_DIR"
 
-  log "Requesting 6-day IP certificate for ${CERTBOT_IP_ADDRESS}..."
-  run_as_root certbot certonly \
-    --webroot \
-    --webroot-path "$ACME_WEBROOT" \
-    --preferred-profile shortlived \
-    --non-interactive \
-    --agree-tos \
+  log "Requesting 6-day IP certificate for ${CERTBOT_IP_ADDRESS} with lego..."
+  run_as_root "$LEGO_BIN" \
+    --accept-tos \
     --email "$CERTBOT_EMAIL" \
-    --deploy-hook "systemctl reload nginx" \
-    --ip-address "$CERTBOT_IP_ADDRESS" || {
-      warn "ERROR: Certbot failed for IP ${CERTBOT_IP_ADDRESS}"
+    --path "$LEGO_STATE_DIR" \
+    --http \
+    --http.webroot "$ACME_WEBROOT" \
+    --domains "$CERTBOT_IP_ADDRESS" \
+    --profile shortlived \
+    run || {
+      warn "ERROR: lego failed for IP ${CERTBOT_IP_ADDRESS}"
       return 1
     }
 
-  install_ssl_files_into_nginx \
-    "/etc/letsencrypt/live/${CERTBOT_IP_ADDRESS}/fullchain.pem" \
-    "/etc/letsencrypt/live/${CERTBOT_IP_ADDRESS}/privkey.pem"
+  install_lego_certificate_files "$CERTBOT_IP_ADDRESS"
+  configure_lego_renewal_timer
   log "Nginx SSL configured for IP ${CERTBOT_IP_ADDRESS}."
+}
+
+configure_lego_renewal_timer() {
+  [[ -x "$LEGO_BIN" ]] || fail "lego binary not found at ${LEGO_BIN}."
+  log "Creating lego renewal service at ${LEGO_RENEW_SERVICE_FILE}..."
+  run_silent run_as_root tee "$LEGO_RENEW_SERVICE_FILE" >/dev/null <<EOF
+[Unit]
+Description=Renew Songbird IP certificate with lego
+After=network-online.target nginx.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=${LEGO_BIN} --accept-tos --email ${CERTBOT_EMAIL} --path ${LEGO_STATE_DIR} --http --http.webroot ${ACME_WEBROOT} --domains ${CERTBOT_IP_ADDRESS} --profile shortlived renew --dynamic
+ExecStartPost=/bin/bash -lc 'cat "${LEGO_STATE_DIR}/certificates/${CERTBOT_IP_ADDRESS}.crt" > "${CERT_INSTALL_DIR}/fullchain.pem" && if [[ -f "${LEGO_STATE_DIR}/certificates/${CERTBOT_IP_ADDRESS}.issuer.crt" ]]; then cat "${LEGO_STATE_DIR}/certificates/${CERTBOT_IP_ADDRESS}.issuer.crt" >> "${CERT_INSTALL_DIR}/fullchain.pem"; fi && cp -Lf "${LEGO_STATE_DIR}/certificates/${CERTBOT_IP_ADDRESS}.key" "${CERT_INSTALL_DIR}/privkey.pem" && chmod 644 "${CERT_INSTALL_DIR}/fullchain.pem" && chmod 600 "${CERT_INSTALL_DIR}/privkey.pem" && systemctl reload nginx'
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  log "Creating lego renewal timer at ${LEGO_RENEW_TIMER_FILE}..."
+  run_silent run_as_root tee "$LEGO_RENEW_TIMER_FILE" >/dev/null <<EOF
+[Unit]
+Description=Run Songbird lego renewal twice daily
+
+[Timer]
+OnBootSec=10m
+OnUnitActiveSec=12h
+RandomizedDelaySec=15m
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+  run_as_root systemctl daemon-reload
+  run_as_root systemctl enable --now songbird-lego-renew.timer
 }
 
 configure_ssl_if_needed() {
@@ -1570,7 +1664,7 @@ configure_ssl_if_needed() {
   esac
 
   if [[ "$DEPLOY_MODE" == "ip" ]]; then
-    configure_certbot_ip_ssl
+    configure_lego_ip_ssl
     return 0
   fi
 
@@ -1980,7 +2074,11 @@ remove_songbird() {
   if run_as_root systemctl list-unit-files | grep -q "^songbird.service"; then
     run_as_root systemctl disable --now songbird.service || true
   fi
+  if run_as_root systemctl list-unit-files | grep -q "^songbird-lego-renew.timer"; then
+    run_as_root systemctl disable --now songbird-lego-renew.timer || true
+  fi
   run_as_root rm -f "$SERVICE_FILE"
+  run_as_root rm -f "$LEGO_RENEW_SERVICE_FILE" "$LEGO_RENEW_TIMER_FILE"
   run_as_root systemctl daemon-reload
 
   run_as_root rm -f "$NGINX_ENABLED_FILE"
