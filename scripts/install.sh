@@ -251,6 +251,19 @@ prompt_secret() {
   done
 }
 
+prompt_secret_optional() {
+  local prompt="$1"
+  local value=""
+  printf "%s: " "$prompt" >&$PROMPT_FD_OUT
+  if ! IFS= read -ers -u "$PROMPT_FD" value; then
+    value=""
+  fi
+  printf "\n" >&$PROMPT_FD_OUT
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf "%s" "$value"
+}
+
 prompt_yes_no() {
   local prompt="$1"
   local default="$2"
@@ -546,12 +559,24 @@ prompt_backup_zip_path() {
       printf "Backup file must be a .zip archive.\n"
       continue
     fi
-    if ! validate_backup_zip "$resolved"; then
-      continue
-    fi
     printf "%s" "$resolved"
     return 0
   done
+}
+
+select_backup_zip_path() {
+  local use_detected=""
+  local detected=""
+  detected="$(find_restore_backup_zip)" || detected=""
+  if [[ -n "$detected" ]]; then
+    use_detected="$(prompt_yes_no "Use detected backup zip ${detected}?" "yes")"
+    if [[ "$use_detected" == "yes" ]]; then
+      printf "%s" "$detected"
+      return 0
+    fi
+  fi
+
+  prompt_backup_zip_path
 }
 
 prompt_install_backup_restore() {
@@ -560,37 +585,8 @@ prompt_install_backup_restore() {
     return 0
   fi
 
-  local use_detected=""
-  local detected=""
-  detected="$(find_restore_backup_zip)" || detected=""
-  if [[ -n "$detected" ]]; then
-    use_detected="$(prompt_yes_no "Use detected backup zip ${detected}?" "yes")"
-    if [[ "$use_detected" == "yes" ]]; then
-      DB_BACKUP_PATH="$detected"
-      return 0
-    fi
-  fi
-
-  while true; do
-    local backup_input=""
-    prompt_read "Enter the full path to the backup .zip file: " backup_input
-    if [[ -z "$backup_input" ]]; then
-      printf "Please provide a file path.\n"
-      continue
-    fi
-    local resolved=""
-    resolved="$(resolve_file_path "$backup_input")" || resolved=""
-    if [[ -z "$resolved" ]]; then
-      printf "File not found. Tried: %s\n" "$backup_input"
-      continue
-    fi
-    if [[ "${resolved,,}" != *.zip ]]; then
-      printf "Backup file must be a .zip archive.\n"
-      continue
-    fi
-    DB_BACKUP_PATH="$resolved"
-    return 0
-  done
+  DB_BACKUP_PATH="$(select_backup_zip_path)"
+  return 0
 }
 
 validate_backup_zip() {
@@ -830,10 +826,20 @@ map_lego_arch() {
   esac
 }
 
+lego_supports_shortlived_profile() {
+  [[ -x "$LEGO_BIN" ]] || return 1
+  local help_text=""
+  help_text="$("$LEGO_BIN" run --help 2>&1 || true)"
+  [[ "$help_text" == *"--profile"* ]]
+}
+
 ensure_lego_installed() {
   if [[ -x "$LEGO_BIN" ]]; then
-    log "lego binary already installed at ${LEGO_BIN}."
-    return 0
+    if lego_supports_shortlived_profile; then
+      log "lego binary already installed at ${LEGO_BIN}."
+      return 0
+    fi
+    warn "Existing lego binary at ${LEGO_BIN} does not support --profile; upgrading."
   fi
 
   local latest_url=""
@@ -860,6 +866,8 @@ ensure_lego_installed() {
   run_silent run_as_root install -m 755 "${tmp_dir}/lego" "$LEGO_BIN"
   run_silent run_as_root rm -rf "$tmp_dir"
   log "Installed lego at ${LEGO_BIN}."
+
+  lego_supports_shortlived_profile || fail "Installed lego at ${LEGO_BIN} does not support --profile. Please verify the binary and try again."
 }
 
 clone_repo() {
@@ -915,14 +923,13 @@ find_offline_source_zip() {
 
 find_restore_backup_zip() {
   local candidates=(
-    "$HOME"
+    "/opt/songbird/data/backups"
     "/root"
-    "/"
   )
   local dir=""
   for dir in "${candidates[@]}"; do
     local found=""
-    found="$(run_as_root_output bash -lc "ls -t '$dir'/songbird-backup-*.zip 2>/dev/null | head -1" | tr -d '\r\n')" || found=""
+    found="$(run_as_root_output bash -lc "find '$dir' -maxdepth 1 -type f -name '*.zip' -printf '%T@\t%p\n' 2>/dev/null | sort -nr | head -1 | cut -f2-" | tr -d '\r\n')" || found=""
     if [[ -n "$found" && -f "$found" ]]; then
       printf "%s" "$found"
       return 0
@@ -1600,8 +1607,8 @@ configure_lego_ip_ssl() {
     --http \
     --http.webroot "$ACME_WEBROOT" \
     --domains "$CERTBOT_IP_ADDRESS" \
-    --profile shortlived \
-    run || {
+    run \
+    --profile shortlived || {
       warn "ERROR: lego failed for IP ${CERTBOT_IP_ADDRESS}"
       return 1
     }
@@ -1624,7 +1631,7 @@ Wants=network-online.target
 Type=oneshot
 User=root
 Group=root
-ExecStart=${LEGO_BIN} --accept-tos --email ${CERTBOT_EMAIL} --path ${LEGO_STATE_DIR} --http --http.webroot ${ACME_WEBROOT} --domains ${CERTBOT_IP_ADDRESS} --profile shortlived renew --dynamic
+ExecStart=${LEGO_BIN} --accept-tos --email ${CERTBOT_EMAIL} --path ${LEGO_STATE_DIR} --http --http.webroot ${ACME_WEBROOT} --domains ${CERTBOT_IP_ADDRESS} renew --dynamic --profile shortlived
 ExecStartPost=/bin/bash -lc 'cat "${LEGO_STATE_DIR}/certificates/${CERTBOT_IP_ADDRESS}.crt" > "${CERT_INSTALL_DIR}/fullchain.pem" && if [[ -f "${LEGO_STATE_DIR}/certificates/${CERTBOT_IP_ADDRESS}.issuer.crt" ]]; then cat "${LEGO_STATE_DIR}/certificates/${CERTBOT_IP_ADDRESS}.issuer.crt" >> "${CERT_INSTALL_DIR}/fullchain.pem"; fi && cp -Lf "${LEGO_STATE_DIR}/certificates/${CERTBOT_IP_ADDRESS}.key" "${CERT_INSTALL_DIR}/privkey.pem" && chmod 644 "${CERT_INSTALL_DIR}/fullchain.pem" && chmod 600 "${CERT_INSTALL_DIR}/privkey.pem" && systemctl reload nginx'
 
 [Install]
@@ -1729,9 +1736,6 @@ restore_backup_if_provided() {
   if ! have_cmd unzip; then
     fail "unzip is required to restore backups. Install it first and retry."
   fi
-  if ! validate_backup_zip "$DB_BACKUP_PATH"; then
-    fail "Backup validation failed."
-  fi
 
   log "Restoring data from backup: $DB_BACKUP_PATH"
   local tmp_dir
@@ -1740,12 +1744,12 @@ restore_backup_if_provided() {
   local extract_result=""
   if ! extract_result="$(extract_backup_zip "$DB_BACKUP_PATH" "$tmp_dir" 2>/dev/null)"; then
     local backup_password=""
-    backup_password="$(prompt_secret "Backup password (leave blank if not encrypted)")"
+    backup_password="$(prompt_secret_optional "Backup password (leave blank if not encrypted)")"
     run_silent run_as_root rm -rf "$tmp_dir"
     tmp_dir="$(mktemp -d)"
-    extract_result="$(extract_backup_zip "$DB_BACKUP_PATH" "$tmp_dir" "$backup_password")" || {
+    extract_result="$(extract_backup_zip "$DB_BACKUP_PATH" "$tmp_dir" "$backup_password" 2>/dev/null)" || {
       run_silent run_as_root rm -rf "$tmp_dir"
-      fail "Backup zip does not contain expected songbird.db and uploads/ content."
+      fail "Backup zip could not be extracted or does not contain expected songbird.db and uploads/ content."
     }
   fi
 
@@ -2388,12 +2392,12 @@ db_restore() {
   local backup_path=""
   local backup_password=""
 
-  backup_path="$(prompt_backup_zip_path)"
+  backup_path="$(select_backup_zip_path)"
   if [[ "$(prompt_yes_no "This will replace ${INSTALL_DIR}/data and update ${INSTALL_DIR}/.env when the backup includes it. Continue?" "no")" != "yes" ]]; then
     log "Restore canceled."
     return 0
   fi
-  backup_password="$(prompt_secret "Backup password (leave blank if not encrypted)")"
+  backup_password="$(prompt_secret_optional "Backup password (leave blank if not encrypted)")"
   if [[ -n "$backup_password" ]]; then
     run_db_command npm --prefix server run db:restore -- -y --file "$backup_path" --password "$backup_password"
   else
@@ -2696,7 +2700,7 @@ db_user_ban() {
 
 db_restore_backup() {
   local resolved=""
-  resolved="$(prompt_backup_zip_path)"
+  resolved="$(select_backup_zip_path)"
 
   if [[ "$(prompt_yes_no "This will replace ${INSTALL_DIR}/data. Continue?" "no")" != "yes" ]]; then
     log "Restore canceled."

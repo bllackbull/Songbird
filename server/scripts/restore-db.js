@@ -14,52 +14,62 @@ import {
 
 const projectRootDir = path.resolve(serverDir, "..");
 const backupDir = path.join(projectRootDir, "data", "backups");
-const filesystemRootDir = path.parse(projectRootDir).root;
+const rootBackupDir = "/root";
 const unzipBinary = process.env.UNZIP_BIN || "unzip";
-const BACKUP_NAME_REGEX = /^songbird-backup-.*\.zip$/i;
 const serviceName = process.env.SONGBIRD_SERVICE_NAME || "songbird.service";
 const serviceUser = process.env.SONGBIRD_SERVICE_USER || "songbird";
 const serviceGroup = process.env.SONGBIRD_SERVICE_GROUP || serviceUser;
 
-function listBackupCandidates() {
-  const candidates = [];
-  const seen = new Set();
-  [filesystemRootDir, backupDir].forEach((dirPath) => {
-    if (
-      !dirPath ||
-      !fs.existsSync(dirPath) ||
-      !fs.statSync(dirPath).isDirectory()
-    )
-      return;
-    fs.readdirSync(dirPath, { withFileTypes: true }).forEach((entry) => {
-      if (!entry.isFile() || !BACKUP_NAME_REGEX.test(entry.name)) return;
-      const fullPath = path.join(dirPath, entry.name);
-      if (seen.has(fullPath)) return;
-      seen.add(fullPath);
-      candidates.push(fullPath);
+function listZipFilesInDir(dirPath) {
+  if (!dirPath || !fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) {
+    return [];
+  }
+
+  return fs
+    .readdirSync(dirPath, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".zip"))
+    .map((entry) => path.join(dirPath, entry.name))
+    .sort((a, b) => {
+      const aTime = fs.statSync(a).mtimeMs;
+      const bTime = fs.statSync(b).mtimeMs;
+      return bTime - aTime;
     });
-  });
-  return candidates.sort((a, b) => {
-    const aTime = fs.statSync(a).mtimeMs;
-    const bTime = fs.statSync(b).mtimeMs;
-    return bTime - aTime;
-  });
 }
 
-function chooseBackupPath(files, preferredPath) {
-  if (preferredPath) return preferredPath;
-  if (!files.length) {
-    console.error(
-      `No Songbird backup zip files found in ${filesystemRootDir} or ${backupDir}.`,
-    );
-    process.exit(1);
+function findDetectedBackupPath() {
+  const candidates = [backupDir, rootBackupDir];
+  for (const dirPath of candidates) {
+    const files = listZipFilesInDir(dirPath);
+    if (files.length) {
+      return files[0];
+    }
   }
-  if (files.length === 1) return files[0];
-  console.log("Available Songbird backups:");
-  files.forEach((filePath, index) => {
-    console.log(`${index + 1}. ${filePath}`);
-  });
   return null;
+}
+
+function resolveManualBackupPath(inputPath) {
+  const resolved = path.resolve(String(inputPath || "").trim());
+  if (!resolved || path.extname(resolved).toLowerCase() !== ".zip") {
+    return null;
+  }
+  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+    return null;
+  }
+  return resolved;
+}
+
+async function promptForBackupPath() {
+  while (true) {
+    const answer = await promptInput({
+      prompt: "Enter the full path to the backup .zip file: ",
+      required: true,
+    });
+    const resolved = resolveManualBackupPath(answer);
+    if (resolved) {
+      return resolved;
+    }
+    console.log("Backup file must be an existing .zip archive.");
+  }
 }
 
 function runUnzip(args) {
@@ -181,28 +191,33 @@ function restartSongbirdService() {
 async function resolveBackupPath(args) {
   const fileFlag = getFlagValue(args, "--file");
   if (fileFlag) {
-    const resolved = path.resolve(String(fileFlag).trim());
-    if (!fs.existsSync(resolved)) {
-      console.error(`Backup file not found: ${resolved}`);
+    const resolved = resolveManualBackupPath(fileFlag);
+    if (!resolved) {
+      console.error(`Backup file not found or is not a .zip archive: ${String(fileFlag).trim()}`);
       process.exit(1);
     }
     return resolved;
   }
 
-  const files = listBackupCandidates();
-  const selected = chooseBackupPath(files);
-  if (selected) return selected;
-
-  while (true) {
-    const answer = await promptInput({
-      prompt: "Choose a backup number: ",
-      required: true,
+  const detected = findDetectedBackupPath();
+  if (detected) {
+    const useDetected = await confirmAction({
+      prompt: `Use detected backup "${detected}"?`,
+      force: false,
     });
-    const index = Number(answer);
-    if (Number.isInteger(index) && index >= 1 && index <= files.length) {
-      return files[index - 1];
+    if (useDetected) {
+      return detected;
     }
   }
+
+  if (!process.stdin.isTTY) {
+    console.error(
+      `No backup zip was auto-selected. Provide --file or run interactively. Checked ${backupDir} and ${rootBackupDir}.`,
+    );
+    process.exit(1);
+  }
+
+  return promptForBackupPath();
 }
 
 async function main() {
