@@ -1780,6 +1780,7 @@ configure_ssl_if_needed() {
     log "Requesting SSL certificate for: ${uncovered[*]}"
     run_as_root certbot certonly \
       --nginx \
+      --https-port "$CLIENT_PORT" \
       --non-interactive \
       --agree-tos \
       --email "$CERTBOT_EMAIL" \
@@ -1798,6 +1799,7 @@ configure_ssl_if_needed() {
 
   run_as_root certbot install \
     --nginx \
+    --https-port "$CLIENT_PORT" \
     --non-interactive \
     --cert-name "${DOMAIN_NAMES[0]}" \
     "${all_d_args[@]}" || { warn "ERROR: Failed to configure nginx SSL"; return 1; }
@@ -1838,9 +1840,11 @@ restore_backup_if_provided() {
       unzip_error="$LAST_UNZIP_OUTPUT"
       run_silent run_as_root rm -rf "$tmp_dir"
       if output_looks_password_related "$unzip_error"; then
-        fail "Backup password is incorrect, or the archive encryption setting does not match the provided input."
+        fail "Backup password is incorrect, or the archive encryption setting does not match the provided input.
+${unzip_error}"
       fi
-      fail "Backup zip could not be extracted or does not contain expected songbird.db and uploads/ content."
+      fail "Backup zip could not be extracted or does not contain expected songbird.db and uploads/ content.
+${unzip_error}"
     fi
   fi
 
@@ -2252,10 +2256,14 @@ install_songbird() {
       fi
     done
   else
+    local visit_ip="${CERTBOT_IP_ADDRESS:-<your-server-ip>}"
+    if [[ "$CERT_MODE" == "files" ]]; then
+      visit_ip="<your-server-ip>"
+    fi
     if [[ "$CLIENT_PORT" == "443" ]]; then
-      log "Visit: https://${CERTBOT_IP_ADDRESS}"
+      log "Visit: https://${visit_ip}"
     else
-      log "Visit: https://${CERTBOT_IP_ADDRESS}:${CLIENT_PORT}"
+      log "Visit: https://${visit_ip}:${CLIENT_PORT}"
     fi
   fi
 

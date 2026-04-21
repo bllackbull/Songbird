@@ -298,14 +298,14 @@ sudo systemctl reload nginx
 Request ssl from certbot:
 
 ```bash
-sudo certbot --nginx -d example.com -d www.example.com
+sudo certbot --nginx --https-port 443 -d example.com -d www.example.com
 sudo certbot renew --dry-run
 ```
 
 Or if you are sure you already have ssl for your domain, use this command to only install the certificate on your nginx config:
 
 ```bash
-sudo certbot install --nginx --cert-name example.com www.example.com 
+sudo certbot install --nginx --https-port 443 --cert-name example.com -d example.com -d www.example.com
 ```
 
 ### Option B: Server IP (HTTP)

@@ -16,17 +16,18 @@ const projectRootDir = path.resolve(serverDir, "..");
 const backupDir = path.join(projectRootDir, "data", "backups");
 const rootBackupDir = "/root";
 const unzipBinary = process.env.UNZIP_BIN || "unzip";
-const unzipTimeoutMs = Number.parseInt(
-  process.env.SONGBIRD_UNZIP_TIMEOUT_MS || "15000",
-  10,
-);
+const unzipTimeoutMs = Number.parseInt("10000", 10);
 const backupNamePattern = /^songbird-backup-.*\.zip$/i;
 const serviceName = process.env.SONGBIRD_SERVICE_NAME || "songbird.service";
 const serviceUser = process.env.SONGBIRD_SERVICE_USER || "songbird";
 const serviceGroup = process.env.SONGBIRD_SERVICE_GROUP || serviceUser;
 
 function listZipFilesInDir(dirPath) {
-  if (!dirPath || !fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) {
+  if (
+    !dirPath ||
+    !fs.existsSync(dirPath) ||
+    !fs.statSync(dirPath).isDirectory()
+  ) {
     return [];
   }
 
@@ -81,7 +82,10 @@ function runUnzip(args) {
   try {
     execFileSync(unzipBinary, args, {
       stdio: ["ignore", "pipe", "pipe"],
-      timeout: Number.isFinite(unzipTimeoutMs) && unzipTimeoutMs > 0 ? unzipTimeoutMs : 15000,
+      timeout:
+        Number.isFinite(unzipTimeoutMs) && unzipTimeoutMs > 0
+          ? unzipTimeoutMs
+          : 15000,
     });
     return { ok: true, output: "", timedOut: false };
   } catch (error) {
@@ -93,7 +97,9 @@ function runUnzip(args) {
       .filter(Boolean)
       .join("\n");
     const timedOut =
-      error?.code === "ETIMEDOUT" || error?.signal === "SIGTERM" || error?.killed === true;
+      error?.code === "ETIMEDOUT" ||
+      error?.signal === "SIGTERM" ||
+      error?.killed === true;
     const output = timedOut
       ? `${combined}\nUnzip timed out while waiting for archive input.`
       : combined;
@@ -165,9 +171,13 @@ function applyOwnership(installRoot) {
   }
 
   try {
-    execFileSync("chown", ["-R", `${serviceUser}:${serviceGroup}`, installRoot], {
-      stdio: "pipe",
-    });
+    execFileSync(
+      "chown",
+      ["-R", `${serviceUser}:${serviceGroup}`, installRoot],
+      {
+        stdio: "pipe",
+      },
+    );
   } catch (error) {
     const message = error?.stderr?.toString?.() || error?.message || error;
     console.warn(`Unable to apply ownership: ${message}`);
@@ -207,7 +217,9 @@ async function resolveBackupPath(args) {
   if (fileFlag) {
     const resolved = resolveManualBackupPath(fileFlag);
     if (!resolved) {
-      console.error(`Backup file not found or is not a .zip archive: ${String(fileFlag).trim()}`);
+      console.error(
+        `Backup file not found or is not a .zip archive: ${String(fileFlag).trim()}`,
+      );
       process.exit(1);
     }
     return resolved;
