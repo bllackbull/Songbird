@@ -75,6 +75,10 @@ PROMPT_FD=0
 PROMPT_FD_OUT=1
 DB_BACKUP_PATH=""
 DB_BACKUP_PASSWORD=""
+LAST_UNZIP_OUTPUT=""
+LAST_UNZIP_STATUS=0
+EXTRACT_SOURCE_DIR=""
+EXTRACT_ENV_SRC=""
 SOURCE_MODE=""
 SOURCE_ZIP_PATH=""
 CERT_MODE="http"
@@ -171,6 +175,25 @@ run_logged_quiet() {
   if [[ -f "$LOG_FILE" ]]; then
     printf "[%s] SUCCESS: %s\n%s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$*" "$output" >> "$LOG_FILE" 2>/dev/null || true
   fi
+}
+
+run_unzip_capture() {
+  local output=""
+  local status=0
+  if output="$(run_as_root "$@" </dev/null 2>&1)"; then
+    status=0
+  else
+    status=$?
+  fi
+  LAST_UNZIP_OUTPUT="$output"
+  LAST_UNZIP_STATUS="$status"
+  [[ "$status" -eq 0 ]]
+}
+
+output_looks_password_related() {
+  local text=""
+  text="$(printf "%s" "${1:-}" | tr '[:upper:]' '[:lower:]')"
+  [[ "$text" == *password* || "$text" == *encrypted* || "$text" == *"unable to get password"* || "$text" == *"incorrect password"* || "$text" == *"skipping:"* ]]
 }
 
 
@@ -667,11 +690,13 @@ extract_backup_zip() {
   local zip_path="$1"
   local tmp_dir="$2"
   local password="${3:-}"
+  EXTRACT_SOURCE_DIR=""
+  EXTRACT_ENV_SRC=""
 
   if [[ -n "$password" ]]; then
-    run_silent run_as_root unzip -P "$password" -q "$zip_path" -d "$tmp_dir"
+    run_unzip_capture unzip -P "$password" -q "$zip_path" -d "$tmp_dir" || return 1
   else
-    run_silent run_as_root unzip -q "$zip_path" -d "$tmp_dir"
+    run_unzip_capture unzip -q "$zip_path" -d "$tmp_dir" || return 1
   fi
 
   local source_dir="$tmp_dir"
@@ -691,7 +716,9 @@ extract_backup_zip() {
     env_src="$source_dir/.env"
   fi
 
-  printf "%s|%s" "$source_dir" "$env_src"
+  EXTRACT_SOURCE_DIR="$source_dir"
+  EXTRACT_ENV_SRC="$env_src"
+  return 0
 }
 
 detect_os() {
@@ -1474,7 +1501,7 @@ write_nginx_site_config() {
   local acme_block=""
   local redirect_server_block=""
 
-  if [[ "$mode" == "http" && "$DEPLOY_MODE" == "ip" && "$CERT_MODE" == "certbot" ]]; then
+  if [[ "$mode" == "http" && "$DEPLOY_MODE" == "domain" && "$CERT_MODE" == "certbot" ]]; then
     listen_line="listen 80 default_server;"
   fi
 
@@ -1794,22 +1821,31 @@ restore_backup_if_provided() {
   local tmp_dir
   tmp_dir="$(mktemp -d)"
 
-  local extract_result=""
   local backup_password="${DB_BACKUP_PASSWORD:-}"
-  if ! extract_result="$(extract_backup_zip "$DB_BACKUP_PATH" "$tmp_dir" "$backup_password" 2>/dev/null)"; then
-    if [[ -z "$backup_password" ]]; then
+  if ! extract_backup_zip "$DB_BACKUP_PATH" "$tmp_dir" "$backup_password"; then
+    local unzip_error="$LAST_UNZIP_OUTPUT"
+    if output_looks_password_related "$unzip_error"; then
+      if [[ -n "$backup_password" ]]; then
+        warn "Backup password appears incorrect, or the archive encryption setting does not match the provided input."
+      else
+        warn "Backup archive appears to be encrypted. Please provide its password."
+      fi
       backup_password="$(prompt_secret_optional "Backup password (leave blank if not encrypted)")"
     fi
     run_silent run_as_root rm -rf "$tmp_dir"
     tmp_dir="$(mktemp -d)"
-    extract_result="$(extract_backup_zip "$DB_BACKUP_PATH" "$tmp_dir" "$backup_password" 2>/dev/null)" || {
+    if ! extract_backup_zip "$DB_BACKUP_PATH" "$tmp_dir" "$backup_password"; then
+      unzip_error="$LAST_UNZIP_OUTPUT"
       run_silent run_as_root rm -rf "$tmp_dir"
+      if output_looks_password_related "$unzip_error"; then
+        fail "Backup password is incorrect, or the archive encryption setting does not match the provided input."
+      fi
       fail "Backup zip could not be extracted or does not contain expected songbird.db and uploads/ content."
-    }
+    fi
   fi
 
-  local source_dir="${extract_result%%|*}"
-  local env_src="${extract_result#*|}"
+  local source_dir="$EXTRACT_SOURCE_DIR"
+  local env_src="$EXTRACT_ENV_SRC"
 
   local db_src="$source_dir/songbird.db"
   local uploads_src="$source_dir/uploads"
@@ -2467,7 +2503,7 @@ db_restore() {
   local backup_password=""
 
   backup_path="$(select_backup_zip_path)"
-  if [[ "$(prompt_yes_no "This will replace ${INSTALL_DIR}/data and update ${INSTALL_DIR}/.env when the backup includes it. Continue?" "no")" != "yes" ]]; then
+  if [[ "$(prompt_yes_no "This will replace ${INSTALL_DIR}/data and update ${INSTALL_DIR}/.env when the backup includes it. Continue?" "yes")" != "yes" ]]; then
     log "Restore canceled."
     return 0
   fi

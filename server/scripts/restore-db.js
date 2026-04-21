@@ -16,6 +16,10 @@ const projectRootDir = path.resolve(serverDir, "..");
 const backupDir = path.join(projectRootDir, "data", "backups");
 const rootBackupDir = "/root";
 const unzipBinary = process.env.UNZIP_BIN || "unzip";
+const unzipTimeoutMs = Number.parseInt(
+  process.env.SONGBIRD_UNZIP_TIMEOUT_MS || "15000",
+  10,
+);
 const backupNamePattern = /^songbird-backup-.*\.zip$/i;
 const serviceName = process.env.SONGBIRD_SERVICE_NAME || "songbird.service";
 const serviceUser = process.env.SONGBIRD_SERVICE_USER || "songbird";
@@ -75,8 +79,11 @@ async function promptForBackupPath() {
 
 function runUnzip(args) {
   try {
-    execFileSync(unzipBinary, args, { stdio: "pipe" });
-    return { ok: true, output: "" };
+    execFileSync(unzipBinary, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: Number.isFinite(unzipTimeoutMs) && unzipTimeoutMs > 0 ? unzipTimeoutMs : 15000,
+    });
+    return { ok: true, output: "", timedOut: false };
   } catch (error) {
     const combined = [
       error?.stdout?.toString?.(),
@@ -85,7 +92,12 @@ function runUnzip(args) {
     ]
       .filter(Boolean)
       .join("\n");
-    return { ok: false, output: combined };
+    const timedOut =
+      error?.code === "ETIMEDOUT" || error?.signal === "SIGTERM" || error?.killed === true;
+    const output = timedOut
+      ? `${combined}\nUnzip timed out while waiting for archive input.`
+      : combined;
+    return { ok: false, output, timedOut };
   }
 }
 
@@ -95,7 +107,8 @@ function outputLooksPasswordRelated(output) {
     text.includes("password") ||
     text.includes("encrypted") ||
     text.includes("unable to get password") ||
-    text.includes("incorrect password")
+    text.includes("incorrect password") ||
+    text.includes("skipping:")
   );
 }
 
@@ -230,6 +243,7 @@ async function main() {
   const confirmed = await confirmAction({
     prompt: `Restore backup "${path.basename(zipPath)}" into ${installRoot} and replace data plus .env when present?`,
     force,
+    defaultAnswer: "yes",
     forceHint:
       "Refusing to restore backup in non-interactive mode without -y/--yes. Run: npm run db:restore -- -y",
   });
@@ -243,8 +257,16 @@ async function main() {
     password ? ["-P", password, "-tqq", zipPath] : ["-tqq", zipPath],
   );
   if (!testResult.ok && outputLooksPasswordRelated(testResult.output)) {
+    if (!process.stdin.isTTY) {
+      console.error(
+        "Backup password is missing or incorrect, or the archive encryption setting does not match the provided input.",
+      );
+      process.exit(1);
+    }
     password = await promptSecret({
-      prompt: "Backup password: ",
+      prompt: password
+        ? "Backup password appears incorrect. Enter backup password: "
+        : "Backup password: ",
       required: true,
     });
     testResult = runUnzip(["-P", password, "-tqq", zipPath]);

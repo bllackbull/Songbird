@@ -97,7 +97,12 @@ export function hasFlag(args = [], flagName) {
   return envValue === 'true' || envValue === '1'
 }
 
-export async function confirmAction({ prompt, force = false, forceHint }) {
+export async function confirmAction({
+  prompt,
+  force = false,
+  forceHint,
+  defaultAnswer = null,
+}) {
   if (force) return true
   if (!input.isTTY) {
     if (forceHint) {
@@ -110,8 +115,23 @@ export async function confirmAction({ prompt, force = false, forceHint }) {
 
   const rl = readline.createInterface({ input, output })
   try {
+    const normalizedDefault =
+      String(defaultAnswer || '')
+        .trim()
+        .toLowerCase() === 'yes'
+        ? 'yes'
+        : String(defaultAnswer || '')
+            .trim()
+            .toLowerCase() === 'no'
+          ? 'no'
+          : null
+    const promptSuffix = normalizedDefault
+      ? ` (y/n, default: ${normalizedDefault}): `
+      : ' (y/n): '
     while (true) {
-      const answer = (await rl.question(`${prompt} (y/n): `)).trim().toLowerCase()
+      const answer = (await rl.question(`${prompt}${promptSuffix}`)).trim().toLowerCase()
+      if (!answer && normalizedDefault === 'yes') return true
+      if (!answer && normalizedDefault === 'no') return false
       if (answer === 'y' || answer === 'yes') return true
       if (answer === 'n' || answer === 'no') return false
     }
