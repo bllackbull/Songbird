@@ -118,6 +118,10 @@ function outputLooksPasswordRelated(output) {
   );
 }
 
+function hasInteractiveTty() {
+  return process.stdin.isTTY === true && process.stdout.isTTY === true;
+}
+
 function extractBackup(zipPath, destinationDir, password) {
   const args = ["-q"];
   if (password) {
@@ -268,20 +272,27 @@ async function main() {
   let testResult = runUnzip(
     password ? ["-P", password, "-tqq", zipPath] : ["-tqq", zipPath],
   );
-  if (!testResult.ok && outputLooksPasswordRelated(testResult.output)) {
-    if (!process.stdin.isTTY) {
+  const shouldPromptForPassword =
+    !testResult.ok &&
+    hasInteractiveTty() &&
+    (!password || outputLooksPasswordRelated(testResult.output) || testResult.timedOut);
+  if (shouldPromptForPassword) {
+    password = await promptSecret({
+      prompt: password
+        ? "Backup password appears incorrect. Enter backup password: "
+        : "Backup password (leave blank if not encrypted): ",
+      required: false,
+    });
+    if (password) {
+      testResult = runUnzip(["-P", password, "-tqq", zipPath]);
+    }
+  } else if (!testResult.ok && outputLooksPasswordRelated(testResult.output)) {
+    if (!hasInteractiveTty()) {
       console.error(
         "Backup password is missing or incorrect, or the archive encryption setting does not match the provided input.",
       );
       process.exit(1);
     }
-    password = await promptSecret({
-      prompt: password
-        ? "Backup password appears incorrect. Enter backup password: "
-        : "Backup password: ",
-      required: true,
-    });
-    testResult = runUnzip(["-P", password, "-tqq", zipPath]);
   }
   if (!testResult.ok) {
     console.error(`Unable to validate backup: ${testResult.output}`);

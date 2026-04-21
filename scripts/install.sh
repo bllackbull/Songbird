@@ -1818,66 +1818,19 @@ restore_backup_if_provided() {
   if ! have_cmd unzip; then
     fail "unzip is required to restore backups. Install it first and retry."
   fi
+  if [[ ! -d "$INSTALL_DIR/server" ]]; then
+    fail "Server directory not found at ${INSTALL_DIR}/server. Cannot restore backup."
+  fi
 
   log "Restoring data from backup: $DB_BACKUP_PATH"
-  local tmp_dir
-  tmp_dir="$(mktemp -d)"
-
-  local backup_password="${DB_BACKUP_PASSWORD:-}"
-  if ! extract_backup_zip "$DB_BACKUP_PATH" "$tmp_dir" "$backup_password"; then
-    local unzip_error="$LAST_UNZIP_OUTPUT"
-    if output_looks_password_related "$unzip_error"; then
-      if [[ -n "$backup_password" ]]; then
-        warn "Backup password appears incorrect, or the archive encryption setting does not match the provided input."
-      else
-        warn "Backup archive appears to be encrypted. Please provide its password."
-      fi
-      backup_password="$(prompt_secret_optional "Backup password (leave blank if not encrypted)")"
-    fi
-    run_silent run_as_root rm -rf "$tmp_dir"
-    tmp_dir="$(mktemp -d)"
-    if ! extract_backup_zip "$DB_BACKUP_PATH" "$tmp_dir" "$backup_password"; then
-      unzip_error="$LAST_UNZIP_OUTPUT"
-      run_silent run_as_root rm -rf "$tmp_dir"
-      if output_looks_password_related "$unzip_error"; then
-        fail "Backup password is incorrect, or the archive encryption setting does not match the provided input.
-${unzip_error}"
-      fi
-      fail "Backup zip could not be extracted or does not contain expected songbird.db and uploads/ content.
-${unzip_error}"
-    fi
+  local cmd=(npm --prefix server run db:restore -- -y --file "$DB_BACKUP_PATH")
+  if [[ -n "${DB_BACKUP_PASSWORD:-}" ]]; then
+    cmd+=(--password "$DB_BACKUP_PASSWORD")
   fi
 
-  local source_dir="$EXTRACT_SOURCE_DIR"
-  local env_src="$EXTRACT_ENV_SRC"
-
-  local db_src="$source_dir/songbird.db"
-  local uploads_src="$source_dir/uploads"
-  local backup_format="legacy"
-  if [[ "$source_dir" == */data ]]; then
-    backup_format="current"
+  if ! run_db_command "${cmd[@]}"; then
+    fail "Backup restore failed. Installation aborted."
   fi
-
-  run_silent run_as_root rm -rf "$INSTALL_DIR/data"
-  run_silent run_as_root mkdir -p "$INSTALL_DIR/data"
-
-  if [[ -f "$env_src" ]]; then
-    run_silent run_as_root cp -a "$env_src" "$INSTALL_DIR/.env"
-  elif run_as_root test -f "$INSTALL_DIR/.env"; then
-    log "Legacy backup detected; keeping existing .env in place."
-  else
-    log "Legacy backup detected without .env. Restore completed, but ${INSTALL_DIR}/.env still needs valid values."
-  fi
-  if [[ -f "$db_src" ]]; then
-    run_silent run_as_root cp -a "$db_src" "$INSTALL_DIR/data/"
-  fi
-  if [[ -d "$uploads_src" ]]; then
-    run_silent run_as_root cp -a "$uploads_src" "$INSTALL_DIR/data/"
-  fi
-
-  run_silent run_as_root rm -rf "$tmp_dir"
-  log "Backup restored into ${INSTALL_DIR} (format: ${backup_format})."
-  apply_ownership
 }
 
 backup_database() {
