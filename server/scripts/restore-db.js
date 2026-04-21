@@ -8,7 +8,6 @@ import {
   getFlagValue,
   hasForceYes,
   promptInput,
-  promptSecret,
   serverDir,
 } from "./_cli.js";
 
@@ -16,10 +15,6 @@ const projectRootDir = path.resolve(serverDir, "..");
 const backupDir = path.join(projectRootDir, "data", "backups");
 const rootBackupDir = "/root";
 const unzipBinary = process.env.UNZIP_BIN || "unzip";
-const unzipTimeoutMs = Number.parseInt(
-  process.env.SONGBIRD_UNZIP_TIMEOUT_MS || "10000",
-  10,
-);
 const backupNamePattern = /^songbird-backup-.*\.zip$/i;
 const serviceName = process.env.SONGBIRD_SERVICE_NAME || "songbird.service";
 const serviceUser = process.env.SONGBIRD_SERVICE_USER || "songbird";
@@ -83,14 +78,8 @@ async function promptForBackupPath() {
 
 function runUnzip(args) {
   try {
-    execFileSync(unzipBinary, args, {
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout:
-        Number.isFinite(unzipTimeoutMs) && unzipTimeoutMs > 0
-          ? unzipTimeoutMs
-          : 15000,
-    });
-    return { ok: true, output: "", timedOut: false };
+    execFileSync(unzipBinary, args, { stdio: ["ignore", "pipe", "pipe"] });
+    return { ok: true, output: "", timedOut: false, exitCode: 0 };
   } catch (error) {
     const combined = [
       error?.stdout?.toString?.(),
@@ -106,7 +95,17 @@ function runUnzip(args) {
     const output = timedOut
       ? `${combined}\nUnzip timed out while waiting for archive input.`
       : combined;
-    return { ok: false, output, timedOut };
+    return {
+      ok: false,
+      output,
+      timedOut,
+      exitCode:
+        typeof error?.status === "number"
+          ? error.status
+          : typeof error?.code === "number"
+            ? error.code
+            : null,
+    };
   }
 }
 
@@ -117,12 +116,20 @@ function outputLooksPasswordRelated(output) {
     text.includes("encrypted") ||
     text.includes("unable to get password") ||
     text.includes("incorrect password") ||
-    text.includes("skipping:")
+    text.includes("skipping:") ||
+    text.includes("bad decryption password")
   );
 }
 
 function hasInteractiveTty() {
   return process.stdin.isTTY === true;
+}
+
+function unzipResultNeedsPassword(result) {
+  return (
+    result?.exitCode === 82 ||
+    (result?.ok === false && outputLooksPasswordRelated(result?.output))
+  );
 }
 
 function extractBackup(zipPath, destinationDir, password) {
@@ -131,10 +138,7 @@ function extractBackup(zipPath, destinationDir, password) {
     args.push("-P", password);
   }
   args.push(zipPath, "-d", destinationDir);
-  const result = runUnzip(args);
-  if (!result.ok) {
-    throw new Error(result.output || "Unzip failed.");
-  }
+  return runUnzip(args);
 }
 
 function pathExists(targetPath) {
@@ -271,40 +275,34 @@ async function main() {
     return;
   }
 
-  let password = String(getFlagValue(args, "--password") || "").trim();
-  let testResult = runUnzip(
-    password ? ["-P", password, "-tqq", zipPath] : ["-tqq", zipPath],
-  );
-  const shouldPromptForPassword =
-    !testResult.ok &&
-    hasInteractiveTty() &&
-    (!password || outputLooksPasswordRelated(testResult.output) || testResult.timedOut);
-  if (shouldPromptForPassword) {
-    password = await promptSecret({
-      prompt: password
-        ? "Backup password appears incorrect. Enter backup password: "
-        : "Backup password (leave blank if not encrypted): ",
-      required: false,
-    });
-    if (password) {
-      testResult = runUnzip(["-P", password, "-tqq", zipPath]);
-    }
-  } else if (!testResult.ok && outputLooksPasswordRelated(testResult.output)) {
-    if (!hasInteractiveTty()) {
-      console.error(
-        "Backup password is missing or incorrect, or the archive encryption setting does not match the provided input.",
-      );
-      process.exit(1);
-    }
-  }
-  if (!testResult.ok) {
-    console.error(`Unable to validate backup: ${testResult.output}`);
-    process.exit(1);
-  }
-
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "songbird-restore-"));
   try {
-    extractBackup(zipPath, tempDir, password);
+    let password = String(getFlagValue(args, "--password") || "").trim();
+    let extractResult = extractBackup(zipPath, tempDir, password);
+
+    if (!extractResult.ok && unzipResultNeedsPassword(extractResult)) {
+      if (!hasInteractiveTty()) {
+        console.error(
+          "Backup password is missing or incorrect, or the archive encryption setting does not match the provided input.",
+        );
+        process.exit(1);
+      }
+
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      fs.mkdirSync(tempDir, { recursive: true });
+      password = await promptInput({
+        prompt: password
+          ? "Backup password appears incorrect. Enter backup password: "
+          : "Backup password (leave blank if not encrypted): ",
+        required: false,
+      });
+      extractResult = extractBackup(zipPath, tempDir, password);
+    }
+
+    if (!extractResult.ok) {
+      console.error(`Unable to extract backup: ${extractResult.output}`);
+      process.exit(1);
+    }
 
     const layout = detectBackupLayout(tempDir);
     if (!layout) {
