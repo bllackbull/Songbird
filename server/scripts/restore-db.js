@@ -132,10 +132,37 @@ function unzipResultNeedsPassword(result) {
   );
 }
 
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, `'\"'\"'`)}'`;
+}
+
 function extractBackup(zipPath, destinationDir, password) {
-  const args = ["-q", "-P", String(password || "")];
-  args.push(zipPath, "-d", destinationDir);
-  return runUnzip(args);
+  const shellCommand = `unzip -q -P ${shellQuote(password || "")} ${shellQuote(zipPath)} -d ${shellQuote(destinationDir)}`;
+  try {
+    execFileSync("bash", ["-lc", shellCommand], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    return { ok: true, output: "", timedOut: false, exitCode: 0 };
+  } catch (error) {
+    const combined = [
+      error?.stdout?.toString?.(),
+      error?.stderr?.toString?.(),
+      error?.message,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    return {
+      ok: false,
+      output: combined,
+      timedOut: false,
+      exitCode:
+        typeof error?.status === "number"
+          ? error.status
+          : typeof error?.code === "number"
+            ? error.code
+            : null,
+    };
+  }
 }
 
 function pathExists(targetPath) {
