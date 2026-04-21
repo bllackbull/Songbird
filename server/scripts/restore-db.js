@@ -16,7 +16,10 @@ const projectRootDir = path.resolve(serverDir, "..");
 const backupDir = path.join(projectRootDir, "data", "backups");
 const rootBackupDir = "/root";
 const unzipBinary = process.env.UNZIP_BIN || "unzip";
-const unzipTimeoutMs = Number.parseInt("10000", 10);
+const unzipTimeoutMs = Number.parseInt(
+  process.env.SONGBIRD_UNZIP_TIMEOUT_MS || "10000",
+  10,
+);
 const backupNamePattern = /^songbird-backup-.*\.zip$/i;
 const serviceName = process.env.SONGBIRD_SERVICE_NAME || "songbird.service";
 const serviceUser = process.env.SONGBIRD_SERVICE_USER || "songbird";
@@ -119,7 +122,7 @@ function outputLooksPasswordRelated(output) {
 }
 
 function hasInteractiveTty() {
-  return process.stdin.isTTY === true && process.stdout.isTTY === true;
+  return process.stdin.isTTY === true;
 }
 
 function extractBackup(zipPath, destinationDir, password) {

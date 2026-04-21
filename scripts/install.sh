@@ -75,6 +75,7 @@ PROMPT_FD=0
 PROMPT_FD_OUT=1
 DB_BACKUP_PATH=""
 DB_BACKUP_PASSWORD=""
+RESTORE_BACKUP_QUIET="no"
 LAST_UNZIP_OUTPUT=""
 LAST_UNZIP_STATUS=0
 EXTRACT_SOURCE_DIR=""
@@ -1828,8 +1829,15 @@ restore_backup_if_provided() {
     cmd+=(--password "$DB_BACKUP_PASSWORD")
   fi
 
+  if [[ "${RESTORE_BACKUP_QUIET:-no}" == "yes" ]]; then
+    if ! run_db_command_logged_quiet "${cmd[@]}"; then
+      return 1
+    fi
+    return 0
+  fi
+
   if ! run_db_command "${cmd[@]}"; then
-    fail "Backup restore failed. Installation aborted."
+    return 1
   fi
 }
 
@@ -2180,7 +2188,14 @@ install_songbird() {
   fi
   ensure_log_dir
   write_full_env_with_defaults
-  restore_backup_if_provided
+  RESTORE_BACKUP_QUIET="yes"
+  if ! restore_backup_if_provided; then
+    RESTORE_BACKUP_QUIET="no"
+    warn "Backup restore failed. Installation aborted. Review ${LOG_FILE} for details."
+    press_enter_to_continue
+    return 1
+  fi
+  RESTORE_BACKUP_QUIET="no"
   install_songbird_dependencies
   ensure_vapid_keys
   apply_ownership
@@ -2383,6 +2398,16 @@ run_db_command() {
     escaped+=" $(printf '%q' "$part")"
   done
   run_as_root bash -lc "cd '$INSTALL_DIR' && ${escaped:1}"
+}
+
+run_db_command_logged_quiet() {
+  local args=("$@")
+  local escaped=""
+  local part=""
+  for part in "${args[@]}"; do
+    escaped+=" $(printf '%q' "$part")"
+  done
+  run_logged_quiet run_as_root bash -lc "cd '$INSTALL_DIR' && ${escaped:1}"
 }
 
 resolve_chat_visibility_for_script() {
