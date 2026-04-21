@@ -155,6 +155,24 @@ run_silent() {
   fi
 }
 
+run_logged_quiet() {
+  local output
+  if [[ -f "$LOG_FILE" ]]; then
+    printf "[%s] Running: %s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG_FILE" 2>/dev/null || true
+  fi
+
+  if ! output="$("$@" 2>&1)"; then
+    if [[ -f "$LOG_FILE" ]]; then
+      printf "[%s] FAILED: %s\n%s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$*" "$output" >> "$LOG_FILE" 2>/dev/null || true
+    fi
+    return 1
+  fi
+
+  if [[ -f "$LOG_FILE" ]]; then
+    printf "[%s] SUCCESS: %s\n%s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$*" "$output" >> "$LOG_FILE" 2>/dev/null || true
+  fi
+}
+
 
 run_as_root() {
   if [[ -n "$SUDO" ]]; then
@@ -517,8 +535,14 @@ prompt_deploy_mode() {
 prompt_cert_mode() {
   local mode=""
   while true; do
+    local option_one_label="Obtain certificate"
+    if [[ "$DEPLOY_MODE" == "domain" ]]; then
+      option_one_label="Obtain cert for domain"
+    else
+      option_one_label="Obtain 6-day cert for IP"
+    fi
     printf "\nCertificate Mode\n"
-    printf "1) Certbot\n"
+    printf "1) %s\n" "$option_one_label"
     printf "2) TLS certificate files\n"
     printf "3) HTTP only\n"
     prompt_read "Choose an option [1-3]: " mode
@@ -1372,7 +1396,12 @@ collect_install_options() {
 
 
   SERVER_PORT="$(prompt_port)"
-  CLIENT_PORT="$(prompt_client_port)"
+  if [[ "$DEPLOY_MODE" == "ip" && "$CERT_MODE" == "certbot" ]]; then
+    CLIENT_PORT="443"
+    log "Using nginx HTTPS port 443 for 6-day IP certificates."
+  else
+    CLIENT_PORT="$(prompt_client_port)"
+  fi
 
   if [[ "$(prompt_yes_no "Allow account creation via website?" "yes")" == "yes" ]]; then
     ACCOUNT_CREATION="true"
@@ -1442,8 +1471,16 @@ write_nginx_site_config() {
   local acme_block=""
   local redirect_server_block=""
 
+  if [[ "$mode" == "http" && "$DEPLOY_MODE" == "ip" && "$CERT_MODE" == "certbot" ]]; then
+    listen_line="listen 80 default_server;"
+  fi
+
   if [[ "$mode" == "ssl" ]]; then
-    listen_line="listen ${CLIENT_PORT} ssl default_server;"
+    if [[ "$DEPLOY_MODE" == "ip" && "$CERT_MODE" == "certbot" ]]; then
+      listen_line="listen 443 ssl default_server;"
+    else
+      listen_line="listen ${CLIENT_PORT} ssl default_server;"
+    fi
     ssl_block=$(cat <<EOF
   ssl_certificate ${cert_path};
   ssl_certificate_key ${key_path};
@@ -1452,7 +1489,17 @@ write_nginx_site_config() {
 EOF
 )
 
-    if [[ "$CLIENT_PORT" == "443" ]]; then
+    if [[ "$DEPLOY_MODE" == "ip" && "$CERT_MODE" == "certbot" ]]; then
+      redirect_server_block=$(cat <<EOF
+
+server {
+  listen 80;
+  ${server_name_line}
+  return 301 https://\$host\$request_uri;
+}
+EOF
+)
+    elif [[ "$CLIENT_PORT" == "443" ]]; then
       redirect_server_block=$(cat <<EOF
 
 server {
@@ -1594,16 +1641,13 @@ install_lego_certificate_files() {
 
 configure_lego_ip_ssl() {
   [[ -n "$CERTBOT_IP_ADDRESS" ]] || fail "Missing public IP address for Certbot IP certificate setup."
-  if [[ "$CLIENT_PORT" != "80" ]]; then
-    fail "6-day IP certificates require the nginx client port to stay on 80 during validation."
-  fi
 
   ensure_lego_installed
   run_silent run_as_root mkdir -p "$ACME_WEBROOT/.well-known/acme-challenge"
   run_silent run_as_root mkdir -p "$LEGO_STATE_DIR"
 
   log "Requesting 6-day IP certificate for ${CERTBOT_IP_ADDRESS} with lego..."
-  run_as_root "$LEGO_BIN" \
+  run_logged_quiet run_as_root "$LEGO_BIN" \
     --accept-tos \
     --email "$CERTBOT_EMAIL" \
     --path "$LEGO_STATE_DIR" \
@@ -1746,8 +1790,8 @@ restore_backup_if_provided() {
   tmp_dir="$(mktemp -d)"
 
   local extract_result=""
-  if ! extract_result="$(extract_backup_zip "$DB_BACKUP_PATH" "$tmp_dir" 2>/dev/null)"; then
-    local backup_password="${DB_BACKUP_PASSWORD:-}"
+  local backup_password="${DB_BACKUP_PASSWORD:-}"
+  if ! extract_result="$(extract_backup_zip "$DB_BACKUP_PATH" "$tmp_dir" "$backup_password" 2>/dev/null)"; then
     if [[ -z "$backup_password" ]]; then
       backup_password="$(prompt_secret_optional "Backup password (leave blank if not encrypted)")"
     fi
@@ -2149,10 +2193,18 @@ install_songbird() {
   log "Songbird has been installed successfully."
   if [[ "$DEPLOY_MODE" == "domain" ]]; then
     for d in "${DOMAIN_NAMES[@]}"; do
-      log "Visit: https://${d}:${CLIENT_PORT}"
+      if [[ "$CLIENT_PORT" == "443" ]]; then
+        log "Visit: https://${d}"
+      else
+        log "Visit: https://${d}:${CLIENT_PORT}"
+      fi
     done
   else
-    log "Visit: http://<your-server-ip>:${CLIENT_PORT}"
+    if [[ "$CERT_MODE" == "certbot" ]]; then
+      log "Visit: https://${CERTBOT_IP_ADDRESS}"
+    else
+      log "Visit: http://<your-server-ip>:${CLIENT_PORT}"
+    fi
   fi
 
   press_enter_to_continue
