@@ -915,8 +915,14 @@ export function listChatsForUser(userId) {
       last_vm.body AS last_message,
       last_vm.created_at AS last_time,
       last_vm.user_id AS last_sender_id,
-      COALESCE(last_user.username, 'deleted') AS last_sender_username,
-      COALESCE(last_user.nickname, 'Deleted user') AS last_sender_nickname,
+      CASE
+        WHEN last_vm.id IS NULL THEN NULL
+        ELSE COALESCE(last_user.username, 'deleted')
+      END AS last_sender_username,
+      CASE
+        WHEN last_vm.id IS NULL THEN NULL
+        ELSE COALESCE(last_user.nickname, 'Deleted user')
+      END AS last_sender_nickname,
       last_user.avatar_url AS last_sender_avatar_url,
       last_vm.read_at AS last_message_read_at,
       last_vm.read_by_user_id AS last_message_read_by_user_id,
