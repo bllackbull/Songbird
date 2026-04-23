@@ -44,6 +44,12 @@ export function usePerfTelemetry({ activeChatId, messagesLength, loadingMessages
     if (typeof window === "undefined" || typeof PerformanceObserver === "undefined") {
       return;
     }
+    const supportedEntryTypes = Array.isArray(PerformanceObserver.supportedEntryTypes)
+      ? PerformanceObserver.supportedEntryTypes
+      : [];
+    if (!supportedEntryTypes.includes("longtask")) {
+      return;
+    }
     let observer = null;
     try {
       observer = new PerformanceObserver((list) => {
@@ -98,4 +104,3 @@ export function usePerfTelemetry({ activeChatId, messagesLength, loadingMessages
     openStartRef.current = null;
   }, [activeChatId, loadingMessages, messagesLength]);
 }
-

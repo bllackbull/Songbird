@@ -1,40 +1,102 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { execSync } = require("node:child_process");
 
 const projectRoot = path.resolve(__dirname, "..");
 const changelogPath = path.join(projectRoot, "CHANGELOG.md");
+const versionPath = path.join(projectRoot, "VERSION");
 
 function readChangelog() {
   return fs.readFileSync(changelogPath, "utf8").trim();
 }
 
-function extractReleaseBody(changelog) {
+function readVersion() {
+  const version = fs.readFileSync(versionPath, "utf8").trim();
+  if (!version) {
+    throw new Error("VERSION is empty.");
+  }
+  return version;
+}
+
+function normalizeVersion(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^v/i, "");
+}
+
+function parseChangelogSections(changelog) {
+  const text = String(changelog || "").trim();
+  if (!text) {
+    return [];
+  }
+
+  const sections = [];
+  const lines = text.split(/\r?\n/);
+  let currentSection = null;
+
+  for (const line of lines) {
+    const headingMatch = line.match(/^##\s+(.+)$/);
+    if (headingMatch) {
+      if (currentSection) {
+        sections.push({
+          heading: currentSection.heading,
+          body: currentSection.lines.join("\n").replace(/\s+$/, ""),
+        });
+      }
+      currentSection = {
+        heading: String(headingMatch[1] || "").trim(),
+        lines: [],
+      };
+      continue;
+    }
+
+    if (currentSection) {
+      currentSection.lines.push(line);
+    }
+  }
+
+  if (currentSection) {
+    sections.push({
+      heading: currentSection.heading,
+      body: currentSection.lines.join("\n").replace(/\s+$/, ""),
+    });
+  }
+
+  return sections;
+}
+
+function extractReleaseBody(changelog, version) {
   const text = String(changelog || "").trim();
   if (!text) {
     throw new Error("CHANGELOG.md is empty.");
   }
 
-  const versionSectionMatch = text.match(
-    /(^|\n)(##\s+[^\n]+[\r\n]+[\s\S]*?)(?=\n##\s+|\s*$)/,
-  );
-
-  if (versionSectionMatch?.[2]) {
-    return versionSectionMatch[2].trim();
+  const normalizedVersion = normalizeVersion(version);
+  if (normalizedVersion) {
+    const sections = parseChangelogSections(text);
+    const matchingSection = sections.find(
+      ({ heading }) => normalizeVersion(heading) === normalizedVersion,
+    );
+    if (matchingSection) {
+      return `## ${matchingSection.heading}\n${matchingSection.body}`.trimEnd();
+    }
   }
 
   return text;
 }
 
-function resolveTagName() {
-  const explicitTag = String(process.env.RELEASE_TAG || "").trim();
-  if (explicitTag) return explicitTag;
+function resolveTagCandidates(version) {
+  const normalizedVersion = normalizeVersion(version);
+  if (!normalizedVersion) {
+    throw new Error("VERSION is invalid.");
+  }
 
-  return execSync("git describe --tags --abbrev=0", {
-    cwd: projectRoot,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  }).trim();
+  const candidates = [
+    String(process.env.RELEASE_TAG || "").trim(),
+    normalizedVersion,
+    `v${normalizedVersion}`,
+  ].filter(Boolean);
+
+  return [...new Set(candidates)];
 }
 
 async function githubRequest(url, { method = "GET", body } = {}) {
@@ -70,12 +132,32 @@ async function main() {
     throw new Error("GITHUB_REPOSITORY must be set to owner/repo.");
   }
 
-  const tagName = resolveTagName();
+  const version = readVersion();
+  const tagCandidates = resolveTagCandidates(version);
   const changelog = readChangelog();
-  const body = extractReleaseBody(changelog);
-  const release = await githubRequest(
-    `https://api.github.com/repos/${repository}/releases/tags/${encodeURIComponent(tagName)}`,
-  );
+  const body = extractReleaseBody(changelog, version);
+  let release = null;
+  let tagName = "";
+
+  for (const candidate of tagCandidates) {
+    try {
+      release = await githubRequest(
+        `https://api.github.com/repos/${repository}/releases/tags/${encodeURIComponent(candidate)}`,
+      );
+      tagName = candidate;
+      break;
+    } catch (error) {
+      if (!String(error?.message || "").includes("404")) {
+        throw error;
+      }
+    }
+  }
+
+  if (!release) {
+    throw new Error(
+      `Unable to find a GitHub release for VERSION ${version}. Tried tags: ${tagCandidates.join(", ")}`,
+    );
+  }
 
   await githubRequest(
     `https://api.github.com/repos/${repository}/releases/${release.id}`,
@@ -88,7 +170,7 @@ async function main() {
   );
 
   process.stdout.write(
-    `Updated release notes for ${tagName} from CHANGELOG.md\n`,
+    `Updated release notes for ${tagName} using VERSION ${version} and CHANGELOG.md\n`,
   );
 }
 

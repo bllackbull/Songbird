@@ -19,6 +19,8 @@ import { migration018MessageForwarding } from "./018-message-forwarding.js";
 import { migration019MessageForwardOriginUsers } from "./019-message-forward-origin-users.js";
 import { migration020ChatMessageExpiry } from "./020-chat-message-expiry.js";
 import { migration021ChatQueryIndexes } from "./021-chat-query-indexes.js";
+import { migration022MessageClientRequestId } from "./022-message-client-request-id.js";
+import { migration023ChatLeftMembers } from "./023-chat-left-members.js";
 
 export const migrations = [
   migration001InitialSchema,
@@ -42,4 +44,6 @@ export const migrations = [
   migration019MessageForwardOriginUsers,
   migration020ChatMessageExpiry,
   migration021ChatQueryIndexes,
+  migration022MessageClientRequestId,
+  migration023ChatLeftMembers,
 ];

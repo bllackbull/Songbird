@@ -47,8 +47,14 @@ export function useFloatingDayChip() {
 
   const handleFloatingChipClick = useCallback(
     (event, { chatScrollRef, isDesktop, floatingDay }) => {
-      const node = document.getElementById(`day-group-${floatingDay.key}`);
       const scroller = chatScrollRef?.current;
+      const escapedDayKey =
+        typeof CSS !== "undefined" && typeof CSS.escape === "function"
+          ? CSS.escape(floatingDay.key)
+          : String(floatingDay.key || "").replace(/["\\]/g, "\\$&");
+      const node =
+        scroller?.querySelector?.(`#day-group-${escapedDayKey}`) ||
+        document.getElementById(`day-group-${floatingDay.key}`);
       if (!node || !scroller) return;
       const floatingChip = event.currentTarget;
       const currentKey = floatingDay.key;
@@ -61,10 +67,10 @@ export function useFloatingDayChip() {
         floatingChipAlignTimerRef.current = null;
       }
 
-      const stickyChip =
-        node.querySelector("[data-day-chip]")?.parentElement || node;
-      const stickyRect = stickyChip.getBoundingClientRect();
+      const stickyChip = node.querySelector("[data-day-chip]")?.parentElement || node;
       const floatingRect = floatingChip.getBoundingClientRect();
+      node.scrollIntoView({ block: "start", behavior: "auto" });
+      const stickyRect = stickyChip.getBoundingClientRect();
       // Device-specific alignment nudge tuned to match visual chip overlap.
       const alignOffsetPx = isDesktop ? 0 : -1;
       const desiredStickyTopInViewport = floatingRect.top + alignOffsetPx;

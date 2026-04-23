@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import { Close } from "../../icons/lucide.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
@@ -18,10 +19,21 @@ export default function NewChatModal({
   onClose,
 }) {
   if (!open) return null;
+  if (typeof document === "undefined") return null;
   const dmSearchHasPersian = hasPersian(newChatUsername || "");
 
-  return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-6">
+  return createPortal(
+    <div
+      className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto bg-black/40 px-6 py-6"
+      style={{
+        minHeight: "100dvh",
+        height: "100dvh",
+        paddingTop: "max(1.5rem, calc(env(safe-area-inset-top) + 1rem))",
+        paddingBottom: "max(1.5rem, calc(env(safe-area-inset-bottom) + 1rem))",
+        paddingLeft: "max(1.5rem, env(safe-area-inset-left))",
+        paddingRight: "max(1.5rem, env(safe-area-inset-right))",
+      }}
+    >
       <div className="w-full max-w-sm rounded-2xl border border-emerald-100/70 bg-white p-6 shadow-xl dark:border-emerald-500/30 dark:bg-slate-950">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-emerald-700 dark:text-emerald-200">
@@ -154,6 +166,7 @@ export default function NewChatModal({
           Start chat
         </button>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

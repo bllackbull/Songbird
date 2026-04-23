@@ -382,6 +382,13 @@ export function useMessagesLoader({
               _delivery: undefined,
               _awaitingServerEcho: false,
               _visibilityTime: existingLocal?._visibilityTime,
+              read_at: serverMsg.read_at || existingLocal?.read_at || null,
+              read_by_user_id:
+                serverMsg.read_by_user_id || existingLocal?.read_by_user_id || null,
+              seenCount: Math.max(
+                Number(serverMsg?.seenCount || 0),
+                Number(existingLocal?.seenCount || 0),
+              ) || undefined,
             };
           },
         );

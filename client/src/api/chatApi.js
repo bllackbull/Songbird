@@ -231,6 +231,13 @@ export const uploadGroupAvatar = (chatId, payload) =>
     body: payload,
   });
 
+export const removeGroupAvatar = (chatId, payload) =>
+  apiFetch(`${API_BASE}/api/chats/group/${encodeURIComponent(chatId)}/avatar`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
 export const getSavedMessagesChat = (username) =>
   apiFetch(`${API_BASE}/api/chats/saved?username=${encodeURIComponent(username)}`);
 

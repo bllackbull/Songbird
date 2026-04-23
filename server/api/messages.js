@@ -11,6 +11,7 @@ function registerMessageRoutes(app, deps) {
     computeExpiryIso,
     crypto,
     createMessage,
+    createOrReuseMessage,
     createMessageFiles,
     editMessage,
     debugLog,
@@ -21,6 +22,7 @@ function registerMessageRoutes(app, deps) {
     ensureFfmpegAvailable,
     fs,
     findChatById,
+    findMessageIdByClientRequestId,
     findMessageById,
     findUserById,
     findUserByUsername,
@@ -506,6 +508,12 @@ function registerMessageRoutes(app, deps) {
         const trimmedBody = body.trim();
         const replyToMessageId = Number(req.body?.replyToMessageId || 0) || null;
         const editMessageId = Number(req.body?.editMessageId || 0) || null;
+        const clientRequestIdRaw = String(
+          req.body?.clientRequestId || "",
+        ).trim();
+        const clientRequestId = clientRequestIdRaw
+          ? clientRequestIdRaw.slice(0, 120)
+          : null;
         const maxMessageChars = Math.max(1, Number(MESSAGE_MAX_CHARS || 4000));
         if (body.length > maxMessageChars) {
           removeUploadedFiles(uploadedFiles);
@@ -619,6 +627,18 @@ function registerMessageRoutes(app, deps) {
           return res.status(400).json({
             error: "Not enough free storage space on server.",
           });
+        }
+
+        if (!editMessageId && clientRequestId) {
+          const existingId = findMessageIdByClientRequestId(
+            chatId,
+            user.id,
+            clientRequestId,
+          );
+          if (existingId) {
+            removeUploadedFiles(uploadedFiles);
+            return res.json({ id: Number(existingId), deduped: true });
+          }
         }
 
         const createdAtIso = new Date().toISOString();
@@ -766,6 +786,7 @@ function registerMessageRoutes(app, deps) {
             ? `Sent ${normalizedFiles[0].kind === "media" ? "a media file" : "a document"}`
             : `Sent ${normalizedFiles.length} files`);
         let messageId = Number(editMessageId || 0);
+        let dedupedMessage = false;
         if (editTarget) {
           const editBody =
             trimmedBody ||
@@ -776,15 +797,22 @@ function registerMessageRoutes(app, deps) {
           setMessageExpiresAt(messageId, null);
           createMessageFiles(messageId, normalizedFiles);
         } else {
-          messageId = createMessage(
+          const created = createOrReuseMessage(
             chatId,
             user.id,
             fallbackBody,
             replyToMessageId,
             null,
+            clientRequestId,
           );
+          messageId = Number(created?.id || 0);
+          dedupedMessage = Boolean(created?.deduped);
           if (!messageId) {
             throw new Error("Unable to create message.");
+          }
+          if (dedupedMessage) {
+            removeUploadedFiles(uploadedFiles);
+            return res.json({ id: Number(messageId), deduped: true });
           }
           createMessageFiles(messageId, normalizedFiles);
           if (chat.type === "saved") {
@@ -899,7 +927,7 @@ function registerMessageRoutes(app, deps) {
           fileCount: normalizedFiles.length,
         });
 
-        return res.json({ id: Number(messageId) });
+        return res.json({ id: Number(messageId), deduped: dedupedMessage });
       } catch (error) {
         removeUploadedFiles(uploadedFiles);
 
@@ -919,6 +947,10 @@ function registerMessageRoutes(app, deps) {
     if (!session) return;
 
     const { chatId, username, body, replyToMessageId } = req.body || {};
+    const clientRequestIdRaw = String(req.body?.clientRequestId || "").trim();
+    const clientRequestId = clientRequestIdRaw
+      ? clientRequestIdRaw.slice(0, 120)
+      : null;
     if (!chatId || !username || !body) {
       return res.status(400).json({
         error: "Chat, username, and message body are required.",
@@ -972,17 +1004,19 @@ function registerMessageRoutes(app, deps) {
 
     const createdAtIso = new Date().toISOString();
     const expiresAt = computeTextExpiryIso(createdAtIso);
-    const id = createMessage(
+    const created = createOrReuseMessage(
       Number(chatId),
       user.id,
       bodyText,
       replyToMessageId,
       expiresAt,
+      clientRequestId,
     );
+    const id = Number(created?.id || 0);
     if (!id) {
       return res.status(500).json({ error: "Unable to create message." });
     }
-    if (chat.type === "saved") {
+    if (chat.type === "saved" && !created?.deduped) {
       markMessageRead(id, user.id);
     }
 
@@ -993,16 +1027,25 @@ function registerMessageRoutes(app, deps) {
       bodyLength: String(body || "").length,
     });
 
-    emitChatEvent(Number(chatId), {
-      type: "chat_message",
-      chatId: Number(chatId),
-      messageId: Number(id),
-      username: user.username,
-      body,
-      replyToMessageId,
-    });
+    if (!created?.deduped) {
+      emitChatEvent(Number(chatId), {
+        type: "chat_message",
+        chatId: Number(chatId),
+        messageId: Number(id),
+        username: user.username,
+        body,
+        replyToMessageId,
+      });
+    }
 
     try {
+      if (created?.deduped) {
+        return res.json({
+          id,
+          expiresAt,
+          deduped: true,
+        });
+      }
       const members = listChatMembers(Number(chatId));
       const mutedRows = listMutedUserIdsForChat(Number(chatId));
       const mutedIds = new Set(
@@ -1037,6 +1080,7 @@ function registerMessageRoutes(app, deps) {
     res.json({
       id,
       expiresAt,
+      deduped: Boolean(created?.deduped),
     });
   });
 

@@ -33,7 +33,9 @@ export function useAppReleaseInfo() {
       );
       setAppInfo(payload);
       const currentVersion = String(payload?.version || "").trim();
-      const changelog = String(payload?.changelog || "").trim();
+      const changelog = String(
+        payload?.currentChangelog || payload?.changelog || "",
+      ).trim();
       if (!currentVersion || !changelog) {
         setWhatsNewOpen(false);
         return payload;

@@ -174,6 +174,10 @@ async function main() {
             chunk,
           )
           dbApi.run(`DELETE FROM chat_members WHERE chat_id IN (${chunkPlaceholders})`, chunk)
+          dbApi.run(
+            `DELETE FROM chat_left_members WHERE chat_id IN (${chunkPlaceholders})`,
+            chunk,
+          )
           dbApi.run(`DELETE FROM chat_mutes WHERE chat_id IN (${chunkPlaceholders})`, chunk)
           dbApi.run(
             `DELETE FROM group_removed_members WHERE chat_id IN (${chunkPlaceholders})`,
@@ -203,6 +207,7 @@ async function main() {
         dbApi.run(`DELETE FROM hidden_chats WHERE user_id IN (${chunkPlaceholders})`, chunk)
         dbApi.run(`DELETE FROM chat_message_reads WHERE user_id IN (${chunkPlaceholders})`, chunk)
         dbApi.run(`UPDATE chat_messages SET read_by_user_id = NULL WHERE read_by_user_id IN (${chunkPlaceholders})`, chunk)
+        dbApi.run(`DELETE FROM chat_left_members WHERE user_id IN (${chunkPlaceholders})`, chunk)
         dbApi.run(`DELETE FROM chat_members WHERE user_id IN (${chunkPlaceholders})`, chunk)
         dbApi.run(`DELETE FROM users WHERE id IN (${chunkPlaceholders})`, chunk)
       })

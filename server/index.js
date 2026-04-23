@@ -6,6 +6,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
+import compression from "compression";
 import rateLimit from "express-rate-limit";
 import multer from "multer";
 import webpush from "web-push";
@@ -30,10 +31,12 @@ import {
   adminRun,
   adminSave,
   ensureSavedChatForUser,
+  clearChatMemberLeft,
   clearGroupMemberRemoved,
   createChat,
   createMessageFiles,
   createMessage,
+  createOrReuseMessage,
   editMessage,
   createSession,
   deleteSession,
@@ -44,6 +47,7 @@ import {
   findDmChat,
   findChatByGroupUsername,
   findChatByInviteToken,
+  findMessageIdByClientRequestId,
   findMessageById,
   hideMessageForEveryone,
   hideMessageForUser,
@@ -56,6 +60,7 @@ import {
   recordMessageReads,
   listMessageFilesByMessageIds,
   markGroupMemberRemoved,
+  markChatMemberLeft,
   regenerateGroupInviteToken,
   removeChatMember,
   setMessageExpiresAt,
@@ -125,6 +130,17 @@ if (APP_DEBUG) {
 app.set("trust proxy", 1);
 
 app.use(express.json({ limit: "1mb" }));
+app.use(
+  compression({
+    threshold: 1024,
+    filter(req, res) {
+      if (req.path === "/api/events") return false;
+      const contentType = String(res.getHeader("Content-Type") || "").toLowerCase();
+      if (contentType.includes("text/event-stream")) return false;
+      return compression.filter(req, res);
+    },
+  }),
+);
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
@@ -428,10 +444,12 @@ const apiDeps = {
   chunkArray,
   cleanupMissingMessageFiles,
   clearGroupMemberRemoved,
+  clearChatMemberLeft,
   clearSessionCookie,
   computeExpiryIso,
   createChat,
   createMessage,
+  createOrReuseMessage,
   createMessageFiles,
   editMessage,
   createSession,
@@ -451,6 +469,7 @@ const apiDeps = {
   findDmChat,
   findChatByGroupUsername,
   findChatByInviteToken,
+  findMessageIdByClientRequestId,
   findMessageById,
   findUserById,
   findUserByUsername,
@@ -482,6 +501,7 @@ const apiDeps = {
   getChatMemberRole,
   setChatMemberRole,
   recordMessageReads,
+  markChatMemberLeft,
   markGroupMemberRemoved,
   markMessagesRead,
   markMessageRead,
@@ -746,6 +766,3 @@ backfillStorageEncryption();
 app.listen(port, () => {
   console.log(`Songbird server running on http://localhost:${port}`);
 });
-
-
-

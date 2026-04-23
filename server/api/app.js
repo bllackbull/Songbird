@@ -9,6 +9,8 @@ function registerAppRoutes(app, deps) {
       version: appMeta.version,
       normalizedVersion: appMeta.normalizedVersion,
       changelog: appMeta.changelog,
+      changelogSections: appMeta.changelogSections,
+      currentChangelog: appMeta.currentChangelog,
       repository: appMeta.repository,
     });
   });

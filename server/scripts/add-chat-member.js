@@ -27,8 +27,9 @@ async function main() {
     addAllUsers,
   });
   if (remoteResult) {
+    const skippedLeftCount = Number(remoteResult.skippedLeftCount || 0);
     console.log(
-      `Server mode members added: chat=${remoteResult.chatId} added=${remoteResult.addedCount}`,
+      `Server mode members added: chat=${remoteResult.chatId} added=${remoteResult.addedCount} skipped_left=${skippedLeftCount}`,
     );
     return;
   }
@@ -67,12 +68,34 @@ async function main() {
     );
 
     let addedCount = 0;
+    let skippedLeftCount = 0;
     rows.forEach((row) => {
       const existing = dbApi.getRow(
         "SELECT role FROM chat_members WHERE chat_id = ? AND user_id = ?",
         [Number(chat.id), Number(row.id)],
       );
       if (existing?.role) return;
+      const priorLeft = dbApi.getRow(
+        `SELECT 1 AS prior_left
+         FROM chat_left_members
+         WHERE chat_id = ? AND user_id = ?
+         UNION
+         SELECT 1 AS prior_left
+         FROM chat_messages
+         WHERE chat_id = ? AND user_id = ? AND body LIKE ?
+         LIMIT 1`,
+        [
+          Number(chat.id),
+          Number(row.id),
+          Number(chat.id),
+          Number(row.id),
+          "[[system:left:%",
+        ],
+      );
+      if (priorLeft?.prior_left) {
+        skippedLeftCount += 1;
+        return;
+      }
       const role = existingOwnerIds.has(Number(row.id)) ? "owner" : "member";
       dbApi.run(
         "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",
@@ -83,6 +106,7 @@ async function main() {
 
     dbApi.save();
     console.log(`Members added: ${addedCount}`);
+    console.log(`Skipped users who previously left: ${skippedLeftCount}`);
     console.log(
       `Chat: id=${chat.id} type=${chat.type} name=${chat.name || ""}`,
     );

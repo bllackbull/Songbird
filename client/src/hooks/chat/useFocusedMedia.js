@@ -46,7 +46,7 @@ export function useFocusedMedia({ isDesktop, isMobileTouchDevice }) {
       aspectRatio: `${ratio}`,
       width: `min(92vw, ${Math.max(44, Math.round(62 * ratio))}vh)`,
       maxWidth: "92vw",
-      maxHeight: "calc(100vh - 13rem)",
+      maxHeight: "calc(100dvh - 13rem)",
     };
   }, [getFocusAspectRatio, isDesktop]);
 

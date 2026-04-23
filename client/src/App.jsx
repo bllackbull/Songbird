@@ -143,6 +143,7 @@ export default function App() {
     window.matchMedia?.('(display-mode: standalone)')?.matches ||
     window.navigator?.standalone
   const isIOS = /iP(ad|hone|od)/i.test(navigator.userAgent)
+  const isAndroid = /Android/i.test(navigator.userAgent)
   const isIOSFirefox = /FxiOS/i.test(navigator.userAgent)
   const isIOSSafari =
     isIOS &&
@@ -616,13 +617,18 @@ export default function App() {
         (activeEl.tagName === 'INPUT' ||
           activeEl.tagName === 'TEXTAREA' ||
           activeEl.isContentEditable)
+      const keyboardInset = Math.max(
+        0,
+        Number(window.innerHeight || 0) -
+          Number(viewport.height || 0) -
+          topOffset,
+      )
       const keyboardLikelyOpen =
-        focusedEditable || window.innerHeight - viewport.height > 120
-      // Do not react to Safari toolbar/bottom chrome movement while scrolling.
-      // Only apply offset adjustments while an editable field is focused.
-      const offset = focusedEditable && keyboardLikelyOpen ? 0 : 0
-      root.style.setProperty('--vv-bottom-offset', `${offset}px`)
-      root.style.setProperty('--mobile-bottom-offset', `${offset}px`)
+        focusedEditable && keyboardInset > 120
+      const mobileBottomOffset =
+        isAndroid && keyboardLikelyOpen ? keyboardInset : 0
+      root.style.setProperty('--vv-bottom-offset', `${mobileBottomOffset}px`)
+      root.style.setProperty('--mobile-bottom-offset', `${mobileBottomOffset}px`)
       root.style.setProperty(
         '--vv-top-offset',
         `${focusedEditable && keyboardLikelyOpen ? topOffset : 0}px`,
@@ -641,7 +647,7 @@ export default function App() {
       window.removeEventListener('focusin', updateViewportOffset)
       window.removeEventListener('focusout', updateViewportOffset)
     }
-  }, [isIOSFirefox])
+  }, [isAndroid, isIOSFirefox])
 
 
   useEffect(() => {

@@ -346,6 +346,10 @@ export function FocusedMediaModal({
       className={`fixed inset-0 z-[200] transition-opacity duration-200 ${
         isDesktop ? "bg-black/80" : "bg-black"
       } ${focusVisible ? "opacity-100" : "opacity-0"}`}
+      style={{
+        minHeight: "100dvh",
+        height: "100dvh",
+      }}
       onClick={() => {
         if (isDesktop) {
           closeFocusMedia();
@@ -448,7 +452,7 @@ export function FocusedMediaModal({
           style={{
             width: "fit-content",
             maxWidth: "92vw",
-            maxHeight: isDesktop ? "min(86vh, 820px)" : "calc(100vh - 13rem)",
+            maxHeight: isDesktop ? "min(86vh, 820px)" : "calc(100dvh - 13rem)",
           }}
         >
           {focusedMedia.type === "video" ? (

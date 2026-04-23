@@ -6,6 +6,7 @@ function registerChatRoutes(app, deps) {
     AVATAR_FILE_LIMITS,
     avatarUploadRootDir,
     cleanupMissingMessageFiles,
+    clearChatMemberLeft,
     crypto,
     createChat,
     createMessage,
@@ -32,6 +33,7 @@ function registerChatRoutes(app, deps) {
     removeStoredFileNames,
     clearGroupMemberRemoved,
     bcrypt,
+    markChatMemberLeft,
     markGroupMemberRemoved,
     removeChatMember,
     regenerateGroupInviteToken,
@@ -76,6 +78,24 @@ function registerChatRoutes(app, deps) {
     if (raw.startsWith("/api/uploads/avatars/")) return raw;
     if (raw.startsWith("/uploads/avatars/")) return `/api${raw}`;
     return raw;
+  };
+  const emitChatListChangedToChatParticipants = (chatId, extraUsernames = []) => {
+    const memberUsernames = listChatMembers(Number(chatId))
+      .map((member) => String(member?.username || "").toLowerCase())
+      .filter(Boolean);
+    const targets = new Set([
+      ...memberUsernames,
+      ...(Array.isArray(extraUsernames) ? extraUsernames : [])
+        .map((value) => String(value || "").toLowerCase())
+        .filter(Boolean),
+    ]);
+    targets.forEach((targetUsername) => {
+      try {
+        emitSseEvent(targetUsername, { type: "chat_list_changed", chatId });
+      } catch {
+        // ignore realtime list errors
+      }
+    });
   };
 
   app.get("/api/chats", async (req, res) => {
@@ -353,13 +373,7 @@ function registerChatRoutes(app, deps) {
       const member = findUserByUsername(memberUsername);
       if (member) addChatMember(chatId, member.id, "member");
     });
-    memberSet.forEach((memberUsername) => {
-      try {
-        emitSseEvent(memberUsername, { type: "chat_list_changed", chatId });
-      } catch {
-        // ignore realtime list errors
-      }
-    });
+    emitChatListChangedToChatParticipants(chatId);
 
     const baseOrigin = resolveClientBaseOrigin(req);
     const inviteLink = `${baseOrigin}/invite/${inviteToken}`;
@@ -445,6 +459,7 @@ function registerChatRoutes(app, deps) {
     }
     const wasMember = isMember(chatId, user.id);
     if (!wasMember) {
+      clearChatMemberLeft(chatId, user.id);
       addChatMember(chatId, user.id, "member");
       if (chat.type === "group") {
         createMessage(chatId, user.id, `[[system:joined:${user.nickname || user.username}]]`);
@@ -461,11 +476,7 @@ function registerChatRoutes(app, deps) {
       }
     }
     unhideChat(user.id, chatId);
-    try {
-      emitSseEvent(user.username, { type: "chat_list_changed", chatId });
-    } catch {
-      // ignore realtime list errors
-    }
+    emitChatListChangedToChatParticipants(chatId);
 
     return res.json({
       ok: true,
@@ -693,8 +704,13 @@ function registerChatRoutes(app, deps) {
     nextMembers.forEach((memberUsername) => {
       const member = findUserByUsername(memberUsername);
       if (!member) return;
-      if (isMember(chatId, member.id)) return;
+      if (isMember(chatId, member.id)) {
+        unhideChat(member.id, chatId);
+        return;
+      }
+      clearChatMemberLeft(chatId, member.id);
       clearGroupMemberRemoved(chatId, member.id);
+      unhideChat(member.id, chatId);
       addChatMember(chatId, member.id, "member");
       if (chat.type === "group") {
         createMessage(
@@ -717,6 +733,7 @@ function registerChatRoutes(app, deps) {
     });
 
     const updated = findChatById(chatId);
+    emitChatListChangedToChatParticipants(chatId);
     return res.json({
       ok: true,
       group: updated,
@@ -772,6 +789,7 @@ function registerChatRoutes(app, deps) {
     }
 
     removeChatMember(chatId, user.id);
+    markChatMemberLeft(chatId, user.id);
     if (chat.type === "group") {
       createMessage(chatId, user.id, `[[system:left:${user.nickname || user.username}]]`);
       emitChatEvent(chatId, {
@@ -781,11 +799,7 @@ function registerChatRoutes(app, deps) {
         body: `[[system:left:${user.nickname || user.username}]]`,
       });
     }
-    try {
-      emitSseEvent(user.username, { type: "chat_list_changed", chatId });
-    } catch {
-      // ignore realtime list errors
-    }
+    emitChatListChangedToChatParticipants(chatId, [user.username]);
     return res.json({ ok: true });
   });
 
@@ -898,11 +912,7 @@ function registerChatRoutes(app, deps) {
         body: `[[system:removed:${target.nickname || target.username}]]`,
       });
     }
-    try {
-      emitSseEvent(target.username, { type: "chat_list_changed", chatId });
-    } catch {
-      // ignore realtime list errors
-    }
+    emitChatListChangedToChatParticipants(chatId, [target.username]);
     return res.json({ ok: true });
   });
 
@@ -977,6 +987,7 @@ function registerChatRoutes(app, deps) {
         allowMemberInvites: Boolean(Number(chat.allow_member_invites || 0)),
         groupAvatarUrl: avatarUrl,
       });
+      emitChatListChangedToChatParticipants(chatId);
 
       return res.json({
         ok: true,
@@ -985,6 +996,59 @@ function registerChatRoutes(app, deps) {
       });
     },
   );
+
+  app.delete("/api/chats/group/:chatId/avatar", (req, res) => {
+    const session = requireSession(req, res);
+    if (!session) return;
+
+    const chatId = Number(req.params?.chatId || 0);
+    const username = req.body?.username?.toString();
+    if (!chatId || !username) {
+      return res
+        .status(400)
+        .json({ error: "Group chat id and username are required." });
+    }
+    if (!requireSessionUsernameMatch(res, session, username)) return;
+
+    const chat = findChatById(chatId);
+    if (!chat || (chat.type !== "group" && chat.type !== "channel")) {
+      return res.status(404).json({ error: "Chat not found." });
+    }
+    const user = findUserByUsername(String(username || "").toLowerCase());
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+    const members = listChatMembers(chatId);
+    const label = chat.type === "channel" ? "channel" : "group";
+    const isOwner = members.some(
+      (member) =>
+        Number(member.id) === Number(user.id) &&
+        String(member.role || "").toLowerCase() === "owner",
+    );
+    if (!isOwner) {
+      return res
+        .status(403)
+        .json({ error: `Only ${label} owner can update ${label} avatar.` });
+    }
+
+    if (String(chat.group_avatar_url || "").trim()) {
+      removeAvatarByUrl(chat.group_avatar_url);
+    }
+    const updateFn = chat.type === "channel" ? updateChannelChat : updateGroupChat;
+    updateFn(chatId, {
+      name: chat.name,
+      groupUsername: chat.group_username,
+      groupVisibility: chat.group_visibility,
+      allowMemberInvites: Boolean(Number(chat.allow_member_invites || 0)),
+      groupAvatarUrl: null,
+    });
+    emitChatListChangedToChatParticipants(chatId);
+
+    return res.json({
+      ok: true,
+      avatarUrl: null,
+    });
+  });
 
   app.put("/api/chats/:chatId/mute", (req, res) => {
     const session = requireSession(req, res);
@@ -1070,6 +1134,7 @@ function registerChatRoutes(app, deps) {
     unhideChat(user.id, chatId);
     const alreadyMember = isMember(chatId, user.id);
     if (!alreadyMember) {
+      clearChatMemberLeft(chatId, user.id);
       addChatMember(chatId, user.id, "member");
       if (chat.type === "group") {
         createMessage(chatId, user.id, `[[system:joined:${user.nickname || user.username}]]`);
@@ -1081,11 +1146,7 @@ function registerChatRoutes(app, deps) {
         });
       }
     }
-    try {
-      emitSseEvent(user.username, { type: "chat_list_changed", chatId });
-    } catch {
-      // ignore realtime list errors
-    }
+    emitChatListChangedToChatParticipants(chatId);
 
     return res.json({
       ok: true,

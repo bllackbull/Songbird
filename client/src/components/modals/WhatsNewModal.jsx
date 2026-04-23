@@ -1,16 +1,73 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Close } from "../../icons/lucide.js";
+import { ArrowLeft, ArrowRight, Close } from "../../icons/lucide.js";
 import { copyTextToClipboard } from "../../utils/clipboard.js";
 import { renderMarkdownBlock } from "../../utils/markdown.js";
 
-export default function WhatsNewModal({ open, version, changelog, onClose }) {
+function normalizeVersionLabel(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^v/i, "");
+}
+
+function getSections(changelogSections, version, changelog) {
+  if (Array.isArray(changelogSections) && changelogSections.length) {
+    const normalizedCurrentVersion = normalizeVersionLabel(version);
+    const mappedSections = changelogSections
+      .map((section) => ({
+        heading: String(section?.heading || "").trim(),
+        body: String(section?.body || "").trim(),
+      }))
+      .filter((section) => section.heading || section.body);
+    const currentIndex = mappedSections.findIndex(
+      (section) =>
+        normalizeVersionLabel(section.heading) === normalizedCurrentVersion,
+    );
+
+    if (currentIndex > 0) {
+      return [
+        mappedSections[currentIndex],
+        ...mappedSections.slice(0, currentIndex),
+        ...mappedSections.slice(currentIndex + 1),
+      ];
+    }
+
+    return mappedSections;
+  }
+
+  const body = String(changelog || "").trim();
+  if (!body) return [];
+  return [
+    {
+      heading: String(version || "").trim(),
+      body,
+    },
+  ];
+}
+
+export default function WhatsNewModal({
+  open,
+  version,
+  changelog,
+  changelogSections,
+  onClose,
+}) {
   const panelRef = useRef(null);
   const contentRef = useRef(null);
-  const markdownHtml = useMemo(
-    () => renderMarkdownBlock(changelog || ""),
-    [changelog],
+  const sections = useMemo(
+    () => getSections(changelogSections, version, changelog),
+    [changelogSections, version, changelog],
   );
+  const [pageIndex, setPageIndex] = useState(0);
+  const activeSection = sections[pageIndex] || null;
+  const markdownHtml = useMemo(
+    () => renderMarkdownBlock(activeSection?.body || ""),
+    [activeSection?.body],
+  );
+
+  useEffect(() => {
+    setPageIndex(0);
+  }, [open, version, changelog, changelogSections]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -178,7 +235,7 @@ export default function WhatsNewModal({ open, version, changelog, onClose }) {
               What's New
             </p>
             <h3 className="mt-2 text-2xl font-bold text-emerald-700 dark:text-emerald-200">
-              Songbird {version || ""}
+              Songbird {activeSection?.heading || version || ""}
             </h3>
           </div>
           <button
@@ -195,7 +252,7 @@ export default function WhatsNewModal({ open, version, changelog, onClose }) {
           ref={contentRef}
           className="app-scroll min-h-0 flex-1 overflow-y-auto px-6 py-5"
         >
-          {String(changelog || "").trim() ? (
+          {activeSection?.body ? (
             <div
               className="sb-markdown break-words text-left text-sm text-slate-700 [overflow-wrap:anywhere] dark:text-slate-100"
               dangerouslySetInnerHTML={{ __html: String(markdownHtml || "") }}
@@ -207,7 +264,38 @@ export default function WhatsNewModal({ open, version, changelog, onClose }) {
           )}
         </div>
 
-        <div className="flex items-center justify-end border-t border-emerald-100/70 px-6 py-4 dark:border-emerald-500/20">
+        <div className="flex items-center justify-between gap-4 border-t border-emerald-100/70 px-6 py-4 dark:border-emerald-500/20">
+          {sections.length > 1 ? (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPageIndex((current) => Math.max(0, current - 1))}
+                disabled={pageIndex === 0}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-emerald-200 text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-emerald-500/30 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                aria-label="Show previous changelog version"
+              >
+                <ArrowLeft size={18} />
+              </button>
+              <span className="min-w-[5.5rem] text-center text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-300">
+                {pageIndex + 1} / {sections.length}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setPageIndex((current) =>
+                    Math.min(sections.length - 1, current + 1),
+                  )
+                }
+                disabled={pageIndex >= sections.length - 1}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-emerald-200 text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-emerald-500/30 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                aria-label="Show next changelog version"
+              >
+                <ArrowRight size={18} />
+              </button>
+            </div>
+          ) : (
+            <div />
+          )}
           <button
             type="button"
             onClick={() => onClose?.()}

@@ -1,5 +1,26 @@
 import { useEffect, useRef } from "react";
 
+const patchChatAndMoveToFront = (chats, chatId, updateChat) => {
+  const targetChatId = Number(chatId || 0);
+  if (!targetChatId) return { nextChats: chats, found: false };
+  const index = chats.findIndex((chat) => Number(chat?.id) === targetChatId);
+  if (index < 0) return { nextChats: chats, found: false };
+  const currentChat = chats[index];
+  const nextChat = updateChat(currentChat);
+  if (!nextChat || nextChat === currentChat) {
+    return { nextChats: chats, found: true };
+  }
+  if (index === 0) {
+    const nextChats = chats.slice();
+    nextChats[0] = nextChat;
+    return { nextChats, found: true };
+  }
+  const nextChats = chats.slice();
+  nextChats.splice(index, 1);
+  nextChats.unshift(nextChat);
+  return { nextChats, found: true };
+};
+
 export function useChatEvents({
   username,
   getSseStreamUrl,
@@ -138,31 +159,33 @@ export function useChatEvents({
           ).trim();
           let foundChat = false;
           setChats((prev) => {
-            const next = prev.map((chat) => {
-              if (Number(chat?.id) !== payloadChatId) return chat;
-              foundChat = true;
-              const isActiveChat =
-                Number(currentActiveId || 0) === Number(payloadChatId);
-              const currentUnread = Math.max(0, Number(chat?.unread_count || 0));
-              return {
-                ...chat,
-                last_message_id:
-                  Number(payload?.messageId || 0) || chat?.last_message_id || null,
-                last_message: previewBody || chat?.last_message || "",
-                last_time: eventTime,
-                last_sender_username:
-                  String(payload?.username || "").trim() ||
-                  chat?.last_sender_username ||
-                  "",
-                unread_count:
-                  !isOwnEvent && !isActiveChat ? currentUnread + 1 : currentUnread,
-              };
-            });
-            return next.sort((left, right) => {
-              const leftTime = left?.last_time ? Date.parse(left.last_time) : 0;
-              const rightTime = right?.last_time ? Date.parse(right.last_time) : 0;
-              return rightTime - leftTime;
-            });
+            const { nextChats, found } = patchChatAndMoveToFront(
+              prev,
+              payloadChatId,
+              (chat) => {
+                const isActiveChat =
+                  Number(currentActiveId || 0) === Number(payloadChatId);
+                const currentUnread = Math.max(0, Number(chat?.unread_count || 0));
+                return {
+                  ...chat,
+                  last_message_id:
+                    Number(payload?.messageId || 0) || chat?.last_message_id || null,
+                  last_message: previewBody || chat?.last_message || "",
+                  last_time: eventTime,
+                  last_sender_username:
+                    String(payload?.username || "").trim() ||
+                    chat?.last_sender_username ||
+                    "",
+                  last_message_read_at: isOwnEvent
+                    ? null
+                    : chat?.last_message_read_at || null,
+                  unread_count:
+                    !isOwnEvent && !isActiveChat ? currentUnread + 1 : currentUnread,
+                };
+              },
+            );
+            foundChat = found;
+            return nextChats;
           });
           if (!foundChat) {
             scheduleLoadChats();
@@ -178,6 +201,23 @@ export function useChatEvents({
             isOwnEvent,
             body: String(payload?.body || ""),
           });
+        }
+        if (payload.type === "chat_read" && !isOwnEvent && payloadChatId) {
+          const nowIso = new Date().toISOString();
+          setChats((prev) =>
+            prev.map((chat) =>
+              Number(chat?.id) === payloadChatId
+                ? {
+                    ...chat,
+                    last_message_read_at: nowIso,
+                    unread_count:
+                      Number(currentActiveId || 0) === Number(payloadChatId)
+                        ? 0
+                        : Number(chat?.unread_count || 0),
+                  }
+                : chat,
+            ),
+          );
         }
         if (currentActiveId && payloadChatId === currentActiveId) {
           if (isIncomingMessage) {
@@ -198,20 +238,6 @@ export function useChatEvents({
                 if (!fromCurrentUser || msg?.read_at) return msg;
                 return { ...msg, read_at: nowIso };
               }),
-            );
-            setChats((prev) =>
-              prev.map((chat) =>
-                Number(chat?.id) === payloadChatId
-                  ? {
-                      ...chat,
-                      last_message_read_at: nowIso,
-                      unread_count:
-                        Number(currentActiveId || 0) === Number(payloadChatId)
-                          ? 0
-                          : Number(chat?.unread_count || 0),
-                    }
-                  : chat,
-              ),
             );
           }
           if (isDeleteEvent) {

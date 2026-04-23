@@ -836,6 +836,9 @@ label:hover .icon-anim-drop {
 
 .sb-code {
   margin: 0;
+  inline-size: 100%;
+  direction: ltr;
+  text-align: left;
   border-radius: 0 0 10px 10px;
   padding: 0.14rem 0.45rem 0.18rem;
   background: #ffffff;
@@ -850,8 +853,10 @@ label:hover .icon-anim-drop {
 }
 
 .sb-code-block {
-  display: block;
-  width: 100%;
+  display: inline-flex;
+  flex-direction: column;
+  width: fit-content;
+  min-inline-size: min(9rem, 100%);
   margin: 0.35rem 0 0.2rem;
   border-radius: 10px;
   background: #ffffff;
@@ -868,6 +873,9 @@ label:hover .icon-anim-drop {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+  inline-size: 100%;
+  direction: ltr;
+  text-align: left;
   min-height: 0;
   padding: 0.08rem 0.28rem 0.08rem 0.45rem;
   background: #eef2f7;
@@ -1058,6 +1066,8 @@ label:hover .icon-anim-drop {
   display: block;
   width: auto;
   min-width: 0;
+  direction: ltr;
+  text-align: left;
   white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: anywhere;

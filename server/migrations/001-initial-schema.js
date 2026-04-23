@@ -40,6 +40,7 @@ export const migration001InitialSchema = {
         chat_id INTEGER NOT NULL,
         user_id INTEGER NOT NULL,
         body TEXT NOT NULL,
+        client_request_id TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         read_at TEXT,
         read_by_user_id INTEGER,
@@ -81,6 +82,9 @@ export const migration001InitialSchema = {
     if (hasColumn("chat_messages", "chat_id")) {
       db.run(
         "CREATE INDEX IF NOT EXISTS idx_messages_chat_time ON chat_messages(chat_id, created_at)",
+      );
+      db.run(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_messages_client_request ON chat_messages(chat_id, user_id, client_request_id)",
       );
     }
   },

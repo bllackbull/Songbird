@@ -15,6 +15,25 @@ import {
 import { hasPersian } from "../../../utils/fontUtils.js";
 import { renderMarkdownInlinePlain } from "../../../utils/markdown.js";
 
+function applyTextareaSize({
+  textareaEl,
+  maxTextareaHeight,
+  composerEl,
+  onComposerResize,
+  onComposerHeightChange,
+}) {
+  if (!textareaEl) return;
+  textareaEl.style.height = "0px";
+  const nextHeight = Math.min(textareaEl.scrollHeight, maxTextareaHeight);
+  textareaEl.style.height = `${Math.max(44, nextHeight)}px`;
+  textareaEl.style.overflowY =
+    textareaEl.scrollHeight > maxTextareaHeight ? "auto" : "hidden";
+  onComposerResize?.();
+  if (composerEl) {
+    onComposerHeightChange?.(Number(composerEl.offsetHeight || 0));
+  }
+}
+
 export function MessageComposer({
   activeChatId,
   isDesktop,
@@ -56,7 +75,6 @@ export function MessageComposer({
   const keepFocusRef = useRef(false);
   const previousEditIdRef = useRef(0);
   const appliedEditIdRef = useRef(0);
-  const [isRtl, setIsRtl] = useState(false);
   const [messageValue, setMessageValue] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [recordingMs, setRecordingMs] = useState(0);
@@ -103,6 +121,7 @@ export function MessageComposer({
   };
   const replyBodyText = normalizeReplyBody(replyTarget?.body);
   const editBodyText = normalizeReplyBody(editTarget?.body);
+  const composerHasPersian = hasPersian(messageValue);
   const editHasFiles = Array.isArray(editTarget?.files) && editTarget.files.length > 0;
   const editBodyLooksLikeFileSummary =
     /^Sent (a media file|a photo|a video|a document|a voice message|\d+ (files|photos|videos|documents|media files|voice messages))$/i.test(
@@ -159,65 +178,111 @@ export function MessageComposer({
     ? hasText
     : hasText || hasPendingUploads || hasPendingVoice;
 
-  const resizeTextarea = useCallback(() => {
-    const el = messageInputRef.current;
-    if (!el) return;
-    el.style.height = "0px";
-    const nextHeight = Math.min(el.scrollHeight, maxTextareaHeight);
-    el.style.height = `${Math.max(44, nextHeight)}px`;
-    el.style.overflowY =
-      el.scrollHeight > maxTextareaHeight ? "auto" : "hidden";
-    onComposerResize?.();
-    if (composerRef.current) {
-      onComposerHeightChange?.(Number(composerRef.current.offsetHeight || 0));
-    }
-  }, [maxTextareaHeight, onComposerResize, onComposerHeightChange]);
+  useEffect(() => {
+    applyTextareaSize({
+      textareaEl: messageInputRef.current,
+      maxTextareaHeight,
+      composerEl: composerRef.current,
+      onComposerResize,
+      onComposerHeightChange,
+    });
+  }, [maxTextareaHeight, messageInputRef, onComposerHeightChange, onComposerResize]);
 
   useEffect(() => {
-    resizeTextarea();
-  }, [resizeTextarea]);
+    applyTextareaSize({
+      textareaEl: messageInputRef.current,
+      maxTextareaHeight,
+      composerEl: composerRef.current,
+      onComposerResize,
+      onComposerHeightChange,
+    });
+  }, [
+    maxTextareaHeight,
+    messageInputRef,
+    onComposerHeightChange,
+    onComposerResize,
+    pendingUploadFiles?.length,
+  ]);
 
   useEffect(() => {
-    resizeTextarea();
-  }, [pendingUploadFiles?.length, resizeTextarea]);
-
-  useEffect(() => {
-    resizeTextarea();
-  }, [replyTarget, editTarget, resizeTextarea]);
+    applyTextareaSize({
+      textareaEl: messageInputRef.current,
+      maxTextareaHeight,
+      composerEl: composerRef.current,
+      onComposerResize,
+      onComposerHeightChange,
+    });
+  }, [
+    editTarget,
+    maxTextareaHeight,
+    messageInputRef,
+    onComposerHeightChange,
+    onComposerResize,
+    replyTarget,
+  ]);
 
   useEffect(() => {
     const nextEditId = Number(editTarget?.id || 0);
     if (!nextEditId) return;
     if (appliedEditIdRef.current === nextEditId) return;
-    appliedEditIdRef.current = nextEditId;
-    previousEditIdRef.current = nextEditId;
     const nextValue =
       editHasFiles && editBodyLooksLikeFileSummary ? "" : String(editBodyText || "");
-    setMessageValue(nextValue);
-    setIsRtl(hasPersian(nextValue));
-    if (typeof onMessageInput === "function") {
-      onMessageInput(nextValue);
-    }
-    requestAnimationFrame(() => {
-      resizeTextarea();
+    const frameId = requestAnimationFrame(() => {
+      appliedEditIdRef.current = nextEditId;
+      previousEditIdRef.current = nextEditId;
+      setMessageValue(nextValue);
+      if (typeof onMessageInput === "function") {
+        onMessageInput(nextValue);
+      }
+      applyTextareaSize({
+        textareaEl: messageInputRef.current,
+        maxTextareaHeight,
+        composerEl: composerRef.current,
+        onComposerResize,
+        onComposerHeightChange,
+      });
       messageInputRef.current?.focus?.();
     });
-  }, [editBodyText, editTarget?.id, messageInputRef, onMessageInput, resizeTextarea]);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [
+    editBodyLooksLikeFileSummary,
+    editBodyText,
+    editHasFiles,
+    editTarget?.id,
+    maxTextareaHeight,
+    messageInputRef,
+    onComposerHeightChange,
+    onMessageInput,
+    onComposerResize,
+  ]);
 
   useEffect(() => {
     if (editTarget) return;
     if (!previousEditIdRef.current) return;
-    previousEditIdRef.current = 0;
-    appliedEditIdRef.current = 0;
-    setMessageValue("");
-    setIsRtl(false);
-    if (typeof onMessageInput === "function") {
-      onMessageInput("");
-    }
-    requestAnimationFrame(() => {
-      resizeTextarea();
+    const frameId = requestAnimationFrame(() => {
+      previousEditIdRef.current = 0;
+      appliedEditIdRef.current = 0;
+      setMessageValue("");
+      if (typeof onMessageInput === "function") {
+        onMessageInput("");
+      }
+      applyTextareaSize({
+        textareaEl: messageInputRef.current,
+        maxTextareaHeight,
+        composerEl: composerRef.current,
+        onComposerResize,
+        onComposerHeightChange,
+      });
     });
-  }, [editTarget, onMessageInput, resizeTextarea]);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [
+    editTarget,
+    maxTextareaHeight,
+    messageInputRef,
+    onComposerHeightChange,
+    onComposerResize,
+    onMessageInput,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -434,59 +499,95 @@ export function MessageComposer({
     [micDisabled, microphonePermissionStatus, onRequestMicrophonePermission, startRecording],
   );
 
-  const restoreComposerFocus = useCallback(() => {
+  const restoreComposerFocus = () => {
     if (!keepFocusRef.current) return;
     keepFocusRef.current = false;
     requestAnimationFrame(() => {
       messageInputRef.current?.focus?.({ preventScroll: true });
       messageInputRef.current?.focus?.();
     });
-  }, [messageInputRef]);
+  };
 
-  const captureComposerFocus = useCallback(() => {
+  const captureComposerFocus = () => {
     if (typeof document === "undefined") return;
     if (document.activeElement === messageInputRef.current) {
       keepFocusRef.current = true;
     }
-  }, [messageInputRef]);
+  };
 
-  const handleMicPointerUp = useCallback(
-    (event) => {
+  const handleMicPointerUp = (event) => {
+    event?.preventDefault?.();
+    isPressingMicRef.current = false;
+    const recorder = mediaRecorderRef.current;
+    if (isRecording || (recorder && recorder.state === "recording")) {
+      stopRecording();
+      if (keepFocusRef.current) {
+        keepFocusRef.current = false;
+        requestAnimationFrame(() => {
+          messageInputRef.current?.focus?.({ preventScroll: true });
+          messageInputRef.current?.focus?.();
+        });
+      }
+      return;
+    }
+    pendingStopRef.current = true;
+    if (keepFocusRef.current) {
+      keepFocusRef.current = false;
+      requestAnimationFrame(() => {
+        messageInputRef.current?.focus?.({ preventScroll: true });
+        messageInputRef.current?.focus?.();
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (!isRecording) return;
+    const handleWindowPointerUp = (event) => {
       event?.preventDefault?.();
       isPressingMicRef.current = false;
       const recorder = mediaRecorderRef.current;
       if (isRecording || (recorder && recorder.state === "recording")) {
         stopRecording();
-        restoreComposerFocus();
+        if (keepFocusRef.current) {
+          keepFocusRef.current = false;
+          requestAnimationFrame(() => {
+            messageInputRef.current?.focus?.({ preventScroll: true });
+            messageInputRef.current?.focus?.();
+          });
+        }
         return;
       }
       pendingStopRef.current = true;
-      restoreComposerFocus();
-    },
-    [isRecording, restoreComposerFocus, stopRecording],
-  );
-
-  useEffect(() => {
-    if (!isRecording) return;
-    const handleWindowPointerUp = (event) => handleMicPointerUp(event);
+      if (keepFocusRef.current) {
+        keepFocusRef.current = false;
+        requestAnimationFrame(() => {
+          messageInputRef.current?.focus?.({ preventScroll: true });
+          messageInputRef.current?.focus?.();
+        });
+      }
+    };
     window.addEventListener("pointerup", handleWindowPointerUp);
     window.addEventListener("pointercancel", handleWindowPointerUp);
     return () => {
       window.removeEventListener("pointerup", handleWindowPointerUp);
       window.removeEventListener("pointercancel", handleWindowPointerUp);
     };
-  }, [isRecording, handleMicPointerUp]);
+  }, [isRecording, messageInputRef, stopRecording]);
 
   useEffect(() => {
     const handleWindowFocus = () => {
       if (!keepFocusRef.current) return;
-      restoreComposerFocus();
+      keepFocusRef.current = false;
+      requestAnimationFrame(() => {
+        messageInputRef.current?.focus?.({ preventScroll: true });
+        messageInputRef.current?.focus?.();
+      });
     };
     window.addEventListener("focus", handleWindowFocus);
     return () => {
       window.removeEventListener("focus", handleWindowFocus);
     };
-  }, [restoreComposerFocus]);
+  }, [messageInputRef]);
 
   if (!activeChatId) return null;
 
@@ -510,10 +611,15 @@ export function MessageComposer({
         handleSend(event);
         requestAnimationFrame(() => {
           if (!editTarget) {
-            setIsRtl(false);
             setMessageValue("");
           }
-          resizeTextarea();
+          applyTextareaSize({
+            textareaEl: messageInputRef.current,
+            maxTextareaHeight,
+            composerEl: composerRef.current,
+            onComposerResize,
+            onComposerHeightChange,
+          });
           if (!isDesktop) {
             messageInputRef.current?.focus();
           }
@@ -930,13 +1036,18 @@ export function MessageComposer({
                   ? messageMaxChars
                   : undefined
               }
-              lang={isRtl ? "fa" : "en"}
-              dir={isRtl ? "rtl" : "ltr"}
+              lang={composerHasPersian ? "fa" : "en"}
+              dir="auto"
               onInput={(event) => {
                 const value = event.currentTarget.value || "";
-                setIsRtl(hasPersian(value));
                 setMessageValue(value);
-                resizeTextarea();
+                applyTextareaSize({
+                  textareaEl: event.currentTarget,
+                  maxTextareaHeight,
+                  composerEl: composerRef.current,
+                  onComposerResize,
+                  onComposerHeightChange,
+                });
                 if (typeof onMessageInput === "function") {
                   onMessageInput(value);
                 }
@@ -955,7 +1066,9 @@ export function MessageComposer({
                 event.preventDefault();
                 event.currentTarget.form?.requestSubmit();
               }}
-              className={`chat-scroll min-w-0 flex-1 resize-none rounded-2xl border border-emerald-200 bg-white px-4 py-2 text-base text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${isRtl ? "text-right font-fa" : "text-left"}`}
+              className={`chat-scroll min-w-0 flex-1 resize-none rounded-2xl border border-emerald-200 bg-white px-4 py-2 text-base text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
+                composerHasPersian ? "font-fa" : ""
+              }`}
               style={{
                 minHeight: "44px",
                 maxHeight: `${maxTextareaHeight}px`,
@@ -964,6 +1077,7 @@ export function MessageComposer({
                 wordBreak: "normal",
                 overflowWrap: "break-word",
                 overflowX: "hidden",
+                textAlign: "start",
               }}
             />
           </>

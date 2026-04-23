@@ -45,17 +45,17 @@ async function main() {
 
   const payload = {
     chatSelector,
-    name: nameValue,
+    name: nameValue == null ? undefined : String(nameValue),
     username:
-      usernameValue === null
+      usernameValue == null
         ? undefined
         : normalizeGroupUsername(usernameValue),
     visibility:
-      visibilityValue === null
+      visibilityValue == null
         ? undefined
         : normalizeVisibility(visibilityValue),
     color: normalizedColor,
-    owner: ownerValue === null ? undefined : String(ownerValue).trim(),
+    owner: ownerValue == null ? undefined : String(ownerValue).trim(),
     allowMemberInvites,
   };
 
@@ -76,15 +76,15 @@ async function main() {
     }
 
     const nextName =
-      nameValue === null
+      nameValue == null
         ? String(chat.name || "")
         : String(nameValue || "").trim();
     const nextUsername =
-      usernameValue === null
+      usernameValue == null
         ? String(chat.group_username || "").replace(/^@+/, "")
         : normalizeGroupUsername(usernameValue);
     const nextVisibility =
-      visibilityValue === null
+      visibilityValue == null
         ? String(chat.group_visibility || "public").toLowerCase()
         : normalizeVisibility(visibilityValue);
     const nextColor =
@@ -132,7 +132,7 @@ async function main() {
     }
 
     let nextOwner = null;
-    if (ownerValue !== null) {
+    if (ownerValue != null) {
       nextOwner = resolveUserRow(dbApi, ownerValue);
       if (!nextOwner?.id) {
         console.error("New owner user not found.");

@@ -15,7 +15,6 @@ import {
   Video,
 } from "../../../icons/lucide.js";
 import { hasPersian } from "../../../utils/fontUtils.js";
-import { getAvatarStyle } from "../../../utils/avatarColor.js";
 import { getAvatarInitials } from "../../../utils/avatarInitials.js";
 import ContextMenuSurface from "../../context-menu/ContextMenuSurface.jsx";
 import { MessageFiles } from "../media/MessageFiles.jsx";
@@ -31,6 +30,107 @@ import {
 import { resolveMention } from "../../../utils/mentions.js";
 import { summarizeFiles } from "../../../utils/messagePreview.js";
 import Avatar from "../../common/Avatar.jsx";
+
+const MAX_MESSAGE_HTML_CACHE_ENTRIES = 800;
+const messageBodyHtmlCache = new Map();
+const replyPreviewHtmlCache = new Map();
+
+const readCachedHtml = (cache, key) => {
+  if (!key || !cache.has(key)) return null;
+  const value = cache.get(key);
+  cache.delete(key);
+  cache.set(key, value);
+  return value;
+};
+
+const writeCachedHtml = (cache, key, value) => {
+  if (!key) return value;
+  cache.set(key, value);
+  while (cache.size > MAX_MESSAGE_HTML_CACHE_ENTRIES) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey === undefined) break;
+    cache.delete(oldestKey);
+  }
+  return value;
+};
+
+const getMessageIdentity = (msg) =>
+  String(msg?._clientId ?? msg?._serverId ?? msg?.id ?? "");
+
+const getFileSignature = (files) =>
+  (Array.isArray(files) ? files : [])
+    .map((file) =>
+      [
+        file?.id ?? file?._localId ?? "",
+        file?.url ?? file?._localUrl ?? "",
+        file?.mimeType ?? "",
+        file?.kind ?? "",
+        file?.processing ? 1 : 0,
+        Number(file?.sizeBytes || 0) || 0,
+        Number(file?.width || 0) || 0,
+        Number(file?.height || 0) || 0,
+        Number(file?.durationSeconds || 0) || 0,
+      ].join(":"),
+    )
+    .join("|");
+
+const getReplySignature = (replyTarget) => {
+  if (!replyTarget) return "";
+  return [
+    replyTarget?.id ?? "",
+    replyTarget?.icon ?? "",
+    replyTarget?.body ?? "",
+    replyTarget?.displayName ?? "",
+    replyTarget?.nickname ?? "",
+    replyTarget?.username ?? "",
+    replyTarget?.color ?? "",
+  ].join("::");
+};
+
+const getSystemEventSignature = (systemEvent) => {
+  if (!systemEvent) return "";
+  return [
+    systemEvent?.type ?? "",
+    systemEvent?.text ?? "",
+    systemEvent?.name ?? "",
+    systemEvent?.suffix ?? "",
+  ].join("::");
+};
+
+const getMessageRenderSignature = (msg) => {
+  if (!msg) return "";
+  return [
+    getMessageIdentity(msg),
+    msg?.body ?? "",
+    msg?.edited_body ?? "",
+    Number(msg?.edited || 0) || 0,
+    msg?._edited ? 1 : 0,
+    msg?.read_at ?? "",
+    msg?.read_by_user_id ?? "",
+    msg?._delivery ?? "",
+    Number(msg?._uploadProgress ?? 0) || 0,
+    msg?._processingPending ? 1 : 0,
+    msg?.created_at ?? "",
+    msg?.expiresAt ?? msg?.expires_at ?? "",
+    msg?._timeLabel ?? "",
+    msg?._dayKey ?? "",
+    msg?._dayLabel ?? "",
+    msg?.username ?? "",
+    msg?.nickname ?? "",
+    msg?.avatar_url ?? "",
+    msg?.color ?? "",
+    msg?.forwarded_from_chat_id ?? "",
+    msg?.forwarded_from_user_id ?? "",
+    msg?.forwarded_from_label ?? "",
+    msg?.forwarded_from_username ?? "",
+    msg?.forwarded_from_avatar_url ?? "",
+    msg?.forwarded_from_color ?? "",
+    getReplySignature(msg?.replyTo),
+    getSystemEventSignature(msg?._systemEvent),
+    getFileSignature(msg?.files),
+    getFileSignature(msg?._files),
+  ].join("~~");
+};
 
 export const MessageItem = memo(function MessageItem({
   msg,
@@ -50,7 +150,7 @@ export const MessageItem = memo(function MessageItem({
   onOpenSenderProfile,
   onOpenMention,
   onOpenForwardOrigin,
-  mentionRefreshToken = 0,
+  mentionRefreshToken: _mentionRefreshToken = 0,
   onReply,
   onForwardMessage,
   onJumpToMessage,
@@ -131,68 +231,17 @@ export const MessageItem = memo(function MessageItem({
   useEffect(() => {
     onOpenMentionRef.current = onOpenMention;
   }, [onOpenMention]);
+  const messageIdentity = getMessageIdentity(msg);
   const markdownHtml = useMemo(() => {
-    return renderMarkdownBlock(bodyText);
-  }, [bodyText]);
-
-  const wrapMentionsInContainer = (container) => {
-    if (!container || typeof document === "undefined") return false;
-    const showText =
-      typeof NodeFilter !== "undefined" ? NodeFilter.SHOW_TEXT : 4;
-    let walker = null;
-    try {
-      walker = document.createTreeWalker(container, showText, {
-        acceptNode(node) {
-          const parent = node.parentElement;
-          if (!parent) return NodeFilter ? NodeFilter.FILTER_REJECT : 2;
-          if (parent.closest("a, code, pre, .sb-mention")) {
-            return NodeFilter ? NodeFilter.FILTER_REJECT : 2;
-          }
-          return NodeFilter ? NodeFilter.FILTER_ACCEPT : 1;
-        },
-      });
-    } catch {
-      return false;
-    }
-    let changed = false;
-    const regex = /(^|[^a-z0-9._])@([a-z0-9._]{3,})/gi;
-    const textNodes = [];
-    while (walker.nextNode()) {
-      textNodes.push(walker.currentNode);
-    }
-    textNodes.forEach((node) => {
-      const text = String(node.textContent || "");
-      if (!regex.test(text)) return;
-      regex.lastIndex = 0;
-      const frag = document.createDocumentFragment();
-      let lastIndex = 0;
-      let match = null;
-      while ((match = regex.exec(text))) {
-        const prefix = match[1] || "";
-        const username = match[2] || "";
-        const start = match.index;
-        const mentionStart = start + prefix.length;
-        if (mentionStart > lastIndex) {
-          frag.appendChild(
-            document.createTextNode(text.slice(lastIndex, mentionStart)),
-          );
-        }
-        const span = document.createElement("span");
-        span.className = "sb-mention sb-mention-active";
-        span.dataset.mention = String(username || "").toLowerCase();
-        span.dir = "ltr";
-        span.textContent = `@${username}`;
-        frag.appendChild(span);
-        lastIndex = mentionStart + username.length + 1;
-      }
-      if (lastIndex < text.length) {
-        frag.appendChild(document.createTextNode(text.slice(lastIndex)));
-      }
-      node.parentNode?.replaceChild(frag, node);
-      changed = true;
-    });
-    return changed;
-  };
+    const cacheKey = `${messageIdentity}::${bodyText}::${Number(
+      msg?.edited || 0,
+    )}::${msg?._edited ? 1 : 0}`;
+    const cached = readCachedHtml(messageBodyHtmlCache, cacheKey);
+    if (cached !== null) return cached;
+    return writeCachedHtml(messageBodyHtmlCache, cacheKey, renderMarkdownBlock(bodyText));
+  }, [bodyText, messageIdentity, msg?._edited, msg?.edited]);
+  const hasMarkdownCodeBlock =
+    typeof markdownHtml === "string" && markdownHtml.includes("sb-code-block");
 
   useEffect(() => {
     const container = messageBodyRef.current;
@@ -220,9 +269,6 @@ export const MessageItem = memo(function MessageItem({
         delete el.dataset.sbMentionInvalidAt;
       }
     };
-    if (mayContainMentionSyntax) {
-      wrapMentionsInContainer(container);
-    }
     const handleMentionClick = (event) => {
       const target = event?.target;
       if (!target || typeof target.closest !== "function") return;
@@ -379,7 +425,6 @@ export const MessageItem = memo(function MessageItem({
     };
   }, [
     markdownHtml,
-    mentionRefreshToken,
     user.username,
     mentionDebugEnabled,
     bodyText,
@@ -434,6 +479,7 @@ export const MessageItem = memo(function MessageItem({
     ? getMessageDayLabel(msg)
     : msg?._dayLabel || msg?._dayKey || "";
   const replyTarget = msg.replyTo || null;
+  const replySignature = getReplySignature(replyTarget);
   const replyDisplayName =
     isChannelChat && replyTarget
       ? chatName || "Channel"
@@ -477,8 +523,17 @@ export const MessageItem = memo(function MessageItem({
             : replyPreview
           : replyPreview;
   const replyPreviewHtml = useMemo(
-    () => renderMarkdownInlinePlain(normalizedReplyPreview),
-    [normalizedReplyPreview],
+    () => {
+      const cacheKey = `${messageIdentity}::reply::${replySignature}::${normalizedReplyPreview}`;
+      const cached = readCachedHtml(replyPreviewHtmlCache, cacheKey);
+      if (cached !== null) return cached;
+      return writeCachedHtml(
+        replyPreviewHtmlCache,
+        cacheKey,
+        renderMarkdownInlinePlain(normalizedReplyPreview),
+      );
+    },
+    [messageIdentity, normalizedReplyPreview, replySignature],
   );
   const derivedReplyIcon = (() => {
     if (!replyTarget) return null;
@@ -839,12 +894,14 @@ export const MessageItem = memo(function MessageItem({
               <ContextMenuSurface
                 as="div"
                 data-message-bubble
-                className={`relative flex-none rounded-2xl px-4 py-3 text-sm shadow-sm overflow-visible min-w-0 max-w-[82%] sm:max-w-[86%] md:max-w-[min(84%,calc(100%-2rem))] ${
+                className={`relative rounded-2xl px-4 py-3 text-sm shadow-sm overflow-visible max-w-[calc(100vw-5.5rem)] sm:max-w-[86%] md:max-w-[min(84%,calc(100%-2rem))] ${
+                  hasMarkdownCodeBlock ? "min-w-[9rem]" : "min-w-0"
+                } ${
                   hasFiles
                     ? hasMediaFiles
                       ? "w-[min(52vw,18rem)] md:w-[min(44vw,22rem)] md:min-w-[12rem]"
                       : "w-fit max-w-full"
-                    : "max-w-full"
+                    : "w-fit max-w-full"
                 } bg-white/90 text-slate-800 rounded-bl-md dark:bg-slate-800/75 dark:text-slate-100`}
                 onDoubleClick={() => {
                   if (!isDesktop || !onReply) return;
@@ -964,11 +1021,11 @@ export const MessageItem = memo(function MessageItem({
                 {!shouldHideGeneratedFileBody ? (
                   <div
                     ref={messageBodyRef}
-                    dir={hasPersian(bodyText) ? "rtl" : "ltr"}
+                    dir="auto"
                     className={`sb-markdown mt-1 break-words [overflow-wrap:anywhere] ${
-                      hasPersian(bodyText) ? "font-fa text-right" : "text-left"
+                      hasPersian(bodyText) ? "font-fa" : ""
                     }`}
-                    style={{ unicodeBidi: "plaintext" }}
+                    style={{ unicodeBidi: "plaintext", textAlign: "start" }}
                     dangerouslySetInnerHTML={{
                       __html: String(markdownHtml || ""),
                     }}
@@ -989,7 +1046,9 @@ export const MessageItem = memo(function MessageItem({
             <ContextMenuSurface
               as="div"
               data-message-bubble
-              className={`relative rounded-2xl px-4 py-3 text-sm shadow-sm overflow-visible min-w-0 max-w-[78%] sm:max-w-[82%] md:max-w-[75%] ${
+              className={`relative rounded-2xl px-4 py-3 text-sm shadow-sm overflow-visible max-w-[78%] sm:max-w-[82%] md:max-w-[75%] ${
+                hasMarkdownCodeBlock ? "min-w-[9rem]" : "min-w-0"
+              } ${
                 hasFiles
                   ? hasMediaFiles
                     ? "w-[min(52vw,18rem)] max-w-[72%] md:w-[min(44vw,22rem)] md:max-w-[68%] md:min-w-[12rem]"
@@ -1109,11 +1168,11 @@ export const MessageItem = memo(function MessageItem({
               {!shouldHideGeneratedFileBody ? (
                 <div
                   ref={messageBodyRef}
-                  dir={hasPersian(bodyText) ? "rtl" : "ltr"}
+                  dir="auto"
                   className={`sb-markdown mt-1 break-words [overflow-wrap:anywhere] ${
-                    hasPersian(bodyText) ? "font-fa text-right" : "text-left"
+                    hasPersian(bodyText) ? "font-fa" : ""
                   }`}
-                  style={{ unicodeBidi: "plaintext" }}
+                  style={{ unicodeBidi: "plaintext", textAlign: "start" }}
                   dangerouslySetInnerHTML={{
                     __html: String(markdownHtml || ""),
                   }}
@@ -1211,8 +1270,11 @@ export const MessageItem = memo(function MessageItem({
     </div>
   );
 }, (prev, next) => {
-  if (prev.msg !== next.msg) return false;
+  if (getMessageRenderSignature(prev.msg) !== getMessageRenderSignature(next.msg)) {
+    return false;
+  }
   if (prev.unreadMarkerId !== next.unreadMarkerId) return false;
+  if (prev.isFirstInGroup !== next.isFirstInGroup) return false;
   if (prev.isDesktop !== next.isDesktop) return false;
   if (prev.isMobileTouchDevice !== next.isMobileTouchDevice) return false;
   if (prev.isGroupChat !== next.isGroupChat) return false;

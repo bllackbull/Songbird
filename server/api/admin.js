@@ -124,6 +124,11 @@ function registerAdminRoutes(app, deps) {
             );
 
             adminRun(
+              `DELETE FROM chat_left_members WHERE chat_id IN (${chunkPlaceholders})`,
+              chunk,
+            );
+
+            adminRun(
               `DELETE FROM hidden_chats WHERE chat_id IN (${chunkPlaceholders})`,
               chunk,
             );
@@ -283,6 +288,10 @@ function registerAdminRoutes(app, deps) {
                 chunk,
               );
               adminRun(
+                `DELETE FROM chat_left_members WHERE chat_id IN (${chunkPlaceholders})`,
+                chunk,
+              );
+              adminRun(
                 `DELETE FROM hidden_chats WHERE chat_id IN (${chunkPlaceholders})`,
                 chunk,
               );
@@ -319,6 +328,11 @@ function registerAdminRoutes(app, deps) {
 
             adminRun(
               `DELETE FROM chat_members WHERE user_id IN (${chunkPlaceholders})`,
+              chunk,
+            );
+
+            adminRun(
+              `DELETE FROM chat_left_members WHERE user_id IN (${chunkPlaceholders})`,
               chunk,
             );
 
@@ -572,6 +586,7 @@ function registerAdminRoutes(app, deps) {
         }
 
         let addedCount = 0;
+        let skippedLeftCount = 0;
         adminRun("BEGIN");
         try {
           users.forEach((user) => {
@@ -580,6 +595,27 @@ function registerAdminRoutes(app, deps) {
               [Number(chat.id), Number(user.id)],
             );
             if (exists?.member) return;
+            const priorLeft = adminGetRow(
+              `SELECT 1 AS prior_left
+               FROM chat_left_members
+               WHERE chat_id = ? AND user_id = ?
+               UNION
+               SELECT 1 AS prior_left
+               FROM chat_messages
+               WHERE chat_id = ? AND user_id = ? AND body LIKE ?
+               LIMIT 1`,
+              [
+                Number(chat.id),
+                Number(user.id),
+                Number(chat.id),
+                Number(user.id),
+                "[[system:left:%",
+              ],
+            );
+            if (priorLeft?.prior_left) {
+              skippedLeftCount += 1;
+              return;
+            }
             adminRun(
               "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",
               [Number(chat.id), Number(user.id), "member"],
@@ -595,7 +631,7 @@ function registerAdminRoutes(app, deps) {
 
         return res.json({
           ok: true,
-          result: { chatId: Number(chat.id), addedCount },
+          result: { chatId: Number(chat.id), addedCount, skippedLeftCount },
         });
       }
 
@@ -610,17 +646,19 @@ function registerAdminRoutes(app, deps) {
         }
 
         const nextName =
-          payload.name === undefined ? String(chat.name || "") : String(payload.name || "").trim();
+          payload.name === undefined || payload.name === null
+            ? String(chat.name || "")
+            : String(payload.name || "").trim();
         const nextUsername =
-          payload.username === undefined
+          payload.username === undefined || payload.username === null
             ? normalizeGroupUsername(chat.group_username)
             : normalizeGroupUsername(payload.username);
         const nextVisibility =
-          payload.visibility === undefined
+          payload.visibility === undefined || payload.visibility === null
             ? normalizeVisibility(chat.group_visibility)
             : normalizeVisibility(payload.visibility);
         const nextColor =
-          payload.color === undefined
+          payload.color === undefined || payload.color === null
             ? String(chat.group_color || "").trim() || null
             : normalizeHexColor(payload.color);
         const effectiveVisibility = nextVisibility === "private" ? "private" : "public";
@@ -646,7 +684,7 @@ function registerAdminRoutes(app, deps) {
                 : 0
             : 1;
 
-        if (payload.color !== undefined && !nextColor) {
+        if (payload.color !== undefined && payload.color !== null && !nextColor) {
           return res.status(400).json({ error: "Invalid color." });
         }
 
@@ -667,7 +705,7 @@ function registerAdminRoutes(app, deps) {
         }
 
         let nextOwner = null;
-        if (payload.owner !== undefined) {
+        if (payload.owner !== undefined && payload.owner !== null) {
           nextOwner = resolveUserRow(
             { getRow: adminGetRow, getAll: adminGetAll },
             payload.owner,

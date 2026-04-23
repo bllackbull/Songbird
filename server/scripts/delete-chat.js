@@ -41,6 +41,7 @@ function deleteChatsByIds(dbApi, chatIds) {
       )
       run(`DELETE FROM chat_messages WHERE chat_id IN (${chunkPlaceholders})`, chunk)
       run(`DELETE FROM chat_members WHERE chat_id IN (${chunkPlaceholders})`, chunk)
+      run(`DELETE FROM chat_left_members WHERE chat_id IN (${chunkPlaceholders})`, chunk)
       run(`DELETE FROM hidden_chats WHERE chat_id IN (${chunkPlaceholders})`, chunk)
       run(`DELETE FROM chats WHERE id IN (${chunkPlaceholders})`, chunk)
     })

@@ -7,7 +7,7 @@ import {
   isIdbAvailable,
 } from "./cacheDb.js";
 
-export const CHAT_CACHE_VERSION = 2;
+export const CHAT_CACHE_VERSION = 3;
 export const CHAT_LIST_CACHE_KEY = "songbird-chat-list-cache";
 export const CHAT_MESSAGES_CACHE_KEY = "songbird-chat-messages-cache";
 export const CHAT_MESSAGES_INDEX_KEY = "songbird-chat-messages-index";
@@ -410,7 +410,21 @@ export const sanitizeMessageForCache = (message) => {
           body: normalizeMessageBody(message.replyTo.body),
         }
       : message.replyTo || null;
-  const { _files, ...rest } = message;
+  const {
+    _files,
+    _clientId,
+    _chatId,
+    _queuedAt,
+    _delivery,
+    _uploadType,
+    _uploadProgress,
+    _awaitingServerEcho,
+    _processingPending,
+    _serverId,
+    _visibilityTime,
+    _readByMe,
+    ...rest
+  } = message;
   rest.body = normalizedBody;
   if (normalizedReply) {
     rest.replyTo = normalizedReply;

@@ -84,6 +84,56 @@ function readTextFile(fs, filePath, fallback = "") {
   }
 }
 
+function parseChangelogSections(changelog) {
+  const text = String(changelog || "").trim();
+  if (!text) return [];
+
+  const sections = [];
+  const lines = text.split(/\r?\n/);
+  let currentSection = null;
+
+  for (const line of lines) {
+    const headingMatch = line.match(/^##\s+(.+)$/);
+    if (headingMatch) {
+      if (currentSection) {
+        sections.push({
+          heading: currentSection.heading,
+          body: currentSection.lines.join("\n").replace(/\s+$/, ""),
+        });
+      }
+      currentSection = {
+        heading: String(headingMatch[1] || "").trim(),
+        lines: [],
+      };
+      continue;
+    }
+
+    if (currentSection) {
+      currentSection.lines.push(line);
+    }
+  }
+
+  if (currentSection) {
+    sections.push({
+      heading: currentSection.heading,
+      body: currentSection.lines.join("\n").replace(/\s+$/, ""),
+    });
+  }
+
+  return sections;
+}
+
+function findChangelogVersionSection(changelog, version) {
+  const normalizedVersion = normalizeVersion(version);
+  if (!normalizedVersion) return null;
+
+  const sections = parseChangelogSections(changelog);
+  return (
+    sections.find(({ heading }) => normalizeVersion(heading) === normalizedVersion) ||
+    null
+  );
+}
+
 function readAppMeta({ fs, path, projectRootDir }) {
   const versionPath = path.join(projectRootDir, "VERSION");
   const changelogPath = path.join(projectRootDir, "CHANGELOG.md");
@@ -94,18 +144,25 @@ function readAppMeta({ fs, path, projectRootDir }) {
   );
   const version = readTextFile(fs, versionPath).trim();
   const changelog = readTextFile(fs, changelogPath, "").trim();
+  const changelogSections = parseChangelogSections(changelog);
+  const currentVersionSection = findChangelogVersionSection(changelog, version);
 
   return {
     version,
     normalizedVersion: normalizeVersion(version),
     changelog,
+    changelogSections,
+    currentChangelog:
+      currentVersionSection?.body || (changelogSections.length ? "" : changelog),
     repository,
   };
 }
 
 export {
   compareVersions,
+  findChangelogVersionSection,
   normalizeVersion,
+  parseChangelogSections,
   parseGitHubRepository,
   readAppMeta,
 };
