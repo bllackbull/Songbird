@@ -100,6 +100,7 @@ export default function ChatWindowPanel({
   onOpenContextMenu,
   mentionRefreshToken = 0,
   onUserScrollIntent,
+  onFloatingDayNavigate,
   canSwipeReply = true,
   fileUploadEnabled = true,
   fileUploadInProgress = false,
@@ -775,9 +776,22 @@ export default function ChatWindowPanel({
         : groupedMessages[groupKeyOrIndex]?.dayKey;
     if (!dayKey) return;
     const node = document.getElementById(`day-group-${dayKey}`);
-    if (node && typeof node.scrollIntoView === "function") {
-      node.scrollIntoView({ block: "start", behavior: "smooth" });
-    }
+    const scroller = chatScrollRef?.current;
+    if (!node || !scroller) return;
+    const containerRect = scroller.getBoundingClientRect();
+    const nodeRect = node.getBoundingClientRect();
+    const targetTop = Math.max(
+      0,
+      Math.min(
+        scroller.scrollHeight - scroller.clientHeight,
+        scroller.scrollTop + (nodeRect.top - containerRect.top) - 12,
+      ),
+    );
+    const distance = Math.abs(targetTop - scroller.scrollTop);
+    scroller.scrollTo({
+      top: targetTop,
+      behavior: distance > 1 ? "smooth" : "auto",
+    });
   };
 
   const chatScrollStyle = useMemo(
@@ -1408,13 +1422,14 @@ export default function ChatWindowPanel({
             <button
               ref={floatingChipRef}
               type="button"
-              onClick={(event) =>
+              onClick={(event) => {
+                onFloatingDayNavigate?.();
                 handleFloatingChipClick(event, {
                   chatScrollRef,
                   isDesktop,
                   floatingDay,
-                })
-              }
+                });
+              }}
               className="inline-flex items-center justify-center rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
             >
               <span className="leading-none">{floatingDay.label}</span>

@@ -24,8 +24,8 @@ export function useFloatingDayChip() {
     const scrollerRect = target.getBoundingClientRect();
     const floatingRect = floatingChipRef.current?.getBoundingClientRect();
     const targetTop = floatingRect
-      ? floatingRect.top + floatingRect.height / 2
-      : scrollerRect.top + 108;
+      ? floatingRect.top + Math.max(8, floatingRect.height * 0.18)
+      : scrollerRect.top + 92;
     const groups = Array.from(target.querySelectorAll("[id^='day-group-']"));
     if (groups.length) {
       let chosen = groups[0];
@@ -75,12 +75,16 @@ export function useFloatingDayChip() {
       const desiredStickyTopInViewport = floatingRect.top + alignOffsetPx;
       const delta = stickyRect.top - desiredStickyTopInViewport;
       const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-      const targetTop = Math.max(
+      const nextTargetTop = Math.max(
         0,
         Math.min(maxTop, scroller.scrollTop + delta),
       );
 
-      scroller.scrollTo({ top: targetTop, behavior: "smooth" });
+      const distance = Math.abs(nextTargetTop - scroller.scrollTop);
+      scroller.scrollTo({
+        top: nextTargetTop,
+        behavior: distance > 1 ? "smooth" : "auto",
+      });
 
       const runFinalAlign = (releaseLock = false) => {
         const nextStickyChip =

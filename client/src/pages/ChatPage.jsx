@@ -2229,10 +2229,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     [user?.username],
   );
 
-  function handleDeleteMessageRequest(message, options = {}) {
+  function handleDeleteMessageRequest(message, _options = {}) {
     if (!message) return;
-    const allowDeleteForEveryone =
-      options?.allowDeleteForEveryone ?? canDeleteMessageForEveryone(message);
     setPendingDeleteMessage(message);
     setMessageDeleteScopeOpen(true);
   }
@@ -4244,17 +4242,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       setUploadError("");
     }
 
-    const pendingFilesSummary = hasAnyPendingFiles
-      ? summarizeFiles(
-          [
-            ...pendingUploadFiles,
-            ...(hasPendingVoice && pendingVoiceMessage
-              ? [pendingVoiceMessage]
-              : []),
-          ],
-          hasPendingFiles ? pendingUploadType : "",
-        )
-      : "";
     const isSavedChat = isActiveSavedChat;
 
     const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -4262,7 +4249,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const queuedAt = Date.now();
     const pendingDate = parseServerDate(createdAt);
     const pendingDayKey = `${pendingDate.getFullYear()}-${pendingDate.getMonth()}-${pendingDate.getDate()}`;
-    const fallbackBody = trimmedBody || "";
     const pendingFiles = hasAnyPendingFiles
       ? [
           ...pendingUploadFiles.map((item) => {
@@ -5340,6 +5326,26 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     cancelSmoothScroll?.();
     allowStartReachedRef.current = true;
   };
+  const handleFloatingDayNavigate = useCallback(() => {
+    cancelSmoothScroll?.();
+    allowStartReachedRef.current = true;
+    pendingScrollToBottomRef.current = false;
+    pendingScrollToUnreadRef.current = null;
+    unreadAnchorLockUntilRef.current = 0;
+    userScrolledUpRef.current = true;
+    setUserScrolledUp(true);
+    isAtBottomRef.current = false;
+    setIsAtBottom(false);
+  }, [
+    cancelSmoothScroll,
+    isAtBottomRef,
+    pendingScrollToBottomRef,
+    pendingScrollToUnreadRef,
+    unreadAnchorLockUntilRef,
+    setIsAtBottom,
+    setUserScrolledUp,
+    userScrolledUpRef,
+  ]);
   const usernamePattern = /^[a-z0-9._]+$/;
   const shouldPromptNotifications =
     notificationsSupported &&
@@ -5551,6 +5557,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         onForwardMessage={handleOpenForwardModal}
         onOpenContextMenu={openContextMenu}
         onUserScrollIntent={handleUserScrollIntent}
+        onFloatingDayNavigate={handleFloatingDayNavigate}
         canSwipeReply={canSwipeReply}
         fileUploadEnabled={CHAT_PAGE_CONFIG.fileUploadEnabled}
         fileUploadInProgress={fileUploadInProgress || activeUploadProgress !== null}
