@@ -817,19 +817,6 @@ label:hover .icon-anim-drop {
   color: #e2e8f0;
 }
 
-.sb-markdown blockquote {
-  margin: 0.25rem 0;
-  padding-left: 0.75rem;
-  border-left: 3px solid rgba(16, 185, 129, 0.5);
-}
-
-.sb-markdown[dir="rtl"] blockquote {
-  padding-left: 0;
-  padding-right: 0.75rem;
-  border-left: none;
-  border-right: 3px solid rgba(16, 185, 129, 0.5);
-}
-
 .sb-markdown em {
   font-style: italic;
 }

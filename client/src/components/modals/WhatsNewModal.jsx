@@ -66,7 +66,11 @@ export default function WhatsNewModal({
   );
 
   useEffect(() => {
-    setPageIndex(0);
+    if (typeof window === "undefined") return undefined;
+    const rafId = window.requestAnimationFrame(() => {
+      setPageIndex(0);
+    });
+    return () => window.cancelAnimationFrame(rafId);
   }, [open, version, changelog, changelogSections]);
 
   useEffect(() => {
@@ -271,7 +275,7 @@ export default function WhatsNewModal({
                 type="button"
                 onClick={() => setPageIndex((current) => Math.max(0, current - 1))}
                 disabled={pageIndex === 0}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-emerald-200 text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-emerald-500/30 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-emerald-200 bg-white text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
                 aria-label="Show previous changelog version"
               >
                 <ArrowLeft size={18} />
@@ -287,7 +291,7 @@ export default function WhatsNewModal({
                   )
                 }
                 disabled={pageIndex >= sections.length - 1}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-emerald-200 text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-emerald-500/30 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-emerald-200 bg-white text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
                 aria-label="Show next changelog version"
               >
                 <ArrowRight size={18} />

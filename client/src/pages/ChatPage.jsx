@@ -569,13 +569,20 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream?.getTracks?.().forEach((track) => track.stop());
       setMicrophonePermission("granted");
+      if (typeof window !== "undefined") {
+        const key = `${PERMISSION_DISMISS_PREFIX}microphone`;
+        const until = Date.now() + PERMISSION_DISMISS_MS;
+        window.localStorage.setItem(key, String(until));
+        setPermissionsDismissed((prev) => ({ ...prev, microphone: true }));
+        setPermissionPromptDelayUntil(Date.now() + PERMISSION_PROMPT_DELAY_MS);
+      }
     } catch (err) {
       const message = String(err?.name || err?.message || "");
       if (message.toLowerCase().includes("notallowed")) {
         setMicrophonePermission("denied");
       }
     }
-  }, []);
+  }, [PERMISSION_DISMISS_MS, PERMISSION_DISMISS_PREFIX, PERMISSION_PROMPT_DELAY_MS]);
   const dismissPermissionsPrompt = useCallback(
     (mode) => {
       if (typeof window === "undefined") return;

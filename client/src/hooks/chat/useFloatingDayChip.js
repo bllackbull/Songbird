@@ -69,7 +69,6 @@ export function useFloatingDayChip() {
 
       const stickyChip = node.querySelector("[data-day-chip]")?.parentElement || node;
       const floatingRect = floatingChip.getBoundingClientRect();
-      node.scrollIntoView({ block: "start", behavior: "auto" });
       const stickyRect = stickyChip.getBoundingClientRect();
       // Device-specific alignment nudge tuned to match visual chip overlap.
       const alignOffsetPx = isDesktop ? 0 : -1;

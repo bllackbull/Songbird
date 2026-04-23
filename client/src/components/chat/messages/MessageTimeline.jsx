@@ -89,6 +89,134 @@ export function MessageTimeline({
     return total;
   };
 
+  const normalizeWindowRange = useCallback(
+    (range) => {
+      if (!timelineRows.length) {
+        return {
+          start: 0,
+          end: 0,
+          topSpacerPx: 0,
+          bottomSpacerPx: 0,
+        };
+      }
+      const nextStart = Math.max(0, Math.min(range.start, timelineRows.length));
+      const nextEnd = Math.max(nextStart, Math.min(range.end, timelineRows.length));
+      return {
+        start: nextStart,
+        end: nextEnd,
+        topSpacerPx: nextStart <= 0 ? 0 : Math.max(0, range.topSpacerPx),
+        bottomSpacerPx:
+          nextEnd >= timelineRows.length ? 0 : Math.max(0, range.bottomSpacerPx),
+      };
+    },
+    [timelineRows.length],
+  );
+
+  const syncWindowToViewport = useCallback(
+    (scrollTop, clientHeight) => {
+      if (!timelineRows.length) return;
+      setWindowRange((prev) => {
+        let next = normalizeWindowRange(prev);
+        let changed = false;
+        const averageRowHeight = Math.max(1, averageRowHeightRef.current || 1);
+        const overscanPx = Math.max(
+          VIRTUAL_EXPAND_TRIGGER_PX,
+          Math.round(clientHeight * 0.9),
+        );
+
+        const getVisibleBottom = () =>
+          next.topSpacerPx + sumRowHeights(next.start, next.end);
+
+        if (next.start > 0) {
+          const missingAbovePx = next.topSpacerPx + overscanPx - scrollTop;
+          if (missingAbovePx > 0) {
+            const rowsToAdd = Math.min(
+              next.start,
+              Math.max(
+                VIRTUAL_SHIFT_BATCH,
+                Math.ceil(missingAbovePx / averageRowHeight) + VIRTUAL_SHIFT_BATCH,
+              ),
+            );
+            const nextStart = next.start - rowsToAdd;
+            next = {
+              ...next,
+              start: nextStart,
+              topSpacerPx:
+                nextStart <= 0
+                  ? 0
+                  : Math.max(0, next.topSpacerPx - sumRowHeights(nextStart, next.start)),
+            };
+            changed = true;
+          }
+        }
+
+        const viewportBottom = scrollTop + clientHeight;
+        const canExtendBelow =
+          next.end < timelineRows.length || next.bottomSpacerPx > 0;
+        if (canExtendBelow) {
+          const missingBelowPx = viewportBottom + overscanPx - getVisibleBottom();
+          if (missingBelowPx > 0) {
+            const rowsToAdd = Math.min(
+              Math.max(0, timelineRows.length - next.end),
+              Math.max(
+                VIRTUAL_SHIFT_BATCH,
+                Math.ceil(missingBelowPx / averageRowHeight) + VIRTUAL_SHIFT_BATCH,
+              ),
+            );
+            const nextEnd = Math.min(timelineRows.length, next.end + rowsToAdd);
+            next = {
+              ...next,
+              end: nextEnd,
+              bottomSpacerPx:
+                nextEnd >= timelineRows.length
+                  ? 0
+                  : Math.max(
+                      0,
+                      next.bottomSpacerPx - sumRowHeights(next.end, nextEnd),
+                    ),
+            };
+            changed = true;
+          }
+        }
+
+        const visibleCount = next.end - next.start;
+        if (visibleCount > MAX_VIRTUAL_WINDOW_ROWS) {
+          const atLatest = next.end >= timelineRows.length && next.bottomSpacerPx <= 0;
+          const trimCount = visibleCount - MAX_VIRTUAL_WINDOW_ROWS;
+          if (atLatest) {
+            next = {
+              ...next,
+              start: next.start + trimCount,
+              topSpacerPx:
+                next.topSpacerPx + sumRowHeights(next.start, next.start + trimCount),
+            };
+          } else {
+            next = {
+              ...next,
+              end: next.end - trimCount,
+              bottomSpacerPx:
+                next.bottomSpacerPx + sumRowHeights(next.end - trimCount, next.end),
+            };
+          }
+          changed = true;
+        }
+
+        next = normalizeWindowRange(next);
+        if (
+          !changed ||
+          (next.start === prev.start &&
+            next.end === prev.end &&
+            next.topSpacerPx === prev.topSpacerPx &&
+            next.bottomSpacerPx === prev.bottomSpacerPx)
+        ) {
+          return prev;
+        }
+        return next;
+      });
+    },
+    [normalizeWindowRange, timelineRows.length],
+  );
+
   const clearReleaseTimer = useCallback(() => {
     if (!releaseTimerRef.current) return;
     window.clearTimeout(releaseTimerRef.current);
@@ -233,10 +361,8 @@ export function MessageTimeline({
   const handleTimelineScroll = (event) => {
     const target = event?.currentTarget;
     if (!target) return;
-    if (
-      effectiveVisibleStartRow > 0 &&
-      target.scrollTop <= VIRTUAL_EXPAND_TRIGGER_PX
-    ) {
+    syncWindowToViewport(target.scrollTop, target.clientHeight);
+    if (effectiveVisibleStartRow > 0 && target.scrollTop <= VIRTUAL_EXPAND_TRIGGER_PX) {
       shiftWindowUp();
     }
     const maxScrollTop = Math.max(0, target.scrollHeight - target.clientHeight);
@@ -311,6 +437,12 @@ export function MessageTimeline({
       node.removeEventListener("wheel", nativeWheelHandler, { passive: false });
     };
   }, [handleTimelineWheel]);
+
+  useEffect(() => {
+    const node = scrollContainerRef.current;
+    if (!node) return;
+    syncWindowToViewport(node.scrollTop, node.clientHeight);
+  }, [syncWindowToViewport, timelineRows.length]);
 
   const timelineContentStyle = {
     transform: `translateY(${-bottomStretchPx}px)`,
