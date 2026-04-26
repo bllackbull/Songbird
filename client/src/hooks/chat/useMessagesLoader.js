@@ -324,9 +324,20 @@ export function useMessagesLoader({
         const prevLocalCandidates = basePrev.filter((msg) =>
           Boolean(msg?._clientId),
         );
+        const prevLocalByClientId = new Map(
+          prevLocalCandidates.map((msg) => [String(msg?._clientId || "").trim(), msg]),
+        );
         const nextMessagesWithLocalIdentity = nextMessagesWithReplyIcons.map(
           (serverMsg) => {
             let existingLocal = prevByServerId.get(Number(serverMsg.id));
+            if (!existingLocal) {
+              const serverClientId = String(
+                serverMsg?.clientRequestId || serverMsg?.client_request_id || "",
+              ).trim();
+              if (serverClientId) {
+                existingLocal = prevLocalByClientId.get(serverClientId);
+              }
+            }
             if (!existingLocal) {
               existingLocal = prevLocalCandidates.find((localMsg) => {
                 if (!localMsg?._clientId) return false;
@@ -382,6 +393,10 @@ export function useMessagesLoader({
               _delivery: undefined,
               _awaitingServerEcho: false,
               _visibilityTime: existingLocal?._visibilityTime,
+              _readByMe:
+                Boolean(serverMsg?.read_by_me) ||
+                Boolean(existingLocal?._readByMe) ||
+                Number(serverMsg?.user_id || 0) === Number(user.id),
               read_at: serverMsg.read_at || existingLocal?.read_at || null,
               read_by_user_id:
                 serverMsg.read_by_user_id || existingLocal?.read_by_user_id || null,
@@ -437,6 +452,18 @@ export function useMessagesLoader({
         const normalizeBody = (value) => normalizeMessageBody(value).trim();
         const isPendingMessageAcknowledged = (pending, serverMessages) => {
           if (!pending || !serverMessages.length) return false;
+          const pendingClientId = String(pending?._clientId || "").trim();
+          if (
+            pendingClientId &&
+            serverMessages.some(
+              (serverMsg) =>
+                String(
+                  serverMsg?.clientRequestId || serverMsg?.client_request_id || "",
+                ).trim() === pendingClientId,
+            )
+          ) {
+            return true;
+          }
           const pendingServerId = Number(pending?._serverId || 0);
           if (
             pendingServerId &&

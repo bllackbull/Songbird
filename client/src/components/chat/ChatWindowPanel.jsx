@@ -1450,6 +1450,7 @@ export default function ChatWindowPanel({
         ) : (
           <MessageTimeline
             key={`timeline-${Number(activeChatId || 0)}`}
+            activeChatId={activeChatId}
             loadingMessages={loadingMessages}
             messages={messages}
             groupedMessages={groupedMessages}

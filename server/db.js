@@ -1234,6 +1234,7 @@ export function getMessages(chatId, options = {}) {
     `
     SELECT chat_messages.id,
       COALESCE(chat_messages.edited_body, chat_messages.body) AS body,
+      chat_messages.client_request_id,
       chat_messages.edited,
       chat_messages.edited_body,
       chat_messages.forwarded_from_chat_id,

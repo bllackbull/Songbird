@@ -269,6 +269,7 @@ function registerMessageRoutes(app, deps) {
     const enriched = normalizedMessages
       .map((message) => ({
         ...message,
+        clientRequestId: message.client_request_id || null,
         read_by_me:
           Number(message?.user_id || 0) === Number(user.id) ||
           readByMe.has(Number(message.id)),

@@ -601,6 +601,35 @@ label:hover .icon-anim-drop {
   transform-origin: top center;
 }
 
+@keyframes sb-message-build-in {
+  0% {
+    opacity: 0;
+    transform: translateY(20px) scale(0.985);
+    filter: saturate(0.9);
+  }
+  55% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1);
+    filter: saturate(1);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: saturate(1);
+  }
+}
+
+.sb-message-build-in {
+  transform-origin: bottom center;
+  animation: sb-message-build-in 260ms cubic-bezier(0.22, 0.88, 0.24, 1) 1 both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sb-message-build-in {
+    animation: none;
+  }
+}
+
 .sb-markdown,
 .sb-markdown-inline {
   line-height: 1.45;
