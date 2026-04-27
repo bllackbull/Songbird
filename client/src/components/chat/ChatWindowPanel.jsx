@@ -240,6 +240,7 @@ export default function ChatWindowPanel({
   const insecureTooltipRef = useRef(null);
   const [insecureTooltipHeight, setInsecureTooltipHeight] = useState(0);
   const permissionBannerRef = useRef(null);
+  const sectionRef = useRef(null);
   const [permissionBannerHeight, setPermissionBannerHeight] = useState(0);
   useEffect(() => {
     if (typeof document === "undefined") return undefined;
@@ -756,6 +757,24 @@ export default function ChatWindowPanel({
     return () => media.removeListener(update);
   }, []);
 
+  useEffect(() => {
+    if (isDesktop) return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => {
+      const el = sectionRef.current;
+      if (!el) return;
+      el.style.height = `${vv.height}px`;
+      el.style.top = `${vv.offsetTop}px`;
+    };
+    //vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+    };
+  }, [isDesktop]);
+
   function getMessageDayLabel(msg) {
     if (msg?._dayLabel) return msg._dayLabel;
     if (msg?._dayKey) return msg._dayKey;
@@ -983,6 +1002,7 @@ export default function ChatWindowPanel({
 
   return (
     <section
+      ref={sectionRef}
       className={
         "fixed inset-0 top-0 md:relative md:inset-auto md:top-auto flex h-full flex-1 flex-col overflow-hidden border-x border-slate-300/80 bg-white shadow-xl shadow-emerald-500/10 dark:border-white/5 dark:bg-slate-900 md:border md:w-[65%] md:shadow-2xl md:shadow-emerald-500/15 transition-transform duration-300 ease-out will-change-transform " +
         (mobileTab === "chat"
