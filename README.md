@@ -102,6 +102,16 @@ cd /opt/songbird
 git clone https://github.com/bllackbull/Songbird.git .
 ```
 
+Create a self-signed cert in certs/ directory if running the app on SSL:
+
+```bash
+openssl req -x509 -newkey rsa:2048 \
+  -keyout certs/key.pem \
+  -out certs/cert.pem \
+  -days 365 -nodes \
+  -subj "/CN=localhost"
+```
+
 ### 3. Build container
 
 ```bash
