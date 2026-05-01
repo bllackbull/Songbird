@@ -3,6 +3,8 @@ import { NOTIFICATIONS_ENABLED_KEY } from "../../utils/chatPageConstants.js";
 
 const PUSH_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const PUSH_RESUBSCRIBE_DEBOUNCE_MS = 2 * 60 * 1000;
+const PUSH_SUB_CREATED_KEY = "sb-push-sub-ts";
+const PUSH_SUB_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 const toBase64 = (value) =>
   String(value || "")
@@ -164,24 +166,33 @@ export function useChatNotifications({
       }
     };
     const subscribeWithRetry = async (reg, applicationServerKey) => {
-      try {
-        let subscription = await reg.pushManager.getSubscription();
-        if (!subscription) {
-          subscription = await reg.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey,
-          });
-        }
-        return subscription;
-      } catch (error) {
-        if (!shouldRetryAfterError(error)) {
-          throw error;
-        }
-        await cleanupExistingSubscription(reg);
-        return reg.pushManager.subscribe({
+      const freshSubscribe = async () => {
+        const subscription = await reg.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey,
         });
+        window.localStorage.setItem(PUSH_SUB_CREATED_KEY, String(Date.now()));
+        return subscription;
+      };
+      try {
+        const existing = await reg.pushManager.getSubscription();
+        const lastCreated = Number(
+          window.localStorage.getItem(PUSH_SUB_CREATED_KEY) || 0,
+        );
+        const isStale =
+          !lastCreated || Date.now() - lastCreated > PUSH_SUB_MAX_AGE_MS;
+        if (existing && isStale) {
+          await cleanupExistingSubscription(reg);
+          return freshSubscribe();
+        }
+        if (!existing) {
+          return freshSubscribe();
+        }
+        return existing;
+      } catch (error) {
+        if (!shouldRetryAfterError(error)) throw error;
+        await cleanupExistingSubscription(reg);
+        return freshSubscribe();
       }
     };
     try {

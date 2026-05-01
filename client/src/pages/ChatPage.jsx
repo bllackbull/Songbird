@@ -2787,11 +2787,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       const isOwnEvent =
         senderName.toLowerCase() === String(user?.username || "").toLowerCase();
       if (isOwnEvent) return;
-      const appVisible =
-        document.visibilityState === "visible" && document.hasFocus();
-      if (appVisible) {
-        return;
-      }
+      if (document.visibilityState !== "visible") return;
+      if (document.hasFocus()) return;
       const chat = chats.find((conv) => Number(conv.id) === payloadChatId);
       if (chat?._muted) return;
       let title = "New message";

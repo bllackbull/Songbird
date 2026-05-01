@@ -913,7 +913,7 @@ function registerMessageRoutes(app, deps) {
               await sendPushNotificationToUsers(recipientIds, {
                 title,
                 body: notifyBody,
-                data: { url: "/" },
+                data: { url: "/", chatId },
               });
             }
           } catch {
@@ -1070,7 +1070,7 @@ function registerMessageRoutes(app, deps) {
         await sendPushNotificationToUsers(recipientIds, {
           title,
           body: notifyBody,
-          data: { url: "/" },
+          data: { url: "/", chatId },
         });
       }
     } catch {

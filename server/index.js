@@ -92,6 +92,7 @@ import {
   upsertPushSubscription,
   deletePushSubscription,
   listPushSubscriptionsByUserIds,
+  getTotalUnreadCount,
   listMutedUserIdsForChat,
 } from "./db.js";
 
@@ -204,8 +205,8 @@ const MESSAGE_MAX_CHARS = readEnvInt(
   { min: 1, max: 20000 },
 );
 const ACCOUNT_CREATION = readEnvBool("ACCOUNT_CREATION", true);
-const vapid = ensureValidVapidKeys({ projectRootDir, fs, path, webpush });
 const dataDir = path.resolve(serverDir, "..", "data");
+const vapid = ensureValidVapidKeys({ projectRootDir, dataDir, fs, path, webpush });
 const uploadRootDir = path.join(dataDir, "uploads", "messages");
 const avatarUploadRootDir = path.join(dataDir, "uploads", "avatars");
 
@@ -286,6 +287,7 @@ const pushService = createPushService({
   webpush,
   listPushSubscriptionsByUserIds,
   deletePushSubscription,
+  getTotalUnreadCount,
   vapid,
 });
 const { PUSH_ENABLED, VAPID_PUBLIC_KEY, sendPushNotificationToUsers } = pushService;
