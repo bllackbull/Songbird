@@ -61,6 +61,9 @@ OS_ID=""
 OS_ID_LIKE=""
 DEPLOY_MODE="ip"
 DOMAIN_NAMES=()
+DOMAIN_GROUPS=()
+MANUAL_CERT_GROUP_FULLCHAIN_PATHS=()
+MANUAL_CERT_GROUP_PRIVKEY_PATHS=()
 CERTBOT_EMAIL=""
 SERVER_PORT="$DEFAULT_SERVER_PORT"
 CLIENT_PORT="$DEFAULT_CLIENT_PORT"
@@ -1358,6 +1361,8 @@ sync_values_from_env() {
 parse_domain_input() {
   local raw="$1"
   DOMAIN_NAMES=()
+  DOMAIN_GROUPS=()
+  local seen_names=""
   local IFS=','
   local d
   for d in $raw; do
@@ -1366,9 +1371,102 @@ parse_domain_input() {
     d="${d#http://}"
     d="${d#https://}"
     d="${d%%/*}"
-    [[ -n "$d" ]] && DOMAIN_NAMES+=("$d")
+    d="${d%.}"
+    d="$(printf '%s' "$d" | tr '[:upper:]' '[:lower:]')"
+    if [[ -n "$d" && "$seen_names" != *"|${d}|"* ]]; then
+      DOMAIN_NAMES+=("$d")
+      seen_names="${seen_names}|${d}|"
+    fi
   done
+  build_domain_groups
   NGINX_SERVER_NAME="${DOMAIN_NAMES[*]}"
+}
+
+build_domain_groups() {
+  DOMAIN_GROUPS=()
+
+  if (( ${#DOMAIN_NAMES[@]} == 0 )); then
+    return 0
+  fi
+
+  local grouped_names="|"
+  local domain=""
+  for domain in "${DOMAIN_NAMES[@]}"; do
+    if [[ "$grouped_names" == *"|${domain}|"* ]]; then
+      continue
+    fi
+
+    local partner=""
+    if [[ "$domain" == www.* ]]; then
+      partner="${domain#www.}"
+      if [[ -n "$partner" && "$grouped_names" != *"|${partner}|"* && " ${DOMAIN_NAMES[*]} " == *" ${partner} "* ]]; then
+        DOMAIN_GROUPS+=("${partner},${domain}")
+        grouped_names="${grouped_names}${partner}|${domain}|"
+        continue
+      fi
+    else
+      partner="www.${domain}"
+      if [[ "$grouped_names" != *"|${partner}|"* && " ${DOMAIN_NAMES[*]} " == *" ${partner} "* ]]; then
+        DOMAIN_GROUPS+=("${domain},${partner}")
+        grouped_names="${grouped_names}${domain}|${partner}|"
+        continue
+      fi
+    fi
+
+    DOMAIN_GROUPS+=("${domain}")
+    grouped_names="${grouped_names}${domain}|"
+  done
+}
+
+group_csv_to_space_list() {
+  local csv="${1:-}"
+  printf '%s' "${csv//,/ }"
+}
+
+group_primary_domain() {
+  local csv="${1:-}"
+  printf '%s' "${csv%%,*}"
+}
+
+manual_cert_group_install_dir() {
+  local group_csv="${1:-}"
+  local primary_domain=""
+  primary_domain="$(group_primary_domain "$group_csv")"
+  printf '%s/%s' "$CERT_INSTALL_DIR" "$primary_domain"
+}
+
+manual_group_fullchain_path() {
+  local group_csv="${1:-}"
+  printf '%s/fullchain.pem' "$(manual_cert_group_install_dir "$group_csv")"
+}
+
+manual_group_privkey_path() {
+  local group_csv="${1:-}"
+  printf '%s/privkey.pem' "$(manual_cert_group_install_dir "$group_csv")"
+}
+
+log_domain_groups() {
+  if (( ${#DOMAIN_GROUPS[@]} == 0 )); then
+    return 0
+  fi
+
+  local idx=1
+  local group_csv=""
+  for group_csv in "${DOMAIN_GROUPS[@]}"; do
+    log "Detected domain group ${idx}: $(group_csv_to_space_list "$group_csv")"
+    idx=$((idx + 1))
+  done
+}
+
+build_domain_cert_groups() {
+  local -n out_groups_ref=$1
+  out_groups_ref=()
+
+  if [[ "$DEPLOY_MODE" != "domain" ]]; then
+    return 0
+  fi
+
+  out_groups_ref=("${DOMAIN_GROUPS[@]}")
 }
 
 
@@ -1384,6 +1482,7 @@ collect_install_options() {
       if [[ -n "$raw_domains" ]]; then
         parse_domain_input "$raw_domains"
         if (( ${#DOMAIN_NAMES[@]} > 0 )); then
+          log_domain_groups
           break
         fi
       fi
@@ -1404,22 +1503,48 @@ collect_install_options() {
       fi
       ;;
     files)
-      while true; do
-        MANUAL_CERT_FULLCHAIN_PATH="$(prompt_non_empty "Enter path to fullchain.pem")"
-        MANUAL_CERT_FULLCHAIN_PATH="$(resolve_file_path "$MANUAL_CERT_FULLCHAIN_PATH")" || MANUAL_CERT_FULLCHAIN_PATH=""
-        if [[ -n "$MANUAL_CERT_FULLCHAIN_PATH" ]]; then
-          break
-        fi
-        printf "Could not find that fullchain.pem file.\n"
-      done
-      while true; do
-        MANUAL_CERT_PRIVKEY_PATH="$(prompt_non_empty "Enter path to privkey.pem")"
-        MANUAL_CERT_PRIVKEY_PATH="$(resolve_file_path "$MANUAL_CERT_PRIVKEY_PATH")" || MANUAL_CERT_PRIVKEY_PATH=""
-        if [[ -n "$MANUAL_CERT_PRIVKEY_PATH" ]]; then
-          break
-        fi
-        printf "Could not find that privkey.pem file.\n"
-      done
+      MANUAL_CERT_GROUP_FULLCHAIN_PATHS=()
+      MANUAL_CERT_GROUP_PRIVKEY_PATHS=()
+      if [[ "$DEPLOY_MODE" == "domain" ]]; then
+        local group_csv=""
+        for group_csv in "${DOMAIN_GROUPS[@]}"; do
+          while true; do
+            MANUAL_CERT_FULLCHAIN_PATH="$(prompt_non_empty "Enter path to fullchain.pem for $(group_csv_to_space_list "$group_csv")")"
+            MANUAL_CERT_FULLCHAIN_PATH="$(resolve_file_path "$MANUAL_CERT_FULLCHAIN_PATH")" || MANUAL_CERT_FULLCHAIN_PATH=""
+            if [[ -n "$MANUAL_CERT_FULLCHAIN_PATH" ]]; then
+              MANUAL_CERT_GROUP_FULLCHAIN_PATHS+=("$MANUAL_CERT_FULLCHAIN_PATH")
+              break
+            fi
+            printf "Could not find that fullchain.pem file.\n"
+          done
+          while true; do
+            MANUAL_CERT_PRIVKEY_PATH="$(prompt_non_empty "Enter path to privkey.pem for $(group_csv_to_space_list "$group_csv")")"
+            MANUAL_CERT_PRIVKEY_PATH="$(resolve_file_path "$MANUAL_CERT_PRIVKEY_PATH")" || MANUAL_CERT_PRIVKEY_PATH=""
+            if [[ -n "$MANUAL_CERT_PRIVKEY_PATH" ]]; then
+              MANUAL_CERT_GROUP_PRIVKEY_PATHS+=("$MANUAL_CERT_PRIVKEY_PATH")
+              break
+            fi
+            printf "Could not find that privkey.pem file.\n"
+          done
+        done
+      else
+        while true; do
+          MANUAL_CERT_FULLCHAIN_PATH="$(prompt_non_empty "Enter path to fullchain.pem")"
+          MANUAL_CERT_FULLCHAIN_PATH="$(resolve_file_path "$MANUAL_CERT_FULLCHAIN_PATH")" || MANUAL_CERT_FULLCHAIN_PATH=""
+          if [[ -n "$MANUAL_CERT_FULLCHAIN_PATH" ]]; then
+            break
+          fi
+          printf "Could not find that fullchain.pem file.\n"
+        done
+        while true; do
+          MANUAL_CERT_PRIVKEY_PATH="$(prompt_non_empty "Enter path to privkey.pem")"
+          MANUAL_CERT_PRIVKEY_PATH="$(resolve_file_path "$MANUAL_CERT_PRIVKEY_PATH")" || MANUAL_CERT_PRIVKEY_PATH=""
+          if [[ -n "$MANUAL_CERT_PRIVKEY_PATH" ]]; then
+            break
+          fi
+          printf "Could not find that privkey.pem file.\n"
+        done
+      fi
       ;;
   esac
 
@@ -1496,18 +1621,27 @@ write_nginx_site_config() {
   local mode="${1:-http}"
   local cert_path="${2:-}"
   local key_path="${3:-}"
-  local server_name_line="server_name ${NGINX_SERVER_NAME};"
-  local listen_line="listen ${CLIENT_PORT} default_server;"
   local ssl_block=""
   local acme_block=""
   local redirect_server_block=""
+  local config_body=""
+  local listen_line="listen ${CLIENT_PORT} default_server;"
+  local alternate_listen_line="listen ${CLIENT_PORT};"
+  local domain_group_csv=""
+  local domain_group_names=""
+  local primary_domain=""
+  local cert_line_path="$cert_path"
+  local key_line_path="$key_path"
+  local current_listen_line=""
 
   if [[ "$mode" == "http" && "$DEPLOY_MODE" == "domain" && "$CERT_MODE" == "certbot" ]]; then
     listen_line="listen 80 default_server;"
+    alternate_listen_line="listen 80;"
   fi
 
   if [[ "$mode" == "ssl" ]]; then
     listen_line="listen ${CLIENT_PORT} ssl default_server;"
+    alternate_listen_line="listen ${CLIENT_PORT} ssl;"
     ssl_block=$(cat <<EOF
   ssl_certificate ${cert_path};
   ssl_certificate_key ${key_path};
@@ -1568,10 +1702,84 @@ EOF
   fi
 
   log "Creating Nginx config at ${NGINX_SITE_FILE}..."
-  run_silent run_as_root tee "$NGINX_SITE_FILE" >/dev/null <<EOF
+  if [[ "$DEPLOY_MODE" == "domain" ]]; then
+    local domain_cert_groups=()
+    build_domain_cert_groups domain_cert_groups
+
+    for domain_group_csv in "${domain_cert_groups[@]}"; do
+      if [[ -z "$config_body" ]]; then
+        current_listen_line="$listen_line"
+      else
+        current_listen_line="$alternate_listen_line"
+      fi
+
+      domain_group_names="$(group_csv_to_space_list "$domain_group_csv")"
+      primary_domain="$(group_primary_domain "$domain_group_csv")"
+
+      if [[ "$mode" == "ssl" && "$CERT_MODE" == "certbot" ]]; then
+        cert_line_path="/etc/letsencrypt/live/${primary_domain}/fullchain.pem"
+        key_line_path="/etc/letsencrypt/live/${primary_domain}/privkey.pem"
+        ssl_block=$(cat <<EOF
+  ssl_certificate ${cert_line_path};
+  ssl_certificate_key ${key_line_path};
+  ssl_session_cache shared:SSL:10m;
+  ssl_session_timeout 1d;
+EOF
+)
+      elif [[ "$mode" == "ssl" && "$CERT_MODE" == "files" ]]; then
+        cert_line_path="$(manual_group_fullchain_path "$domain_group_csv")"
+        key_line_path="$(manual_group_privkey_path "$domain_group_csv")"
+        ssl_block=$(cat <<EOF
+  ssl_certificate ${cert_line_path};
+  ssl_certificate_key ${key_line_path};
+  ssl_session_cache shared:SSL:10m;
+  ssl_session_timeout 1d;
+EOF
+)
+      fi
+
+      config_body+=$(cat <<EOF
+server {
+  ${current_listen_line}
+  server_name ${domain_group_names};
+  client_max_body_size ${MAX_UPLOAD};
+${ssl_block}
+
+  location /api/events {
+    proxy_pass http://127.0.0.1:${SERVER_PORT};
+    proxy_http_version 1.1;
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_read_timeout 1h;
+    proxy_send_timeout 1h;
+    proxy_buffering off;
+    proxy_cache off;
+    add_header X-Accel-Buffering no;
+  }
+
+  location / {
+    proxy_pass http://127.0.0.1:${SERVER_PORT};
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_cache_bypass \$http_upgrade;
+  }
+}
+
+EOF
+)
+    done
+  else
+    config_body=$(cat <<EOF
 server {
   ${listen_line}
-  ${server_name_line}
+  server_name ${NGINX_SERVER_NAME};
   client_max_body_size ${MAX_UPLOAD};
 ${ssl_block}
 ${acme_block}
@@ -1602,7 +1810,12 @@ ${acme_block}
     proxy_cache_bypass \$http_upgrade;
   }
 }
-${redirect_server_block}
+EOF
+)
+  fi
+
+  run_silent run_as_root tee "$NGINX_SITE_FILE" >/dev/null <<EOF
+${config_body}${redirect_server_block}
 EOF
 }
 
@@ -1633,6 +1846,40 @@ install_ssl_files_into_nginx() {
 }
 
 configure_manual_ssl_files() {
+  if [[ "$DEPLOY_MODE" == "domain" ]]; then
+    local idx=0
+    local group_csv=""
+    run_silent run_as_root mkdir -p "$CERT_INSTALL_DIR"
+    for group_csv in "${DOMAIN_GROUPS[@]}"; do
+      local source_fullchain="${MANUAL_CERT_GROUP_FULLCHAIN_PATHS[$idx]:-}"
+      local source_privkey="${MANUAL_CERT_GROUP_PRIVKEY_PATHS[$idx]:-}"
+      local install_dir=""
+      install_dir="$(manual_cert_group_install_dir "$group_csv")"
+      local installed_fullchain=""
+      installed_fullchain="$(manual_group_fullchain_path "$group_csv")"
+      local installed_privkey=""
+      installed_privkey="$(manual_group_privkey_path "$group_csv")"
+
+      if [[ ! -f "$source_fullchain" || ! -f "$source_privkey" ]]; then
+        fail "Manual certificate files were not found for group: $(group_csv_to_space_list "$group_csv")"
+      fi
+
+      run_silent run_as_root mkdir -p "$install_dir"
+      run_silent run_as_root rm -f "$installed_fullchain" "$installed_privkey"
+      run_silent run_as_root cp -Lf "$source_fullchain" "$installed_fullchain"
+      run_silent run_as_root cp -Lf "$source_privkey" "$installed_privkey"
+      run_silent run_as_root chmod 644 "$installed_fullchain"
+      run_silent run_as_root chmod 600 "$installed_privkey"
+      idx=$((idx + 1))
+    done
+
+    write_nginx_site_config "ssl"
+    run_as_root nginx -t
+    run_as_root systemctl reload nginx
+    log "Nginx SSL configured."
+    return 0
+  fi
+
   if [[ ! -f "$MANUAL_CERT_FULLCHAIN_PATH" || ! -f "$MANUAL_CERT_PRIVKEY_PATH" ]]; then
     fail "Manual certificate files were not found."
   fi
@@ -1756,56 +2003,55 @@ configure_ssl_if_needed() {
     return 0
   fi
 
-  local existing_certs
-  existing_certs="$(run_as_root certbot certificates 2>/dev/null)"
+  local domain_group_csv=""
+  for domain_group_csv in "${DOMAIN_GROUPS[@]}"; do
+    local cert_name
+    cert_name="$(group_primary_domain "$domain_group_csv")"
+    local group_names=()
+    local domain_entry=""
+    IFS=',' read -r -a group_names <<< "$domain_group_csv"
 
-  local uncovered=()
-  local d
-  for d in "${DOMAIN_NAMES[@]}"; do
-    local escaped
-    escaped="$(printf '%s' "$d" | sed 's/[.[\*^$]/\\&/g')"
-
-    if echo "$existing_certs" | grep -qP "^\s+Domains:.*\b${escaped}\b"; then
-      log "Domain ${d} already has a certificate. Will reconfigure nginx."
-    else
-      uncovered+=("$d")
+    local group_covered="yes"
+    local cert_details=""
+    cert_details="$(run_as_root certbot certificates --cert-name "$cert_name" 2>/dev/null || true)"
+    if [[ -z "$cert_details" ]]; then
+      group_covered="no"
     fi
-  done
 
-  if (( ${#uncovered[@]} > 0 )); then
-    local certbot_d_args=()
-    for d in "${uncovered[@]}"; do
-      certbot_d_args+=(-d "$d")
+    for domain_entry in "${group_names[@]}"; do
+      local escaped
+      escaped="$(printf '%s' "$domain_entry" | sed 's/[.[\*^$]/\\&/g')"
+      if [[ "$group_covered" == "yes" ]] && ! echo "$cert_details" | grep -qP "^\s+Domains:.*\b${escaped}\b"; then
+        group_covered="no"
+        break
+      fi
     done
 
-    log "Requesting SSL certificate for: ${uncovered[*]}"
+    if [[ "$group_covered" == "yes" ]]; then
+      log "Certificate ${cert_name} already covers: $(group_csv_to_space_list "$domain_group_csv")"
+      continue
+    fi
+
+    local certbot_d_args=()
+    for domain_entry in "${group_names[@]}"; do
+      certbot_d_args+=(-d "$domain_entry")
+    done
+
+    log "Requesting SSL certificate for group: $(group_csv_to_space_list "$domain_group_csv")"
     run_as_root certbot certonly \
       --nginx \
+      --cert-name "$cert_name" \
       --https-port "$CLIENT_PORT" \
       --non-interactive \
       --agree-tos \
       --email "$CERTBOT_EMAIL" \
-      "${certbot_d_args[@]}" || { log "ERROR: Certbot failed for: ${uncovered[*]}"; return 1; }
-
-    log "SSL certificate obtained for: ${uncovered[*]}"
-  else
-    log "All domains already have certificates. Skipping certificate request."
-  fi
-
-  log "Configuring nginx SSL for: ${DOMAIN_NAMES[*]}"
-  local all_d_args=()
-  for d in "${DOMAIN_NAMES[@]}"; do
-    all_d_args+=(-d "$d")
+      "${certbot_d_args[@]}" || { log "ERROR: Certbot failed for group: $(group_csv_to_space_list "$domain_group_csv")"; return 1; }
   done
 
-  run_as_root certbot install \
-    --nginx \
-    --https-port "$CLIENT_PORT" \
-    --non-interactive \
-    --cert-name "${DOMAIN_NAMES[0]}" \
-    "${all_d_args[@]}" || { warn "ERROR: Failed to configure nginx SSL"; return 1; }
-
-  log "Nginx SSL configured for: ${DOMAIN_NAMES[*]}"
+  write_nginx_site_config "ssl"
+  run_as_root nginx -t
+  run_as_root systemctl reload nginx
+  log "Nginx SSL configured for domain groups: ${DOMAIN_GROUPS[*]}"
 }
 
 restore_backup_if_provided() {
