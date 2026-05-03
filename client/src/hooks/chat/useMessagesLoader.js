@@ -612,43 +612,96 @@ export function useMessagesLoader({
         }
 
         // Final reconciliation pass: prevent duplicate rows that represent
-        // the same logical message (server id first, then optimistic client id).
+        // the same logical message. Bridge both identity systems together so a
+        // pending row keyed by _clientId is collapsed into the echoed server row
+        // once that same logical message gains a server id.
         const mergedNextDeduped = [];
         const serverIdentityMap = new Map();
         const clientIdentityMap = new Map();
-        mergedNext.forEach((msg) => {
+        const getMessageIdentity = (msg) => {
           const serverId = Number(msg?._serverId || msg?.id || 0);
           const hasServerId = Number.isFinite(serverId) && serverId > 0;
           const clientId = String(msg?._clientId || "").trim();
-          const identityKey = hasServerId ? `s:${serverId}` : clientId ? `c:${clientId}` : "";
-          if (!identityKey) {
-            mergedNextDeduped.push(msg);
-            return;
+          return {
+            hasServerId,
+            serverKey: hasServerId ? `s:${serverId}` : "",
+            clientKey: clientId ? `c:${clientId}` : "",
+          };
+        };
+        const choosePreferredMessage = (existing, next) => {
+          if (!existing) return next;
+          if (!next) return existing;
+          const existingServerId = Number(existing?._serverId || existing?.id || 0);
+          const nextServerId = Number(next?._serverId || next?.id || 0);
+          const existingHasServerId =
+            Number.isFinite(existingServerId) && existingServerId > 0;
+          const nextHasServerId = Number.isFinite(nextServerId) && nextServerId > 0;
+          if (existingHasServerId !== nextHasServerId) {
+            return nextHasServerId ? next : existing;
           }
-          const map = hasServerId ? serverIdentityMap : clientIdentityMap;
-          const existingIndex = map.get(identityKey);
-          if (existingIndex === undefined) {
-            map.set(identityKey, mergedNextDeduped.length);
-            mergedNextDeduped.push(msg);
-            return;
+          const existingSending = existing?._delivery === "sending";
+          const nextSending = next?._delivery === "sending";
+          if (existingSending !== nextSending) {
+            return nextSending ? existing : next;
           }
-          const existing = mergedNextDeduped[existingIndex];
-          const existingHasServerId = Number.isFinite(
-            Number(existing?._serverId || existing?.id || 0),
-          );
-          // Prefer server-backed rows over optimistic ones.
-          if (hasServerId && !existingHasServerId) {
-            mergedNextDeduped[existingIndex] = msg;
-            return;
-          }
-          // Otherwise keep the row with richer server reconciliation state.
           const existingAwaiting = Boolean(existing?._awaitingServerEcho);
-          const nextAwaiting = Boolean(msg?._awaitingServerEcho);
-          if (existingAwaiting && !nextAwaiting) {
-            mergedNextDeduped[existingIndex] = msg;
+          const nextAwaiting = Boolean(next?._awaitingServerEcho);
+          if (existingAwaiting !== nextAwaiting) {
+            return nextAwaiting ? existing : next;
+          }
+          const existingProgress = Number(existing?._uploadProgress ?? -1);
+          const nextProgress = Number(next?._uploadProgress ?? -1);
+          if (existingProgress !== nextProgress) {
+            return nextProgress > existingProgress ? next : existing;
+          }
+          return existing;
+        };
+        mergedNext.forEach((msg) => {
+          const { serverKey, clientKey } = getMessageIdentity(msg);
+          if (!serverKey && !clientKey) {
+            mergedNextDeduped.push(msg);
+            return;
+          }
+          const existingIndexes = Array.from(
+            new Set(
+              [serverKey ? serverIdentityMap.get(serverKey) : undefined, clientKey ? clientIdentityMap.get(clientKey) : undefined]
+                .filter((value) => value !== undefined),
+            ),
+          );
+          if (!existingIndexes.length) {
+            const nextIndex = mergedNextDeduped.length;
+            mergedNextDeduped.push(msg);
+            if (serverKey) serverIdentityMap.set(serverKey, nextIndex);
+            if (clientKey) clientIdentityMap.set(clientKey, nextIndex);
+            return;
+          }
+
+          const primaryIndex = existingIndexes[0];
+          let mergedMessage = choosePreferredMessage(
+            mergedNextDeduped[primaryIndex],
+            msg,
+          );
+          for (let i = 1; i < existingIndexes.length; i += 1) {
+            const duplicateIndex = existingIndexes[i];
+            mergedMessage = choosePreferredMessage(
+              mergedMessage,
+              mergedNextDeduped[duplicateIndex],
+            );
+            mergedNextDeduped[duplicateIndex] = null;
+          }
+          mergedNextDeduped[primaryIndex] = mergedMessage;
+
+          const mergedIdentity = getMessageIdentity(mergedMessage);
+          if (serverKey) serverIdentityMap.set(serverKey, primaryIndex);
+          if (clientKey) clientIdentityMap.set(clientKey, primaryIndex);
+          if (mergedIdentity.serverKey) {
+            serverIdentityMap.set(mergedIdentity.serverKey, primaryIndex);
+          }
+          if (mergedIdentity.clientKey) {
+            clientIdentityMap.set(mergedIdentity.clientKey, primaryIndex);
           }
         });
-        mergedNext = mergedNextDeduped;
+        mergedNext = mergedNextDeduped.filter(Boolean);
 
         if (options.preserveHistory) {
           const mergedById = new Map();
