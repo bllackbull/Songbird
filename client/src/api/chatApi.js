@@ -70,6 +70,13 @@ export const markMessagesRead = ({ chatId, username }) =>
     body: JSON.stringify({ chatId, username }),
   });
 
+export const markMessageRead = ({ chatId, username, messageId }) =>
+  apiFetch(`${API_BASE}/api/messages/read-one`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chatId, username, messageId }),
+  });
+
 export const getMessageReadCounts = ({ chatId, username, messageIds }) =>
   apiFetch(`${API_BASE}/api/messages/read-counts`, {
     method: "POST",
@@ -88,6 +95,11 @@ export const updateProfile = (payload) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+
+export const getProfileByUsername = (username) =>
+  apiFetch(
+    `${API_BASE}/api/profile?username=${encodeURIComponent(String(username || "").trim())}`,
+  );
 
 export const uploadAvatar = (payload) =>
   apiFetch(`${API_BASE}/api/profile/avatar`, {

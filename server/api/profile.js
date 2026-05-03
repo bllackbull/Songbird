@@ -55,6 +55,37 @@ function registerProfileRoutes(app, deps) {
       emitSseEvent(targetUsername, payload);
     });
   };
+  const emitProfileUpdate = (user, options = {}) => {
+    if (!user?.id) return;
+    const currentUsername = String(user.username || "").toLowerCase();
+    const previousUsername = String(options.previousUsername || "")
+      .trim()
+      .toLowerCase();
+    const payload = {
+      type: "profile_updated",
+      userId: Number(user.id || 0) || null,
+      username: currentUsername,
+      previousUsername: previousUsername || null,
+      nickname: user.nickname || null,
+      avatarUrl: ensureAvatarExists(user.id, user.avatar_url) || null,
+      color: user.color || USER_COLORS[0],
+      status: user.status || "online",
+    };
+    const targets = new Set();
+    if (currentUsername) targets.add(currentUsername);
+    if (previousUsername) targets.add(previousUsername);
+    const chats = listChatsForUser(Number(user.id || 0));
+    chats.forEach((chat) => {
+      const members = listChatMembers(Number(chat?.id || 0));
+      members.forEach((member) => {
+        const memberUsername = String(member?.username || "").toLowerCase();
+        if (memberUsername) targets.add(memberUsername);
+      });
+    });
+    targets.forEach((targetUsername) => {
+      emitSseEvent(targetUsername, payload);
+    });
+  };
 
   app.get("/api/profile", (req, res) => {
     const session = requireSession(req, res);
@@ -147,6 +178,9 @@ function registerProfileRoutes(app, deps) {
     );
 
     const updated = findUserById(currentUser.id);
+    emitProfileUpdate(updated, {
+      previousUsername: currentUser.username,
+    });
 
     res.json({
       id: updated.id,
@@ -226,6 +260,9 @@ function registerProfileRoutes(app, deps) {
     );
 
     const updated = findUserById(user.id);
+    emitProfileUpdate(updated, {
+      previousUsername: user.username,
+    });
 
     return res.json({
       avatarUrl: ensureAvatarExists(updated.id, updated.avatar_url) || avatarUrl,

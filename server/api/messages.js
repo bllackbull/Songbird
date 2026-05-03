@@ -84,7 +84,6 @@ function registerMessageRoutes(app, deps) {
         String(sourceChat?.name || "").trim() ||
         String(sourceChat?.group_username || "").trim() ||
         "Channel";
-
       return {
         sourceChatId: Number(sourceChat?.id || 0) || null,
         label,
@@ -379,6 +378,45 @@ function registerMessageRoutes(app, deps) {
     emitChatEvent(Number(chatId), {
       type: "chat_read",
       chatId: Number(chatId),
+      username: user.username,
+    });
+
+    res.json({ ok: true });
+  });
+
+  app.post("/api/messages/read-one", (req, res) => {
+    const session = requireSession(req, res);
+    if (!session) return;
+
+    const { chatId, username, messageId } = req.body || {};
+    if (!chatId || !username || !messageId) {
+      return res.status(400).json({
+        error: "Chat id, username, and messageId are required.",
+      });
+    }
+
+    if (!requireSessionUsernameMatch(res, session, username)) return;
+
+    const user = findUserByUsername(username.toLowerCase());
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    if (!isMember(Number(chatId), user.id)) {
+      return res.status(403).json({ error: "Not a member of this chat." });
+    }
+
+    const message = findMessageById(Number(messageId));
+    if (!message || Number(message.chat_id) !== Number(chatId)) {
+      return res.status(404).json({ error: "Message not found in this chat." });
+    }
+
+    markMessageRead(Number(messageId), user.id);
+
+    emitChatEvent(Number(chatId), {
+      type: "chat_read",
+      chatId: Number(chatId),
+      messageId: Number(messageId),
       username: user.username,
     });
 

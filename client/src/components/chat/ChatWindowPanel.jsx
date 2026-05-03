@@ -96,6 +96,10 @@ export default function ChatWindowPanel({
   onOpenMessageSenderProfile,
   onOpenMention,
   onOpenForwardOrigin,
+  forwardedChatsById = null,
+  forwardedChatStatusById = null,
+  forwardedUsersById = null,
+  forwardedUserStatusByKey = null,
   onForwardMessage,
   onOpenContextMenu,
   mentionRefreshToken = 0,
@@ -986,6 +990,34 @@ export default function ChatWindowPanel({
       onOpenSenderProfile={onOpenMessageSenderProfile}
       onOpenMention={onOpenMention}
       onOpenForwardOrigin={onOpenForwardOrigin}
+      forwardedChat={
+        Number(msg?.forwarded_from_chat_id || 0) > 0
+          ? forwardedChatsById?.[Number(msg?.forwarded_from_chat_id || 0)] || null
+          : null
+      }
+      forwardedChatStatus={
+        Number(msg?.forwarded_from_chat_id || 0) > 0
+          ? forwardedChatStatusById?.[Number(msg?.forwarded_from_chat_id || 0)] || null
+          : null
+      }
+      forwardedUser={
+        Number(msg?.forwarded_from_user_id || 0) > 0
+          ? forwardedUsersById?.[Number(msg?.forwarded_from_user_id || 0)] || null
+          : null
+      }
+      forwardedUserStatus={
+        Number(msg?.forwarded_from_user_id || 0) > 0
+          ? forwardedUserStatusByKey?.[
+              `id:${Number(msg?.forwarded_from_user_id || 0)}`
+            ] || null
+          : String(msg?.forwarded_from_username || "").trim()
+            ? forwardedUserStatusByKey?.[
+                `username:${String(msg?.forwarded_from_username || "")
+                  .trim()
+                  .toLowerCase()}`
+              ] || null
+          : null
+      }
       onForwardMessage={onForwardMessage}
       mentionRefreshToken={mentionRefreshToken}
       onOpenContextMenu={onOpenContextMenu}

@@ -40,11 +40,13 @@ export function useChatEvents({
   isAppActive,
   canMarkReadInCurrentView,
   markMessagesRead,
+  markMessageRead,
   isMarkingReadRef,
   onIncomingMessage,
   onMessageDeleted,
   onChatRead,
   onPresenceUpdate,
+  onProfileUpdated,
   onTypingUpdate,
   onChatListChanged,
   onSessionRevoked,
@@ -53,6 +55,7 @@ export function useChatEvents({
   const onMessageDeletedRef = useRef(onMessageDeleted);
   const onChatReadRef = useRef(onChatRead);
   const onPresenceUpdateRef = useRef(onPresenceUpdate);
+  const onProfileUpdatedRef = useRef(onProfileUpdated);
   const onTypingUpdateRef = useRef(onTypingUpdate);
   const onChatListChangedRef = useRef(onChatListChanged);
   const onSessionRevokedRef = useRef(onSessionRevoked);
@@ -74,6 +77,10 @@ export function useChatEvents({
   useEffect(() => {
     onPresenceUpdateRef.current = onPresenceUpdate;
   }, [onPresenceUpdate]);
+
+  useEffect(() => {
+    onProfileUpdatedRef.current = onProfileUpdated;
+  }, [onProfileUpdated]);
 
   useEffect(() => {
     onTypingUpdateRef.current = onTypingUpdate;
@@ -125,6 +132,7 @@ export function useChatEvents({
           payload.type !== "chat_message_updated" &&
           payload.type !== "chat_list_changed" &&
           payload.type !== "presence_update" &&
+          payload.type !== "profile_updated" &&
           payload.type !== "chat_typing" &&
           payload.type !== "session_revoked"
         ) {
@@ -136,6 +144,10 @@ export function useChatEvents({
         }
         if (payload.type === "presence_update") {
           onPresenceUpdateRef.current?.(payload);
+          return;
+        }
+        if (payload.type === "profile_updated") {
+          onProfileUpdatedRef.current?.(payload);
           return;
         }
         if (payload.type === "chat_typing") {
@@ -246,10 +258,18 @@ export function useChatEvents({
                 !isMarkingReadRef?.current
               ) {
                 isMarkingReadRef.current = true;
-                markMessagesRead({
-                  chatId: payloadChatId,
-                  username: usernameRef.current,
-                })
+                const markReadRequest =
+                  Number(payload?.messageId || 0) > 0
+                    ? markMessageRead({
+                        chatId: payloadChatId,
+                        username: usernameRef.current,
+                        messageId: Number(payload.messageId),
+                      })
+                    : markMessagesRead({
+                        chatId: payloadChatId,
+                        username: usernameRef.current,
+                      });
+                markReadRequest
                   .catch(() => null)
                   .finally(() => {
                     isMarkingReadRef.current = false;
@@ -340,6 +360,7 @@ export function useChatEvents({
     canMarkReadInCurrentView,
     isAppActive,
     isMarkingReadRef,
+    markMessageRead,
     markMessagesRead,
     sseReconnectDelayMs,
     sseReconnectRef,

@@ -34,13 +34,8 @@ export function MessageTimeline({
   const animationReadyRef = useRef(false);
   const previousMessageCountRef = useRef(0);
   const previousLastMessageKeyRef = useRef("");
-  const currentMessageCount = messages.length;
-  const currentLastMessageKey = String(
-    messages[messages.length - 1]?._clientId ??
-      messages[messages.length - 1]?._serverId ??
-      messages[messages.length - 1]?.id ??
-      "",
-  );
+  const latestMessageCountRef = useRef(0);
+  const latestLastMessageKeyRef = useRef("");
 
   const timelineRows = useMemo(() => {
     const rows = [];
@@ -111,16 +106,26 @@ export function MessageTimeline({
   }, [messages.length, releaseBottomStretch]);
 
   useEffect(() => {
+    latestMessageCountRef.current = messages.length;
+    latestLastMessageKeyRef.current = String(
+      messages[messages.length - 1]?._clientId ??
+        messages[messages.length - 1]?._serverId ??
+        messages[messages.length - 1]?.id ??
+        "",
+    );
+  }, [messages]);
+
+  useEffect(() => {
     animationReadyRef.current = false;
-    previousMessageCountRef.current = currentMessageCount;
-    previousLastMessageKeyRef.current = currentLastMessageKey;
+    previousMessageCountRef.current = latestMessageCountRef.current;
+    previousLastMessageKeyRef.current = latestLastMessageKeyRef.current;
     setAnimateRowKey("");
     setBuildUpOffsetPx(0);
     if (activationTimerRef.current) {
       window.clearTimeout(activationTimerRef.current);
       activationTimerRef.current = null;
     }
-  }, [activeChatId, currentLastMessageKey, currentMessageCount, loadingMessages]);
+  }, [activeChatId, loadingMessages]);
 
   useEffect(() => {
     if (!activeChatId || loadingMessages || animationReadyRef.current) {
