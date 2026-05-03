@@ -25,6 +25,7 @@ export function useAppContextMenu({
   chats,
   currentUsername,
   canCurrentUserEditGroup,
+  canReplyToMessage,
   canEditMessage,
   canDeleteMessageForEveryone,
   onReplyToMessage,
@@ -87,12 +88,16 @@ export function useAppContextMenu({
         const hasText = hasMessageText(message);
         const files = getMessageFiles(message);
         items.push(
-          {
-            id: "reply",
-            label: "Reply",
-            icon: Reply,
-            onSelect: () => onReplyToMessage?.(message),
-          },
+          ...(canReplyToMessage
+            ? [
+                {
+                  id: "reply",
+                  label: "Reply",
+                  icon: Reply,
+                  onSelect: () => onReplyToMessage?.(message),
+                },
+              ]
+            : []),
           ...(hasText
             ? [
                 {
@@ -226,6 +231,7 @@ export function useAppContextMenu({
     },
     [
       activeChatId,
+      canReplyToMessage,
       canCurrentUserEditGroup,
       currentUsername,
       findExistingDmWithUser,

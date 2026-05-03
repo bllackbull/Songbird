@@ -5682,6 +5682,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     chats,
     currentUsername: user?.username,
     canCurrentUserEditGroup,
+    canReplyToMessage: canSendInActiveChat,
     canEditMessage: canEditMessageFromContext,
     canDeleteMessageForEveryone,
     onReplyToMessage: handleStartReply,
