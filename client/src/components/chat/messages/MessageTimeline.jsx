@@ -5,6 +5,8 @@ const BOTTOM_STRETCH_GAIN = 0.2;
 const BOTTOM_STRETCH_RELEASE_MS = 320;
 const BUILD_UP_OFFSET_PX = 18;
 const BUILD_UP_DURATION_MS = 260;
+const BUILD_UP_ARM_DELAY_MS = 700;
+const TIMELINE_TOP_SPACER_PX = 12;
 
 export function MessageTimeline({
   activeChatId,
@@ -32,6 +34,13 @@ export function MessageTimeline({
   const animationReadyRef = useRef(false);
   const previousMessageCountRef = useRef(0);
   const previousLastMessageKeyRef = useRef("");
+  const currentMessageCount = messages.length;
+  const currentLastMessageKey = String(
+    messages[messages.length - 1]?._clientId ??
+      messages[messages.length - 1]?._serverId ??
+      messages[messages.length - 1]?.id ??
+      "",
+  );
 
   const timelineRows = useMemo(() => {
     const rows = [];
@@ -103,6 +112,20 @@ export function MessageTimeline({
 
   useEffect(() => {
     animationReadyRef.current = false;
+    previousMessageCountRef.current = currentMessageCount;
+    previousLastMessageKeyRef.current = currentLastMessageKey;
+    setAnimateRowKey("");
+    setBuildUpOffsetPx(0);
+    if (activationTimerRef.current) {
+      window.clearTimeout(activationTimerRef.current);
+      activationTimerRef.current = null;
+    }
+  }, [activeChatId, currentLastMessageKey, currentMessageCount, loadingMessages]);
+
+  useEffect(() => {
+    if (!activeChatId || loadingMessages || animationReadyRef.current) {
+      return;
+    }
     previousMessageCountRef.current = messages.length;
     previousLastMessageKeyRef.current = String(
       messages[messages.length - 1]?._clientId ??
@@ -110,13 +133,9 @@ export function MessageTimeline({
         messages[messages.length - 1]?.id ??
         "",
     );
-    setAnimateRowKey("");
-    setBuildUpOffsetPx(0);
     if (activationTimerRef.current) {
       window.clearTimeout(activationTimerRef.current);
-      activationTimerRef.current = null;
     }
-    if (!activeChatId || loadingMessages) return;
     activationTimerRef.current = window.setTimeout(() => {
       animationReadyRef.current = true;
       activationTimerRef.current = null;
@@ -127,8 +146,8 @@ export function MessageTimeline({
           messages[messages.length - 1]?.id ??
           "",
       );
-    }, 320);
-  }, [activeChatId, loadingMessages]);
+    }, BUILD_UP_ARM_DELAY_MS);
+  }, [activeChatId, loadingMessages, messages]);
 
   useEffect(() => {
     const lastMessage = messages[messages.length - 1] || null;
@@ -296,6 +315,7 @@ export function MessageTimeline({
       >
         <div className="flex min-h-full flex-col justify-end">
           <div style={timelineContentStyle}>
+            <div style={{ height: `${TIMELINE_TOP_SPACER_PX}px` }} />
             {loadingOlderMessages ? (
               <div className="px-3 pb-3 pt-1 md:px-0">
                 <div className="mx-auto h-10 w-40 animate-pulse rounded-2xl bg-white/80 dark:bg-slate-800/80" />

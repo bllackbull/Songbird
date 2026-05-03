@@ -339,6 +339,12 @@ export default function ChatWindowPanel({
     updateFloatingDayFromScroll,
     handleFloatingChipClick,
   } = useFloatingDayChip();
+  const showJumpToLatestButton = Boolean(
+    activeChatId &&
+      userScrolledUp &&
+      isTimelineScrollable &&
+      !isAtBottomRef?.current,
+  );
   const groupedMessages = useMemo(() => {
     const groups = [];
     messages.forEach((msg) => {
@@ -383,17 +389,40 @@ export default function ChatWindowPanel({
 
 
   useEffect(() => {
-    const last = messages[messages.length - 1];
-    if (!last) {
+    if (!activeChatId || !messages.length) {
       setFloatingDay({ key: "", label: "" });
       return;
     }
-    const key = last?._dayKey || "";
-    const label = getMessageDayLabel(last);
-    if (key && label) {
-      setFloatingDay({ key, label });
-    }
-  }, [messages, setFloatingDay]);
+    const syncFloatingDay = () => {
+      const scroller = chatScrollRef?.current;
+      if (!scroller) return;
+      const canScroll = scroller.scrollHeight - scroller.clientHeight > 2;
+      setIsTimelineScrollable(canScroll);
+      if (!canScroll) {
+        const last = messages[messages.length - 1];
+        const key = last?._dayKey || "";
+        const label = getMessageDayLabel(last);
+        setFloatingDay(key && label ? { key, label } : { key: "", label: "" });
+        return;
+      }
+      updateFloatingDayFromScroll(scroller);
+    };
+    const raf1 = requestAnimationFrame(syncFloatingDay);
+    const raf2 = requestAnimationFrame(syncFloatingDay);
+    const timer = window.setTimeout(syncFloatingDay, 90);
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      window.clearTimeout(timer);
+    };
+  }, [
+    activeChatId,
+    messages,
+    chatScrollRef,
+    setFloatingDay,
+    setIsTimelineScrollable,
+    updateFloatingDayFromScroll,
+  ]);
 
   const startReachedLockRef = useRef(false);
   const handlePanelScroll = useCallback(
@@ -1571,7 +1600,7 @@ export default function ChatWindowPanel({
         </div>
       ) : null}
 
-      {activeChatId && userScrolledUp ? (
+      {showJumpToLatestButton ? (
         <button
           type="button"
           onClick={onJumpToLatest}

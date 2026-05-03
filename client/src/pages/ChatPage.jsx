@@ -1567,7 +1567,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         }
       })();
     }
-  }, [user, activeChatId, isMobileViewport, sseConnected, mobileTab]);
+  }, [user, activeChatId, isMobileViewport, mobileTab]);
 
   useEffect(() => {
     if (!activeChatId) {
@@ -2774,6 +2774,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setMessages,
     setChats,
     sseReconnectRef,
+    isAppActive,
+    canMarkReadInCurrentView,
+    markMessagesRead,
+    isMarkingReadRef,
     onIncomingMessage: (payload, meta = {}) => {
       const payloadChatId = Number(payload?.chatId || 0);
       const sender = String(payload?.username || "").trim().toLowerCase();
@@ -3635,6 +3639,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       const normalizeFetchedChats = (prevChats = []) =>
         merged
           .map((chat) => {
+            const isActiveChat =
+              Number(activeChatIdRef.current || 0) === Number(chat?.id || 0);
             const muted = Boolean(Number(chat?.muted || 0));
             const files = Array.isArray(chat?.last_message_files)
               ? chat.last_message_files
@@ -3657,12 +3663,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                 ...chat,
                 _lastMessagePending: true,
                 last_message_read_at: null,
+                unread_count: isActiveChat ? 0 : Number(chat?.unread_count || 0),
                 _muted: muted,
               };
             }
             if (!hasProcessingVideo || !isFromOther) {
               return {
                 ...chat,
+                unread_count: isActiveChat ? 0 : Number(chat?.unread_count || 0),
                 _muted: muted,
               };
             }
@@ -3688,7 +3696,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               last_message_read_at:
                 previous.last_message_read_at ?? chat.last_message_read_at ?? null,
               last_message_files: previous.last_message_files || [],
-              unread_count: previous.unread_count || 0,
+              unread_count: isActiveChat ? 0 : previous.unread_count || 0,
               _muted: muted,
             };
           })

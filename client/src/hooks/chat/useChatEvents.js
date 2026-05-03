@@ -37,6 +37,10 @@ export function useChatEvents({
   setMessages,
   setChats,
   sseReconnectRef,
+  isAppActive,
+  canMarkReadInCurrentView,
+  markMessagesRead,
+  isMarkingReadRef,
   onIncomingMessage,
   onMessageDeleted,
   onChatRead,
@@ -180,7 +184,11 @@ export function useChatEvents({
                     ? null
                     : chat?.last_message_read_at || null,
                   unread_count:
-                    !isOwnEvent && !isActiveChat ? currentUnread + 1 : currentUnread,
+                    isActiveChat
+                      ? 0
+                      : !isOwnEvent
+                        ? currentUnread + 1
+                        : currentUnread,
                 };
               },
             );
@@ -225,6 +233,28 @@ export function useChatEvents({
               setUnreadInChat((prev) => prev + 1);
             } else {
               pendingScrollToBottomRef.current = true;
+              setChats((prev) =>
+                prev.map((chat) =>
+                  Number(chat?.id) === Number(payloadChatId)
+                    ? { ...chat, unread_count: 0 }
+                    : chat,
+                ),
+              );
+              if (
+                isAppActive &&
+                canMarkReadInCurrentView &&
+                !isMarkingReadRef?.current
+              ) {
+                isMarkingReadRef.current = true;
+                markMessagesRead({
+                  chatId: payloadChatId,
+                  username: usernameRef.current,
+                })
+                  .catch(() => null)
+                  .finally(() => {
+                    isMarkingReadRef.current = false;
+                  });
+              }
             }
           }
           if (payload.type === "chat_read" && !isOwnEvent) {
@@ -307,6 +337,10 @@ export function useChatEvents({
     setMessages,
     setSseConnected,
     setUnreadInChat,
+    canMarkReadInCurrentView,
+    isAppActive,
+    isMarkingReadRef,
+    markMessagesRead,
     sseReconnectDelayMs,
     sseReconnectRef,
     userScrolledUpRef,
