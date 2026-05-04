@@ -349,9 +349,25 @@ export function useMessagesLoader({
         const prevLocalCandidates = basePrev.filter((msg) =>
           Boolean(msg?._clientId),
         );
+        const nextMessagesByClientRequestId = new Map(
+          nextMessagesWithReplyIcons
+            .map((msg) => [String(msg?.client_request_id || "").trim(), msg])
+            .filter(([clientRequestId]) => Boolean(clientRequestId)),
+        );
         const nextMessagesWithLocalIdentity = nextMessagesWithReplyIcons.map(
           (serverMsg) => {
             let existingLocal = prevByServerId.get(Number(serverMsg.id));
+            const serverClientRequestId = String(
+              serverMsg?.client_request_id || "",
+            ).trim();
+            if (!existingLocal && serverClientRequestId) {
+              existingLocal =
+                prevLocalCandidates.find(
+                  (localMsg) =>
+                    String(localMsg?._clientId || "").trim() ===
+                    serverClientRequestId,
+                ) || null;
+            }
             if (!existingLocal) {
               existingLocal = prevLocalCandidates.find((localMsg) => {
                 if (!localMsg?._clientId) return false;
@@ -410,6 +426,8 @@ export function useMessagesLoader({
               ...serverMsg,
               files: mergedFiles,
               _clientId: existingLocal._clientId,
+              client_request_id:
+                serverMsg?.client_request_id || existingLocal?._clientId || null,
               _serverId: Number(serverMsg.id),
               _chatId: existingLocal._chatId,
               _delivery: undefined,
@@ -469,6 +487,19 @@ export function useMessagesLoader({
         }
         const isPendingMessageAcknowledged = (pending, serverMessages) => {
           if (!pending || !serverMessages.length) return false;
+          const pendingClientRequestId = String(
+            pending?._clientId || pending?.client_request_id || "",
+          ).trim();
+          if (
+            pendingClientRequestId &&
+            serverMessages.some(
+              (serverMsg) =>
+                String(serverMsg?.client_request_id || "").trim() ===
+                pendingClientRequestId,
+            )
+          ) {
+            return true;
+          }
           const pendingServerId = Number(pending?._serverId || 0);
           if (
             pendingServerId &&
@@ -573,6 +604,15 @@ export function useMessagesLoader({
         const optimisticSentLocal = basePrev.filter((msg) => {
           if (!msg?._awaitingServerEcho) return false;
           if (Number(msg._chatId || chatId) !== Number(chatId)) return false;
+          const localClientRequestId = String(
+            msg?._clientId || msg?.client_request_id || "",
+          ).trim();
+          if (
+            localClientRequestId &&
+            nextMessagesByClientRequestId.has(localClientRequestId)
+          ) {
+            return false;
+          }
           return !nextMessagesWithVisibility.some(
             (serverMsg) =>
               Number(serverMsg.id) === Number(msg._serverId || msg.id),
@@ -668,14 +708,19 @@ export function useMessagesLoader({
         const mergedNextDeduped = [];
         const serverIdentityMap = new Map();
         const clientIdentityMap = new Map();
+        const requestIdentityMap = new Map();
         const getMessageIdentity = (msg) => {
           const serverId = Number(msg?._serverId || msg?.id || 0);
           const hasServerId = Number.isFinite(serverId) && serverId > 0;
           const clientId = String(msg?._clientId || "").trim();
+          const requestId = String(
+            msg?.client_request_id || msg?._clientId || "",
+          ).trim();
           return {
             hasServerId,
             serverKey: hasServerId ? `s:${serverId}` : "",
             clientKey: clientId ? `c:${clientId}` : "",
+            requestKey: requestId ? `r:${requestId}` : "",
           };
         };
         const choosePreferredMessage = (existing, next) => {
@@ -707,14 +752,18 @@ export function useMessagesLoader({
           return existing;
         };
         mergedNext.forEach((msg) => {
-          const { serverKey, clientKey } = getMessageIdentity(msg);
-          if (!serverKey && !clientKey) {
+          const { serverKey, clientKey, requestKey } = getMessageIdentity(msg);
+          if (!serverKey && !clientKey && !requestKey) {
             mergedNextDeduped.push(msg);
             return;
           }
           const existingIndexes = Array.from(
             new Set(
-              [serverKey ? serverIdentityMap.get(serverKey) : undefined, clientKey ? clientIdentityMap.get(clientKey) : undefined]
+              [
+                serverKey ? serverIdentityMap.get(serverKey) : undefined,
+                clientKey ? clientIdentityMap.get(clientKey) : undefined,
+                requestKey ? requestIdentityMap.get(requestKey) : undefined,
+              ]
                 .filter((value) => value !== undefined),
             ),
           );
@@ -723,6 +772,7 @@ export function useMessagesLoader({
             mergedNextDeduped.push(msg);
             if (serverKey) serverIdentityMap.set(serverKey, nextIndex);
             if (clientKey) clientIdentityMap.set(clientKey, nextIndex);
+            if (requestKey) requestIdentityMap.set(requestKey, nextIndex);
             return;
           }
 
@@ -744,11 +794,15 @@ export function useMessagesLoader({
           const mergedIdentity = getMessageIdentity(mergedMessage);
           if (serverKey) serverIdentityMap.set(serverKey, primaryIndex);
           if (clientKey) clientIdentityMap.set(clientKey, primaryIndex);
+          if (requestKey) requestIdentityMap.set(requestKey, primaryIndex);
           if (mergedIdentity.serverKey) {
             serverIdentityMap.set(mergedIdentity.serverKey, primaryIndex);
           }
           if (mergedIdentity.clientKey) {
             clientIdentityMap.set(mergedIdentity.clientKey, primaryIndex);
+          }
+          if (mergedIdentity.requestKey) {
+            requestIdentityMap.set(mergedIdentity.requestKey, primaryIndex);
           }
         });
         mergedNext = mergedNextDeduped.filter(Boolean);

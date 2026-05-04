@@ -3342,6 +3342,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                 ? {
                     ...msg,
                     _clientId: clientId,
+                    client_request_id: clientId,
                     _serverId: serverId || msg._serverId || null,
                     _delivery: keepPendingUntilServerEcho ? "sending" : "sent",
                     _processingPending:
@@ -3395,6 +3396,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               read_at: isSavedChat ? createdAt : null,
               read_by_user_id: isSavedChat ? Number(user?.id || 0) : null,
               _clientId: clientId,
+              client_request_id: clientId,
               _chatId: Number(targetChatId),
               _queuedAt: Number(pendingMessage?._queuedAt || Date.now()),
               _delivery: keepPendingUntilServerEcho ? "sending" : "sent",
@@ -4393,6 +4395,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
       const pendingMessage = {
         _clientId: tempId,
+        client_request_id: tempId,
         _chatId: Number(activeChatId),
         _queuedAt: queuedAt,
         _delivery: "sending",
@@ -4425,6 +4428,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       pendingScrollToBottomRef.current = shouldSnapToBottom;
       const pendingMessage = {
         _clientId: tempId,
+        client_request_id: tempId,
         _chatId: Number(activeChatId),
         _queuedAt: queuedAt,
         _delivery: "sending",
@@ -4449,6 +4453,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         read_at: isSavedChat ? createdAt : null,
         read_by_user_id: isSavedChat ? Number(user?.id || 0) : null,
         _clientId: tempId,
+        client_request_id: tempId,
         _chatId: Number(activeChatId),
         _queuedAt: queuedAt,
         _delivery: "sending",
@@ -4493,6 +4498,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
     const pendingMessage = {
       _clientId: tempId,
+      client_request_id: tempId,
       _chatId: Number(activeChatId),
       _queuedAt: queuedAt,
       _delivery: "sending",
