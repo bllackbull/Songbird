@@ -3761,33 +3761,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
       if (isTargetActive) {
         setMessages((prev) => {
-          const normalizePendingBody = (value) =>
-            normalizeMessageBody(value).trim();
-          const isGenericFileSummaryBody = (value) => {
-            const normalized = normalizePendingBody(value);
-            if (!normalized) return false;
-            return /^sent (a (media file|document|photo|video|voice message)|\d+ (files|photos|videos|voice messages|documents))$/i.test(
-              normalized,
-            );
-          };
-          const bodiesLookEquivalent = (
-            localBody,
-            serverLikeBody,
-            localFiles = [],
-            serverLikeFiles = [],
-          ) => {
-            const normalizedLocal = normalizePendingBody(localBody);
-            const normalizedServer = normalizePendingBody(serverLikeBody);
-            if (normalizedLocal === normalizedServer) return true;
-            const localHasFiles = Array.isArray(localFiles) && localFiles.length > 0;
-            const serverHasFiles =
-              Array.isArray(serverLikeFiles) && serverLikeFiles.length > 0;
-            if (!localHasFiles || !serverHasFiles) return false;
-            if (!normalizedLocal && isGenericFileSummaryBody(normalizedServer)) {
-              return true;
-            }
-            return false;
-          };
           const uploadType = String(pendingMessage?._uploadType || "").toLowerCase();
           const files = Array.isArray(pendingMessage?._files) ? pendingMessage._files : [];
           const hasMediaVideo = files.some((file) =>
@@ -3796,43 +3769,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           const keepPendingUntilServerEcho = hasFiles && uploadType === "media" && hasMediaVideo;
           const serverId = Number(data.id) || null;
           const awaitingServerEcho = Boolean(serverId);
-          let index = prev.findIndex((msg) => msg?._clientId === clientId);
-          if (index < 0) {
-            const pendingBody = String(pendingMessage?.body || "").trim();
-            const pendingCreatedAt = parseServerDate(
-              pendingMessage?._createdAt || new Date().toISOString(),
-            ).getTime();
-            index = prev.findIndex((msg) => {
-              if (!msg) return false;
-              if (Number(msg?._chatId || 0) !== Number(targetChatId)) return false;
-              if (String(msg?.username || "") !== String(user.username || "")) {
-                return false;
-              }
-              const localFiles = Array.isArray(msg?._files)
-                ? msg._files
-                : Array.isArray(msg?.files)
-                  ? msg.files
-                  : [];
-              if (localFiles.length !== files.length) return false;
-              if (
-                !bodiesLookEquivalent(
-                  msg?.body || "",
-                  pendingBody,
-                  localFiles,
-                  files,
-                )
-              ) {
-                return false;
-              }
-              const localReplyId = Number(msg?.replyTo?.id || 0);
-              const pendingReplyId = Number(pendingMessage?.replyTo?.id || 0);
-              if (localReplyId !== pendingReplyId) return false;
-              const localCreatedAt = parseServerDate(
-                msg?.created_at || new Date().toISOString(),
-              ).getTime();
-              return Math.abs(localCreatedAt - pendingCreatedAt) < 2 * 60 * 1000;
-            });
-          }
+          const index = prev.findIndex((msg) => msg?._clientId === clientId);
           if (index >= 0) {
             return prev.map((msg, msgIndex) =>
               msgIndex === index
