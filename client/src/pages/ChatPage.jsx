@@ -3138,7 +3138,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         if (!event.lengthComputable) return;
         const percent = Math.max(
           0,
-          Math.min(99, Math.round((event.loaded / event.total) * 100)),
+          Math.min(100, Math.round((event.loaded / event.total) * 100)),
         );
         setPendingUploadProgress(pendingMessage._clientId, percent, targetChatId);
       };
@@ -3155,6 +3155,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           }
         })();
         if (xhr.status >= 200 && xhr.status < 300) {
+          const activeId = Number(activeChatIdRef.current || 0);
+          const resolvedTargetId = Number(targetChatId || 0);
+          if (!resolvedTargetId || activeId === resolvedTargetId) {
+            setActiveUploadProgress(100);
+            scheduleActiveUploadProgressHide();
+          }
           finalize(() => resolve(data));
           return;
         }
@@ -3437,8 +3443,20 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }
       if (hasFiles) {
         if (isTargetActive) {
-          setActiveUploadProgress(100);
-          scheduleActiveUploadProgressHide();
+          const uploadType = String(pendingMessage?._uploadType || "").toLowerCase();
+          const files = Array.isArray(pendingMessage?._files) ? pendingMessage._files : [];
+          const hasMediaVideo = files.some((file) =>
+            String(file?.mimeType || "").toLowerCase().startsWith("video/"),
+          );
+          const keepPendingUntilServerEcho =
+            uploadType === "media" && hasMediaVideo;
+          if (!keepPendingUntilServerEcho) {
+            if (activeUploadProgressHideTimerRef.current) {
+              window.clearTimeout(activeUploadProgressHideTimerRef.current);
+              activeUploadProgressHideTimerRef.current = null;
+            }
+            setActiveUploadProgress(null);
+          }
         }
       }
       pendingScrollToBottomRef.current = false;
