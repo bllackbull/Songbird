@@ -336,6 +336,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const pendingUploadFilesRef = useRef([]);
   const pendingVoiceMessageRef = useRef(null);
   const prevUploadProgressRef = useRef(null);
+  const activeUploadProgressHideTimerRef = useRef(null);
   const mediaLoadSnapTimerRef = useRef(null);
   const messageRefreshTimerRef = useRef(null);
   const channelSeenQueueRef = useRef([]);
@@ -1117,6 +1118,16 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     );
   };
 
+  const scheduleActiveUploadProgressHide = useCallback(() => {
+    if (activeUploadProgressHideTimerRef.current) {
+      window.clearTimeout(activeUploadProgressHideTimerRef.current);
+    }
+    activeUploadProgressHideTimerRef.current = window.setTimeout(() => {
+      activeUploadProgressHideTimerRef.current = null;
+      setActiveUploadProgress(null);
+    }, UPLOAD_PROGRESS_HIDE_DELAY_MS);
+  }, []);
+
   const updateOwnLatestChatPreview = ({
     chatId,
     body = "",
@@ -1578,12 +1589,20 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   useEffect(() => {
     clearPendingUploads();
     clearPendingVoiceMessage();
+    if (activeUploadProgressHideTimerRef.current) {
+      window.clearTimeout(activeUploadProgressHideTimerRef.current);
+      activeUploadProgressHideTimerRef.current = null;
+    }
     setActiveUploadProgress(null);
     setReplyTarget(null);
   }, [activeChatId]);
 
   useEffect(() => {
     return () => {
+      if (activeUploadProgressHideTimerRef.current) {
+        window.clearTimeout(activeUploadProgressHideTimerRef.current);
+        activeUploadProgressHideTimerRef.current = null;
+      }
       const current = typingStateRef.current;
       if (current.isTyping && current.chatId) {
         sendTypingSignal(current.chatId, false);
@@ -3119,7 +3138,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         if (!event.lengthComputable) return;
         const percent = Math.max(
           0,
-          Math.min(100, Math.round((event.loaded / event.total) * 100)),
+          Math.min(99, Math.round((event.loaded / event.total) * 100)),
         );
         setPendingUploadProgress(pendingMessage._clientId, percent, targetChatId);
       };
@@ -3237,7 +3256,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (isEditingExistingMessage) {
         if (hasFiles && isTargetActive) {
           setActiveUploadProgress(100);
-          setTimeout(() => setActiveUploadProgress(null), UPLOAD_PROGRESS_HIDE_DELAY_MS);
+          scheduleActiveUploadProgressHide();
         }
         if (isTargetActive) {
           scheduleMessageRefreshRef.current?.(targetChatId, {
@@ -3348,7 +3367,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                     _processingPending:
                       keepPendingUntilServerEcho || Boolean(msg?._processingPending),
                     _awaitingServerEcho: awaitingServerEcho,
-                    _uploadProgress: 100,
+                    _uploadProgress: keepPendingUntilServerEcho ? 100 : null,
                     expiresAt:
                       hasFiles
                         ? msg.expiresAt
@@ -3405,7 +3424,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               _timeLabel: formatTime(createdAt),
               _uploadType: uploadType || "document",
               _files: files,
-              _uploadProgress: 100,
+              _uploadProgress: keepPendingUntilServerEcho ? 100 : null,
               _awaitingServerEcho: awaitingServerEcho,
               _processingPending: keepPendingUntilServerEcho,
               _serverId: serverId,
@@ -3419,7 +3438,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (hasFiles) {
         if (isTargetActive) {
           setActiveUploadProgress(100);
-          setTimeout(() => setActiveUploadProgress(null), UPLOAD_PROGRESS_HIDE_DELAY_MS);
+          scheduleActiveUploadProgressHide();
         }
       }
       pendingScrollToBottomRef.current = false;
@@ -3452,6 +3471,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }
       if (hasFiles) {
         if (isTargetActive) {
+          if (activeUploadProgressHideTimerRef.current) {
+            window.clearTimeout(activeUploadProgressHideTimerRef.current);
+            activeUploadProgressHideTimerRef.current = null;
+          }
           setActiveUploadProgress(null);
           setUploadError(String(error?.message || "Unable to upload files."));
           setMessages((prev) =>
