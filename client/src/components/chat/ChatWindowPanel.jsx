@@ -795,13 +795,11 @@ export default function ChatWindowPanel({
     if (!el) return;
     if (isDesktop) {
       el.style.height = "";
-      el.style.top = "";
       return;
     }
     const vv = window.visualViewport;
     if (!vv) {
       el.style.height = "";
-      el.style.top = "";
       return;
     }
     let frameId = 0;
@@ -810,7 +808,6 @@ export default function ChatWindowPanel({
       const nextEl = sectionRef.current;
       if (!nextEl) return;
       nextEl.style.height = `${vv.height}px`;
-      nextEl.style.top = `${vv.offsetTop}px`;
     };
     const scheduleUpdate = () => {
       if (frameId) cancelAnimationFrame(frameId);
@@ -818,12 +815,10 @@ export default function ChatWindowPanel({
     };
     scheduleUpdate();
     vv.addEventListener("resize", scheduleUpdate);
-    vv.addEventListener("scroll", scheduleUpdate);
     window.addEventListener("orientationchange", scheduleUpdate);
     return () => {
       if (frameId) cancelAnimationFrame(frameId);
       vv.removeEventListener("resize", scheduleUpdate);
-      vv.removeEventListener("scroll", scheduleUpdate);
       window.removeEventListener("orientationchange", scheduleUpdate);
     };
   }, [isDesktop]);
