@@ -321,6 +321,31 @@ export function useMessagesLoader({
             .filter((msg) => Number.isFinite(Number(msg._serverId || msg.id)))
             .map((msg) => [Number(msg._serverId || msg.id), msg]),
         );
+        const normalizeBody = (value) => normalizeMessageBody(value).trim();
+        const isGenericFileSummaryBody = (value) => {
+          const normalized = normalizeBody(value);
+          if (!normalized) return false;
+          return /^sent (a (media file|document|photo|video|voice message)|\d+ (files|photos|videos|voice messages|documents))$/i.test(
+            normalized,
+          );
+        };
+        const bodiesLookEquivalent = (
+          localBody,
+          serverBody,
+          localFiles = [],
+          serverFiles = [],
+        ) => {
+          const normalizedLocal = normalizeBody(localBody);
+          const normalizedServer = normalizeBody(serverBody);
+          if (normalizedLocal === normalizedServer) return true;
+          const localHasFiles = Array.isArray(localFiles) && localFiles.length > 0;
+          const serverHasFiles = Array.isArray(serverFiles) && serverFiles.length > 0;
+          if (!localHasFiles || !serverHasFiles) return false;
+          if (!normalizedLocal && isGenericFileSummaryBody(normalizedServer)) {
+            return true;
+          }
+          return false;
+        };
         const prevLocalCandidates = basePrev.filter((msg) =>
           Boolean(msg?._clientId),
         );
@@ -332,14 +357,22 @@ export function useMessagesLoader({
                 if (!localMsg?._clientId) return false;
                 if ((localMsg.username || "") !== (serverMsg.username || ""))
                   return false;
-                if ((localMsg.body || "") !== (serverMsg.body || ""))
-                  return false;
                 const localFiles = Array.isArray(localMsg.files)
                   ? localMsg.files
                   : [];
                 const serverFiles = Array.isArray(serverMsg.files)
                   ? serverMsg.files
                   : [];
+                if (
+                  !bodiesLookEquivalent(
+                    localMsg.body || "",
+                    serverMsg.body || "",
+                    localFiles,
+                    serverFiles,
+                  )
+                ) {
+                  return false;
+                }
                 if (localFiles.length !== serverFiles.length) return false;
                 const localTime = parseServerDate(
                   localMsg.created_at,
@@ -434,7 +467,6 @@ export function useMessagesLoader({
           // and a transient fetch returns empty before server echo settles.
           return basePrev;
         }
-        const normalizeBody = (value) => normalizeMessageBody(value).trim();
         const isPendingMessageAcknowledged = (pending, serverMessages) => {
           if (!pending || !serverMessages.length) return false;
           const pendingServerId = Number(pending?._serverId || 0);
@@ -464,10 +496,19 @@ export function useMessagesLoader({
           return serverMessages.some((serverMsg) => {
             if (serverMsg.username !== pending.username) return false;
             const serverBody = normalizeBody(serverMsg.body || "");
-            if (serverBody !== pendingBody) return false;
             const serverFiles = Array.isArray(serverMsg.files)
               ? serverMsg.files
               : [];
+            if (
+              !bodiesLookEquivalent(
+                pendingBody,
+                serverBody,
+                pendingFiles,
+                serverFiles,
+              )
+            ) {
+              return false;
+            }
             if (serverFiles.length !== pendingFiles.length) return false;
             const serverCreatedAt = parseServerDate(
               serverMsg.created_at,
@@ -495,10 +536,19 @@ export function useMessagesLoader({
             if (serverMsg.username !== pending.username) return false;
             const serverBody = normalizeBody(serverMsg.body || "");
             const pendingBody = normalizeBody(pending.body || "");
-            if (serverBody !== pendingBody) return false;
             const serverFiles = Array.isArray(serverMsg.files)
               ? serverMsg.files
               : [];
+            if (
+              !bodiesLookEquivalent(
+                pendingBody,
+                serverBody,
+                pendingFiles,
+                serverFiles,
+              )
+            ) {
+              return false;
+            }
             if (serverFiles.length !== pendingFiles.length) return false;
             const pendingCreatedAt = parseServerDate(
               pending.created_at || new Date().toISOString(),
