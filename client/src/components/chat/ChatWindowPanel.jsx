@@ -791,20 +791,40 @@ export default function ChatWindowPanel({
   }, []);
 
   useEffect(() => {
-    if (isDesktop) return;
+    const el = sectionRef.current;
+    if (!el) return;
+    if (isDesktop) {
+      el.style.height = "";
+      el.style.top = "";
+      return;
+    }
     const vv = window.visualViewport;
-    if (!vv) return;
+    if (!vv) {
+      el.style.height = "";
+      el.style.top = "";
+      return;
+    }
+    let frameId = 0;
     const update = () => {
-      const el = sectionRef.current;
-      if (!el) return;
-      el.style.height = `${vv.height}px`;
-      el.style.top = `${vv.offsetTop}px`;
+      frameId = 0;
+      const nextEl = sectionRef.current;
+      if (!nextEl) return;
+      nextEl.style.height = `${vv.height}px`;
+      nextEl.style.top = `${vv.offsetTop}px`;
     };
-    //vv.addEventListener("resize", update);
-    vv.addEventListener("scroll", update);
+    const scheduleUpdate = () => {
+      if (frameId) cancelAnimationFrame(frameId);
+      frameId = requestAnimationFrame(update);
+    };
+    scheduleUpdate();
+    vv.addEventListener("resize", scheduleUpdate);
+    vv.addEventListener("scroll", scheduleUpdate);
+    window.addEventListener("orientationchange", scheduleUpdate);
     return () => {
-      vv.removeEventListener("resize", update);
-      vv.removeEventListener("scroll", update);
+      if (frameId) cancelAnimationFrame(frameId);
+      vv.removeEventListener("resize", scheduleUpdate);
+      vv.removeEventListener("scroll", scheduleUpdate);
+      window.removeEventListener("orientationchange", scheduleUpdate);
     };
   }, [isDesktop]);
 
