@@ -596,9 +596,6 @@ export function MessageComposer({
       ref={composerRef}
       className="sticky bottom-0 z-30 flex shrink-0 flex-col gap-3 border-t border-slate-300/80 bg-white px-4 py-3 dark:border-emerald-500/20 dark:bg-slate-900 sm:px-6 md:static md:mt-auto"
       style={{
-        bottom: isDesktop
-          ? undefined
-          : "max(0px, var(--mobile-bottom-offset, 0px))",
         paddingBottom: isDesktop
           ? "0.75rem"
           : "max(0.75rem, calc(env(safe-area-inset-bottom) + 0.5rem))",

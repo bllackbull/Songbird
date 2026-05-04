@@ -790,39 +790,6 @@ export default function ChatWindowPanel({
     return () => media.removeListener(update);
   }, []);
 
-  useEffect(() => {
-    const el = sectionRef.current;
-    if (!el) return;
-    if (isDesktop) {
-      el.style.height = "";
-      return;
-    }
-    const vv = window.visualViewport;
-    if (!vv) {
-      el.style.height = "";
-      return;
-    }
-    let frameId = 0;
-    const update = () => {
-      frameId = 0;
-      const nextEl = sectionRef.current;
-      if (!nextEl) return;
-      nextEl.style.height = `${vv.height}px`;
-    };
-    const scheduleUpdate = () => {
-      if (frameId) cancelAnimationFrame(frameId);
-      frameId = requestAnimationFrame(update);
-    };
-    scheduleUpdate();
-    vv.addEventListener("resize", scheduleUpdate);
-    window.addEventListener("orientationchange", scheduleUpdate);
-    return () => {
-      if (frameId) cancelAnimationFrame(frameId);
-      vv.removeEventListener("resize", scheduleUpdate);
-      window.removeEventListener("orientationchange", scheduleUpdate);
-    };
-  }, [isDesktop]);
-
   function getMessageDayLabel(msg) {
     if (msg?._dayLabel) return msg._dayLabel;
     if (msg?._dayKey) return msg._dayKey;
@@ -1087,7 +1054,9 @@ export default function ChatWindowPanel({
       }
       style={{
         top: "0px",
-        height: "100%",
+        height: isDesktop
+          ? "100%"
+          : "calc(100% - var(--mobile-bottom-offset, 0px))",
         zIndex: isDesktop ? "auto" : "var(--app-z, 20)",
         paddingTop: "max(0px, env(safe-area-inset-top))",
       }}
@@ -1614,7 +1583,7 @@ export default function ChatWindowPanel({
               ? `${showComposer ? composerHeight + 14 : showChannelMuteFooter ? 86 : 18}px`
               : `calc(${
                   showComposer ? composerHeight + 12 : showChannelMuteFooter ? 84 : 18
-                }px + env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px))`,
+                }px + env(safe-area-inset-bottom))`,
           }}
           aria-hidden={!copyToastVisible}
         >
@@ -1629,9 +1598,6 @@ export default function ChatWindowPanel({
         <div
           className="sticky bottom-0 z-30 flex min-h-[68px] shrink-0 items-center justify-center border-t border-slate-300/80 bg-white px-4 py-3 dark:border-emerald-500/20 dark:bg-slate-900 sm:px-6 md:static md:mt-auto"
           style={{
-            bottom: isDesktop
-              ? undefined
-              : "max(0px, var(--mobile-bottom-offset, 0px))",
             paddingBottom: isDesktop
               ? "0.75rem"
               : "max(0.75rem, calc(env(safe-area-inset-bottom) + 0.5rem))",
@@ -1657,7 +1623,7 @@ export default function ChatWindowPanel({
               ? `${jumpButtonBaseBottomPx}px`
               : `calc(${
                   jumpButtonBaseBottomPx
-                }px + env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px))`,
+                }px + env(safe-area-inset-bottom))`,
             right: "0.85rem",
             transform: "none",
           }}
