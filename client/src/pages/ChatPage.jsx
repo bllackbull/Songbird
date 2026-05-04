@@ -3210,7 +3210,16 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const numericMessageId = Number(messageId || 0);
     if (!numericMessageId) return;
     setMessages((prev) =>
-      prev.filter((msg) => Number(msg?._serverId || msg?.id || 0) !== numericMessageId),
+      prev
+        .filter((msg) => Number(msg?._serverId || msg?.id || 0) !== numericMessageId)
+        .map((msg) => {
+          const replyId = Number(msg?.replyTo?.id || 0);
+          if (!replyId || replyId !== numericMessageId) return msg;
+          return {
+            ...msg,
+            replyTo: null,
+          };
+        }),
     );
     if (activeChatId) {
       pruneDeletedMessagesFromCache(activeChatId, [numericMessageId]);

@@ -297,11 +297,21 @@ export function useChatEvents({
                   .filter((id) => Number.isFinite(id))
               : [];
             if (messageIds.length) {
+              const deletedIdSet = new Set(messageIds);
               setMessages((prev) =>
-                prev.filter((msg) => {
-                  const serverId = Number(msg?._serverId || msg?.id || 0);
-                  return !messageIds.includes(serverId);
-                }),
+                prev
+                  .filter((msg) => {
+                    const serverId = Number(msg?._serverId || msg?.id || 0);
+                    return !deletedIdSet.has(serverId);
+                  })
+                  .map((msg) => {
+                    const replyId = Number(msg?.replyTo?.id || 0);
+                    if (!replyId || !deletedIdSet.has(replyId)) return msg;
+                    return {
+                      ...msg,
+                      replyTo: null,
+                    };
+                  }),
               );
             }
             scheduleMessageRefreshRef.current?.(currentActiveId, {

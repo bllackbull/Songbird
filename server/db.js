@@ -1220,8 +1220,18 @@ export function getMessages(chatId, options = {}) {
     : "";
 
   const whereSql = `WHERE chat_messages.chat_id = ?${visibilitySql}${beforeSql}`;
+  const replyJoinVisibilitySql = hasViewerUserId
+    ? `AND ${getVisibleMessageFilterSql(
+        "reply",
+        "WHERE hidden_chat_messages.user_id = ?",
+      )}`
+    : "AND reply.hidden_everyone_at IS NULL";
 
-  const params = [chatId];
+  const params = [];
+  if (hasViewerUserId) {
+    params.push(viewerUserIdRaw);
+  }
+  params.push(chatId);
   if (hasViewerUserId) {
     params.push(viewerUserIdRaw);
   }
@@ -1262,7 +1272,9 @@ export function getMessages(chatId, options = {}) {
       reply_user.avatar_url AS reply_avatar_url
     FROM chat_messages
     LEFT JOIN users ON users.id = chat_messages.user_id
-    LEFT JOIN chat_messages reply ON reply.id = chat_messages.reply_to_message_id
+    LEFT JOIN chat_messages reply
+      ON reply.id = chat_messages.reply_to_message_id
+      ${replyJoinVisibilitySql}
     LEFT JOIN users reply_user ON reply_user.id = reply.user_id
     ${whereSql}
     ORDER BY julianday(chat_messages.created_at) DESC, chat_messages.id DESC
