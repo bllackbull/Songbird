@@ -3,10 +3,12 @@ import {
   AlertCircle,
   Check,
   Copy,
+  Globe,
+  Heart,
   LoaderCircle,
   Refresh,
 } from "../../../icons/lucide.js";
-import { FaGithub, FaGlobe, FaTelegram } from "react-icons/fa6";
+import { FaGithub, FaTelegram } from "react-icons/fa6";
 import { checkAppVersion } from "../../../api/appMetaApi.js";
 import { ABOUT_CONTENT } from "../../../settings/aboutContent.js";
 import { copyTextToClipboard } from "../../../utils/clipboard.js";
@@ -14,7 +16,7 @@ import { copyTextToClipboard } from "../../../utils/clipboard.js";
 const SOCIAL_ICONS = {
   github: FaGithub,
   telegram: FaTelegram,
-  website: FaGlobe,
+  website: Globe,
 };
 
 function WalletRow({ label, address }) {
@@ -45,6 +47,39 @@ function WalletRow({ label, address }) {
           <Copy size={12} className="icon-anim-pop" />
           {copied ? "Copied" : "Copy"}
         </button>
+      </div>
+    </div>
+  );
+}
+
+function DonationLinkRow({ donationLink }) {
+  if (!donationLink?.href) return null;
+
+  return (
+    <div className="relative overflow-hidden rounded-[1.6rem] border border-sky-200/80 bg-[linear-gradient(135deg,rgba(255,255,255,0.98),rgba(241,248,255,0.98)_56%,rgba(230,243,255,0.96))] p-4 shadow-[0_14px_34px_rgba(100,172,255,0.12)] dark:border-sky-400/25 dark:bg-[linear-gradient(135deg,#0f1419,#17212c_58%,#213449)] dark:shadow-[0_18px_40px_rgba(100,172,255,0.14)]">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(100,172,255,0.2),transparent_32%),radial-gradient(circle_at_bottom_left,rgba(255,255,255,0.72),transparent_28%)] dark:bg-[radial-gradient(circle_at_top_right,rgba(100,172,255,0.3),transparent_30%),radial-gradient(circle_at_bottom_left,rgba(255,255,255,0.05),transparent_28%)]" />
+      <div className="relative flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[#64ACFF]">
+            {donationLink.eyebrow}
+          </p>
+          <p className="mt-2 text-base font-bold leading-6 text-slate-900 dark:text-white">
+            {donationLink.title}
+          </p>
+          <p className="mt-1.5 max-w-[34ch] text-sm leading-6 text-slate-700 dark:text-slate-200/90">
+            {donationLink.description}
+          </p>
+        </div>
+        <a
+          href={donationLink.href}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="inline-flex shrink-0 items-center gap-2 rounded-full border border-sky-300 bg-[#64ACFF] px-4 py-2.5 text-sm font-bold text-white shadow-[0_0_14px_rgba(100,172,255,0.24)] transition hover:border-sky-200 hover:bg-[#7AB8FF] hover:shadow-[0_0_14px_rgba(100,172,255,0.32)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#13171c] dark:border-sky-300/60 dark:bg-[#64ACFF] dark:hover:bg-[#7AB8FF]"
+          aria-label={donationLink.buttonLabel}
+        >
+          <Heart size={15} className="icon-anim-pop fill-current" />
+          {donationLink.buttonLabel}
+        </a>
       </div>
     </div>
   );
@@ -207,6 +242,7 @@ export function AboutSettingsPanel({
             {ABOUT_CONTENT.supportIntro}
           </p>
           <div className="mt-3 space-y-2.5">
+            <DonationLinkRow donationLink={ABOUT_CONTENT.donationLink} />
             {ABOUT_CONTENT.wallets.map((wallet) => (
               <WalletRow
                 key={wallet.label}

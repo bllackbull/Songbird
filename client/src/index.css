@@ -495,6 +495,8 @@ label:hover .icon-anim-slide {
 
 button:hover .icon-anim-pop,
 button:focus-visible .icon-anim-pop,
+a:hover .icon-anim-pop,
+a:focus-visible .icon-anim-pop,
 label:hover .icon-anim-pop {
   animation: icon-pop 300ms ease-out 1 both;
 }
