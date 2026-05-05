@@ -637,10 +637,16 @@ label:hover .icon-anim-drop {
 
 .sb-markdown p {
   margin: 0;
+  unicode-bidi: plaintext;
+  text-align: start;
 }
 
 .sb-markdown p + p {
   margin-top: 0.25rem;
+}
+
+.sb-markdown-spacer {
+  height: 0.8em;
 }
 
 .sb-forward-origin {
@@ -685,6 +691,8 @@ label:hover .icon-anim-drop {
   word-break: break-word;
   max-inline-size: 100%;
   box-sizing: border-box;
+  unicode-bidi: plaintext;
+  text-align: start;
 }
 
 .sb-markdown ul ul,
@@ -722,6 +730,8 @@ label:hover .icon-anim-drop {
   color: rgba(100, 116, 139, 0.95);
   max-inline-size: 100%;
   box-sizing: border-box;
+  unicode-bidi: plaintext;
+  text-align: start;
 }
 
 .dark .sb-markdown blockquote {
@@ -756,6 +766,8 @@ label:hover .icon-anim-drop {
 .sb-markdown h6 {
   margin: 0.3rem 0 0.15rem;
   font-weight: 600;
+  unicode-bidi: plaintext;
+  text-align: start;
 }
 
 .sb-markdown h1 { font-size: 1.1rem; }
