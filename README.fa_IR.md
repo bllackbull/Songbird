@@ -763,6 +763,30 @@ docker compose exec songbird npm --prefix /app/server run db:inspect
     <img src="https://nowpayments.io/images/embeds/donation-button-black.svg" alt="Crypto donation button by NOWPayments">
 </a>
 
+### TRX:
+
+```
+TPf1bEhipKpGkjo5N2Scj9nufNNh5TNrwX
+```
+
+### USDT (TRC20):
+
+```
+0x63313383611BbE11f4fEc139c14ad0b70281b822
+```
+
+### BTC:
+
+```
+bc1q9hupvcc39juhf0k7rgzn6phn8s8jez365kzmuj
+```
+
+### TON:
+
+```
+UQDzQ3xbWzKQvw8X8sWU82dksBeYqTHrT9sLzhBOyaESPjVy
+```
+
 ## لایسنس
 
 این پروژه تحت لایسنس MIT منتشر شده است. برای جزئیات بیشتر، فایل [LICENSE](LICENSE) را ببینید.
