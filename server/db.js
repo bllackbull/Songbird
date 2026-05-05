@@ -1236,6 +1236,7 @@ export function getMessages(chatId, options = {}) {
       COALESCE(chat_messages.edited_body, chat_messages.body) AS body,
       chat_messages.edited,
       chat_messages.edited_body,
+      chat_messages.client_request_id,
       chat_messages.forwarded_from_chat_id,
       chat_messages.forwarded_from_label,
       chat_messages.forwarded_from_user_id,
