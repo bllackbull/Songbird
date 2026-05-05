@@ -73,6 +73,14 @@ function registerMessageRoutes(app, deps) {
     ).toISOString();
   };
 
+  const canUserPostInChat = (chatId, userId, chat = null) => {
+    const resolvedChat = chat || findChatById(Number(chatId));
+    if (!resolvedChat) return false;
+    if (resolvedChat.type !== "channel") return true;
+    const role = String(getChatMemberRole(Number(chatId), Number(userId))).toLowerCase();
+    return role === "owner";
+  };
+
   const normalizeForwardOriginAvatarUrl = (userId, avatarUrl) => {
     const normalized = ensureAvatarExists(userId, avatarUrl);
     return String(normalized || "").trim() || null;
@@ -1165,6 +1173,15 @@ function registerMessageRoutes(app, deps) {
     if (!message || Number(message.chat_id) !== numericChatId) {
       return res.status(404).json({ error: "Message not found." });
     }
+    const chat = findChatById(numericChatId);
+    if (!chat) {
+      return res.status(404).json({ error: "Chat not found." });
+    }
+    if (!canUserPostInChat(numericChatId, user.id, chat)) {
+      return res
+        .status(403)
+        .json({ error: "Only channel owner can send messages." });
+    }
     if (Number(message.user_id || 0) !== Number(user.id)) {
       return res.status(403).json({ error: "Only the author can edit this message." });
     }
@@ -1211,9 +1228,14 @@ function registerMessageRoutes(app, deps) {
       : "self";
 
     if (deleteScope === "everyone") {
+      const chat = findChatById(numericChatId);
+      if (!chat) {
+        return res.status(404).json({ error: "Chat not found." });
+      }
       const role = String(getChatMemberRole(numericChatId, user.id)).toLowerCase();
       const canDeleteForEveryone =
-        Number(message.user_id || 0) === Number(user.id) || role === "owner";
+        canUserPostInChat(numericChatId, user.id, chat) &&
+        (Number(message.user_id || 0) === Number(user.id) || role === "owner");
       if (!canDeleteForEveryone) {
         return res.status(403).json({
           error: "You cannot delete this message for everyone.",

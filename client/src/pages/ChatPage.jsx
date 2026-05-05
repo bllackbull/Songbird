@@ -188,6 +188,9 @@ const pruneMessagesForMemory = (messages) => {
   return list.slice(-IN_MEMORY_MESSAGES_PER_CHAT);
 };
 
+const getMessageContextKey = (message) =>
+  String(message?._clientId ?? message?._serverId ?? message?.id ?? "");
+
 const normalizeMessagesCachePayloadForMemory = (payload) => {
   if (!payload || !Array.isArray(payload.messages)) return payload;
   const trimmedMessages = pruneMessagesForMemory(payload.messages);
@@ -2696,20 +2699,22 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const canDeleteMessageForEveryone = useCallback(
     (message) => {
       if (String(activeChat?.type || "").toLowerCase() === "saved") return false;
+      if (isActiveChannelChat && !canCurrentUserEditGroup) return false;
       const messageAuthor = String(message?.username || "").toLowerCase();
       const currentUsername = String(user?.username || "").toLowerCase();
       if (!messageAuthor) return false;
       if (messageAuthor === currentUsername) return true;
       return canCurrentUserEditGroup;
     },
-    [activeChat?.type, canCurrentUserEditGroup, user?.username],
+    [activeChat?.type, canCurrentUserEditGroup, isActiveChannelChat, user?.username],
   );
 
   const canEditMessageFromContext = useCallback(
     (message) =>
+      (!isActiveChannelChat || canCurrentUserEditGroup) &&
       String(message?.username || "").toLowerCase() ===
-      String(user?.username || "").toLowerCase(),
-    [user?.username],
+        String(user?.username || "").toLowerCase(),
+    [canCurrentUserEditGroup, isActiveChannelChat, user?.username],
   );
 
   function handleDeleteMessageRequest(message, _options = {}) {
@@ -5754,6 +5759,24 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     onToggleChatMute: toggleMuteChat,
     onDeleteChats: requestDeleteChats,
   });
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    if (
+      contextMenu.kind === "message" &&
+      Number(contextMenu.targetChatId || 0) !== Number(activeChatId || 0)
+    ) {
+      closeContextMenu();
+      return;
+    }
+    if (contextMenu.kind !== "message" || !contextMenu.targetMessageKey) return;
+    const targetStillExists = messages.some(
+      (message) => getMessageContextKey(message) === contextMenu.targetMessageKey,
+    );
+    if (!targetStillExists) {
+      closeContextMenu();
+    }
+  }, [activeChatId, closeContextMenu, contextMenu, messages]);
 
   async function handleDeleteAccount(password) {
     if (!user?.username) return;

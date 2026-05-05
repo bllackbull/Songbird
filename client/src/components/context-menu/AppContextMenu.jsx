@@ -19,6 +19,26 @@ export default function AppContextMenu({ menu, onClose }) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [menu, onClose]);
 
+  useEffect(() => {
+    const targetEl = menu?.targetEl;
+    if (!menu || !targetEl || typeof MutationObserver === "undefined") return undefined;
+    if (!targetEl.isConnected) {
+      onClose?.();
+      return undefined;
+    }
+    const observer = new MutationObserver(() => {
+      if (!targetEl.isConnected) {
+        observer.disconnect();
+        onClose?.();
+      }
+    });
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+    return () => observer.disconnect();
+  }, [menu, onClose]);
+
   useLayoutEffect(() => {
     if (!menu || !menuRef.current || typeof window === "undefined") return;
     const rect = menuRef.current.getBoundingClientRect();

@@ -223,10 +223,16 @@ export function useAppContextMenu({
       }
 
       if (!items.length) return;
+      const message = kind === "message" ? data?.message || null : null;
       setContextMenu({
         kind,
         point,
         items,
+        targetEl: targetEl || null,
+        targetChatId: Number(activeChatId || 0) || null,
+        targetMessageKey: message
+          ? String(message?._clientId ?? message?._serverId ?? message?.id ?? "")
+          : "",
       });
     },
     [
