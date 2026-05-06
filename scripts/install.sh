@@ -37,11 +37,12 @@ NGINX_ENABLED_FILE="/etc/nginx/sites-enabled/songbird"
 DEFAULT_SERVER_PORT="5174"
 DEFAULT_CLIENT_PORT="80"
 DEFAULT_FILE_UPLOAD="true"
-DEFAULT_MAX_UPLOAD="78643200"
+DEFAULT_FILE_UPLOAD_MAX_SIZE_MB="25"
+DEFAULT_MAX_UPLOAD_MB="75"
 DEFAULT_RETENTION_DAYS="7"
 DEFAULT_TEXT_RETENTION_DAYS="0"
-DEFAULT_ACCOUNT_CREATION="true"
-DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES="5242880"
+DEFAULT_SIGN_UP="true"
+DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_MB="5"
 DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS="480"
 NODE_MAJOR="24"
 SCRIPT_REMOTE_URL="${SCRIPT_REMOTE_URL:-https://raw.githubusercontent.com/bllackbull/Songbird/main/scripts/install.sh}"
@@ -68,10 +69,10 @@ CERTBOT_EMAIL=""
 SERVER_PORT="$DEFAULT_SERVER_PORT"
 CLIENT_PORT="$DEFAULT_CLIENT_PORT"
 FILE_UPLOAD="$DEFAULT_FILE_UPLOAD"
-MAX_UPLOAD="$DEFAULT_MAX_UPLOAD"
+MAX_UPLOAD_MB="$DEFAULT_MAX_UPLOAD_MB"
 RETENTION_DAYS="$DEFAULT_RETENTION_DAYS"
 TEXT_RETENTION_DAYS="$DEFAULT_TEXT_RETENTION_DAYS"
-ACCOUNT_CREATION="$DEFAULT_ACCOUNT_CREATION"
+ACCOUNT_CREATION="$DEFAULT_SIGN_UP"
 NGINX_SERVER_NAME="_"
 CURRENT_ENV_FILE=""
 PROMPT_FD=0
@@ -1186,6 +1187,45 @@ get_existing_env_value_with_fallback() {
   printf "%s" "$default"
 }
 
+bytes_to_mb_rounded_up() {
+  local bytes="$(printf "%s" "$1" | tr -d '[:space:]')"
+  if [[ -z "$bytes" || ! "$bytes" =~ ^[0-9]+$ ]]; then
+    return 1
+  fi
+  printf "%s" "$(((bytes + 1048576 - 1) / 1048576))"
+}
+
+get_existing_env_mb_value_with_fallback() {
+  local primary="$1"
+  local legacy_bytes_key="$2"
+  local default="$3"
+  local env_file="$INSTALL_DIR/.env"
+  if [[ ! -f "$env_file" ]]; then
+    printf "%s" "$default"
+    return 0
+  fi
+
+  local existing
+  existing="$(grep -E "^${primary}=" "$env_file" | tail -n 1 | cut -d "=" -f 2- || true)"
+  if [[ -n "$existing" ]]; then
+    printf "%s" "$existing"
+    return 0
+  fi
+
+  local legacy_bytes
+  legacy_bytes="$(grep -E "^${legacy_bytes_key}=" "$env_file" | tail -n 1 | cut -d "=" -f 2- || true)"
+  if [[ -n "$legacy_bytes" ]]; then
+    local converted=""
+    converted="$(bytes_to_mb_rounded_up "$legacy_bytes")" || converted=""
+    if [[ -n "$converted" ]]; then
+      printf "%s" "$converted"
+      return 0
+    fi
+  fi
+
+  printf "%s" "$default"
+}
+
 replace_env_value() {
   local env_file="$1"
   local key="$2"
@@ -1213,16 +1253,26 @@ write_env_from_example() {
   local existing_subject
   local existing_server_port
   local existing_client_port
-  local existing_voice_waveform_max_decode_bytes
+  local existing_sign_up
+  local existing_file_upload_max_size_mb
+  local existing_file_upload_max_total_size_mb
+  local existing_voice_waveform_max_decode_mb
   local existing_voice_waveform_max_decode_seconds
+  local existing_nickname_max_chars
+  local existing_username_max_chars
   local existing_storage_encryption_key
   existing_public_key="$(get_existing_env_value "VAPID_PUBLIC_KEY" "")"
   existing_private_key="$(get_existing_env_value "VAPID_PRIVATE_KEY" "")"
   existing_subject="$(get_existing_env_value "VAPID_SUBJECT" "mailto:admin@example.com")"
   existing_server_port="$(get_existing_env_value_with_fallback "SERVER_PORT" "PORT" "$DEFAULT_SERVER_PORT")"
   existing_client_port="$(get_existing_env_value "CLIENT_PORT" "$DEFAULT_CLIENT_PORT")"
-  existing_voice_waveform_max_decode_bytes="$(get_existing_env_value "CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES" "$DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES")"
+  existing_sign_up="$(get_existing_env_value_with_fallback "SIGN_UP" "ACCOUNT_CREATION" "$DEFAULT_SIGN_UP")"
+  existing_file_upload_max_size_mb="$(get_existing_env_mb_value_with_fallback "FILE_UPLOAD_MAX_SIZE_MB" "FILE_UPLOAD_MAX_SIZE" "$DEFAULT_FILE_UPLOAD_MAX_SIZE_MB")"
+  existing_file_upload_max_total_size_mb="$(get_existing_env_mb_value_with_fallback "FILE_UPLOAD_MAX_TOTAL_SIZE_MB" "FILE_UPLOAD_MAX_TOTAL_SIZE" "$DEFAULT_MAX_UPLOAD_MB")"
+  existing_voice_waveform_max_decode_mb="$(get_existing_env_mb_value_with_fallback "CHAT_VOICE_WAVEFORM_MAX_DECODE_MB" "CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES" "$DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_MB")"
   existing_voice_waveform_max_decode_seconds="$(get_existing_env_value "CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS" "$DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS")"
+  existing_nickname_max_chars="$(get_existing_env_value_with_fallback "NICKNAME_MAX_CHARS" "NICKNAME_MAX" "24")"
+  existing_username_max_chars="$(get_existing_env_value_with_fallback "USERNAME_MAX_CHARS" "USERNAME_MAX" "16")"
   existing_storage_encryption_key="$(get_existing_env_value "STORAGE_ENCRYPTION_KEY" "")"
 
   run_silent run_as_root cp "$example_file" "$env_file"
@@ -1230,13 +1280,16 @@ write_env_from_example() {
   replace_env_value "$env_file" "CLIENT_PORT" "$existing_client_port"
   replace_env_value "$env_file" "SERVER_PORT" "$SERVER_PORT"
   replace_env_value "$env_file" "CLIENT_PORT" "$CLIENT_PORT"
-  replace_env_value "$env_file" "ACCOUNT_CREATION" "$ACCOUNT_CREATION"
+  replace_env_value "$env_file" "SIGN_UP" "$ACCOUNT_CREATION"
   replace_env_value "$env_file" "FILE_UPLOAD" "$FILE_UPLOAD"
-  replace_env_value "$env_file" "FILE_UPLOAD_MAX_TOTAL_SIZE" "$MAX_UPLOAD"
+  replace_env_value "$env_file" "FILE_UPLOAD_MAX_SIZE_MB" "$existing_file_upload_max_size_mb"
+  replace_env_value "$env_file" "FILE_UPLOAD_MAX_TOTAL_SIZE_MB" "$MAX_UPLOAD_MB"
   replace_env_value "$env_file" "MESSAGE_FILE_RETENTION" "$RETENTION_DAYS"
   replace_env_value "$env_file" "MESSAGE_TEXT_RETENTION" "$TEXT_RETENTION_DAYS"
-  replace_env_value "$env_file" "CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES" "$existing_voice_waveform_max_decode_bytes"
+  replace_env_value "$env_file" "CHAT_VOICE_WAVEFORM_MAX_DECODE_MB" "$existing_voice_waveform_max_decode_mb"
   replace_env_value "$env_file" "CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS" "$existing_voice_waveform_max_decode_seconds"
+  replace_env_value "$env_file" "NICKNAME_MAX_CHARS" "$existing_nickname_max_chars"
+  replace_env_value "$env_file" "USERNAME_MAX_CHARS" "$existing_username_max_chars"
   replace_env_value "$env_file" "STORAGE_ENCRYPTION_KEY" "$existing_storage_encryption_key"
   replace_env_value "$env_file" "VAPID_PUBLIC_KEY" "$existing_public_key"
   replace_env_value "$env_file" "VAPID_PRIVATE_KEY" "$existing_private_key"
@@ -1264,10 +1317,10 @@ SERVER_PORT=${SERVER_PORT}
 CLIENT_PORT=${CLIENT_PORT}
 APP_ENV=production
 APP_DEBUG=false
-ACCOUNT_CREATION=${ACCOUNT_CREATION}
+SIGN_UP=${ACCOUNT_CREATION}
 FILE_UPLOAD=${FILE_UPLOAD}
-FILE_UPLOAD_MAX_SIZE=26214400
-FILE_UPLOAD_MAX_TOTAL_SIZE=${MAX_UPLOAD}
+FILE_UPLOAD_MAX_SIZE_MB=${DEFAULT_FILE_UPLOAD_MAX_SIZE_MB}
+FILE_UPLOAD_MAX_TOTAL_SIZE_MB=${MAX_UPLOAD_MB}
 FILE_UPLOAD_MAX_FILES=10
 FILE_UPLOAD_TRANSCODE_VIDEOS=true
 MESSAGE_FILE_RETENTION=${RETENTION_DAYS}
@@ -1286,10 +1339,10 @@ CHAT_PEER_PRESENCE_POLL_INTERVAL=3000
 CHAT_HEALTH_CHECK_INTERVAL=10000
 CHAT_SSE_RECONNECT_DELAY=2000
 CHAT_SEARCH_MAX_RESULTS=5
-CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES=${DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES}
+CHAT_VOICE_WAVEFORM_MAX_DECODE_MB=${DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_MB}
 CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS=${DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS}
-NICKNAME_MAX=24
-USERNAME_MAX=16
+NICKNAME_MAX_CHARS=24
+USERNAME_MAX_CHARS=16
 STORAGE_ENCRYPTION_KEY=${existing_storage_encryption_key}
 VAPID_PUBLIC_KEY=${existing_public_key}
 VAPID_PRIVATE_KEY=${existing_private_key}
@@ -1351,10 +1404,10 @@ sync_values_from_env() {
   SERVER_PORT="$(get_existing_env_value_with_fallback "SERVER_PORT" "PORT" "$DEFAULT_SERVER_PORT")"
   CLIENT_PORT="$(get_existing_env_value "CLIENT_PORT" "$DEFAULT_CLIENT_PORT")"
   FILE_UPLOAD="$(get_existing_env_value "FILE_UPLOAD" "$DEFAULT_FILE_UPLOAD")"
-  MAX_UPLOAD="$(get_existing_env_value "FILE_UPLOAD_MAX_TOTAL_SIZE" "$DEFAULT_MAX_UPLOAD")"
+  MAX_UPLOAD_MB="$(get_existing_env_mb_value_with_fallback "FILE_UPLOAD_MAX_TOTAL_SIZE_MB" "FILE_UPLOAD_MAX_TOTAL_SIZE" "$DEFAULT_MAX_UPLOAD_MB")"
   RETENTION_DAYS="$(get_existing_env_value "MESSAGE_FILE_RETENTION" "$DEFAULT_RETENTION_DAYS")"
   TEXT_RETENTION_DAYS="$(get_existing_env_value "MESSAGE_TEXT_RETENTION" "$DEFAULT_TEXT_RETENTION_DAYS")"
-  ACCOUNT_CREATION="$(get_existing_env_value "ACCOUNT_CREATION" "$DEFAULT_ACCOUNT_CREATION")"
+  ACCOUNT_CREATION="$(get_existing_env_value_with_fallback "SIGN_UP" "ACCOUNT_CREATION" "$DEFAULT_SIGN_UP")"
   CURRENT_ENV_FILE="$env_file"
 }
 
@@ -1742,7 +1795,7 @@ EOF
 server {
   ${current_listen_line}
   server_name ${domain_group_names};
-  client_max_body_size ${MAX_UPLOAD};
+  client_max_body_size ${MAX_UPLOAD_MB}m;
 ${ssl_block}
 
   location /api/events {
@@ -1780,7 +1833,7 @@ EOF
 server {
   ${listen_line}
   server_name ${NGINX_SERVER_NAME};
-  client_max_body_size ${MAX_UPLOAD};
+  client_max_body_size ${MAX_UPLOAD_MB}m;
 ${ssl_block}
 ${acme_block}
 
@@ -2156,7 +2209,7 @@ update_nginx_runtime_values() {
 
   if run_as_root nginx -t; then
     run_as_root systemctl reload nginx
-    log "Nginx updated with SERVER_PORT=${SERVER_PORT}, CLIENT_PORT=${CLIENT_PORT}, MAX_UPLOAD=${MAX_UPLOAD}."
+    log "Nginx updated with SERVER_PORT=${SERVER_PORT}, CLIENT_PORT=${CLIENT_PORT}, MAX_UPLOAD_MB=${MAX_UPLOAD_MB}."
     log "Backup saved at ${backup_file}."
     return 0
   fi
@@ -2177,10 +2230,10 @@ rebuild_and_restart_after_settings_change() {
   run_as_root systemctl restart songbird.service
 
   if [[ "$needs_nginx" == "yes" ]]; then
-    log "Updating Nginx config for SERVER_PORT/CLIENT_PORT/MAX_UPLOAD changes..."
+    log "Updating Nginx config for SERVER_PORT/CLIENT_PORT/MAX_UPLOAD_MB changes..."
     update_nginx_runtime_values || warn "Nginx update failed. Review ${NGINX_SITE_FILE}."
   else
-    log "Nginx update not required (SERVER_PORT/CLIENT_PORT/MAX_UPLOAD unchanged)."
+    log "Nginx update not required (SERVER_PORT/CLIENT_PORT/MAX_UPLOAD_MB unchanged)."
   fi
 }
 
@@ -2338,7 +2391,7 @@ edit_settings() {
   local before_server before_client before_max
   before_server="$(get_existing_env_value_with_fallback "SERVER_PORT" "PORT" "$DEFAULT_SERVER_PORT")"
   before_client="$(get_existing_env_value "CLIENT_PORT" "$DEFAULT_CLIENT_PORT")"
-  before_max="$(get_existing_env_value "FILE_UPLOAD_MAX_TOTAL_SIZE" "$DEFAULT_MAX_UPLOAD")"
+  before_max="$(get_existing_env_mb_value_with_fallback "FILE_UPLOAD_MAX_TOTAL_SIZE_MB" "FILE_UPLOAD_MAX_TOTAL_SIZE" "$DEFAULT_MAX_UPLOAD_MB")"
 
   local before after
   before="$(sha256sum "$env_file" | awk '{print $1}')"
@@ -2355,7 +2408,7 @@ edit_settings() {
   local after_server after_client after_max
   after_server="$(get_existing_env_value_with_fallback "SERVER_PORT" "PORT" "$DEFAULT_SERVER_PORT")"
   after_client="$(get_existing_env_value "CLIENT_PORT" "$DEFAULT_CLIENT_PORT")"
-  after_max="$(get_existing_env_value "FILE_UPLOAD_MAX_TOTAL_SIZE" "$DEFAULT_MAX_UPLOAD")"
+  after_max="$(get_existing_env_mb_value_with_fallback "FILE_UPLOAD_MAX_TOTAL_SIZE_MB" "FILE_UPLOAD_MAX_TOTAL_SIZE" "$DEFAULT_MAX_UPLOAD_MB")"
 
   local needs_nginx="no"
   if [[ "$before_server" != "$after_server" || "$before_client" != "$after_client" || "$before_max" != "$after_max" ]]; then

@@ -268,7 +268,7 @@ Create `/etc/nginx/sites-available/songbird`:
 > [!IMPORTANT]
 > - Keep `proxy_pass` aligned with `SERVER_PORT`.
 > - Keep the Nginx `listen` port aligned with `CLIENT_PORT`.
-> - Keep `client_max_body_size` aligned with `FILE_UPLOAD_MAX_TOTAL_SIZE`.
+> - Keep `client_max_body_size` aligned with `FILE_UPLOAD_MAX_TOTAL_SIZE_MB`.
 
 ### HTTP only
 
@@ -278,7 +278,7 @@ Use this if you are not enabling SSL yet:
 server {
   listen 80 default_server;
   server_name example.com www.example.com;
-  client_max_body_size 78643200;
+  client_max_body_size 75m;
 
   location /api/events {
     proxy_pass http://127.0.0.1:5174;
@@ -322,7 +322,7 @@ After you have certificate files, switch to this:
 server {
   listen 443 ssl default_server;
   server_name example.com www.example.com;
-  client_max_body_size 78643200;
+  client_max_body_size 75m;
 
   ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
   ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
@@ -447,10 +447,10 @@ nano .env
 | `CLIENT_PORT` | `integer` | `80` | Nginx listen port (what users connect to). |
 | `APP_ENV` | `string` | `production` | Server runtime mode (`production` recommended/default). |
 | `APP_DEBUG` | `boolean` | `false` | Enable verbose server debug logs in terminal/stdout (`[app-debug]` lines for message send/upload/transcode/metadata events). |
-| `ACCOUNT_CREATION` | `boolean` | `true` | Allow new accounts to be created via the website (`/signup`). |
+| `SIGN_UP` | `boolean` | `true` | Allow new accounts to be created via the website (`/signup`). (`ACCOUNT_CREATION` is supported as a legacy fallback.) |
 | `FILE_UPLOAD` | `boolean` | `true` | Enable/disable all uploads globally (chat files + avatars). |
-| `FILE_UPLOAD_MAX_SIZE` | `integer` | `26214400` | Per-file upload max size (bytes). |
-| `FILE_UPLOAD_MAX_TOTAL_SIZE` | `integer` | `78643200` | Per-message total upload size cap (bytes). |
+| `FILE_UPLOAD_MAX_SIZE_MB` | `integer` | `25` | Per-file upload max size (MB). (`FILE_UPLOAD_MAX_SIZE` is supported as a legacy fallback in bytes.) |
+| `FILE_UPLOAD_MAX_TOTAL_SIZE_MB` | `integer` | `75` | Per-message total upload size cap (MB). (`FILE_UPLOAD_MAX_TOTAL_SIZE` is supported as a legacy fallback in bytes.) |
 | `FILE_UPLOAD_MAX_FILES` | `integer` | `10` | Max uploaded files in one message. |
 | `FILE_UPLOAD_TRANSCODE_VIDEOS` | `boolean` | `true` | Convert uploaded videos to H.264/AAC MP4 and keep only the converted file. Requires `ffmpeg`. |
 | `MESSAGE_FILE_RETENTION` | `integer` | `7` | Auto-delete uploaded message files after N days (`0` disables). |
@@ -469,10 +469,10 @@ nano .env
 | `CHAT_HEALTH_CHECK_INTERVAL` | `integer` | `10000` | Connection health check interval (milliseconds). |
 | `CHAT_SSE_RECONNECT_DELAY` | `integer` | `2000` | Delay before reconnecting SSE after error (milliseconds). |
 | `CHAT_SEARCH_MAX_RESULTS` | `integer` | `5` | Max users shown in search results. |
-| `CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES` | `integer` | `5242880` | Max audio file size (bytes) allowed for client-side waveform decode. |
+| `CHAT_VOICE_WAVEFORM_MAX_DECODE_MB` | `integer` | `5` | Max audio file size (MB) allowed for client-side waveform decode. (`CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES` is supported as a legacy fallback in bytes.) |
 | `CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS` | `integer` | `480` | Max audio duration (seconds) allowed for client-side waveform decode. |
-| `NICKNAME_MAX` | `integer` | `24` | Max nickname length for users and groups. |
-| `USERNAME_MAX` | `integer` | `16` | Max username length for users and groups. |
+| `NICKNAME_MAX_CHARS` | `integer` | `24` | Max nickname length for users and groups. (`NICKNAME_MAX` is supported as a legacy fallback.) |
+| `USERNAME_MAX_CHARS` | `integer` | `16` | Max username length for users and groups. (`USERNAME_MAX` is supported as a legacy fallback.) |
 | `STORAGE_ENCRYPTION_KEY` | `string` | auto-generated | Persistent encryption-at-rest key. Changing this value without first decrypting old data will make previously encrypted content unreadable. |
 | `VAPID_PUBLIC_KEY` | `string` | auto-generated | Web Push public key (required for push notifications). |
 | `VAPID_PRIVATE_KEY` | `string` | auto-generated | Web Push private key (required for push notifications). |

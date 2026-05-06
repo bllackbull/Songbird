@@ -267,7 +267,7 @@ Songbird هم فرانت‌اند build شده و هم API را از طریق س
 > [!IMPORTANT]
 > - مقدار `proxy_pass` را با `SERVER_PORT` هماهنگ نگه دارید.
 > - مقدار `listen` در Nginx را با `CLIENT_PORT` هماهنگ نگه دارید.
-> - مقدار `client_max_body_size` را با `FILE_UPLOAD_MAX_TOTAL_SIZE` هماهنگ نگه دارید.
+> - مقدار `client_max_body_size` را با `FILE_UPLOAD_MAX_TOTAL_SIZE_MB` هماهنگ نگه دارید.
 
 ### فقط HTTP
 
@@ -277,7 +277,7 @@ Songbird هم فرانت‌اند build شده و هم API را از طریق س
 server {
   listen 80 default_server;
   server_name example.com www.example.com;
-  client_max_body_size 78643200;
+  client_max_body_size 75m;
 
   location /api/events {
     proxy_pass http://127.0.0.1:5174;
@@ -327,7 +327,7 @@ server_name _;
 server {
   listen 443 ssl default_server;
   server_name example.com www.example.com;
-  client_max_body_size 78643200;
+  client_max_body_size 75m;
 
   ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
   ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
@@ -452,10 +452,10 @@ nano .env
 | `CLIENT_PORT` | `عدد` | `80` | پورتی که Nginx روی آن گوش می‌دهد و کاربر به آن وصل می‌شود. |
 | `APP_ENV` | `رشته` | `production` | حالت اجرای سرور. (`production` پیشنهاد می‌شود.) |
 | `APP_DEBUG` | `بولی` | `false` | فعال‌سازی لاگ‌های دیباگ دقیق سرور در ترمینال. |
-| `ACCOUNT_CREATION` | `بولی` | `true` | اجازه ساخت حساب جدید از طریق وب‌سایت (`/signup`). |
+| `SIGN_UP` | `بولی` | `true` | اجازه ساخت حساب جدید از طریق وب‌سایت (`/signup`). (`ACCOUNT_CREATION` به‌عنوان fallback قدیمی پشتیبانی می‌شود.) |
 | `FILE_UPLOAD` | `بولی` | `true` | فعال یا غیرفعال کردن همه آپلودها (فایل چت و آواتار). |
-| `FILE_UPLOAD_MAX_SIZE` | `عدد` | `26214400` | حداکثر اندازه هر فایل آپلودی به بایت. |
-| `FILE_UPLOAD_MAX_TOTAL_SIZE` | `عدد` | `78643200` | سقف مجموع حجم فایل‌های یک پیام به بایت. |
+| `FILE_UPLOAD_MAX_SIZE_MB` | `عدد` | `25` | حداکثر اندازه هر فایل آپلودی به مگابایت. (`FILE_UPLOAD_MAX_SIZE` به‌عنوان fallback قدیمی برحسب بایت پشتیبانی می‌شود.) |
+| `FILE_UPLOAD_MAX_TOTAL_SIZE_MB` | `عدد` | `75` | سقف مجموع حجم فایل‌های یک پیام به مگابایت. (`FILE_UPLOAD_MAX_TOTAL_SIZE` به‌عنوان fallback قدیمی برحسب بایت پشتیبانی می‌شود.) |
 | `FILE_UPLOAD_MAX_FILES` | `عدد` | `10` | حداکثر تعداد فایل در یک پیام. |
 | `FILE_UPLOAD_TRANSCODE_VIDEOS` | `بولی` | `true` | تبدیل ویدیوهای آپلودشده به MP4 با H.264/AAC. نیازمند `ffmpeg`. |
 | `MESSAGE_FILE_RETENTION` | `عدد` | `7` | حذف خودکار فایل‌های پیام بعد از N روز. (`0` یعنی غیرفعال) |
@@ -474,10 +474,10 @@ nano .env
 | `CHAT_HEALTH_CHECK_INTERVAL` | `عدد` | `10000` | فاصله health check اتصال. (میلی‌ثانیه) |
 | `CHAT_SSE_RECONNECT_DELAY` | `عدد` | `2000` | تاخیر قبل از اتصال دوباره SSE بعد از خطا. (میلی‌ثانیه) |
 | `CHAT_SEARCH_MAX_RESULTS` | `عدد` | `5` | حداکثر تعداد کاربر در نتایج جستجو. |
-| `CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES` | `عدد` | `5242880` | حداکثر حجم فایل صوتی مجاز برای decode waveform در کلاینت. |
+| `CHAT_VOICE_WAVEFORM_MAX_DECODE_MB` | `عدد` | `5` | حداکثر حجم فایل صوتی مجاز برای decode waveform در کلاینت به مگابایت. (`CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES` به‌عنوان fallback قدیمی برحسب بایت پشتیبانی می‌شود.) |
 | `CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS` | `عدد` | `480` | حداکثر طول فایل صوتی مجاز برای decode waveform در کلاینت. |
-| `NICKNAME_MAX` | `عدد` | `24` | حداکثر طول nickname برای کاربران و گروه‌ها. |
-| `USERNAME_MAX` | `عدد` | `16` | حداکثر طول username برای کاربران و گروه‌ها. |
+| `NICKNAME_MAX_CHARS` | `عدد` | `24` | حداکثر طول nickname برای کاربران و گروه‌ها. (`NICKNAME_MAX` به‌عنوان fallback قدیمی پشتیبانی می‌شود.) |
+| `USERNAME_MAX_CHARS` | `عدد` | `16` | حداکثر طول username برای کاربران و گروه‌ها. (`USERNAME_MAX` به‌عنوان fallback قدیمی پشتیبانی می‌شود.) |
 | `STORAGE_ENCRYPTION_KEY` | `رشته` | خودکار تولید می‌شود | کلید ثابت برای رمزنگاری داده‌های ذخیره‌شده. تغییر این مقدار بدون رمزگشایی داده‌های قبلی باعث غیرقابل‌خواندن شدن آن‌ها می‌شود. |
 | `VAPID_PUBLIC_KEY` | `رشته` | خودکار تولید می‌شود | کلید عمومی Web Push. |
 | `VAPID_PRIVATE_KEY` | `رشته` | خودکار تولید می‌شود | کلید خصوصی Web Push. |

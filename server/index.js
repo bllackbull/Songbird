@@ -196,33 +196,49 @@ const staticLimiter = rateLimit({
   max: 1000,
 });
 
+const MB = 1024 * 1024;
 const USERNAME_REGEX = /^[a-z0-9._]+$/;
-const USERNAME_MAX = readEnvInt("USERNAME_MAX", 16, { min: 3, max: 32 });
-const NICKNAME_MAX = readEnvInt("NICKNAME_MAX", 24, { min: 3, max: 64 });
+const readEnvSizeMbAsBytes = (mbKeys, legacyByteKeys, fallbackMb, options = {}) => {
+  const mbValue = readEnvInt(mbKeys, null, options);
+  if (mbValue !== null) return mbValue * MB;
+  return readEnvInt(legacyByteKeys, fallbackMb * MB, { min: 1024 });
+};
+
+const USERNAME_MAX = readEnvInt(["USERNAME_MAX_CHARS", "USERNAME_MAX"], 16, {
+  min: 3,
+  max: 32,
+});
+const NICKNAME_MAX = readEnvInt(["NICKNAME_MAX_CHARS", "NICKNAME_MAX"], 24, {
+  min: 3,
+  max: 64,
+});
 const MESSAGE_MAX_CHARS = readEnvInt(
   ["MESSAGE_MAX_CHARS", "MESSAGE_MAX"],
   4000,
   { min: 1, max: 20000 },
 );
-const ACCOUNT_CREATION = readEnvBool("ACCOUNT_CREATION", true);
+const ACCOUNT_CREATION = readEnvBool(["SIGN_UP", "ACCOUNT_CREATION"], true);
 const dataDir = path.resolve(serverDir, "..", "data");
 const vapid = ensureValidVapidKeys({ projectRootDir, dataDir, fs, path, webpush });
 const uploadRootDir = path.join(dataDir, "uploads", "messages");
 const avatarUploadRootDir = path.join(dataDir, "uploads", "avatars");
 
-const FILE_UPLOAD_MAX_SIZE = readEnvInt(
+const FILE_UPLOAD_MAX_SIZE = readEnvSizeMbAsBytes(
+  "FILE_UPLOAD_MAX_SIZE_MB",
   "FILE_UPLOAD_MAX_SIZE",
-  25 * 1024 * 1024,
-  { min: 1024 },
+  25,
+  { min: 1 },
 );
 
 const FILE_UPLOAD_MAX_FILES = readEnvInt("FILE_UPLOAD_MAX_FILES", 10, {
   min: 1,
 });
 
-const FILE_UPLOAD_MAX_TOTAL_SIZE = readEnvInt(
+const FILE_UPLOAD_MAX_TOTAL_SIZE = readEnvSizeMbAsBytes(
+  "FILE_UPLOAD_MAX_TOTAL_SIZE_MB",
   "FILE_UPLOAD_MAX_TOTAL_SIZE",
-  78643200,
+  75,
+  { min: 1 },
 );
 
 const MESSAGE_FILE_RETENTION_DAYS = readEnvInt("MESSAGE_FILE_RETENTION", 7, {

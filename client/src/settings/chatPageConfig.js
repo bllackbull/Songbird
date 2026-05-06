@@ -13,12 +13,28 @@ const readEnvNumber = (key, fallback, options = {}) => {
 };
 
 const readEnvBool = (key, fallback) => {
-  const raw = import.meta.env[key];
+  const keys = Array.isArray(key) ? key : [key];
+  const raw = keys
+    .map((name) => import.meta.env[name])
+    .find((value) => value !== undefined && value !== null && value !== "");
   if (raw === undefined || raw === null || raw === "") return fallback;
   const normalized = String(raw).trim().toLowerCase();
   if (["1", "true", "yes", "y", "on"].includes(normalized)) return true;
   if (["0", "false", "no", "n", "off"].includes(normalized)) return false;
   return fallback;
+};
+
+const MB = 1024 * 1024;
+const readEnvSizeMbAsBytes = (mbKeys, legacyByteKeys, fallbackMb, options = {}) => {
+  const mbValue = readEnvNumber(mbKeys, null, {
+    integer: true,
+    ...options,
+  });
+  if (mbValue !== null) return mbValue * MB;
+  return readEnvNumber(legacyByteKeys, fallbackMb * MB, {
+    integer: true,
+    min: 1024,
+  });
 };
 
 export const CHAT_PAGE_CONFIG = {
@@ -51,14 +67,18 @@ export const CHAT_PAGE_CONFIG = {
     integer: true,
     min: 1,
   }),
-  maxFileSizeBytes: readEnvNumber("FILE_UPLOAD_MAX_SIZE", 25 * 1024 * 1024, {
-    integer: true,
-    min: 1024,
-  }),
-  maxTotalUploadBytes: readEnvNumber("FILE_UPLOAD_MAX_TOTAL_SIZE", 75 * 1024 * 1024, {
-    integer: true,
-    min: 1024,
-  }),
+  maxFileSizeBytes: readEnvSizeMbAsBytes(
+    "FILE_UPLOAD_MAX_SIZE_MB",
+    "FILE_UPLOAD_MAX_SIZE",
+    25,
+    { min: 1 },
+  ),
+  maxTotalUploadBytes: readEnvSizeMbAsBytes(
+    "FILE_UPLOAD_MAX_TOTAL_SIZE_MB",
+    "FILE_UPLOAD_MAX_TOTAL_SIZE",
+    75,
+    { min: 1 },
+  ),
   chatsRefreshIntervalMs: readEnvNumber("CHAT_LIST_REFRESH_INTERVAL", 20000, {
     integer: true,
     min: 1000,
@@ -83,12 +103,12 @@ export const CHAT_PAGE_CONFIG = {
     integer: true,
     min: 250,
   }),
-  voiceWaveformMaxDecodeBytes: readEnvNumber(
+  voiceWaveformMaxDecodeBytes: readEnvSizeMbAsBytes(
+    "CHAT_VOICE_WAVEFORM_MAX_DECODE_MB",
     "CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES",
-    5 * 1024 * 1024,
+    5,
     {
-      integer: true,
-      min: 64 * 1024,
+      min: 1,
     },
   ),
   voiceWaveformMaxDecodeSeconds: readEnvNumber(

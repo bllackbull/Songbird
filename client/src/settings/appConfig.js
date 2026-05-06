@@ -13,7 +13,10 @@ const readEnvNumber = (key, fallback, options = {}) => {
 };
 
 const readEnvBool = (key, fallback) => {
-  const raw = import.meta.env[key];
+  const keys = Array.isArray(key) ? key : [key];
+  const raw = keys
+    .map((name) => import.meta.env[name])
+    .find((value) => value !== undefined && value !== null && value !== "");
   if (raw === undefined || raw === null || raw === "") return fallback;
   const normalized = String(raw).trim().toLowerCase();
   if (["1", "true", "yes", "y", "on"].includes(normalized)) return true;
@@ -23,7 +26,7 @@ const readEnvBool = (key, fallback) => {
 
 export const APP_CONFIG = {
   debugEnabled: readEnvBool("APP_DEBUG", false),
-  accountCreationEnabled: readEnvBool("ACCOUNT_CREATION", true),
+  accountCreationEnabled: readEnvBool(["SIGN_UP", "ACCOUNT_CREATION"], true),
   messageMaxChars: readEnvNumber(["MESSAGE_MAX_CHARS", "MESSAGE_MAX"], 4000, {
     integer: true,
     min: 1,

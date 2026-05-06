@@ -1,7 +1,10 @@
 const readEnvNumber = (key, fallback, options = {}) => {
+  const keys = Array.isArray(key) ? key : [key];
   const raw =
     typeof import.meta !== "undefined" && import.meta.env
-      ? import.meta.env[key]
+      ? keys
+          .map((name) => import.meta.env[name])
+          .find((value) => value !== undefined && value !== null && value !== "")
       : undefined;
   if (raw === undefined || raw === null || raw === "") return fallback;
   const parsed = Number(raw);
@@ -12,12 +15,12 @@ const readEnvNumber = (key, fallback, options = {}) => {
   return integer;
 };
 
-export const NICKNAME_MAX = readEnvNumber("NICKNAME_MAX", 24, {
+export const NICKNAME_MAX = readEnvNumber(["NICKNAME_MAX_CHARS", "NICKNAME_MAX"], 24, {
   integer: true,
   min: 3,
   max: 64,
 });
-export const USERNAME_MAX = readEnvNumber("USERNAME_MAX", 16, {
+export const USERNAME_MAX = readEnvNumber(["USERNAME_MAX_CHARS", "USERNAME_MAX"], 16, {
   integer: true,
   min: 3,
   max: 32,
