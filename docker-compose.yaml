@@ -5,16 +5,33 @@ services:
       dockerfile: Dockerfile
     container_name: songbird
     restart: unless-stopped
-    ports:
-      - "${SERVER_PORT:-5174}:${SERVER_PORT:-5174}"
+    expose:
+      - "${SERVER_PORT:-5174}"
     env_file:
       - path: .env
         required: false
     environment:
       APP_ENV: ${APP_ENV:-production}
       SERVER_PORT: ${SERVER_PORT:-5174}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
     volumes:
       - songbird-data:/app/data
+
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs/cert.pem:/etc/nginx/certs/cert.pem:ro
+      - ./certs/key.pem:/etc/nginx/certs/key.pem:ro
+    depends_on:
+      - songbird
 
 volumes:
   songbird-data:

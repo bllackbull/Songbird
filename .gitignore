@@ -24,3 +24,6 @@ logs/
 .todo
 .vscode/
 .idea/
+
+# TLS certs
+certs/

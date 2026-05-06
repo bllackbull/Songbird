@@ -102,6 +102,16 @@ cd /opt/songbird
 git clone https://github.com/bllackbull/Songbird.git .
 ```
 
+Create a self-signed cert in `certs/` directory if running the app on SSL:
+
+```bash
+openssl req -x509 -newkey rsa:2048 \
+  -keyout certs/key.pem \
+  -out certs/cert.pem \
+  -days 365 -nodes \
+  -subj "/CN=localhost"
+```
+
 ### 3. Build container
 
 ```bash
@@ -115,8 +125,9 @@ Optional: Verify container is built successfully:
 docker compose -f docker-compose.yaml ps
 docker compose -f docker-compose.yaml logs -f
 ```
-
-To complete the setup, refer to the [Configure Nginx](#configure-nginx) section.
+> [!IMPORTANT]
+> Docker automatically configures the nginx config to run on port 443 using the self-signed cert you previosuly generated.  
+>To change and customize the nginx config, refer to the [Configure Nginx](#configure-nginx) section.
 
 ## Manual Installation
 
