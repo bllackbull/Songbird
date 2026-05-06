@@ -103,6 +103,16 @@ cd /opt/songbird
 git clone https://github.com/bllackbull/Songbird.git .
 ```
 
+اگر برنامه را با SSL اجرا می‌کنید، یک گواهی self-signed داخل پوشه `certs/` بسازید:
+
+```bash
+openssl req -x509 -newkey rsa:2048 \
+  -keyout certs/key.pem \
+  -out certs/cert.pem \
+  -days 365 -nodes \
+  -subj "/CN=localhost"
+```
+
 ### 3. ساخت کانتینر
 
 ```bash
@@ -117,7 +127,9 @@ docker compose -f docker-compose.yaml ps
 docker compose -f docker-compose.yaml logs -f
 ```
 
-برای تکمیل نصب، به بخش [تنظیم Nginx](#تنظیم-nginx) مراجعه کنید.
+> [!IMPORTANT]
+> Docker به‌صورت خودکار کانفیگ Nginx را طوری تنظیم می‌کند که با استفاده از گواهی self-signed که قبلا ساخته‌اید روی پورت ۴۴۳ اجرا شود.  
+> برای تغییر و شخصی‌سازی کانفیگ Nginx، به بخش [تنظیم Nginx](#تنظیم-nginx) مراجعه کنید.
 
 ## نصب دستی
 
