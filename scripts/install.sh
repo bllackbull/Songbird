@@ -3,6 +3,20 @@
 
 set -uo pipefail
 
+COLOR_RESET=""
+COLOR_LOG=""
+COLOR_WARN=""
+COLOR_ERROR=""
+COLOR_SUCCESS=""
+
+if [[ -z "${NO_COLOR:-}" && ( "${FORCE_COLOR:-0}" != "0" || ( "${TERM:-}" != "dumb" && ( -t 1 || -t 2 ) ) ) ]]; then
+  COLOR_RESET=$'\033[0m'
+  COLOR_LOG=$'\033[1;38;2;42;186;130m'
+  COLOR_WARN=$'\033[1;33m'
+  COLOR_ERROR=$'\033[1;31m'
+  COLOR_SUCCESS=$'\033[1;32m'
+fi
+
 handle_exit() {
   local exit_code=$?
   if [[ "$exit_code" -eq 0 ]]; then
@@ -12,9 +26,9 @@ handle_exit() {
     return 0
   fi
 
-  printf "\n[SONGBIRD] Script exited with code %s.\n" "$exit_code" >&2
+  printf "\n%b[SONGBIRD] Script exited with code %s.%b\n" "$COLOR_ERROR" "$exit_code" "$COLOR_RESET" >&2
   if [[ -f "$LOG_FILE" ]]; then
-    printf "[SONGBIRD] Review the log at %s for the last recorded step.\n" "$LOG_FILE" >&2
+    printf "%b[SONGBIRD] Review the log at %s for the last recorded step.%b\n" "$COLOR_ERROR" "$LOG_FILE" "$COLOR_RESET" >&2
   fi
 }
 
@@ -55,6 +69,10 @@ ACME_WEBROOT="/var/lib/songbird/certbot"
 LEGO_STATE_DIR="/var/lib/songbird/lego"
 LEGO_BIN="/usr/local/bin/lego"
 GLOBAL_COMMAND_PATH="/usr/local/bin/songbird-deploy"
+SONGBIRD_SOCIAL_GITHUB="https://github.com/bllackbull/Songbird"
+SONGBIRD_SOCIAL_TELEGRAM="https://t.me/songbirdapp"
+SONGBIRD_SOCIAL_WEBSITE="https://chat.songbird.website/invite/c592b42783ba50a9833f6f4e15c5126a01b4f512242b5921"
+SONGBIRD_NOWPAYMENTS="https://nowpayments.io/donation?api_key=0b61dd3e-6508-4849-ad92-1dde65442937"
 
 # Mirror URLs
 MIRROR_NODESOURCE="${MIRROR_NODESOURCE:-}"
@@ -181,7 +199,7 @@ log() {
   local timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
   local log_dir="$(dirname "$LOG_FILE")"
 
-  printf "[SONGBIRD] %s\n" "$1"
+  printf "%b[SONGBIRD] %s%b\n" "$COLOR_LOG" "$1" "$COLOR_RESET"
 
   if [[ -d "$log_dir" ]]; then
     printf "[%s] [SONGBIRD] %s\n" "$timestamp" "$1" >> "$LOG_FILE" 2>/dev/null || true
@@ -199,7 +217,7 @@ ensure_log_dir() {
 
 warn() {
   local timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
-  printf "[%s] WARNING: %s\n" "SONGBIRD" "$*" >&2
+  printf "%b[%s] WARNING: %s%b\n" "$COLOR_WARN" "SONGBIRD" "$*" "$COLOR_RESET" >&2
   if [[ -f "$LOG_FILE" ]]; then
     printf "[%s] [SONGBIRD] WARNING: %s\n" "$timestamp" "$*" >> "$LOG_FILE" 2>/dev/null || true
   fi
@@ -207,11 +225,110 @@ warn() {
 
 fail() {
   local timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
-  printf "[%s] ERROR: %s\n" "SONGBIRD" "$*" >&2
+  printf "%b[%s] ERROR: %s%b\n" "$COLOR_ERROR" "SONGBIRD" "$*" "$COLOR_RESET" >&2
   if [[ -f "$LOG_FILE" ]]; then
     printf "[%s] [SONGBIRD] ERROR: %s\n" "$timestamp" "$*" >> "$LOG_FILE" 2>/dev/null || true
   fi
   exit 1
+}
+
+print_success_frame() {
+  local title="$1"
+  shift || true
+
+  local lines=("$@")
+  local width="${#title}"
+  local line=""
+  for line in "${lines[@]}"; do
+    if (( ${#line} > width )); then
+      width="${#line}"
+    fi
+  done
+  if (( width < 56 )); then
+    width=56
+  fi
+
+  local border=""
+  printf -v border '%*s' "$((width + 2))" ""
+  border="${border// /-}"
+
+  printf "\n%b+%s+%b\n" "$COLOR_SUCCESS" "$border" "$COLOR_RESET"
+  printf "%b| %-*s |%b\n" "$COLOR_SUCCESS" "$width" "$title" "$COLOR_RESET"
+  printf "%b+%s+%b\n" "$COLOR_SUCCESS" "$border" "$COLOR_RESET"
+  for line in "${lines[@]}"; do
+    printf "%b| %-*s |%b\n" "$COLOR_SUCCESS" "$width" "$line" "$COLOR_RESET"
+  done
+  printf "%b+%s+%b\n\n" "$COLOR_SUCCESS" "$border" "$COLOR_RESET"
+
+  if [[ -f "$LOG_FILE" ]]; then
+    local timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
+    printf "[%s] [SONGBIRD] %s\n" "$timestamp" "$title" >> "$LOG_FILE" 2>/dev/null || true
+    for line in "${lines[@]}"; do
+      printf "[%s] [SONGBIRD] %s\n" "$timestamp" "$line" >> "$LOG_FILE" 2>/dev/null || true
+    done
+  fi
+}
+
+show_deployment_success_frame() {
+  local action="$1"
+  local title=""
+  local lines=()
+
+  case "$action" in
+    install)
+      title="Songbird Installation Complete"
+      lines+=("Songbird has been installed successfully.")
+      lines+=("")
+      lines+=("App:")
+      if [[ "$CERT_MODE" == "http" ]]; then
+        if [[ "$DEPLOY_MODE" == "domain" ]]; then
+          local d=""
+          for d in "${DOMAIN_NAMES[@]}"; do
+            lines+=("Visit: http://${d}:${CLIENT_PORT}")
+          done
+        else
+          lines+=("Visit: http://<your-server-ip>:${CLIENT_PORT}")
+        fi
+      elif [[ "$DEPLOY_MODE" == "domain" ]]; then
+        local d=""
+        for d in "${DOMAIN_NAMES[@]}"; do
+          if [[ "$CLIENT_PORT" == "443" ]]; then
+            lines+=("Visit: https://${d}")
+          else
+            lines+=("Visit: https://${d}:${CLIENT_PORT}")
+          fi
+        done
+      else
+        local visit_ip="${CERTBOT_IP_ADDRESS:-<your-server-ip>}"
+        if [[ "$CERT_MODE" == "files" ]]; then
+          visit_ip="<your-server-ip>"
+        fi
+        if [[ "$CLIENT_PORT" == "443" ]]; then
+          lines+=("Visit: https://${visit_ip}")
+        else
+          lines+=("Visit: https://${visit_ip}:${CLIENT_PORT}")
+        fi
+      fi
+      ;;
+    update)
+      title="Songbird Update Complete"
+      lines+=("Songbird has been updated successfully.")
+      lines+=("Service restarted and nginx reloaded.")
+      ;;
+    *)
+      title="Songbird Success"
+      lines+=("Operation completed successfully.")
+      ;;
+  esac
+
+  lines+=("")
+  lines+=("Links:")
+  lines+=("GitHub: ${SONGBIRD_SOCIAL_GITHUB}")
+  lines+=("Telegram: ${SONGBIRD_SOCIAL_TELEGRAM}")
+  lines+=("Main Server Channel: ${SONGBIRD_SOCIAL_WEBSITE}")
+  lines+=("NOWPayments: ${SONGBIRD_NOWPAYMENTS}")
+
+  print_success_frame "$title" "${lines[@]}"
 }
 
 have_cmd() {
@@ -257,7 +374,7 @@ run_silent() {
       printf "[%s] FAILED: %s\n%s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$*" "$output" >> "$LOG_FILE" 2>/dev/null || true
     fi
     # Show error to user
-    printf "\n[ERROR] Command failed: %s\n" "$*"
+    printf "\n%b[ERROR] Command failed: %s%b\n" "$COLOR_ERROR" "$*" "$COLOR_RESET"
     printf "%s\n" "$output"
     return 1
   else
@@ -2477,7 +2594,7 @@ update_songbird() {
     run_as_root systemctl restart songbird.service || return 1
     run_as_root systemctl reload nginx || return 1
 
-    log "Update completed successfully."
+    show_deployment_success_frame "update"
     press_enter_to_continue
     return 0
   fi
@@ -2551,7 +2668,7 @@ update_songbird() {
   run_as_root systemctl restart songbird.service || return 1
   run_as_root systemctl reload nginx || return 1
 
-  log "Update completed successfully."
+  show_deployment_success_frame "update"
   press_enter_to_continue
 }
 
@@ -2699,40 +2816,12 @@ install_songbird() {
   log "Starting TLS setup..."
   configure_ssl_if_needed || return 1
 
-  log "Installation complete."
-  log "Songbird has been installed successfully."
   if install_global_command_from_path "$INSTALL_DIR/scripts/install.sh"; then
     log "Global command synchronized to script version ${LAST_GLOBAL_COMMAND_VERSION:-$SCRIPT_VERSION}."
   else
     warn "Failed to synchronize global command after install. You can retry from the menu."
   fi
-  if [[ "$CERT_MODE" == "http" ]]; then
-    if [[ "$DEPLOY_MODE" == "domain" ]]; then
-      for d in "${DOMAIN_NAMES[@]}"; do
-        log "Visit: http://${d}:${CLIENT_PORT}"
-      done
-    else
-      log "Visit: http://<your-server-ip>:${CLIENT_PORT}"
-    fi
-  elif [[ "$DEPLOY_MODE" == "domain" ]]; then
-    for d in "${DOMAIN_NAMES[@]}"; do
-      if [[ "$CLIENT_PORT" == "443" ]]; then
-        log "Visit: https://${d}"
-      else
-        log "Visit: https://${d}:${CLIENT_PORT}"
-      fi
-    done
-  else
-    local visit_ip="${CERTBOT_IP_ADDRESS:-<your-server-ip>}"
-    if [[ "$CERT_MODE" == "files" ]]; then
-      visit_ip="<your-server-ip>"
-    fi
-    if [[ "$CLIENT_PORT" == "443" ]]; then
-      log "Visit: https://${visit_ip}"
-    else
-      log "Visit: https://${visit_ip}:${CLIENT_PORT}"
-    fi
-  fi
+  show_deployment_success_frame "install"
 
   press_enter_to_continue
 }
