@@ -588,7 +588,7 @@ sudo systemctl reload nginx
 - اضافه کردن کاربر به گروه یا کانال: `npm run db:chat:add`
 - ویرایش گروه یا کانال یا انتقال مالکیت: `npm run db:chat:edit`
 - حذف چت‌ها: `npm run db:chat:delete`
-- حذف فایل‌ها: `npm run db:file:delete`
+- حذف فایل‌ها: `npm run db:file:delete` (برای حذف همه نیاز به `--all` دارد)
 - ویرایش کاربر: `npm run db:user:edit`
 - بن یا آنبن کاربر: `npm run db:user:ban`
 - حذف کاربران: `npm run db:user:delete`
@@ -621,7 +621,7 @@ npm run db:reset -y
 npm run db:delete --yes
 npm run db:chat:delete 12 -y
 npm run db:chat:delete -- --all -y
-npm run db:file:delete -y
+npm run db:file:delete -- --all -y
 npm run db:file:delete 42 -y
 npm run db:file:delete FILE_NAME -y
 npm run db:user:delete songbird.sage -y

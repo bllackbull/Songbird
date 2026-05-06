@@ -1,5 +1,5 @@
 import path from "node:path";
-import { confirmAction, getCliArgs, getPositionalArgs, hasForceYes } from "./_cli.js";
+import { confirmAction, getCliArgs, getPositionalArgs, hasForceYes, hasFlag } from "./_cli.js";
 import {
   openDatabase,
   removeAvatarFiles,
@@ -24,10 +24,17 @@ function basename(value) {
 const args = getCliArgs();
 const selectors = normalizeSelectors(args);
 const force = hasForceYes(args);
+const hasAll = hasFlag(args, "--all");
+const deleteAll = selectors.length === 0 && hasAll;
+
+if (!selectors.length && !hasAll) {
+  console.error("Refusing to delete all files without --all.");
+  process.exit(1);
+}
 
 let remote = null;
 try {
-  remote = await runAdminActionViaServer("delete_files", { selectors });
+  remote = await runAdminActionViaServer("delete_files", { selectors, all: deleteAll });
 } catch (error) {
   console.warn(`Server mode failed: ${String(error?.message || "unknown error")}`);
   console.warn("Falling back to direct DB mode for this command.");
@@ -39,7 +46,6 @@ if (remote) {
 } else {
   const dbApi = await openDatabase();
   try {
-    const deleteAll = selectors.length === 0;
     const numericIds = selectors.filter(isNumeric).map((value) => Number(value));
     const names = selectors.map(basename).filter(Boolean);
 
@@ -110,7 +116,7 @@ if (remote) {
         : `Delete selected files (${targetMessageIds.length} message bubbles, ${avatarRows.length} avatar assignments)?`,
       force,
       forceHint:
-        "Refusing to delete files in non-interactive mode without -y/--yes. Run: npm run db:file:delete -- -y",
+        "Refusing to delete files in non-interactive mode without -y/--yes. Run: npm run db:file:delete -- --all -y",
     });
 
     if (!confirmed) {

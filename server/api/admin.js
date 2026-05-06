@@ -56,12 +56,18 @@ function registerAdminRoutes(app, deps) {
 
     try {
       if (action === "delete_chats") {
+        const deleteAll = Boolean(payload.all);
         let chatIds = Array.isArray(payload.chatIds)
           ? payload.chatIds
               .map((id) => Number(id))
               .filter((id) => Number.isFinite(id) && id > 0)
           : [];
         if (!chatIds.length) {
+          if (!deleteAll) {
+            return res.status(400).json({
+              error: "Provide chatIds or set all=true to delete every chat.",
+            });
+          }
           chatIds = adminGetAll("SELECT id FROM chats ORDER BY id ASC")
             .map((row) => Number(row.id))
             .filter((id) => Number.isFinite(id) && id > 0);
@@ -160,7 +166,10 @@ function registerAdminRoutes(app, deps) {
       if (action === "delete_users") {
         const selectors = Array.isArray(payload.selectors)
           ? payload.selectors
+              .map((selector) => String(selector || "").trim())
+              .filter(Boolean)
           : [];
+        const deleteAll = Boolean(payload.all);
 
         let userIds = [];
 
@@ -189,6 +198,17 @@ function registerAdminRoutes(app, deps) {
         });
 
         if (!userIds.length) {
+          if (selectors.length) {
+            return res.json({
+              ok: true,
+              result: { removedUsers: 0, removedFiles: 0, removedChats: 0 },
+            });
+          }
+          if (!deleteAll) {
+            return res.status(400).json({
+              error: "Provide selectors or set all=true to delete every user.",
+            });
+          }
           userIds = adminGetAll("SELECT id FROM users ORDER BY id ASC")
             .map((row) => Number(row.id))
             .filter((id) => Number.isFinite(id) && id > 0);
@@ -1276,7 +1296,13 @@ function registerAdminRoutes(app, deps) {
               .map((value) => String(value || "").trim())
               .filter(Boolean)
           : [];
-        const deleteAll = selectors.length === 0;
+        const deleteAll = selectors.length === 0 && Boolean(payload.all);
+
+        if (!selectors.length && !deleteAll) {
+          return res.status(400).json({
+            error: "Provide selectors or set all=true to delete every file.",
+          });
+        }
 
         let targetMessageIds = [];
         let messageStoredNames = [];

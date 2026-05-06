@@ -86,7 +86,7 @@ async function main() {
     const { running } = await detectRunningServer()
     if (running) {
       try {
-        const remoteResult = await runAdminActionViaServer('delete_users', { selectors })
+        const remoteResult = await runAdminActionViaServer('delete_users', { selectors, all: hasAll })
         console.log(`Server mode: users deleted: ${remoteResult.removedUsers ?? 0}`)
         console.log(`Server mode: stored files removed: ${remoteResult.removedFiles ?? 0}`)
         return

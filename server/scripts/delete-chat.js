@@ -6,13 +6,29 @@ import {
   runAdminActionViaServer,
   detectRunningServer,
 } from './_db-admin.js'
+import { resolveChatRow } from '../lib/dbToolHelpers.js'
 
-function parseChatIds(args) {
-  const positional = getPositionalArgs(args)
-  const ids = positional
-    .map((value) => Number(value))
-    .filter((value) => Number.isFinite(value) && value > 0)
-  return Array.from(new Set(ids))
+function resolveChatIds(dbApi, selectors) {
+  const ids = new Set()
+  const missing = []
+
+  selectors.forEach((selector) => {
+    const raw = String(selector || '').trim()
+    if (!raw) return
+
+    const chat = resolveChatRow(dbApi, raw, { groupOnly: false })
+    if (chat?.id) {
+      ids.add(Number(chat.id))
+      return
+    }
+
+    missing.push(raw)
+  })
+
+  return {
+    chatIds: Array.from(ids),
+    missing,
+  }
 }
 
 function deleteChatsByIds(dbApi, chatIds) {
@@ -63,18 +79,18 @@ async function main() {
   const args = getCliArgs()
   const force = hasForceYes(args)
   const hasAll = hasFlag(args, '--all')
-  const requestedChatIds = parseChatIds(args)
-  const positionalArgs = getPositionalArgs(args)
-
-  if (positionalArgs.length && !requestedChatIds.length) {
-    console.error('No valid chat ids provided. Use numeric chat ids.')
-    process.exitCode = 1
-    return
-  }
+  const selectors = getPositionalArgs(args)
 
   const dbApi = await openDatabase()
   try {
-    let chatIds = requestedChatIds
+    const resolved = resolveChatIds(dbApi, selectors)
+    let chatIds = resolved.chatIds
+
+    if (resolved.missing.length) {
+      console.error(`No chats matched: ${resolved.missing.join(', ')}`)
+      process.exitCode = 1
+      return
+    }
 
     if (!chatIds.length) {
       if (!hasAll) {
@@ -94,11 +110,11 @@ async function main() {
     }
 
     const confirmed = await confirmAction({
-      prompt: requestedChatIds.length
+      prompt: selectors.length
         ? `Delete ${chatIds.length} selected chat(s) and related data?`
         : `Delete ALL chats (${chatIds.length}) and related data?`,
       force,
-      forceHint: 'Refusing to delete chats in non-interactive mode without -y/--yes. Run: npm run db:chat:delete -- -y',
+      forceHint: 'Refusing to delete chats in non-interactive mode without -y/--yes. Run: npm run db:chat:delete -- -y <chat-id-or-username>',
     })
 
     if (!confirmed) {
@@ -108,7 +124,7 @@ async function main() {
 
     const { running } = await detectRunningServer()
     if (running) {
-      const remoteResult = await runAdminActionViaServer('delete_chats', { chatIds })
+      const remoteResult = await runAdminActionViaServer('delete_chats', { chatIds, all: hasAll })
       console.log(`Server mode: chats deleted: ${remoteResult.removedChats ?? 0}`)
       console.log(`Server mode: stored files removed: ${remoteResult.removedFiles ?? 0}`)
       return

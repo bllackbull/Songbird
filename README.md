@@ -584,8 +584,8 @@ You can use these commands while in `/opt/songbird/server` directory to manage y
 - Create a group or channel: `npm run db:chat:create`
 - Add users to a group/channel: `npm run db:chat:add`
 - Edit a group/channel profile or transfer ownership: `npm run db:chat:edit`
-- Delete chats (all or selected ids): `npm run db:chat:delete` (requires `--all` to delete everything)
-- Delete files (all or selected ids/filenames): `npm run db:file:delete`
+- Delete chats (all or selected ids/usernames): `npm run db:chat:delete` (requires `--all` to delete everything)
+- Delete files (all or selected ids/filenames): `npm run db:file:delete` (requires `--all` to delete everything)
 - Edit a user profile: `npm run db:user:edit`
 - Toggle user ban/unban: `npm run db:user:ban`
 - Delete users (all or selected ids/usernames): `npm run db:user:delete` (requires `--all` to delete everything)
@@ -618,7 +618,7 @@ npm run db:reset -y
 npm run db:delete --yes
 npm run db:chat:delete 12 -y
 npm run db:chat:delete -- --all -y
-npm run db:file:delete -y
+npm run db:file:delete -- --all -y
 npm run db:file:delete 42 -y
 npm run db:file:delete FILE_NAME -y
 npm run db:user:delete songbird.sage -y

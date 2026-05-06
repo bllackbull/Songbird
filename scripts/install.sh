@@ -2865,7 +2865,7 @@ run_db_command() {
   for part in "${args[@]}"; do
     escaped+=" $(printf '%q' "$part")"
   done
-  run_as_root bash -lc "cd '$INSTALL_DIR' && ${escaped:1}"
+  run_as_root bash -lc "cd '$INSTALL_DIR' && ${escaped:1} </dev/null"
 }
 
 run_db_command_logged_quiet() {
@@ -2875,7 +2875,24 @@ run_db_command_logged_quiet() {
   for part in "${args[@]}"; do
     escaped+=" $(printf '%q' "$part")"
   done
-  run_logged_quiet run_as_root bash -lc "cd '$INSTALL_DIR' && ${escaped:1}"
+  run_logged_quiet run_as_root bash -lc "cd '$INSTALL_DIR' && ${escaped:1} </dev/null"
+}
+
+split_db_selector_input() {
+  local input="$1"
+  local __result_var="$2"
+  local -n result_ref="$__result_var"
+
+  result_ref=()
+  input="$(printf "%s" "$input" | tr ',' ' ')"
+  input="${input#"${input%%[![:space:]]*}"}"
+  input="${input%"${input##*[![:space:]]}"}"
+
+  if [[ -z "$input" ]]; then
+    return 0
+  fi
+
+  read -r -a result_ref <<< "$input"
 }
 
 resolve_chat_visibility_for_script() {
@@ -2907,20 +2924,68 @@ print_db_script_help() {
   cat <<'EOF'
 Songbird Script Database Menu
 
-Use these menu actions inside this installer script:
+The installer collects every required value before running DB commands, then
+passes those values as CLI flags/arguments with stdin closed so the nested
+command cannot ask hidden follow-up questions.
+
+Inspect:
   1-4   Inspect database/chats/users/files
+        Prompts: row limit
+        Passes: --limit
+
+Backup & repair:
   5     Backup database and uploads
-  6     Restore a backup zip
-  7     Vacuum the database
-  8-13  Reset/delete/ban file+chat+user data
-  14    Create one user
-  15    Generate users in bulk
-  16    Create a group or channel
-  17    Add members to a chat
-  18    Edit a chat
-  19    Edit a user
+        Prompts: backup password
+        Passes: --password
+  6     Restore backup
+        Prompts: backup zip path, restore confirmation, optional password
+        Passes: -y --file [--password]
+  7     Vacuum database
+        Prompts: confirmation
+        Passes: -y
+  8     Reset database
+        Prompts: confirmation, recreate yes/no
+        Passes: -y --recreate or -y --no-recreate
+  9     Delete database
+        Prompts: confirmation
+        Passes: -y
+
+User and chat management:
+  10    Create user
+        Prompts: nickname, username, password
+        Passes: --nickname --username --password
+  11    Generate users in bulk
+        Prompts: count, password, nickname prefix, username prefix
+        Passes: --count --password --nickname-prefix --username-prefix
+  12    Edit user
+        Prompts: user selector and optional profile fields
+        Passes: selector plus any changed --username/--nickname/--avatar-url/--status/--color
+  13    Ban/unban user
+        Prompts: user selector, confirmation
+        Passes: -y selector
+  14    Create group/channel
+        Prompts: type, name, username, visibility, owner, optional members
+        Passes: --type --name --owner --username --visibility --users
+  15    Add members to chat
+        Prompts: chat selector, all-users yes/no, or user selectors
+        Passes: chat selector plus --all or user selectors
+  16    Edit chat
+        Prompts: chat selector and optional profile/settings fields
+        Passes: selector plus any changed --name/--username/--visibility/--color/--owner/invite flag
+
+Destructive actions:
+  17    Delete chats
+        Prompts: chat ids/usernames or "all"
+        Passes: -y selectors or --all -y
+  18    Delete users
+        Prompts: user ids/usernames or "all"
+        Passes: -y selectors or --all -y
+  19    Delete files
+        Prompts: file ids/stored names or "all"
+        Passes: -y selectors or --all -y
 
 Notes:
+  - "all" is explicit for chat/user/file delete actions.
   - "Ban/unban user" is a toggle and expires that user's sessions.
   - Public chats always allow member invites. Invite settings only apply to private chats.
   - Backups are encrypted zip files containing .env and data/.
@@ -2946,6 +3011,7 @@ db_help() {
 db_vacuum() {
   if [[ "$(prompt_yes_no "This will run VACUUM and rewrite the database file. Continue?" "no")" != "yes" ]]; then
     log "VACUUM canceled."
+    press_enter_to_continue
     return 0
   fi
   run_db_command npm --prefix server run db:vacuum -- -y
@@ -2959,6 +3025,7 @@ db_restore() {
   backup_path="$(select_backup_zip_path)"
   if [[ "$(prompt_yes_no "This will replace ${INSTALL_DIR}/data and update ${INSTALL_DIR}/.env when the backup includes it. Continue?" "yes")" != "yes" ]]; then
     log "Restore canceled."
+    press_enter_to_continue
     return 0
   fi
   backup_password="$(prompt_secret_optional "Backup password (leave blank if not encrypted)")"
@@ -2990,6 +3057,7 @@ db_inspect() {
 db_reset() {
   if [[ "$(prompt_yes_no "This will reset database and delete uploads. Continue?" "no")" != "yes" ]]; then
     log "Reset canceled."
+    press_enter_to_continue
     return 0
   fi
   local recreate="yes"
@@ -3008,6 +3076,7 @@ db_reset() {
 db_delete() {
   if [[ "$(prompt_yes_no "This will permanently delete database and uploads. Continue?" "no")" != "yes" ]]; then
     log "Delete canceled."
+    press_enter_to_continue
     return 0
   fi
   run_db_command npm --prefix server run db:delete -- -y
@@ -3016,60 +3085,60 @@ db_delete() {
 
 db_chat_delete() {
   local input=""
-  prompt_read "Enter chat IDs (comma/space separated) or type 'all': " input
-  input="$(printf "%s" "$input" | tr ',' ' ')"
-  input="${input#"${input%%[![:space:]]*}"}"
-  input="${input%"${input##*[![:space:]]}"}"
+  local selectors=()
+  prompt_read "Enter chat IDs or group/channel usernames (comma/space separated), or type 'all': " input
+  split_db_selector_input "$input" selectors
 
-  if [[ -z "$input" ]]; then
+  if [[ "${#selectors[@]}" -eq 0 ]]; then
     printf "No input provided.\n"
+    press_enter_to_continue
     return 0
   fi
 
-  if [[ "${input,,}" == "all" ]]; then
+  if [[ "${#selectors[@]}" -eq 1 && "${selectors[0],,}" == "all" ]]; then
     run_db_command npm --prefix server run db:chat:delete -- --all -y
   else
-    run_db_command npm --prefix server run db:chat:delete -- -y $input
+    run_db_command npm --prefix server run db:chat:delete -- -y "${selectors[@]}"
   fi
   press_enter_to_continue
 }
 
 db_file_delete() {
   local input=""
+  local selectors=()
   prompt_read "Enter file IDs or stored names (comma/space separated) or type 'all': " input
-  input="$(printf "%s" "$input" | tr ',' ' ')"
-  input="${input#"${input%%[![:space:]]*}"}"
-  input="${input%"${input##*[![:space:]]}"}"
+  split_db_selector_input "$input" selectors
 
-  if [[ -z "$input" ]]; then
+  if [[ "${#selectors[@]}" -eq 0 ]]; then
     printf "No input provided.\n"
+    press_enter_to_continue
     return 0
   fi
 
-  if [[ "${input,,}" == "all" ]]; then
-    run_db_command npm --prefix server run db:file:delete -- -y
+  if [[ "${#selectors[@]}" -eq 1 && "${selectors[0],,}" == "all" ]]; then
+    run_db_command npm --prefix server run db:file:delete -- --all -y
   else
-    run_db_command npm --prefix server run db:file:delete -- -y $input
+    run_db_command npm --prefix server run db:file:delete -- -y "${selectors[@]}"
   fi
   press_enter_to_continue
 }
 
 db_user_delete() {
   local input=""
+  local selectors=()
   prompt_read "Enter user IDs or usernames (comma/space separated) or type 'all': " input
-  input="$(printf "%s" "$input" | tr ',' ' ')"
-  input="${input#"${input%%[![:space:]]*}"}"
-  input="${input%"${input##*[![:space:]]}"}"
+  split_db_selector_input "$input" selectors
 
-  if [[ -z "$input" ]]; then
+  if [[ "${#selectors[@]}" -eq 0 ]]; then
     printf "No input provided.\n"
+    press_enter_to_continue
     return 0
   fi
 
-  if [[ "${input,,}" == "all" ]]; then
+  if [[ "${#selectors[@]}" -eq 1 && "${selectors[0],,}" == "all" ]]; then
     run_db_command npm --prefix server run db:user:delete -- --all -y
   else
-    run_db_command npm --prefix server run db:user:delete -- -y $input
+    run_db_command npm --prefix server run db:user:delete -- -y "${selectors[@]}"
   fi
   press_enter_to_continue
 }
@@ -3101,7 +3170,7 @@ db_user_generate() {
   count="${count%"${count##*[![:space:]]}"}"
   [[ -z "$count" ]] && count="10"
 
-  password="$(prompt_secret "Password for generated users? (default: Passw0rd!)")"
+  password="$(prompt_secret_optional "Password for generated users? (default: Passw0rd!)")"
   [[ -z "$password" ]] && password="Passw0rd!"
 
   prompt_read "Nickname prefix (default: User): " nickname_prefix
@@ -3157,6 +3226,7 @@ db_chat_create() {
 db_chat_add() {
   local chat=""
   local users=""
+  local user_selectors=()
   local add_all="no"
 
   chat="$(prompt_non_empty "Chat id or username")"
@@ -3169,8 +3239,8 @@ db_chat_add() {
   fi
 
   users="$(prompt_non_empty "Usernames or ids (comma separated)")"
-  users="$(printf "%s" "$users" | tr ',' ' ')"
-  run_db_command npm --prefix server run db:chat:add -- "$chat" $users
+  split_db_selector_input "$users" user_selectors
+  run_db_command npm --prefix server run db:chat:add -- "$chat" "${user_selectors[@]}"
   press_enter_to_continue
 }
 
@@ -3256,6 +3326,7 @@ db_user_ban() {
   user="$(prompt_non_empty "User id or username")"
   if [[ "$(prompt_yes_no "Toggle ban state for ${user} ?" "no")" != "yes" ]]; then
     log "Ban/unban canceled."
+    press_enter_to_continue
     return 0
   fi
   run_db_command npm --prefix server run db:user:ban -- -y "$user"
