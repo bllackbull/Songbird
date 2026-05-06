@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# songbird-deploy-version: auto
+# songbird-deploy-version: 0.9.2
 
 set -uo pipefail
 
@@ -565,9 +565,10 @@ configure_mirrors_menu() {
     printf $'2) 🔗  Set apt mirror source (current: %s)\n' "${MIRROR_APT_EXTRA:-<none>}"
     printf $'3) 🔗  Set npm registry mirror (current: %s)\n' "${MIRROR_NPM:-<default>}"
     printf $'4) 🔄️  Restore defaults (clear mirrors)\n'
-    printf $'5) ↩️  Go back\n\n'
+    printf $'5) ↩️  Go back\n'
+    printf $'0) 🚪  Exit\n\n'
 
-    prompt_read "Choose an option [1-5]: " choice
+    prompt_read "Choose an option [0-5]: " choice
     case "$choice" in
       1)
         local val=""
@@ -594,6 +595,7 @@ configure_mirrors_menu() {
         clear_mirror_values
         ;;
       5) return ;;
+      0) exit 0 ;;
       *) printf "Invalid choice. Select a number from 1 to 5.\n" ;;
     esac
   done
@@ -2794,7 +2796,7 @@ show_nginx_error_logs() {
 
 
 show_banner() {
-  printf '\033[1;36m'   # bold cyan
+  printf '\033[1;38;2;42;186;130m'   # bold Songbird green (#2ABA82)
   cat << 'EOF'
 ╔═══════════════════════════════════════════════════════════════════════════╗
 ║                                                                           ║
@@ -2808,7 +2810,7 @@ show_banner() {
 ║                           D E P L O Y   T O O L                           ║
 ╚═══════════════════════════════════════════════════════════════════════════╝
 EOF
-  printf 'Version: %s\n' "$SCRIPT_VERSION"
+  printf 'Script Version: %s\n' "$SCRIPT_VERSION"
   printf '\033[0m'      # reset
 }
 
@@ -2824,10 +2826,10 @@ show_menu() {
   printf $'4) ⚙️  Edit Settings (.env)\n'
   printf $'5) 🗃️  Manage Database\n'
   printf $'6) 🗑️  Remove Songbird\n'
-  printf $'7) 🔄️  Reinstall global command (songbird-deploy)\n'
+  printf $'7) 🔄️  Reinstall songbird-deploy\n'
   printf $'8) 🌐  Configure mirrors\n'
   printf $'9) 📋  View Logs\n'
-  printf $'10) 🚪  Exit\n\n'
+  printf $'0) 🚪  Exit\n\n'
 }
 
 show_logs_menu() {
@@ -2840,15 +2842,17 @@ show_logs_menu() {
     printf $'2) 📋  View service logs\n'
     printf $'3) 📋 View nginx access logs\n'
     printf $'4) 📋  View nginx error logs\n'
-    printf $'5) ↩️  Go back\n\n'
+    printf $'5) ↩️  Go back\n'
+    printf $'0) 🚪  Exit\n\n'
 
-    prompt_read "Choose an option [1-5]: " choice
+    prompt_read "Choose an option [0-5]: " choice
     case "$choice" in
       1) show_logs ;;
       2) show_service_logs ;;
       3) show_nginx_access_logs ;;
       4) show_nginx_error_logs ;;
       5) return ;;
+      0) exit 0 ;;
       *) printf "Invalid choice. Select a number from 1 to 5.\n" ;;
     esac
   done
@@ -3277,30 +3281,48 @@ show_db_menu() {
     clear
     show_banner
     printf "\n"
-    printf "Manage Database\n"
-    printf "1) 👁️  Inspect database (summary)\n"
-    printf "2) 👁️  Inspect chats metadata\n"
-    printf "3) 👁️  Inspect users\n"
-    printf "4) 👁️  Inspect files\n"
-    printf "5) 📤  Backup database\n"
-    printf "6) ♻️  Restore backup\n"
-    printf "7) 🧹  Vacuum database\n"
-    printf "8) 🔄️  Reset database\n"
-    printf "9) 🗑️  Delete database\n"
-    printf "10) 🗑️  Delete chats\n"
-    printf "11) 🗑️  Delete users\n"
-    printf "12) 🚫  Ban/unban user\n"
-    printf "13) 🗑️  Delete files\n"
-    printf "14) 👤  Create user\n"
-    printf "15) 👥  Generate users (bulk)\n"
-    printf "16) 💬  Create group/channel\n"
-    printf "17) ➕  Add members to chat\n"
-    printf "18) ✏️  Edit chat\n"
-    printf "19) ✏️ Edit user\n"
-    printf "20) ❔  Show help\n"
-    printf "21) ↩️  Go back\n\n"
 
-    prompt_read "Choose an option [1-21]: " choice
+    printf "Manage Database\n"
+    printf "┌──── Inspect ────────────────────────────────┐\n"
+    printf "│                                             │\n"
+    printf "│  1) 👁️  Inspect database (summary)           │\n"
+    printf "│  2) 👁️  Inspect chats metadata               │\n"
+    printf "│  3) 👁️  Inspect users                        │\n"
+    printf "│  4) 👁️  Inspect files                        │\n"
+    printf "│                                             │\n"
+    printf "├──── Backup & Repair ────────────────────────┤\n"
+    printf "│                                             │\n"
+    printf "│  5) 📤  Backup database                     │\n"
+    printf "│  6) ♻️  Restore backup                       │\n"
+    printf "│  7) 🧹  Vacuum database                     │\n"
+    printf "│  8) 🔄️  Reset database                      │\n"
+    printf "│  9) 🗑️  Delete database                      │\n"
+    printf "│                                             │\n"
+    printf "├──── User & Chat Management ─────────────────┤\n"
+    printf "│                                             │\n"
+    printf "│  10) 👤  Create user                        │\n"
+    printf "│  11) 👥  Generate users (bulk)              │\n"
+    printf "│  12) ✏️  Edit user                           │\n"
+    printf "│  13) 🚫  Ban/unban user                     │\n"
+    printf "│  14) 💬  Create group/channel               │\n"
+    printf "│  15) ➕  Add members to chat                │\n"
+    printf "│  16) ✏️  Edit chat                           │\n"
+    printf "│                                             │\n"
+    printf "├──── Destructive Actions ────────────────────┤\n"
+    printf "│                                             │\n"
+    printf "│  17) 🗑️  Delete chats                        │\n"
+    printf "│  18) 🗑️  Delete users                        │\n"
+    printf "│  19) 🗑️  Delete files                        │\n"
+    printf "│                                             │\n"
+    printf "├──── Help & Navigation ──────────────────────┤\n"
+    printf "│                                             │\n"
+    printf "│  20) ❔  Show help                          │\n"
+    printf "│  21) ↩️  Go back                             │\n"
+    printf "│  0) 🚪  Exit                                │\n"
+    printf "│                                             │\n"
+    printf "└─────────────────────────────────────────────┘\n\n"
+
+    prompt_read "Choose an option [0-21]: " choice
     case "$choice" in
       1) db_inspect "all" ;;
       2) db_inspect "chat" ;;
@@ -3311,18 +3333,19 @@ show_db_menu() {
       7) db_vacuum ;;
       8) db_reset ;;
       9) db_delete ;;
-      10) db_chat_delete ;;
-      11) db_user_delete ;;
-      12) db_user_ban ;;
-      13) db_file_delete ;;
-      14) db_user_create ;;
-      15) db_user_generate ;;
-      16) db_chat_create ;;
-      17) db_chat_add ;;
-      18) db_chat_edit ;;
-      19) db_user_edit ;;
+      10) db_user_create ;;
+      11) db_user_generate ;;
+      12) db_user_edit ;;
+      13) db_user_ban ;;
+      14) db_chat_create ;;
+      15) db_chat_add ;;
+      16) db_chat_edit ;;
+      17) db_chat_delete ;;
+      18) db_user_delete ;;
+      19) db_file_delete ;;
       20) db_help ;;
       21) return ;;
+      0) exit 0 ;;
       *) printf "Invalid choice. Select a number from 1 to 21.\n" ;;
     esac
   done
@@ -3346,7 +3369,7 @@ main() {
   local choice=""
   while true; do
     show_menu
-    prompt_read "Choose an option [1-10]: " choice
+    prompt_read "Choose an option [0-9]: " choice
     case "$choice" in
       1) install_songbird ;;
       2) update_songbird ;;
@@ -3357,7 +3380,7 @@ main() {
       7) install_global_command ;;
       8) configure_mirrors_menu ;;
       9) show_logs_menu ;;
-      10) break ;;
+      0) break ;;
       *) printf "Invalid choice. Select a number from 1 to 10.\n" ;;
     esac
   done
