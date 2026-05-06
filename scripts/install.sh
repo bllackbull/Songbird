@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
+# songbird-deploy-version: auto
 
 set -uo pipefail
 
 handle_exit() {
   local exit_code=$?
   if [[ "$exit_code" -eq 0 ]]; then
-    clear
+    if [[ "${SKIP_CLEAR_ON_EXIT:-0}" != "1" ]]; then
+      clear
+    fi
     return 0
   fi
 
@@ -51,6 +54,7 @@ CERT_INSTALL_DIR="/etc/ssl/songbird"
 ACME_WEBROOT="/var/lib/songbird/certbot"
 LEGO_STATE_DIR="/var/lib/songbird/lego"
 LEGO_BIN="/usr/local/bin/lego"
+GLOBAL_COMMAND_PATH="/usr/local/bin/songbird-deploy"
 
 # Mirror URLs
 MIRROR_NODESOURCE="${MIRROR_NODESOURCE:-}"
@@ -91,6 +95,86 @@ CERTBOT_IP_ADDRESS=""
 MANUAL_CERT_FULLCHAIN_PATH=""
 MANUAL_CERT_PRIVKEY_PATH=""
 NODE_EXEC_PATH=""
+SKIP_CLEAR_ON_EXIT="0"
+
+resolve_current_script_path() {
+  local source_hint="${BASH_SOURCE[0]:-$0}"
+  if [[ -z "$source_hint" ]]; then
+    return 1
+  fi
+  if [[ "$source_hint" != /* ]]; then
+    source_hint="$(pwd)/$source_hint"
+  fi
+  if [[ -f "$source_hint" ]]; then
+    printf "%s" "$source_hint"
+    return 0
+  fi
+  return 1
+}
+
+read_first_line() {
+  local file_path="$1"
+  if [[ ! -f "$file_path" ]]; then
+    return 1
+  fi
+  head -n 1 "$file_path" | tr -d '\r\n'
+}
+
+read_version_file_value() {
+  local version_file="$1"
+  local version=""
+  version="$(read_first_line "$version_file" 2>/dev/null || true)"
+  version="$(printf "%s" "$version" | xargs)"
+  if [[ -z "$version" ]]; then
+    return 1
+  fi
+  printf "%s" "$version"
+}
+
+read_script_version_header() {
+  local file_path="$1"
+  if [[ ! -f "$file_path" ]]; then
+    return 1
+  fi
+  local header=""
+  header="$(grep -E '^# songbird-deploy-version:' "$file_path" | head -n 1 | cut -d ':' -f 2- | xargs || true)"
+  if [[ -z "$header" || "$header" == "auto" ]]; then
+    return 1
+  fi
+  printf "%s" "$header"
+}
+
+resolve_script_version_for_path() {
+  local script_path="$1"
+  local header_version=""
+  header_version="$(read_script_version_header "$script_path" 2>/dev/null || true)"
+  if [[ -n "$header_version" ]]; then
+    printf "%s" "$header_version"
+    return 0
+  fi
+
+  local script_dir=""
+  script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd -P 2>/dev/null || true)"
+  local repo_root=""
+  if [[ -n "$script_dir" ]]; then
+    repo_root="$(cd -- "$script_dir/.." && pwd -P 2>/dev/null || true)"
+  fi
+  if [[ -n "$repo_root" && -f "$repo_root/VERSION" ]]; then
+    read_version_file_value "$repo_root/VERSION"
+    return $?
+  fi
+
+  if [[ -f "$INSTALL_DIR/VERSION" ]]; then
+    read_version_file_value "$INSTALL_DIR/VERSION"
+    return $?
+  fi
+
+  return 1
+}
+
+CURRENT_SCRIPT_PATH="$(resolve_current_script_path 2>/dev/null || true)"
+SCRIPT_VERSION="$(resolve_script_version_for_path "$CURRENT_SCRIPT_PATH" 2>/dev/null || printf "0.0.0")"
+LAST_GLOBAL_COMMAND_VERSION=""
 
 log() {
   local timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
@@ -2282,6 +2366,11 @@ update_songbird() {
     run_migrations
 
     apply_ownership
+    if install_global_command_from_path "$INSTALL_DIR/scripts/install.sh"; then
+      log "Global command synchronized from updated install script."
+    else
+      warn "Failed to synchronize global command after update."
+    fi
 
     log "Restarting Songbird service..."
     run_as_root systemctl restart songbird.service
@@ -2351,6 +2440,11 @@ update_songbird() {
   run_migrations
 
   apply_ownership
+  if install_global_command_from_path "$INSTALL_DIR/scripts/install.sh"; then
+    log "Global command synchronized from updated install script."
+  else
+    warn "Failed to synchronize global command after update."
+  fi
 
   log "Restarting Songbird service..."
   run_as_root systemctl restart songbird.service
@@ -2458,9 +2552,9 @@ remove_songbird() {
 
   log "Songbird removed."
 
-  if [[ -f "/usr/local/bin/songbird-deploy" ]]; then
+  if [[ -f "$GLOBAL_COMMAND_PATH" ]]; then
     if [[ "$(prompt_yes_no "Remove global command (songbird-deploy) as well?" "no")" == "yes" ]]; then
-      run_as_root rm -f "/usr/local/bin/songbird-deploy"
+      run_as_root rm -f "$GLOBAL_COMMAND_PATH"
       log "Global command removed."
     fi
   fi
@@ -2506,6 +2600,11 @@ install_songbird() {
 
   log "Installation complete."
   log "Songbird has been installed successfully."
+  if install_global_command_from_path "$INSTALL_DIR/scripts/install.sh"; then
+    log "Global command synchronized to script version ${LAST_GLOBAL_COMMAND_VERSION:-$SCRIPT_VERSION}."
+  else
+    warn "Failed to synchronize global command after install. You can retry from the menu."
+  fi
   if [[ "$CERT_MODE" == "http" ]]; then
     if [[ "$DEPLOY_MODE" == "domain" ]]; then
       for d in "${DOMAIN_NAMES[@]}"; do
@@ -2537,46 +2636,111 @@ install_songbird() {
   press_enter_to_continue
 }
 
+install_global_command_from_path() {
+  local source_path="$1"
+  [[ -n "$source_path" && -f "$source_path" ]] || return 1
+  local install_version=""
+  install_version="$(resolve_script_version_for_path "$source_path" 2>/dev/null || printf "%s" "$SCRIPT_VERSION")"
+
+  local temp_target=""
+  temp_target="$(mktemp)"
+  cp "$source_path" "$temp_target" || {
+    rm -f "$temp_target"
+    return 1
+  }
+
+  if ! sed -i "1s|^# songbird-deploy-version:.*$|# songbird-deploy-version: ${install_version}|" "$temp_target"; then
+    rm -f "$temp_target"
+    return 1
+  fi
+
+  if ! run_silent run_as_root install -m 755 "$temp_target" "$GLOBAL_COMMAND_PATH"; then
+    rm -f "$temp_target"
+    return 1
+  fi
+
+  rm -f "$temp_target"
+  LAST_GLOBAL_COMMAND_VERSION="$install_version"
+  return 0
+}
+
+install_global_command_from_remote() {
+  local install_version="$SCRIPT_VERSION"
+  local temp_target=""
+  temp_target="$(mktemp)"
+  if ! curl -fsSL "$SCRIPT_REMOTE_URL" > "$temp_target"; then
+    rm -f "$temp_target"
+    return 1
+  fi
+  if ! sed -i "1s|^# songbird-deploy-version:.*$|# songbird-deploy-version: ${install_version}|" "$temp_target"; then
+    rm -f "$temp_target"
+    return 1
+  fi
+  if ! run_silent run_as_root install -m 755 "$temp_target" "$GLOBAL_COMMAND_PATH"; then
+    rm -f "$temp_target"
+    return 1
+  fi
+  rm -f "$temp_target"
+  LAST_GLOBAL_COMMAND_VERSION="$install_version"
+  return 0
+}
+
+install_global_command_core() {
+  local source_path="${1:-$CURRENT_SCRIPT_PATH}"
+  if [[ -n "$source_path" && -f "$source_path" ]]; then
+    install_global_command_from_path "$source_path"
+    return $?
+  fi
+
+  log "Script source path is not a regular file. Installing global command from remote..."
+  install_global_command_from_remote
+}
+
 install_global_command() {
-  local target="/usr/local/bin/songbird-deploy"
-  local source_hint="${BASH_SOURCE[0]:-}"
-  local source_path=""
-
-  if [[ -n "$source_hint" ]]; then
-    if [[ "$source_hint" != /* ]]; then
-      source_hint="$(pwd)/$source_hint"
-    fi
-    if [[ -f "$source_hint" ]]; then
-      source_path="$source_hint"
-    fi
+  if ! install_global_command_core "${1:-$CURRENT_SCRIPT_PATH}"; then
+    warn "Failed to install global command."
+    press_enter_to_continue
+    return 1
   fi
 
-  if [[ -n "$source_path" ]]; then
-    run_silent run_as_root install -m 755 "$source_path" "$target"
-  else
-    log "Script source path is not a regular file. Installing global command..."
-    if [[ -n "$SUDO" ]]; then
-      curl -fsSL "$SCRIPT_REMOTE_URL" | $SUDO tee "$target" >/dev/null
-      $SUDO chmod 755 "$target"
-    else
-      curl -fsSL "$SCRIPT_REMOTE_URL" > "$target"
-      chmod 755 "$target"
-    fi
-  fi
-
-  log "Global command installed: songbird-deploy"
+  log "Global command installed: songbird-deploy (version ${LAST_GLOBAL_COMMAND_VERSION:-$SCRIPT_VERSION})"
   log "Run it from anywhere with: songbird-deploy"
   press_enter_to_continue
 }
 
+installed_global_command_version() {
+  local version=""
+  version="$(run_as_root bash -lc "if [[ -f '$GLOBAL_COMMAND_PATH' ]]; then grep -E '^# songbird-deploy-version:' '$GLOBAL_COMMAND_PATH' | head -n 1 | cut -d ':' -f 2- | xargs; fi" 2>/dev/null || true)"
+  if [[ -z "$version" || "$version" == "auto" ]]; then
+    return 1
+  fi
+  printf "%s" "$version"
+}
+
 ensure_global_command_on_first_run() {
-  local target="/usr/local/bin/songbird-deploy"
-  if run_as_root test -x "$target"; then
+  local installed_version=""
+  if ! run_as_root test -x "$GLOBAL_COMMAND_PATH"; then
+    log "Global command not found. Installing it automatically..."
+    if ! install_global_command_core "$CURRENT_SCRIPT_PATH"; then
+      warn "Automatic global command installation failed. You can retry from the menu."
+    fi
     return 0
   fi
-  log "Global command not found. Installing it automatically..."
-  if ! install_global_command; then
-    warn "Automatic global command installation failed. You can retry from the menu."
+
+  installed_version="$(installed_global_command_version 2>/dev/null || true)"
+  if [[ -z "$installed_version" ]]; then
+    log "Global command version could not be determined. Reinstalling it automatically..."
+    if ! install_global_command_core "$CURRENT_SCRIPT_PATH"; then
+      warn "Automatic global command reinstall failed. You can retry from the menu."
+    fi
+    return 0
+  fi
+
+  if dpkg --compare-versions "$installed_version" lt "$SCRIPT_VERSION"; then
+    log "Global command version ${installed_version} is older than script version ${SCRIPT_VERSION}. Updating it automatically..."
+    if ! install_global_command_core "$CURRENT_SCRIPT_PATH"; then
+      warn "Automatic global command update failed. You can retry from the menu."
+    fi
   fi
 }
 
@@ -2644,6 +2808,7 @@ show_banner() {
 ║                           D E P L O Y   T O O L                           ║
 ╚═══════════════════════════════════════════════════════════════════════════╝
 EOF
+  printf 'Version: %s\n' "$SCRIPT_VERSION"
   printf '\033[0m'      # reset
 }
 
@@ -3164,6 +3329,12 @@ show_db_menu() {
 }
 
 main() {
+  if [[ "${1:-}" == "--version" || "${1:-}" == "-v" ]]; then
+    SKIP_CLEAR_ON_EXIT="1"
+    printf "%s\n" "$SCRIPT_VERSION"
+    return 0
+  fi
+
   init_prompt_io
   detect_os
   ensure_sudo
