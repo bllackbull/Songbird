@@ -96,6 +96,7 @@ MANUAL_CERT_FULLCHAIN_PATH=""
 MANUAL_CERT_PRIVKEY_PATH=""
 NODE_EXEC_PATH=""
 SKIP_CLEAR_ON_EXIT="0"
+MENU_ACTION_PAUSED="0"
 
 resolve_current_script_path() {
   local source_hint="${BASH_SOURCE[0]:-$0}"
@@ -191,7 +192,7 @@ log() {
 ensure_log_dir() {
   local log_dir="$(dirname "$LOG_FILE")"
   if [[ ! -d "$log_dir" ]]; then
-    run_as_root mkdir -p "$log_dir"
+    run_as_root mkdir -p "$log_dir" || return 1
     log "Created log directory: $log_dir"
   fi
 }
@@ -218,10 +219,29 @@ have_cmd() {
 }
 
 press_enter_to_continue() {
+  MENU_ACTION_PAUSED="1"
   printf "\nPress Enter to return to the main menu..." >&$PROMPT_FD_OUT
   if ! IFS= read -r -u "$PROMPT_FD" _; then
     _=""
   fi
+}
+
+run_menu_action() {
+  local action="$1"
+  shift || true
+  MENU_ACTION_PAUSED="0"
+
+  "$action" "$@"
+  local status=$?
+  if [[ "$status" -eq 0 ]]; then
+    return 0
+  fi
+
+  if [[ "${MENU_ACTION_PAUSED:-0}" != "1" ]]; then
+    warn "Action failed. Review ${LOG_FILE} for details, then retry from the menu."
+    press_enter_to_continue
+  fi
+  return "$status"
 }
 
 run_silent() {
@@ -859,24 +879,28 @@ install_required_packages() {
     fi
   done
 
-  local codename=$(lsb_release -sc)
+  local codename=""
+  codename="$(lsb_release -sc)" || return 1
   if [[ -n "$MIRROR_APT_EXTRA" ]]; then
     log "Refreshing apt package index (temporary mirror: ${MIRROR_APT_EXTRA})..."
-    run_silent run_as_root apt-get update \
+    if ! run_silent run_as_root apt-get update \
       -o Dir::Etc::sourcelist=/dev/null \
       -o Dir::Etc::sourceparts=/dev/null \
       -o Dir::Etc::sourcelist=- \
       -o Dir::Etc::sourceparts=- <<EOF
 deb ${MIRROR_APT_EXTRA} ${codename} main restricted universe multiverse
 EOF
+    then
+      return 1
+    fi
   else
     log "Refreshing apt package index..."
-    run_silent run_as_root apt-get update
+    run_silent run_as_root apt-get update || return 1
   fi
 
   if (( ${#missing_pkgs[@]} > 0 )); then
     log "Installing missing packages: ${missing_pkgs[*]}"
-    run_silent run_as_root apt-get install -y --allow-downgrades "${missing_pkgs[@]}"
+    run_silent run_as_root apt-get install -y --allow-downgrades "${missing_pkgs[@]}" || return 1
   else
     log "All required base packages are already installed."
   fi
@@ -901,10 +925,16 @@ ensure_nodejs_from_nodesource() {
       tmp_dir="$(mktemp -d)"
       local tarball="${tmp_dir}/node.tar.gz"
 
-      curl -fsSL "$MIRROR_NODESOURCE" -o "$tarball"
+      curl -fsSL "$MIRROR_NODESOURCE" -o "$tarball" || {
+        rm -rf "$tmp_dir"
+        return 1
+      }
 
       local install_dir="/usr/local"
-      run_silent run_as_root tar -xzf "$tarball" -C "$install_dir" --strip-components=1
+      run_silent run_as_root tar -xzf "$tarball" -C "$install_dir" --strip-components=1 || {
+        rm -rf "$tmp_dir"
+        return 1
+      }
 
       rm -rf "$tmp_dir"
 
@@ -915,11 +945,11 @@ ensure_nodejs_from_nodesource() {
       local setup_url="${MIRROR_NODESOURCE%/}/setup_${NODE_MAJOR}.x"
       log "Installing Node.js ${NODE_MAJOR}.x via NodeSource-style mirror: ${setup_url}"
       if [[ -n "$SUDO" ]]; then
-        curl -fsSL "$setup_url" | $SUDO -E bash -
+        curl -fsSL "$setup_url" | $SUDO -E bash - || return 1
       else
-        curl -fsSL "$setup_url" | bash -
+        curl -fsSL "$setup_url" | bash - || return 1
       fi
-      run_silent run_as_root apt-get install -y nodejs
+      run_silent run_as_root apt-get install -y nodejs || return 1
       return 0
     fi
   fi
@@ -928,11 +958,11 @@ ensure_nodejs_from_nodesource() {
   local setup_url="https://deb.nodesource.com/setup_${NODE_MAJOR}.x"
   log "Installing Node.js ${NODE_MAJOR}.x via NodeSource..."
   if [[ -n "$SUDO" ]]; then
-    curl -fsSL "$setup_url" | $SUDO -E bash -
+    curl -fsSL "$setup_url" | $SUDO -E bash - || return 1
   else
-    curl -fsSL "$setup_url" | bash -
+    curl -fsSL "$setup_url" | bash - || return 1
   fi
-  run_silent run_as_root apt-get install -y nodejs
+  run_silent run_as_root apt-get install -y nodejs || return 1
 }
 
 resolve_node_exec_path() {
@@ -944,7 +974,8 @@ resolve_node_exec_path() {
   fi
 
   if [[ -z "$node_path" ]]; then
-    fail "Node.js executable not found in PATH after installation."
+    warn "Node.js executable not found in PATH after installation."
+    return 1
   fi
 
   NODE_EXEC_PATH="$node_path"
@@ -955,7 +986,7 @@ resolve_node_exec_path() {
 ensure_service_user_exists() {
   if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
     log "Creating dedicated system user: ${SERVICE_USER}"
-    run_silent run_as_root useradd --system --no-create-home --shell /usr/sbin/nologin "$SERVICE_USER"
+    run_silent run_as_root useradd --system --no-create-home --shell /usr/sbin/nologin "$SERVICE_USER" || return 1
   fi
 }
 
@@ -968,7 +999,10 @@ map_lego_arch() {
     armv7l|armv7) printf "armv7" ;;
     armv6l|armv6) printf "armv6" ;;
     i386|i686) printf "386" ;;
-    *) fail "Unsupported architecture for lego binary install: ${machine}" ;;
+    *)
+      warn "Unsupported architecture for lego binary install: ${machine}"
+      return 1
+      ;;
   esac
 }
 
@@ -990,13 +1024,17 @@ ensure_lego_installed() {
 
   local latest_url=""
   latest_url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/go-acme/lego/releases/latest)" || {
-    fail "Unable to resolve latest lego release URL."
+    warn "Unable to resolve latest lego release URL."
+    return 1
   }
   local latest_tag="${latest_url##*/}"
-  [[ -n "$latest_tag" ]] || fail "Unable to determine latest lego release tag."
+  if [[ -z "$latest_tag" ]]; then
+    warn "Unable to determine latest lego release tag."
+    return 1
+  fi
 
   local arch=""
-  arch="$(map_lego_arch)"
+  arch="$(map_lego_arch)" || return 1
   local asset="lego_${latest_tag}_linux_${arch}.tar.gz"
   local download_url="https://github.com/go-acme/lego/releases/download/${latest_tag}/${asset}"
   local tmp_dir=""
@@ -1005,25 +1043,35 @@ ensure_lego_installed() {
   log "Downloading lego ${latest_tag} for linux/${arch}..."
   curl -fsSL "$download_url" -o "${tmp_dir}/${asset}" || {
     run_silent run_as_root rm -rf "$tmp_dir"
-    fail "Unable to download lego binary from ${download_url}"
+    warn "Unable to download lego binary from ${download_url}"
+    return 1
   }
 
-  run_silent run_as_root tar -xzf "${tmp_dir}/${asset}" -C "$tmp_dir"
-  run_silent run_as_root install -m 755 "${tmp_dir}/lego" "$LEGO_BIN"
-  run_silent run_as_root rm -rf "$tmp_dir"
+  run_silent run_as_root tar -xzf "${tmp_dir}/${asset}" -C "$tmp_dir" || {
+    run_silent run_as_root rm -rf "$tmp_dir"
+    return 1
+  }
+  run_silent run_as_root install -m 755 "${tmp_dir}/lego" "$LEGO_BIN" || {
+    run_silent run_as_root rm -rf "$tmp_dir"
+    return 1
+  }
+  run_silent run_as_root rm -rf "$tmp_dir" || return 1
   log "Installed lego at ${LEGO_BIN}."
 
-  lego_supports_shortlived_profile || fail "Installed lego at ${LEGO_BIN} does not support --profile. Please verify the binary and try again."
+  if ! lego_supports_shortlived_profile; then
+    warn "Installed lego at ${LEGO_BIN} does not support --profile. Please verify the binary and try again."
+    return 1
+  fi
 }
 
 clone_repo() {
-  run_silent run_as_root mkdir -p "$INSTALL_DIR"
+  run_silent run_as_root mkdir -p "$INSTALL_DIR" || return 1
 
   if run_as_root test -d "$INSTALL_DIR/.git"; then
     log "Repository exists at ${INSTALL_DIR}. Updating source..."
-    run_in_install_dir "git fetch --all --prune"
-    run_in_install_dir "git checkout main"
-    run_in_install_dir "git pull --ff-only origin main"
+    run_in_install_dir "git fetch --all --prune" || return 1
+    run_in_install_dir "git checkout main" || return 1
+    run_in_install_dir "git pull --ff-only origin main" || return 1
     return 0
   fi
 
@@ -1032,12 +1080,12 @@ clone_repo() {
       warn "Installation canceled. Clear ${INSTALL_DIR} or use offline mode."
       return 1
     fi
-    run_as_root rm -rf "$INSTALL_DIR"
-    run_silent run_as_root mkdir -p "$INSTALL_DIR"
+    run_as_root rm -rf "$INSTALL_DIR" || return 1
+    run_silent run_as_root mkdir -p "$INSTALL_DIR" || return 1
   fi
 
   log "Cloning Songbird repository..."
-  run_silent run_as_root git clone "$REPO_URL" "$INSTALL_DIR"
+  run_silent run_as_root git clone "$REPO_URL" "$INSTALL_DIR" || return 1
 }
 
 prepare_install_dir_for_offline() {
@@ -1119,16 +1167,23 @@ ensure_offline_source_ready() {
 extract_offline_source_zip() {
   local zip_path="$1"
   local mode_label="$2"
-  have_cmd unzip || fail "unzip is required for offline ${mode_label}s. Install it first and retry."
+  if ! have_cmd unzip; then
+    warn "unzip is required for offline ${mode_label}s. Install it first and retry."
+    return 1
+  fi
 
   local tmp_dir
   tmp_dir="$(mktemp -d)"
-  run_silent run_as_root unzip -q "$zip_path" -d "$tmp_dir"
+  if ! run_silent run_as_root unzip -q "$zip_path" -d "$tmp_dir"; then
+    run_silent run_as_root rm -rf "$tmp_dir"
+    return 1
+  fi
 
   local source_root
   source_root="$(resolve_offline_source_root "$tmp_dir")" || {
     run_silent run_as_root rm -rf "$tmp_dir"
-    fail "Source zip does not appear to contain Songbird (missing server/client/package.json)."
+    warn "Source zip does not appear to contain Songbird (missing server/client/package.json)."
+    return 1
   }
 
   printf "%s|%s" "$tmp_dir" "$source_root"
@@ -1180,55 +1235,70 @@ install_source_from_zip() {
   local zip_path="$1"
   prepare_install_dir_for_offline || return 1
   local extract_result=""
-  extract_result="$(extract_offline_source_zip "$zip_path" "install")"
+  extract_result="$(extract_offline_source_zip "$zip_path" "install")" || return 1
   local tmp_dir="${extract_result%%|*}"
   local source_root="${extract_result#*|}"
 
   prepare_source_root_for_data_copy "$zip_path" "$source_root" "install"
 
-  run_silent run_as_root cp -a "$source_root"/. "$INSTALL_DIR"/
+  run_silent run_as_root cp -a "$source_root"/. "$INSTALL_DIR"/ || {
+    run_silent run_as_root rm -rf "$tmp_dir"
+    return 1
+  }
   if [[ -f "$source_root/.env.example" ]]; then
-    run_silent run_as_root cp -a "$source_root/.env.example" "$INSTALL_DIR/.env.example"
+    run_silent run_as_root cp -a "$source_root/.env.example" "$INSTALL_DIR/.env.example" || {
+      run_silent run_as_root rm -rf "$tmp_dir"
+      return 1
+    }
   fi
-  apply_ownership
-  run_silent run_as_root rm -rf "$tmp_dir"
+  apply_ownership || {
+    run_silent run_as_root rm -rf "$tmp_dir"
+    return 1
+  }
+  run_silent run_as_root rm -rf "$tmp_dir" || return 1
   return 0
 }
 
 update_source_from_zip() {
   local zip_path="$1"
   local extract_result=""
-  extract_result="$(extract_offline_source_zip "$zip_path" "update")"
+  extract_result="$(extract_offline_source_zip "$zip_path" "update")" || return 1
   local tmp_dir="${extract_result%%|*}"
   local source_root="${extract_result#*|}"
 
   prepare_source_root_for_data_copy "$zip_path" "$source_root" "update"
 
-  run_silent run_as_root cp -a "$source_root"/. "$INSTALL_DIR"/
+  run_silent run_as_root cp -a "$source_root"/. "$INSTALL_DIR"/ || {
+    run_silent run_as_root rm -rf "$tmp_dir"
+    return 1
+  }
   if [[ -f "$source_root/.env.example" ]]; then
-    run_silent run_as_root cp -a "$source_root/.env.example" "$INSTALL_DIR/.env.example"
+    run_silent run_as_root cp -a "$source_root/.env.example" "$INSTALL_DIR/.env.example" || {
+      run_silent run_as_root rm -rf "$tmp_dir"
+      return 1
+    }
   fi
-  apply_ownership
-  run_silent run_as_root rm -rf "$tmp_dir"
+  apply_ownership || {
+    run_silent run_as_root rm -rf "$tmp_dir"
+    return 1
+  }
+  run_silent run_as_root rm -rf "$tmp_dir" || return 1
 }
 
 install_songbird_dependencies() {
-  log "Installing server dependencies..."
+  local npm_registry_arg=""
   if [[ -n "$MIRROR_NPM" ]]; then
-    run_in_install_dir "npm --registry "$MIRROR_NPM" --prefix server install"
-  else
-    run_in_install_dir "npm --prefix server install"
+    npm_registry_arg="--registry $(printf '%q' "$MIRROR_NPM")"
   fi
+
+  log "Installing server dependencies..."
+  run_in_install_dir "npm ${npm_registry_arg} --prefix server install" || return 1
 
   log "Installing client dependencies..."
-  if [[ -n "$MIRROR_NPM" ]]; then
-    run_in_install_dir "npm --registry "$MIRROR_NPM" --prefix client install"
-  else
-    run_in_install_dir "npm --prefix client install"
-  fi
+  run_in_install_dir "npm ${npm_registry_arg} --prefix client install" || return 1
 
   log "Building client..."
-  run_in_install_dir "npm --prefix client run build"
+  run_in_install_dir "npm --prefix client run build" || return 1
 }
 
 get_existing_env_value() {
@@ -1330,7 +1400,7 @@ write_env_from_example() {
   local example_file="${INSTALL_DIR}/.env.example"
   if [[ ! -f "$example_file" ]]; then
     log "Missing ${example_file}. Falling back to minimal .env defaults."
-    write_env_fallback "$env_file"
+    write_env_fallback "$env_file" || return 1
     CURRENT_ENV_FILE="$env_file"
     return 0
   fi
@@ -1361,28 +1431,28 @@ write_env_from_example() {
   existing_username_max_chars="$(get_existing_env_value_with_fallback "USERNAME_MAX_CHARS" "USERNAME_MAX" "16")"
   existing_storage_encryption_key="$(get_existing_env_value "STORAGE_ENCRYPTION_KEY" "")"
 
-  run_silent run_as_root cp "$example_file" "$env_file"
-  replace_env_value "$env_file" "SERVER_PORT" "$existing_server_port"
-  replace_env_value "$env_file" "CLIENT_PORT" "$existing_client_port"
-  replace_env_value "$env_file" "SERVER_PORT" "$SERVER_PORT"
-  replace_env_value "$env_file" "CLIENT_PORT" "$CLIENT_PORT"
-  replace_env_value "$env_file" "SIGN_UP" "$ACCOUNT_CREATION"
-  replace_env_value "$env_file" "FILE_UPLOAD" "$FILE_UPLOAD"
-  replace_env_value "$env_file" "FILE_UPLOAD_MAX_SIZE_MB" "$existing_file_upload_max_size_mb"
-  replace_env_value "$env_file" "FILE_UPLOAD_MAX_TOTAL_SIZE_MB" "$MAX_UPLOAD_MB"
-  replace_env_value "$env_file" "MESSAGE_FILE_RETENTION" "$RETENTION_DAYS"
-  replace_env_value "$env_file" "MESSAGE_TEXT_RETENTION" "$TEXT_RETENTION_DAYS"
-  replace_env_value "$env_file" "CHAT_VOICE_WAVEFORM_MAX_DECODE_MB" "$existing_voice_waveform_max_decode_mb"
-  replace_env_value "$env_file" "CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS" "$existing_voice_waveform_max_decode_seconds"
-  replace_env_value "$env_file" "NICKNAME_MAX_CHARS" "$existing_nickname_max_chars"
-  replace_env_value "$env_file" "USERNAME_MAX_CHARS" "$existing_username_max_chars"
-  replace_env_value "$env_file" "STORAGE_ENCRYPTION_KEY" "$existing_storage_encryption_key"
-  replace_env_value "$env_file" "VAPID_PUBLIC_KEY" "$existing_public_key"
-  replace_env_value "$env_file" "VAPID_PRIVATE_KEY" "$existing_private_key"
+  run_silent run_as_root cp "$example_file" "$env_file" || return 1
+  replace_env_value "$env_file" "SERVER_PORT" "$existing_server_port" || return 1
+  replace_env_value "$env_file" "CLIENT_PORT" "$existing_client_port" || return 1
+  replace_env_value "$env_file" "SERVER_PORT" "$SERVER_PORT" || return 1
+  replace_env_value "$env_file" "CLIENT_PORT" "$CLIENT_PORT" || return 1
+  replace_env_value "$env_file" "SIGN_UP" "$ACCOUNT_CREATION" || return 1
+  replace_env_value "$env_file" "FILE_UPLOAD" "$FILE_UPLOAD" || return 1
+  replace_env_value "$env_file" "FILE_UPLOAD_MAX_SIZE_MB" "$existing_file_upload_max_size_mb" || return 1
+  replace_env_value "$env_file" "FILE_UPLOAD_MAX_TOTAL_SIZE_MB" "$MAX_UPLOAD_MB" || return 1
+  replace_env_value "$env_file" "MESSAGE_FILE_RETENTION" "$RETENTION_DAYS" || return 1
+  replace_env_value "$env_file" "MESSAGE_TEXT_RETENTION" "$TEXT_RETENTION_DAYS" || return 1
+  replace_env_value "$env_file" "CHAT_VOICE_WAVEFORM_MAX_DECODE_MB" "$existing_voice_waveform_max_decode_mb" || return 1
+  replace_env_value "$env_file" "CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS" "$existing_voice_waveform_max_decode_seconds" || return 1
+  replace_env_value "$env_file" "NICKNAME_MAX_CHARS" "$existing_nickname_max_chars" || return 1
+  replace_env_value "$env_file" "USERNAME_MAX_CHARS" "$existing_username_max_chars" || return 1
+  replace_env_value "$env_file" "STORAGE_ENCRYPTION_KEY" "$existing_storage_encryption_key" || return 1
+  replace_env_value "$env_file" "VAPID_PUBLIC_KEY" "$existing_public_key" || return 1
+  replace_env_value "$env_file" "VAPID_PRIVATE_KEY" "$existing_private_key" || return 1
   if [[ -n "$CERTBOT_EMAIL" ]]; then
-    replace_env_value "$env_file" "VAPID_SUBJECT" "mailto:${CERTBOT_EMAIL}"
+    replace_env_value "$env_file" "VAPID_SUBJECT" "mailto:${CERTBOT_EMAIL}" || return 1
   else
-    replace_env_value "$env_file" "VAPID_SUBJECT" "$existing_subject"
+    replace_env_value "$env_file" "VAPID_SUBJECT" "$existing_subject" || return 1
   fi
   CURRENT_ENV_FILE="$env_file"
   log "Wrote environment config from ${example_file}."
@@ -1433,9 +1503,9 @@ STORAGE_ENCRYPTION_KEY=${existing_storage_encryption_key}
 VAPID_PUBLIC_KEY=${existing_public_key}
 VAPID_PRIVATE_KEY=${existing_private_key}
 VAPID_SUBJECT=${existing_subject}
-EOF"
+EOF" || return 1
   if [[ -n "$CERTBOT_EMAIL" ]]; then
-    replace_env_value "$env_file" "VAPID_SUBJECT" "mailto:${CERTBOT_EMAIL}"
+    replace_env_value "$env_file" "VAPID_SUBJECT" "mailto:${CERTBOT_EMAIL}" || return 1
   fi
   log "Wrote fallback environment config to ${env_file}."
 }
@@ -1462,8 +1532,8 @@ ensure_vapid_keys() {
   if [[ -z "$new_public" || -z "$new_private" ]]; then
     return 1
   fi
-  replace_env_value "$env_file" "VAPID_PUBLIC_KEY" "$new_public"
-  replace_env_value "$env_file" "VAPID_PRIVATE_KEY" "$new_private"
+  replace_env_value "$env_file" "VAPID_PUBLIC_KEY" "$new_public" || return 1
+  replace_env_value "$env_file" "VAPID_PRIVATE_KEY" "$new_private" || return 1
   log "VAPID keys generated and saved to ${env_file}."
 }
 
@@ -1720,20 +1790,22 @@ collect_install_options() {
 }
 
 write_full_env_with_defaults() {
-  run_silent run_as_root mkdir -p "$INSTALL_DIR"
-  write_env_from_example
+  run_silent run_as_root mkdir -p "$INSTALL_DIR" || return 1
+  write_env_from_example || return 1
 }
 
 apply_ownership() {
-  ensure_service_user_exists
-  run_silent run_as_root chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "$INSTALL_DIR"
-  run_silent run_as_root git config --global --add safe.directory "$INSTALL_DIR"
+  ensure_service_user_exists || return 1
+  run_silent run_as_root chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "$INSTALL_DIR" || return 1
+  run_silent run_as_root git config --global --add safe.directory "$INSTALL_DIR" || return 1
 }
 
 configure_systemd_service() {
   log "Creating systemd service at ${SERVICE_FILE}..."
-  [[ -n "$NODE_EXEC_PATH" ]] || resolve_node_exec_path
-  run_silent run_as_root tee "$SERVICE_FILE" >/dev/null <<EOF
+  if [[ -z "$NODE_EXEC_PATH" ]]; then
+    resolve_node_exec_path || return 1
+  fi
+  if ! run_silent run_as_root tee "$SERVICE_FILE" >/dev/null <<EOF
 [Unit]
 Description=Songbird server
 After=network.target
@@ -1750,10 +1822,13 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
+  then
+    return 1
+  fi
 
-  run_as_root systemctl daemon-reload
-  run_as_root systemctl enable --now songbird.service
-  run_as_root systemctl restart songbird.service
+  run_as_root systemctl daemon-reload || return 1
+  run_as_root systemctl enable --now songbird.service || return 1
+  run_as_root systemctl restart songbird.service || return 1
 }
 
 write_nginx_site_config() {
@@ -1960,17 +2035,17 @@ EOF
 
 configure_nginx() {
   log "Preparing initial HTTP nginx configuration..."
-  write_nginx_site_config "http"
+  write_nginx_site_config "http" || return 1
 
-  run_as_root ln -sfn "$NGINX_SITE_FILE" "$NGINX_ENABLED_FILE"
+  run_as_root ln -sfn "$NGINX_SITE_FILE" "$NGINX_ENABLED_FILE" || return 1
   if run_as_root test -f /etc/nginx/sites-enabled/default; then
-    run_as_root rm -f /etc/nginx/sites-enabled/default
+    run_as_root rm -f /etc/nginx/sites-enabled/default || return 1
   fi
 
   log "Testing nginx configuration..."
-  run_as_root nginx -t
+  run_as_root nginx -t || return 1
   log "Reloading nginx..."
-  run_as_root systemctl reload nginx
+  run_as_root systemctl reload nginx || return 1
   log "Initial nginx configuration is active."
 }
 
@@ -1978,9 +2053,9 @@ install_ssl_files_into_nginx() {
   local cert_path="$1"
   local key_path="$2"
 
-  write_nginx_site_config "ssl" "$cert_path" "$key_path"
-  run_as_root nginx -t
-  run_as_root systemctl reload nginx
+  write_nginx_site_config "ssl" "$cert_path" "$key_path" || return 1
+  run_as_root nginx -t || return 1
+  run_as_root systemctl reload nginx || return 1
   log "Nginx SSL configured."
 }
 
@@ -1988,7 +2063,7 @@ configure_manual_ssl_files() {
   if [[ "$DEPLOY_MODE" == "domain" ]]; then
     local idx=0
     local group_csv=""
-    run_silent run_as_root mkdir -p "$CERT_INSTALL_DIR"
+    run_silent run_as_root mkdir -p "$CERT_INSTALL_DIR" || return 1
     for group_csv in "${DOMAIN_GROUPS[@]}"; do
       local source_fullchain="${MANUAL_CERT_GROUP_FULLCHAIN_PATHS[$idx]:-}"
       local source_privkey="${MANUAL_CERT_GROUP_PRIVKEY_PATHS[$idx]:-}"
@@ -2000,37 +2075,39 @@ configure_manual_ssl_files() {
       installed_privkey="$(manual_group_privkey_path "$group_csv")"
 
       if [[ ! -f "$source_fullchain" || ! -f "$source_privkey" ]]; then
-        fail "Manual certificate files were not found for group: $(group_csv_to_space_list "$group_csv")"
+        warn "Manual certificate files were not found for group: $(group_csv_to_space_list "$group_csv")"
+        return 1
       fi
 
-      run_silent run_as_root mkdir -p "$install_dir"
-      run_silent run_as_root rm -f "$installed_fullchain" "$installed_privkey"
-      run_silent run_as_root cp -Lf "$source_fullchain" "$installed_fullchain"
-      run_silent run_as_root cp -Lf "$source_privkey" "$installed_privkey"
-      run_silent run_as_root chmod 644 "$installed_fullchain"
-      run_silent run_as_root chmod 600 "$installed_privkey"
+      run_silent run_as_root mkdir -p "$install_dir" || return 1
+      run_silent run_as_root rm -f "$installed_fullchain" "$installed_privkey" || return 1
+      run_silent run_as_root cp -Lf "$source_fullchain" "$installed_fullchain" || return 1
+      run_silent run_as_root cp -Lf "$source_privkey" "$installed_privkey" || return 1
+      run_silent run_as_root chmod 644 "$installed_fullchain" || return 1
+      run_silent run_as_root chmod 600 "$installed_privkey" || return 1
       idx=$((idx + 1))
     done
 
-    write_nginx_site_config "ssl"
-    run_as_root nginx -t
-    run_as_root systemctl reload nginx
+    write_nginx_site_config "ssl" || return 1
+    run_as_root nginx -t || return 1
+    run_as_root systemctl reload nginx || return 1
     log "Nginx SSL configured."
     return 0
   fi
 
   if [[ ! -f "$MANUAL_CERT_FULLCHAIN_PATH" || ! -f "$MANUAL_CERT_PRIVKEY_PATH" ]]; then
-    fail "Manual certificate files were not found."
+    warn "Manual certificate files were not found."
+    return 1
   fi
 
-  run_silent run_as_root mkdir -p "$CERT_INSTALL_DIR"
-  run_silent run_as_root rm -f "$CERT_INSTALL_DIR/fullchain.pem" "$CERT_INSTALL_DIR/privkey.pem"
-  run_silent run_as_root cp -Lf "$MANUAL_CERT_FULLCHAIN_PATH" "$CERT_INSTALL_DIR/fullchain.pem"
-  run_silent run_as_root cp -Lf "$MANUAL_CERT_PRIVKEY_PATH" "$CERT_INSTALL_DIR/privkey.pem"
-  run_silent run_as_root chmod 644 "$CERT_INSTALL_DIR/fullchain.pem"
-  run_silent run_as_root chmod 600 "$CERT_INSTALL_DIR/privkey.pem"
+  run_silent run_as_root mkdir -p "$CERT_INSTALL_DIR" || return 1
+  run_silent run_as_root rm -f "$CERT_INSTALL_DIR/fullchain.pem" "$CERT_INSTALL_DIR/privkey.pem" || return 1
+  run_silent run_as_root cp -Lf "$MANUAL_CERT_FULLCHAIN_PATH" "$CERT_INSTALL_DIR/fullchain.pem" || return 1
+  run_silent run_as_root cp -Lf "$MANUAL_CERT_PRIVKEY_PATH" "$CERT_INSTALL_DIR/privkey.pem" || return 1
+  run_silent run_as_root chmod 644 "$CERT_INSTALL_DIR/fullchain.pem" || return 1
+  run_silent run_as_root chmod 600 "$CERT_INSTALL_DIR/privkey.pem" || return 1
 
-  install_ssl_files_into_nginx "$CERT_INSTALL_DIR/fullchain.pem" "$CERT_INSTALL_DIR/privkey.pem"
+  install_ssl_files_into_nginx "$CERT_INSTALL_DIR/fullchain.pem" "$CERT_INSTALL_DIR/privkey.pem" || return 1
 }
 
 install_lego_certificate_files() {
@@ -2039,31 +2116,41 @@ install_lego_certificate_files() {
   local issuer_file="${LEGO_STATE_DIR}/certificates/${cert_name}.issuer.crt"
   local key_file="${LEGO_STATE_DIR}/certificates/${cert_name}.key"
 
-  [[ -f "$cert_file" ]] || fail "lego certificate file not found: ${cert_file}"
-  [[ -f "$key_file" ]] || fail "lego private key file not found: ${key_file}"
+  if [[ ! -f "$cert_file" ]]; then
+    warn "lego certificate file not found: ${cert_file}"
+    return 1
+  fi
+  if [[ ! -f "$key_file" ]]; then
+    warn "lego private key file not found: ${key_file}"
+    return 1
+  fi
 
-  run_silent run_as_root mkdir -p "$CERT_INSTALL_DIR"
+  run_silent run_as_root mkdir -p "$CERT_INSTALL_DIR" || return 1
   run_silent run_as_root env CERT_FILE="$cert_file" ISSUER_FILE="$issuer_file" FULLCHAIN_FILE="$CERT_INSTALL_DIR/fullchain.pem" bash -lc '
     cat "$CERT_FILE" > "$FULLCHAIN_FILE"
     if [[ -f "$ISSUER_FILE" ]]; then
       cat "$ISSUER_FILE" >> "$FULLCHAIN_FILE"
     fi
   ' || {
-    fail "Unable to assemble fullchain.pem from lego certificate files."
+    warn "Unable to assemble fullchain.pem from lego certificate files."
+    return 1
   }
-  run_silent run_as_root cp -Lf "$key_file" "$CERT_INSTALL_DIR/privkey.pem"
-  run_silent run_as_root chmod 644 "$CERT_INSTALL_DIR/fullchain.pem"
-  run_silent run_as_root chmod 600 "$CERT_INSTALL_DIR/privkey.pem"
+  run_silent run_as_root cp -Lf "$key_file" "$CERT_INSTALL_DIR/privkey.pem" || return 1
+  run_silent run_as_root chmod 644 "$CERT_INSTALL_DIR/fullchain.pem" || return 1
+  run_silent run_as_root chmod 600 "$CERT_INSTALL_DIR/privkey.pem" || return 1
 
-  install_ssl_files_into_nginx "$CERT_INSTALL_DIR/fullchain.pem" "$CERT_INSTALL_DIR/privkey.pem"
+  install_ssl_files_into_nginx "$CERT_INSTALL_DIR/fullchain.pem" "$CERT_INSTALL_DIR/privkey.pem" || return 1
 }
 
 configure_lego_ip_ssl() {
-  [[ -n "$CERTBOT_IP_ADDRESS" ]] || fail "Missing public IP address for Certbot IP certificate setup."
+  if [[ -z "$CERTBOT_IP_ADDRESS" ]]; then
+    warn "Missing public IP address for Certbot IP certificate setup."
+    return 1
+  fi
 
-  ensure_lego_installed
-  run_silent run_as_root mkdir -p "$ACME_WEBROOT/.well-known/acme-challenge"
-  run_silent run_as_root mkdir -p "$LEGO_STATE_DIR"
+  ensure_lego_installed || return 1
+  run_silent run_as_root mkdir -p "$ACME_WEBROOT/.well-known/acme-challenge" || return 1
+  run_silent run_as_root mkdir -p "$LEGO_STATE_DIR" || return 1
 
   log "Requesting 6-day IP certificate for ${CERTBOT_IP_ADDRESS} with lego..."
   run_logged_quiet run_as_root "$LEGO_BIN" \
@@ -2080,15 +2167,18 @@ configure_lego_ip_ssl() {
       return 1
     }
 
-  install_lego_certificate_files "$CERTBOT_IP_ADDRESS"
-  configure_lego_renewal_timer
+  install_lego_certificate_files "$CERTBOT_IP_ADDRESS" || return 1
+  configure_lego_renewal_timer || return 1
   log "Nginx SSL configured for IP ${CERTBOT_IP_ADDRESS}."
 }
 
 configure_lego_renewal_timer() {
-  [[ -x "$LEGO_BIN" ]] || fail "lego binary not found at ${LEGO_BIN}."
+  if [[ ! -x "$LEGO_BIN" ]]; then
+    warn "lego binary not found at ${LEGO_BIN}."
+    return 1
+  fi
   log "Creating lego renewal service at ${LEGO_RENEW_SERVICE_FILE}..."
-  run_silent run_as_root tee "$LEGO_RENEW_SERVICE_FILE" >/dev/null <<EOF
+  if ! run_silent run_as_root tee "$LEGO_RENEW_SERVICE_FILE" >/dev/null <<EOF
 [Unit]
 Description=Renew Songbird IP certificate with lego
 After=network-online.target nginx.service
@@ -2104,9 +2194,12 @@ ExecStartPost=/bin/bash -lc 'cat "${LEGO_STATE_DIR}/certificates/${CERTBOT_IP_AD
 [Install]
 WantedBy=multi-user.target
 EOF
+  then
+    return 1
+  fi
 
   log "Creating lego renewal timer at ${LEGO_RENEW_TIMER_FILE}..."
-  run_silent run_as_root tee "$LEGO_RENEW_TIMER_FILE" >/dev/null <<EOF
+  if ! run_silent run_as_root tee "$LEGO_RENEW_TIMER_FILE" >/dev/null <<EOF
 [Unit]
 Description=Run Songbird lego renewal twice daily
 
@@ -2119,9 +2212,12 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 EOF
+  then
+    return 1
+  fi
 
-  run_as_root systemctl daemon-reload
-  run_as_root systemctl enable --now songbird-lego-renew.timer
+  run_as_root systemctl daemon-reload || return 1
+  run_as_root systemctl enable --now songbird-lego-renew.timer || return 1
 }
 
 configure_ssl_if_needed() {
@@ -2132,13 +2228,13 @@ configure_ssl_if_needed() {
       ;;
     files)
       log "Installing TLS certificate files into nginx..."
-      configure_manual_ssl_files
+      configure_manual_ssl_files || return 1
       return 0
       ;;
   esac
 
   if [[ "$DEPLOY_MODE" == "ip" ]]; then
-    configure_lego_ip_ssl
+    configure_lego_ip_ssl || return 1
     return 0
   fi
 
@@ -2187,9 +2283,9 @@ configure_ssl_if_needed() {
       "${certbot_d_args[@]}" || { log "ERROR: Certbot failed for group: $(group_csv_to_space_list "$domain_group_csv")"; return 1; }
   done
 
-  write_nginx_site_config "ssl"
-  run_as_root nginx -t
-  run_as_root systemctl reload nginx
+  write_nginx_site_config "ssl" || return 1
+  run_as_root nginx -t || return 1
+  run_as_root systemctl reload nginx || return 1
   log "Nginx SSL configured for domain groups: ${DOMAIN_GROUPS[*]}"
 }
 
@@ -2202,10 +2298,12 @@ restore_backup_if_provided() {
     return 1
   fi
   if ! have_cmd unzip; then
-    fail "unzip is required to restore backups. Install it first and retry."
+    warn "unzip is required to restore backups. Install it first and retry."
+    return 1
   fi
   if [[ ! -d "$INSTALL_DIR/server" ]]; then
-    fail "Server directory not found at ${INSTALL_DIR}/server. Cannot restore backup."
+    warn "Server directory not found at ${INSTALL_DIR}/server. Cannot restore backup."
+    return 1
   fi
 
   log "Restoring data from backup: $DB_BACKUP_PATH"
@@ -2235,7 +2333,8 @@ backup_database() {
   backup_password="$(prompt_secret "Backup password")"
   log "Backing up database before update..."
   if ! run_in_install_dir "npm --prefix server run db:backup -- --password $(printf '%q' "$backup_password")"; then
-    warn "DB backup command failed. Continuing, but verify backups manually."
+    warn "DB backup command failed. Update aborted."
+    return 1
   fi
 }
 
@@ -2266,7 +2365,7 @@ run_migrations() {
     return 0
   fi
   log "Running database migrations..."
-  run_in_install_dir "npm --prefix server run db:migrate"
+  run_in_install_dir "npm --prefix server run db:migrate" || return 1
 }
 
 update_nginx_runtime_values() {
@@ -2310,14 +2409,14 @@ rebuild_and_restart_after_settings_change() {
   local needs_nginx="${1:-no}"
   sync_values_from_env
   log "Rebuilding client after settings change..."
-  run_in_install_dir "npm --prefix client run build"
+  run_in_install_dir "npm --prefix client run build" || return 1
 
   log "Restarting Songbird service..."
-  run_as_root systemctl restart songbird.service
+  run_as_root systemctl restart songbird.service || return 1
 
   if [[ "$needs_nginx" == "yes" ]]; then
     log "Updating Nginx config for SERVER_PORT/CLIENT_PORT/MAX_UPLOAD_MB changes..."
-    update_nginx_runtime_values || warn "Nginx update failed. Review ${NGINX_SITE_FILE}."
+    update_nginx_runtime_values || return 1
   else
     log "Nginx update not required (SERVER_PORT/CLIENT_PORT/MAX_UPLOAD_MB unchanged)."
   fi
@@ -2326,7 +2425,7 @@ rebuild_and_restart_after_settings_change() {
 update_songbird() {
   if [[ -d "$INSTALL_DIR" ]]; then
     if [[ "$(prompt_yes_no "Create a database backup before updating?" "no")" == "yes" ]]; then
-      backup_database
+      backup_database || return 1
     else
       log "Skipping pre-update backup."
     fi
@@ -2343,7 +2442,7 @@ update_songbird() {
 
     local offline_zip_path="$SOURCE_ZIP_PATH"
     local extract_result=""
-    extract_result="$(extract_offline_source_zip "$offline_zip_path" "update")"
+    extract_result="$(extract_offline_source_zip "$offline_zip_path" "update")" || return 1
     local tmp_dir="${extract_result%%|*}"
     local source_root="${extract_result#*|}"
 
@@ -2358,16 +2457,16 @@ update_songbird() {
 
     log "Offline update available. Preparing to update Songbird..."
     preserve_backup_and_restore_data
-    update_source_from_zip "$offline_zip_path"
+    update_source_from_zip "$offline_zip_path" || return 1
 
     log "Installing dependencies..."
-    install_songbird_dependencies
-    ensure_vapid_keys
+    install_songbird_dependencies || return 1
+    ensure_vapid_keys || return 1
 
     log "Synchronizing database schema with latest version..."
-    run_migrations
+    run_migrations || return 1
 
-    apply_ownership
+    apply_ownership || return 1
     if install_global_command_from_path "$INSTALL_DIR/scripts/install.sh"; then
       log "Global command synchronized from updated install script."
     else
@@ -2375,8 +2474,8 @@ update_songbird() {
     fi
 
     log "Restarting Songbird service..."
-    run_as_root systemctl restart songbird.service
-    run_as_root systemctl reload nginx
+    run_as_root systemctl restart songbird.service || return 1
+    run_as_root systemctl reload nginx || return 1
 
     log "Update completed successfully."
     press_enter_to_continue
@@ -2435,13 +2534,13 @@ update_songbird() {
   fi
 
   log "Installing dependencies..."
-  install_songbird_dependencies
-  ensure_vapid_keys
+  install_songbird_dependencies || return 1
+  ensure_vapid_keys || return 1
   
   log "Synchronizing database schema with latest version..."
-  run_migrations
+  run_migrations || return 1
 
-  apply_ownership
+  apply_ownership || return 1
   if install_global_command_from_path "$INSTALL_DIR/scripts/install.sh"; then
     log "Global command synchronized from updated install script."
   else
@@ -2449,8 +2548,8 @@ update_songbird() {
   fi
 
   log "Restarting Songbird service..."
-  run_as_root systemctl restart songbird.service
-  run_as_root systemctl reload nginx
+  run_as_root systemctl restart songbird.service || return 1
+  run_as_root systemctl reload nginx || return 1
 
   log "Update completed successfully."
   press_enter_to_continue
@@ -2458,8 +2557,8 @@ update_songbird() {
 
 restart_songbird() {
   log "Restarting Songbird service..."
-  run_as_root systemctl restart songbird.service
-  run_as_root systemctl reload nginx
+  run_as_root systemctl restart songbird.service || return 1
+  run_as_root systemctl reload nginx || return 1
 
   log "Songbird restarted successfully."
   press_enter_to_continue
@@ -2568,9 +2667,9 @@ install_songbird() {
   prompt_source_mode
   collect_install_options
   prompt_install_backup_restore
-  install_required_packages
-  ensure_nodejs_from_nodesource
-  ensure_service_user_exists
+  install_required_packages || return 1
+  ensure_nodejs_from_nodesource || return 1
+  ensure_service_user_exists || return 1
   if [[ "$SOURCE_MODE" == "offline" ]]; then
     ensure_offline_source_ready "install" || return 0
     install_source_from_zip "$SOURCE_ZIP_PATH" || return 1
@@ -2581,8 +2680,8 @@ install_songbird() {
       return 1
     }
   fi
-  ensure_log_dir
-  write_full_env_with_defaults
+  ensure_log_dir || return 1
+  write_full_env_with_defaults || return 1
   RESTORE_BACKUP_QUIET="yes"
   if ! restore_backup_if_provided; then
     RESTORE_BACKUP_QUIET="no"
@@ -2591,14 +2690,14 @@ install_songbird() {
     return 1
   fi
   RESTORE_BACKUP_QUIET="no"
-  install_songbird_dependencies
-  ensure_vapid_keys
-  apply_ownership
-  configure_systemd_service
+  install_songbird_dependencies || return 1
+  ensure_vapid_keys || return 1
+  apply_ownership || return 1
+  configure_systemd_service || return 1
   log "Starting nginx setup..."
-  configure_nginx
+  configure_nginx || return 1
   log "Starting TLS setup..."
-  configure_ssl_if_needed
+  configure_ssl_if_needed || return 1
 
   log "Installation complete."
   log "Songbird has been installed successfully."
@@ -3442,15 +3541,15 @@ main() {
     show_menu
     prompt_read "Choose an option [0-9]: " choice
     case "$choice" in
-      1) install_songbird ;;
-      2) update_songbird ;;
-      3) restart_songbird ;;
-      4) edit_settings ;;
-      5) show_db_menu ;;
-      6) remove_songbird ;;
-      7) install_global_command ;;
-      8) configure_mirrors_menu ;;
-      9) show_logs_menu ;;
+      1) run_menu_action install_songbird ;;
+      2) run_menu_action update_songbird ;;
+      3) run_menu_action restart_songbird ;;
+      4) run_menu_action edit_settings ;;
+      5) run_menu_action show_db_menu ;;
+      6) run_menu_action remove_songbird ;;
+      7) run_menu_action install_global_command ;;
+      8) run_menu_action configure_mirrors_menu ;;
+      9) run_menu_action show_logs_menu ;;
       0) break ;;
       *) printf "Invalid choice. Select a number from 1 to 10.\n" ;;
     esac
