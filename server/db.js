@@ -1587,6 +1587,33 @@ export function deletePushSubscription(endpoint) {
   run("DELETE FROM push_subscriptions WHERE endpoint = ?", [safeEndpoint]);
 }
 
+export function getTotalUnreadCount(userId) {
+  const uid = Number(userId || 0);
+  if (!uid) return 0;
+  const row = getRow(
+    `SELECT COUNT(*) AS total
+     FROM (
+       SELECT c.id AS chat_id
+       FROM chats c
+       JOIN chat_members m ON m.chat_id = c.id AND m.user_id = ?
+       LEFT JOIN chat_mutes mu ON mu.chat_id = c.id AND mu.user_id = ? AND mu.muted = 1
+       LEFT JOIN hidden_chats h ON h.chat_id = c.id AND h.user_id = ?
+       WHERE h.chat_id IS NULL
+         AND mu.chat_id IS NULL
+     ) mc
+     JOIN chat_messages cm ON cm.chat_id = mc.chat_id
+     LEFT JOIN hidden_chat_messages hcm ON hcm.message_id = cm.id AND hcm.user_id = ?
+     LEFT JOIN chat_message_reads cmr ON cmr.message_id = cm.id AND cmr.user_id = ?
+     WHERE cm.body NOT LIKE '[[system:%]]'
+       AND cm.hidden_everyone_at IS NULL
+       AND hcm.message_id IS NULL
+       AND cm.user_id != ?
+       AND cmr.message_id IS NULL`,
+    [uid, uid, uid, uid, uid, uid],
+  );
+  return Number(row?.total || 0);
+}
+
 export function listPushSubscriptionsByUserIds(userIds = []) {
   const ids = Array.from(
     new Set(

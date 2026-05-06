@@ -2,6 +2,7 @@ export function createPushService({
   webpush,
   listPushSubscriptionsByUserIds,
   deletePushSubscription,
+  getTotalUnreadCount,
   vapid,
 }) {
   const VAPID_PUBLIC_KEY = String(vapid.publicKey || "").trim();
@@ -30,9 +31,25 @@ export function createPushService({
     if (!PUSH_ENABLED) return;
     const targets = listPushSubscriptionsByUserIds(userIds);
     if (!targets.length) return;
-    const body = JSON.stringify(payload || {});
+
+    const badgeByUserId = {};
+    for (const sub of targets) {
+      const uid = sub.user_id;
+      if (!(uid in badgeByUserId)) {
+        try {
+          badgeByUserId[uid] = getTotalUnreadCount
+            ? getTotalUnreadCount(uid)
+            : 1;
+        } catch {
+          badgeByUserId[uid] = 1;
+        }
+      }
+    }
+
     await Promise.all(
       targets.map(async (sub) => {
+        const badge = badgeByUserId[sub.user_id] ?? 1;
+        const perUserBody = JSON.stringify({ ...payload, badge });
         try {
           await webpush.sendNotification(
             {
@@ -42,11 +59,20 @@ export function createPushService({
                 auth: sub.auth || "",
               },
             },
-            body,
+            perUserBody,
+            { urgency: "high", TTL: 86400 },
           );
         } catch (error) {
           const status = Number(error?.statusCode || 0);
-          if (status === 404 || status === 410) {
+          const errBody = String(error?.body || "");
+          console.warn(
+            `[push] delivery failed endpoint=${sub.endpoint.slice(-24)} status=${status} body=${errBody.slice(0, 200)} err=${String(error?.message || error).slice(0, 120)}`,
+          );
+          const isGone =
+            status === 404 ||
+            status === 410 ||
+            (status === 400 && errBody.includes("VapidPkHashMismatch"));
+          if (isGone) {
             deletePushSubscription(sub.endpoint);
           }
         }

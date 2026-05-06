@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v0.9.1.1";
+const CACHE_VERSION = "v0.9.1.2";
 const CACHE_NAME = `songbird-${CACHE_VERSION}`;
 const APP_SHELL = [
   "/manifest.webmanifest",
@@ -112,13 +112,37 @@ self.addEventListener("push", (event) => {
   const title = payload.title || "Songbird";
   const body = payload.body || "New message";
   const data = payload.data || {};
+  const badgeCount = Number(payload.badge || 0);
+  const tag = data.chatId ? `chat-${data.chatId}` : "songbird";
   const options = {
     body,
     data,
+    tag,
+    renotify: true,
     badge: "/icons/icon-192.png",
     icon: "/icons/icon-192.png",
   };
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil(
+    (async () => {
+      const clients = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      const appVisible = clients.some((c) => c.visibilityState === "visible");
+      if (appVisible) {
+        // A visible tab exists — the in-app SSE notification handles this.
+        return;
+      }
+      try {
+        if (badgeCount > 0 && navigator?.setAppBadge) {
+          navigator.setAppBadge(badgeCount).catch(() => null);
+        }
+      } catch {
+        // ignore badge errors — must not affect notification delivery
+      }
+      await self.registration.showNotification(title, options);
+    })(),
+  );
 });
 
 self.addEventListener("notificationclick", (event) => {
