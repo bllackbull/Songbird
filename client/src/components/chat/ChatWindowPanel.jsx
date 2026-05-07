@@ -445,6 +445,9 @@ export default function ChatWindowPanel({
         }
         updateFloatingDayFromScroll(target);
       }
+      if (floatingDayLockByClickRef.current) {
+        return;
+      }
       if (
         !target ||
         !hasOlderMessages ||

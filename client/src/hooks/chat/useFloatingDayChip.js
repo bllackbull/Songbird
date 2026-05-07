@@ -7,11 +7,26 @@ export function useFloatingDayChip() {
   const floatingDayLockUntilRef = useRef(0);
   const floatingDayLockByClickRef = useRef(false);
   const floatingChipAlignTimerRef = useRef(null);
+  const floatingChipScrollFrameRef = useRef(null);
+  const floatingChipScrollTokenRef = useRef(0);
+
+  const cancelFloatingChipScroll = useCallback(() => {
+    floatingChipScrollTokenRef.current += 1;
+    if (floatingChipScrollFrameRef.current) {
+      cancelAnimationFrame(floatingChipScrollFrameRef.current);
+      floatingChipScrollFrameRef.current = null;
+    }
+    if (floatingChipAlignTimerRef.current) {
+      window.clearTimeout(floatingChipAlignTimerRef.current);
+      floatingChipAlignTimerRef.current = null;
+    }
+  }, []);
 
   const resetFloatingLocks = useCallback(() => {
+    cancelFloatingChipScroll();
     floatingDayLockByClickRef.current = false;
     floatingDayLockUntilRef.current = 0;
-  }, []);
+  }, [cancelFloatingChipScroll]);
 
   const updateFloatingDayFromScroll = useCallback((target) => {
     if (!target) return;
@@ -59,83 +74,100 @@ export function useFloatingDayChip() {
       const floatingChip = event.currentTarget;
       const currentKey = floatingDay.key;
       const currentLabel = floatingDay.label;
+      cancelFloatingChipScroll();
+      const scrollToken = floatingChipScrollTokenRef.current + 1;
+      floatingChipScrollTokenRef.current = scrollToken;
+
       floatingDayLockByClickRef.current = true;
       floatingDayLockUntilRef.current = Date.now() + 1800;
       setFloatingDay({ key: currentKey, label: currentLabel });
-      if (floatingChipAlignTimerRef.current) {
-        window.clearTimeout(floatingChipAlignTimerRef.current);
-        floatingChipAlignTimerRef.current = null;
-      }
-
-      const stickyChip = node.querySelector("[data-day-chip]")?.parentElement || node;
-      const floatingRect = floatingChip.getBoundingClientRect();
-      const stickyRect = stickyChip.getBoundingClientRect();
       // Device-specific alignment nudge tuned to match visual chip overlap.
       const alignOffsetPx = isDesktop ? 0 : -1;
-      const desiredStickyTopInViewport = floatingRect.top + alignOffsetPx;
-      const delta = stickyRect.top - desiredStickyTopInViewport;
-      const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-      const nextTargetTop = Math.max(
-        0,
-        Math.min(maxTop, scroller.scrollTop + delta),
-      );
 
-      const distance = Math.abs(nextTargetTop - scroller.scrollTop);
-      scroller.scrollTo({
-        top: nextTargetTop,
-        behavior: distance > 1 ? "smooth" : "auto",
-      });
+      const getAlignedScrollTop = () => {
+        const stickyChip =
+          node.querySelector("[data-day-chip]")?.parentElement || node;
+        const floatingRect = floatingChip.getBoundingClientRect();
+        const stickyRect = stickyChip.getBoundingClientRect();
+        const desiredStickyTopInViewport = floatingRect.top + alignOffsetPx;
+        const delta = stickyRect.top - desiredStickyTopInViewport;
+        const maxTop = Math.max(
+          0,
+          scroller.scrollHeight - scroller.clientHeight,
+        );
+        return Math.max(0, Math.min(maxTop, scroller.scrollTop + delta));
+      };
+
+      const nextTargetTop = getAlignedScrollTop();
+      const startTop = scroller.scrollTop;
+      const distance = Math.abs(nextTargetTop - startTop);
+      const durationMs = Math.min(520, Math.max(180, distance * 0.14));
+      const releaseDelayMs = durationMs + 80;
 
       const runFinalAlign = (releaseLock = false) => {
-        const nextStickyChip =
-          node.querySelector("[data-day-chip]")?.parentElement || node;
-        const nextStickyRect = nextStickyChip.getBoundingClientRect();
-        const nextFloatingRect = floatingChip.getBoundingClientRect();
-        const nextDesiredTop = nextFloatingRect.top + alignOffsetPx;
-        const nextDelta = nextStickyRect.top - nextDesiredTop;
-        if (Math.abs(nextDelta) > 0.5) {
-          const finalMaxTop = Math.max(
-            0,
-            scroller.scrollHeight - scroller.clientHeight,
-          );
-          const finalTop = Math.max(
-            0,
-            Math.min(finalMaxTop, scroller.scrollTop + nextDelta),
-          );
+        if (floatingChipScrollTokenRef.current !== scrollToken) return;
+        const finalTop = getAlignedScrollTop();
+        if (Math.abs(finalTop - scroller.scrollTop) > 0.5) {
           scroller.scrollTo({ top: finalTop, behavior: "auto" });
         }
+        floatingChipScrollFrameRef.current = null;
         if (releaseLock) {
           floatingDayLockByClickRef.current = false;
           floatingDayLockUntilRef.current = Date.now() + 120;
         }
       };
 
-      if (isDesktop) {
-        // Desktop: no post-correction jump; just unlock after smooth scroll finishes.
-        floatingChipAlignTimerRef.current = window.setTimeout(() => {
-          floatingDayLockByClickRef.current = false;
-          floatingDayLockUntilRef.current = Date.now() + 120;
-          floatingChipAlignTimerRef.current = null;
-        }, 420);
-      } else {
-        // Mobile: one final correction removes the tiny residual offset.
+      if (distance <= 1) {
+        scroller.scrollTo({ top: nextTargetTop, behavior: "auto" });
         floatingChipAlignTimerRef.current = window.setTimeout(() => {
           runFinalAlign(true);
           floatingChipAlignTimerRef.current = null;
-        }, 380);
+        }, 80);
+        return;
       }
+
+      const startTime = performance.now();
+      const easeOutCubic = (progress) => 1 - Math.pow(1 - progress, 3);
+      const step = (now) => {
+        if (floatingChipScrollTokenRef.current !== scrollToken) return;
+        const elapsed = now - startTime;
+        const progress = Math.min(1, elapsed / durationMs);
+        scroller.scrollTop =
+          startTop + (nextTargetTop - startTop) * easeOutCubic(progress);
+        if (progress < 1) {
+          floatingChipScrollFrameRef.current = requestAnimationFrame(step);
+          return;
+        }
+        runFinalAlign(false);
+      };
+      floatingChipScrollFrameRef.current = requestAnimationFrame(step);
+
+      floatingChipAlignTimerRef.current = window.setTimeout(() => {
+        runFinalAlign(true);
+        floatingChipAlignTimerRef.current = null;
+      }, releaseDelayMs);
+
+      /*
+       * This second measurement catches late layout changes from media without
+       * letting a previous animation continue toward an old offset.
+       */
+      window.setTimeout(() => {
+        if (
+          floatingChipScrollTokenRef.current === scrollToken &&
+          Date.now() < Number(floatingDayLockUntilRef.current || 0)
+        ) {
+          runFinalAlign(false);
+        }
+      }, releaseDelayMs + 160);
     },
-    [],
+    [cancelFloatingChipScroll],
   );
 
   useEffect(() => {
     return () => {
-      if (floatingChipAlignTimerRef.current) {
-        window.clearTimeout(floatingChipAlignTimerRef.current);
-        floatingChipAlignTimerRef.current = null;
-      }
+      cancelFloatingChipScroll();
     };
-  }, []);
+  }, [cancelFloatingChipScroll]);
 
   return {
     floatingDay,
