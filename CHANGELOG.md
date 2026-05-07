@@ -1,45 +1,26 @@
-## 0.9.1
+## 0.9.2
 
-- 🔧 UI bug fixes
-- 💨 Client-side loading optimization
-
-### Support
-Your supports keeps this project alive. Consider supporting the project if you enjoy it:
-
-TRX:
-
-```
-TPf1bEhipKpGkjo5N2Scj9nufNNh5TNrwX
-```
-
-USDT (TRC20):
-
-```
-0x63313383611BbE11f4fEc139c14ad0b70281b822
-```
-
-BTC:
-
-```
-bc1q9hupvcc39juhf0k7rgzn6phn8s8jez365kzmuj
-```
-
-TON:
-
-```
-UQDzQ3xbWzKQvw8X8sWU82dksBeYqTHrT9sLzhBOyaESPjVy
-```
-
+- ✨ Chat window build animations
+- 🔔 Push Notification system improvements
+- 🎨 UI/UX improvements
+- 📥 Installer script UI improvements
+- 🐋 TLS support using self-signed SSL certs in Docker
+- 🔧 Bug fixes
 
 **⏺️ If you encountered any problem, don't forget to submit an issue on Songbird github repository.**
 
 **⭐ Don't forget to give a star to Songbird github repository!**
 
-🕊️ [Songbird main server](https://chat.pouyakhalili.ir/invite/c592b42783ba50a9833f6f4e15c5126a01b4f512242b5921)
+🕊️ [Songbird main server](https://chat.songbird.website/invite/c592b42783ba50a9833f6f4e15c5126a01b4f512242b5921)
 
 📢 [Songbird Telegram channel](https://t.me/songbirdapp)
 
 🌐 [Songbird Github repository](https://github.com/bllackbull/Songbird)
+
+## 0.9.1
+
+- 🔧 UI bug fixes
+- 💨 Client-side loading optimization
 
 ## 0.9.0
 
