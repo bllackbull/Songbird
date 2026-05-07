@@ -113,6 +113,7 @@ CERTBOT_IP_ADDRESS=""
 MANUAL_CERT_FULLCHAIN_PATH=""
 MANUAL_CERT_PRIVKEY_PATH=""
 NODE_EXEC_PATH=""
+NPM_EXEC_PATH=""
 SKIP_CLEAR_ON_EXIT="0"
 MENU_ACTION_PAUSED="0"
 
@@ -530,14 +531,26 @@ run_as_root_output() {
 }
 
 run_in_install_dir() {
-  run_silent run_as_root bash -lc "cd '$INSTALL_DIR' && $*"
+  local path_prefix=""
+  local path_export=""
+  path_prefix="$(node_tools_path_prefix)"
+  if [[ -n "$path_prefix" ]]; then
+    path_export="export PATH=$(printf '%q' "$path_prefix"):\$PATH; "
+  fi
+  run_silent run_as_root bash -lc "cd '$INSTALL_DIR' && ${path_export}$*"
 }
 
 run_in_install_dir_output() {
+  local path_prefix=""
+  local path_export=""
+  path_prefix="$(node_tools_path_prefix)"
+  if [[ -n "$path_prefix" ]]; then
+    path_export="export PATH=$(printf '%q' "$path_prefix"):\$PATH; "
+  fi
   if [[ -n "$SUDO" ]]; then
-    $SUDO bash -lc "cd '$INSTALL_DIR' && $*"
+    $SUDO bash -lc "cd '$INSTALL_DIR' && ${path_export}$*"
   else
-    bash -lc "cd '$INSTALL_DIR' && $*"
+    bash -lc "cd '$INSTALL_DIR' && ${path_export}$*"
   fi
 }
 
@@ -565,14 +578,14 @@ init_prompt_io() {
 }
 
 prompt_read() {
-  local prompt="$1"
-  local __result_var="$2"
-  local input=""
-  printf "%s" "$prompt" >&$PROMPT_FD_OUT
-  if ! IFS= read -r -u "$PROMPT_FD" input; then
-    input=""
+  local __prompt_text="$1"
+  local __prompt_result_var="$2"
+  local __prompt_value=""
+  printf "%s" "$__prompt_text" >&$PROMPT_FD_OUT
+  if ! IFS= read -r -u "$PROMPT_FD" __prompt_value; then
+    __prompt_value=""
   fi
-  printf -v "$__result_var" "%s" "$input"
+  printf -v "$__prompt_result_var" "%s" "$__prompt_value"
 }
 
 prompt_non_empty() {
@@ -1178,6 +1191,11 @@ resolve_node_exec_path() {
     node_path="$(command -v node)"
   elif have_cmd nodejs; then
     node_path="$(command -v nodejs)"
+  elif [[ -f "$SERVICE_FILE" ]]; then
+    node_path="$(grep -E '^ExecStart=' "$SERVICE_FILE" | head -n 1 | sed -E 's/^ExecStart=([^[:space:]]+).*/\1/' || true)"
+    if [[ ! -x "$node_path" ]]; then
+      node_path=""
+    fi
   fi
 
   if [[ -z "$node_path" ]]; then
@@ -1187,6 +1205,76 @@ resolve_node_exec_path() {
 
   NODE_EXEC_PATH="$node_path"
   log "Using Node.js executable for systemd service: ${NODE_EXEC_PATH}"
+}
+
+resolve_npm_exec_path() {
+  local npm_path=""
+  if have_cmd npm; then
+    npm_path="$(command -v npm)"
+  fi
+
+  if [[ -z "$npm_path" && -z "$NODE_EXEC_PATH" ]]; then
+    resolve_node_exec_path >/dev/null 2>&1 || true
+  fi
+
+  if [[ -z "$npm_path" && -n "$NODE_EXEC_PATH" && -x "$(dirname "$NODE_EXEC_PATH")/npm" ]]; then
+    npm_path="$(dirname "$NODE_EXEC_PATH")/npm"
+  elif [[ -z "$npm_path" && -x /usr/bin/npm ]]; then
+    npm_path="/usr/bin/npm"
+  elif [[ -z "$npm_path" && -x /usr/local/bin/npm ]]; then
+    npm_path="/usr/local/bin/npm"
+  fi
+
+  if [[ -z "$npm_path" ]]; then
+    warn "npm executable not found. Install Node.js/npm or rerun the install/update flow."
+    return 1
+  fi
+
+  NPM_EXEC_PATH="$npm_path"
+}
+
+node_tools_path_prefix() {
+  local dirs=()
+  local dir=""
+  local existing=""
+
+  if [[ -z "$NODE_EXEC_PATH" ]]; then
+    resolve_node_exec_path >/dev/null 2>&1 || true
+  fi
+  if [[ -z "$NPM_EXEC_PATH" ]]; then
+    resolve_npm_exec_path >/dev/null 2>&1 || true
+  fi
+
+  if [[ -n "$NODE_EXEC_PATH" ]]; then
+    dir="$(dirname "$NODE_EXEC_PATH")"
+    [[ -d "$dir" ]] && dirs+=("$dir")
+  fi
+  if [[ -n "$NPM_EXEC_PATH" ]]; then
+    dir="$(dirname "$NPM_EXEC_PATH")"
+    [[ -d "$dir" ]] && dirs+=("$dir")
+  fi
+
+  local unique=()
+  for dir in "${dirs[@]}"; do
+    local seen="no"
+    for existing in "${unique[@]}"; do
+      if [[ "$existing" == "$dir" ]]; then
+        seen="yes"
+        break
+      fi
+    done
+    [[ "$seen" == "no" ]] && unique+=("$dir")
+  done
+
+  local prefix=""
+  for dir in "${unique[@]}"; do
+    if [[ -z "$prefix" ]]; then
+      prefix="$dir"
+    else
+      prefix="${prefix}:${dir}"
+    fi
+  done
+  printf "%s" "$prefix"
 }
 
 
@@ -1729,7 +1817,13 @@ ensure_vapid_keys() {
   fi
   log "Generating VAPID keys..."
   local keys
-  keys="$(run_as_root_output bash -lc "cd '$INSTALL_DIR/server' && node --input-type=module -e \"import pkg from 'web-push'; const { generateVAPIDKeys } = pkg; const k = generateVAPIDKeys(); console.log(k.publicKey); console.log(k.privateKey);\"")" || {
+  local path_prefix=""
+  local path_export=""
+  path_prefix="$(node_tools_path_prefix)"
+  if [[ -n "$path_prefix" ]]; then
+    path_export="export PATH=$(printf '%q' "$path_prefix"):\$PATH; "
+  fi
+  keys="$(run_as_root_output bash -lc "cd '$INSTALL_DIR/server' && ${path_export}node --input-type=module -e \"import pkg from 'web-push'; const { generateVAPIDKeys } = pkg; const k = generateVAPIDKeys(); console.log(k.publicKey); console.log(k.privateKey);\"")" || {
     warn "Failed to generate VAPID keys. Make sure server dependencies are installed."
     return 1
   }
@@ -3148,20 +3242,40 @@ run_db_command() {
   local args=("$@")
   local escaped=""
   local part=""
+  local path_prefix=""
+  local path_export=""
+  if [[ "${args[0]:-}" == "npm" ]]; then
+    resolve_npm_exec_path || return 1
+    args[0]="$NPM_EXEC_PATH"
+  fi
+  path_prefix="$(node_tools_path_prefix)"
+  if [[ -n "$path_prefix" ]]; then
+    path_export="export PATH=$(printf '%q' "$path_prefix"):\$PATH; "
+  fi
   for part in "${args[@]}"; do
     escaped+=" $(printf '%q' "$part")"
   done
-  run_as_root bash -lc "cd '$INSTALL_DIR' && ${escaped:1} </dev/null"
+  run_as_root bash -lc "cd '$INSTALL_DIR' && ${path_export}${escaped:1} </dev/null"
 }
 
 run_db_command_logged_quiet() {
   local args=("$@")
   local escaped=""
   local part=""
+  local path_prefix=""
+  local path_export=""
+  if [[ "${args[0]:-}" == "npm" ]]; then
+    resolve_npm_exec_path || return 1
+    args[0]="$NPM_EXEC_PATH"
+  fi
+  path_prefix="$(node_tools_path_prefix)"
+  if [[ -n "$path_prefix" ]]; then
+    path_export="export PATH=$(printf '%q' "$path_prefix"):\$PATH; "
+  fi
   for part in "${args[@]}"; do
     escaped+=" $(printf '%q' "$part")"
   done
-  run_logged_quiet run_as_root bash -lc "cd '$INSTALL_DIR' && ${escaped:1} </dev/null"
+  run_logged_quiet run_as_root bash -lc "cd '$INSTALL_DIR' && ${path_export}${escaped:1} </dev/null"
 }
 
 split_db_selector_input() {
@@ -3181,8 +3295,13 @@ split_db_selector_input() {
 resolve_chat_visibility_for_script() {
   local chat_selector="$1"
   [[ -n "$chat_selector" ]] || return 1
+  local path_prefix=""
+  path_prefix="$(node_tools_path_prefix)"
 
-  run_as_root env INSTALL_DIR="$INSTALL_DIR" CHAT_SELECTOR="$chat_selector" bash -lc '
+  run_as_root env INSTALL_DIR="$INSTALL_DIR" CHAT_SELECTOR="$chat_selector" NODE_TOOLS_PATH_PREFIX="$path_prefix" bash -lc '
+    if [[ -n "$NODE_TOOLS_PATH_PREFIX" ]]; then
+      export PATH="$NODE_TOOLS_PATH_PREFIX:$PATH"
+    fi
     cd "$INSTALL_DIR" || exit 1
     node --input-type=module -e "
       import { pathToFileURL } from \"node:url\";
