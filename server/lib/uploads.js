@@ -1,3 +1,5 @@
+import rateLimit from "express-rate-limit";
+
 export function createUploadTools({
   fs,
   path,
@@ -67,6 +69,13 @@ export function createUploadTools({
     "image/webp",
     "image/bmp",
   ]);
+
+  const uploadDownloadLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 1000,
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
 
   if (!fs.existsSync(uploadRootDir)) {
     fs.mkdirSync(uploadRootDir, { recursive: true });
@@ -298,87 +307,95 @@ export function createUploadTools({
   };
 
   const registerUploadRoutes = (app, { adminGetRow }) => {
-    app.get("/api/uploads/messages/:storedName", (req, res) => {
-      const storedName = path.basename(
-        String(req.params?.storedName || "").trim(),
-      );
-      if (!storedName) return res.status(404).end();
-
-      const filePath = path.join(uploadRootDir, storedName);
-      if (!fs.existsSync(filePath)) return res.status(404).end();
-
-      const row = adminGetRow(
-        "SELECT original_name, mime_type FROM chat_message_files WHERE stored_name = ?",
-        [storedName],
-      );
-      const originalName = buildDownloadFilename(row?.original_name);
-      const fallbackName = buildAsciiFallbackFilename(originalName);
-      const mimeType = String(row?.mime_type || "").trim();
-      const ext = path.extname(storedName).toLowerCase();
-
-      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-      res.setHeader("Vary", "Accept-Encoding");
-      res.setHeader("X-Content-Type-Options", "nosniff");
-
-      if (mimeType) {
-        res.type(mimeType);
-      }
-
-      const forceDownload =
-        String(req.query?.download || "").toLowerCase() === "1" ||
-        String(req.query?.download || "").toLowerCase() === "true";
-      if (forceDownload || !SAFE_INLINE_MESSAGE_EXTENSIONS.has(ext)) {
-        const encoded = encodeURIComponent(originalName);
-        res.setHeader(
-          "Content-Disposition",
-          `attachment; filename="${fallbackName}"; filename*=UTF-8''${encoded}`,
+    app.get(
+      "/api/uploads/messages/:storedName",
+      uploadDownloadLimiter,
+      (req, res) => {
+        const storedName = path.basename(
+          String(req.params?.storedName || "").trim(),
         );
-      }
+        if (!storedName) return res.status(404).end();
 
-      const fileBuffer = storageEncryption.decryptFileToBuffer(filePath);
-      if (!fileBuffer) return res.status(404).end();
+        const filePath = path.join(uploadRootDir, storedName);
+        if (!fs.existsSync(filePath)) return res.status(404).end();
 
-      return res.send(fileBuffer);
-    });
+        const row = adminGetRow(
+          "SELECT original_name, mime_type FROM chat_message_files WHERE stored_name = ?",
+          [storedName],
+        );
+        const originalName = buildDownloadFilename(row?.original_name);
+        const fallbackName = buildAsciiFallbackFilename(originalName);
+        const mimeType = String(row?.mime_type || "").trim();
+        const ext = path.extname(storedName).toLowerCase();
 
-    app.get("/api/uploads/avatars/:storedName", (req, res) => {
-      const storedName = path.basename(
-        String(req.params?.storedName || "").trim(),
-      );
-      if (!storedName) return res.status(404).end();
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        res.setHeader("Vary", "Accept-Encoding");
+        res.setHeader("X-Content-Type-Options", "nosniff");
 
-      const filePath = path.join(avatarUploadRootDir, storedName);
-      if (!fs.existsSync(filePath)) return res.status(404).end();
+        if (mimeType) {
+          res.type(mimeType);
+        }
 
-      const fileBuffer = storageEncryption.decryptFileToBuffer(filePath);
-      if (!fileBuffer) return res.status(404).end();
+        const forceDownload =
+          String(req.query?.download || "").toLowerCase() === "1" ||
+          String(req.query?.download || "").toLowerCase() === "true";
+        if (forceDownload || !SAFE_INLINE_MESSAGE_EXTENSIONS.has(ext)) {
+          const encoded = encodeURIComponent(originalName);
+          res.setHeader(
+            "Content-Disposition",
+            `attachment; filename="${fallbackName}"; filename*=UTF-8''${encoded}`,
+          );
+        }
 
-      const stat = fs.statSync(filePath);
-      const etag = `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
-      const ifNoneMatch = String(req.headers?.["if-none-match"] || "");
-      const ifModifiedSince = String(req.headers?.["if-modified-since"] || "");
-      const modifiedSinceMs = ifModifiedSince
-        ? Date.parse(ifModifiedSince)
-        : NaN;
+        const fileBuffer = storageEncryption.decryptFileToBuffer(filePath);
+        if (!fileBuffer) return res.status(404).end();
 
-      res.setHeader("Cache-Control", "public, max-age=2592000");
-      res.setHeader("Vary", "Accept-Encoding");
-      res.setHeader("X-Content-Type-Options", "nosniff");
-      res.setHeader("ETag", etag);
-      res.setHeader("Last-Modified", stat.mtime.toUTCString());
-      res.type(inferMimeFromFilename(storedName) || "application/octet-stream");
+        return res.send(fileBuffer);
+      },
+    );
 
-      if (
-        ifNoneMatch === etag ||
-        (!ifNoneMatch &&
-          Number.isFinite(modifiedSinceMs) &&
-          stat.mtime.getTime() <= modifiedSinceMs)
-      ) {
-        return res.status(304).end();
-      }
+    app.get(
+      "/api/uploads/avatars/:storedName",
+      uploadDownloadLimiter,
+      (req, res) => {
+        const storedName = path.basename(
+          String(req.params?.storedName || "").trim(),
+        );
+        if (!storedName) return res.status(404).end();
 
-      return res.send(fileBuffer);
-    });
+        const filePath = path.join(avatarUploadRootDir, storedName);
+        if (!fs.existsSync(filePath)) return res.status(404).end();
+
+        const fileBuffer = storageEncryption.decryptFileToBuffer(filePath);
+        if (!fileBuffer) return res.status(404).end();
+
+        const stat = fs.statSync(filePath);
+        const etag = `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
+        const ifNoneMatch = String(req.headers?.["if-none-match"] || "");
+        const ifModifiedSince = String(req.headers?.["if-modified-since"] || "");
+        const modifiedSinceMs = ifModifiedSince
+          ? Date.parse(ifModifiedSince)
+          : NaN;
+
+        res.setHeader("Cache-Control", "public, max-age=2592000");
+        res.setHeader("Vary", "Accept-Encoding");
+        res.setHeader("X-Content-Type-Options", "nosniff");
+        res.setHeader("ETag", etag);
+        res.setHeader("Last-Modified", stat.mtime.toUTCString());
+        res.type(inferMimeFromFilename(storedName) || "application/octet-stream");
+
+        if (
+          ifNoneMatch === etag ||
+          (!ifNoneMatch &&
+            Number.isFinite(modifiedSinceMs) &&
+            stat.mtime.getTime() <= modifiedSinceMs)
+        ) {
+          return res.status(304).end();
+        }
+
+        return res.send(fileBuffer);
+      },
+    );
   };
 
   return {
