@@ -13,7 +13,9 @@ const clampEnvInt = (value, fallback, { min, max } = {}) => {
   return intValue
 }
 const readEnvValue = (...keys) =>
-  keys.find((key) => process.env[key] !== undefined && process.env[key] !== null && process.env[key] !== '')
+  keys
+    .map((key) => process.env[key])
+    .find((value) => value !== undefined && value !== null && value !== '')
 const USERNAME_MAX = clampEnvInt(readEnvValue('USERNAME_MAX_CHARS', 'USERNAME_MAX'), 16, { min: 3, max: 32 })
 const NICKNAME_MAX = clampEnvInt(readEnvValue('NICKNAME_MAX_CHARS', 'NICKNAME_MAX'), 24, { min: 3, max: 64 })
 
