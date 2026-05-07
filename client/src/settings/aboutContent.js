@@ -20,7 +20,7 @@ export const ABOUT_CONTENT = {
   supportIntro:
     "If Songbird is useful to you, you can support ongoing development with these wallets:",
   donationLink: {
-    href: "https://nowpayments.io/donation?api_key=0b61dd3e-6508-4849-ad92-1dde65442937",
+    href: "https://nowpayments.io/donation/blackbull",
     title: "NOWPAYMENTS",
     description: "Donate with any currency",
     buttonLabel: "Support",

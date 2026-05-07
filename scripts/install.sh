@@ -72,7 +72,7 @@ GLOBAL_COMMAND_PATH="/usr/local/bin/songbird-deploy"
 SONGBIRD_SOCIAL_GITHUB="https://github.com/bllackbull/Songbird"
 SONGBIRD_SOCIAL_TELEGRAM="https://t.me/songbirdapp"
 SONGBIRD_SOCIAL_WEBSITE="https://chat.songbird.website/invite/c592b42783ba50a9833f6f4e15c5126a01b4f512242b5921"
-SONGBIRD_NOWPAYMENTS="https://nowpayments.io/donation?api_key=0b61dd3e-6508-4849-ad92-1dde65442937"
+SONGBIRD_NOWPAYMENTS="https://nowpayments.io/donation/blackbull"
 
 # Mirror URLs
 MIRROR_NODESOURCE="${MIRROR_NODESOURCE:-}"
@@ -416,7 +416,7 @@ show_deployment_success_frame() {
   lines+=("GitHub: ${SONGBIRD_SOCIAL_GITHUB}")
   lines+=("Telegram: ${SONGBIRD_SOCIAL_TELEGRAM}")
   lines+=("Main Server Channel: ${SONGBIRD_SOCIAL_WEBSITE}")
-  lines+=("NOWPayments: ${SONGBIRD_NOWPAYMENTS}")
+  lines+=("Support: ${SONGBIRD_NOWPAYMENTS}")
 
   print_success_frame "$title" "${lines[@]}"
 }
