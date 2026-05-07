@@ -44,6 +44,7 @@ function registerChatRoutes(app, deps) {
     searchPublicGroups,
     searchPublicChannels,
     setChatMuted,
+    storageEncryption,
     updateGroupChat,
     updateChannelChat,
     unhideChat,
@@ -975,6 +976,15 @@ function registerChatRoutes(app, deps) {
       }
 
       const avatarUrl = `/api/uploads/avatars/${file.filename}`;
+      try {
+        storageEncryption.encryptFileInPlace(file.path);
+      } catch {
+        removeUploadedFiles([file], avatarUploadRootDir);
+        return res
+          .status(500)
+          .json({ error: "Unable to store avatar securely." });
+      }
+
       if (String(chat.group_avatar_url || "").trim() && chat.group_avatar_url !== avatarUrl) {
         removeAvatarByUrl(chat.group_avatar_url);
       }

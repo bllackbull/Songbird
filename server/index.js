@@ -411,10 +411,24 @@ function backfillStorageEncryption() {
       }
     });
 
-    if (encryptedMessages > 0 || encryptedFiles > 0) {
+    let encryptedAvatars = 0;
+    if (fs.existsSync(avatarUploadRootDir)) {
+      fs.readdirSync(avatarUploadRootDir, { withFileTypes: true }).forEach(
+        (entry) => {
+          if (!entry.isFile()) return;
+
+          const filePath = path.join(avatarUploadRootDir, entry.name);
+          if (storageEncryption.encryptFileInPlace(filePath)) {
+            encryptedAvatars += 1;
+          }
+        },
+      );
+    }
+
+    if (encryptedMessages > 0 || encryptedFiles > 0 || encryptedAvatars > 0) {
       adminSave();
       console.log(
-        `[storage-encryption] encrypted ${encryptedMessages} message(s) and ${encryptedFiles} file(s) at rest.`,
+        `[storage-encryption] encrypted ${encryptedMessages} message(s), ${encryptedFiles} file(s), and ${encryptedAvatars} avatar file(s) at rest.`,
       );
     }
   } catch (error) {
@@ -424,13 +438,7 @@ function backfillStorageEncryption() {
   }
 }
 
-registerUploadRoutes(app, { express, adminGetRow });
-
-
-
-
-
-
+registerUploadRoutes(app, { adminGetRow });
 
 const apiDeps = {
   ALLOWED_AVATAR_MIME_TYPES,

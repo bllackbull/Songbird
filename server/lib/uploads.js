@@ -297,7 +297,7 @@ export function createUploadTools({
     );
   };
 
-  const registerUploadRoutes = (app, { express, adminGetRow }) => {
+  const registerUploadRoutes = (app, { adminGetRow }) => {
     app.get("/api/uploads/messages/:storedName", (req, res) => {
       const storedName = path.basename(
         String(req.params?.storedName || "").trim(),
@@ -341,19 +341,44 @@ export function createUploadTools({
       return res.send(fileBuffer);
     });
 
-    app.use(
-      "/api/uploads/avatars",
-      express.static(avatarUploadRootDir, {
-        etag: true,
-        lastModified: true,
-        maxAge: "30d",
-        setHeaders: (res) => {
-          res.setHeader("Cache-Control", "public, max-age=2592000");
-          res.setHeader("Vary", "Accept-Encoding");
-          res.setHeader("X-Content-Type-Options", "nosniff");
-        },
-      }),
-    );
+    app.get("/api/uploads/avatars/:storedName", (req, res) => {
+      const storedName = path.basename(
+        String(req.params?.storedName || "").trim(),
+      );
+      if (!storedName) return res.status(404).end();
+
+      const filePath = path.join(avatarUploadRootDir, storedName);
+      if (!fs.existsSync(filePath)) return res.status(404).end();
+
+      const fileBuffer = storageEncryption.decryptFileToBuffer(filePath);
+      if (!fileBuffer) return res.status(404).end();
+
+      const stat = fs.statSync(filePath);
+      const etag = `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
+      const ifNoneMatch = String(req.headers?.["if-none-match"] || "");
+      const ifModifiedSince = String(req.headers?.["if-modified-since"] || "");
+      const modifiedSinceMs = ifModifiedSince
+        ? Date.parse(ifModifiedSince)
+        : NaN;
+
+      res.setHeader("Cache-Control", "public, max-age=2592000");
+      res.setHeader("Vary", "Accept-Encoding");
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("ETag", etag);
+      res.setHeader("Last-Modified", stat.mtime.toUTCString());
+      res.type(inferMimeFromFilename(storedName) || "application/octet-stream");
+
+      if (
+        ifNoneMatch === etag ||
+        (!ifNoneMatch &&
+          Number.isFinite(modifiedSinceMs) &&
+          stat.mtime.getTime() <= modifiedSinceMs)
+      ) {
+        return res.status(304).end();
+      }
+
+      return res.send(fileBuffer);
+    });
   };
 
   return {

@@ -27,6 +27,7 @@ function registerProfileRoutes(app, deps) {
     removeUploadedFiles,
     requireSession,
     requireSessionUsernameMatch,
+    storageEncryption,
     updateUserPassword,
     updateUserProfile,
     updateUserStatus,
@@ -248,6 +249,15 @@ function registerProfileRoutes(app, deps) {
     }
 
     const avatarUrl = `/api/uploads/avatars/${file.filename}`;
+    try {
+      storageEncryption.encryptFileInPlace(file.path);
+    } catch {
+      removeUploadedFiles([file], avatarUploadRootDir);
+      return res
+        .status(500)
+        .json({ error: "Unable to store avatar securely." });
+    }
+
     if (String(user.avatar_url || "").trim() && user.avatar_url !== avatarUrl) {
       removeAvatarByUrl(user.avatar_url);
     }
