@@ -429,25 +429,9 @@ export default function ChatWindowPanel({
   ]);
 
   const startReachedLockRef = useRef(false);
-  const handlePanelScroll = useCallback(
-    (event) => {
-      onChatScroll?.(event);
-      const target = event?.currentTarget;
-      if (target) {
-        const isNearBottom =
-          target.scrollHeight - (target.scrollTop + target.clientHeight) <= 4;
-        if (isNearBottom && floatingDayLockByClickRef.current) {
-          resetFloatingLocks();
-        }
-        const canScroll = target.scrollHeight - target.clientHeight > 2;
-        if (canScroll !== isTimelineScrollable) {
-          setIsTimelineScrollable(canScroll);
-        }
-        updateFloatingDayFromScroll(target);
-      }
-      if (floatingDayLockByClickRef.current) {
-        return;
-      }
+  const scrollIntentTouchStartYRef = useRef(null);
+  const requestOlderMessagesIfNeeded = useCallback(
+    (target) => {
       if (
         !target ||
         !hasOlderMessages ||
@@ -468,23 +452,63 @@ export default function ChatWindowPanel({
           });
       }
     },
+    [hasOlderMessages, loadingOlderMessages, onStartReached],
+  );
+
+  const handlePanelScroll = useCallback(
+    (event) => {
+      onChatScroll?.(event);
+      const target = event?.currentTarget;
+      if (target) {
+        const isNearBottom =
+          target.scrollHeight - (target.scrollTop + target.clientHeight) <= 4;
+        if (isNearBottom && floatingDayLockByClickRef.current) {
+          resetFloatingLocks();
+        }
+        const canScroll = target.scrollHeight - target.clientHeight > 2;
+        if (canScroll !== isTimelineScrollable) {
+          setIsTimelineScrollable(canScroll);
+        }
+        updateFloatingDayFromScroll(target);
+      }
+      requestOlderMessagesIfNeeded(target);
+    },
     [
       onChatScroll,
-      hasOlderMessages,
-      loadingOlderMessages,
-      onStartReached,
       isTimelineScrollable,
       setIsTimelineScrollable,
       resetFloatingLocks,
       updateFloatingDayFromScroll,
       floatingDayLockByClickRef,
+      requestOlderMessagesIfNeeded,
     ],
   );
 
-  const handleScrollIntent = useCallback(() => {
+  const handleScrollIntent = useCallback((event) => {
     resetFloatingLocks();
     onUserScrollIntent?.();
-  }, [onUserScrollIntent, resetFloatingLocks]);
+    const target = event?.currentTarget;
+    if (event?.type === "touchstart") {
+      scrollIntentTouchStartYRef.current = Number(
+        event?.touches?.[0]?.clientY ?? event?.changedTouches?.[0]?.clientY ?? 0,
+      );
+      return;
+    }
+    if (event?.type === "touchmove") {
+      const startY = Number(scrollIntentTouchStartYRef.current);
+      const currentY = Number(
+        event?.touches?.[0]?.clientY ?? event?.changedTouches?.[0]?.clientY ?? 0,
+      );
+      if (Number.isFinite(startY) && currentY > startY + 6) {
+        requestOlderMessagesIfNeeded(target);
+      }
+      return;
+    }
+    const deltaY = Number(event?.deltaY || 0);
+    if (event?.type === "wheel" && deltaY < 0) {
+      requestOlderMessagesIfNeeded(target);
+    }
+  }, [onUserScrollIntent, resetFloatingLocks, requestOlderMessagesIfNeeded]);
 
   const isSmoothScrollLocked = useCallback(() => {
     if (!smoothScrollLockRef) return false;

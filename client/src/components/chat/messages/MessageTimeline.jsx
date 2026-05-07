@@ -314,6 +314,7 @@ export function MessageTimeline({
         ref={setScrollRef}
         onScroll={handleTimelineScroll}
         onTouchStartCapture={handleScrollIntent}
+        onTouchMoveCapture={handleScrollIntent}
         onWheelCapture={handleScrollIntent}
         className="chat-scroll h-full overflow-y-auto overflow-x-hidden px-0 pb-3 pt-1 md:px-2"
         style={chatScrollStyle}

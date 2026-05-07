@@ -5879,6 +5879,22 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const handleUserScrollIntent = () => {
     cancelSmoothScroll?.();
     allowStartReachedRef.current = true;
+    const scroller = chatScrollRef.current;
+    if (!scroller) return;
+    const distanceFromBottom =
+      scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+    if (distanceFromBottom <= 24) return;
+    pendingScrollToBottomRef.current = false;
+    pendingScrollToUnreadRef.current = null;
+    unreadAnchorLockUntilRef.current = 0;
+    if (!userScrolledUpRef.current) {
+      userScrolledUpRef.current = true;
+      setUserScrolledUp(true);
+    }
+    if (isAtBottomRef.current) {
+      isAtBottomRef.current = false;
+      setIsAtBottom(false);
+    }
   };
   const handleFloatingDayNavigate = useCallback(() => {
     cancelSmoothScroll?.();
