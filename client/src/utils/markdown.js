@@ -363,8 +363,18 @@ const restoreMarkdownBlankLines = (html) =>
     '<div class="sb-markdown-spacer" aria-hidden="true"></div>',
   );
 
-const fallbackBlockHtml = (raw) =>
-  escapeHtml(raw).replace(/\n/g, "<br />");
+const restoreFallbackMarkdownBlankLines = (raw) =>
+  String(raw || "").replace(
+    new RegExp(`\\n\\n(?:${escapeRegex(BLANK_LINE_MARKER)}\\n\\n)+`, "g"),
+    (run) => "\n".repeat(run.split(BLANK_LINE_MARKER).length),
+  );
+
+const fallbackBlockHtml = (raw, { restoreBlankLineMarkers = false } = {}) => {
+  const source = restoreBlankLineMarkers
+    ? restoreFallbackMarkdownBlankLines(raw)
+    : raw;
+  return escapeHtml(source).replace(/\n/g, "<br />");
+};
 
 const fallbackInlineHtml = (raw) => escapeHtml(raw);
 
@@ -433,7 +443,11 @@ export const renderMarkdownBlock = (text) => {
     ? blankLineSafeRaw
     : escapeMarkdownHtmlTags(blankLineSafeRaw);
   if (!hasFencedCode && !shouldUseMarkdownParser(safeRaw)) {
-    return writeToCache(blockCache, raw, fallbackBlockHtml(safeRaw));
+    return writeToCache(
+      blockCache,
+      raw,
+      fallbackBlockHtml(safeRaw, { restoreBlankLineMarkers: true }),
+    );
   }
   configureMarkdown();
   const parsed = marked.parse(safeRaw);
@@ -443,7 +457,11 @@ export const renderMarkdownBlock = (text) => {
     cleanupMarkdownHtml(sanitize(limited)),
   );
   if (isObjectStringFailure(parsedHtml) || isObjectStringFailure(cleaned)) {
-    return writeToCache(blockCache, raw, fallbackBlockHtml(safeRaw));
+    return writeToCache(
+      blockCache,
+      raw,
+      fallbackBlockHtml(safeRaw, { restoreBlankLineMarkers: true }),
+    );
   }
   return writeToCache(blockCache, raw, cleaned);
 };
