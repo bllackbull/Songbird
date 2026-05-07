@@ -1875,14 +1875,22 @@ log_domain_groups() {
 }
 
 build_domain_cert_groups() {
-  local -n out_groups_ref=$1
-  out_groups_ref=()
+  local __result_var="$1"
+  local serialized=""
+
+  if [[ ! "$__result_var" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+    return 1
+  fi
+
+  eval "$__result_var=()"
 
   if [[ "$DEPLOY_MODE" != "domain" ]]; then
     return 0
   fi
 
-  out_groups_ref=("${DOMAIN_GROUPS[@]}")
+  serialized="$(declare -p DOMAIN_GROUPS)"
+  serialized="${serialized#declare -a DOMAIN_GROUPS=}"
+  eval "$__result_var=$serialized"
 }
 
 
@@ -3159,18 +3167,15 @@ run_db_command_logged_quiet() {
 split_db_selector_input() {
   local input="$1"
   local __result_var="$2"
-  local -n result_ref="$__result_var"
 
-  result_ref=()
+  if [[ ! "$__result_var" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+    return 1
+  fi
+
   input="$(printf "%s" "$input" | tr ',' ' ')"
   input="${input#"${input%%[![:space:]]*}"}"
   input="${input%"${input##*[![:space:]]}"}"
-
-  if [[ -z "$input" ]]; then
-    return 0
-  fi
-
-  read -r -a result_ref <<< "$input"
+  read -r -a "$__result_var" <<< "$input"
 }
 
 resolve_chat_visibility_for_script() {
@@ -3518,6 +3523,11 @@ db_chat_add() {
 
   users="$(prompt_non_empty "Usernames or ids (comma separated)")"
   split_db_selector_input "$users" user_selectors
+  if [[ "${#user_selectors[@]}" -eq 0 ]]; then
+    printf "No users provided.\n"
+    press_enter_to_continue
+    return 0
+  fi
   run_db_command npm --prefix server run db:chat:add -- "$chat" "${user_selectors[@]}"
   press_enter_to_continue
 }
