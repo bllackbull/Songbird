@@ -110,6 +110,12 @@ export function useChatScroll({
 
   const handleChatScroll = useCallback(
     (event) => {
+      const floatingDayButton = document.querySelector('.floating-day-button');
+
+      if (floatingDayButton) {
+        floatingDayButton.style.visibility = (event?.target?.scrollTop < 53 ? 'hidden' : 'visible');
+      }
+
       const target = event.currentTarget;
       const previousTop = Number(lastScrollTopRef.current || 0);
       const currentTop = Number(target.scrollTop || 0);
