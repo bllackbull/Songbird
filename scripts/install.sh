@@ -232,31 +232,121 @@ fail() {
   exit 1
 }
 
+terminal_columns() {
+  local cols=""
+  if cols="$(tput cols 2>/dev/null)" && [[ "$cols" =~ ^[0-9]+$ ]] && (( cols > 0 )); then
+    printf "%s" "$cols"
+    return 0
+  fi
+  if [[ "${COLUMNS:-}" =~ ^[0-9]+$ ]] && (( COLUMNS > 0 )); then
+    printf "%s" "$COLUMNS"
+    return 0
+  fi
+  printf "80"
+}
+
+wrap_success_line() {
+  local text="$1"
+  local width="$2"
+  if (( width < 1 )); then
+    printf "%s\n" "$text"
+    return 0
+  fi
+  if [[ -z "$text" ]]; then
+    printf "\n"
+    return 0
+  fi
+
+  local remaining="$text"
+  while (( ${#remaining} > width )); do
+    local chunk="${remaining:0:width}"
+    local break_pos=-1
+    local idx=0
+    for (( idx=${#chunk}-1; idx>=0; idx-- )); do
+      if [[ "${chunk:idx:1}" == " " ]]; then
+        break_pos="$idx"
+        break
+      fi
+    done
+
+    if (( break_pos > 0 )); then
+      printf "%s\n" "${remaining:0:break_pos}"
+      remaining="${remaining:break_pos+1}"
+      while [[ "$remaining" == " "* ]]; do
+        remaining="${remaining:1}"
+      done
+    else
+      printf "%s\n" "$chunk"
+      remaining="${remaining:width}"
+    fi
+  done
+
+  printf "%s\n" "$remaining"
+}
+
+print_plain_success_block() {
+  local title="$1"
+  shift || true
+  local lines=("$@")
+  local line=""
+
+  printf "\n%b[SONGBIRD] %s%b\n" "$COLOR_SUCCESS" "$title" "$COLOR_RESET"
+  for line in "${lines[@]}"; do
+    if [[ -z "$line" ]]; then
+      printf "\n"
+    else
+      printf "%b%s%b\n" "$COLOR_SUCCESS" "$line" "$COLOR_RESET"
+    fi
+  done
+  printf "\n"
+}
+
 print_success_frame() {
   local title="$1"
   shift || true
 
   local lines=("$@")
-  local width="${#title}"
-  local line=""
-  for line in "${lines[@]}"; do
-    if (( ${#line} > width )); then
-      width="${#line}"
+  local terminal_width=""
+  terminal_width="$(terminal_columns)"
+  local frame_width=$((terminal_width - 4))
+
+  if (( frame_width < 40 )); then
+    print_plain_success_block "$title" "${lines[@]}"
+    if [[ -f "$LOG_FILE" ]]; then
+      local timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
+      printf "[%s] [SONGBIRD] %s\n" "$timestamp" "$title" >> "$LOG_FILE" 2>/dev/null || true
+      local line=""
+      for line in "${lines[@]}"; do
+        printf "[%s] [SONGBIRD] %s\n" "$timestamp" "$line" >> "$LOG_FILE" 2>/dev/null || true
+      done
     fi
-  done
-  if (( width < 56 )); then
-    width=56
+    return 0
+  fi
+  if (( frame_width > 100 )); then
+    frame_width=100
   fi
 
+  local content_width=$((frame_width - 4))
+  local wrapped_lines=()
+  local line=""
+  local segment=""
+  for line in "${lines[@]}"; do
+    while IFS= read -r segment; do
+      wrapped_lines+=("$segment")
+    done < <(wrap_success_line "$line" "$content_width")
+  done
+
   local border=""
-  printf -v border '%*s' "$((width + 2))" ""
+  printf -v border '%*s' "$((content_width + 2))" ""
   border="${border// /-}"
 
   printf "\n%b+%s+%b\n" "$COLOR_SUCCESS" "$border" "$COLOR_RESET"
-  printf "%b| %-*s |%b\n" "$COLOR_SUCCESS" "$width" "$title" "$COLOR_RESET"
+  while IFS= read -r segment; do
+    printf "%b| %-*s |%b\n" "$COLOR_SUCCESS" "$content_width" "$segment" "$COLOR_RESET"
+  done < <(wrap_success_line "$title" "$content_width")
   printf "%b+%s+%b\n" "$COLOR_SUCCESS" "$border" "$COLOR_RESET"
-  for line in "${lines[@]}"; do
-    printf "%b| %-*s |%b\n" "$COLOR_SUCCESS" "$width" "$line" "$COLOR_RESET"
+  for line in "${wrapped_lines[@]}"; do
+    printf "%b| %-*s |%b\n" "$COLOR_SUCCESS" "$content_width" "$line" "$COLOR_RESET"
   done
   printf "%b+%s+%b\n\n" "$COLOR_SUCCESS" "$border" "$COLOR_RESET"
 
