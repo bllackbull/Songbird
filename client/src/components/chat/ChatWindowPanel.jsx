@@ -755,8 +755,11 @@ export default function ChatWindowPanel({
     const node = composerInputRef?.current;
     if (!node) return;
     window.setTimeout(() => {
-      node?.focus?.({ preventScroll: true });
-      node?.focus?.();
+      try {
+        node.focus?.({ preventScroll: true });
+      } catch {
+        node.focus?.();
+      }
     }, 0);
   }, [replyTarget, editTarget, composerFocused, composerInputRef]);
 
@@ -816,6 +819,98 @@ export default function ChatWindowPanel({
     media.addListener(update);
     return () => media.removeListener(update);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const el = sectionRef.current;
+    if (!el) return undefined;
+    if (isDesktop) {
+      el.style.height = "";
+      el.style.top = "";
+      return undefined;
+    }
+    const viewport = window.visualViewport;
+    if (!viewport) return undefined;
+    const userAgent = String(window.navigator?.userAgent || "");
+    const platform = String(window.navigator?.platform || "");
+    const isIOSViewport =
+      /iP(ad|hone|od)/i.test(userAgent) ||
+      (platform === "MacIntel" && Number(window.navigator?.maxTouchPoints || 0) > 1);
+    const isStandalone =
+      window.matchMedia?.("(display-mode: standalone)")?.matches ||
+      window.navigator?.standalone;
+    const isMobileSafari =
+      isIOSViewport &&
+      !isStandalone &&
+      /Safari/i.test(userAgent) &&
+      !/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo/i.test(userAgent);
+
+    let frameId = 0;
+    let retryTimerId = 0;
+    const update = () => {
+      frameId = 0;
+      const nextEl = sectionRef.current;
+      if (!nextEl) return;
+      const layoutHeight = Number(window.innerHeight || 0);
+      const nextHeight = Number(viewport.height || layoutHeight || 0);
+      const nextTop = Math.max(0, Number(viewport.offsetTop || 0));
+      const activeEl = document.activeElement;
+      const focusedEditable =
+        !!activeEl &&
+        (activeEl.tagName === "INPUT" ||
+          activeEl.tagName === "TEXTAREA" ||
+          activeEl.isContentEditable);
+      const visualBottom = nextTop + nextHeight;
+      const collapsedSafariFrame =
+        isMobileSafari &&
+        focusedEditable &&
+        layoutHeight > 0 &&
+        nextHeight > 0 &&
+        visualBottom < layoutHeight * 0.48;
+      if (collapsedSafariFrame) {
+        if (!retryTimerId) {
+          retryTimerId = window.setTimeout(() => {
+            retryTimerId = 0;
+            scheduleUpdate();
+          }, 48);
+        }
+        return;
+      }
+      nextEl.style.height =
+        nextHeight > 0
+          ? `${nextHeight}px`
+          : "calc(100% - var(--mobile-bottom-offset, 0px))";
+      nextEl.style.top = `${nextTop}px`;
+    };
+    const scheduleUpdate = () => {
+      if (frameId) return;
+      frameId = window.requestAnimationFrame(update);
+    };
+
+    scheduleUpdate();
+    viewport.addEventListener("resize", scheduleUpdate);
+    viewport.addEventListener("scroll", scheduleUpdate);
+    window.addEventListener("resize", scheduleUpdate);
+    window.addEventListener("orientationchange", scheduleUpdate);
+    window.addEventListener("focusin", scheduleUpdate);
+    window.addEventListener("focusout", scheduleUpdate);
+    return () => {
+      if (frameId) {
+        window.cancelAnimationFrame(frameId);
+      }
+      if (retryTimerId) {
+        window.clearTimeout(retryTimerId);
+      }
+      viewport.removeEventListener("resize", scheduleUpdate);
+      viewport.removeEventListener("scroll", scheduleUpdate);
+      window.removeEventListener("resize", scheduleUpdate);
+      window.removeEventListener("orientationchange", scheduleUpdate);
+      window.removeEventListener("focusin", scheduleUpdate);
+      window.removeEventListener("focusout", scheduleUpdate);
+      el.style.height = "";
+      el.style.top = "";
+    };
+  }, [isDesktop]);
 
   function getMessageDayLabel(msg) {
     if (msg?._dayLabel) return msg._dayLabel;

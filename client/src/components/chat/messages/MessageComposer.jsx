@@ -34,6 +34,15 @@ function applyTextareaSize({
   }
 }
 
+function focusElementPreventScroll(element) {
+  if (!element) return;
+  try {
+    element.focus({ preventScroll: true });
+  } catch {
+    element.focus();
+  }
+}
+
 export function MessageComposer({
   activeChatId,
   isDesktop,
@@ -241,7 +250,7 @@ export function MessageComposer({
         onComposerResize,
         onComposerHeightChange,
       });
-      messageInputRef.current?.focus?.();
+      focusElementPreventScroll(messageInputRef.current);
     });
     return () => window.cancelAnimationFrame(frameId);
   }, [
@@ -502,10 +511,7 @@ export function MessageComposer({
   const restoreComposerFocus = () => {
     if (!keepFocusRef.current) return;
     keepFocusRef.current = false;
-    requestAnimationFrame(() => {
-      messageInputRef.current?.focus?.({ preventScroll: true });
-      messageInputRef.current?.focus?.();
-    });
+    requestAnimationFrame(() => focusElementPreventScroll(messageInputRef.current));
   };
 
   const captureComposerFocus = () => {
@@ -523,20 +529,14 @@ export function MessageComposer({
       stopRecording();
       if (keepFocusRef.current) {
         keepFocusRef.current = false;
-        requestAnimationFrame(() => {
-          messageInputRef.current?.focus?.({ preventScroll: true });
-          messageInputRef.current?.focus?.();
-        });
+        requestAnimationFrame(() => focusElementPreventScroll(messageInputRef.current));
       }
       return;
     }
     pendingStopRef.current = true;
     if (keepFocusRef.current) {
       keepFocusRef.current = false;
-      requestAnimationFrame(() => {
-        messageInputRef.current?.focus?.({ preventScroll: true });
-        messageInputRef.current?.focus?.();
-      });
+      requestAnimationFrame(() => focusElementPreventScroll(messageInputRef.current));
     }
   };
 
@@ -550,20 +550,14 @@ export function MessageComposer({
         stopRecording();
         if (keepFocusRef.current) {
           keepFocusRef.current = false;
-          requestAnimationFrame(() => {
-            messageInputRef.current?.focus?.({ preventScroll: true });
-            messageInputRef.current?.focus?.();
-          });
+          requestAnimationFrame(() => focusElementPreventScroll(messageInputRef.current));
         }
         return;
       }
       pendingStopRef.current = true;
       if (keepFocusRef.current) {
         keepFocusRef.current = false;
-        requestAnimationFrame(() => {
-          messageInputRef.current?.focus?.({ preventScroll: true });
-          messageInputRef.current?.focus?.();
-        });
+        requestAnimationFrame(() => focusElementPreventScroll(messageInputRef.current));
       }
     };
     window.addEventListener("pointerup", handleWindowPointerUp);
@@ -578,16 +572,54 @@ export function MessageComposer({
     const handleWindowFocus = () => {
       if (!keepFocusRef.current) return;
       keepFocusRef.current = false;
-      requestAnimationFrame(() => {
-        messageInputRef.current?.focus?.({ preventScroll: true });
-        messageInputRef.current?.focus?.();
-      });
+      requestAnimationFrame(() => focusElementPreventScroll(messageInputRef.current));
     };
     window.addEventListener("focus", handleWindowFocus);
     return () => {
       window.removeEventListener("focus", handleWindowFocus);
     };
   }, [messageInputRef]);
+
+  useEffect(() => {
+    if (isDesktop || typeof window === "undefined") return undefined;
+    const node = composerRef.current;
+    if (!node) return undefined;
+
+    const blockComposerViewportScroll = (event) => {
+      event.stopPropagation();
+      event.preventDefault?.();
+    };
+
+    const handleTouchStart = (event) => {
+      event.stopPropagation();
+    };
+
+    node.addEventListener("touchstart", handleTouchStart, { capture: true });
+    node.addEventListener("touchmove", blockComposerViewportScroll, {
+      capture: true,
+      passive: false,
+    });
+    node.addEventListener("wheel", blockComposerViewportScroll, {
+      capture: true,
+      passive: false,
+    });
+    node.addEventListener("gesturestart", blockComposerViewportScroll, {
+      capture: true,
+      passive: false,
+    });
+    return () => {
+      node.removeEventListener("touchstart", handleTouchStart, { capture: true });
+      node.removeEventListener("touchmove", blockComposerViewportScroll, {
+        capture: true,
+      });
+      node.removeEventListener("wheel", blockComposerViewportScroll, {
+        capture: true,
+      });
+      node.removeEventListener("gesturestart", blockComposerViewportScroll, {
+        capture: true,
+      });
+    };
+  }, [isDesktop]);
 
   if (!activeChatId) return null;
 
@@ -599,6 +631,8 @@ export function MessageComposer({
         paddingBottom: isDesktop
           ? "0.75rem"
           : "max(0.75rem, calc(env(safe-area-inset-bottom) + 0.5rem))",
+        overscrollBehaviorY: isDesktop ? undefined : "none",
+        touchAction: isDesktop ? undefined : "none",
       }}
       onSubmit={(event) => {
         if (!canSubmitMessage) {
@@ -618,7 +652,7 @@ export function MessageComposer({
             onComposerHeightChange,
           });
           if (!isDesktop) {
-            messageInputRef.current?.focus();
+            focusElementPreventScroll(messageInputRef.current);
           }
         });
       }}
