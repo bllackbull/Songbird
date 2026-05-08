@@ -150,10 +150,6 @@ export const MessageItem = memo(function MessageItem({
   onOpenSenderProfile,
   onOpenMention,
   onOpenForwardOrigin,
-  forwardedChat = null,
-  forwardedChatStatus = null,
-  forwardedUser = null,
-  forwardedUserStatus = null,
   mentionRefreshToken: _mentionRefreshToken = 0,
   onReply,
   onForwardMessage,
@@ -164,81 +160,28 @@ export const MessageItem = memo(function MessageItem({
   const isOwn = !isChannelChat && msg.username === user.username;
   const isRead = Boolean(msg.read_at);
   const isEdited = Boolean(Number(msg?.edited || 0) || msg?._edited);
-  const deletedForwardOriginColor = "#94a3b8";
   const forwardedFromChatId = Number(msg?.forwarded_from_chat_id || 0);
   const forwardedFromUserId = Number(msg?.forwarded_from_user_id || 0);
-  const storedForwardedLabel = String(msg?.forwarded_from_label || "").trim();
-  const forwardedFromUsername = String(msg?.forwarded_from_username || "").trim();
-  const liveForwardedChatName = String(forwardedChat?.name || "").trim();
-  const liveForwardedUserName = String(
-    forwardedUser?.nickname || forwardedUser?.username || "",
-  ).trim();
-  const isDeletedForwardedChat =
-    forwardedFromChatId > 0 &&
-    forwardedChatStatus !== "ready" &&
-    !forwardedChat;
-  const isDeletedForwardedUser =
-    forwardedFromUserId > 0 &&
-    forwardedUserStatus !== "ready" &&
-    !forwardedUser;
-  const forwardedFromLabel = forwardedFromChatId
-    ? isDeletedForwardedChat
-      ? "Hidden"
-      : liveForwardedChatName || storedForwardedLabel
-    : forwardedFromUserId > 0
-      ? isDeletedForwardedUser
-        ? "Hidden"
-        : liveForwardedUserName || storedForwardedLabel
-      : storedForwardedLabel;
+  const forwardedFromLabel = String(msg?.forwarded_from_label || "").trim();
+  const isForwarded = Boolean(forwardedFromLabel);
   const forwardedLabelHasPersian = hasPersian(forwardedFromLabel);
-  const forwardedOriginAvatarUrl = forwardedFromChatId
-    ? isDeletedForwardedChat
-      ? ""
-      : String(forwardedChat?.group_avatar_url || "").trim()
-    : forwardedFromUserId > 0
-      ? isDeletedForwardedUser
-        ? ""
-        : String(forwardedUser?.avatar_url || msg?.forwarded_from_avatar_url || "").trim()
-      : String(msg?.forwarded_from_avatar_url || "").trim();
-  const forwardedOriginColor = forwardedFromChatId
-    ? isDeletedForwardedChat
-      ? deletedForwardOriginColor
-      : String(forwardedChat?.group_color || "#10b981").trim() || "#10b981"
-    : forwardedFromUserId > 0
-      ? isDeletedForwardedUser
-        ? deletedForwardOriginColor
-        : String(
-            forwardedUser?.color || msg?.forwarded_from_color || "#10b981",
-          ).trim() || "#10b981"
-      : String(msg?.forwarded_from_color || "#10b981").trim() || "#10b981";
-  const forwardedTarget =
-    isDeletedForwardedChat || isDeletedForwardedUser
-      ? null
-      : forwardedFromChatId
+  const forwardedTarget = forwardedFromChatId
     ? {
         kind: "chat",
         chatId: forwardedFromChatId,
-        label: forwardedFromLabel,
-        avatar_url: forwardedOriginAvatarUrl,
-        color: forwardedOriginColor,
       }
     : forwardedFromUserId
       ? {
           kind: "user",
           userId: forwardedFromUserId,
-          username: forwardedFromUsername,
+          username: msg?.forwarded_from_username || "",
           nickname: forwardedFromLabel,
-          avatar_url: forwardedOriginAvatarUrl,
-          color: forwardedOriginColor,
+          avatar_url: msg?.forwarded_from_avatar_url || "",
+          color: msg?.forwarded_from_color || "#10b981",
         }
-      : storedForwardedLabel
+      : forwardedFromLabel
         ? { kind: "self" }
         : null;
-  const isForwarded = forwardedFromChatId
-    ? Boolean(forwardedFromLabel)
-    : forwardedFromUserId
-      ? Boolean(forwardedFromLabel)
-      : Boolean(forwardedFromLabel);
   const messageFiles = Array.isArray(msg.files) ? msg.files : [];
   const hasFiles = messageFiles.length > 0;
   const generatedSummaryText = hasFiles
@@ -613,11 +556,6 @@ export const MessageItem = memo(function MessageItem({
     : msg.nickname || msg.username || "Unknown";
   const senderInitials = getAvatarInitials(senderName);
   const senderColor = isDeletedAuthor ? "#94a3b8" : msg.color || "#10b981";
-  const forwardedInitials = getAvatarInitials(forwardedFromLabel || "C");
-  const forwardedOriginButtonLabel = forwardedFromLabel
-    ? `Open forwarded origin: ${forwardedFromLabel}`
-    : "Open forwarded origin";
-  const canOpenForwardedOrigin = Boolean(forwardedTarget);
   const canOpenSenderProfile =
     !isDeletedAuthor && typeof onOpenSenderProfile === "function";
   const contextMenuMobileEnabled = !isDesktop && isMobileTouchDevice;
@@ -662,54 +600,6 @@ export const MessageItem = memo(function MessageItem({
           message: msg,
         },
       }),
-  };
-  const renderForwardedHeader = () => {
-    if (!isForwarded) return null;
-    return (
-      <div className="mb-2 flex w-full flex-col items-start gap-1 self-start text-[11px] text-sky-400">
-        <div className="flex items-center gap-1.5">
-          <Forward size={14} className="shrink-0" />
-          <span className="shrink-0 text-[10px] font-semibold italic">
-            Forwarded from
-          </span>
-        </div>
-        <button
-          type="button"
-          onClick={
-            canOpenForwardedOrigin
-              ? () => onOpenForwardOrigin?.(forwardedTarget)
-              : undefined
-          }
-          disabled={!canOpenForwardedOrigin}
-          className={`inline-flex max-w-full items-center gap-1.5 text-left font-semibold not-italic transition ${
-            canOpenForwardedOrigin ? "hover:text-sky-300" : "cursor-default"
-          }`}
-          aria-label={forwardedOriginButtonLabel}
-        >
-          <Avatar
-            src={forwardedOriginAvatarUrl}
-            alt={forwardedFromLabel}
-            name={forwardedFromLabel}
-            color={forwardedOriginColor}
-            initials={
-              canOpenForwardedOrigin ? forwardedInitials : ""
-            }
-            placeholderContent={canOpenForwardedOrigin ? null : ""}
-            className="h-4 w-4 shrink-0 text-[8px]"
-          />
-          <span
-            className={`min-w-0 max-w-[18rem] truncate ${
-              forwardedLabelHasPersian ? "font-fa" : ""
-            }`}
-            dir="auto"
-            style={{ unicodeBidi: "isolate" }}
-            title={forwardedFromLabel}
-          >
-            {forwardedFromLabel}
-          </span>
-        </button>
-      </div>
-    );
   };
 
   const touchStartXRef = useRef(0);
@@ -1045,7 +935,26 @@ export const MessageItem = memo(function MessageItem({
                 >
                   {senderName}
                 </ContextMenuSurface>
-                {renderForwardedHeader()}
+                {isForwarded ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenForwardOrigin?.(forwardedTarget)}
+                    className="mb-2 flex w-full items-center gap-1.5 self-start text-left text-[11px] font-semibold italic text-sky-400"
+                  >
+                    <Forward size={14} className="shrink-0" />
+                    <span className="shrink-0">Forwarded from</span>
+                    <span
+                      className={`min-w-0 max-w-[18rem] truncate ${
+                        forwardedLabelHasPersian ? "font-fa" : ""
+                      }`}
+                      dir="auto"
+                      style={{ unicodeBidi: "isolate" }}
+                      title={forwardedFromLabel}
+                    >
+                      {forwardedFromLabel}
+                    </span>
+                  </button>
+                ) : null}
                 {replyTarget ? (
                   <button
                     type="button"
@@ -1127,6 +1036,19 @@ export const MessageItem = memo(function MessageItem({
                     @{mentionDebug?.active ?? 0}/{mentionDebug?.total ?? 0}
                   </div>
                 ) : null}
+				{Array.isArray(msg.reactions) && msg.reactions.length > 0 ? (
+  <div className="mt-2 flex flex-wrap gap-1">
+    {msg.reactions.map((r) => (
+      <span
+        key={r.reaction}
+        className="inline-flex items-center gap-1 rounded-full bg-black/5 px-2 py-0.5 text-xs dark:bg-white/10"
+      >
+        <span>{r.reaction}</span>
+        <span>{r.count}</span>
+      </span>
+    ))}
+  </div>
+) : null}
                 <div className="mt-2 flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
                   <span>{msg._timeLabel || formatTime(msg.created_at)}</span>
                   {isEdited ? <span>edited</span> : null}
@@ -1173,7 +1095,26 @@ export const MessageItem = memo(function MessageItem({
                   {senderName}
                 </p>
               ) : null}
-              {renderForwardedHeader()}
+              {isForwarded ? (
+                <button
+                  type="button"
+                  onClick={() => onOpenForwardOrigin?.(forwardedTarget)}
+                  className="mb-2 flex w-full items-center gap-1.5 self-start text-left text-[11px] font-semibold italic text-sky-400"
+                >
+                  <Forward size={14} className="shrink-0" />
+                  <span className="shrink-0">Forwarded from</span>
+                  <span
+                    className={`min-w-0 max-w-[18rem] truncate ${
+                      forwardedLabelHasPersian ? "font-fa" : ""
+                    }`}
+                    dir="auto"
+                    style={{ unicodeBidi: "isolate" }}
+                    title={forwardedFromLabel}
+                  >
+                    {forwardedFromLabel}
+                  </span>
+                </button>
+              ) : null}
               {replyTarget ? (
                 <button
                   type="button"
@@ -1255,6 +1196,19 @@ export const MessageItem = memo(function MessageItem({
                   @{mentionDebug?.active ?? 0}/{mentionDebug?.total ?? 0}
                 </div>
               ) : null}
+			  {Array.isArray(msg.reactions) && msg.reactions.length > 0 ? (
+  <div className="mt-2 flex flex-wrap gap-1">
+    {msg.reactions.map((r) => (
+      <span
+        key={r.reaction}
+        className="inline-flex items-center gap-1 rounded-full bg-black/5 px-2 py-0.5 text-xs dark:bg-white/10"
+      >
+        <span>{r.reaction}</span>
+        <span>{r.count}</span>
+      </span>
+    ))}
+  </div>
+) : null}
               <div
                 className={`mt-2 flex w-full items-center text-[10px] ${
                   isOwn
