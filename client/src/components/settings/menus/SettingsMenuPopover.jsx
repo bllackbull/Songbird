@@ -16,6 +16,8 @@ export function SettingsMenuPopover({
   onToggleNotifications,
   onOpenNotifications,
   onOpenSavedMessages,
+  onOpenAdmin,
+  showAdminPanel = false,
   onOpenWhatsNew,
 }) {
   if (!showSettings) return null;
@@ -42,6 +44,8 @@ export function SettingsMenuPopover({
         onToggleNotifications={onToggleNotifications}
         onOpenNotifications={onOpenNotifications}
         onOpenSavedMessages={onOpenSavedMessages}
+        onOpenAdmin={onOpenAdmin}
+        showAdminPanel={showAdminPanel}
         onOpenWhatsNew={onOpenWhatsNew}
       />
     </div>
