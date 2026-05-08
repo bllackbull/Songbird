@@ -16,6 +16,7 @@ import {
   Ghost,
   LoaderCircle,
   Mic,
+  Phone,
 } from "../../icons/lucide.js";
 import { getAvatarStyle } from "../../utils/avatarColor.js";
 import { hasPersian } from "../../utils/fontUtils.js";
@@ -41,6 +42,7 @@ import {
 
 export default function ChatWindowPanel({
   mobileTab,
+  onStartCall,
   activeChatId,
   activeChat = null,
   closeChat,
@@ -96,10 +98,6 @@ export default function ChatWindowPanel({
   onOpenMessageSenderProfile,
   onOpenMention,
   onOpenForwardOrigin,
-  forwardedChatsById = null,
-  forwardedChatStatusById = null,
-  forwardedUsersById = null,
-  forwardedUserStatusByKey = null,
   onForwardMessage,
   onOpenContextMenu,
   mentionRefreshToken = 0,
@@ -221,6 +219,9 @@ export default function ChatWindowPanel({
   const mediaInputRef = useRef(null);
   const documentInputRef = useRef(null);
   const [showUploadMenu, setShowUploadMenu] = useState(false);
+  const [openMessageMenuId, setOpenMessageMenuId] = useState(null);
+  const [editingMessageId, setEditingMessageId] = useState(null);
+  const [editingText, setEditingText] = useState("");
   const [composerHeight, setComposerHeight] = useState(80);
   const [mediaAspectByKey, setMediaAspectByKey] = useState(() => ({}));
   const [videoPosterByUrl, setVideoPosterByUrl] = useState(() => ({}));
@@ -343,12 +344,6 @@ export default function ChatWindowPanel({
     updateFloatingDayFromScroll,
     handleFloatingChipClick,
   } = useFloatingDayChip();
-  const showJumpToLatestButton = Boolean(
-    activeChatId &&
-      userScrolledUp &&
-      isTimelineScrollable &&
-      !isAtBottomRef?.current,
-  );
   const groupedMessages = useMemo(() => {
     const groups = [];
     messages.forEach((msg) => {
@@ -393,45 +388,35 @@ export default function ChatWindowPanel({
 
 
   useEffect(() => {
-    if (!activeChatId || !messages.length) {
+    const last = messages[messages.length - 1];
+    if (!last) {
       setFloatingDay({ key: "", label: "" });
       return;
     }
-    const syncFloatingDay = () => {
-      const scroller = chatScrollRef?.current;
-      if (!scroller) return;
-      const canScroll = scroller.scrollHeight - scroller.clientHeight > 2;
-      setIsTimelineScrollable(canScroll);
-      if (!canScroll) {
-        const last = messages[messages.length - 1];
-        const key = last?._dayKey || "";
-        const label = getMessageDayLabel(last);
-        setFloatingDay(key && label ? { key, label } : { key: "", label: "" });
-        return;
-      }
-      updateFloatingDayFromScroll(scroller);
-    };
-    const raf1 = requestAnimationFrame(syncFloatingDay);
-    const raf2 = requestAnimationFrame(syncFloatingDay);
-    const timer = window.setTimeout(syncFloatingDay, 90);
-    return () => {
-      cancelAnimationFrame(raf1);
-      cancelAnimationFrame(raf2);
-      window.clearTimeout(timer);
-    };
-  }, [
-    activeChatId,
-    messages,
-    chatScrollRef,
-    setFloatingDay,
-    setIsTimelineScrollable,
-    updateFloatingDayFromScroll,
-  ]);
+    const key = last?._dayKey || "";
+    const label = getMessageDayLabel(last);
+    if (key && label) {
+      setFloatingDay({ key, label });
+    }
+  }, [messages, setFloatingDay]);
 
   const startReachedLockRef = useRef(false);
-  const scrollIntentTouchStartYRef = useRef(null);
-  const requestOlderMessagesIfNeeded = useCallback(
-    (target) => {
+  const handlePanelScroll = useCallback(
+    (event) => {
+      onChatScroll?.(event);
+      const target = event?.currentTarget;
+      if (target) {
+        const isNearBottom =
+          target.scrollHeight - (target.scrollTop + target.clientHeight) <= 4;
+        if (isNearBottom && floatingDayLockByClickRef.current) {
+          resetFloatingLocks();
+        }
+        const canScroll = target.scrollHeight - target.clientHeight > 2;
+        if (canScroll !== isTimelineScrollable) {
+          setIsTimelineScrollable(canScroll);
+        }
+        updateFloatingDayFromScroll(target);
+      }
       if (
         !target ||
         !hasOlderMessages ||
@@ -452,63 +437,23 @@ export default function ChatWindowPanel({
           });
       }
     },
-    [hasOlderMessages, loadingOlderMessages, onStartReached],
-  );
-
-  const handlePanelScroll = useCallback(
-    (event) => {
-      onChatScroll?.(event);
-      const target = event?.currentTarget;
-      if (target) {
-        const isNearBottom =
-          target.scrollHeight - (target.scrollTop + target.clientHeight) <= 4;
-        if (isNearBottom && floatingDayLockByClickRef.current) {
-          resetFloatingLocks();
-        }
-        const canScroll = target.scrollHeight - target.clientHeight > 2;
-        if (canScroll !== isTimelineScrollable) {
-          setIsTimelineScrollable(canScroll);
-        }
-        updateFloatingDayFromScroll(target);
-      }
-      requestOlderMessagesIfNeeded(target);
-    },
     [
       onChatScroll,
+      hasOlderMessages,
+      loadingOlderMessages,
+      onStartReached,
       isTimelineScrollable,
       setIsTimelineScrollable,
       resetFloatingLocks,
       updateFloatingDayFromScroll,
       floatingDayLockByClickRef,
-      requestOlderMessagesIfNeeded,
     ],
   );
 
-  const handleScrollIntent = useCallback((event) => {
+  const handleScrollIntent = useCallback(() => {
     resetFloatingLocks();
     onUserScrollIntent?.();
-    const target = event?.currentTarget;
-    if (event?.type === "touchstart") {
-      scrollIntentTouchStartYRef.current = Number(
-        event?.touches?.[0]?.clientY ?? event?.changedTouches?.[0]?.clientY ?? 0,
-      );
-      return;
-    }
-    if (event?.type === "touchmove") {
-      const startY = Number(scrollIntentTouchStartYRef.current);
-      const currentY = Number(
-        event?.touches?.[0]?.clientY ?? event?.changedTouches?.[0]?.clientY ?? 0,
-      );
-      if (Number.isFinite(startY) && currentY > startY + 6) {
-        requestOlderMessagesIfNeeded(target);
-      }
-      return;
-    }
-    const deltaY = Number(event?.deltaY || 0);
-    if (event?.type === "wheel" && deltaY < 0) {
-      requestOlderMessagesIfNeeded(target);
-    }
-  }, [onUserScrollIntent, resetFloatingLocks, requestOlderMessagesIfNeeded]);
+  }, [onUserScrollIntent, resetFloatingLocks]);
 
   const isSmoothScrollLocked = useCallback(() => {
     if (!smoothScrollLockRef) return false;
@@ -755,11 +700,8 @@ export default function ChatWindowPanel({
     const node = composerInputRef?.current;
     if (!node) return;
     window.setTimeout(() => {
-      try {
-        node.focus?.({ preventScroll: true });
-      } catch {
-        node.focus?.();
-      }
+      node?.focus?.({ preventScroll: true });
+      node?.focus?.();
     }, 0);
   }, [replyTarget, editTarget, composerFocused, composerInputRef]);
 
@@ -821,94 +763,20 @@ export default function ChatWindowPanel({
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") return undefined;
-    const el = sectionRef.current;
-    if (!el) return undefined;
-    if (isDesktop) {
-      el.style.height = "";
-      el.style.top = "";
-      return undefined;
-    }
-    const viewport = window.visualViewport;
-    if (!viewport) return undefined;
-    const userAgent = String(window.navigator?.userAgent || "");
-    const platform = String(window.navigator?.platform || "");
-    const isIOSViewport =
-      /iP(ad|hone|od)/i.test(userAgent) ||
-      (platform === "MacIntel" && Number(window.navigator?.maxTouchPoints || 0) > 1);
-    const isStandalone =
-      window.matchMedia?.("(display-mode: standalone)")?.matches ||
-      window.navigator?.standalone;
-    const isMobileSafari =
-      isIOSViewport &&
-      !isStandalone &&
-      /Safari/i.test(userAgent) &&
-      !/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo/i.test(userAgent);
-
-    let frameId = 0;
-    let retryTimerId = 0;
+    if (isDesktop) return;
+    const vv = window.visualViewport;
+    if (!vv) return;
     const update = () => {
-      frameId = 0;
-      const nextEl = sectionRef.current;
-      if (!nextEl) return;
-      const layoutHeight = Number(window.innerHeight || 0);
-      const nextHeight = Number(viewport.height || layoutHeight || 0);
-      const nextTop = Math.max(0, Number(viewport.offsetTop || 0));
-      const activeEl = document.activeElement;
-      const focusedEditable =
-        !!activeEl &&
-        (activeEl.tagName === "INPUT" ||
-          activeEl.tagName === "TEXTAREA" ||
-          activeEl.isContentEditable);
-      const visualBottom = nextTop + nextHeight;
-      const collapsedSafariFrame =
-        isMobileSafari &&
-        focusedEditable &&
-        layoutHeight > 0 &&
-        nextHeight > 0 &&
-        visualBottom < layoutHeight * 0.48;
-      if (collapsedSafariFrame) {
-        if (!retryTimerId) {
-          retryTimerId = window.setTimeout(() => {
-            retryTimerId = 0;
-            scheduleUpdate();
-          }, 48);
-        }
-        return;
-      }
-      nextEl.style.height =
-        nextHeight > 0
-          ? `${nextHeight}px`
-          : "calc(100% - var(--mobile-bottom-offset, 0px))";
-      nextEl.style.top = `${nextTop}px`;
+      const el = sectionRef.current;
+      if (!el) return;
+      el.style.height = `${vv.height}px`;
+      el.style.top = `${vv.offsetTop}px`;
     };
-    const scheduleUpdate = () => {
-      if (frameId) return;
-      frameId = window.requestAnimationFrame(update);
-    };
-
-    scheduleUpdate();
-    viewport.addEventListener("resize", scheduleUpdate);
-    viewport.addEventListener("scroll", scheduleUpdate);
-    window.addEventListener("resize", scheduleUpdate);
-    window.addEventListener("orientationchange", scheduleUpdate);
-    window.addEventListener("focusin", scheduleUpdate);
-    window.addEventListener("focusout", scheduleUpdate);
+    //vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
     return () => {
-      if (frameId) {
-        window.cancelAnimationFrame(frameId);
-      }
-      if (retryTimerId) {
-        window.clearTimeout(retryTimerId);
-      }
-      viewport.removeEventListener("resize", scheduleUpdate);
-      viewport.removeEventListener("scroll", scheduleUpdate);
-      window.removeEventListener("resize", scheduleUpdate);
-      window.removeEventListener("orientationchange", scheduleUpdate);
-      window.removeEventListener("focusin", scheduleUpdate);
-      window.removeEventListener("focusout", scheduleUpdate);
-      el.style.height = "";
-      el.style.top = "";
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
     };
   }, [isDesktop]);
 
@@ -1094,34 +962,6 @@ export default function ChatWindowPanel({
       onOpenSenderProfile={onOpenMessageSenderProfile}
       onOpenMention={onOpenMention}
       onOpenForwardOrigin={onOpenForwardOrigin}
-      forwardedChat={
-        Number(msg?.forwarded_from_chat_id || 0) > 0
-          ? forwardedChatsById?.[Number(msg?.forwarded_from_chat_id || 0)] || null
-          : null
-      }
-      forwardedChatStatus={
-        Number(msg?.forwarded_from_chat_id || 0) > 0
-          ? forwardedChatStatusById?.[Number(msg?.forwarded_from_chat_id || 0)] || null
-          : null
-      }
-      forwardedUser={
-        Number(msg?.forwarded_from_user_id || 0) > 0
-          ? forwardedUsersById?.[Number(msg?.forwarded_from_user_id || 0)] || null
-          : null
-      }
-      forwardedUserStatus={
-        Number(msg?.forwarded_from_user_id || 0) > 0
-          ? forwardedUserStatusByKey?.[
-              `id:${Number(msg?.forwarded_from_user_id || 0)}`
-            ] || null
-          : String(msg?.forwarded_from_username || "").trim()
-            ? forwardedUserStatusByKey?.[
-                `username:${String(msg?.forwarded_from_username || "")
-                  .trim()
-                  .toLowerCase()}`
-              ] || null
-          : null
-      }
       onForwardMessage={onForwardMessage}
       mentionRefreshToken={mentionRefreshToken}
       onOpenContextMenu={onOpenContextMenu}
@@ -1176,9 +1016,7 @@ export default function ChatWindowPanel({
       }
       style={{
         top: "0px",
-        height: isDesktop
-          ? "100%"
-          : "calc(100% - var(--mobile-bottom-offset, 0px))",
+        height: "100%",
         zIndex: isDesktop ? "auto" : "var(--app-z, 20)",
         paddingTop: "max(0px, env(safe-area-inset-top))",
       }}
@@ -1361,6 +1199,17 @@ export default function ChatWindowPanel({
                 ) : null}
               </>
             </ContextMenuSurface>
+            {typeof onStartCall === "function" && !isGroupChat && !isChannelChat ? (
+  <button
+    type="button"
+    onClick={onStartCall}
+    className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-emerald-200 bg-white/80 text-[0px] text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+    aria-label="Start voice call"
+    title="Voice call"
+  >
+    <Phone size={17} strokeWidth={2.4} />
+  </button>
+) : null}
             {headerAvatarIcon ? (
               <ContextMenuSurface
                 as="div"
@@ -1637,7 +1486,6 @@ export default function ChatWindowPanel({
         ) : (
           <MessageTimeline
             key={`timeline-${Number(activeChatId || 0)}`}
-            activeChatId={activeChatId}
             loadingMessages={loadingMessages}
             messages={messages}
             groupedMessages={groupedMessages}
@@ -1705,7 +1553,7 @@ export default function ChatWindowPanel({
               ? `${showComposer ? composerHeight + 14 : showChannelMuteFooter ? 86 : 18}px`
               : `calc(${
                   showComposer ? composerHeight + 12 : showChannelMuteFooter ? 84 : 18
-                }px + env(safe-area-inset-bottom))`,
+                }px + env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px))`,
           }}
           aria-hidden={!copyToastVisible}
         >
@@ -1720,6 +1568,9 @@ export default function ChatWindowPanel({
         <div
           className="sticky bottom-0 z-30 flex min-h-[68px] shrink-0 items-center justify-center border-t border-slate-300/80 bg-white px-4 py-3 dark:border-emerald-500/20 dark:bg-slate-900 sm:px-6 md:static md:mt-auto"
           style={{
+            bottom: isDesktop
+              ? undefined
+              : "max(0px, var(--mobile-bottom-offset, 0px))",
             paddingBottom: isDesktop
               ? "0.75rem"
               : "max(0.75rem, calc(env(safe-area-inset-bottom) + 0.5rem))",
@@ -1735,7 +1586,7 @@ export default function ChatWindowPanel({
         </div>
       ) : null}
 
-      {showJumpToLatestButton ? (
+      {activeChatId && userScrolledUp ? (
         <button
           type="button"
           onClick={onJumpToLatest}
@@ -1745,7 +1596,7 @@ export default function ChatWindowPanel({
               ? `${jumpButtonBaseBottomPx}px`
               : `calc(${
                   jumpButtonBaseBottomPx
-                }px + env(safe-area-inset-bottom))`,
+                }px + env(safe-area-inset-bottom) + var(--mobile-bottom-offset, 0px))`,
             right: "0.85rem",
             transform: "none",
           }}
