@@ -33,13 +33,13 @@ const InstallBar = forwardRef(function InstallBar(
           <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl border border-emerald-200 bg-emerald-50 shadow-sm dark:border-emerald-500/30 dark:bg-slate-900">
             <img
               src={iconSrc}
-              alt="Songbird"
+              alt="BirdX"
               className="h-full w-full scale-110 object-cover"
             />
           </div>
           <div className="flex flex-col">
             <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-200">
-              Songbird App
+              BirdX App
             </span>
           </div>
         </div>
