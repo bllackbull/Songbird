@@ -19,26 +19,6 @@ export default function AppContextMenu({ menu, onClose }) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [menu, onClose]);
 
-  useEffect(() => {
-    const targetEl = menu?.targetEl;
-    if (!menu || !targetEl || typeof MutationObserver === "undefined") return undefined;
-    if (!targetEl.isConnected) {
-      onClose?.();
-      return undefined;
-    }
-    const observer = new MutationObserver(() => {
-      if (!targetEl.isConnected) {
-        observer.disconnect();
-        onClose?.();
-      }
-    });
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-    });
-    return () => observer.disconnect();
-  }, [menu, onClose]);
-
   useLayoutEffect(() => {
     if (!menu || !menuRef.current || typeof window === "undefined") return;
     const rect = menuRef.current.getBoundingClientRect();
@@ -87,21 +67,46 @@ export default function AppContextMenu({ menu, onClose }) {
       >
         <div className="py-1.5">
           {menu.items.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => {
-                  item.onSelect?.();
-                  onClose?.();
-                }}
-                className={`flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition ${
-                  item.danger
-                    ? "text-rose-600 dark:text-rose-300 hover:bg-black/5 dark:hover:bg-white/10"
-                    : "hover:bg-black/5 dark:hover:bg-white/10"
-                }`}
-              >
+  const Icon = item.icon;
+
+  if (item.type === "reactions") {
+    return (
+      <div
+        key={item.id}
+        className="flex items-center justify-center gap-2 px-3 py-2"
+      >
+        {item.emojis.map((emoji) => (
+          <button
+            key={emoji}
+            type="button"
+            onClick={() => {
+              item.onReact?.(emoji);
+              onClose?.();
+            }}
+            className="flex h-9 w-9 items-center justify-center rounded-full text-xl transition hover:scale-110 hover:bg-black/5 dark:hover:bg-white/10"
+            aria-label={`React ${emoji}`}
+          >
+            {emoji}
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      key={item.id}
+      type="button"
+      onClick={() => {
+        item.onSelect?.();
+        onClose?.();
+      }}
+      className={`flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition ${
+        item.danger
+          ? "text-rose-600 dark:text-rose-300 hover:bg-black/5 dark:hover:bg-white/10"
+          : "hover:bg-black/5 dark:hover:bg-white/10"
+      }`}
+    >
                 {Icon ? (
                   <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center">
                     <Icon size={16} />
