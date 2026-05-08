@@ -56,6 +56,94 @@ export const sendPushTest = ({ username }) =>
     body: JSON.stringify({ username }),
   });
 
+export const fetchAdminMe = () => apiFetch(`${API_BASE}/api/admin/me`);
+
+export const fetchAdminOverview = () => apiFetch(`${API_BASE}/api/admin/overview`);
+
+const buildAdminQuery = (params = {}) => {
+  const search = new URLSearchParams();
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") return;
+    search.set(key, String(value));
+  });
+  const query = search.toString();
+  return query ? `?${query}` : "";
+};
+
+export const fetchAdminUsers = (params = {}) =>
+  apiFetch(`${API_BASE}/api/admin/users${buildAdminQuery(params)}`);
+
+export const fetchAdminUserDetail = (userId) =>
+  apiFetch(`${API_BASE}/api/admin/users/${encodeURIComponent(userId)}`);
+
+export const updateAdminUser = (userId, payload) =>
+  apiFetch(`${API_BASE}/api/admin/users/${encodeURIComponent(userId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+export const resetAdminUserPassword = (userId, password) =>
+  apiFetch(`${API_BASE}/api/admin/users/${encodeURIComponent(userId)}/reset-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+
+export const deleteAdminUser = (userId) =>
+  apiFetch(`${API_BASE}/api/admin/users/${encodeURIComponent(userId)}`, {
+    method: "DELETE",
+  });
+
+export const deleteAdminUserSession = (userId, sessionId) =>
+  apiFetch(
+    `${API_BASE}/api/admin/users/${encodeURIComponent(userId)}/sessions/${encodeURIComponent(
+      sessionId,
+    )}`,
+    { method: "DELETE" },
+  );
+
+export const deleteAdminUserSessions = (userId) =>
+  apiFetch(`${API_BASE}/api/admin/users/${encodeURIComponent(userId)}/sessions`, {
+    method: "DELETE",
+  });
+
+export const fetchAdminChats = (params = {}) =>
+  apiFetch(`${API_BASE}/api/admin/chats${buildAdminQuery(params)}`);
+
+export const deleteAdminChat = (chatId) =>
+  apiFetch(`${API_BASE}/api/admin/chats/${encodeURIComponent(chatId)}`, {
+    method: "DELETE",
+  });
+
+export const fetchAdminFiles = (params = {}) =>
+  apiFetch(`${API_BASE}/api/admin/files${buildAdminQuery(params)}`);
+
+export const deleteAdminFile = (fileId) =>
+  apiFetch(`${API_BASE}/api/admin/files/${encodeURIComponent(fileId)}`, {
+    method: "DELETE",
+  });
+
+export const fetchAdminAuditLogs = (params = {}) =>
+  apiFetch(`${API_BASE}/api/admin/audit-logs${buildAdminQuery(params)}`);
+
+export const fetchAdminSettings = () => apiFetch(`${API_BASE}/api/admin/settings`);
+
+export const fetchAdminBackups = () => apiFetch(`${API_BASE}/api/admin/backups`);
+
+export const createAdminBackup = () =>
+  apiFetch(`${API_BASE}/api/admin/backups`, {
+    method: "POST",
+  });
+
+export const deleteAdminBackup = (name) =>
+  apiFetch(`${API_BASE}/api/admin/backups/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+  });
+
+export const getAdminBackupDownloadUrl = (name) =>
+  `${API_BASE}/api/admin/backups/${encodeURIComponent(name)}/download`;
+
 export const discoverUsersAndGroups = ({ username, query }) =>
   apiFetch(
     `${API_BASE}/api/discover?username=${encodeURIComponent(
@@ -68,13 +156,6 @@ export const markMessagesRead = ({ chatId, username }) =>
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ chatId, username }),
-  });
-
-export const markMessageRead = ({ chatId, username, messageId }) =>
-  apiFetch(`${API_BASE}/api/messages/read-one`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chatId, username, messageId }),
   });
 
 export const getMessageReadCounts = ({ chatId, username, messageIds }) =>
@@ -95,11 +176,6 @@ export const updateProfile = (payload) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-
-export const getProfileByUsername = (username) =>
-  apiFetch(
-    `${API_BASE}/api/profile?username=${encodeURIComponent(String(username || "").trim())}`,
-  );
 
 export const uploadAvatar = (payload) =>
   apiFetch(`${API_BASE}/api/profile/avatar`, {
@@ -297,6 +373,13 @@ export const editMessage = (payload) =>
 
 export const deleteMessage = (payload) =>
   apiFetch(`${API_BASE}/api/messages/delete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+export const toggleMessageReaction = (payload) =>
+  apiFetch(`${API_BASE}/api/messages/react`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
