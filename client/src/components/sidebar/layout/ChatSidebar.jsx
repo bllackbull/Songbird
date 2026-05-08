@@ -47,6 +47,7 @@ export default function ChatSidebar({
   onOpenDiscoveredGroup,
   onOpenUserProfileContext,
   onOpenSavedMessages,
+  onOpenAdmin,
   onOpenUserContextMenu,
   onOpenChatContextMenu,
   showSettings,
@@ -200,6 +201,8 @@ export default function ChatSidebar({
         onToggleNotifications={onToggleNotifications}
         onOpenNotifications={onOpenNotifications}
         onOpenSavedMessages={onOpenSavedMessages}
+        onOpenAdmin={onOpenAdmin}
+        showAdminPanel={Boolean(user?.isAdmin)}
         onOpenWhatsNew={onOpenWhatsNew}
       />
 
@@ -258,6 +261,7 @@ export default function ChatSidebar({
               dataCacheStats={dataCacheStats}
               onOpenOwnProfile={onOpenOwnProfile}
               onOpenSavedMessages={onOpenSavedMessages}
+              onOpenAdmin={onOpenAdmin}
               onDeleteAccount={onDeleteAccount}
               appInfo={appInfo}
               appInfoLoading={appInfoLoading}
