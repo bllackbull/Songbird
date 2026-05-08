@@ -10,12 +10,12 @@ export default function AuthHeader({
     <div className="relative text-center">
       {/* Brand */}
       <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-600 dark:text-emerald-300 sm:text-sm">
-        BirdX
+        Songbird
       </p>
 
       {/* Title */}
       <h1 className="mt-2 text-2xl font-bold sm:mt-3 sm:text-3xl">
-        {isLogin ? "Welcome to BirdX" : "Join BirdX"}
+        {isLogin ? "Welcome to Songbird" : "Join Songbird"}
       </h1>
 
       {/* Subtitle */}
