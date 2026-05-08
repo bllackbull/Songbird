@@ -25,12 +25,12 @@ export function useAppContextMenu({
   chats,
   currentUsername,
   canCurrentUserEditGroup,
-  canReplyToMessage,
   canEditMessage,
   canDeleteMessageForEveryone,
   onReplyToMessage,
   onEditMessage,
   onDeleteMessage,
+  onReactMessage,
   onForwardMessage,
   onSaveMessageFiles,
   onOpenOrCreateDm,
@@ -41,17 +41,6 @@ export function useAppContextMenu({
   onDeleteChats,
 }) {
   const [contextMenu, setContextMenu] = useState(null);
-
-  const findContextMenuLinkTarget = useCallback((eventTarget, targetEl) => {
-    const eventNode =
-      eventTarget instanceof Element ? eventTarget : eventTarget?.parentElement || null;
-    if (!eventNode || !targetEl || !targetEl.contains(eventNode)) return null;
-    const anchor = eventNode.closest("a[href]");
-    if (!anchor || !targetEl.contains(anchor)) return null;
-    const href = String(anchor.href || anchor.getAttribute("href") || "").trim();
-    if (!href) return null;
-    return href;
-  }, []);
 
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
@@ -95,74 +84,83 @@ export function useAppContextMenu({
       const items = [];
 
       if (kind === "message") {
-        const message = data?.message || null;
-        const hasText = hasMessageText(message);
-        const linkTarget = findContextMenuLinkTarget(event?.target, targetEl);
-        const files = getMessageFiles(message);
-        items.push(
-          ...(canReplyToMessage
-            ? [
-                {
-                  id: "reply",
-                  label: "Reply",
-                  icon: Reply,
-                  onSelect: () => onReplyToMessage?.(message),
-                },
-              ]
-            : []),
-          ...(hasText
-            ? [
-                {
-                  id: linkTarget ? "copy-link" : "copy",
-                  label: linkTarget ? "Copy link" : "Copy text",
-                  icon: Copy,
-                  onSelect: () =>
-                    copyTextToClipboard(
-                      linkTarget || extractMessageBodyText(message?.body),
-                    ),
-                },
-              ]
-            : []),
-          ...(hasText && canEditMessage?.(message)
-            ? [
-                {
-                  id: "edit",
-                  label: "Edit",
-                  icon: Pencil,
-                  onSelect: () => onEditMessage?.(message),
-                },
-              ]
-            : []),
-          ...(files.length
-            ? [
-                {
-                  id: "save",
-                  label: "Save",
-                  icon: Download,
-                  onSelect: () => onSaveMessageFiles?.(message),
-                },
-              ]
-            : []),
+  const message = data?.message || null;
+  const hasText = hasMessageText(message);
+  const files = getMessageFiles(message);
+
+  items.push(
+    {
+      id: "react",
+      type: "reactions",
+      emojis: [
+        "\u{1F44D}",
+        "\u{2764}\u{FE0F}",
+        "\u{1F602}",
+        "\u{1F525}",
+        "\u{1F62E}",
+        "\u{1F44E}",
+      ],
+      onReact: (emoji) => {
+        onReactMessage?.(message, emoji);
+      },
+    },
+    {
+      id: "reply",
+      label: "Reply",
+      icon: Reply,
+      onSelect: () => onReplyToMessage?.(message),
+    },
+    ...(hasText
+      ? [
           {
-            id: "forward",
-            label: "Forward",
-            icon: Forward,
-            onSelect: () => onForwardMessage?.(message),
-          },
-          {
-            id: "delete",
-            label: "Delete",
-            icon: Trash,
-            danger: true,
+            id: "copy",
+            label: "Copy text",
+            icon: Copy,
             onSelect: () =>
-              onDeleteMessage?.(message, {
-                allowDeleteForEveryone: Boolean(
-                  canDeleteMessageForEveryone?.(message),
-                ),
-              }),
+              copyTextToClipboard(extractMessageBodyText(message?.body)),
           },
-        );
-      }
+        ]
+      : []),
+    ...(hasText && canEditMessage?.(message)
+      ? [
+          {
+            id: "edit",
+            label: "Edit",
+            icon: Pencil,
+            onSelect: () => onEditMessage?.(message),
+          },
+        ]
+      : []),
+    ...(files.length
+      ? [
+          {
+            id: "save",
+            label: "Save",
+            icon: Download,
+            onSelect: () => onSaveMessageFiles?.(message),
+          },
+        ]
+      : []),
+    {
+      id: "forward",
+      label: "Forward",
+      icon: Forward,
+      onSelect: () => onForwardMessage?.(message),
+    },
+    {
+      id: "delete",
+      label: "Delete",
+      icon: Trash,
+      danger: true,
+      onSelect: () =>
+        onDeleteMessage?.(message, {
+          allowDeleteForEveryone: Boolean(
+            canDeleteMessageForEveryone?.(message),
+          ),
+        }),
+    },
+  );
+}
 
       if (kind === "user") {
         const targetUser = data?.member || data?.user || null;
@@ -237,30 +235,23 @@ export function useAppContextMenu({
       }
 
       if (!items.length) return;
-      const message = kind === "message" ? data?.message || null : null;
       setContextMenu({
         kind,
         point,
         items,
-        targetEl: targetEl || null,
-        targetChatId: Number(activeChatId || 0) || null,
-        targetMessageKey: message
-          ? String(message?._clientId ?? message?._serverId ?? message?.id ?? "")
-          : "",
       });
     },
     [
       activeChatId,
-      canReplyToMessage,
       canCurrentUserEditGroup,
       currentUsername,
-      findContextMenuLinkTarget,
       findExistingDmWithUser,
       handleMarkChatSeen,
       onDeleteChats,
       onDeleteMessage,
       onEditMessage,
       onForwardMessage,
+      onReactMessage,
       onSaveMessageFiles,
       onOpenOrCreateDm,
       onOpenProfile,
