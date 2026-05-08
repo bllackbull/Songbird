@@ -23,6 +23,8 @@ export function SettingsMenuActions({
   _onToggleNotifications,
   onOpenNotifications,
   onOpenSavedMessages,
+  onOpenAdmin,
+  showAdminPanel = false,
   onOpenWhatsNew,
 }) {
   const isMobile = variant === "mobile";
@@ -74,6 +76,16 @@ export function SettingsMenuActions({
         <Bell size={18} className="icon-anim-sway" />
         Notifications
       </button>
+      {showAdminPanel ? (
+        <button
+          type="button"
+          onClick={() => onOpenAdmin?.()}
+          className={`mt-1 ${buttonBase} ${accentHover}`}
+        >
+          <ShieldCheck size={18} className="icon-anim-sway" />
+          Admin panel
+        </button>
+      ) : null}
       <ThemeButton
         isDark={isDark}
         toggleTheme={toggleTheme}
