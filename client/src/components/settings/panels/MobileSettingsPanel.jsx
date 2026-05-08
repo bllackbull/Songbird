@@ -56,6 +56,7 @@ export function MobileSettingsPanel({
   dataCacheStats,
   onOpenOwnProfile,
   onOpenSavedMessages,
+  onOpenAdmin,
   onDeleteAccount,
   appInfo,
   appInfoLoading,
@@ -135,6 +136,8 @@ export function MobileSettingsPanel({
               onToggleNotifications={onToggleNotifications}
               onOpenNotifications={openNotificationsPanel}
               onOpenSavedMessages={onOpenSavedMessages}
+              onOpenAdmin={onOpenAdmin}
+              showAdminPanel={Boolean(user?.isAdmin)}
               onOpenWhatsNew={onOpenWhatsNew}
             />
           </div>
