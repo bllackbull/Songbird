@@ -8,12 +8,24 @@ export default function AuthHeader({
 }) {
   return (
     <div className="relative text-center">
+      {/* Brand */}
       <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-600 dark:text-emerald-300 sm:text-sm">
-        {isLogin ? "Sign in" : "Create account"}
+        Songbird
       </p>
+
+      {/* Title */}
       <h1 className="mt-2 text-2xl font-bold sm:mt-3 sm:text-3xl">
-        {isLogin ? "Welcome" : "Join the flock"}
+        {isLogin ? "Welcome to Songbird" : "Join Songbird"}
       </h1>
+
+      {/* Subtitle */}
+      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 sm:text-sm">
+        {isLogin
+          ? "Secure chat & file sharing platform"
+          : "Create your account and start chatting"}
+      </p>
+
+      {/* Theme Toggle */}
       <button
         type="button"
         onClick={onToggleTheme}
@@ -24,13 +36,17 @@ export default function AuthHeader({
           <Sun
             key="theme-sun"
             size={18}
-            className={`icon-anim-spin-dir ${themeToggleAnimating ? "icon-theme-enter-sun" : ""}`}
+            className={`icon-anim-spin-dir ${
+              themeToggleAnimating ? "icon-theme-enter-sun" : ""
+            }`}
           />
         ) : (
           <Moon
             key="theme-moon"
             size={18}
-            className={`icon-anim-spin-left ${themeToggleAnimating ? "icon-theme-enter-moon" : ""}`}
+            className={`icon-anim-spin-left ${
+              themeToggleAnimating ? "icon-theme-enter-moon" : ""
+            }`}
           />
         )}
       </button>
