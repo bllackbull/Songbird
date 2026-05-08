@@ -4,6 +4,7 @@ export default function InstallGuideModal({
   open,
   onClose,
   iconSrc = "/icons/icon-192.png",
+  isAndroid = false,
   isDesktop = false,
 }) {
   if (!open) return null;
@@ -42,7 +43,7 @@ export default function InstallGuideModal({
               </svg>
             </span>
             <span>
-              {isDesktop
+              {isAndroid || isDesktop
                 ? "Open the browser menu."
                 : "Tap the Share button."}
             </span>
@@ -64,8 +65,10 @@ export default function InstallGuideModal({
               </svg>
             </span>
             <span>
-              {isDesktop
-                ? 'Choose "Install app".'
+              {isAndroid
+                ? 'Choose "Install app" or "Add to Home screen".'
+                : isDesktop
+                  ? 'Choose "Install app".'
                 : 'Select "Add to Home Screen".'}
             </span>
           </div>
