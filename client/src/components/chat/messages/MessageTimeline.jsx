@@ -3,13 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 const BOTTOM_STRETCH_MAX_PX = 84;
 const BOTTOM_STRETCH_GAIN = 0.2;
 const BOTTOM_STRETCH_RELEASE_MS = 320;
-const BUILD_UP_OFFSET_PX = 18;
-const BUILD_UP_DURATION_MS = 260;
-const BUILD_UP_ARM_DELAY_MS = 700;
-const TIMELINE_TOP_SPACER_PX = 12;
 
 export function MessageTimeline({
-  activeChatId,
   loadingMessages,
   messages,
   groupedMessages,
@@ -25,17 +20,8 @@ export function MessageTimeline({
   const scrollContainerRef = useRef(null);
   const [bottomStretchPx, setBottomStretchPx] = useState(0);
   const [isReleasingStretch, setIsReleasingStretch] = useState(false);
-  const [buildUpOffsetPx, setBuildUpOffsetPx] = useState(0);
-  const [animateRowKey, setAnimateRowKey] = useState("");
   const bottomStretchRef = useRef(0);
   const releaseTimerRef = useRef(null);
-  const buildUpTimerRef = useRef(null);
-  const activationTimerRef = useRef(null);
-  const animationReadyRef = useRef(false);
-  const previousMessageCountRef = useRef(0);
-  const previousLastMessageKeyRef = useRef("");
-  const latestMessageCountRef = useRef(0);
-  const latestLastMessageKeyRef = useRef("");
 
   const timelineRows = useMemo(() => {
     const rows = [];
@@ -88,14 +74,6 @@ export function MessageTimeline({
   useEffect(
     () => () => {
       clearReleaseTimer();
-      if (activationTimerRef.current) {
-        window.clearTimeout(activationTimerRef.current);
-        activationTimerRef.current = null;
-      }
-      if (buildUpTimerRef.current) {
-        window.clearTimeout(buildUpTimerRef.current);
-        buildUpTimerRef.current = null;
-      }
     },
     [clearReleaseTimer],
   );
@@ -104,90 +82,6 @@ export function MessageTimeline({
     if (messages.length) return;
     releaseBottomStretch();
   }, [messages.length, releaseBottomStretch]);
-
-  useEffect(() => {
-    latestMessageCountRef.current = messages.length;
-    latestLastMessageKeyRef.current = String(
-      messages[messages.length - 1]?._clientId ??
-        messages[messages.length - 1]?._serverId ??
-        messages[messages.length - 1]?.id ??
-        "",
-    );
-  }, [messages]);
-
-  useEffect(() => {
-    animationReadyRef.current = false;
-    previousMessageCountRef.current = latestMessageCountRef.current;
-    previousLastMessageKeyRef.current = latestLastMessageKeyRef.current;
-    setAnimateRowKey("");
-    setBuildUpOffsetPx(0);
-    if (activationTimerRef.current) {
-      window.clearTimeout(activationTimerRef.current);
-      activationTimerRef.current = null;
-    }
-  }, [activeChatId, loadingMessages]);
-
-  useEffect(() => {
-    if (!activeChatId || loadingMessages || animationReadyRef.current) {
-      return;
-    }
-    previousMessageCountRef.current = messages.length;
-    previousLastMessageKeyRef.current = String(
-      messages[messages.length - 1]?._clientId ??
-        messages[messages.length - 1]?._serverId ??
-        messages[messages.length - 1]?.id ??
-        "",
-    );
-    if (activationTimerRef.current) {
-      window.clearTimeout(activationTimerRef.current);
-    }
-    activationTimerRef.current = window.setTimeout(() => {
-      animationReadyRef.current = true;
-      activationTimerRef.current = null;
-      previousMessageCountRef.current = messages.length;
-      previousLastMessageKeyRef.current = String(
-        messages[messages.length - 1]?._clientId ??
-          messages[messages.length - 1]?._serverId ??
-          messages[messages.length - 1]?.id ??
-          "",
-      );
-    }, BUILD_UP_ARM_DELAY_MS);
-  }, [activeChatId, loadingMessages, messages]);
-
-  useEffect(() => {
-    const lastMessage = messages[messages.length - 1] || null;
-    const lastMessageKey = String(
-      lastMessage?._clientId ?? lastMessage?._serverId ?? lastMessage?.id ?? "",
-    );
-    if (loadingMessages || !animationReadyRef.current) {
-      previousMessageCountRef.current = messages.length;
-      previousLastMessageKeyRef.current = lastMessageKey;
-      return;
-    }
-    const appendedLatestMessage =
-      messages.length > previousMessageCountRef.current &&
-      Boolean(lastMessageKey) &&
-      lastMessageKey !== previousLastMessageKeyRef.current;
-
-    if (appendedLatestMessage) {
-      if (buildUpTimerRef.current) {
-        window.clearTimeout(buildUpTimerRef.current);
-      }
-      setAnimateRowKey(`message-${lastMessageKey}`);
-      setBuildUpOffsetPx(BUILD_UP_OFFSET_PX);
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          setBuildUpOffsetPx(0);
-        });
-      });
-      buildUpTimerRef.current = window.setTimeout(() => {
-        setAnimateRowKey("");
-        buildUpTimerRef.current = null;
-      }, BUILD_UP_DURATION_MS + 80);
-    }
-    previousMessageCountRef.current = messages.length;
-    previousLastMessageKeyRef.current = lastMessageKey;
-  }, [loadingMessages, messages]);
 
   const handleTimelineScroll = useCallback(
     (event) => {
@@ -266,17 +160,11 @@ export function MessageTimeline({
   }, [handleTimelineWheel]);
 
   const timelineContentStyle = {
-    transform: `translateY(${buildUpOffsetPx - bottomStretchPx}px)`,
-    transition:
-      isReleasingStretch || Boolean(animateRowKey)
-        ? `transform ${
-            isReleasingStretch
-              ? BOTTOM_STRETCH_RELEASE_MS
-              : BUILD_UP_DURATION_MS
-          }ms cubic-bezier(0.22, 0.61, 0.36, 1)`
-        : "none",
-    willChange:
-      bottomStretchPx > 0 || Boolean(animateRowKey) ? "transform" : "auto",
+    transform: `translateY(${-bottomStretchPx}px)`,
+    transition: isReleasingStretch
+      ? `transform ${BOTTOM_STRETCH_RELEASE_MS}ms cubic-bezier(0.22, 0.61, 0.36, 1)`
+      : "none",
+    willChange: bottomStretchPx > 0 ? "transform" : "auto",
   };
 
   if (loadingMessages) {
@@ -314,55 +202,46 @@ export function MessageTimeline({
         ref={setScrollRef}
         onScroll={handleTimelineScroll}
         onTouchStartCapture={handleScrollIntent}
-        onTouchMoveCapture={handleScrollIntent}
         onWheelCapture={handleScrollIntent}
         className="chat-scroll h-full overflow-y-auto overflow-x-hidden px-0 pb-3 pt-1 md:px-2"
         style={chatScrollStyle}
       >
-        <div className="flex min-h-full flex-col justify-end">
-          <div style={timelineContentStyle}>
-            <div style={{ height: `${TIMELINE_TOP_SPACER_PX}px` }} />
-            {loadingOlderMessages ? (
-              <div className="px-3 pb-3 pt-1 md:px-0">
-                <div className="mx-auto h-10 w-40 animate-pulse rounded-2xl bg-white/80 dark:bg-slate-800/80" />
-              </div>
-            ) : null}
-            {timelineRows.map((row) => (
-              <div
-                id={row.type === "day" ? `day-group-${row.dayKey}` : undefined}
-                key={row.key}
-                className={
-                  row.type === "message" && row.key === animateRowKey
-                    ? "sb-message-build-in"
-                    : undefined
-                }
-              >
-                {row.type === "day" ? (
-                  <div className="flex justify-center">
-                    <button
-                      type="button"
-                      onClick={() => handleGroupChipClick(row.dayKey)}
-                      className="inline-flex w-max items-center justify-center rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+        <div style={timelineContentStyle}>
+          {loadingOlderMessages ? (
+            <div className="px-3 pb-3 pt-1 md:px-0">
+              <div className="mx-auto h-10 w-40 animate-pulse rounded-2xl bg-white/80 dark:bg-slate-800/80" />
+            </div>
+          ) : null}
+          {timelineRows.map((row) => (
+            <div
+              id={row.type === "day" ? `day-group-${row.dayKey}` : undefined}
+              key={row.key}
+            >
+              {row.type === "day" ? (
+                <div className="flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => handleGroupChipClick(row.dayKey)}
+                    className="inline-flex w-max items-center justify-center rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+                  >
+                    <span
+                      data-day-chip={row.dayLabel || ""}
+                      className="leading-none"
                     >
-                      <span
-                        data-day-chip={row.dayLabel || ""}
-                        className="leading-none"
-                      >
-                        {row.dayLabel || ""}
-                      </span>
-                    </button>
-                  </div>
-                ) : (
-                  <div>
-                    {renderMessageItem(row.msg, {
-                      isFirstInGroup: row.isFirstInGroup,
-                    })}
-                  </div>
-                )}
-              </div>
-            ))}
-            <div style={{ height: `${timelineBottomSpacerPx}px` }} />
-          </div>
+                      {row.dayLabel || ""}
+                    </span>
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  {renderMessageItem(row.msg, {
+                    isFirstInGroup: row.isFirstInGroup,
+                  })}
+                </div>
+              )}
+            </div>
+          ))}
+          <div style={{ height: `${timelineBottomSpacerPx}px` }} />
         </div>
       </div>
     );
