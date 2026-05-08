@@ -40,7 +40,7 @@ export default function AuthFormFields({
               name="nickname"
               type="text"
               required
-              placeholder="Songbird Sage"
+              placeholder="BirdX Sage"
               maxLength={NICKNAME_MAX}
               onInput={(event) => {
                 const value = String(event.currentTarget.value || "");
@@ -79,7 +79,7 @@ export default function AuthFormFields({
             pattern="[a-zA-Z0-9._]+"
             title="Use english letters, numbers, dot (.), and underscore (_)."
             autoCapitalize="none"
-            placeholder="songbird.sage"
+            placeholder="birdx.user"
             maxLength={USERNAME_MAX}
             onInput={(event) => {
               const value = String(event.currentTarget.value || "");
