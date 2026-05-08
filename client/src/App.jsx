@@ -1,20 +1,22 @@
 import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import logo from './assets/songbird-logo.svg'
+import logo from './assets/birdx-logo.svg'
 import { APP_CONFIG } from './settings/appConfig.js'
 import InstallBar from './components/pwa/InstallBar.jsx'
 import InstallGuideModal from './components/pwa/InstallGuideModal.jsx'
 
 const API_BASE = ''
-const AUTH_REDIRECT_KEY = 'songbird-auth-redirect'
-const OPEN_CHAT_ID_KEY = 'songbird-open-chat-id'
-const PWA_INSTALL_DISMISS_KEY = 'songbird-pwa-install-dismissed'
-const PWA_PERMISSIONS_PROMPT_KEY = 'songbird-pwa-permissions-prompt'
-const ROUTE_CHUNK_TELEMETRY_KEY = 'songbird-route-chunk-telemetry-v1'
-const CHUNK_RECOVERY_ATTEMPT_KEY = 'songbird-chunk-recovery-attempted'
+const AUTH_REDIRECT_KEY = 'birdx-auth-redirect'
+const OPEN_CHAT_ID_KEY = 'birdx-open-chat-id'
+const PWA_INSTALL_DISMISS_KEY = 'birdx-pwa-install-dismissed'
+const PWA_PERMISSIONS_PROMPT_KEY = 'birdx-pwa-permissions-prompt'
+const ROUTE_CHUNK_TELEMETRY_KEY = 'birdx-route-chunk-telemetry-v1'
+const CHUNK_RECOVERY_ATTEMPT_KEY = 'birdx-chunk-recovery-attempted'
 const loadAuthPage = () => import('./pages/AuthPage.jsx')
+const loadAdminPage = () => import('./pages/AdminPage.jsx')
 const loadChatPage = () => import('./pages/ChatPage.jsx')
 const loadInvitePage = () => import('./pages/InvitePage.jsx')
+const AdminPage = lazy(loadAdminPage)
 const AuthPage = lazy(loadAuthPage)
 const ChatPage = lazy(loadChatPage)
 const InvitePage = lazy(loadInvitePage)
@@ -49,7 +51,7 @@ function RouteLoadingFallback({ themeColor, onVisibleChange = null }) {
       style={{ backgroundColor: themeColor }}
     >
       <div className="flex flex-col items-center gap-3 text-center text-emerald-700 dark:text-emerald-300">
-        <img src={logo} alt="Songbird logo" className="h-10 w-10 animate-pulse" />
+        <img src={logo} alt="birdx logo" className="h-10 w-10 animate-pulse" />
         <p className="text-xs font-semibold tracking-wide">{`Loading${'.'.repeat(dots)}`}</p>
       </div>
     </div>
@@ -61,6 +63,7 @@ function RouteLoadingFallback({ themeColor, onVisibleChange = null }) {
 function getRoute(pathname) {
   if (pathname === '/signup') return 'signup'
   if (pathname.startsWith('/invite/')) return 'invite'
+  if (pathname === '/admin') return 'admin'
   if (pathname === '/chat') return 'chat'
   return 'login'
 }
@@ -102,7 +105,7 @@ export default function App() {
         const keys = await window.caches.keys()
         await Promise.all(
           keys
-            .filter((key) => key.startsWith('songbird-'))
+            .filter((key) => key.startsWith('birdx-'))
             .map((key) => window.caches.delete(key)),
         )
       }
@@ -125,7 +128,7 @@ export default function App() {
   }
 
   const [isDark, setIsDark] = useState(() => {
-    const stored = localStorage.getItem('songbird-theme')
+    const stored = localStorage.getItem('birdx-theme')
     if (stored === 'light') return false
     if (stored === 'dark') return true
     return resolveAutoThemeIsDark()
@@ -159,6 +162,7 @@ export default function App() {
     if (!isIOS || isStandaloneDisplay) return false
     return localStorage.getItem(PWA_INSTALL_DISMISS_KEY) !== '1'
   })
+  const [showAndroidInstallFallback, setShowAndroidInstallFallback] = useState(false)
   const [showInstallGuide, setShowInstallGuide] = useState(false)
   const [routeChunkLoading, setRouteChunkLoading] = useState(false)
   const preloadedRoutesRef = useRef(new Set())
@@ -171,7 +175,10 @@ export default function App() {
   const showInstallBar =
     !isStandaloneDisplay &&
     !installDismissed &&
-    (showInstallBanner || showIosInstallBanner || isDesktopViewport)
+    (showInstallBanner ||
+      showIosInstallBanner ||
+      showAndroidInstallFallback ||
+      isDesktopViewport)
 
   function normalizeSessionUser(data) {
     if (!data?.username) return null
@@ -182,6 +189,8 @@ export default function App() {
       avatarUrl: data.avatarUrl || null,
       color: data.color || null,
       status: data.status || 'online',
+      role: data.role || 'user',
+      isAdmin: Boolean(data.isAdmin),
     }
   }
 
@@ -283,10 +292,10 @@ export default function App() {
     root.classList.add('theme-switching')
     if (nextIsDark) {
       root.classList.add('dark')
-      localStorage.setItem('songbird-theme', 'dark')
+      localStorage.setItem('birdx-theme', 'dark')
     } else {
       root.classList.remove('dark')
-      localStorage.setItem('songbird-theme', 'light')
+      localStorage.setItem('birdx-theme', 'light')
     }
     root.style.colorScheme = nextIsDark ? 'dark' : 'light'
 
@@ -385,6 +394,7 @@ export default function App() {
       setInstallPromptEvent(null)
       setShowInstallBanner(false)
       setShowIosInstallBanner(false)
+      setShowAndroidInstallFallback(false)
       setInstallDismissed(true)
       localStorage.setItem(PWA_INSTALL_DISMISS_KEY, '1')
       localStorage.setItem(PWA_PERMISSIONS_PROMPT_KEY, 'pending')
@@ -393,15 +403,30 @@ export default function App() {
     const handleShowInstall = () => setInstallForceHidden(false)
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
     window.addEventListener('appinstalled', handleInstalled)
-    window.addEventListener('songbird-hide-install-bar', handleHideInstall)
-    window.addEventListener('songbird-show-install-bar', handleShowInstall)
+    window.addEventListener('birdx-hide-install-bar', handleHideInstall)
+    window.addEventListener('birdx-show-install-bar', handleShowInstall)
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
       window.removeEventListener('appinstalled', handleInstalled)
-      window.removeEventListener('songbird-hide-install-bar', handleHideInstall)
-      window.removeEventListener('songbird-show-install-bar', handleShowInstall)
+      window.removeEventListener('birdx-hide-install-bar', handleHideInstall)
+      window.removeEventListener('birdx-show-install-bar', handleShowInstall)
     }
   }, [isStandaloneDisplay])
+
+  useEffect(() => {
+    if (!isAndroid || isStandaloneDisplay || installDismissed) {
+      setShowAndroidInstallFallback(false)
+      return undefined
+    }
+    if (installPromptEvent || showInstallBanner) {
+      setShowAndroidInstallFallback(false)
+      return undefined
+    }
+    const timer = window.setTimeout(() => {
+      setShowAndroidInstallFallback(true)
+    }, 2200)
+    return () => window.clearTimeout(timer)
+  }, [installDismissed, installPromptEvent, isAndroid, isStandaloneDisplay, showInstallBanner])
 
   useEffect(() => {
     if (!APP_CONFIG.debugEnabled) {
@@ -697,7 +722,7 @@ export default function App() {
       return
     }
 
-    if (!user && (route === 'chat' || route === 'invite')) {
+    if (!user && (route === 'chat' || route === 'invite' || route === 'admin')) {
       if (route === 'invite') {
         const nextPath = window.location.pathname
         if (nextPath.startsWith('/invite/')) {
@@ -755,6 +780,8 @@ export default function App() {
         avatarUrl: data.avatarUrl || null,
         color: data.color || null,
         status: data.status || 'online',
+        role: data.role || 'user',
+        isAdmin: Boolean(data.isAdmin),
       }
       const nextUser = await resolveSessionUserWithRetry(fallbackUser)
       setUser(nextUser)
@@ -920,10 +947,10 @@ export default function App() {
             <header className="flex flex-wrap items-center justify-center gap-3 text-center sm:gap-4">
               <div className="flex items-center gap-1 text-black dark:text-white">
                 <div className="flex h-8 w-8 items-center justify-center sm:h-9 sm:w-9">
-                  <img src={logo} alt="Songbird logo" className="h-8 w-8" />
+                  <img src={logo} alt="birdx logo" className="h-8 w-8" />
                 </div>
                 <div>
-                  <p className="text-xl font-bold tracking-tight sm:text-2xl">Songbird</p>
+                  <p className="text-xl font-bold tracking-tight sm:text-2xl">birdx</p>
                 </div>
               </div>
             </header>
@@ -973,6 +1000,9 @@ export default function App() {
               {route === 'chat' && user ? (
                 <ChatPage user={user} setUser={setUser} isDark={isDark} setIsDark={setIsDark} toggleTheme={toggleTheme} />
               ) : null}
+              {route === 'admin' && user ? (
+                <AdminPage user={user} isDark={isDark} onToggleTheme={toggleTheme} onNavigate={navigate} />
+              ) : null}
               {route === 'invite' && user ? (
                 <InvitePage
                   token={inviteToken}
@@ -1001,6 +1031,7 @@ export default function App() {
         onDismiss={() => {
           setShowInstallBanner(false)
           setShowIosInstallBanner(false)
+          setShowAndroidInstallFallback(false)
           setInstallDismissed(true)
           localStorage.setItem(PWA_INSTALL_DISMISS_KEY, '1')
         }}
@@ -1021,6 +1052,7 @@ export default function App() {
             } finally {
               setInstallPromptEvent(null)
               setShowInstallBanner(false)
+              setShowAndroidInstallFallback(false)
             }
             return
           }
@@ -1031,6 +1063,7 @@ export default function App() {
       <InstallGuideModal
         open={showInstallGuide}
         iconSrc="/icons/icon-192.png"
+        isAndroid={isAndroid}
         isDesktop={isDesktopViewport}
         onClose={() => setShowInstallGuide(false)}
       />
