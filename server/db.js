@@ -18,6 +18,14 @@ dotenv.config({ path: path.join(serverDir, ".env"), override: true });
 ensureStorageEncryptionKey({ projectRootDir, fsImpl: fs, pathImpl: path, cryptoImpl: crypto });
 const dataDir = path.resolve(serverDir, "..", "data");
 const dbPath = path.join(dataDir, "songbird.db");
+const REMOTE_MESSAGE_CLIENT_REQUEST_SQL =
+  "LOWER(COALESCE(client_request_id, '')) LIKE 'remote:%'";
+
+export const isRemoteMessageClientRequestId = (value) =>
+  /^remote:/i.test(String(value || "").trim());
+
+export const isRemoteMessageRow = (row) =>
+  isRemoteMessageClientRequestId(row?.client_request_id || row?.clientRequestId);
 
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
@@ -1129,6 +1137,16 @@ export function deleteChatById(chatId) {
     runWithoutSave("DELETE FROM chat_mutes WHERE chat_id = ?", [targetChatId]);
     runWithoutSave("DELETE FROM chat_left_members WHERE chat_id = ?", [targetChatId]);
     runWithoutSave("DELETE FROM group_removed_members WHERE chat_id = ?", [targetChatId]);
+    runWithoutSave(
+      `DELETE FROM remote_channel_queue
+       WHERE source_id IN (
+         SELECT id FROM remote_channel_sources WHERE chat_id = ?
+       )`,
+      [targetChatId],
+    );
+    runWithoutSave("DELETE FROM remote_channel_sources WHERE chat_id = ?", [
+      targetChatId,
+    ]);
     runWithoutSave("DELETE FROM chats WHERE id = ?", [targetChatId]);
     runWithoutSave(`RELEASE ${savepoint}`);
     saveDatabase();
@@ -1307,6 +1325,7 @@ export function listChatsForUser(userId) {
         cm.id,
         cm.chat_id,
         cm.user_id,
+        cm.client_request_id,
         COALESCE(cm.edited_body, cm.body) AS body,
         cm.created_at,
         cm.read_at,
@@ -1329,6 +1348,7 @@ export function listChatsForUser(userId) {
       SELECT chat_id, MAX(id) AS last_outgoing_message_id
       FROM visible_messages
       WHERE user_id = ?
+        AND NOT (${REMOTE_MESSAGE_CLIENT_REQUEST_SQL})
       GROUP BY chat_id
     ),
     unread_counts AS (
@@ -1337,7 +1357,10 @@ export function listChatsForUser(userId) {
       LEFT JOIN chat_message_reads cmr
         ON cmr.message_id = vm.id
        AND cmr.user_id = ?
-      WHERE vm.user_id != ?
+      WHERE (
+          vm.user_id != ?
+          OR LOWER(COALESCE(vm.client_request_id, '')) LIKE 'remote:%'
+        )
         AND cmr.message_id IS NULL
       GROUP BY vm.chat_id
     )
@@ -1357,6 +1380,7 @@ export function listChatsForUser(userId) {
       last_vm.body AS last_message,
       last_vm.created_at AS last_time,
       last_vm.user_id AS last_sender_id,
+      last_vm.client_request_id AS last_message_client_request_id,
       CASE
         WHEN last_vm.id IS NULL THEN NULL
         ELSE COALESCE(last_user.username, 'deleted')
@@ -1490,10 +1514,16 @@ export function markMessageRead(messageId, readerId) {
      WHERE id = ?`,
     [Number(readerId), Number(messageId)],
   );
-  const row = getRow("SELECT user_id FROM chat_messages WHERE id = ?", [
-    Number(messageId),
-  ]);
-  if (Number(row?.user_id || 0) === Number(readerId)) return;
+  const row = getRow(
+    "SELECT user_id, client_request_id FROM chat_messages WHERE id = ?",
+    [Number(messageId)],
+  );
+  if (
+    Number(row?.user_id || 0) === Number(readerId) &&
+    !isRemoteMessageRow(row)
+  ) {
+    return;
+  }
   run(
     `INSERT OR IGNORE INTO chat_message_reads (message_id, user_id, read_at)
      VALUES (?, ?, datetime('now'))`,
@@ -1857,7 +1887,10 @@ export function markMessagesRead(chatId, readerId) {
   const recentRows = getAll(
     `SELECT id FROM chat_messages
      WHERE chat_id = ?
-       AND user_id != ?
+       AND (
+         user_id != ?
+         OR ${REMOTE_MESSAGE_CLIENT_REQUEST_SQL}
+       )
        AND id NOT IN (SELECT message_id FROM chat_message_reads WHERE user_id = ?)
      ORDER BY id DESC`,
     [Number(chatId), Number(readerId), Number(readerId)],
@@ -1873,7 +1906,12 @@ export function markMessagesRead(chatId, readerId) {
     `
     UPDATE chat_messages
     SET read_at = datetime('now'), read_by_user_id = ?
-    WHERE chat_id = ? AND user_id != ? AND read_at IS NULL
+    WHERE chat_id = ?
+      AND (
+        user_id != ?
+        OR ${REMOTE_MESSAGE_CLIENT_REQUEST_SQL}
+      )
+      AND read_at IS NULL
   `,
     [readerId, chatId, readerId],
   );
@@ -1952,11 +1990,17 @@ export function recordMessageReads(messageIds = [], readerId) {
   if (!normalized.length) return;
   const placeholders = normalized.map(() => "?").join(", ");
   const rows = getAll(
-    `SELECT id, user_id FROM chat_messages WHERE id IN (${placeholders})`,
+    `SELECT id, user_id, client_request_id
+     FROM chat_messages
+     WHERE id IN (${placeholders})`,
     normalized,
   );
   const toInsert = rows
-    .filter((row) => Number(row?.user_id || 0) !== Number(readerId))
+    .filter(
+      (row) =>
+        Number(row?.user_id || 0) !== Number(readerId) ||
+        isRemoteMessageRow(row),
+    )
     .map((row) => Number(row.id))
     .filter((id) => Number.isFinite(id) && id > 0);
   if (!toInsert.length) return;
@@ -2049,7 +2093,10 @@ export function getTotalUnreadCount(userId) {
      WHERE cm.body NOT LIKE '[[system:%]]'
        AND cm.hidden_everyone_at IS NULL
        AND hcm.message_id IS NULL
-       AND cm.user_id != ?
+       AND (
+         cm.user_id != ?
+         OR LOWER(COALESCE(cm.client_request_id, '')) LIKE 'remote:%'
+       )
        AND cmr.message_id IS NULL`,
     [uid, uid, uid, uid, uid, uid],
   );

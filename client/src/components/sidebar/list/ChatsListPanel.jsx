@@ -20,6 +20,7 @@ import { hasPersian } from "../../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../../utils/avatarInitials.js";
 import { renderMarkdownInlinePlain } from "../../../utils/markdown.js";
 import { summarizeFiles } from "../../../utils/messagePreview.js";
+import { isMessageAuthoredByUser } from "../../../utils/messageOwnership.js";
 import Avatar from "../../common/Avatar.jsx";
 
 export default function ChatsListPanel({
@@ -498,7 +499,13 @@ export default function ChatsListPanel({
             : undefined;
           const isOwnLastMessage =
             Boolean(conv.last_message) &&
-            conv.last_sender_username === user.username;
+            isMessageAuthoredByUser(
+              {
+                username: conv.last_sender_username,
+                client_request_id: conv.last_message_client_request_id,
+              },
+              user,
+            );
           const isOwnLastMessagePending =
             Boolean(conv._lastMessagePending) && isOwnLastMessage;
           const isOwnLastMessageSeen = Boolean(conv.last_message_read_at);
@@ -572,8 +579,7 @@ export default function ChatsListPanel({
                   >
                     {conv.last_message ||
                     (conv.last_message_files || []).length ? (
-                      conv.last_sender_username === user.username &&
-                      !isChannelOwner ? (
+                      isOwnLastMessage && !isChannelOwner ? (
                         <span
                           className="flex w-full min-w-0 items-baseline gap-1 align-middle leading-[1.35]"
                           dir="ltr"

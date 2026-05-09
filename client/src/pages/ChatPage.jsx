@@ -58,6 +58,11 @@ import {
 } from "../utils/chatCache.js";
 import { getMessageFiles } from "../utils/messageContent.js";
 import {
+  isMessageAuthoredByUser,
+  isMessageFromOtherUser,
+  isRemoteChannelMessage,
+} from "../utils/messageOwnership.js";
+import {
   createDmChat,
   discoverUsersAndGroups,
   createChannelChat,
@@ -1265,6 +1270,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         last_sender_username: user.username,
         last_sender_nickname: user.nickname || user.username,
         last_sender_avatar_url: user.avatarUrl || "",
+        last_message_client_request_id: null,
         last_message_read_at: null,
       }));
     });
@@ -2747,8 +2753,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const canEditMessageFromContext = useCallback(
     (message) =>
       (!isActiveChannelChat || canCurrentUserEditGroup) &&
-      String(message?.username || "").toLowerCase() ===
-        String(user?.username || "").toLowerCase(),
+      isMessageAuthoredByUser(message, { username: user?.username }),
     [canCurrentUserEditGroup, isActiveChannelChat, user?.username],
   );
 
@@ -3158,7 +3163,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       return;
     }
     const hasUnreadFromOthers = messages.some(
-      (msg) => msg.username !== user.username && !msg._readByMe,
+      (msg) =>
+        isMessageFromOtherUser(msg, { username: user?.username }) &&
+        !msg._readByMe,
     );
     if (!hasUnreadFromOthers) return;
 
@@ -3322,7 +3329,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (!notificationsActive) return;
       const senderName = String(payload?.username || "").trim();
       const isOwnEvent =
-        senderName.toLowerCase() === String(user?.username || "").toLowerCase();
+        senderName.toLowerCase() === String(user?.username || "").toLowerCase() &&
+        !isRemoteChannelMessage(payload);
       if (isOwnEvent) return;
       if (document.visibilityState !== "visible") return;
       if (document.hasFocus()) return;
@@ -4031,7 +4039,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   useEffect(() => {
     if (!activeChatId || !isAppActive) return;
     const needsMediaSync = messages.some((msg) => {
-      const isOwn = msg.username === user.username;
+      const isOwn = isMessageAuthoredByUser(msg, { username: user.username });
       if (!isOwn) return false;
       const hasFiles = Array.isArray(msg.files) ? msg.files.length > 0 : false;
       if (!hasFiles) return false;
@@ -4209,13 +4217,19 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                 file?.processing === true &&
                 !String(file?.url || "").includes("-h264-"),
             );
-            const lastSender = String(chat?.last_sender_username || "").toLowerCase();
-            const isFromSelf =
-              lastSender &&
-              lastSender === String(user.username || "").toLowerCase();
-            const isFromOther =
-              lastSender &&
-              lastSender !== String(user.username || "").toLowerCase();
+            const lastMessageIdentity = {
+              username: chat?.last_sender_username,
+              client_request_id: chat?.last_message_client_request_id,
+            };
+            const userIdentity = { username: user.username };
+            const isFromSelf = isMessageAuthoredByUser(
+              lastMessageIdentity,
+              userIdentity,
+            );
+            const isFromOther = isMessageFromOtherUser(
+              lastMessageIdentity,
+              userIdentity,
+            );
             if (hasProcessingVideo && isFromSelf) {
               return {
                 ...chat,
@@ -5724,6 +5738,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             )
           : newGroupMembers.map((member) => member.username),
       };
+      if (!editingGroup && shouldSaveRemoteChannel) {
+        payload.remoteChannel = {
+          enabled: remoteChannelEnabled,
+          provider: remoteChannelProvider,
+          source: remoteChannelSource,
+          syncMetadata: remoteChannelSyncMetadata,
+          streamMedia: remoteChannelStreamMedia,
+        };
+      }
       const res = editingGroup && activeChat?.id
         ? await (isChannel ? updateChannelChat : updateGroupChat)(activeChat.id, {
             username: user.username,
@@ -5762,7 +5785,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           throw new Error(avatarData?.error || "Unable to remove group avatar.");
         }
       }
-      if (shouldSaveRemoteChannel) {
+      if (shouldSaveRemoteChannel && editingGroup) {
         const remoteRes = await updateRemoteChannelSettings(nextChatId, {
           username: user.username,
           enabled: remoteChannelEnabled,

@@ -81,6 +81,15 @@ function registerMessageRoutes(app, deps) {
     return role === "owner";
   };
 
+  const isRemoteChannelMessage = (message) =>
+    /^remote:/i.test(
+      String(message?.client_request_id || message?.clientRequestId || "").trim(),
+    );
+
+  const isMessageAuthoredByUser = (message, userId) =>
+    Number(message?.user_id || 0) === Number(userId) &&
+    !isRemoteChannelMessage(message);
+
   const normalizeForwardOriginAvatarUrl = (userId, avatarUrl) => {
     const normalized = ensureAvatarExists(userId, avatarUrl);
     return String(normalized || "").trim() || null;
@@ -278,7 +287,7 @@ function registerMessageRoutes(app, deps) {
         ...message,
         clientRequestId: message.client_request_id || null,
         read_by_me:
-          Number(message?.user_id || 0) === Number(user.id) ||
+          isMessageAuthoredByUser(message, user.id) ||
           readByMe.has(Number(message.id)),
         files: filesByMessageId[Number(message.id)] || [],
         expiresAt: null,
@@ -291,7 +300,7 @@ function registerMessageRoutes(app, deps) {
             : null,
       }))
       .filter((message) => {
-        const isFromOther = Number(message?.user_id || 0) !== Number(user.id);
+        const isFromOther = !isMessageAuthoredByUser(message, user.id);
         if (!isFromOther) return true;
 
         const hasPendingVideo = (message.files || []).some(
@@ -647,7 +656,7 @@ function registerMessageRoutes(app, deps) {
               error: "Edit target is not available in this chat.",
             });
           }
-          if (Number(editTarget.user_id || 0) !== Number(user.id)) {
+          if (!isMessageAuthoredByUser(editTarget, user.id)) {
             removeUploadedFiles(uploadedFiles);
             return res.status(403).json({
               error: "Only the message author can edit this message.",
@@ -1182,7 +1191,7 @@ function registerMessageRoutes(app, deps) {
         .status(403)
         .json({ error: "Only channel owner can send messages." });
     }
-    if (Number(message.user_id || 0) !== Number(user.id)) {
+    if (!isMessageAuthoredByUser(message, user.id)) {
       return res.status(403).json({ error: "Only the author can edit this message." });
     }
 

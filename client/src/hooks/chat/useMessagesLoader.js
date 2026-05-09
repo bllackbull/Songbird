@@ -1,4 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import {
+  isMessageAuthoredByUser,
+  isMessageFromOtherUser,
+} from "../../utils/messageOwnership.js";
 
 const SILENT_FETCH_TRACK_MAX_CHATS = 40;
 
@@ -163,8 +167,7 @@ export function useMessagesLoader({
         const date = parseServerDate(msg.created_at);
         const dayKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
         const readByMe =
-          Number(msg?.user_id || 0) === Number(user.id) ||
-          Boolean(msg.read_by_me);
+          isMessageAuthoredByUser(msg, user) || Boolean(msg.read_by_me);
         const hasProcessingVideo = Array.isArray(msg?.files)
           ? msg.files.some(
               (file) =>
@@ -176,7 +179,7 @@ export function useMessagesLoader({
             )
           : false;
         const isOwnProcessingVideo =
-          hasProcessingVideo && msg.username === user.username;
+          hasProcessingVideo && isMessageAuthoredByUser(msg, user);
         const normalizedBody = normalizeMessageBody(msg?.body);
         const normalizedReply =
           msg?.replyTo && typeof msg.replyTo === "object"
@@ -447,7 +450,7 @@ export function useMessagesLoader({
               _readByMe:
                 Boolean(serverMsg?.read_by_me) ||
                 Boolean(existingLocal?._readByMe) ||
-                Number(serverMsg?.user_id || 0) === Number(user.id),
+                isMessageAuthoredByUser(serverMsg, user),
               read_at: serverMsg.read_at || existingLocal?.read_at || null,
               read_by_user_id:
                 serverMsg.read_by_user_id || existingLocal?.read_by_user_id || null,
@@ -468,8 +471,7 @@ export function useMessagesLoader({
                     .startsWith("video/"),
                 )
               : false;
-            const isFromOther =
-              String(serverMsg?.username || "") !== String(user.username || "");
+            const isFromOther = isMessageFromOtherUser(serverMsg, user);
             const createdAtMs = parseServerDate(
               serverMsg?.created_at,
             ).getTime();
@@ -846,18 +848,18 @@ export function useMessagesLoader({
       const lastMsg = nextMessages[nextMessages.length - 1];
       const lastId = lastMsg?.id || null;
       const hasUnreadFromOthers = nextMessages.some(
-        (msg) => msg.username !== user.username && !msg._readByMe,
+        (msg) => isMessageFromOtherUser(msg, user) && !msg._readByMe,
       );
       const hasNew =
         lastId &&
         lastMessageIdRef.current &&
         lastId !== lastMessageIdRef.current;
-      const newFromSelf = hasNew && lastMsg?.username === user.username;
+      const newFromSelf = hasNew && isMessageAuthoredByUser(lastMsg, user);
       lastMessageIdRef.current = lastId;
 
       if (openingChatRef.current) {
         const firstUnreadIndex = nextMessages.findIndex(
-          (msg) => msg.username !== user.username && !msg._readByMe,
+          (msg) => isMessageFromOtherUser(msg, user) && !msg._readByMe,
         );
         const firstUnreadMessage =
           firstUnreadIndex >= 0 ? nextMessages[firstUnreadIndex] : null;

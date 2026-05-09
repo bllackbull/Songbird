@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
+import { isMessageFromOtherUser } from "../../utils/messageOwnership.js";
 
 export function useChatScroll({
   activeChatId,
@@ -174,7 +175,7 @@ export function useChatScroll({
             return;
           }
           const hasUnreadFromOthers = messages.some(
-            (msg) => msg.username !== user.username && !msg._readByMe,
+            (msg) => isMessageFromOtherUser(msg, user) && !msg._readByMe,
           );
           if (hasUnreadFromOthers) {
             isMarkingReadRef.current = true;

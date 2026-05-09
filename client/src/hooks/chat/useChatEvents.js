@@ -1,4 +1,8 @@
 import { useEffect, useRef } from "react";
+import {
+  isMessageAuthoredByUser,
+  isRemoteChannelMessage,
+} from "../../utils/messageOwnership.js";
 
 const patchChatAndMoveToFront = (chats, chatId, updateChat) => {
   const targetChatId = Number(chatId || 0);
@@ -156,9 +160,10 @@ export function useChatEvents({
         }
         const payloadChatId = Number(payload.chatId || 0);
         const currentActiveId = activeChatIdRef.current;
+        const payloadUsername = String(payload?.username || "").toLowerCase();
+        const currentUsername = String(usernameRef.current || "").toLowerCase();
         const isOwnEvent =
-          String(payload?.username || "").toLowerCase() ===
-          String(usernameRef.current || "").toLowerCase();
+          payloadUsername === currentUsername && !isRemoteChannelMessage(payload);
         if (payload.type === "chat_list_changed") {
           scheduleLoadChats();
           onChatListChangedRef.current?.(payload);
@@ -182,12 +187,16 @@ export function useChatEvents({
                 const isActiveChat =
                   Number(currentActiveId || 0) === Number(payloadChatId);
                 const currentUnread = Math.max(0, Number(chat?.unread_count || 0));
+                const clientRequestId = String(
+                  payload?.client_request_id || payload?.clientRequestId || "",
+                ).trim();
                 return {
                   ...chat,
                   last_message_id:
                     Number(payload?.messageId || 0) || chat?.last_message_id || null,
                   last_message: previewBody || chat?.last_message || "",
                   last_time: eventTime,
+                  last_message_client_request_id: clientRequestId || null,
                   last_sender_username:
                     String(payload?.username || "").trim() ||
                     chat?.last_sender_username ||
@@ -282,9 +291,9 @@ export function useChatEvents({
             const nowIso = new Date().toISOString();
             setMessages((prev) =>
               prev.map((msg) => {
-                const fromCurrentUser =
-                  String(msg?.username || "").toLowerCase() ===
-                  String(usernameRef.current || "").toLowerCase();
+                const fromCurrentUser = isMessageAuthoredByUser(msg, {
+                  username: usernameRef.current,
+                });
                 if (!fromCurrentUser || msg?.read_at) return msg;
                 return { ...msg, read_at: nowIso };
               }),

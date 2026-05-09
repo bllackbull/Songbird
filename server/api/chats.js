@@ -1,4 +1,5 @@
 import { createInviteToken } from "../lib/inviteTokens.js";
+import { normalizeTelegramSource } from "../lib/remoteChannels.js";
 
 function registerChatRoutes(app, deps) {
   const {
@@ -53,6 +54,10 @@ function registerChatRoutes(app, deps) {
     unhideChat,
     uploadAvatar,
     setChatMemberRole,
+    FILE_UPLOAD,
+    REMOTE_CHANNELS,
+    remoteChannelManager,
+    upsertRemoteChannelSource,
   } = deps;
 
   const resolveClientBaseOrigin = (req) => {
@@ -99,6 +104,95 @@ function registerChatRoutes(app, deps) {
   const isPublicChat = (chat) =>
     String(chat?.group_visibility || "public").trim().toLowerCase() ===
     "public";
+  const isRemoteChannelAvailable = () =>
+    Boolean(REMOTE_CHANNELS?.enabled && REMOTE_CHANNELS?.telegramConfigured);
+  const normalizeCreateRemoteChannel = ({
+    remoteChannel,
+    chatType,
+    visibility,
+  }) => {
+    if (
+      chatType !== "channel" ||
+      !remoteChannel ||
+      typeof remoteChannel !== "object"
+    ) {
+      return { shouldSave: false };
+    }
+
+    const enabled = Boolean(remoteChannel.enabled);
+    const rawSource = String(
+      remoteChannel.source || remoteChannel.sourceRaw || "",
+    ).trim();
+    const syncMetadata = enabled && Boolean(remoteChannel.syncMetadata);
+    const streamMedia = enabled && Boolean(FILE_UPLOAD && remoteChannel.streamMedia);
+    const shouldSave = Boolean(
+      enabled || rawSource || syncMetadata || streamMedia,
+    );
+    if (!shouldSave) return { shouldSave: false };
+
+    if (!isRemoteChannelAvailable()) {
+      return {
+        shouldSave: true,
+        error: "Remote Channel is not configured on this server.",
+        status: 503,
+      };
+    }
+    if (enabled && String(visibility || "").toLowerCase() === "private") {
+      return {
+        shouldSave: true,
+        error: "Remote Channel can only be enabled for public channels.",
+        status: 400,
+      };
+    }
+
+    const provider = String(remoteChannel.provider || "telegram").toLowerCase();
+    if (provider !== "telegram") {
+      return {
+        shouldSave: true,
+        error: "Remote Channel source is invalid.",
+        status: 400,
+      };
+    }
+
+    let normalized = {
+      ok: true,
+      sourceRaw: rawSource,
+      sourceChatId: "",
+      sourceUsername: "",
+    };
+    if (enabled) {
+      normalized = normalizeTelegramSource(rawSource);
+      if (!normalized.ok) {
+        return {
+          shouldSave: true,
+          error: normalized.error,
+          status: 400,
+        };
+      }
+    } else if (rawSource) {
+      const optionalNormalized = normalizeTelegramSource(rawSource);
+      if (optionalNormalized.ok) normalized = optionalNormalized;
+    }
+
+    if (enabled && !normalized.sourceChatId && !normalized.sourceUsername) {
+      return {
+        shouldSave: true,
+        error: "Telegram source is required.",
+        status: 400,
+      };
+    }
+
+    return {
+      shouldSave: true,
+      enabled,
+      provider,
+      sourceRaw: normalized.sourceRaw,
+      sourceChatId: normalized.sourceChatId,
+      sourceUsername: normalized.sourceUsername,
+      syncMetadata,
+      streamMedia,
+    };
+  };
   const buildGroupInviteLink = (baseOrigin, chat, inviteToken) => {
     const username = normalizeInviteUsername(chat?.group_username);
     if (isPublicChat(chat) && username) {
@@ -329,7 +423,7 @@ function registerChatRoutes(app, deps) {
     res.json({ id: chatId });
   });
 
-  app.post("/api/chats/group", (req, res) => {
+  app.post("/api/chats/group", async (req, res) => {
     const session = requireSession(req, res);
     if (!session) return;
 
@@ -343,6 +437,7 @@ function registerChatRoutes(app, deps) {
       groupColor,
       color,
       members = [],
+      remoteChannel = null,
     } = req.body || {};
 
     if (!creator) {
@@ -392,6 +487,16 @@ function registerChatRoutes(app, deps) {
       String(visibility || "").toLowerCase() === "private"
         ? "private"
         : "public";
+    const remoteChannelConfig = normalizeCreateRemoteChannel({
+      remoteChannel,
+      chatType: normalizedType,
+      visibility: normalizedVisibility,
+    });
+    if (remoteChannelConfig.error) {
+      return res
+        .status(remoteChannelConfig.status || 400)
+        .json({ error: remoteChannelConfig.error });
+    }
     const suppliedGroupColor = String(groupColor || color || "")
       .trim()
       .toLowerCase();
@@ -424,6 +529,39 @@ function registerChatRoutes(app, deps) {
       const member = findUserByUsername(memberUsername);
       if (member) addChatMember(chatId, member.id, "member");
     });
+
+    if (remoteChannelConfig.shouldSave) {
+      let remoteSource = null;
+      try {
+        remoteSource = upsertRemoteChannelSource({
+          chatId,
+          provider: remoteChannelConfig.provider,
+          sourceRaw: remoteChannelConfig.sourceRaw,
+          sourceChatId: remoteChannelConfig.sourceChatId,
+          sourceUsername: remoteChannelConfig.sourceUsername,
+          syncMetadata: remoteChannelConfig.syncMetadata,
+          streamMedia: remoteChannelConfig.streamMedia,
+          enabled: remoteChannelConfig.enabled,
+        });
+        if (
+          remoteChannelConfig.enabled &&
+          remoteChannelConfig.syncMetadata &&
+          typeof remoteChannelManager?.syncSourceMetadata === "function"
+        ) {
+          await remoteChannelManager.syncSourceMetadata(remoteSource.id);
+        }
+      } catch (error) {
+        deleteChatById(chatId);
+        return res.status(400).json({
+          error: remoteChannelConfig.syncMetadata
+            ? `Unable to sync Telegram metadata: ${
+                error?.message || "Unknown error"
+              }`
+            : error?.message || "Unable to configure Remote Channel.",
+        });
+      }
+    }
+
     emitChatListChangedToChatParticipants(chatId);
 
     const createdChat = findChatById(chatId);
