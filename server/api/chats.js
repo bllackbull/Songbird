@@ -1,3 +1,5 @@
+import { createInviteToken } from "../lib/inviteTokens.js";
+
 function registerChatRoutes(app, deps) {
   const {
     USERNAME_REGEX,
@@ -80,6 +82,43 @@ function registerChatRoutes(app, deps) {
     if (raw.startsWith("/api/uploads/avatars/")) return raw;
     if (raw.startsWith("/uploads/avatars/")) return `/api${raw}`;
     return raw;
+  };
+  const normalizeInviteUsername = (value) =>
+    String(value || "")
+      .trim()
+      .replace(/^@+/, "")
+      .toLowerCase();
+  const decodeInviteTarget = (value) => {
+    const target = String(value || "").trim();
+    try {
+      return decodeURIComponent(target);
+    } catch {
+      return target;
+    }
+  };
+  const isPublicChat = (chat) =>
+    String(chat?.group_visibility || "public").trim().toLowerCase() ===
+    "public";
+  const buildGroupInviteLink = (baseOrigin, chat, inviteToken) => {
+    const username = normalizeInviteUsername(chat?.group_username);
+    if (isPublicChat(chat) && username) {
+      return `${baseOrigin}/invite/${encodeURIComponent(username)}`;
+    }
+    const token = String(inviteToken ?? chat?.invite_token ?? "").trim();
+    return token ? `${baseOrigin}/invite/${encodeURIComponent(token)}` : "";
+  };
+  const findPublicChatByInviteUsername = (value) => {
+    const username = normalizeInviteUsername(value);
+    if (!username) return null;
+    const chat = findChatByGroupUsername(username);
+    if (!chat || !isPublicChat(chat)) return null;
+    return chat;
+  };
+  const findChatByInviteTarget = (value) => {
+    const target = decodeInviteTarget(value);
+    if (!target) return null;
+    if (target.startsWith("@")) return findPublicChatByInviteUsername(target);
+    return findChatByInviteToken(target) || findPublicChatByInviteUsername(target);
   };
   const emitChatListChangedToChatParticipants = (chatId, extraUsernames = []) => {
     const memberUsernames = listChatMembers(Number(chatId))
@@ -360,7 +399,7 @@ function registerChatRoutes(app, deps) {
       USER_COLORS.includes(suppliedGroupColor)
       ? suppliedGroupColor
       : "";
-    const inviteToken = crypto.randomBytes(24).toString("hex");
+    const inviteToken = createInviteToken(crypto);
     const chatId = createChat(groupNickname, normalizedType, {
       groupUsername,
       groupVisibility: normalizedVisibility,
@@ -387,9 +426,9 @@ function registerChatRoutes(app, deps) {
     });
     emitChatListChangedToChatParticipants(chatId);
 
-    const baseOrigin = resolveClientBaseOrigin(req);
-    const inviteLink = `${baseOrigin}/invite/${inviteToken}`;
     const createdChat = findChatById(chatId);
+    const baseOrigin = resolveClientBaseOrigin(req);
+    const inviteLink = buildGroupInviteLink(baseOrigin, createdChat, inviteToken);
     return res.json({
       id: Number(chatId),
       inviteToken,
@@ -403,12 +442,12 @@ function registerChatRoutes(app, deps) {
     const session = requireSession(req, res);
     if (!session) return;
 
-    const token = String(req.params?.token || "").trim();
-    if (!token) {
-      return res.status(400).json({ error: "Invite token is required." });
+    const target = String(req.params?.token || "").trim();
+    if (!target) {
+      return res.status(400).json({ error: "Invite link is required." });
     }
 
-    const chat = findChatByInviteToken(token);
+    const chat = findChatByInviteTarget(target);
     if (!chat) {
       return res.status(404).json({ error: "Invite link is invalid." });
     }
@@ -444,16 +483,16 @@ function registerChatRoutes(app, deps) {
     const session = requireSession(req, res);
     if (!session) return;
 
-    const token = String(req.params?.token || "").trim();
+    const target = String(req.params?.token || "").trim();
     const suppliedUsername = req.body?.username?.toString();
     if (suppliedUsername && !requireSessionUsernameMatch(res, session, suppliedUsername)) {
       return;
     }
-    if (!token) {
-      return res.status(400).json({ error: "Invite token is required." });
+    if (!target) {
+      return res.status(400).json({ error: "Invite link is required." });
     }
 
-    const chat = findChatByInviteToken(token);
+    const chat = findChatByInviteTarget(target);
     if (!chat) {
       return res.status(404).json({ error: "Invite link is invalid." });
     }
@@ -580,7 +619,7 @@ function registerChatRoutes(app, deps) {
 
     return res.json({
       inviteToken: chat.invite_token || "",
-      inviteLink: `${baseOrigin}/invite/${chat.invite_token}`,
+      inviteLink: buildGroupInviteLink(baseOrigin, chat),
       allowMemberInvites,
       isOwner,
     });
@@ -618,13 +657,13 @@ function registerChatRoutes(app, deps) {
         .json({ error: `Only ${label} owner can regenerate invite link.` });
     }
 
-    const inviteToken = crypto.randomBytes(24).toString("hex");
+    const inviteToken = createInviteToken(crypto);
     regenerateGroupInviteToken(chatId, inviteToken);
     const baseOrigin = resolveClientBaseOrigin(req);
     return res.json({
       ok: true,
       inviteToken,
-      inviteLink: `${baseOrigin}/invite/${inviteToken}`,
+      inviteLink: buildGroupInviteLink(baseOrigin, chat, inviteToken),
     });
   });
 
@@ -747,10 +786,13 @@ function registerChatRoutes(app, deps) {
     });
 
     const updated = findChatById(chatId);
+    const baseOrigin = resolveClientBaseOrigin(req);
     emitChatListChangedToChatParticipants(chatId);
     return res.json({
       ok: true,
       group: updated,
+      inviteToken: updated?.invite_token || "",
+      inviteLink: buildGroupInviteLink(baseOrigin, updated),
     });
   });
 

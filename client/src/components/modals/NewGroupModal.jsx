@@ -4,10 +4,10 @@ import {
   ChevronDown,
   Close,
   CloudSync,
-  Copy,
   LoaderCircle,
   Lock,
   Pencil,
+  Refresh,
   SatelliteDish,
   Trash,
   UserPlus,
@@ -54,7 +54,6 @@ export default function NewGroupModal({
   entityLabel = "Group",
   onDeleteChat,
 }) {
-  const [copiedRegenerateLink, setCopiedRegenerateLink] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [remoteSourceMenuOpen, setRemoteSourceMenuOpen] = useState(false);
   const groupPhotoInputRef = useRef(null);
@@ -322,48 +321,51 @@ export default function NewGroupModal({
                 <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
                   Invite link
                 </p>
-                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                  Regenerating creates a new link and expires the previous one.
-                </p>
-                <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">
+                {onRegenerateInvite ? (
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    Regenerating creates a new link and expires the previous one.
+                  </p>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const value = String(currentInviteLink || "");
+                    if (!value) return;
+                    await copyTextToClipboard(value);
+                  }}
+                  disabled={!currentInviteLink}
+                  className="mt-2 block w-full rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-left text-xs text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-300/60 disabled:cursor-default disabled:opacity-70 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/15"
+                  aria-label="Copy invite link"
+                >
                   <span className="break-all">
                     {currentInviteLink || "No invite link available."}
                   </span>
-                </div>
-                <div className="mt-3 flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      const value = String(currentInviteLink || "");
-                      if (!value) return;
-                      try {
-                        await copyTextToClipboard(value);
-                      } catch {
-                        // ignore clipboard errors
+                </button>
+                {onRegenerateInvite ? (
+                  <div className="mt-3 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!privateChatEnabled) return;
+                        onRegenerateInvite();
+                      }}
+                      disabled={!privateChatEnabled || regeneratingInviteLink}
+                      title={
+                        privateChatEnabled
+                          ? "Regenerate invite link"
+                          : "Private chats can regenerate invite links"
                       }
-                      setCopiedRegenerateLink(true);
-                      window.setTimeout(
-                        () => setCopiedRegenerateLink(false),
-                        1400,
-                      );
-                    }}
-                    className="inline-flex h-8 items-center gap-1 rounded-full border border-emerald-200 bg-white px-3 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
-                  >
-                    <Copy size={12} className="icon-anim-pop" />
-                    {copiedRegenerateLink ? "Copied" : "Copy"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onRegenerateInvite}
-                    disabled={regeneratingInviteLink}
-                    className="inline-flex h-8 items-center gap-2 rounded-full border border-emerald-200 bg-white px-3 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] disabled:opacity-60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
-                  >
-                    {regeneratingInviteLink ? (
-                      <LoaderCircle size={12} className="animate-spin" />
-                    ) : null}
-                    Regenerate
-                  </button>
-                </div>
+                      className="inline-flex h-8 items-center gap-2 rounded-full border border-emerald-200 bg-white px-3 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                    >
+                      {regeneratingInviteLink ? (
+                        <LoaderCircle size={12} className="animate-spin" />
+                      ) : (
+                        <Refresh size={12} className="icon-anim-spin-dir" />
+                      )}
+                      Regenerate
+                    </button>
+                  </div>
+                ) : null}
               </div>
             ) : null}
 

@@ -42,7 +42,7 @@ export default function InvitePage({
   useEffect(() => {
     if (!token) {
       setLoading(false);
-      setError("Invite token is missing.");
+      setError("Invite link is missing.");
       return;
     }
     let mounted = true;

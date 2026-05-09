@@ -67,7 +67,12 @@ function getRoute(pathname) {
 
 function getInviteToken(pathname) {
   if (!pathname.startsWith('/invite/')) return ''
-  return pathname.slice('/invite/'.length).trim()
+  const value = pathname.slice('/invite/'.length).trim()
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
 }
 
 function isChunkLoadFailure(error) {

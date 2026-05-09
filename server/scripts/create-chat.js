@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { getCliArgs, getFlagValue } from "./_cli.js";
 import { openDatabase, runAdminActionViaServer } from "./_db-admin.js";
+import { createInviteToken } from "../lib/inviteTokens.js";
 import {
   normalizeChatType,
   normalizeVisibility,
@@ -78,7 +79,7 @@ async function main() {
       (row) => String(row.username || "").toLowerCase() !== ownerUsername,
     );
 
-    const inviteToken = crypto.randomBytes(24).toString("hex");
+    const inviteToken = createInviteToken(crypto);
     const groupColor =
       dbApi.getRow("SELECT color FROM users WHERE id = ?", [Number(owner.id)])
         ?.color || "#10b981";

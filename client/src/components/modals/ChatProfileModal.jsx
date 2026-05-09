@@ -6,7 +6,6 @@ import {
   Bookmark,
   Chat,
   Close,
-  Copy,
   LogIn,
   LogOut,
   Pencil,
@@ -45,13 +44,16 @@ export default function ChatProfileModal({
 }) {
   const [memberQuery, setMemberQuery] = useState("");
   const [memberLimit, setMemberLimit] = useState(membersBatchSize);
-  const [copiedInviteLink, setCopiedInviteLink] = useState(false);
   const membersListRef = useRef(null);
   const handleClose = () => {
     setMemberQuery("");
     setMemberLimit(membersBatchSize);
-    setCopiedInviteLink(false);
     onClose?.();
+  };
+  const handleCopyInviteLink = async () => {
+    const value = String(inviteLink || "");
+    if (!value) return;
+    await copyTextToClipboard(value);
   };
 
   const isGroup = chat?.type === "group";
@@ -281,33 +283,21 @@ export default function ChatProfileModal({
         ) : null}
 
         {!isReadOnly && (isGroup || isChannel) && canViewInvite ? (
-          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50/70 p-3 dark:border-emerald-500/30 dark:bg-emerald-500/10">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-200">
-                Invite link
-              </p>
-              <button
-                type="button"
-                onClick={async () => {
-                  const value = String(inviteLink || "");
-                  if (!value) return;
-                  try {
-                    await copyTextToClipboard(value);
-                    setCopiedInviteLink(true);
-                    window.setTimeout(() => setCopiedInviteLink(false), 1400);
-                  } catch {
-                    // ignore clipboard errors
-                  }
-                }}
-                className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
-              >
-                <Copy size={12} className="icon-anim-pop" />
-                {copiedInviteLink ? "Copied" : "Copy"}
-              </button>
-            </div>
-            <p className="mt-1 break-all text-xs text-slate-600 dark:text-slate-300">
-              {inviteLink}
+          <div className="mt-4 rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
+            <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              Invite link
             </p>
+            <button
+              type="button"
+              onClick={handleCopyInviteLink}
+              disabled={!inviteLink}
+              className="mt-2 block w-full rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-left text-xs text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-300/60 disabled:cursor-default disabled:opacity-70 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/15"
+              aria-label="Copy invite link"
+            >
+              <span className="break-all">
+                {inviteLink || "No invite link available."}
+              </span>
+            </button>
           </div>
         ) : null}
 

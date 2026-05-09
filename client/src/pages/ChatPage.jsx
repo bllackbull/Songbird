@@ -278,7 +278,39 @@ const patchChatAndMoveToFront = (chats, chatId, updateChat) => {
   return nextChats;
 };
 
- 
+const normalizeInviteUsername = (value) =>
+  String(value || "")
+    .trim()
+    .replace(/^@+/, "")
+    .toLowerCase();
+
+const buildInvitePathForChat = (chat) => {
+  const visibility = String(
+    chat?.group_visibility || chat?.visibility || "public",
+  )
+    .trim()
+    .toLowerCase();
+  const username = normalizeInviteUsername(
+    chat?.group_username || chat?.username,
+  );
+  if (visibility === "public" && username) {
+    return `/invite/${encodeURIComponent(username)}`;
+  }
+  const token = String(chat?.inviteToken || chat?.invite_token || "").trim();
+  return token ? `/invite/${encodeURIComponent(token)}` : "";
+};
+
+const getInviteOrigin = () => {
+  if (typeof window === "undefined") return "";
+  return String(window.location?.origin || "").replace(/\/+$/, "");
+};
+
+const buildInviteLinkForChat = (chat) => {
+  const path = buildInvitePathForChat(chat);
+  if (!path) return "";
+  const origin = getInviteOrigin();
+  return origin ? `${origin}${path}` : path;
+};
 
 export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme }) {
   /* eslint-disable react-hooks/exhaustive-deps */
@@ -706,8 +738,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setGroupInviteOpen,
     createdGroupInviteLink,
     setCreatedGroupInviteLink,
-    editGroupInviteLink,
-    setEditGroupInviteLink,
+    editGroupInviteToken,
+    setEditGroupInviteToken,
     regeneratingGroupInviteLink,
     setRegeneratingGroupInviteLink,
   } = useNewGroupModal({
@@ -5283,7 +5315,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setPendingGroupAvatarFile(null);
     setGroupAvatarPreview("");
     setGroupAvatarMarkedForRemoval(false);
-    setEditGroupInviteLink("");
+    setEditGroupInviteToken("");
     setRegeneratingGroupInviteLink(false);
     setNewGroupError("");
   };
@@ -5352,10 +5384,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const handleJoinMentionChat = async () => {
     if (!mentionProfileChat?.id) return;
-    const token = String(mentionProfileChat.inviteToken || "").trim();
-    if (!token) return;
+    const invitePath = buildInvitePathForChat(mentionProfileChat);
+    if (!invitePath) return;
     if (typeof window !== "undefined") {
-      window.location.href = `/invite/${token}`;
+      window.location.href = invitePath;
     }
   };
 
@@ -5477,13 +5509,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       URL.revokeObjectURL(pendingGroupAvatarFile.previewUrl);
     }
     setPendingGroupAvatarFile(null);
-    setEditGroupInviteLink("");
+    setEditGroupInviteToken(
+      String(activeChat.inviteToken || activeChat.invite_token || ""),
+    );
     setNewGroupOpen(true);
     try {
       const res = await getGroupInviteLink(activeChat.id);
       const data = await res.json();
       if (res.ok) {
-        setEditGroupInviteLink(String(data?.inviteLink || ""));
+        setEditGroupInviteToken(String(data?.inviteToken || ""));
       }
     } catch {
       // ignore invite fetch errors in edit modal
@@ -5593,7 +5627,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         throw new Error(data?.error || "Unable to regenerate invite link.");
       }
       const nextLink = String(data?.inviteLink || "");
-      setEditGroupInviteLink(nextLink);
+      setEditGroupInviteToken(String(data?.inviteToken || ""));
       setProfileInviteLink(nextLink);
     } catch (err) {
       setNewGroupError(err.message || "Unable to regenerate invite link.");
@@ -5804,8 +5838,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }
 
   async function openDiscoverGroup(group) {
-    const inviteToken = String(group?.inviteToken || "").trim();
     const chatId = Number(group?.id || 0);
+    const invitePath = buildInvitePathForChat(group);
     const alreadyMember =
       group?.isMember === true ||
       group?.isMember === 1 ||
@@ -5821,10 +5855,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       setSidebarScrollEpoch((prev) => prev + 1);
       return;
     }
-    if (!inviteToken) return;
+    if (!invitePath) return;
     try {
       if (typeof window !== "undefined") {
-        window.history.pushState({}, "", `/invite/${inviteToken}`);
+        window.history.pushState({}, "", invitePath);
         window.dispatchEvent(new PopStateEvent("popstate"));
       }
     } catch (err) {
@@ -6049,6 +6083,18 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const showPermissionsPrompt = Boolean(
     activePermissionPrompt && !permissionPromptDelayActive,
   );
+  const displayedGroupInviteToken =
+    editingGroup
+      ? editGroupInviteToken ||
+        String(activeChat?.inviteToken || activeChat?.invite_token || "")
+      : "";
+  const displayedGroupInviteLink = buildInviteLinkForChat({
+    group_username: newGroupForm.username,
+    group_visibility: newGroupForm.visibility,
+    inviteToken: displayedGroupInviteToken,
+    invite_token: displayedGroupInviteToken,
+  });
+  const showGroupInviteManagement = Boolean(editingGroup);
 
   useEffect(() => {
     if (!permissionPromptDelayUntil) return undefined;
@@ -6416,10 +6462,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             showAvatarField
             hideSelectedMemberChips={false}
             fileUploadEnabled={CHAT_PAGE_CONFIG.fileUploadEnabled}
-            showInviteManagement={editingGroup}
-            currentInviteLink={editGroupInviteLink}
+            showInviteManagement={showGroupInviteManagement}
+            currentInviteLink={displayedGroupInviteLink}
             regeneratingInviteLink={regeneratingGroupInviteLink}
-            onRegenerateInvite={handleRegenerateGroupInvite}
+            onRegenerateInvite={editingGroup ? handleRegenerateGroupInvite : null}
             showRemoteChannelSettings={Boolean(
               groupModalType === "channel",
             )}

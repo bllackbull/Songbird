@@ -7,6 +7,7 @@ import {
   resolveChatRow,
   resolveUserRow,
 } from "../lib/dbToolHelpers.js";
+import { createInviteToken } from "../lib/inviteTokens.js";
 import { storageEncryption } from "../lib/storageEncryption.js";
 
 function registerAdminRoutes(app, deps) {
@@ -512,7 +513,7 @@ function registerAdminRoutes(app, deps) {
           (row) => String(row?.username || "").toLowerCase() !== ownerUsername,
         );
 
-        const inviteToken = deps.crypto.randomBytes(24).toString("hex");
+        const inviteToken = createInviteToken(deps.crypto);
         const fallbackColor =
           String(adminGetRow("SELECT color FROM users WHERE id = ?", [Number(owner.id)])?.color || "")
             .trim() || "#10b981";
