@@ -138,7 +138,7 @@ export default function NewGroupModal({
 
           <div className="mt-4 space-y-3">
             {showAvatarField ? (
-              <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
+              <div className="py-2">
                 <p className="text-center text-sm font-semibold text-slate-700 dark:text-slate-200">
                   {entityLabel} photo
                 </p>

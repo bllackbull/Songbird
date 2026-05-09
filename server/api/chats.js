@@ -1,6 +1,7 @@
 function registerChatRoutes(app, deps) {
   const {
     USERNAME_REGEX,
+    USER_COLORS,
     addChatMember,
     ALLOWED_AVATAR_MIME_TYPES,
     AVATAR_FILE_LIMITS,
@@ -300,6 +301,8 @@ function registerChatRoutes(app, deps) {
       username,
       visibility,
       allowMemberInvites = true,
+      groupColor,
+      color,
       members = [],
     } = req.body || {};
 
@@ -350,12 +353,20 @@ function registerChatRoutes(app, deps) {
       String(visibility || "").toLowerCase() === "private"
         ? "private"
         : "public";
+    const suppliedGroupColor = String(groupColor || color || "")
+      .trim()
+      .toLowerCase();
+    const normalizedGroupColor = Array.isArray(USER_COLORS) &&
+      USER_COLORS.includes(suppliedGroupColor)
+      ? suppliedGroupColor
+      : "";
     const inviteToken = crypto.randomBytes(24).toString("hex");
     const chatId = createChat(groupNickname, normalizedType, {
       groupUsername,
       groupVisibility: normalizedVisibility,
       inviteToken,
       createdByUserId: creatorUser.id,
+      groupColor: normalizedGroupColor,
       allowMemberInvites: Boolean(allowMemberInvites),
     });
 
@@ -378,10 +389,12 @@ function registerChatRoutes(app, deps) {
 
     const baseOrigin = resolveClientBaseOrigin(req);
     const inviteLink = `${baseOrigin}/invite/${inviteToken}`;
+    const createdChat = findChatById(chatId);
     return res.json({
       id: Number(chatId),
       inviteToken,
       inviteLink,
+      color: createdChat?.group_color || normalizedGroupColor || "#10b981",
       visibility: normalizedVisibility,
     });
   });

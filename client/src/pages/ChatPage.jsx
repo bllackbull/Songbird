@@ -6,6 +6,7 @@ import AppContextMenu from "../components/context-menu/AppContextMenu.jsx";
 import { useAppContextMenu } from "../components/context-menu/useAppContextMenu.js";
 import { CHAT_PAGE_CONFIG } from "../settings/chatPageConfig.js";
 import { getAvatarInitials } from "../utils/avatarInitials.js";
+import { getRandomAvatarColor } from "../utils/avatarColor.js";
 import { NICKNAME_MAX, USERNAME_MAX } from "../utils/nameLimits.js";
 import { resolveReplyPreview, summarizeFiles, truncateText } from "../utils/messagePreview.js";
 import {
@@ -5232,15 +5233,25 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   };
 
   const openNewGroupModal = () => {
+    const groupColor = getRandomAvatarColor();
     setEditingGroup(false);
     setGroupModalType("group");
+    setNewGroupForm((prev) => ({
+      ...prev,
+      groupColor,
+    }));
     setNewGroupOpen(true);
     setNewGroupError("");
   };
 
   const openNewChannelModal = () => {
+    const groupColor = getRandomAvatarColor();
     setEditingGroup(false);
     setGroupModalType("channel");
+    setNewGroupForm((prev) => ({
+      ...prev,
+      groupColor,
+    }));
     setNewGroupOpen(true);
     setNewGroupError("");
   };
@@ -5253,6 +5264,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setNewGroupForm({
       nickname: "",
       username: "",
+      groupColor: "#10b981",
       visibility: "public",
       allowMemberInvites: true,
       remoteChannelEnabled: false,
@@ -5447,6 +5459,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setNewGroupForm({
       nickname: activeChat.name || "",
       username: activeChat.group_username || "",
+      groupColor: activeChat.group_color || "#10b981",
       visibility: activeChat.group_visibility || "public",
       allowMemberInvites: Boolean(Number(activeChat.allow_member_invites || 0)),
       remoteChannelEnabled: false,
@@ -5523,6 +5536,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   };
 
   const handleGroupAvatarChange = (event) => {
+    const label = groupModalType === "channel" ? "Channel" : "Group";
     if (!CHAT_PAGE_CONFIG.fileUploadEnabled) {
       setNewGroupError("File uploads are disabled on this server.");
       event.target.value = "";
@@ -5531,13 +5545,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const file = event.target.files?.[0];
     if (!file) return;
     if (!String(file.type || "").toLowerCase().startsWith("image/")) {
-      setNewGroupError("Group avatar must be an image file.");
+      setNewGroupError(`${label} avatar must be an image file.`);
       event.target.value = "";
       return;
     }
     if (Number(file.size || 0) > CHAT_PAGE_CONFIG.maxFileSizeBytes) {
       setNewGroupError(
-        `Group avatar must be smaller than ${formatBytesAsMb(
+        `${label} avatar must be smaller than ${formatBytesAsMb(
           CHAT_PAGE_CONFIG.maxFileSizeBytes,
         )}.`,
       );
@@ -5645,6 +5659,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         creator: user.username,
         nickname,
         username,
+        groupColor: newGroupForm.groupColor || "#10b981",
         visibility: newGroupForm.visibility,
         allowMemberInvites:
           newGroupForm.visibility !== "private" ||
@@ -5684,14 +5699,16 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (!nextChatId) {
         throw new Error("Server did not return a group id.");
       }
-      if (editingGroup && pendingGroupAvatarFile?.file) {
+      if (pendingGroupAvatarFile?.file) {
         const form = new FormData();
         form.append("username", user.username);
         form.append("avatar", pendingGroupAvatarFile.file);
         const avatarRes = await uploadGroupAvatar(nextChatId, form);
         const avatarData = await avatarRes.json();
         if (!avatarRes.ok) {
-          throw new Error(avatarData?.error || "Unable to upload group avatar.");
+          throw new Error(
+            avatarData?.error || `Unable to upload ${label.toLowerCase()} avatar.`,
+          );
         }
       } else if (editingGroup && groupAvatarMarkedForRemoval) {
         const avatarRes = await removeGroupAvatar(nextChatId, {
@@ -6384,7 +6401,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             }
             submitLabel={editingGroup ? "Save" : "Create"}
             avatarPreview={groupAvatarPreview}
-            avatarColor={editingGroup ? activeChat?.group_color || "#10b981" : "#10b981"}
+            avatarColor={
+              editingGroup
+                ? activeChat?.group_color || "#10b981"
+                : newGroupForm.groupColor || "#10b981"
+            }
             avatarName={
               newGroupForm.nickname ||
               newGroupForm.username ||
@@ -6392,7 +6413,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             }
             onAvatarChange={handleGroupAvatarChange}
             onAvatarRemove={handleGroupAvatarRemove}
-            showAvatarField={editingGroup}
+            showAvatarField
             hideSelectedMemberChips={false}
             fileUploadEnabled={CHAT_PAGE_CONFIG.fileUploadEnabled}
             showInviteManagement={editingGroup}
