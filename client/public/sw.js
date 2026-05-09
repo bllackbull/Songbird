@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v0.9.2";
+const CACHE_VERSION = "v0.9.4";
 const CACHE_NAME = `songbird-${CACHE_VERSION}`;
 const APP_SHELL = [
   "/manifest.webmanifest",
@@ -128,9 +128,13 @@ self.addEventListener("push", (event) => {
         type: "window",
         includeUncontrolled: true,
       });
-      const appVisible = clients.some((c) => c.visibilityState === "visible");
-      if (appVisible) {
-        // A visible tab exists — the in-app SSE notification handles this.
+      const appFocused = clients.some((client) =>
+        "focused" in client
+          ? Boolean(client.focused)
+          : false,
+      );
+      if (appFocused) {
+        // A focused Songbird window handles unread state in-app.
         return;
       }
       try {
@@ -138,7 +142,7 @@ self.addEventListener("push", (event) => {
           navigator.setAppBadge(badgeCount).catch(() => null);
         }
       } catch {
-        // ignore badge errors — must not affect notification delivery
+        // ignore badge errors; must not affect notification delivery
       }
       await self.registration.showNotification(title, options);
     })(),

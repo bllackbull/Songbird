@@ -25,6 +25,11 @@ const patchChatAndMoveToFront = (chats, chatId, updateChat) => {
   return { nextChats, found: true };
 };
 
+const isDocumentActive = () => {
+  if (typeof document === "undefined") return false;
+  return document.visibilityState === "visible" && document.hasFocus();
+};
+
 export function useChatEvents({
   username,
   getSseStreamUrl,
@@ -41,7 +46,6 @@ export function useChatEvents({
   setMessages,
   setChats,
   sseReconnectRef,
-  isAppActive,
   canMarkReadInCurrentView,
   markMessagesRead,
   markMessageRead,
@@ -63,6 +67,7 @@ export function useChatEvents({
   const onTypingUpdateRef = useRef(onTypingUpdate);
   const onChatListChangedRef = useRef(onChatListChanged);
   const onSessionRevokedRef = useRef(onSessionRevoked);
+  const canMarkReadInCurrentViewRef = useRef(canMarkReadInCurrentView);
   const loadChatsTimerRef = useRef(null);
   const loadChatsScheduledRef = useRef(false);
 
@@ -97,6 +102,10 @@ export function useChatEvents({
   useEffect(() => {
     onSessionRevokedRef.current = onSessionRevoked;
   }, [onSessionRevoked]);
+
+  useEffect(() => {
+    canMarkReadInCurrentViewRef.current = Boolean(canMarkReadInCurrentView);
+  }, [canMarkReadInCurrentView]);
 
   useEffect(() => {
     if (!username) return;
@@ -173,6 +182,13 @@ export function useChatEvents({
           payload.type === "chat_message" && !isOwnEvent;
         const isDeleteEvent = payload.type === "chat_message_deleted";
         const isUpdateEvent = payload.type === "chat_message_updated";
+        const isSelectedChat =
+          Boolean(currentActiveId) &&
+          Number(payloadChatId) === Number(currentActiveId);
+        const isReadableActiveChat =
+          isSelectedChat &&
+          isDocumentActive() &&
+          canMarkReadInCurrentViewRef.current;
         if (payload.type === "chat_message" && payloadChatId) {
           const eventTime = new Date().toISOString();
           const previewBody = String(
@@ -184,8 +200,6 @@ export function useChatEvents({
               prev,
               payloadChatId,
               (chat) => {
-                const isActiveChat =
-                  Number(currentActiveId || 0) === Number(payloadChatId);
                 const currentUnread = Math.max(0, Number(chat?.unread_count || 0));
                 const clientRequestId = String(
                   payload?.client_request_id || payload?.clientRequestId || "",
@@ -205,7 +219,7 @@ export function useChatEvents({
                     ? null
                     : chat?.last_message_read_at || null,
                   unread_count:
-                    isActiveChat
+                    isReadableActiveChat
                       ? 0
                       : !isOwnEvent
                         ? currentUnread + 1
@@ -226,7 +240,8 @@ export function useChatEvents({
         }
         if (isIncomingMessage) {
           onIncomingMessageRef.current?.(payload, {
-            isActiveChat: currentActiveId && payloadChatId === currentActiveId,
+            isActiveChat: isReadableActiveChat,
+            isSelectedChat,
             isOwnEvent,
             body: String(payload?.body || ""),
           });
@@ -240,7 +255,7 @@ export function useChatEvents({
                     ...chat,
                     last_message_read_at: nowIso,
                     unread_count:
-                      Number(currentActiveId || 0) === Number(payloadChatId)
+                      isReadableActiveChat
                         ? 0
                         : Number(chat?.unread_count || 0),
                   }
@@ -248,9 +263,12 @@ export function useChatEvents({
             ),
           );
         }
-        if (currentActiveId && payloadChatId === currentActiveId) {
+        if (isSelectedChat) {
           if (isIncomingMessage) {
-            if (userScrolledUpRef.current && !isAtBottomRef.current) {
+            if (!isReadableActiveChat) {
+              // The chat may be selected in a hidden/background tab. Keep it
+              // unread and avoid pretending the user saw the message.
+            } else if (userScrolledUpRef.current && !isAtBottomRef.current) {
               setUnreadInChat((prev) => prev + 1);
             } else {
               pendingScrollToBottomRef.current = true;
@@ -261,11 +279,7 @@ export function useChatEvents({
                     : chat,
                 ),
               );
-              if (
-                isAppActive &&
-                canMarkReadInCurrentView &&
-                !isMarkingReadRef?.current
-              ) {
+              if (!isMarkingReadRef?.current) {
                 isMarkingReadRef.current = true;
                 const markReadRequest =
                   Number(payload?.messageId || 0) > 0
@@ -376,8 +390,6 @@ export function useChatEvents({
     setMessages,
     setSseConnected,
     setUnreadInChat,
-    canMarkReadInCurrentView,
-    isAppActive,
     isMarkingReadRef,
     markMessageRead,
     markMessagesRead,

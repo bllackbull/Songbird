@@ -53,7 +53,11 @@ export function useResumeRefresh({
     hiddenSinceActiveRef.current = false;
     inactiveStartedAtRef.current = 0;
     if (!shouldRefresh) return;
-    loadChatsRef.current?.({ silent: true, showUpdating: true });
+    loadChatsRef.current?.({
+      silent: true,
+      showUpdating: true,
+      preserveActiveUnread: true,
+    });
     const activeId = Number(activeChatIdRef.current || 0);
     if (activeId > 0) {
       scheduleMessageRefreshRef.current?.(activeId, {
