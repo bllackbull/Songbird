@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# songbird-deploy-version: 0.9.2
+# songbird-deploy-version: 0.10.0
 
 set -uo pipefail
 
@@ -71,7 +71,7 @@ LEGO_BIN="/usr/local/bin/lego"
 GLOBAL_COMMAND_PATH="/usr/local/bin/songbird-deploy"
 SONGBIRD_SOCIAL_GITHUB="https://github.com/bllackbull/Songbird"
 SONGBIRD_SOCIAL_TELEGRAM="https://t.me/songbirdapp"
-SONGBIRD_SOCIAL_WEBSITE="https://chat.songbird.website/invite/c592b42783ba50a9833f6f4e15c5126a01b4f512242b5921"
+SONGBIRD_SOCIAL_WEBSITE="https://chat.songbird.website/invite/songbird"
 SONGBIRD_NOWPAYMENTS="https://nowpayments.io/donation/blackbull"
 
 # Mirror URLs
@@ -836,7 +836,7 @@ configure_mirrors_menu() {
         ;;
       5) return ;;
       0) exit 0 ;;
-      *) printf "Invalid choice. Select a number from 1 to 5.\n" ;;
+      *) printf "Invalid choice. Select a number from 0 to 5.\n" ;;
     esac
   done
 }
@@ -3233,7 +3233,7 @@ show_logs_menu() {
       4) show_nginx_error_logs ;;
       5) return ;;
       0) exit 0 ;;
-      *) printf "Invalid choice. Select a number from 1 to 5.\n" ;;
+      *) printf "Invalid choice. Select a number from 0 to 5.\n" ;;
     esac
   done
 }
@@ -3247,6 +3247,9 @@ run_db_command() {
   if [[ "${args[0]:-}" == "npm" ]]; then
     resolve_npm_exec_path || return 1
     args[0]="$NPM_EXEC_PATH"
+  elif [[ "${args[0]:-}" == "node" ]]; then
+    resolve_node_exec_path || return 1
+    args[0]="$NODE_EXEC_PATH"
   fi
   path_prefix="$(node_tools_path_prefix)"
   if [[ -n "$path_prefix" ]]; then
@@ -3267,6 +3270,9 @@ run_db_command_logged_quiet() {
   if [[ "${args[0]:-}" == "npm" ]]; then
     resolve_npm_exec_path || return 1
     args[0]="$NPM_EXEC_PATH"
+  elif [[ "${args[0]:-}" == "node" ]]; then
+    resolve_node_exec_path || return 1
+    args[0]="$NODE_EXEC_PATH"
   fi
   path_prefix="$(node_tools_path_prefix)"
   if [[ -n "$path_prefix" ]]; then
@@ -3375,14 +3381,19 @@ User and chat management:
         Prompts: chat selector and optional profile/settings fields
         Passes: selector plus any changed --name/--username/--visibility/--color/--owner/invite flag
 
+Remote channel configuration:
+  17    Configure Remote Channel
+        Prompts: Telegram API ID/hash, proxy URL, phone number, optional 2FA password
+        Passes: --api-id --api-hash --proxy-url/--no-proxy --phone-number [--password]
+
 Destructive actions:
-  17    Delete chats
+  18    Delete chats
         Prompts: chat ids/usernames or "all"
         Passes: -y selectors or --all -y
-  18    Delete users
+  19    Delete users
         Prompts: user ids/usernames or "all"
         Passes: -y selectors or --all -y
-  19    Delete files
+  20    Delete files
         Prompts: file ids/stored names or "all"
         Passes: -y selectors or --all -y
 
@@ -3740,6 +3751,91 @@ db_user_ban() {
   press_enter_to_continue
 }
 
+db_remote_configure() {
+  local current_api_id=""
+  local current_api_hash=""
+  local current_proxy_url=""
+  local api_id=""
+  local api_hash=""
+  local proxy_url=""
+  local phone_number=""
+  local two_step_password=""
+  local force_sms="no"
+  local args=()
+
+  if [[ ! -d "${INSTALL_DIR}/server" ]]; then
+    warn "Songbird server directory not found at ${INSTALL_DIR}/server."
+    press_enter_to_continue
+    return 1
+  fi
+
+  current_api_id="$(strip_surrounding_quotes "$(get_existing_env_value "REMOTE_CHANNEL_TELEGRAM_API_ID" "")")"
+  current_api_hash="$(strip_surrounding_quotes "$(get_existing_env_value "REMOTE_CHANNEL_TELEGRAM_API_HASH" "")")"
+  current_proxy_url="$(strip_surrounding_quotes "$(get_existing_env_value "REMOTE_CHANNEL_PROXY_URL" "")")"
+  [[ "$current_api_id" == "0" ]] && current_api_id=""
+
+  while true; do
+    if [[ -n "$current_api_id" ]]; then
+      prompt_read "Telegram API ID (default: ${current_api_id}): " api_id
+      [[ -z "$api_id" ]] && api_id="$current_api_id"
+    else
+      prompt_read "Telegram API ID: " api_id
+    fi
+    api_id="${api_id#"${api_id%%[![:space:]]*}"}"
+    api_id="${api_id%"${api_id##*[![:space:]]}"}"
+    if [[ "$api_id" =~ ^[0-9]+$ && "$api_id" -gt 0 ]]; then
+      break
+    fi
+    printf "Please enter a positive numeric Telegram API ID.\n"
+  done
+
+  if [[ -n "$current_api_hash" ]]; then
+    api_hash="$(prompt_secret_optional "Telegram API hash (leave blank to keep existing)")"
+    [[ -z "$api_hash" ]] && api_hash="$current_api_hash"
+  else
+    api_hash="$(prompt_secret "Telegram API hash")"
+  fi
+
+  if [[ -n "$current_proxy_url" ]]; then
+    prompt_read "Telegram proxy URL (optional; default: ${current_proxy_url}; type none to clear): " proxy_url
+    [[ -z "$proxy_url" ]] && proxy_url="$current_proxy_url"
+  else
+    prompt_read "Telegram proxy URL (optional): " proxy_url
+  fi
+  proxy_url="${proxy_url#"${proxy_url%%[![:space:]]*}"}"
+  proxy_url="${proxy_url%"${proxy_url##*[![:space:]]}"}"
+  if [[ "${proxy_url,,}" == "none" || "${proxy_url,,}" == "no" || "${proxy_url,,}" == "direct" ]]; then
+    proxy_url=""
+  fi
+
+  phone_number="$(prompt_non_empty "Telegram phone number (with country code)")"
+  two_step_password="$(prompt_secret_optional "Telegram two-step password (leave blank if disabled)")"
+  force_sms="$(prompt_yes_no "Force SMS delivery for the login code?" "no")"
+
+  printf "\nTelegram will send a login code now. Enter that code when the helper asks for it.\n"
+  args=(
+    node server/scripts/configure-remote-channel.js
+    --env-file "${INSTALL_DIR}/.env"
+    --api-id "$api_id"
+    --api-hash "$api_hash"
+    --phone-number "$phone_number"
+  )
+  if [[ -n "$proxy_url" ]]; then
+    args+=(--proxy-url "$proxy_url")
+  else
+    args+=(--no-proxy)
+  fi
+  if [[ -n "$two_step_password" ]]; then
+    args+=(--password "$two_step_password")
+  fi
+  if [[ "$force_sms" == "yes" ]]; then
+    args+=(--force-sms)
+  fi
+
+  run_db_command "${args[@]}"
+  press_enter_to_continue
+}
+
 db_restore_backup() {
   local resolved=""
   resolved="$(select_backup_zip_path)"
@@ -3786,21 +3882,25 @@ show_db_menu() {
     printf "│  15) ➕  Add members to chat                │\n"
     printf "│  16) ✏️  Edit chat                           │\n"
     printf "│                                             │\n"
+    printf "├──── Remote Channels ───────────────────────┤\n"
+    printf "│                                             │\n"
+    printf "│  17) 📡  Configure Remote Channel           │\n"
+    printf "│                                             │\n"
     printf "├──── Destructive Actions ────────────────────┤\n"
     printf "│                                             │\n"
-    printf "│  17) 🗑️  Delete chats                        │\n"
-    printf "│  18) 🗑️  Delete users                        │\n"
-    printf "│  19) 🗑️  Delete files                        │\n"
+    printf "│  18) 🗑️  Delete chats                        │\n"
+    printf "│  19) 🗑️  Delete users                        │\n"
+    printf "│  20) 🗑️  Delete files                        │\n"
     printf "│                                             │\n"
     printf "├──── Help & Navigation ──────────────────────┤\n"
     printf "│                                             │\n"
-    printf "│  20) ❔  Show help                          │\n"
-    printf "│  21) ↩️  Go back                             │\n"
+    printf "│  21) ❔  Show help                          │\n"
+    printf "│  22) ↩️  Go back                             │\n"
     printf "│  0) 🚪  Exit                                │\n"
     printf "│                                             │\n"
     printf "└─────────────────────────────────────────────┘\n\n"
 
-    prompt_read "Choose an option [0-21]: " choice
+    prompt_read "Choose an option [0-22]: " choice
     case "$choice" in
       1) db_inspect "all" ;;
       2) db_inspect "chat" ;;
@@ -3818,13 +3918,14 @@ show_db_menu() {
       14) db_chat_create ;;
       15) db_chat_add ;;
       16) db_chat_edit ;;
-      17) db_chat_delete ;;
-      18) db_user_delete ;;
-      19) db_file_delete ;;
-      20) db_help ;;
-      21) return ;;
+      17) db_remote_configure ;;
+      18) db_chat_delete ;;
+      19) db_user_delete ;;
+      20) db_file_delete ;;
+      21) db_help ;;
+      22) return ;;
       0) exit 0 ;;
-      *) printf "Invalid choice. Select a number from 1 to 21.\n" ;;
+      *) printf "Invalid choice. Select a number from 0 to 22.\n" ;;
     esac
   done
 }
@@ -3859,7 +3960,7 @@ main() {
       8) run_menu_action configure_mirrors_menu ;;
       9) run_menu_action show_logs_menu ;;
       0) break ;;
-      *) printf "Invalid choice. Select a number from 1 to 10.\n" ;;
+      *) printf "Invalid choice. Select a number from 0 to 9.\n" ;;
     esac
   done
 }
