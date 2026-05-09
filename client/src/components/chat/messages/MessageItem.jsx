@@ -144,6 +144,7 @@ export const MessageItem = memo(function MessageItem({
   isMobileTouchDevice,
   isGroupChat = false,
   isChannelChat = false,
+  chatId = null,
   chatName = "",
   chatColor = null,
   seenCount = null,
@@ -168,6 +169,20 @@ export const MessageItem = memo(function MessageItem({
   const forwardedFromChatId = Number(msg?.forwarded_from_chat_id || 0);
   const forwardedFromUserId = Number(msg?.forwarded_from_user_id || 0);
   const storedForwardedLabel = String(msg?.forwarded_from_label || "").trim();
+  const clientRequestId = String(
+    msg?.client_request_id || msg?.clientRequestId || msg?._clientId || "",
+  ).trim();
+  const isRemoteForwardedOrigin = Boolean(
+    /^remote:/i.test(clientRequestId) &&
+      isChannelChat &&
+      !forwardedFromChatId &&
+      !forwardedFromUserId &&
+      storedForwardedLabel,
+  );
+  const remoteForwardedChatId =
+    isRemoteForwardedOrigin
+      ? Number(chatId || msg?.chat_id || msg?.chatId || msg?._chatId || 0)
+      : 0;
   const forwardedFromUsername = String(msg?.forwarded_from_username || "").trim();
   const liveForwardedChatName = String(forwardedChat?.name || "").trim();
   const liveForwardedUserName = String(
@@ -210,7 +225,9 @@ export const MessageItem = memo(function MessageItem({
         : String(
             forwardedUser?.color || msg?.forwarded_from_color || "#10b981",
           ).trim() || "#10b981"
-      : String(msg?.forwarded_from_color || "#10b981").trim() || "#10b981";
+      : isRemoteForwardedOrigin
+        ? "#10b981"
+        : String(msg?.forwarded_from_color || "#10b981").trim() || "#10b981";
   const forwardedTarget =
     isDeletedForwardedChat || isDeletedForwardedUser
       ? null
@@ -231,8 +248,16 @@ export const MessageItem = memo(function MessageItem({
           avatar_url: forwardedOriginAvatarUrl,
           color: forwardedOriginColor,
         }
-      : storedForwardedLabel
-        ? { kind: "self" }
+      : remoteForwardedChatId > 0 && storedForwardedLabel
+        ? {
+            kind: "chat",
+            chatId: remoteForwardedChatId,
+            label: chatName || forwardedFromLabel,
+            avatar_url: "",
+            color: chatColor || "#10b981",
+          }
+        : storedForwardedLabel
+          ? { kind: "self" }
         : null;
   const isForwarded = forwardedFromChatId
     ? Boolean(forwardedFromLabel)

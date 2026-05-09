@@ -1082,6 +1082,7 @@ export default function ChatWindowPanel({
       canSwipeReply={canSwipeReply}
       isGroupChat={isGroupChat}
       isChannelChat={isChannelChat}
+      chatId={activeChatId}
       chatName={activeFallbackTitle}
       chatColor={groupAvatarColor}
       seenCount={
