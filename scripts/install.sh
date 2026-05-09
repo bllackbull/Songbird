@@ -3882,7 +3882,7 @@ show_db_menu() {
     printf "│  15) ➕  Add members to chat                │\n"
     printf "│  16) ✏️  Edit chat                           │\n"
     printf "│                                             │\n"
-    printf "├──── Remote Channels ───────────────────────┤\n"
+    printf "├──── Remote Channels ────────────────────────┤\n"
     printf "│                                             │\n"
     printf "│  17) 📡  Configure Remote Channel           │\n"
     printf "│                                             │\n"
