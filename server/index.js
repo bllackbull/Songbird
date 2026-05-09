@@ -116,7 +116,7 @@ process.title = "songbird-server";
 const app = express();
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRootDir = path.resolve(serverDir, "..");
-dotenv.config({ path: path.join(projectRootDir, ".env") });
+dotenv.config({ path: path.join(projectRootDir, ".env"), override: true });
 dotenv.config({ path: path.join(serverDir, ".env"), override: true });
 
 const port = process.env.SERVER_PORT || process.env.PORT || 5174;

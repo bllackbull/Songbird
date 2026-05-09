@@ -13,7 +13,7 @@ import {
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRootDir = path.resolve(serverDir, "..");
-dotenv.config({ path: path.join(projectRootDir, ".env") });
+dotenv.config({ path: path.join(projectRootDir, ".env"), override: true });
 dotenv.config({ path: path.join(serverDir, ".env"), override: true });
 ensureStorageEncryptionKey({ projectRootDir, fsImpl: fs, pathImpl: path, cryptoImpl: crypto });
 const dataDir = path.resolve(serverDir, "..", "data");
