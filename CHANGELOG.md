@@ -1,3 +1,25 @@
+## 0.10.0
+
+### New Features
+
+- 📡 Remote Channel
+
+### Improvements
+
+- 🔗 Invite Link System simplification
+- 🎨 Create/Edit Chat modal UI overhaul
+- 🔧 Bug fixes
+
+**⏺️ If you encountered any problem, don't forget to submit an issue on Songbird github repository.**
+
+**⭐ Don't forget to give a star to Songbird github repository!**
+
+🕊️ [Songbird main server](https://chat.songbird.website/invite/songbird)
+
+📢 [Songbird Telegram channel](https://t.me/songbirdapp)
+
+🌐 [Songbird Github repository](https://github.com/bllackbull/Songbird)
+
 ## 0.9.2
 
 - ✨ Chat window build animations
@@ -6,16 +28,6 @@
 - 📥 Installer script UI improvements
 - 🐋 TLS support using self-signed SSL certs in Docker
 - 🔧 Bug fixes
-
-**⏺️ If you encountered any problem, don't forget to submit an issue on Songbird github repository.**
-
-**⭐ Don't forget to give a star to Songbird github repository!**
-
-🕊️ [Songbird main server](https://chat.songbird.website/invite/c592b42783ba50a9833f6f4e15c5126a01b4f512242b5921)
-
-📢 [Songbird Telegram channel](https://t.me/songbirdapp)
-
-🌐 [Songbird Github repository](https://github.com/bllackbull/Songbird)
 
 ## 0.9.1
 

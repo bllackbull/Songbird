@@ -15,6 +15,8 @@
 
 این ریپازیتوری شامل اپلیکیشن پیام‌رسان Songbird است. سرور از دیتابیس فایل‌محور SQLite از طریق `sql.js` استفاده می‌کند و کلاینت با React + Vite ساخته شده است.
 
+Songbird از پیام مستقیم، گروه، کانال، آپلود فایل، پیام صوتی، push notification و قابلیت اختیاری Remote Channel برای آینه‌کردن پست‌های Telegram داخل کانال‌های Songbird پشتیبانی می‌کند.
+
 ## ساختار ریپو
 
 - `client/` — فرانت‌اند React/Vite
@@ -461,6 +463,17 @@ nano .env
 | `MESSAGE_FILE_RETENTION` | `عدد` | `7` | حذف خودکار فایل‌های پیام بعد از N روز. (`0` یعنی غیرفعال) |
 | `MESSAGE_TEXT_RETENTION` | `عدد` | `0` | حذف خودکار پیام‌های فقط متنی بعد از N روز. (`0` یعنی غیرفعال) |
 | `MESSAGE_MAX_CHARS` | `عدد` | `4000` | حداکثر طول پیام. |
+| `REMOTE_CHANNEL` | `بولی` | `false` | فعال‌کردن worker سمت سرور و تنظیمات owner کانال برای Remote Channel. |
+| `REMOTE_CHANNEL_TELEGRAM_API_ID` | `عدد` | `0` | API ID تلگرام. |
+| `REMOTE_CHANNEL_TELEGRAM_API_HASH` | `رشته` | `""` | API hash تلگرام. |
+| `REMOTE_CHANNEL_TELEGRAM_SESSION_STRING` | `رشته` | `""` | مقدار Telegram StringSession. مثل رمز عبور از آن محافظت کنید. |
+| `REMOTE_CHANNEL_PROXY_URL` | `رشته` | `""` | آدرس proxy برای اتصال MTProto تلگرام. از |
+| `REMOTE_CHANNEL_POLL_INTERVAL_MS` | `عدد` | `5000` | فاصله زمانی بررسی sourceهای فعال Remote Channel در Telegram. (میلی‌ثانیه) |
+| `REMOTE_CHANNEL_TELEGRAM_POLL_LIMIT` | `عدد` | `50` | حداکثر تعداد پست تلگرام که در هر poll برای هر source خوانده می‌شود. (`1` تا `100`) |
+| `REMOTE_CHANNEL_QUEUE_INTERVAL_MS` | `عدد` | `1000` | فاصله زمانی پردازش صف پست‌های تلگرام. (میلی‌ثانیه) |
+| `REMOTE_CHANNEL_QUEUE_MAX_ATTEMPTS` | `عدد` | `10` | حداکثر تلاش دوباره قبل از اینکه یک پست remote ناموفق علامت بخورد. |
+| `REMOTE_CHANNEL_QUEUE_BATCH_SIZE` | `عدد` | `10` | حداکثر تعداد پست remote که در هر اجرای worker پردازش می‌شود. (`1` تا `50`) |
+| `REMOTE_CHANNEL_QUEUE_STALE_LOCK_MS` | `عدد` | `300000` | زمانی که بعد از آن lock در حال پردازش قدیمی محسوب می‌شود و دوباره قابل تلاش است. (میلی‌ثانیه) |
 | `CHAT_PENDING_TEXT_TIMEOUT` | `عدد` | `300000` | مدت‌زمانی که بعد از آن پیام متنی pending ناموفق علامت می‌خورد. (میلی‌ثانیه) |
 | `CHAT_PENDING_FILE_TIMEOUT` | `عدد` | `1200000` | مدت‌زمان timeout برای آپلود فایل یا پیام فایل pending. (میلی‌ثانیه) |
 | `CHAT_PENDING_RETRY_INTERVAL` | `عدد` | `4000` | فاصله تلاش مجدد برای پیام‌های pending هنگام اتصال. (میلی‌ثانیه) |
@@ -528,6 +541,53 @@ sudo systemctl reload nginx
 
 > [!TIP]
 > می‌توانید فایل `.env` را از طریق اسکریپت [songbird-deploy](#اسکریپت-نصب-آسان) ویرایش کنید تا تغییرات به‌صورت خودکار اعمال و در صورت نیاز rebuild شوند.
+
+
+## راه‌اندازی Remote Channel
+
+Remote Channel به یک کانال عمومی Songbird اجازه می‌دهد پست‌های یک کانال Telegram را آینه کند. سرور Telegram را poll می‌کند، پست‌های جدید را وارد صف می‌کند، پیام‌های Songbird را با مالک کانال می‌سازد و وضعیت retry را در دیتابیس نگه می‌دارد. فقط مالک کانال می‌تواند source کانال را تنظیم کند.
+
+در اولین فعال‌سازی، Songbird وضعیت source را از آخرین پست Telegram شروع می‌کند و تاریخچه قبلی کانال را import نمی‌کند. پست‌هایی که بعد از آن منتشر شوند آینه می‌شوند.
+
+### 1. ساخت credential های Telegram
+
+یک اپ [Telegram](https://my.telegram.org/apps) بسازید تا API ID و API hash آماده باشد. اگر سرور شما برای اتصال به Telegram به proxy نیاز دارد، URL آن را هم آماده کنید. schemeهای پشتیبانی‌شده شامل `http://`، `https://`، `socks4://`، `socks5://` و `mtproxy://` هستند.
+
+> [!WARNING]
+> من پیشنهاد میکنم که از اکانت اصلی و شخصی تلگرام بای این کار استفاده نکنید.
+
+### 2. تنظیم Remote Channel
+
+ابزار تنظیم را اجرا کنید و promptها را دنبال کنید. این ابزار API ID، API hash، proxy URL اختیاری و کد ورود Telegram را می‌گیرد، سپس `REMOTE_CHANNEL`، credentialهای Telegram، proxy URL و session string را داخل `.env` می‌نویسد.
+
+```bash
+cd /opt/songbird
+npm run remote:configure
+```
+
+برای Docker:
+
+```bash
+cd /opt/songbird
+touch .env
+docker compose run --rm -v "$PWD/.env:/app/.env" songbird npm --prefix /app/server run remote:configure
+```
+
+session ساخته‌شده را خصوصی نگه دارید. این session به Songbird اجازه می‌دهد کانال‌های تلگرامی را که اکانت واردشده به آن‌ها دسترسی دارد بخواند.
+
+### 3. ری‌استارت Songbird
+
+تغییرات `.env` را طبق بخش [اعمال تغییرات](#اعمال-تغییرات) اعمال کنید. بعد از ری‌استارت، مسیر `/api/app/info` نشان می‌دهد Remote Channel فعال است یا نه و Telegram کامل تنظیم شده یا نه.
+
+### 4. اتصال کانال Songbird
+
+در Songbird یک **کانال عمومی** بسازید یا ویرایش کنید، **Remote Channel** را فعال کنید، **Telegram** را انتخاب کنید و source را به شکل `@channelname` یا `https://t.me/channelname` وارد کنید. Remote Channel برای کانال‌های خصوصی قفل است.
+
+تنظیمات اختیاری کانال:
+
+- **Sync Channel Metadata** عنوان و avatar کانال Telegram را داخل کانال Songbird کپی می‌کند.
+- **Stream Media Files** وقتی `FILE_UPLOAD=true` باشد mediaهای Telegram را داخل آپلودهای Songbird ذخیره می‌کند. این گزینه از محدودیت حجم/تعداد آپلود، retention فایل، رمزنگاری در حالت ذخیره و تنظیمات transcoding ویدیو پیروی می‌کند. پست‌های آینه‌شده فقط متنی از `MESSAGE_TEXT_RETENTION` پیروی می‌کنند.
+- پست‌هایی که متن یا caption ندارند فقط وقتی آینه می‌شوند که stream media فعال باشد و حداقل یک فایل media پشتیبانی‌شده قابل ذخیره باشد.
 
 ## به‌روزرسانی نسخه نصب‌شده
 

@@ -13,7 +13,9 @@
 
 **Songbird is a secure and lightweight self-hosted chat platform designed to empower digital freedom worldwide.**
 
-This repository contains the Songbird chat application. The server uses a file-backed SQLite database via sql.js and the client is built with React + Vite.
+This repository contains the Songbird chat application. The server uses a file-backed SQLite database via sql.js and the client is built with React + Vite. 
+
+Songbird supports DMs, groups, channels, file uploads, voice messages, push notifications, and optional Remote Channels that mirror Telegram posts into Songbird channels.
 
 ## Repo layout
 
@@ -456,6 +458,17 @@ nano .env
 | `MESSAGE_FILE_RETENTION` | `integer` | `7` | Auto-delete uploaded message files after N days (`0` disables). |
 | `MESSAGE_TEXT_RETENTION` | `integer` | `0` | Auto-delete text-only messages after N days (`0` disables). |
 | `MESSAGE_MAX_CHARS` | `integer` | `4000` | Max message length. |
+| `REMOTE_CHANNEL` | `boolean` | `false` | Enable the server-side Remote Channel worker. |
+| `REMOTE_CHANNEL_TELEGRAM_API_ID` | `integer` | `0` | Telegram API ID. |
+| `REMOTE_CHANNEL_TELEGRAM_API_HASH` | `string` | `""` | Telegram API hash. |
+| `REMOTE_CHANNEL_TELEGRAM_SESSION_STRING` | `string` | `""` | Telegram StringSession. Treat it like a password. |
+| `REMOTE_CHANNEL_PROXY_URL` | `string` | `""` | Telegram MTProto proxy URL. |
+| `REMOTE_CHANNEL_POLL_INTERVAL_MS` | `integer` | `5000` | How often the Telegram poller checks enabled Remote Channel sources. |
+| `REMOTE_CHANNEL_TELEGRAM_POLL_LIMIT` | `integer` | `50` | Max Telegram posts fetched per poll for each source (`1`-`100`). |
+| `REMOTE_CHANNEL_QUEUE_INTERVAL_MS` | `integer` | `1000` | How often the mirror queue worker processes pending Telegram posts. |
+| `REMOTE_CHANNEL_QUEUE_MAX_ATTEMPTS` | `integer` | `10` | Max retry attempts before a queued remote post is marked failed. |
+| `REMOTE_CHANNEL_QUEUE_BATCH_SIZE` | `integer` | `10` | Max queued remote posts processed per worker tick (`1`-`50`). |
+| `REMOTE_CHANNEL_QUEUE_STALE_LOCK_MS` | `integer` | `300000` | Age after which an in-progress queue lock is considered stale and can be retried. |
 | `CHAT_PENDING_TEXT_TIMEOUT` | `integer` | `300000` | Mark pending text message as failed after this timeout (milliseconds). |
 | `CHAT_PENDING_FILE_TIMEOUT` | `integer` | `1200000` | Mark pending file message as failed / XHR timeout for uploads (milliseconds). |
 | `CHAT_PENDING_RETRY_INTERVAL` | `integer` | `4000` | Retry cadence for pending sends while connected (milliseconds). |
@@ -524,6 +537,53 @@ sudo systemctl reload nginx
 
 > [!TIP]
 > You can easily edit your .env file via [songbird-deploy](#deployment-script) script and it would automatically apply and rebuild the app for you!
+
+
+## Remote Channel Setup
+
+Remote Channel lets a public Songbird channel mirror posts from a Telegram channel. The server polls Telegram, queues new posts, creates Songbird messages as the channel owner, and keeps retry state in the database. Only channel owners can configure a channel source.
+
+On first enable, Songbird initializes the source at the latest Telegram post and does not import channel history. Posts published after that point are mirrored.
+
+### 1. Create Telegram credentials
+
+Create a [Telegram app](https://my.telegram.org/apps) so you have an API ID and API hash ready. If your server needs a proxy to reach Telegram, have that URL ready too. Supported schemes are `http://`, `https://`, `socks4://`, `socks5://`, and `mtproxy://`.
+
+> [!WARNING]
+> I strongly suggest to not use your main personal Telegram account for this.
+
+### 2. Configure Remote Channel
+
+Run the configuration helper and follow the prompts. It asks for the Telegram API ID, API hash, optional proxy URL, and Telegram login code, then writes `REMOTE_CHANNEL`, the Telegram credentials, proxy URL, and session string into `.env`.
+
+```bash
+cd /opt/songbird
+npm run remote:configure
+```
+
+For Docker:
+
+```bash
+cd /opt/songbird
+touch .env
+docker compose run --rm -v "$PWD/.env:/app/.env" songbird npm --prefix /app/server run remote:configure
+```
+
+Keep the generated session value private. It authorizes Songbird to read Telegram channels that the logged-in Telegram account can access.
+
+### 3. Restart Songbird
+
+Apply the `.env` changes using the steps in [Apply Changes](#apply-changes).
+
+### 4. Connect a Songbird channel
+
+In Songbird, create or edit a **public channel**, enable **Remote Channel**, choose **Telegram**, and enter a source such as `@channelname` or `https://t.me/channelname`. Remote Channel is locked for private channels.
+
+Optional channel settings:
+
+- **Sync Channel Metadata** copies the Telegram channel title/avatar into the Songbird channel.
+- **Stream Media Files** downloads Telegram media into Songbird uploads when `FILE_UPLOAD=true`. It follows the upload size/count limits, file retention, encryption-at-rest, and video transcoding settings. Text-only mirrored posts follow `MESSAGE_TEXT_RETENTION`.
+- Posts with no text/caption are mirrored only when media streaming is enabled and at least one supported media file can be stored.
 
 ## Updating the deployed app
 
