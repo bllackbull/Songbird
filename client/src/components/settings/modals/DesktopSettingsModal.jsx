@@ -1,6 +1,6 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Close, Eye, EyeOff, Trash, Upload } from "../../../icons/lucide.js";
+import { Close, Eye, EyeOff, Pencil, Trash } from "../../../icons/lucide.js";
 import { hasPersian } from "../../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../../utils/avatarInitials.js";
 import { NICKNAME_MAX, USERNAME_MAX } from "../../../utils/nameLimits.js";
@@ -40,6 +40,7 @@ export function DesktopSettingsModal({
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const profilePhotoInputRef = useRef(null);
   const handleClosePanel = useCallback(
     () => setSettingsPanel(null),
     [setSettingsPanel],
@@ -81,32 +82,42 @@ export function DesktopSettingsModal({
             className="app-scroll mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto px-6 pb-6"
             onSubmit={handleProfileSave}
           >
-            <label className="block">
-              <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+            <div className="py-2">
+              <p className="text-center text-sm font-semibold text-slate-700 dark:text-slate-200">
                 Profile photo
-              </span>
-              <div className="mt-3 flex items-center gap-4">
-                <Avatar
-                  src={avatarPreview}
-                  alt={profileForm.nickname || profileForm.username}
-                  name={profileIdentity}
-                  color={resolvedUserColor}
-                  initials={profileInitials}
-                  className="h-14 w-14 flex-shrink-0"
-                />
-                <div className="flex w-full flex-col items-start gap-2 sm:flex-row sm:items-center">
-                  <label
-                    htmlFor="profilePhotoInput"
-                    className={`flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition ${
+              </p>
+              <div className="mt-3 flex justify-center">
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!fileUploadEnabled) return;
+                      profilePhotoInputRef.current?.click();
+                    }}
+                    disabled={!fileUploadEnabled}
+                    className={`group relative h-14 w-14 overflow-hidden rounded-full border-2 transition focus:outline-none focus:ring-2 focus:ring-emerald-300/70 ${
                       fileUploadEnabled
-                        ? "cursor-pointer border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:shadow-md dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/20 dark:hover:shadow-md"
-                        : "cursor-not-allowed border-slate-300 bg-slate-100 text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500"
+                        ? "cursor-pointer border-emerald-200 hover:border-emerald-300 hover:shadow-lg dark:border-emerald-500/30 dark:hover:border-emerald-400/60"
+                        : "cursor-not-allowed border-slate-300 opacity-70 dark:border-slate-700"
                     }`}
+                    aria-label="Change profile photo"
                   >
-                    <Upload size={18} className="icon-anim-lift" />
-                    <span>Upload Photo</span>
-                  </label>
+                    <Avatar
+                      src={avatarPreview}
+                      alt={profileForm.nickname || profileForm.username}
+                      name={profileIdentity}
+                      color={resolvedUserColor}
+                      initials={profileInitials}
+                      className="h-full w-full text-lg font-bold"
+                    />
+                    {fileUploadEnabled ? (
+                      <span className="absolute inset-0 flex items-center justify-center bg-slate-950/45 text-white opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100">
+                        <Pencil size={18} className="icon-anim-pop" />
+                      </span>
+                    ) : null}
+                  </button>
                   <input
+                    ref={profilePhotoInputRef}
                     id="profilePhotoInput"
                     type="file"
                     accept="image/*"
@@ -123,15 +134,15 @@ export function DesktopSettingsModal({
                         event.stopPropagation();
                         handleAvatarRemove();
                       }}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-rose-200 bg-rose-50 text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-md dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200 dark:hover:bg-rose-800/50"
+                      className="absolute -right-2 -top-2 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full border border-rose-200 bg-rose-50 text-rose-600 shadow-md transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-lg dark:border-rose-500/30 dark:bg-rose-900 dark:text-rose-200 dark:hover:bg-rose-800"
                       aria-label="Remove photo"
                     >
-                      <Trash size={18} className="icon-anim-sway" />
+                      <Trash size={12} className="icon-anim-sway" />
                     </button>
                   ) : null}
                 </div>
               </div>
-            </label>
+            </div>
             <label className="block">
               <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
                 Nickname
