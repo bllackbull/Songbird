@@ -4,7 +4,7 @@ import { argv, stdin as defaultInput, stdout as defaultOutput } from "node:proce
 import dotenv from "dotenv";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { TelegramClient } from "telegram";
+import { Logger, TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
 import {
   getTelegramClientConnectionOptions,
@@ -365,7 +365,12 @@ try {
     (message) => console.warn(message),
   );
   client = new TelegramClient(new StringSession(""), apiId, apiHash, {
-    connectionRetries: 5,
+    baseLogger: new Logger("none"),
+    connectionRetries: 3,
+    requestRetries: 2,
+    reconnectRetries: 0,
+    retryDelay: 1000,
+    autoReconnect: false,
     ...connectionOptions,
     deviceModel: "Songbird",
     systemVersion: "Songbird Server",
@@ -409,7 +414,11 @@ try {
   process.exitCode = 1;
 } finally {
   if (client) {
-    await client.disconnect().catch(() => {});
+    const stopClient =
+      typeof client.destroy === "function"
+        ? () => client.destroy()
+        : () => client.disconnect();
+    await stopClient().catch(() => {});
   }
   rl?.close();
   ttyInput?.destroy();

@@ -1777,6 +1777,17 @@ FILE_UPLOAD_TRANSCODE_VIDEOS=true
 MESSAGE_FILE_RETENTION=${RETENTION_DAYS}
 MESSAGE_TEXT_RETENTION=${TEXT_RETENTION_DAYS}
 MESSAGE_MAX_CHARS=4000
+REMOTE_CHANNEL=false
+REMOTE_CHANNEL_TELEGRAM_API_ID=0
+REMOTE_CHANNEL_TELEGRAM_API_HASH=""
+REMOTE_CHANNEL_TELEGRAM_SESSION_STRING=""
+REMOTE_CHANNEL_PROXY_URL=""
+REMOTE_CHANNEL_POLL_INTERVAL_MS=5000
+REMOTE_CHANNEL_TELEGRAM_POLL_LIMIT=50
+REMOTE_CHANNEL_QUEUE_INTERVAL_MS=1000
+REMOTE_CHANNEL_QUEUE_MAX_ATTEMPTS=10
+REMOTE_CHANNEL_QUEUE_BATCH_SIZE=10
+REMOTE_CHANNEL_QUEUE_STALE_LOCK_MS=300000
 CHAT_PENDING_TEXT_TIMEOUT=300000
 CHAT_PENDING_FILE_TIMEOUT=1200000
 CHAT_PENDING_RETRY_INTERVAL=4000
@@ -3832,7 +3843,17 @@ db_remote_configure() {
     args+=(--force-sms)
   fi
 
-  run_db_command "${args[@]}"
+  if ! run_db_command "${args[@]}"; then
+    press_enter_to_continue
+    return 1
+  fi
+
+  log "Restarting Songbird service to apply Remote Channel settings..."
+  run_as_root systemctl restart songbird.service || {
+    press_enter_to_continue
+    return 1
+  }
+  log "Songbird restarted successfully."
   press_enter_to_continue
 }
 
