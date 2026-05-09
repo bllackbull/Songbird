@@ -1,7 +1,7 @@
 import { readAppMeta } from "../lib/appMeta.js";
 
 function registerAppRoutes(app, deps) {
-  const { fs, path, projectRootDir } = deps;
+  const { REMOTE_CHANNELS, fs, path, projectRootDir } = deps;
 
   app.get("/api/app/info", (_req, res) => {
     const appMeta = readAppMeta({ fs, path, projectRootDir });
@@ -12,6 +12,13 @@ function registerAppRoutes(app, deps) {
       changelogSections: appMeta.changelogSections,
       currentChangelog: appMeta.currentChangelog,
       repository: appMeta.repository,
+      remoteChannels: {
+        enabled: Boolean(
+          REMOTE_CHANNELS?.enabled && REMOTE_CHANNELS?.telegramConfigured,
+        ),
+        telegramConfigured: Boolean(REMOTE_CHANNELS?.telegramConfigured),
+        proxyConfigured: Boolean(REMOTE_CHANNELS?.proxyConfigured),
+      },
     });
   });
 }

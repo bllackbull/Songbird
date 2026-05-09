@@ -7,6 +7,7 @@ import { registerMessageRoutes } from "./messages.js";
 import { registerPushRoutes } from "./push.js";
 import { registerPresenceRoutes } from "./presence.js";
 import { registerProfileRoutes } from "./profile.js";
+import { registerRemoteChannelRoutes } from "./remoteChannels.js";
 
 function registerApiRoutes(app, deps) {
   registerHealthRoutes(app, deps);
@@ -15,6 +16,7 @@ function registerApiRoutes(app, deps) {
   registerPresenceRoutes(app, deps);
   registerProfileRoutes(app, deps);
   registerChatRoutes(app, deps);
+  registerRemoteChannelRoutes(app, deps);
   registerMessageRoutes(app, deps);
   registerPushRoutes(app, deps);
   registerAdminRoutes(app, deps);
