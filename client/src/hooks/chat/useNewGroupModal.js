@@ -17,6 +17,12 @@ export function useNewGroupModal({
     username: "",
     visibility: "public",
     allowMemberInvites: true,
+    remoteChannelEnabled: false,
+    remoteChannelProvider: "telegram",
+    remoteChannelSource: "",
+    remoteChannelSyncMetadata: false,
+    remoteChannelStatus: null,
+    remoteChannelLoading: false,
   });
   const [newGroupSearch, setNewGroupSearch] = useState("");
   const [newGroupSearchResults, setNewGroupSearchResults] = useState([]);

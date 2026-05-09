@@ -250,6 +250,20 @@ export const removeGroupAvatar = (chatId, payload) =>
     body: JSON.stringify(payload),
   });
 
+export const getRemoteChannelSettings = ({ chatId, username }) =>
+  apiFetch(
+    `${API_BASE}/api/chats/${encodeURIComponent(chatId)}/remote-channel?username=${encodeURIComponent(
+      username,
+    )}`,
+  );
+
+export const updateRemoteChannelSettings = (chatId, payload) =>
+  apiFetch(`${API_BASE}/api/chats/${encodeURIComponent(chatId)}/remote-channel`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
 export const getSavedMessagesChat = (username) =>
   apiFetch(`${API_BASE}/api/chats/saved?username=${encodeURIComponent(username)}`);
 

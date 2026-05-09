@@ -1,13 +1,16 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  ChevronDown,
   Close,
+  CloudSync,
   Copy,
-  Globe,
   LoaderCircle,
   Lock,
+  Pencil,
+  SatelliteDish,
   Trash,
-  Upload,
+  UserPlus,
 } from "../../icons/lucide.js";
 import { copyTextToClipboard } from "../../utils/clipboard.js";
 import { getAvatarStyle } from "../../utils/avatarColor.js";
@@ -46,12 +49,28 @@ export default function NewGroupModal({
   currentInviteLink = "",
   regeneratingInviteLink = false,
   onRegenerateInvite,
+  showRemoteChannelSettings = false,
+  remoteChannelAvailable = true,
   entityLabel = "Group",
   onDeleteChat,
 }) {
   const [copiedRegenerateLink, setCopiedRegenerateLink] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [remoteSourceMenuOpen, setRemoteSourceMenuOpen] = useState(false);
+  const groupPhotoInputRef = useRef(null);
   const groupSearchInputRef = useRef(null);
+  const remoteSourceMenuRef = useRef(null);
+
+  useEffect(() => {
+    if (!open || !remoteSourceMenuOpen) return undefined;
+    const handlePointerDown = (event) => {
+      if (remoteSourceMenuRef.current?.contains(event.target)) return;
+      setRemoteSourceMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [open, remoteSourceMenuOpen]);
+
   if (!open) return null;
   if (typeof document === "undefined") return null;
 
@@ -61,6 +80,44 @@ export default function NewGroupModal({
   const nicknameHasPersian = hasPersian(groupForm.nickname || "");
   const usernameHasPersian = hasPersian(groupForm.username || "");
   const groupSearchHasPersian = hasPersian(groupSearchQuery || "");
+  const remoteSourceHasPersian = hasPersian(groupForm.remoteChannelSource || "");
+  const remoteStatus = groupForm.remoteChannelStatus || null;
+  const remoteSource = remoteStatus?.source || null;
+  const remoteLastError =
+    remoteSource?.lastError || remoteStatus?.error || "";
+  const remoteChannelEnabled = Boolean(groupForm.remoteChannelEnabled);
+  const remoteChannelSyncMetadata = Boolean(
+    groupForm.remoteChannelSyncMetadata,
+  );
+  const privateChatEnabled = groupForm.visibility === "private";
+  const memberInvitesLocked = !privateChatEnabled;
+  const memberInvitesEnabled =
+    memberInvitesLocked || groupForm.allowMemberInvites !== false;
+  const remoteChannelLocked = privateChatEnabled || !remoteChannelAvailable;
+  const effectiveRemoteChannelEnabled =
+    !remoteChannelLocked && remoteChannelEnabled;
+  const remoteProviderLabel =
+    groupForm.remoteChannelProvider === "telegram" ? "Telegram" : "Telegram";
+  const privacyOptionClass = (locked = false) =>
+    `flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left text-sm font-semibold transition ${
+      locked
+        ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-500"
+        : "border-emerald-200/70 bg-white/90 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_18px_rgba(16,185,129,0.18)] dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+    }`;
+  const renderSwitch = (enabled, muted = false) => (
+    <span
+      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition ${
+        enabled && muted
+          ? "justify-end bg-emerald-300 dark:bg-emerald-500/50"
+          : enabled
+          ? "justify-end bg-emerald-500"
+          : "justify-start bg-slate-300 dark:bg-slate-700"
+      }`}
+      aria-hidden="true"
+    >
+      <span className="inline-block h-5 w-5 rounded-full bg-white shadow transition" />
+    </span>
+  );
 
   return createPortal(
     <>
@@ -82,37 +139,47 @@ export default function NewGroupModal({
           <div className="mt-4 space-y-3">
             {showAvatarField ? (
               <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
-                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                <p className="text-center text-sm font-semibold text-slate-700 dark:text-slate-200">
                   {entityLabel} photo
                 </p>
-                <div className="mt-3 flex items-center gap-4">
-                  {avatarPreview ? (
-                    <img
-                      src={avatarPreview}
-                      alt="Group avatar preview"
-                      className="h-14 w-14 flex-shrink-0 rounded-full object-cover"
-                    />
-                  ) : (
-                    <div
-                      className={`flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full text-lg font-bold ${hasPersian(getAvatarInitials(avatarName || "G")) ? "font-fa" : ""}`}
-                      style={getAvatarStyle(avatarColor || "#10b981")}
-                    >
-                      {getAvatarInitials(avatarName || "G")}
-                    </div>
-                  )}
-                  <div className="flex w-full flex-nowrap items-center gap-2">
-                    <label
-                      htmlFor="groupPhotoInput"
-                      className={`inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full border px-3 py-2 text-xs font-semibold transition ${
+                <div className="mt-3 flex justify-center">
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!fileUploadEnabled) return;
+                        groupPhotoInputRef.current?.click();
+                      }}
+                      disabled={!fileUploadEnabled}
+                      className={`group relative h-14 w-14 overflow-hidden rounded-full border-2 transition focus:outline-none focus:ring-2 focus:ring-emerald-300/70 ${
                         fileUploadEnabled
-                          ? "cursor-pointer border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:shadow-md dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/20 dark:hover:shadow-md"
-                          : "cursor-not-allowed border-slate-300 bg-slate-100 text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500"
+                          ? "cursor-pointer border-emerald-200 hover:border-emerald-300 hover:shadow-lg dark:border-emerald-500/30 dark:hover:border-emerald-400/60"
+                          : "cursor-not-allowed border-slate-300 opacity-70 dark:border-slate-700"
                       }`}
+                      aria-label={`Change ${entityLabel.toLowerCase()} photo`}
                     >
-                      <Upload size={18} className="icon-anim-lift" />
-                      <span>Upload Photo</span>
-                    </label>
+                      {avatarPreview ? (
+                        <img
+                          src={avatarPreview}
+                          alt={`${entityLabel} avatar preview`}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <span
+                          className={`flex h-full w-full items-center justify-center text-lg font-bold ${hasPersian(getAvatarInitials(avatarName || "G")) ? "font-fa" : ""}`}
+                          style={getAvatarStyle(avatarColor || "#10b981")}
+                        >
+                          {getAvatarInitials(avatarName || "G")}
+                        </span>
+                      )}
+                      {fileUploadEnabled ? (
+                        <span className="absolute inset-0 flex items-center justify-center bg-slate-950/45 text-white opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100">
+                          <Pencil size={18} className="icon-anim-pop" />
+                        </span>
+                      ) : null}
+                    </button>
                     <input
+                      ref={groupPhotoInputRef}
                       id="groupPhotoInput"
                       type="file"
                       accept="image/*"
@@ -129,10 +196,10 @@ export default function NewGroupModal({
                           event.stopPropagation();
                           onAvatarRemove?.();
                         }}
-                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-rose-200 bg-rose-50 text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-md dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200 dark:hover:bg-rose-800/50"
+                        className="absolute -right-2 -top-2 z-10 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-rose-200 bg-rose-50 text-rose-600 shadow-md transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-lg dark:border-rose-500/30 dark:bg-rose-900 dark:text-rose-200 dark:hover:bg-rose-800"
                         aria-label={`Remove ${entityLabel.toLowerCase()} photo`}
                       >
-                        <Trash size={18} className="icon-anim-sway" />
+                        <Trash size={12} className="icon-anim-sway" />
                       </button>
                     ) : null}
                   </div>
@@ -198,65 +265,56 @@ export default function NewGroupModal({
               </div>
             </div>
 
-            <div>
+            <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
               <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                Visibility
+                Privacy
               </p>
-              <div className="mt-2 grid grid-cols-2 gap-2 rounded-2xl border border-emerald-200 p-1 dark:border-emerald-500/30">
+              <div className="mt-2 space-y-2">
                 <button
                   type="button"
+                  role="switch"
+                  aria-checked={privateChatEnabled}
                   onClick={() =>
-                    setGroupForm((prev) => ({ ...prev, visibility: "public" }))
+                    setGroupForm((prev) => ({
+                      ...prev,
+                      visibility:
+                        prev.visibility === "private" ? "public" : "private",
+                      allowMemberInvites: true,
+                      remoteChannelEnabled:
+                        prev.visibility === "private"
+                          ? prev.remoteChannelEnabled
+                          : false,
+                    }))
                   }
-                  className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${
-                    groupForm.visibility === "public"
-                      ? "bg-emerald-500 text-white"
-                      : "text-slate-700 hover:bg-emerald-50 dark:text-slate-200 dark:hover:bg-emerald-500/10"
-                  }`}
+                  className={privacyOptionClass()}
                 >
-                  <span className="inline-flex items-center gap-1.5">
-                    <Globe size={14} className="icon-anim-bob" />
-                    Public
+                  <span className="flex min-w-0 items-center gap-3">
+                    <Lock size={18} className="shrink-0 icon-anim-bob" />
+                    <span className="truncate">Private {entityLabel}</span>
                   </span>
+                  {renderSwitch(privateChatEnabled)}
                 </button>
                 <button
                   type="button"
-                  onClick={() =>
-                    setGroupForm((prev) => ({ ...prev, visibility: "private" }))
-                  }
-                  className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${
-                    groupForm.visibility === "private"
-                      ? "bg-emerald-500 text-white"
-                      : "text-slate-700 hover:bg-emerald-50 dark:text-slate-200 dark:hover:bg-emerald-500/10"
-                  }`}
+                  role="switch"
+                  aria-checked={memberInvitesEnabled}
+                  disabled={memberInvitesLocked}
+                  onClick={() => {
+                    if (memberInvitesLocked) return;
+                    setGroupForm((prev) => ({
+                      ...prev,
+                      allowMemberInvites: prev.allowMemberInvites === false,
+                    }));
+                  }}
+                  className={privacyOptionClass(memberInvitesLocked)}
                 >
-                  <span className="inline-flex items-center gap-1.5">
-                    <Lock size={14} className="icon-anim-bob" />
-                    Private
+                  <span className="flex min-w-0 items-center gap-3">
+                    <UserPlus size={18} className="shrink-0 icon-anim-pop" />
+                    <span className="truncate">Members Can Invite</span>
                   </span>
+                  {renderSwitch(memberInvitesEnabled, memberInvitesLocked)}
                 </button>
               </div>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                {groupForm.visibility === "public"
-                  ? "Anyone can discover and join this group."
-                  : "Private groups can only be joined via invite link."}
-              </p>
-              {groupForm.visibility === "private" ? (
-                <label className="mt-2 inline-flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
-                  <input
-                    type="checkbox"
-                    checked={groupForm.allowMemberInvites !== false}
-                    onChange={(event) =>
-                      setGroupForm((prev) => ({
-                        ...prev,
-                        allowMemberInvites: event.target.checked,
-                      }))
-                    }
-                    className="h-4 w-4 rounded-full border border-emerald-300 bg-white accent-emerald-500 focus:ring-2 focus:ring-emerald-300 dark:border-emerald-500/40 dark:bg-slate-900 dark:accent-emerald-400"
-                  />
-                  Allow members to invite others
-                </label>
-              ) : null}
             </div>
 
             {showInviteManagement ? (
@@ -309,10 +367,161 @@ export default function NewGroupModal({
               </div>
             ) : null}
 
+            {showRemoteChannelSettings ? (
+              <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
+                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                  Connection
+                </p>
+                <div className="mt-1 min-w-0">
+                  {groupForm.remoteChannelLoading ? (
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      Loading...
+                    </p>
+                  ) : remoteLastError ? (
+                    <p className="mt-1 break-words text-xs text-rose-600 dark:text-rose-200">
+                      {remoteLastError}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={effectiveRemoteChannelEnabled}
+                    disabled={remoteChannelLocked}
+                    onClick={() => {
+                      if (remoteChannelLocked) return;
+                      setRemoteSourceMenuOpen(false);
+                      setGroupForm((prev) => ({
+                        ...prev,
+                        remoteChannelEnabled: !prev.remoteChannelEnabled,
+                      }));
+                    }}
+                    className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left text-sm font-semibold transition ${
+                      remoteChannelLocked
+                        ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-500"
+                        : "border-emerald-200/70 bg-white/90 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_18px_rgba(16,185,129,0.18)] dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                    }`}
+                  >
+                    <span className="flex items-center gap-3">
+                      <SatelliteDish size={18} className="icon-anim-sway" />
+                      Remote Channel
+                    </span>
+                    <span
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full p-0.5 transition ${
+                        effectiveRemoteChannelEnabled
+                          ? "justify-end bg-emerald-500"
+                          : "justify-start bg-slate-300 dark:bg-slate-700"
+                      }`}
+                    >
+                      <span className="inline-block h-5 w-5 rounded-full bg-white shadow transition" />
+                    </span>
+                  </button>
+                </div>
+                {effectiveRemoteChannelEnabled ? (
+                  <div className="mt-3 space-y-3">
+                    <div ref={remoteSourceMenuRef} className="relative">
+                      <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                        Source
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setRemoteSourceMenuOpen((current) => !current)
+                        }
+                        className="mt-2 flex w-full items-center justify-between rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-12 text-left text-sm font-semibold text-slate-700 outline-none transition hover:border-emerald-300 hover:bg-emerald-50 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-emerald-500/10"
+                        aria-expanded={remoteSourceMenuOpen}
+                      >
+                        <span>{remoteProviderLabel}</span>
+                        <ChevronDown
+                          size={16}
+                          className={`absolute right-4 top-[2.95rem] text-emerald-500 transition-transform ${
+                            remoteSourceMenuOpen ? "rotate-180" : ""
+                          }`}
+                        />
+                      </button>
+                      {remoteSourceMenuOpen ? (
+                        <div className="absolute left-0 right-0 z-50 mt-2 overflow-hidden rounded-2xl border border-emerald-200 bg-white p-1 text-sm font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRemoteSourceMenuOpen(false);
+                              setGroupForm((prev) => ({
+                                ...prev,
+                                remoteChannelProvider: "telegram",
+                              }));
+                            }}
+                            className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
+                          >
+                            <span>Telegram</span>
+                            {groupForm.remoteChannelProvider === "telegram" ||
+                            !groupForm.remoteChannelProvider ? (
+                              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                            ) : null}
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                        Target Channel
+                      </label>
+                      <input
+                        value={groupForm.remoteChannelSource || ""}
+                        onChange={(event) => {
+                          setGroupForm((prev) => ({
+                            ...prev,
+                            remoteChannelSource: event.target.value,
+                          }));
+                          setGroupError("");
+                        }}
+                        placeholder="@channel or https://t.me/channel"
+                        lang={remoteSourceHasPersian ? "fa" : "en"}
+                        dir={remoteSourceHasPersian ? "rtl" : "ltr"}
+                        className={`mt-2 w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
+                          remoteSourceHasPersian
+                            ? "font-fa text-right"
+                            : "text-left"
+                        }`}
+                        style={{ unicodeBidi: "plaintext" }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={remoteChannelSyncMetadata}
+                      onClick={() =>
+                        setGroupForm((prev) => ({
+                          ...prev,
+                          remoteChannelSyncMetadata:
+                            !prev.remoteChannelSyncMetadata,
+                        }))
+                      }
+                      className="flex w-full items-center justify-between rounded-2xl border border-emerald-200/70 bg-white/90 px-4 py-3 text-left text-sm font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_18px_rgba(16,185,129,0.18)] dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                    >
+                      <span className="flex items-center gap-3">
+                        <CloudSync size={18} className="icon-anim-sway" />
+                        Sync Channel Metadata
+                      </span>
+                      <span
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full p-0.5 transition ${
+                          remoteChannelSyncMetadata
+                            ? "justify-end bg-emerald-500"
+                            : "justify-start bg-slate-300 dark:bg-slate-700"
+                        }`}
+                      >
+                        <span className="inline-block h-5 w-5 rounded-full bg-white shadow transition" />
+                      </span>
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
             <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                  Members
+                  Add Members
                 </p>
               </div>
               <div className="relative mt-2">
@@ -453,10 +662,6 @@ export default function NewGroupModal({
                     );
                   })}
                 </div>
-              ) : !hideSelectedMemberChips ? (
-                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                  No members selected yet.
-                </p>
               ) : null}
             </div>
           </div>

@@ -87,8 +87,10 @@ import {
   removeGroupAvatar,
   regenerateGroupInviteLink,
   setChatMute,
+  getRemoteChannelSettings,
   updateChannelChat,
   getMessageReadCounts,
+  updateRemoteChannelSettings,
   updateGroupChat,
   uploadGroupAvatar,
   getSavedMessagesChat,
@@ -5253,6 +5255,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       username: "",
       visibility: "public",
       allowMemberInvites: true,
+      remoteChannelEnabled: false,
+      remoteChannelProvider: "telegram",
+      remoteChannelSource: "",
+      remoteChannelSyncMetadata: false,
+      remoteChannelStatus: null,
+      remoteChannelLoading: false,
     });
     setNewGroupSearch("");
     setNewGroupSearchResults([]);
@@ -5441,6 +5449,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       username: activeChat.group_username || "",
       visibility: activeChat.group_visibility || "public",
       allowMemberInvites: Boolean(Number(activeChat.allow_member_invites || 0)),
+      remoteChannelEnabled: false,
+      remoteChannelProvider: "telegram",
+      remoteChannelSource: "",
+      remoteChannelSyncMetadata: false,
+      remoteChannelStatus: null,
+      remoteChannelLoading: activeChat.type === "channel" && Boolean(appInfo?.remoteChannels?.enabled),
     });
     setNewGroupMembers([]);
     setNewGroupSearch("");
@@ -5460,6 +5474,51 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }
     } catch {
       // ignore invite fetch errors in edit modal
+    }
+    if (activeChat.type === "channel" && appInfo?.remoteChannels?.enabled) {
+      try {
+        const res = await getRemoteChannelSettings({
+          chatId: activeChat.id,
+          username: user.username,
+        });
+        const data = await res.json();
+        if (res.ok) {
+          const source = data?.source || null;
+          setNewGroupForm((prev) => ({
+            ...prev,
+            remoteChannelEnabled: Boolean(source?.enabled),
+            remoteChannelProvider: source?.provider || "telegram",
+            remoteChannelSource:
+              source?.sourceRaw ||
+              (source?.sourceUsername ? `@${source.sourceUsername}` : "") ||
+              source?.sourceChatId ||
+              "",
+            remoteChannelSyncMetadata: Boolean(source?.syncMetadata),
+            remoteChannelStatus: data,
+            remoteChannelLoading: false,
+          }));
+        } else {
+          setNewGroupForm((prev) => ({
+            ...prev,
+            remoteChannelStatus: {
+              available: false,
+              source: null,
+              error: data?.error || "Unable to load Remote Channel settings.",
+            },
+            remoteChannelLoading: false,
+          }));
+        }
+      } catch {
+        setNewGroupForm((prev) => ({
+          ...prev,
+          remoteChannelStatus: {
+            available: false,
+            source: null,
+            error: "Unable to load Remote Channel settings.",
+          },
+          remoteChannelLoading: false,
+        }));
+      }
     }
   };
 
@@ -5556,6 +5615,29 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       );
       return;
     }
+    const remoteChannelSource = String(
+      newGroupForm.remoteChannelSource || "",
+    ).trim();
+    const remoteChannelEnabled =
+      newGroupForm.visibility !== "private" &&
+      Boolean(newGroupForm.remoteChannelEnabled);
+    const remoteChannelProvider = String(
+      newGroupForm.remoteChannelProvider || "telegram",
+    ).toLowerCase();
+    const remoteChannelSyncMetadata =
+      remoteChannelEnabled && Boolean(newGroupForm.remoteChannelSyncMetadata);
+    const shouldSaveRemoteChannel = Boolean(
+      isChannel &&
+        appInfo?.remoteChannels?.enabled &&
+        (editingGroup ||
+          remoteChannelEnabled ||
+          remoteChannelSource ||
+          remoteChannelSyncMetadata),
+    );
+    if (shouldSaveRemoteChannel && remoteChannelEnabled && !remoteChannelSource) {
+      setNewGroupError("Remote Channel source is required.");
+      return;
+    }
     try {
       setCreatingGroup(true);
       setNewGroupError("");
@@ -5564,7 +5646,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         nickname,
         username,
         visibility: newGroupForm.visibility,
-        allowMemberInvites: newGroupForm.allowMemberInvites !== false,
+        allowMemberInvites:
+          newGroupForm.visibility !== "private" ||
+          newGroupForm.allowMemberInvites !== false,
         members: editingGroup
           ? Array.from(
               new Set([
@@ -5616,6 +5700,19 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         const avatarData = await avatarRes.json();
         if (!avatarRes.ok) {
           throw new Error(avatarData?.error || "Unable to remove group avatar.");
+        }
+      }
+      if (shouldSaveRemoteChannel) {
+        const remoteRes = await updateRemoteChannelSettings(nextChatId, {
+          username: user.username,
+          enabled: remoteChannelEnabled,
+          provider: remoteChannelProvider,
+          source: remoteChannelSource,
+          syncMetadata: remoteChannelSyncMetadata,
+        });
+        const remoteData = await remoteRes.json();
+        if (!remoteRes.ok) {
+          throw new Error(remoteData?.error || "Unable to update Remote Channel.");
         }
       }
       if (!editingGroup) {
@@ -6302,6 +6399,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             currentInviteLink={editGroupInviteLink}
             regeneratingInviteLink={regeneratingGroupInviteLink}
             onRegenerateInvite={handleRegenerateGroupInvite}
+            showRemoteChannelSettings={Boolean(
+              groupModalType === "channel",
+            )}
+            remoteChannelAvailable={Boolean(appInfo?.remoteChannels?.enabled)}
             entityLabel={groupModalType === "channel" ? "Channel" : "Group"}
             onDeleteChat={editingGroup ? handleDeleteActiveGroup : null}
           />
