@@ -336,6 +336,116 @@ function computeTextExpiryIso(retentionDays) {
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
 }
 
+function toFiniteNumber(value) {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value === "bigint") {
+    const asNumber = Number(value);
+    return Number.isFinite(asNumber) ? asNumber : null;
+  }
+  if (typeof value === "object") {
+    if (typeof value.toJSNumber === "function") {
+      try {
+        const asNumber = value.toJSNumber();
+        return Number.isFinite(asNumber) ? asNumber : null;
+      } catch {
+        return null;
+      }
+    }
+    if (typeof value.valueOf === "function") {
+      const primitive = value.valueOf();
+      if (primitive !== value) return toFiniteNumber(primitive);
+    }
+  }
+  const asNumber = Number(value);
+  return Number.isFinite(asNumber) ? asNumber : null;
+}
+
+function normalizeMessageId(value) {
+  const number = toFiniteNumber(value);
+  return number && number > 0 ? Math.trunc(number) : 0;
+}
+
+function firstTextFromMessages(messages = []) {
+  for (const message of messages) {
+    const text = extractTelegramPostText(message);
+    if (text) return text;
+  }
+  return "";
+}
+
+function buildTelegramMediaIds(messages = []) {
+  return Array.from(
+    new Set(
+      messages
+        .filter((message) => Boolean(message?.hasMedia || message?.media))
+        .map((message) => normalizeMessageId(message?.id))
+        .filter(Boolean),
+    ),
+  );
+}
+
+function extensionForMimeType(mimeType = "") {
+  const type = String(mimeType || "").toLowerCase();
+  const map = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+    "image/bmp": ".bmp",
+    "video/mp4": ".mp4",
+    "video/quicktime": ".mov",
+    "video/webm": ".webm",
+    "video/x-matroska": ".mkv",
+    "video/x-msvideo": ".avi",
+    "audio/mpeg": ".mp3",
+    "audio/mp4": ".m4a",
+    "audio/ogg": ".ogg",
+    "audio/wav": ".wav",
+    "audio/webm": ".webm",
+    "application/pdf": ".pdf",
+    "application/zip": ".zip",
+    "application/x-7z-compressed": ".7z",
+    "application/x-rar-compressed": ".rar",
+    "application/msword": ".doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+      ".docx",
+    "application/vnd.ms-excel": ".xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+      ".xlsx",
+    "application/vnd.ms-powerpoint": ".ppt",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+      ".pptx",
+    "text/plain": ".txt",
+  };
+  return map[type] || "";
+}
+
+function summarizeMediaFiles(files = []) {
+  if (!Array.isArray(files) || !files.length) return "";
+  const videoCount = files.filter((file) =>
+    String(file?.mimeType || "").toLowerCase().startsWith("video/"),
+  ).length;
+  const imageCount = files.filter((file) =>
+    String(file?.mimeType || "").toLowerCase().startsWith("image/"),
+  ).length;
+  const audioCount = files.filter((file) =>
+    String(file?.mimeType || "").toLowerCase().startsWith("audio/"),
+  ).length;
+  const docCount = Math.max(0, files.length - videoCount - imageCount - audioCount);
+  if (files.length === 1) {
+    if (videoCount === 1) return "Sent a video";
+    if (imageCount === 1) return "Sent a photo";
+    if (audioCount === 1) return "Sent a voice message";
+    if (docCount === 1) return "Sent a document";
+    return "Sent a media file";
+  }
+  if (videoCount === files.length) return `Sent ${videoCount} videos`;
+  if (imageCount === files.length) return `Sent ${imageCount} photos`;
+  if (audioCount === files.length) return `Sent ${audioCount} voice messages`;
+  if (docCount === files.length) return `Sent ${docCount} documents`;
+  return `Sent ${files.length} media files`;
+}
+
 function parseTelegramProxy(proxyUrl, logger = null) {
   const raw = String(proxyUrl || "").trim();
   if (!raw) return undefined;
@@ -416,19 +526,52 @@ function serializeTelegramMessage(message) {
   };
 }
 
+function groupTelegramMessagesForQueue(messages = []) {
+  const groups = [];
+  const albumGroups = new Map();
+
+  messages.forEach((message) => {
+    const groupedId = toPlainId(message?.groupedId) || "";
+    if (!groupedId) {
+      groups.push([message]);
+      return;
+    }
+
+    let group = albumGroups.get(groupedId);
+    if (!group) {
+      group = [];
+      albumGroups.set(groupedId, group);
+      groups.push(group);
+    }
+    group.push(message);
+  });
+
+  return groups;
+}
+
 function createRemoteChannelManager(deps = {}) {
   const {
     config = {},
+    computeExpiryIso,
+    createMessageFiles,
     createOrReuseMessage,
+    crypto,
     debugLog = () => {},
     emitChatEvent,
     emitSseEvent,
+    enqueueVideoTranscodeJob,
+    ensureFfmpegAvailable,
     findChatById,
     findUserById,
     fs,
     getRemoteChannelProviderState,
+    getRemoteChannelSourceById,
+    getUploadKind,
+    hasEnoughFreeDiskSpace,
+    isDangerousUploadFile,
     listEnabledRemoteChannelSources,
     listChatMembers,
+    listMessageFilesByMessageIds,
     listMutedUserIdsForChat,
     enqueueRemoteChannelQueueItem,
     releaseStaleRemoteChannelQueueItems,
@@ -437,7 +580,11 @@ function createRemoteChannelManager(deps = {}) {
     markRemoteChannelQueueItemRetry,
     markRemoteChannelQueueItemSkipped,
     path,
+    probeVideoMetadata,
+    sanitizeDurationSeconds,
+    sanitizePositiveInt,
     sendPushNotificationToUsers,
+    setMessageExpiresAt,
     setMessageForwardOrigin,
     setRemoteChannelProviderState,
     storageEncryption,
@@ -457,7 +604,24 @@ function createRemoteChannelManager(deps = {}) {
   const staleLockMs = Math.max(10_000, Number(config.queueStaleLockMs || 5 * 60_000));
   const queueBatchSize = Math.max(1, Math.min(50, Number(config.queueBatchSize || 10)));
   const messageTextRetentionDays = Number(config.messageTextRetentionDays || 0);
+  const messageFileRetentionDays = Number(config.messageFileRetentionDays || 0);
   const messageMaxChars = Math.max(1, Number(config.messageMaxChars || 4000));
+  const fileUploadEnabled = Boolean(config.fileUploadEnabled);
+  const messageFileLimits = config.messageFileLimits || {};
+  const maxMediaFilesPerMessage = Math.max(
+    1,
+    Number(messageFileLimits.maxFiles || 10),
+  );
+  const maxMediaFileSizeBytes = Math.max(
+    1,
+    Number(messageFileLimits.maxFileSizeBytes || 25 * 1024 * 1024),
+  );
+  const maxMediaTotalBytes = Math.max(
+    1,
+    Number(messageFileLimits.maxTotalBytes || 75 * 1024 * 1024),
+  );
+  const transcodeVideosToH264 = Boolean(config.transcodeVideosToH264);
+  const uploadRootDir = String(config.uploadRootDir || "").trim();
   const avatarUploadRootDir = String(config.avatarUploadRootDir || "").trim();
   const lockOwner = `songbird-${process.pid}`;
   const entityCache = new Map();
@@ -537,12 +701,12 @@ function createRemoteChannelManager(deps = {}) {
     }
   }
 
-  async function resolveSource(activeClient, source) {
+  async function resolveSource(activeClient, source, options = {}) {
     const ref = resolveTelegramSourceRef(source);
     if (!ref) throw new Error("Telegram source is not configured.");
 
     const cacheKey = `${source.id}:${String(source.source_raw || ref)}`;
-    let entity = entityCache.get(cacheKey);
+    let entity = options.forceRefresh ? null : entityCache.get(cacheKey);
     if (!entity) {
       entity = await activeClient.getEntity(ref);
       entityCache.set(cacheKey, entity);
@@ -556,16 +720,17 @@ function createRemoteChannelManager(deps = {}) {
     return { entity, title, username, sourceChatId, avatarUrl };
   }
 
-  async function pollSource(activeClient, source) {
-    const resolved = await resolveSource(activeClient, source);
+  async function syncResolvedSourceMetadata(activeClient, source, resolved = null) {
+    const nextResolved =
+      resolved || await resolveSource(activeClient, source, { forceRefresh: true });
     const targetChat = findChatById(Number(source.chat_id || 0));
     if (
       targetChat &&
       Boolean(Number(source.sync_metadata || 0)) &&
       typeof updateChannelChat === "function"
     ) {
-      const nextName = resolved.title || targetChat.name;
-      const nextAvatarUrl = resolved.avatarUrl || null;
+      const nextName = nextResolved.title || targetChat.name;
+      const nextAvatarUrl = nextResolved.avatarUrl || null;
       const metadataChanged =
         String(nextName || "") !== String(targetChat.name || "") ||
         String(nextAvatarUrl || "") !== String(targetChat.group_avatar_url || "");
@@ -594,6 +759,49 @@ function createRemoteChannelManager(deps = {}) {
           });
       }
     }
+    updateRemoteChannelSourceSeen(source.id, {
+      sourceChatId: nextResolved.sourceChatId,
+      sourceUsername: nextResolved.username,
+      sourceTitle: nextResolved.title,
+      sourceAvatarUrl: nextResolved.avatarUrl,
+    });
+    return nextResolved;
+  }
+
+  async function syncSourceMetadata(sourceId) {
+    const source =
+      typeof getRemoteChannelSourceById === "function"
+        ? getRemoteChannelSourceById(sourceId)
+        : null;
+    if (!source?.id) throw new Error("Remote Channel source is not configured.");
+    if (!Number(source.enabled || 0)) {
+      throw new Error("Remote Channel source is disabled.");
+    }
+    const activeClient = await ensureClient();
+    try {
+      const resolved = await syncResolvedSourceMetadata(
+        activeClient,
+        source,
+        await resolveSource(activeClient, source, { forceRefresh: true }),
+      );
+      updateRemoteChannelSourceError(source.id, "");
+      return resolved;
+    } catch (error) {
+      const message = errorMessage(error);
+      updateRemoteChannelSourceError(source.id, message);
+      throw error;
+    }
+  }
+
+  async function pollSource(activeClient, source) {
+    const syncMetadata = Boolean(Number(source.sync_metadata || 0));
+    const resolved = await syncResolvedSourceMetadata(
+      activeClient,
+      source,
+      await resolveSource(activeClient, source, {
+        forceRefresh: syncMetadata,
+      }),
+    );
     const lastMessageId = Number(source?.last_remote_message_id || 0) || 0;
     if (!lastMessageId) {
       const latest = await activeClient.getMessages(resolved.entity, { limit: 1 });
@@ -619,12 +827,28 @@ function createRemoteChannelManager(deps = {}) {
 
     let queued = 0;
     let maxSeenId = lastMessageId;
-    for (const message of ordered) {
-      const telegramMessageId = Number(message?.id || 0) || 0;
+    for (const group of groupTelegramMessagesForQueue(ordered)) {
+      const validMessages = group.filter((message) =>
+        Boolean(normalizeMessageId(message?.id)),
+      );
+      if (!validMessages.length) continue;
+      const serializedMessages = validMessages.map((message) =>
+        serializeTelegramMessage(message),
+      );
+      const firstMessage = serializedMessages[0];
+      const primaryMessage =
+        serializedMessages.find((message) => extractTelegramPostText(message)) ||
+        firstMessage;
+      const telegramMessageId = normalizeMessageId(firstMessage?.id);
       if (!telegramMessageId) continue;
-      maxSeenId = Math.max(maxSeenId, telegramMessageId);
+      maxSeenId = Math.max(
+        maxSeenId,
+        ...serializedMessages.map((message) => normalizeMessageId(message?.id)),
+      );
       const payloadJson = JSON.stringify({
-        message: serializeTelegramMessage(message),
+        message: primaryMessage,
+        messages: serializedMessages,
+        mediaMessageIds: buildTelegramMediaIds(serializedMessages),
         source: {
           title: resolved.title,
           username: resolved.username,
@@ -635,6 +859,7 @@ function createRemoteChannelManager(deps = {}) {
       });
       const row = enqueueRemoteChannelQueueItem({
         sourceId: source.id,
+        sourceVersion: source.source_version,
         telegramMessageId,
         payloadJson,
       });
@@ -739,7 +964,430 @@ function createRemoteChannelManager(deps = {}) {
     }
   }
 
+  function mediaStreamingIsAvailable() {
+    return Boolean(
+      fileUploadEnabled &&
+        fs &&
+        path &&
+        uploadRootDir &&
+        typeof createMessageFiles === "function" &&
+        typeof getUploadKind === "function",
+    );
+  }
+
+  function safeUnlink(filePath) {
+    try {
+      if (filePath && fs?.existsSync(filePath)) fs.unlinkSync(filePath);
+    } catch {
+      // best effort cleanup
+    }
+  }
+
+  function buildStoredMediaName(originalName, mimeType) {
+    const ext =
+      path.extname(String(originalName || "")).toLowerCase() ||
+      extensionForMimeType(mimeType) ||
+      ".bin";
+    const random =
+      typeof crypto?.randomBytes === "function"
+        ? crypto.randomBytes(8).toString("hex")
+        : Math.random().toString(16).slice(2, 18);
+  return `${Date.now()}-${random}${ext}`;
+  }
+
+  function getTelegramDocument(message) {
+    return message?.document || message?.media?.document || null;
+  }
+
+  function getTelegramPhoto(message) {
+    return message?.photo || message?.media?.photo || null;
+  }
+
+  function listTelegramDocumentAttributes(message) {
+    const attrs = getTelegramDocument(message)?.attributes;
+    return Array.isArray(attrs) ? attrs : [];
+  }
+
+  function getTelegramDocumentAttribute(message, names = []) {
+    const wanted = new Set(
+      (Array.isArray(names) ? names : [names]).map((name) => String(name || "")),
+    );
+    return listTelegramDocumentAttributes(message).find((attr) =>
+      wanted.has(String(attr?.className || "")),
+    );
+  }
+
+  function getTelegramDocumentFilename(message) {
+    const attr = getTelegramDocumentAttribute(message, "DocumentAttributeFilename");
+    return String(attr?.fileName || "").trim();
+  }
+
+  function getTelegramMediaDimensions(message) {
+    const attr = getTelegramDocumentAttribute(message, [
+      "DocumentAttributeVideo",
+      "DocumentAttributeImageSize",
+    ]);
+    return {
+      width: attr?.w,
+      height: attr?.h,
+    };
+  }
+
+  function getTelegramMediaDuration(message) {
+    const attr = getTelegramDocumentAttribute(message, [
+      "DocumentAttributeVideo",
+      "DocumentAttributeAudio",
+    ]);
+    return attr?.duration;
+  }
+
+  function getTelegramPhotoDeclaredSize(message) {
+    const sizes = [
+      ...(getTelegramPhoto(message)?.sizes || []),
+      ...(getTelegramPhoto(message)?.videoSizes || []),
+    ];
+    return sizes.reduce((largest, size) => {
+      const directSize = toFiniteNumber(size?.size);
+      const progressiveSize = Array.isArray(size?.sizes)
+        ? Math.max(
+            0,
+            ...size.sizes
+              .map((entry) => toFiniteNumber(entry))
+              .filter((entry) => entry !== null),
+          )
+        : null;
+      return Math.max(largest, directSize || progressiveSize || 0);
+    }, 0) || null;
+  }
+
+  function buildTelegramOriginalName(message, mimeType, index) {
+    const messageId = normalizeMessageId(message?.id) || index + 1;
+    const ext = extensionForMimeType(mimeType) || ".bin";
+    const rawName =
+      getTelegramDocumentFilename(message) ||
+      `media-${messageId}${ext}`;
+    const safeName =
+      rawName
+        .replace(/[\r\n"]/g, "")
+        .replace(/[\\/:*?<>|%]/g, "_")
+        .trim() || `media-${messageId}${ext}`;
+    const withExtension = path.extname(safeName) ? safeName : `${safeName}${ext}`;
+    return `telegram-${messageId}-${withExtension}`;
+  }
+
+  function getTelegramMediaDescriptor(message, index) {
+    if (!message?.media) return null;
+    const document = getTelegramDocument(message);
+    const photo = getTelegramPhoto(message);
+    const mimeType = String(
+      document?.mimeType || (photo ? "image/jpeg" : ""),
+    ).toLowerCase();
+    if (!mimeType) return null;
+
+    const kind =
+      getUploadKind("media", mimeType) ||
+      (document ? getUploadKind("document", mimeType) : null);
+    if (!kind) return null;
+
+    const originalName = buildTelegramOriginalName(message, mimeType, index);
+    if (typeof isDangerousUploadFile === "function") {
+      if (isDangerousUploadFile(originalName, mimeType)) return null;
+    }
+
+    const declaredSize = toFiniteNumber(
+      document?.size || getTelegramPhotoDeclaredSize(message),
+    );
+    const dimensions = getTelegramMediaDimensions(message);
+    const widthPx =
+      typeof sanitizePositiveInt === "function"
+        ? sanitizePositiveInt(dimensions.width)
+        : toFiniteNumber(dimensions.width);
+    const heightPx =
+      typeof sanitizePositiveInt === "function"
+        ? sanitizePositiveInt(dimensions.height)
+        : toFiniteNumber(dimensions.height);
+    const durationSeconds =
+      typeof sanitizeDurationSeconds === "function"
+        ? sanitizeDurationSeconds(getTelegramMediaDuration(message))
+        : toFiniteNumber(getTelegramMediaDuration(message));
+
+    return {
+      kind,
+      originalName,
+      mimeType,
+      declaredSize,
+      widthPx,
+      heightPx,
+      durationSeconds,
+    };
+  }
+
+  function readExistingMessageFileStats(messageId) {
+    if (typeof listMessageFilesByMessageIds !== "function" || !messageId) {
+      return { count: 0, totalBytes: 0, names: new Set() };
+    }
+    const rows = listMessageFilesByMessageIds([Number(messageId)]);
+    return rows.reduce(
+      (stats, row) => {
+        stats.count += 1;
+        stats.totalBytes += Number(row?.size_bytes || 0) || 0;
+        const name = String(row?.original_name || "").trim();
+        if (name) stats.names.add(name);
+        return stats;
+      },
+      { count: 0, totalBytes: 0, names: new Set() },
+    );
+  }
+
+  async function downloadTelegramMediaFile(activeClient, message, index, stats) {
+    const descriptor = getTelegramMediaDescriptor(message, index);
+    if (!descriptor) return null;
+    if (
+      descriptor.declaredSize !== null &&
+      descriptor.declaredSize > maxMediaFileSizeBytes
+    ) {
+      return null;
+    }
+    if (
+      descriptor.declaredSize !== null &&
+      Number(stats.totalBytes || 0) + descriptor.declaredSize > maxMediaTotalBytes
+    ) {
+      return null;
+    }
+    if (
+      descriptor.declaredSize !== null &&
+      typeof hasEnoughFreeDiskSpace === "function" &&
+      !hasEnoughFreeDiskSpace(descriptor.declaredSize)
+    ) {
+      return null;
+    }
+
+    fs.mkdirSync(uploadRootDir, { recursive: true });
+    const storedName = buildStoredMediaName(
+      descriptor.originalName,
+      descriptor.mimeType,
+    );
+    const filePath = path.join(uploadRootDir, storedName);
+
+    try {
+      const result = await activeClient.downloadMedia(message, {
+        outputFile: filePath,
+      });
+      if (Buffer.isBuffer(result)) {
+        fs.writeFileSync(filePath, result);
+      }
+
+      if (!fs.existsSync(filePath)) return null;
+      const actualSize = Number(fs.statSync(filePath).size || 0);
+      if (
+        actualSize <= 0 ||
+        actualSize > maxMediaFileSizeBytes ||
+        Number(stats.totalBytes || 0) + actualSize > maxMediaTotalBytes
+      ) {
+        safeUnlink(filePath);
+        return null;
+      }
+      if (
+        typeof hasEnoughFreeDiskSpace === "function" &&
+        !hasEnoughFreeDiskSpace(actualSize)
+      ) {
+        safeUnlink(filePath);
+        return null;
+      }
+
+      const normalized = {
+        kind: descriptor.kind,
+        originalName: descriptor.originalName,
+        storedName,
+        mimeType: descriptor.mimeType,
+        sizeBytes: actualSize,
+        widthPx: descriptor.widthPx,
+        heightPx: descriptor.heightPx,
+        durationSeconds: descriptor.durationSeconds,
+        expiresAt:
+          typeof computeExpiryIso === "function"
+            ? computeExpiryIso(new Date().toISOString(), messageFileRetentionDays)
+            : null,
+      };
+
+      if (
+        String(normalized.mimeType || "").startsWith("video/") &&
+        (!normalized.widthPx || !normalized.heightPx || normalized.durationSeconds === null) &&
+        typeof probeVideoMetadata === "function"
+      ) {
+        const metadata = await probeVideoMetadata(filePath);
+        normalized.widthPx = normalized.widthPx || metadata.widthPx || null;
+        normalized.heightPx = normalized.heightPx || metadata.heightPx || null;
+        if (
+          normalized.durationSeconds === null &&
+          metadata.durationSeconds !== null
+        ) {
+          normalized.durationSeconds = metadata.durationSeconds;
+        }
+      }
+
+      storageEncryption?.encryptFileInPlace?.(filePath);
+      return { file: normalized, filePath };
+    } catch (error) {
+      safeUnlink(filePath);
+      log("media:skip", {
+        messageId: normalizeMessageId(message?.id),
+        error: errorMessage(error),
+      });
+      return null;
+    }
+  }
+
+  async function maybeEnqueueRemoteVideoTranscode({ chat, messageId, author, file }) {
+    if (
+      !transcodeVideosToH264 ||
+      typeof enqueueVideoTranscodeJob !== "function" ||
+      typeof listMessageFilesByMessageIds !== "function" ||
+      !String(file?.mimeType || "").toLowerCase().startsWith("video/")
+    ) {
+      return;
+    }
+    if (typeof ensureFfmpegAvailable === "function") {
+      try {
+        await ensureFfmpegAvailable();
+      } catch (error) {
+        log("media:transcode-skip", {
+          messageId: Number(messageId),
+          error: errorMessage(error),
+        });
+        return;
+      }
+    }
+
+    const rows = listMessageFilesByMessageIds([Number(messageId)]);
+    const inserted = rows.find(
+      (row) => path.basename(String(row?.stored_name || "")) === file.storedName,
+    );
+    const fileId = Number(inserted?.id || 0);
+    if (!fileId) return;
+
+    enqueueVideoTranscodeJob({
+      fileId,
+      storedName: file.storedName,
+      chatId: Number(chat.id),
+      messageId: Number(messageId),
+      username: author.username,
+    });
+  }
+
+  async function fetchTelegramMediaMessages(activeClient, entity, ids) {
+    const requestedIds = Array.from(
+      new Set((ids || []).map((id) => normalizeMessageId(id)).filter(Boolean)),
+    );
+    if (!requestedIds.length) return [];
+    const messages = await activeClient.getMessages(entity, { ids: requestedIds });
+    const byId = new Map();
+    Array.from(messages || []).forEach((message) => {
+      const id = normalizeMessageId(message?.id);
+      if (id) byId.set(id, message);
+    });
+    return requestedIds.map((id) => byId.get(id)).filter(Boolean);
+  }
+
+  async function streamTelegramMediaFiles({
+    activeClient,
+    entity,
+    mediaMessageIds,
+    chat,
+    author,
+    ensureMessage,
+  }) {
+    if (!mediaStreamingIsAvailable() || !mediaMessageIds.length) return 0;
+
+    const mediaMessages = await fetchTelegramMediaMessages(
+      activeClient,
+      entity,
+      mediaMessageIds,
+    );
+    let attached = 0;
+
+    for (let index = 0; index < mediaMessages.length; index += 1) {
+      const currentMessageId = ensureMessage.peekMessageId();
+      const stats = readExistingMessageFileStats(currentMessageId);
+      if (stats.count >= maxMediaFilesPerMessage) break;
+
+      const descriptor = getTelegramMediaDescriptor(mediaMessages[index], index);
+      if (!descriptor || stats.names.has(descriptor.originalName)) continue;
+
+      const downloaded = await downloadTelegramMediaFile(
+        activeClient,
+        mediaMessages[index],
+        index,
+        stats,
+      );
+      if (!downloaded?.file) continue;
+
+      let targetMessageId = 0;
+      try {
+        const summaryText = summarizeMediaFiles([downloaded.file]);
+        targetMessageId = ensureMessage(summaryText || "Sent a media file", {
+          hasMedia: true,
+          summaryText,
+        });
+        const latestStats = readExistingMessageFileStats(targetMessageId);
+        if (
+          latestStats.count >= maxMediaFilesPerMessage ||
+          latestStats.names.has(downloaded.file.originalName) ||
+          latestStats.totalBytes + downloaded.file.sizeBytes > maxMediaTotalBytes
+        ) {
+          safeUnlink(downloaded.filePath);
+          continue;
+        }
+
+        createMessageFiles(Number(targetMessageId), [downloaded.file]);
+        setMessageExpiresAt?.(Number(targetMessageId), null);
+        attached += 1;
+
+        await maybeEnqueueRemoteVideoTranscode({
+          chat,
+          messageId: Number(targetMessageId),
+          author,
+          file: downloaded.file,
+        });
+
+        emitChatEvent(Number(chat.id), {
+          type: "chat_message_updated",
+          chatId: Number(chat.id),
+          messageId: Number(targetMessageId),
+          username: author.username,
+        });
+      } catch (error) {
+        safeUnlink(downloaded.filePath);
+        throw error;
+      }
+    }
+
+    return attached;
+  }
+
   async function processQueueItem(item) {
+    const currentSource =
+      typeof getRemoteChannelSourceById === "function"
+        ? getRemoteChannelSourceById(item.source_id)
+        : null;
+    if (!currentSource || !Number(currentSource.enabled || 0)) {
+      markRemoteChannelQueueItemSkipped(
+        item.id,
+        "Remote Channel was disabled before this item was mirrored.",
+      );
+      return;
+    }
+    if (
+      Number(currentSource.source_version || 1) !==
+      Number(item.source_version || 1)
+    ) {
+      markRemoteChannelQueueItemSkipped(
+        item.id,
+        "Remote source changed before this item was mirrored.",
+      );
+      return;
+    }
+
     let envelope = null;
     try {
       envelope = JSON.parse(String(item?.payload_json || "{}"));
@@ -748,12 +1396,25 @@ function createRemoteChannelManager(deps = {}) {
       return;
     }
 
-    const remoteMessage = envelope?.message || {};
-    const body = truncateBody(extractTelegramPostText(remoteMessage), messageMaxChars);
-    if (!body) {
+    const remoteMessages = Array.isArray(envelope?.messages)
+      ? envelope.messages.filter(Boolean)
+      : [envelope?.message || {}];
+    const remoteMessage = envelope?.message || remoteMessages[0] || {};
+    const body = truncateBody(firstTextFromMessages(remoteMessages), messageMaxChars);
+    const mediaMessageIds = buildTelegramMediaIds(
+      Array.isArray(envelope?.mediaMessageIds) && envelope.mediaMessageIds.length
+        ? envelope.mediaMessageIds.map((id) => ({ id, hasMedia: true }))
+        : remoteMessages,
+    );
+    const shouldStreamMedia =
+      mediaStreamingIsAvailable() &&
+      Boolean(Number(currentSource.stream_media || item.stream_media || 0)) &&
+      mediaMessageIds.length > 0;
+
+    if (!body && !shouldStreamMedia) {
       markRemoteChannelQueueItemSkipped(
         item.id,
-        "Telegram post has no text or caption to mirror yet.",
+        "Telegram post has no text, caption, or streamable media to mirror.",
       );
       return;
     }
@@ -778,43 +1439,107 @@ function createRemoteChannelManager(deps = {}) {
       0,
       120,
     );
-    const expiresAt = computeTextExpiryIso(messageTextRetentionDays);
-    const created = createOrReuseMessage(
-      Number(chat.id),
-      authorId,
-      body,
-      null,
-      expiresAt,
-      clientRequestId,
-    );
-    const messageId = Number(created?.id || 0);
-    if (!messageId) throw new Error("Unable to create mirrored message.");
+    const source = {
+      title: envelope?.source?.title || item.source_title || "",
+      username: envelope?.source?.username || item.source_username || "",
+      source_title: item.source_title || "",
+      source_username: item.source_username || "",
+    };
+    let messageId = 0;
+    let messageBody = "";
+    let initialMessageDeduped = false;
+    let initialMessageEmitted = false;
+    let pushSent = false;
 
-    if (!created?.deduped) {
-      const source = {
-        title: envelope?.source?.title || item.source_title || "",
-        username: envelope?.source?.username || item.source_username || "",
-        source_title: item.source_title || "",
-        source_username: item.source_username || "",
-      };
-      setMessageForwardOrigin(messageId, {
-        label: buildTelegramOriginLabel(source),
-        sourceChatId: null,
-        sourceUserId: null,
-        sourceUsername: null,
-        sourceAvatarUrl:
-          envelope?.source?.avatarUrl || item.source_avatar_url || null,
-        sourceColor: "#10b981",
+    const ensureMessage = (fallbackBody = "", options = {}) => {
+      if (messageId) return messageId;
+      messageBody =
+        body ||
+        String(fallbackBody || "").trim() ||
+        (options.hasMedia ? "Sent a media file" : "");
+      if (!messageBody) {
+        throw new Error("Telegram post has no text, caption, or streamable media to mirror.");
+      }
+      const expiresAt = options.hasMedia
+        ? null
+        : computeTextExpiryIso(messageTextRetentionDays);
+      const created = createOrReuseMessage(
+        Number(chat.id),
+        authorId,
+        messageBody,
+        null,
+        expiresAt,
+        clientRequestId,
+      );
+      messageId = Number(created?.id || 0);
+      initialMessageDeduped = Boolean(created?.deduped);
+      if (!messageId) throw new Error("Unable to create mirrored message.");
+
+      if (!created?.deduped) {
+        setMessageForwardOrigin(messageId, {
+          label: buildTelegramOriginLabel(source),
+          sourceChatId: null,
+          sourceUserId: null,
+          sourceUsername: null,
+          sourceAvatarUrl:
+            envelope?.source?.avatarUrl || item.source_avatar_url || null,
+          sourceColor: "#10b981",
+        });
+        emitChatEvent(Number(chat.id), {
+          type: "chat_message",
+          chatId: Number(chat.id),
+          messageId,
+          username: author.username,
+          body: messageBody,
+          summaryText: options.summaryText || undefined,
+          replyToMessageId: null,
+        });
+        initialMessageEmitted = true;
+      }
+
+      return messageId;
+    };
+    ensureMessage.peekMessageId = () => messageId;
+
+    if (body) {
+      ensureMessage(body);
+      if (!initialMessageDeduped && initialMessageEmitted) {
+        await sendPushForMirroredPost({
+          chat,
+          authorId,
+          body: messageBody,
+        });
+        pushSent = true;
+      }
+    }
+
+    if (shouldStreamMedia) {
+      const activeClient = await ensureClient();
+      const resolved = await resolveSource(activeClient, currentSource);
+      await streamTelegramMediaFiles({
+        activeClient,
+        entity: resolved.entity,
+        mediaMessageIds,
+        chat,
+        author,
+        ensureMessage,
       });
-      emitChatEvent(Number(chat.id), {
-        type: "chat_message",
-        chatId: Number(chat.id),
-        messageId,
-        username: author.username,
-        body,
-        replyToMessageId: null,
+    }
+
+    if (!messageId) {
+      markRemoteChannelQueueItemSkipped(
+        item.id,
+        "Telegram post has no text, caption, or streamable media to mirror.",
+      );
+      return;
+    }
+
+    if (!pushSent && !initialMessageDeduped && initialMessageEmitted) {
+      await sendPushForMirroredPost({
+        chat,
+        authorId,
+        body: messageBody,
       });
-      await sendPushForMirroredPost({ chat, authorId, body });
     }
 
     markRemoteChannelQueueItemDone(item.id, messageId);
@@ -903,6 +1628,7 @@ function createRemoteChannelManager(deps = {}) {
     start,
     stop,
     isEnabled: () => enabled,
+    syncSourceMetadata,
   };
 }
 

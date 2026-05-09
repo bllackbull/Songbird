@@ -4,6 +4,7 @@ import {
   ChevronDown,
   Close,
   CloudSync,
+  ImageIcon,
   LoaderCircle,
   Lock,
   Pencil,
@@ -58,17 +59,68 @@ export default function NewGroupModal({
   const [remoteSourceMenuOpen, setRemoteSourceMenuOpen] = useState(false);
   const groupPhotoInputRef = useRef(null);
   const groupSearchInputRef = useRef(null);
+  const remoteSourceButtonRef = useRef(null);
   const remoteSourceMenuRef = useRef(null);
+  const ignoreRemoteSourceButtonClickRef = useRef(false);
+  const remoteMenuShouldClose =
+    !open ||
+    !showRemoteChannelSettings ||
+    groupForm.visibility === "private" ||
+    !remoteChannelAvailable ||
+    !groupForm.remoteChannelEnabled;
 
   useEffect(() => {
     if (!open || !remoteSourceMenuOpen) return undefined;
-    const handlePointerDown = (event) => {
-      if (remoteSourceMenuRef.current?.contains(event.target)) return;
+    const ownerDocument = remoteSourceMenuRef.current?.ownerDocument || document;
+    const handleOutsideInteraction = (event) => {
+      const menu = remoteSourceMenuRef.current;
+      const button = remoteSourceButtonRef.current;
+      const path =
+        typeof event.composedPath === "function" ? event.composedPath() : [];
+      if (menu && (menu.contains(event.target) || path.includes(menu))) return;
+      if (button && (button.contains(event.target) || path.includes(button))) {
+        ignoreRemoteSourceButtonClickRef.current = true;
+      }
       setRemoteSourceMenuOpen(false);
     };
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") setRemoteSourceMenuOpen(false);
+    };
+    ownerDocument.addEventListener("pointerdown", handleOutsideInteraction, true);
+    ownerDocument.addEventListener("mousedown", handleOutsideInteraction, true);
+    ownerDocument.addEventListener("touchstart", handleOutsideInteraction, true);
+    ownerDocument.addEventListener("focusin", handleOutsideInteraction, true);
+    ownerDocument.addEventListener("keydown", handleKeyDown);
+    return () => {
+      ownerDocument.removeEventListener(
+        "pointerdown",
+        handleOutsideInteraction,
+        true,
+      );
+      ownerDocument.removeEventListener(
+        "mousedown",
+        handleOutsideInteraction,
+        true,
+      );
+      ownerDocument.removeEventListener(
+        "touchstart",
+        handleOutsideInteraction,
+        true,
+      );
+      ownerDocument.removeEventListener(
+        "focusin",
+        handleOutsideInteraction,
+        true,
+      );
+      ownerDocument.removeEventListener("keydown", handleKeyDown);
+    };
   }, [open, remoteSourceMenuOpen]);
+
+  useEffect(() => {
+    if (!remoteMenuShouldClose || !remoteSourceMenuOpen) return undefined;
+    const timeoutId = window.setTimeout(() => setRemoteSourceMenuOpen(false), 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [remoteMenuShouldClose, remoteSourceMenuOpen]);
 
   if (!open) return null;
   if (typeof document === "undefined") return null;
@@ -88,6 +140,8 @@ export default function NewGroupModal({
   const remoteChannelSyncMetadata = Boolean(
     groupForm.remoteChannelSyncMetadata,
   );
+  const remoteChannelStreamMedia =
+    fileUploadEnabled && Boolean(groupForm.remoteChannelStreamMedia);
   const privateChatEnabled = groupForm.visibility === "private";
   const memberInvitesLocked = !privateChatEnabled;
   const memberInvitesEnabled =
@@ -422,15 +476,20 @@ export default function NewGroupModal({
                 </div>
                 {effectiveRemoteChannelEnabled ? (
                   <div className="mt-3 space-y-3">
-                    <div ref={remoteSourceMenuRef} className="relative">
+                    <div className="relative">
                       <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">
                         Source
                       </label>
                       <button
+                        ref={remoteSourceButtonRef}
                         type="button"
-                        onClick={() =>
-                          setRemoteSourceMenuOpen((current) => !current)
-                        }
+                        onClick={() => {
+                          if (ignoreRemoteSourceButtonClickRef.current) {
+                            ignoreRemoteSourceButtonClickRef.current = false;
+                            return;
+                          }
+                          setRemoteSourceMenuOpen((current) => !current);
+                        }}
                         className="mt-2 flex w-full items-center justify-between rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-12 text-left text-sm font-semibold text-slate-700 outline-none transition hover:border-emerald-300 hover:bg-emerald-50 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-emerald-500/10"
                         aria-expanded={remoteSourceMenuOpen}
                       >
@@ -443,7 +502,10 @@ export default function NewGroupModal({
                         />
                       </button>
                       {remoteSourceMenuOpen ? (
-                        <div className="absolute left-0 right-0 z-50 mt-2 overflow-hidden rounded-2xl border border-emerald-200 bg-white p-1 text-sm font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100">
+                        <div
+                          ref={remoteSourceMenuRef}
+                          className="absolute left-0 right-0 z-50 mt-2 overflow-hidden rounded-2xl border border-emerald-200 bg-white p-1 text-sm font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
+                        >
                           <button
                             type="button"
                             onClick={() => {
@@ -508,6 +570,39 @@ export default function NewGroupModal({
                       <span
                         className={`relative inline-flex h-6 w-11 items-center rounded-full p-0.5 transition ${
                           remoteChannelSyncMetadata
+                            ? "justify-end bg-emerald-500"
+                            : "justify-start bg-slate-300 dark:bg-slate-700"
+                        }`}
+                      >
+                        <span className="inline-block h-5 w-5 rounded-full bg-white shadow transition" />
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={remoteChannelStreamMedia}
+                      disabled={!fileUploadEnabled}
+                      onClick={() => {
+                        if (!fileUploadEnabled) return;
+                        setGroupForm((prev) => ({
+                          ...prev,
+                          remoteChannelStreamMedia:
+                            !prev.remoteChannelStreamMedia,
+                        }));
+                      }}
+                      className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left text-sm font-semibold transition ${
+                        fileUploadEnabled
+                          ? "border-emerald-200/70 bg-white/90 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_18px_rgba(16,185,129,0.18)] dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                          : "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-500"
+                      }`}
+                    >
+                      <span className="flex items-center gap-3">
+                        <ImageIcon size={18} className="icon-anim-pop" />
+                        Stream Media Files
+                      </span>
+                      <span
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full p-0.5 transition ${
+                          remoteChannelStreamMedia
                             ? "justify-end bg-emerald-500"
                             : "justify-start bg-slate-300 dark:bg-slate-700"
                         }`}

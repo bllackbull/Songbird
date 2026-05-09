@@ -22,6 +22,7 @@ export function useNewGroupModal({
     remoteChannelProvider: "telegram",
     remoteChannelSource: "",
     remoteChannelSyncMetadata: false,
+    remoteChannelStreamMedia: false,
     remoteChannelStatus: null,
     remoteChannelLoading: false,
   });

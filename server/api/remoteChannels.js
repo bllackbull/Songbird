@@ -2,6 +2,7 @@ import { normalizeTelegramSource } from "../lib/remoteChannels.js";
 
 function registerRemoteChannelRoutes(app, deps) {
   const {
+    FILE_UPLOAD,
     REMOTE_CHANNELS,
     findChatById,
     findUserByUsername,
@@ -9,6 +10,7 @@ function registerRemoteChannelRoutes(app, deps) {
     getRemoteChannelSourceByChatId,
     isMember,
     listChatMembers,
+    remoteChannelManager,
     requireSession,
     requireSessionUsernameMatch,
     upsertRemoteChannelSource,
@@ -79,6 +81,7 @@ function registerRemoteChannelRoutes(app, deps) {
       sourceAvatarUrl: source.source_avatar_url || "",
       lastRemoteMessageId: Number(source.last_remote_message_id || 0) || null,
       syncMetadata: Boolean(Number(source.sync_metadata || 0)),
+      streamMedia: Boolean(FILE_UPLOAD && Number(source.stream_media || 0)),
       lastError: source.last_error || "",
       lastSeenAt: source.last_seen_at || null,
       queue: getRemoteChannelQueueSummary(source.id),
@@ -100,7 +103,7 @@ function registerRemoteChannelRoutes(app, deps) {
     });
   });
 
-  app.put("/api/chats/:chatId/remote-channel", (req, res) => {
+  app.put("/api/chats/:chatId/remote-channel", async (req, res) => {
     const context = requireChannelOwner(req, res);
     if (!context) return;
 
@@ -112,6 +115,7 @@ function registerRemoteChannelRoutes(app, deps) {
 
     const enabled = Boolean(req.body?.enabled);
     const syncMetadata = Boolean(req.body?.syncMetadata);
+    const streamMedia = Boolean(FILE_UPLOAD && req.body?.streamMedia);
     const provider = String(req.body?.provider || "telegram").toLowerCase();
     if (provider !== "telegram") {
       return res.status(400).json({ error: "Remote Channel source is invalid." });
@@ -143,14 +147,32 @@ function registerRemoteChannelRoutes(app, deps) {
       return res.status(400).json({ error: "Telegram source is required." });
     }
 
-    const source = upsertRemoteChannelSource({
+    let source = upsertRemoteChannelSource({
       chatId: context.chatId,
       sourceRaw: normalized.sourceRaw,
       sourceChatId: normalized.sourceChatId,
       sourceUsername: normalized.sourceUsername,
       syncMetadata,
+      streamMedia,
       enabled,
     });
+
+    if (
+      enabled &&
+      syncMetadata &&
+      typeof remoteChannelManager?.syncSourceMetadata === "function"
+    ) {
+      try {
+        await remoteChannelManager.syncSourceMetadata(source.id);
+        source = getRemoteChannelSourceByChatId(context.chatId) || source;
+      } catch (error) {
+        return res.status(400).json({
+          error: `Unable to sync Telegram metadata: ${
+            error?.message || "Unknown error"
+          }`,
+        });
+      }
+    }
 
     return res.json({
       ok: true,

@@ -100,6 +100,7 @@ import {
   getRemoteChannelProviderState,
   getRemoteChannelQueueSummary,
   getRemoteChannelSourceByChatId,
+  getRemoteChannelSourceById,
   listEnabledRemoteChannelSources,
   markRemoteChannelQueueItemDone,
   markRemoteChannelQueueItemRetry,
@@ -321,7 +322,16 @@ const REMOTE_CHANNEL_CONFIG = {
     min: 10000,
   }),
   messageTextRetentionDays: MESSAGE_TEXT_RETENTION_DAYS,
+  messageFileRetentionDays: MESSAGE_FILE_RETENTION_DAYS,
   messageMaxChars: MESSAGE_MAX_CHARS,
+  fileUploadEnabled: FILE_UPLOAD,
+  messageFileLimits: {
+    maxFiles: FILE_UPLOAD_MAX_FILES,
+    maxFileSizeBytes: FILE_UPLOAD_MAX_SIZE,
+    maxTotalBytes: FILE_UPLOAD_MAX_TOTAL_SIZE,
+  },
+  transcodeVideosToH264: TRANSCODE_VIDEOS_TO_H264,
+  uploadRootDir,
   avatarUploadRootDir,
 };
 const MESSAGE_FILE_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
@@ -582,6 +592,7 @@ const apiDeps = {
   getRemoteChannelProviderState,
   getRemoteChannelQueueSummary,
   getRemoteChannelSourceByChatId,
+  getRemoteChannelSourceById,
   getSessionFromRequest,
   getUploadKind,
   getUserPresence,
@@ -660,16 +671,26 @@ const apiDeps = {
 
 const remoteChannelManager = createRemoteChannelManager({
   config: REMOTE_CHANNEL_CONFIG,
+  computeExpiryIso,
+  createMessageFiles,
   createOrReuseMessage,
+  crypto,
   debugLog,
   emitChatEvent,
   emitSseEvent,
+  enqueueVideoTranscodeJob,
+  ensureFfmpegAvailable,
   findChatById,
   findUserById,
   fs,
   getRemoteChannelProviderState,
+  getRemoteChannelSourceById,
+  getUploadKind,
+  hasEnoughFreeDiskSpace,
+  isDangerousUploadFile,
   listEnabledRemoteChannelSources,
   listChatMembers,
+  listMessageFilesByMessageIds,
   listMutedUserIdsForChat,
   enqueueRemoteChannelQueueItem,
   releaseStaleRemoteChannelQueueItems,
@@ -678,7 +699,11 @@ const remoteChannelManager = createRemoteChannelManager({
   markRemoteChannelQueueItemRetry,
   markRemoteChannelQueueItemSkipped,
   path,
+  probeVideoMetadata,
+  sanitizeDurationSeconds,
+  sanitizePositiveInt,
   sendPushNotificationToUsers,
+  setMessageExpiresAt,
   setMessageForwardOrigin,
   setRemoteChannelProviderState,
   storageEncryption,
@@ -686,6 +711,8 @@ const remoteChannelManager = createRemoteChannelManager({
   updateRemoteChannelSourceError,
   updateRemoteChannelSourceSeen,
 });
+
+apiDeps.remoteChannelManager = remoteChannelManager;
 
 registerApiRoutes(app, apiDeps);
 

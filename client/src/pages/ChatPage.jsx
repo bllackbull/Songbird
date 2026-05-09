@@ -5303,6 +5303,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       remoteChannelProvider: "telegram",
       remoteChannelSource: "",
       remoteChannelSyncMetadata: false,
+      remoteChannelStreamMedia: false,
       remoteChannelStatus: null,
       remoteChannelLoading: false,
     });
@@ -5498,6 +5499,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       remoteChannelProvider: "telegram",
       remoteChannelSource: "",
       remoteChannelSyncMetadata: false,
+      remoteChannelStreamMedia: false,
       remoteChannelStatus: null,
       remoteChannelLoading: activeChat.type === "channel" && Boolean(appInfo?.remoteChannels?.enabled),
     });
@@ -5541,6 +5543,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               source?.sourceChatId ||
               "",
             remoteChannelSyncMetadata: Boolean(source?.syncMetadata),
+            remoteChannelStreamMedia:
+              CHAT_PAGE_CONFIG.fileUploadEnabled && Boolean(source?.streamMedia),
             remoteChannelStatus: data,
             remoteChannelLoading: false,
           }));
@@ -5674,13 +5678,18 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     ).toLowerCase();
     const remoteChannelSyncMetadata =
       remoteChannelEnabled && Boolean(newGroupForm.remoteChannelSyncMetadata);
+    const remoteChannelStreamMedia =
+      remoteChannelEnabled &&
+      CHAT_PAGE_CONFIG.fileUploadEnabled &&
+      Boolean(newGroupForm.remoteChannelStreamMedia);
     const shouldSaveRemoteChannel = Boolean(
       isChannel &&
         appInfo?.remoteChannels?.enabled &&
         (editingGroup ||
           remoteChannelEnabled ||
           remoteChannelSource ||
-          remoteChannelSyncMetadata),
+          remoteChannelSyncMetadata ||
+          remoteChannelStreamMedia),
     );
     if (shouldSaveRemoteChannel && remoteChannelEnabled && !remoteChannelSource) {
       setNewGroupError("Remote Channel source is required.");
@@ -5760,6 +5769,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           provider: remoteChannelProvider,
           source: remoteChannelSource,
           syncMetadata: remoteChannelSyncMetadata,
+          streamMedia: remoteChannelStreamMedia,
         });
         const remoteData = await remoteRes.json();
         if (!remoteRes.ok) {
