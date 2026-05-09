@@ -210,7 +210,7 @@ export function MobileSettingsPanel({
                         event.stopPropagation();
                         handleAvatarRemove();
                       }}
-                      className="absolute -right-2 -top-2 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full border border-rose-200 bg-rose-50 text-rose-600 shadow-md transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-lg dark:border-rose-500/30 dark:bg-rose-900 dark:text-rose-200 dark:hover:bg-rose-800"
+                      className="absolute -right-2 -top-2 z-10 inline-flex h-6 min-h-[1.5rem] w-6 min-w-[1.5rem] flex-none items-center justify-center rounded-full border border-rose-200 bg-rose-50 p-0 text-rose-600 shadow-md transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-lg dark:border-rose-500/30 dark:bg-rose-900 dark:text-rose-200 dark:hover:bg-rose-800"
                       aria-label="Remove photo"
                     >
                       <Trash size={12} className="icon-anim-sway" />
