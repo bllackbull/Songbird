@@ -1,3 +1,5 @@
+import rateLimit from "express-rate-limit";
+
 function registerMessageRoutes(app, deps) {
   const {
     APP_DEBUG,
@@ -80,6 +82,27 @@ function registerMessageRoutes(app, deps) {
     const role = String(getChatMemberRole(Number(chatId), Number(userId))).toLowerCase();
     return role === "owner";
   };
+
+  const messageRateLimitHandler = (_req, res) =>
+    res.status(429).json({
+      error: "Too many message requests. Please try again later.",
+    });
+
+  const messageUploadLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: messageRateLimitHandler,
+  });
+
+  const messageEditLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 120,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: messageRateLimitHandler,
+  });
 
   const isRemoteChannelMessage = (message) =>
     /^remote:/i.test(
@@ -534,6 +557,7 @@ function registerMessageRoutes(app, deps) {
 
   app.post(
     "/api/messages/upload",
+    messageUploadLimiter,
     uploadFiles.array("files", MESSAGE_FILE_LIMITS.maxFiles),
     async (req, res) => {
       const session = requireSession(req, res);
@@ -1143,7 +1167,7 @@ function registerMessageRoutes(app, deps) {
     })();
   });
 
-  app.post("/api/messages/edit", async (req, res) => {
+  app.post("/api/messages/edit", messageEditLimiter, async (req, res) => {
     const session = requireSession(req, res);
     if (!session) return;
 
