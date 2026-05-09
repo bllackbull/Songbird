@@ -14,7 +14,8 @@
     "dev": "concurrently \"npm --prefix client run dev\" \"npm --prefix server run dev\"",
     "build": "npm --prefix client run build",
     "preview": "npm --prefix client run preview",
-    "start": "npm --prefix server run start"
+    "start": "npm --prefix server run start",
+    "remote:configure": "node server/scripts/configure-remote-channel.js"
   },
   "devDependencies": {
     "@semantic-release/changelog": "^6.0.3",

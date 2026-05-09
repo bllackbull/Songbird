@@ -35,10 +35,10 @@
     "db:user:generate": "node scripts/generate-user.js",
     "db:message:generate": "node scripts/generate-chat-message.js",
     "db:inspect": "node scripts/inspect-db.js all",
-    "telegram:session": "node scripts/generate-telegram-session.js",
     "db:chat:inspect": "node scripts/inspect-db.js chat",
     "db:user:inspect": "node scripts/inspect-db.js user",
-    "db:file:inspect": "node scripts/inspect-db.js file"
+    "db:file:inspect": "node scripts/inspect-db.js file",
+    "remote:configure": "node scripts/configure-remote-channel.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
