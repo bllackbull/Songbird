@@ -1834,15 +1834,44 @@ ensure_vapid_keys() {
   if [[ -n "$path_prefix" ]]; then
     path_export="export PATH=$(printf '%q' "$path_prefix"):\$PATH; "
   fi
-  keys="$(run_as_root_output bash -lc "cd '$INSTALL_DIR/server' && ${path_export}node --input-type=module -e \"import pkg from 'web-push'; const { generateVAPIDKeys } = pkg; const k = generateVAPIDKeys(); console.log(k.publicKey); console.log(k.privateKey);\"")" || {
-    warn "Failed to generate VAPID keys. Make sure server dependencies are installed."
+  local stdout_file=""
+  local stderr_file=""
+  local generate_command=""
+  stdout_file="$(mktemp)" || return 1
+  stderr_file="$(mktemp)" || {
+    rm -f "$stdout_file"
     return 1
   }
+  generate_command="cd '$INSTALL_DIR/server' && ${path_export}node --input-type=module -e \"import pkg from 'web-push'; const { generateVAPIDKeys } = pkg; const k = generateVAPIDKeys(); console.log(k.publicKey); console.log(k.privateKey);\""
+  if [[ -f "$LOG_FILE" ]]; then
+    printf "[%s] Running: generate VAPID keys\n" "$(date '+%Y-%m-%d %H:%M:%S')" >> "$LOG_FILE" 2>/dev/null || true
+  fi
+  if ! run_as_root bash -lc "$generate_command" >"$stdout_file" 2>"$stderr_file"; then
+    local vapid_error=""
+    vapid_error="$(cat "$stderr_file" "$stdout_file" 2>/dev/null || true)"
+    if [[ -f "$LOG_FILE" ]]; then
+      printf "[%s] FAILED: generate VAPID keys\n%s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$vapid_error" >> "$LOG_FILE" 2>/dev/null || true
+    fi
+    [[ -n "$vapid_error" ]] && printf "%s\n" "$vapid_error"
+    rm -f "$stdout_file" "$stderr_file"
+    warn "Failed to generate VAPID keys. Make sure server dependencies are installed."
+    return 1
+  fi
+  keys="$(cat "$stdout_file" 2>/dev/null || true)"
+  rm -f "$stdout_file" "$stderr_file"
   local new_public=""
   local new_private=""
-  IFS=$'\n' read -r new_public new_private _ <<< "$keys"
+  new_public="$(printf "%s\n" "$keys" | sed -n '1p' | tr -d '\r')"
+  new_private="$(printf "%s\n" "$keys" | sed -n '2p' | tr -d '\r')"
   if [[ -z "$new_public" || -z "$new_private" ]]; then
+    if [[ -f "$LOG_FILE" ]]; then
+      printf "[%s] FAILED: generate VAPID keys\nExpected public/private key output, but received incomplete output. Raw key output redacted.\n" "$(date '+%Y-%m-%d %H:%M:%S')" >> "$LOG_FILE" 2>/dev/null || true
+    fi
+    warn "VAPID key generation returned incomplete output."
     return 1
+  fi
+  if [[ -f "$LOG_FILE" ]]; then
+    printf "[%s] SUCCESS: generate VAPID keys\n(output redacted)\n" "$(date '+%Y-%m-%d %H:%M:%S')" >> "$LOG_FILE" 2>/dev/null || true
   fi
   replace_env_value "$env_file" "VAPID_PUBLIC_KEY" "$new_public" || return 1
   replace_env_value "$env_file" "VAPID_PRIVATE_KEY" "$new_private" || return 1
@@ -3848,12 +3877,6 @@ db_remote_configure() {
     return 1
   fi
 
-  log "Restarting Songbird service to apply Remote Channel settings..."
-  run_as_root systemctl restart songbird.service || {
-    press_enter_to_continue
-    return 1
-  }
-  log "Songbird restarted successfully."
   press_enter_to_continue
 }
 

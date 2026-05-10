@@ -554,7 +554,7 @@ Create a [Telegram app](https://my.telegram.org/apps) so you have an API ID and 
 
 ### 2. Configure Remote Channel
 
-Run the configuration helper and follow the prompts. It asks for the Telegram API ID, API hash, optional proxy URL, and Telegram login code, then writes `REMOTE_CHANNEL`, the Telegram credentials, proxy URL, and session string into `.env`.
+Run the configuration helper and follow the prompts. It asks for the Telegram API ID, API hash, optional proxy URL, and Telegram login code, then writes the Remote Channel settings into `.env`. For systemd installs, it restarts `songbird.service` after saving.
 
 ```bash
 cd /opt/songbird
@@ -571,11 +571,7 @@ docker compose run --rm -v "$PWD/.env:/app/.env" songbird npm --prefix /app/serv
 
 Keep the generated session value private. It authorizes Songbird to read Telegram channels that the logged-in Telegram account can access.
 
-### 3. Restart Songbird
-
-Apply the `.env` changes using the steps in [Apply Changes](#apply-changes).
-
-### 4. Connect a Songbird channel
+### 3. Connect a Songbird channel
 
 In Songbird, create or edit a **public channel**, enable **Remote Channel**, choose **Telegram**, and enter a source such as `@channelname` or `https://t.me/channelname`. Remote Channel is locked for private channels.
 

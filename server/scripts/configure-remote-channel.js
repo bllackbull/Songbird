@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { execFileSync } from "node:child_process";
 import readline from "node:readline/promises";
 import { argv, stdin as defaultInput, stdout as defaultOutput } from "node:process";
 import dotenv from "dotenv";
@@ -55,6 +56,9 @@ function parseArgs(args) {
       case "--non-interactive":
         options.nonInteractive = true;
         break;
+      case "--no-restart":
+        options.noRestart = true;
+        break;
       case "--force-sms":
         options.forceSms = true;
         break;
@@ -96,12 +100,14 @@ Options:
   --password <password>   Telegram two-step password, if enabled
   --force-sms             Ask Telegram to send the login code by SMS
   --env-file <path>       .env file to update (default: project root .env)
+  --no-restart            Skip automatic songbird.service restart after saving
   --non-interactive       Fail instead of prompting for missing values
   -h, --help              Show this help
 
 The login code is usually only available after Telegram receives the phone
 number. If --phone-code is omitted, this helper asks for it after Telegram sends
-the code.`);
+the code. After saving, this helper restarts songbird.service when the service
+is installed.`);
 }
 
 function createPromptInterface() {
@@ -142,6 +148,20 @@ function formatEnvString(value) {
     .replace(/"/g, '\\"')}"`;
 }
 
+const REMOTE_CHANNEL_ENV_DEFAULTS = Object.freeze({
+  REMOTE_CHANNEL: "false",
+  REMOTE_CHANNEL_TELEGRAM_API_ID: "0",
+  REMOTE_CHANNEL_TELEGRAM_API_HASH: formatEnvString(""),
+  REMOTE_CHANNEL_TELEGRAM_SESSION_STRING: formatEnvString(""),
+  REMOTE_CHANNEL_PROXY_URL: formatEnvString(""),
+  REMOTE_CHANNEL_POLL_INTERVAL_MS: "5000",
+  REMOTE_CHANNEL_TELEGRAM_POLL_LIMIT: "50",
+  REMOTE_CHANNEL_QUEUE_INTERVAL_MS: "1000",
+  REMOTE_CHANNEL_QUEUE_MAX_ATTEMPTS: "10",
+  REMOTE_CHANNEL_QUEUE_BATCH_SIZE: "10",
+  REMOTE_CHANNEL_QUEUE_STALE_LOCK_MS: "300000",
+});
+
 function readEnvTemplate() {
   if (fs.existsSync(envPath)) {
     return fs.readFileSync(envPath, "utf8");
@@ -150,6 +170,15 @@ function readEnvTemplate() {
     return fs.readFileSync(envExamplePath, "utf8");
   }
   return "";
+}
+
+function readEnvKeys(content) {
+  const keys = new Set();
+  for (const line of content.split(/\r?\n/)) {
+    const match = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/);
+    if (match?.[1]) keys.add(match[1]);
+  }
+  return keys;
 }
 
 function upsertEnvValues(content, values) {
@@ -181,15 +210,82 @@ function upsertEnvValues(content, values) {
   return `${updatedLines.join(eol)}${eol}`;
 }
 
+function appendMissingEnvValues(content, values) {
+  const existingKeys = readEnvKeys(content);
+  const missingValues = Object.fromEntries(
+    Object.entries(values).filter(([key]) => !existingKeys.has(key)),
+  );
+
+  if (!Object.keys(missingValues).length) return content;
+  return upsertEnvValues(content, missingValues);
+}
+
 function writeRemoteChannelEnv({ apiId, apiHash, proxyUrl, sessionString }) {
-  const nextContent = upsertEnvValues(readEnvTemplate(), {
+  const configuredContent = upsertEnvValues(readEnvTemplate(), {
     REMOTE_CHANNEL: "true",
     REMOTE_CHANNEL_TELEGRAM_API_ID: String(apiId),
     REMOTE_CHANNEL_TELEGRAM_API_HASH: formatEnvString(apiHash),
     REMOTE_CHANNEL_TELEGRAM_SESSION_STRING: formatEnvString(sessionString),
     REMOTE_CHANNEL_PROXY_URL: formatEnvString(proxyUrl),
   });
+  const nextContent = appendMissingEnvValues(
+    configuredContent,
+    REMOTE_CHANNEL_ENV_DEFAULTS,
+  );
   fs.writeFileSync(envPath, nextContent, "utf8");
+}
+
+function commandExists(command) {
+  try {
+    execFileSync(command, ["--version"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function systemdServiceExists(serviceName) {
+  if (!commandExists("systemctl")) return false;
+
+  try {
+    const loadState = execFileSync(
+      "systemctl",
+      ["show", serviceName, "--property=LoadState", "--value"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    ).trim();
+    return Boolean(loadState && loadState !== "not-found");
+  } catch {
+    return false;
+  }
+}
+
+function restartSongbirdService(options) {
+  if (options.noRestart) {
+    console.log("Songbird restart skipped because --no-restart was passed.");
+    return;
+  }
+
+  const serviceName = "songbird.service";
+  if (!systemdServiceExists(serviceName)) {
+    console.warn(`${serviceName} not found; restart skipped.`);
+    return;
+  }
+
+  const isRoot = typeof process.getuid === "function" && process.getuid() === 0;
+  const command = isRoot || !commandExists("sudo") ? "systemctl" : "sudo";
+  const args = isRoot || command === "systemctl"
+    ? ["restart", serviceName]
+    : ["systemctl", "restart", serviceName];
+
+  console.log(`Restarting ${serviceName}...`);
+  try {
+    execFileSync(command, args, { stdio: "inherit" });
+  } catch {
+    throw new Error(
+      `Remote Channel configuration was saved, but restarting ${serviceName} failed. Run "sudo systemctl restart ${serviceName}" manually.`,
+    );
+  }
+  console.log("Songbird restarted successfully.");
 }
 
 function formatExistingHint(value) {
@@ -407,6 +503,7 @@ try {
   console.log(
     "Keep the Telegram session private. It authorizes Songbird to read channels visible to this Telegram account.",
   );
+  restartSongbirdService(options);
 } catch (error) {
   console.error(
     `\nRemote Channel configuration failed: ${String(error?.message || error)}`,

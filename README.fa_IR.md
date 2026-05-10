@@ -558,7 +558,7 @@ Remote Channel به یک کانال عمومی Songbird اجازه می‌دهد
 
 ### 2. تنظیم Remote Channel
 
-ابزار تنظیم را اجرا کنید و promptها را دنبال کنید. این ابزار API ID، API hash، proxy URL اختیاری و کد ورود Telegram را می‌گیرد، سپس `REMOTE_CHANNEL`، credentialهای Telegram، proxy URL و session string را داخل `.env` می‌نویسد.
+ابزار تنظیم را اجرا کنید و promptها را دنبال کنید. این ابزار API ID، API hash، proxy URL اختیاری و کد ورود Telegram را می‌گیرد، سپس تنظیمات Remote Channel را داخل `.env` می‌نویسد. در نصب‌های systemd، بعد از ذخیره‌سازی، `songbird.service` را هم ری‌استارت می‌کند.
 
 ```bash
 cd /opt/songbird
@@ -575,11 +575,7 @@ docker compose run --rm -v "$PWD/.env:/app/.env" songbird npm --prefix /app/serv
 
 session ساخته‌شده را خصوصی نگه دارید. این session به Songbird اجازه می‌دهد کانال‌های تلگرامی را که اکانت واردشده به آن‌ها دسترسی دارد بخواند.
 
-### 3. ری‌استارت Songbird
-
-تغییرات `.env` را طبق بخش [اعمال تغییرات](#اعمال-تغییرات) اعمال کنید. بعد از ری‌استارت، مسیر `/api/app/info` نشان می‌دهد Remote Channel فعال است یا نه و Telegram کامل تنظیم شده یا نه.
-
-### 4. اتصال کانال Songbird
+### 3. اتصال کانال Songbird
 
 در Songbird یک **کانال عمومی** بسازید یا ویرایش کنید، **Remote Channel** را فعال کنید، **Telegram** را انتخاب کنید و source را به شکل `@channelname` یا `https://t.me/channelname` وارد کنید. Remote Channel برای کانال‌های خصوصی قفل است.
 
