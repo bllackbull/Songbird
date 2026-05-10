@@ -519,5 +519,5 @@ try {
   }
   rl?.close();
   ttyInput?.destroy();
-  ttyOutput?.end();
+  ttyOutput?.destroy();
 }

@@ -3301,6 +3301,29 @@ run_db_command() {
   run_as_root bash -lc "cd '$INSTALL_DIR' && ${path_export}${escaped:1} </dev/null"
 }
 
+run_db_command_interactive() {
+  local args=("$@")
+  local escaped=""
+  local part=""
+  local path_prefix=""
+  local path_export=""
+  if [[ "${args[0]:-}" == "npm" ]]; then
+    resolve_npm_exec_path || return 1
+    args[0]="$NPM_EXEC_PATH"
+  elif [[ "${args[0]:-}" == "node" ]]; then
+    resolve_node_exec_path || return 1
+    args[0]="$NODE_EXEC_PATH"
+  fi
+  path_prefix="$(node_tools_path_prefix)"
+  if [[ -n "$path_prefix" ]]; then
+    path_export="export PATH=$(printf '%q' "$path_prefix"):\$PATH; "
+  fi
+  for part in "${args[@]}"; do
+    escaped+=" $(printf '%q' "$part")"
+  done
+  run_as_root bash -lc "cd '$INSTALL_DIR' && ${path_export}${escaped:1} </dev/tty >/dev/tty 2>&1"
+}
+
 run_db_command_logged_quiet() {
   local args=("$@")
   local escaped=""
@@ -3872,7 +3895,7 @@ db_remote_configure() {
     args+=(--force-sms)
   fi
 
-  if ! run_db_command "${args[@]}"; then
+  if ! run_db_command_interactive "${args[@]}"; then
     press_enter_to_continue
     return 1
   fi
