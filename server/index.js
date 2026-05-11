@@ -383,6 +383,7 @@ const pushService = createPushService({
   deletePushSubscription,
   getTotalUnreadCount,
   vapid,
+  proxyUrl: process.env.PUSH_PROXY_URL || "",
 });
 const { PUSH_ENABLED, VAPID_PUBLIC_KEY, sendPushNotificationToUsers } = pushService;
 

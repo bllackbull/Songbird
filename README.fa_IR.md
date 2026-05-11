@@ -495,6 +495,7 @@ nano .env
 | `VAPID_PUBLIC_KEY` | `رشته` | خودکار تولید می‌شود | کلید عمومی Web Push. |
 | `VAPID_PRIVATE_KEY` | `رشته` | خودکار تولید می‌شود | کلید خصوصی Web Push. |
 | `VAPID_SUBJECT` | `رشته` | خودکار تولید می‌شود | اطلاعات تماس VAPID (ایمیل یا URL) برای سرویس‌های push. |
+| `PUSH_PROXY_URL` | `رشته` | `""` | آدرس پروکسی برای ارسال push notification. زمانی استفاده کنید که سرور شما نمی‌تواند مستقیما به endpointهای سرویس push دسترسی داشته باشد. |
 
 > [!NOTE]
 > **Push notification به HTTPS نیاز دارد**، به جز `localhost` در حالت توسعه. در iOS هم نیاز به PWA نصب‌شده دارید. (`iOS 16.4+`)
@@ -584,6 +585,49 @@ session ساخته‌شده را خصوصی نگه دارید. این session ب
 - **Sync Channel Metadata** عنوان و avatar کانال Telegram را داخل کانال Songbird کپی می‌کند.
 - **Stream Media Files** وقتی `FILE_UPLOAD=true` باشد mediaهای Telegram را داخل آپلودهای Songbird ذخیره می‌کند. این گزینه از محدودیت حجم/تعداد آپلود، retention فایل، رمزنگاری در حالت ذخیره و تنظیمات transcoding ویدیو پیروی می‌کند. پست‌های آینه‌شده فقط متنی از `MESSAGE_TEXT_RETENTION` پیروی می‌کنند.
 - پست‌هایی که متن یا caption ندارند فقط وقتی آینه می‌شوند که stream media فعال باشد و حداقل یک فایل media پشتیبانی‌شده قابل ذخیره باشد.
+
+## تنظیم پروکسی برای Push Notification
+
+اگر سرور شما به دلیل محدودیت‌های فایروال یا سیاست‌های شبکه نمی‌تواند به endpointهای سرویس push (Google FCM، Mozilla Push Service، Apple Push) دسترسی داشته باشد، می‌توانید یک پروکسی تنظیم کنید:
+
+### 1. پروکسی را در `.env` تنظیم کنید:
+```bash
+PUSH_PROXY_URL="http://your-proxy-server:3128"
+```
+
+### 2. سرویس را ری‌استارت کنید:
+```bash
+sudo systemctl restart songbird
+```
+
+### 3. در لاگ‌ها بررسی کنید:**
+```bash
+journalctl -u songbird -f | grep push
+# باید این پیام را ببینید: [push] Using proxy: http://your-proxy-server:3128
+```
+
+**فرمت‌های آدرس پروکسی:**
+- HTTP: `http://proxy.example.com:3128`
+- با احراز هویت: `http://username:password@proxy.example.com:8080`
+- SOCKS5: `socks5://proxy.example.com:1080`
+
+**endpointهای مورد نیاز** (پروکسی باید به این آدرس‌ها از طریق HTTPS/443 دسترسی داشته باشد):
+- `fcm.googleapis.com` (Chrome/Edge)
+- `*.push.services.mozilla.com` (Firefox)
+- `web.push.apple.com` (Safari)
+- `*.notify.windows.com` (Edge)
+
+**عیب‌یابی خطاهای ارسال push:**
+
+اگر در لاگ‌ها خطاهایی مثل `[push] delivery failed ... status=0 ... AggregateError` می‌بینید، این نشان‌دهنده مشکلات اتصال شبکه به سرویس‌های push است. دلایل رایج:
+- فایروال مسدود کردن اتصالات خروجی HTTPS
+- خطای DNS resolution
+- محدودیت‌های شبکه که نیاز به استفاده از پروکسی دارند
+
+تست اتصال پروکسی:
+```bash
+curl -x http://your-proxy:3128 https://fcm.googleapis.com
+```
 
 ## به‌روزرسانی نسخه نصب‌شده
 

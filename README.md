@@ -490,6 +490,7 @@ nano .env
 | `VAPID_PUBLIC_KEY` | `string` | auto-generated | Web Push public key (required for push notifications). |
 | `VAPID_PRIVATE_KEY` | `string` | auto-generated | Web Push private key (required for push notifications). |
 | `VAPID_SUBJECT` | `string` | auto-generated | Contact for VAPID (email or URL). Used by push providers. |
+| `PUSH_PROXY_URL` | `string` | `""` | Proxy URL for push notification delivery. Use when your server cannot directly reach push service endpoints. |
 
 > [!NOTE]
 > **Push notifications require HTTPS** (except `localhost` for development). iOS requires an installed PWA (iOS 16.4+).
@@ -580,6 +581,49 @@ Optional channel settings:
 - **Sync Channel Metadata** copies the Telegram channel title/avatar into the Songbird channel.
 - **Stream Media Files** downloads Telegram media into Songbird uploads when `FILE_UPLOAD=true`. It follows the upload size/count limits, file retention, encryption-at-rest, and video transcoding settings. Text-only mirrored posts follow `MESSAGE_TEXT_RETENTION`.
 - Posts with no text/caption are mirrored only when media streaming is enabled and at least one supported media file can be stored.
+
+## Push Notification Proxy Configuration
+
+If your server cannot reach push service endpoints (Google FCM, Mozilla Push Service, Apple Push) due to firewall restrictions or network policies, configure a proxy:
+
+### 1. Set proxy in `.env`:
+```bash
+PUSH_PROXY_URL="http://your-proxy-server:3128"
+```
+
+### 2. Restart service:
+```bash
+sudo systemctl restart songbird
+```
+
+### 3. Verify in logs:
+```bash
+journalctl -u songbird -f | grep push
+# Should show: [push] Using proxy: http://your-proxy-server:3128
+```
+
+**Proxy URL formats:**
+- HTTP: `http://proxy.example.com:3128`
+- With authentication: `http://username:password@proxy.example.com:8080`
+- SOCKS5: `socks5://proxy.example.com:1080`
+
+**Required endpoints** (proxy must allow HTTPS/443 to):
+- `fcm.googleapis.com` (Chrome/Edge)
+- `*.push.services.mozilla.com` (Firefox)
+- `web.push.apple.com` (Safari)
+- `*.notify.windows.com` (Edge)
+
+**Troubleshooting push delivery failures:**
+
+If you see errors like `[push] delivery failed ... status=0 ... AggregateError` in logs, this indicates network connectivity issues reaching push services. Common causes:
+- Firewall blocking outbound HTTPS connections
+- DNS resolution failures
+- Network restrictions requiring proxy usage
+
+Test proxy connectivity:
+```bash
+curl -x http://your-proxy:3128 https://fcm.googleapis.com
+```
 
 ## Updating the deployed app
 

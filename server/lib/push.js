@@ -4,6 +4,7 @@ export function createPushService({
   deletePushSubscription,
   getTotalUnreadCount,
   vapid,
+  proxyUrl,
 }) {
   const VAPID_PUBLIC_KEY = String(vapid.publicKey || "").trim();
   const VAPID_PRIVATE_KEY = String(vapid.privateKey || "").trim();
@@ -19,6 +20,22 @@ export function createPushService({
         VAPID_PUBLIC_KEY,
         VAPID_PRIVATE_KEY,
       );
+      
+      // Configure proxy if provided
+      if (proxyUrl) {
+        import('https-proxy-agent').then(({ HttpsProxyAgent }) => {
+          const proxyAgent = new HttpsProxyAgent(proxyUrl);
+          webpush.setDefaultOptions({
+            proxy: proxyAgent,
+          });
+          console.log(`[push] Using proxy: ${proxyUrl}`);
+        }).catch((error) => {
+          console.error(
+            "[push] Failed to configure proxy:",
+            String(error?.message || error),
+          );
+        });
+      }
     } catch (error) {
       console.error(
         "[push] VAPID setup failed:",
@@ -65,9 +82,18 @@ export function createPushService({
         } catch (error) {
           const status = Number(error?.statusCode || 0);
           const errBody = String(error?.body || "");
+          
+          // Log detailed error information for debugging
+          let errorDetails = String(error?.message || error).slice(0, 120);
+          if (error?.errors && Array.isArray(error.errors)) {
+            // AggregateError contains multiple errors
+            errorDetails = error.errors.map(e => String(e?.message || e)).join('; ').slice(0, 200);
+          }
+          
           console.warn(
-            `[push] delivery failed endpoint=${sub.endpoint.slice(-24)} status=${status} body=${errBody.slice(0, 200)} err=${String(error?.message || error).slice(0, 120)}`,
+            `[push] delivery failed endpoint=${sub.endpoint.slice(-24)} status=${status} body=${errBody.slice(0, 200)} err=${errorDetails}`,
           );
+          
           const isGone =
             status === 404 ||
             status === 410 ||

@@ -3090,6 +3090,82 @@ remove_songbird() {
   press_enter_to_continue
 }
 
+configure_push_proxy() {
+  local env_file="$INSTALL_DIR/.env"
+  if [[ ! -f "$env_file" ]]; then
+    warn ".env file not found. Install Songbird first."
+    press_enter_to_continue
+    return 1
+  fi
+
+  clear
+  show_banner
+  printf "\n"
+  printf "Configure Push Notification Proxy\n"
+  printf "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+  
+  local current_proxy=""
+  current_proxy="$(get_existing_env_value "PUSH_PROXY_URL" "")"
+  
+  if [[ -n "$current_proxy" ]]; then
+    printf "Current proxy: %s\n\n" "$current_proxy"
+  else
+    printf "No proxy currently configured.\n\n"
+  fi
+  
+  printf "Use a proxy when your server cannot directly reach push service endpoints:\n"
+  printf "  • fcm.googleapis.com (Chrome/Edge)\n"
+  printf "  • *.push.services.mozilla.com (Firefox)\n"
+  printf "  • web.push.apple.com (Safari)\n\n"
+  
+  printf "Proxy URL formats:\n"
+  printf "  • HTTP: http://proxy.example.com:3128\n"
+  printf "  • With auth: http://user:pass@proxy.example.com:8080\n"
+  printf "  • SOCKS5: socks5://proxy.example.com:1080\n\n"
+  
+  local proxy_url=""
+  prompt_read "Enter proxy URL (leave blank to disable proxy): " proxy_url
+  proxy_url="${proxy_url#"${proxy_url%%[![:space:]]*}"}"
+  proxy_url="${proxy_url%"${proxy_url##*[![:space:]]}"}"
+  
+  if [[ -z "$proxy_url" ]]; then
+    log "Clearing proxy configuration..."
+    replace_env_value "$env_file" "PUSH_PROXY_URL" ""
+  else
+    # Test proxy connectivity if curl is available
+    if have_cmd curl; then
+      printf "\nTesting proxy connectivity...\n"
+      if curl -x "$proxy_url" -s -o /dev/null -w "%{http_code}" --connect-timeout 5 https://fcm.googleapis.com 2>/dev/null | grep -q "200\|301\|302"; then
+        printf "✓ Proxy is reachable!\n"
+      else
+        warn "Could not verify proxy connectivity. Proceeding anyway..."
+      fi
+    fi
+    
+    log "Setting proxy to: $proxy_url"
+    replace_env_value "$env_file" "PUSH_PROXY_URL" "$proxy_url"
+  fi
+  
+  log "Installing dependencies..."
+  if ! run_in_install_dir "cd server && npm install"; then
+    warn "Failed to install dependencies."
+    press_enter_to_continue
+    return 1
+  fi
+  
+  log "Restarting Songbird service..."
+  if ! run_logged_quiet run_as_root systemctl restart songbird; then
+    warn "Failed to restart service."
+    press_enter_to_continue
+    return 1
+  fi
+  
+  printf "\n"
+  log "Proxy configuration applied successfully!"
+  
+  press_enter_to_continue
+}
+
 install_songbird() {
   prompt_source_mode
   collect_install_options
