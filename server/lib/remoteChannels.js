@@ -599,6 +599,8 @@ function createRemoteChannelManager(deps = {}) {
   const enabled = Boolean(config.enabled && apiId && apiHash && sessionString);
   const pollIntervalMs = Math.max(1000, Number(config.pollIntervalMs || 5000));
   const pollLimit = Math.max(1, Math.min(100, Number(config.telegramPollLimit || 50)));
+  // Sync metadata once every 60 poll cycles (e.g., every 5 minutes if polling every 5s)
+  const metadataSyncIntervalMs = pollIntervalMs * 60;
   const queueIntervalMs = Math.max(250, Number(config.queueIntervalMs || 1000));
   const maxAttempts = Math.max(1, Number(config.queueMaxAttempts || 10));
   const staleLockMs = Math.max(10_000, Number(config.queueStaleLockMs || 5 * 60_000));
@@ -630,6 +632,7 @@ function createRemoteChannelManager(deps = {}) {
   const avatarUploadRootDir = String(config.avatarUploadRootDir || "").trim();
   const lockOwner = `songbird-${process.pid}`;
   const entityCache = new Map();
+  const metadataSyncTimestamps = new Map(); // sourceId → lastSyncTimestamp
   const connectionOptions = getTelegramClientConnectionOptions(config.proxyUrl, (message) =>
     console.warn(message),
   );
@@ -949,14 +952,24 @@ function createRemoteChannelManager(deps = {}) {
 
   async function pollSource(activeClient, source) {
     const syncMetadata = Boolean(Number(source.sync_metadata || 0));
+    const sourceId = Number(source.id);
+    const now = Date.now();
+    const lastMetadataSync = metadataSyncTimestamps.get(sourceId) || 0;
+    const shouldForceRefresh =
+      syncMetadata && now - lastMetadataSync >= metadataSyncIntervalMs;
+
     const resolved = await syncResolvedSourceMetadata(
       activeClient,
       source,
       await resolveSource(activeClient, source, {
-        forceRefresh: syncMetadata,
+        forceRefresh: shouldForceRefresh,
       }),
       { touch: false },
     );
+
+    if (shouldForceRefresh) {
+      metadataSyncTimestamps.set(sourceId, now);
+    }
     const lastMessageId = Number(source?.last_remote_message_id || 0) || 0;
     if (!lastMessageId) {
       const latest = await activeClient.getMessages(resolved.entity, { limit: 1 });
