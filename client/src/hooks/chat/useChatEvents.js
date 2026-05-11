@@ -111,6 +111,8 @@ export function useChatEvents({
     if (!username) return;
     let source = null;
     let isMounted = true;
+    let reconnectAttempts = 0;
+
     const scheduleLoadChats = () => {
       if (loadChatsScheduledRef.current) return;
       loadChatsScheduledRef.current = true;
@@ -128,6 +130,7 @@ export function useChatEvents({
       });
       source.onopen = () => {
         setSseConnected(true);
+        reconnectAttempts = 0;
       };
 
       source.onmessage = (event) => {
@@ -360,7 +363,15 @@ export function useChatEvents({
         if (sseReconnectRef.current) {
           clearTimeout(sseReconnectRef.current);
         }
-        sseReconnectRef.current = setTimeout(connect, sseReconnectDelayMs);
+        // Exponential backoff with jitter to avoid thundering herd on server restart.
+        const backoffDelay = Math.min(
+          30000,
+          sseReconnectDelayMs * Math.pow(2, reconnectAttempts),
+        );
+        const jitter = Math.random() * 1000;
+        const delay = backoffDelay + jitter;
+        reconnectAttempts += 1;
+        sseReconnectRef.current = setTimeout(connect, delay);
       };
     };
 
