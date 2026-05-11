@@ -468,6 +468,7 @@ nano .env
 | `REMOTE_CHANNEL_QUEUE_INTERVAL_MS` | `integer` | `1000` | How often the mirror queue worker processes pending Telegram posts. |
 | `REMOTE_CHANNEL_QUEUE_MAX_ATTEMPTS` | `integer` | `10` | Max retry attempts before a queued remote post is marked failed. |
 | `REMOTE_CHANNEL_QUEUE_BATCH_SIZE` | `integer` | `10` | Max queued remote posts processed per worker tick (`1`-`50`). |
+| `REMOTE_CHANNEL_QUEUE_CONCURRENCY` | `integer` | `3` | How many queued items are processed concurrently per worker tick. Also controls how many Telegram sources are polled in parallel. |
 | `REMOTE_CHANNEL_QUEUE_STALE_LOCK_MS` | `integer` | `300000` | Age after which an in-progress queue lock is considered stale and can be retried. |
 | `CHAT_PENDING_TEXT_TIMEOUT` | `integer` | `300000` | Mark pending text message as failed after this timeout (milliseconds). |
 | `CHAT_PENDING_FILE_TIMEOUT` | `integer` | `1200000` | Mark pending file message as failed / XHR timeout for uploads (milliseconds). |

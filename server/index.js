@@ -318,6 +318,10 @@ const REMOTE_CHANNEL_CONFIG = {
     min: 1,
     max: 50,
   }),
+  queueConcurrency: readEnvInt("REMOTE_CHANNEL_QUEUE_CONCURRENCY", 3, {
+    min: 1,
+    max: 50,
+  }),
   queueStaleLockMs: readEnvInt("REMOTE_CHANNEL_QUEUE_STALE_LOCK_MS", 300000, {
     min: 10000,
   }),

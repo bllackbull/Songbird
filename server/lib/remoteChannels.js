@@ -603,6 +603,7 @@ function createRemoteChannelManager(deps = {}) {
   const maxAttempts = Math.max(1, Number(config.queueMaxAttempts || 10));
   const staleLockMs = Math.max(10_000, Number(config.queueStaleLockMs || 5 * 60_000));
   const queueBatchSize = Math.max(1, Math.min(50, Number(config.queueBatchSize || 10)));
+  const queueConcurrency = Math.max(1, Math.min(50, Number(config.queueConcurrency || 3)));
   const providerStateHeartbeatMs = Math.max(
     pollIntervalMs,
     Number(config.providerStateHeartbeatMs || 60_000),
@@ -746,7 +747,10 @@ function createRemoteChannelManager(deps = {}) {
     client = null;
     clientResetRequired = false;
     clientResetReason = "";
-    entityCache.clear();
+    // Entity cache is intentionally preserved across client resets: the resolved
+    // Telegram entities (channel IDs, usernames) remain valid after a reconnect,
+    // so clearing the cache would only add unnecessary getEntity() round-trips on
+    // the first poll cycle after every reconnection.
     if (staleClient) {
       log("client:reset", { reason });
       await destroyTelegramClient(staleClient, reason);
@@ -1038,20 +1042,35 @@ function createRemoteChannelManager(deps = {}) {
     }
 
     const activeClient = await ensureClient();
-    for (const source of sources) {
+
+    // Poll all sources concurrently (up to queueConcurrency at a time) so that
+    // a slow or large source does not delay all subsequent sources.
+    let clientResetNeeded = false;
+    for (let i = 0; i < sources.length; i += queueConcurrency) {
       if (stopped) return;
-      try {
-        await pollSource(activeClient, source);
-        if (source.last_error) {
-          updateRemoteChannelSourceError(source.id, "");
-        }
-      } catch (error) {
-        const message = errorMessage(error);
-        updateRemoteChannelSourceError(source.id, message);
-        log("poll-source:error", { sourceId: Number(source.id), error: message });
-        if (markTelegramClientForReset(error, "poll-source")) {
-          throw error;
-        }
+      const batch = sources.slice(i, i + queueConcurrency);
+      await Promise.all(
+        batch.map(async (source) => {
+          if (stopped) return;
+          try {
+            await pollSource(activeClient, source);
+            if (source.last_error) {
+              updateRemoteChannelSourceError(source.id, "");
+            }
+          } catch (error) {
+            const message = errorMessage(error);
+            updateRemoteChannelSourceError(source.id, message);
+            log("poll-source:error", { sourceId: Number(source.id), error: message });
+            if (markTelegramClientForReset(error, "poll-source")) {
+              clientResetNeeded = true;
+            }
+          }
+        }),
+      );
+      // If any source triggered a client reset, propagate the error so the
+      // poll loop can reconnect before attempting the next batch.
+      if (clientResetNeeded) {
+        throw new Error(clientResetReason || "Telegram client needs reconnect.");
       }
     }
 
@@ -1745,14 +1764,21 @@ function createRemoteChannelManager(deps = {}) {
   async function runQueueOnce() {
     const staleBefore = new Date(Date.now() - staleLockMs).toISOString();
     releaseStaleRemoteChannelQueueItems(staleBefore);
+
+    // Claim the full batch up-front, then process all items concurrently so
+    // that slow media downloads on one item do not block text-only items.
+    const items = [];
     for (let index = 0; index < queueBatchSize; index += 1) {
-      if (stopped) return;
+      if (stopped) break;
       const item = claimNextRemoteChannelQueueItem(
         lockOwner,
         new Date().toISOString(),
       );
-      if (!item?.id) return;
-      await processClaimedItem(item);
+      if (!item?.id) break;
+      items.push(item);
+    }
+    if (items.length) {
+      await Promise.all(items.map((item) => processClaimedItem(item)));
     }
   }
 
