@@ -377,7 +377,7 @@ const {
   registerUploadRoutes,
 } = uploadTools;
 
-const { addSseClient, removeSseClient, emitSseEvent, emitChatEvent } = createSseHub({
+const { addSseClient, removeSseClient, emitSseEvent, emitChatEvent, getCachedMembers } = createSseHub({
   listChatMembers,
 });
 
@@ -590,6 +590,7 @@ const apiDeps = {
   findUserById,
   findUserByUsername,
   fs,
+  getCachedMembers,
   getMessageReadCounts,
   getMessageAuthors,
   getMessageReadByUser,

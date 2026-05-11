@@ -2,8 +2,8 @@ function registerPresenceRoutes(app, deps) {
   const {
     emitSseEvent,
     findUserByUsername,
+    getCachedMembers,
     getUserPresence,
-    listChatMembers,
     listChatsForUser,
     requireSession,
     requireSessionUsernameMatch,
@@ -24,7 +24,7 @@ function registerPresenceRoutes(app, deps) {
     const targets = new Set([normalizedUsername]);
     const chats = listChatsForUser(Number(user.id || 0));
     chats.forEach((chat) => {
-      const members = listChatMembers(Number(chat?.id || 0));
+      const members = getCachedMembers(Number(chat?.id || 0));
       members.forEach((member) => {
         const memberUsername = String(member?.username || "").toLowerCase();
         if (memberUsername) targets.add(memberUsername);
