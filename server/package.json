@@ -47,7 +47,7 @@
     "express": "^4.21.2",
     "express-rate-limit": "^8.2.1",
     "multer": "^1.4.5-lts.1",
-    "sql.js": "^1.13.0",
+    "sql.js": "^1.14.1",
     "telegram": "^2.26.22",
     "web-push": "^3.6.7"
   }
