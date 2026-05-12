@@ -41,6 +41,6 @@
     "postcss": "^8.5.6",
     "rollup-plugin-visualizer": "^6.0.3",
     "tailwindcss": "^3.4.16",
-    "vite": "^7.2.4"
+    "vite": "^8.0.12"
   }
 }
