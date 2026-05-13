@@ -23,6 +23,7 @@ logs/
 .DS_Store
 .todo
 .vscode/
+.kiro/
 .idea/
 
 # TLS certs
