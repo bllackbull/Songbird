@@ -19,6 +19,7 @@ import { hasPersian } from "../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import { NICKNAME_MAX, USERNAME_MAX } from "../../utils/nameLimits.js";
 import ConfirmPasswordModal from "./ConfirmPasswordModal.jsx";
+import RemoteChannelQueueStatus from "./RemoteChannelQueueStatus.jsx";
 import Avatar from "../common/Avatar.jsx";
 
 export default function NewGroupModal({
@@ -425,22 +426,30 @@ export default function NewGroupModal({
 
             {showRemoteChannelSettings ? (
               <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
-                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                  Connection
-                </p>
-                <div className="mt-1 min-w-0">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                    Connection
+                  </p>
                   {groupForm.remoteChannelLoading ? (
-                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    <span className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                      <LoaderCircle size={14} className="animate-spin text-emerald-500" />
                       Loading...
-                    </p>
-                  ) : remoteLastError ? (
-                    <p className="mt-1 break-words text-xs text-rose-600 dark:text-rose-200">
-                      {remoteLastError}
-                    </p>
+                    </span>
                   ) : null}
                 </div>
-                <div className="mt-3">
-                  <button
+                {!groupForm.remoteChannelLoading && remoteLastError ? (
+                  <p className="mt-2 break-words text-xs text-rose-600 dark:text-rose-200">
+                    {remoteLastError}
+                  </p>
+                ) : null}
+                {!groupForm.remoteChannelLoading && remoteStatus?.queue ? (
+                  <div className="mt-2">
+                    <RemoteChannelQueueStatus queue={remoteStatus.queue} />
+                  </div>
+                ) : null}
+                {!groupForm.remoteChannelLoading ? (
+                  <div className="mt-3">
+                    <button
                     type="button"
                     role="switch"
                     aria-checked={effectiveRemoteChannelEnabled}
@@ -474,6 +483,7 @@ export default function NewGroupModal({
                     </span>
                   </button>
                 </div>
+                ) : null}
                 {effectiveRemoteChannelEnabled ? (
                   <div className="mt-3 space-y-3">
                     <div className="relative">
