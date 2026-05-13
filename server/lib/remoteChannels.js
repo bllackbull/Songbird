@@ -1119,6 +1119,14 @@ function createRemoteChannelManager(deps = {}) {
           });
           lastProviderStateSavedAt = Date.now();
           log("poll:error", { error: message });
+          
+          // If this is a connection error and the client is marked for reset,
+          // force a client reset before the next poll attempt to avoid getting
+          // stuck in a loop where ensureClient() keeps failing.
+          if (isTelegramConnectionError(error) && (clientResetRequired || shouldResetTelegramClient(client))) {
+            log("poll:forcing-client-reset", { reason: clientResetReason || message });
+            await resetTelegramClient(clientResetReason || `poll error: ${message}`);
+          }
         }
         await sleep(pollIntervalMs);
       }
