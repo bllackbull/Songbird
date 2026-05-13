@@ -79,7 +79,9 @@ function registerChatRoutes(app, deps) {
       .split(",")[0]
       .trim();
     const fallbackOrigin = `${forwardedProto || req.protocol}://${forwardedHost || req.get("host")}`;
-    return (refererOrigin || originHeader || fallbackOrigin).replace(/\/+$/, "");
+    const origin = refererOrigin || originHeader || fallbackOrigin;
+    // Remove trailing slashes safely without ReDoS vulnerability
+    return origin.endsWith("/") ? origin.slice(0, -1) : origin;
   };
   const normalizeGroupAvatarUrl = (value) => {
     const raw = String(value || "").trim();
@@ -88,11 +90,14 @@ function registerChatRoutes(app, deps) {
     if (raw.startsWith("/uploads/avatars/")) return `/api${raw}`;
     return raw;
   };
-  const normalizeInviteUsername = (value) =>
-    String(value || "")
+  const normalizeInviteUsername = (value) => {
+    const cleaned = String(value || "")
       .trim()
       .replace(/^@+/, "")
       .toLowerCase();
+    // Limit length to prevent ReDoS attacks
+    return cleaned.slice(0, 100);
+  };
   const decodeInviteTarget = (value) => {
     const target = String(value || "").trim();
     try {

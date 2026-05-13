@@ -9,6 +9,7 @@ import {
 } from "../lib/dbToolHelpers.js";
 import { createInviteToken } from "../lib/inviteTokens.js";
 import { storageEncryption } from "../lib/storageEncryption.js";
+import crypto from "crypto";
 
 function registerAdminRoutes(app, deps) {
   const {
@@ -984,11 +985,32 @@ function registerAdminRoutes(app, deps) {
         });
         const passwordHash = bcrypt.hashSync(password, 10);
 
+        // Use cryptographically secure random token generation without bias
         const randomToken = (length = 6) => {
           const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+          const charsLength = chars.length;
           let output = "";
+          
+          // Use rejection sampling to avoid modulo bias
+          const maxValid = 256 - (256 % charsLength);
+          const randomBytes = crypto.randomBytes(length * 2); // Get extra bytes for rejection sampling
+          
+          let byteIndex = 0;
           for (let i = 0; i < length; i += 1) {
-            output += chars[Math.floor(Math.random() * chars.length)];
+            let randomByte = randomBytes[byteIndex++];
+            
+            // Rejection sampling: reject values that would cause bias
+            while (randomByte >= maxValid) {
+              if (byteIndex >= randomBytes.length) {
+                // Need more random bytes
+                const moreBytes = crypto.randomBytes(length);
+                randomBytes.set(moreBytes, 0);
+                byteIndex = 0;
+              }
+              randomByte = randomBytes[byteIndex++];
+            }
+            
+            output += chars[randomByte % charsLength];
           }
           return output;
         };
@@ -1089,6 +1111,10 @@ function registerAdminRoutes(app, deps) {
         const maxMessageChars = Math.max(1, Number(MESSAGE_MAX_CHARS || 4000));
         const pickRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
         const buildTimestampSchedule = (totalCount, days) => {
+          // Clamp both parameters to prevent resource exhaustion
+          const safeDays = Math.max(1, Math.min(365, days));
+          const safeCount = Math.max(0, Math.min(10000, totalCount));
+          
           const now = new Date();
           const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
           const nowSecondsOfDay =
@@ -1098,17 +1124,21 @@ function registerAdminRoutes(app, deps) {
             today.getMonth(),
             today.getDate(),
           );
-          startDay.setDate(startDay.getDate() - (days - 1));
+          startDay.setDate(startDay.getDate() - (safeDays - 1));
 
-          const perDay = new Array(days).fill(0);
-          for (let i = 0; i < totalCount; i += 1) {
-            perDay[i % days] += 1;
+          const perDay = new Array(safeDays).fill(0);
+          for (let i = 0; i < safeCount; i += 1) {
+            perDay[i % safeDays] += 1;
           }
 
           const stamps = [];
-          for (let dayIndex = 0; dayIndex < days; dayIndex += 1) {
+          for (let dayIndex = 0; dayIndex < safeDays; dayIndex += 1) {
             const messagesInDay = perDay[dayIndex];
             if (!messagesInDay) continue;
+            
+            // Limit messages per day to prevent resource exhaustion
+            const safeMessagesInDay = Math.min(1000, messagesInDay);
+            
             const dayStart = new Date(startDay);
             dayStart.setDate(startDay.getDate() + dayIndex);
             const isToday =
@@ -1119,7 +1149,7 @@ function registerAdminRoutes(app, deps) {
               ? Math.max(0, Math.min(86399, nowSecondsOfDay))
               : 86399;
             const seconds = [];
-            for (let i = 0; i < messagesInDay; i += 1) {
+            for (let i = 0; i < safeMessagesInDay; i += 1) {
               const secondOfDay = Math.floor(Math.random() * (maxSecondOfDay + 1));
               seconds.push(secondOfDay);
             }
