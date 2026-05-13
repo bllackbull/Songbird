@@ -18,6 +18,7 @@ import { getAvatarStyle } from "../../utils/avatarColor.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import { NICKNAME_MAX, USERNAME_MAX } from "../../utils/nameLimits.js";
+import { getRemoteChannelSettings } from "../../api/chatApi.js";
 import ConfirmPasswordModal from "./ConfirmPasswordModal.jsx";
 import RemoteChannelQueueStatus from "./RemoteChannelQueueStatus.jsx";
 import Avatar from "../common/Avatar.jsx";
@@ -55,6 +56,8 @@ export default function NewGroupModal({
   remoteChannelAvailable = true,
   entityLabel = "Group",
   onDeleteChat,
+  chatId = null,
+  username = "",
 }) {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [remoteSourceMenuOpen, setRemoteSourceMenuOpen] = useState(false);
@@ -122,6 +125,37 @@ export default function NewGroupModal({
     const timeoutId = window.setTimeout(() => setRemoteSourceMenuOpen(false), 0);
     return () => window.clearTimeout(timeoutId);
   }, [remoteMenuShouldClose, remoteSourceMenuOpen]);
+
+  // Poll for remote channel queue updates every 3 seconds
+  useEffect(() => {
+    if (!open || !showRemoteChannelSettings || !chatId || !username) {
+      return undefined;
+    }
+
+    const pollQueueStatus = async () => {
+      try {
+        const res = await getRemoteChannelSettings({ chatId, username });
+        const data = await res.json();
+        
+        if (res.ok) {
+          // Update the entire remoteChannelStatus with fresh data
+          setGroupForm((prev) => ({
+            ...prev,
+            remoteChannelStatus: data,
+          }));
+        }
+      } catch (error) {
+        // Silently fail - don't disrupt the UI
+        console.error("Failed to poll queue status:", error);
+      }
+    };
+
+    // Poll immediately, then every 3 seconds
+    pollQueueStatus();
+    const intervalId = setInterval(pollQueueStatus, 3000);
+
+    return () => clearInterval(intervalId);
+  }, [open, showRemoteChannelSettings, chatId, username, setGroupForm]);
 
   if (!open) return null;
   if (typeof document === "undefined") return null;
@@ -442,11 +476,6 @@ export default function NewGroupModal({
                     {remoteLastError}
                   </p>
                 ) : null}
-                {!groupForm.remoteChannelLoading && remoteStatus?.queue ? (
-                  <div className="mt-2">
-                    <RemoteChannelQueueStatus queue={remoteStatus.queue} />
-                  </div>
-                ) : null}
                 {!groupForm.remoteChannelLoading ? (
                   <div className="mt-3">
                     <button
@@ -620,6 +649,14 @@ export default function NewGroupModal({
                         <span className="inline-block h-5 w-5 rounded-full bg-white shadow transition" />
                       </span>
                     </button>
+                  </div>
+                ) : null}
+                {!groupForm.remoteChannelLoading && remoteStatus?.source ? (
+                  <div className="mt-3">
+                    <RemoteChannelQueueStatus 
+                      queue={remoteStatus.source?.queue || {}} 
+                      sourceEnabled={Boolean(remoteStatus.source?.enabled)}
+                    />
                   </div>
                 ) : null}
               </div>

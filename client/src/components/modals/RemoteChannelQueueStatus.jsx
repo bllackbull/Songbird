@@ -2,13 +2,13 @@ import { AlertCircle, CheckCircle, Clock, LoaderCircle, XCircle, SkipForward } f
 
 /**
  * Displays the remote channel queue status with counts for each status type.
+ * Updates in real-time via polling from parent component.
  * 
  * @param {Object} props
  * @param {Object} props.queue - Queue summary object with status counts (e.g., { pending: 5, processing: 2, done: 10 })
+ * @param {boolean} props.sourceEnabled - Whether the remote channel source is enabled
  */
-export default function RemoteChannelQueueStatus({ queue }) {
-  if (!queue || typeof queue !== "object") return null;
-
+export default function RemoteChannelQueueStatus({ queue = {}, sourceEnabled }) {
   const pending = Number(queue.pending || 0);
   const processing = Number(queue.processing || 0);
   const retry = Number(queue.retry || 0);
@@ -19,9 +19,6 @@ export default function RemoteChannelQueueStatus({ queue }) {
   // Calculate active items (items that are being processed or waiting)
   const active = pending + processing + retry;
   const total = active + done + failed + skipped;
-
-  // Don't show anything if there's no queue activity
-  if (total === 0) return null;
 
   const statusItems = [
     {
@@ -77,41 +74,47 @@ export default function RemoteChannelQueueStatus({ queue }) {
 
   const visibleItems = statusItems.filter((item) => item.show);
 
-  if (visibleItems.length === 0) return null;
-
   return (
     <div className="rounded-xl border border-emerald-200/50 bg-emerald-50/30 p-2.5 dark:border-emerald-500/20 dark:bg-emerald-500/5">
       <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
         Queue Status
       </p>
-      <div className="flex flex-wrap gap-2">
-        {visibleItems.map((item) => {
-          const Icon = item.icon;
-          return (
-            <div
-              key={item.label}
-              className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 ${item.bgColor}`}
-              title={`${item.count} ${item.label.toLowerCase()} ${item.count === 1 ? "item" : "items"}`}
-            >
-              <Icon
-                size={12}
-                className={`${item.color} ${item.iconClass || ""}`}
-              />
-              <span className={`text-xs font-semibold ${item.color}`}>
-                {item.count}
-              </span>
-              <span className="text-[10px] font-medium text-slate-600 dark:text-slate-400">
-                {item.label}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-      {active > 0 ? (
-        <p className="mt-2 text-[10px] text-slate-600 dark:text-slate-400">
-          {active} {active === 1 ? "message" : "messages"} in queue
+      {total === 0 ? (
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          {sourceEnabled ? "Queue is empty" : "Remote channel is disabled"}
         </p>
-      ) : null}
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-2">
+            {visibleItems.map((item) => {
+              const Icon = item.icon;
+              return (
+                <div
+                  key={item.label}
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 ${item.bgColor}`}
+                  title={`${item.count} ${item.label.toLowerCase()} ${item.count === 1 ? "item" : "items"}`}
+                >
+                  <Icon
+                    size={12}
+                    className={`${item.color} ${item.iconClass || ""}`}
+                  />
+                  <span className={`text-xs font-semibold ${item.color}`}>
+                    {item.count}
+                  </span>
+                  <span className="text-[10px] font-medium text-slate-600 dark:text-slate-400">
+                    {item.label}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          {active > 0 ? (
+            <p className="mt-2 text-[10px] text-slate-600 dark:text-slate-400">
+              {active} {active === 1 ? "message" : "messages"} in queue
+            </p>
+          ) : null}
+        </>
+      )}
     </div>
   );
 }

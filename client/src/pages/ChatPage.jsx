@@ -6531,6 +6531,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             remoteChannelAvailable={Boolean(appInfo?.remoteChannels?.enabled)}
             entityLabel={groupModalType === "channel" ? "Channel" : "Group"}
             onDeleteChat={editingGroup ? handleDeleteActiveGroup : null}
+            chatId={editingGroup ? activeChat?.id : null}
+            username={user?.username || ""}
           />
         </Suspense>
       ) : null}
