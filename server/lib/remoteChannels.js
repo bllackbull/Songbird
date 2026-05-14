@@ -1848,11 +1848,56 @@ function createRemoteChannelManager(deps = {}) {
     }
   }
 
+  async function testConnection(sourceId) {
+    const source = getRemoteChannelSourceById(sourceId);
+    if (!source?.id) {
+      throw new Error("Remote channel source not found.");
+    }
+
+    if (!source.enabled) {
+      throw new Error("Remote channel is disabled.");
+    }
+
+    if (source.provider !== "telegram") {
+      throw new Error("Only Telegram sources are supported.");
+    }
+
+    // Ensure we have a connected client
+    await ensureClient();
+    
+    try {
+      // Try to get the channel entity
+      const entity = await client.getEntity(
+        source.source_username || source.source_chat_id
+      );
+      
+      if (!entity) {
+        throw new Error("Unable to find the target channel.");
+      }
+
+      // Try to get the latest message to verify we have access
+      const messages = await client.getMessages(entity, { limit: 1 });
+      
+      return {
+        success: true,
+        channelTitle: entity.title || source.source_username,
+        channelId: entity.id?.toString(),
+        hasAccess: true,
+        latestMessageId: messages?.[0]?.id || null,
+      };
+    } catch (error) {
+      throw new Error(
+        `Connection test failed: ${error?.message || "Unable to access channel"}`
+      );
+    }
+  }
+
   return {
     start,
     stop,
     isEnabled: () => enabled,
     syncSourceMetadata,
+    testConnection,
   };
 }
 

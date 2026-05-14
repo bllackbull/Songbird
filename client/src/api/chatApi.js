@@ -264,6 +264,31 @@ export const updateRemoteChannelSettings = (chatId, payload) =>
     body: JSON.stringify(payload),
   });
 
+export const pauseRemoteChannel = (chatId) =>
+  apiFetch(`${API_BASE}/api/chats/${encodeURIComponent(chatId)}/remote-channel/pause`, {
+    method: "POST",
+  });
+
+export const resumeRemoteChannel = (chatId) =>
+  apiFetch(`${API_BASE}/api/chats/${encodeURIComponent(chatId)}/remote-channel/resume`, {
+    method: "POST",
+  });
+
+export const skipRemoteChannelQueueItem = (chatId) =>
+  apiFetch(`${API_BASE}/api/chats/${encodeURIComponent(chatId)}/remote-channel/skip`, {
+    method: "POST",
+  });
+
+export const skipAllRemoteChannelQueueItems = (chatId) =>
+  apiFetch(`${API_BASE}/api/chats/${encodeURIComponent(chatId)}/remote-channel/skip-all`, {
+    method: "POST",
+  });
+
+export const testRemoteChannelConnection = (chatId) =>
+  apiFetch(`${API_BASE}/api/chats/${encodeURIComponent(chatId)}/remote-channel/test`, {
+    method: "POST",
+  });
+
 export const getSavedMessagesChat = (username) =>
   apiFetch(`${API_BASE}/api/chats/saved?username=${encodeURIComponent(username)}`);
 

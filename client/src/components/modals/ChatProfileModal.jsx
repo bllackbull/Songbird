@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import ContextMenuSurface from "../context-menu/ContextMenuSurface.jsx";
 import {
@@ -9,13 +9,16 @@ import {
   LogIn,
   LogOut,
   Pencil,
+  SatelliteDish,
   Volume2,
   VolumeX,
 } from "../../icons/lucide.js";
 import { copyTextToClipboard } from "../../utils/clipboard.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import { hasPersian } from "../../utils/fontUtils.js";
+import { getRemoteChannelSettings } from "../../api/chatApi.js";
 import Avatar from "../common/Avatar.jsx";
+import RemoteChannelQueueStatus from "./RemoteChannelQueueStatus.jsx";
 
 const MEMBERS_BATCH_SIZE = 10;
 
@@ -41,13 +44,44 @@ export default function ChatProfileModal({
   showMembers = true,
   readOnly = false,
   membersBatchSize = MEMBERS_BATCH_SIZE,
+  remoteChannelAvailable = false,
 }) {
   const [memberQuery, setMemberQuery] = useState("");
   const [memberLimit, setMemberLimit] = useState(membersBatchSize);
+  const [remoteChannelStatus, setRemoteChannelStatus] = useState(null);
   const membersListRef = useRef(null);
+  
+  // Fetch remote channel status for channels
+  useEffect(() => {
+    if (!open || chat?.type !== "channel" || !remoteChannelAvailable || !currentUser?.username) {
+      return undefined;
+    }
+
+    const fetchRemoteStatus = async () => {
+      try {
+        const res = await getRemoteChannelSettings({
+          chatId: chat.id,
+          username: currentUser.username,
+        });
+        const data = await res.json();
+        if (res.ok) {
+          setRemoteChannelStatus(data);
+        }
+      } catch (error) {
+        console.error("Failed to fetch remote channel status:", error);
+      }
+    };
+
+    fetchRemoteStatus();
+    const intervalId = setInterval(fetchRemoteStatus, 3000);
+
+    return () => clearInterval(intervalId);
+  }, [open, chat?.id, chat?.type, currentUser?.username, remoteChannelAvailable]);
+  
   const handleClose = () => {
     setMemberQuery("");
     setMemberLimit(membersBatchSize);
+    setRemoteChannelStatus(null);
     onClose?.();
   };
   const handleCopyInviteLink = async () => {
@@ -298,6 +332,32 @@ export default function ChatProfileModal({
                 {inviteLink || "No invite link available."}
               </span>
             </button>
+          </div>
+        ) : null}
+
+        {isChannel && remoteChannelStatus?.source?.enabled ? (
+          <div className="mt-4 rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
+            <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              Connection
+            </p>
+            <div className="mt-3">
+              <div className="flex w-full items-center justify-between rounded-2xl border border-emerald-200/70 bg-white/90 px-4 py-3 text-sm font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-emerald-200">
+                <span className="flex items-center gap-3">
+                  <SatelliteDish size={18} />
+                  Remote Channel
+                </span>
+                <span className="text-xs text-slate-600 dark:text-slate-400">
+                  {remoteChannelStatus.source.provider === "telegram" ? "Telegram" : remoteChannelStatus.source.provider}: {remoteChannelStatus.source.sourceUsername || remoteChannelStatus.source.sourceChatId}
+                </span>
+              </div>
+            </div>
+            <div className="mt-3">
+              <RemoteChannelQueueStatus 
+                queue={remoteChannelStatus.source?.queue || {}} 
+                sourceEnabled={Boolean(remoteChannelStatus.source?.enabled)}
+                readOnly={true}
+              />
+            </div>
           </div>
         ) : null}
 

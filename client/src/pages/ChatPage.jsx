@@ -6571,6 +6571,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             onJoinChat={handleJoinMentionChat}
             showMembers={shouldShowMembersList}
             membersBatchSize={CHAT_PAGE_CONFIG.newChatSearchMaxResults}
+            remoteChannelAvailable={Boolean(appInfo?.remoteChannels?.enabled)}
             onClose={closeProfileModal}
             onOpenChat={handleOpenProfileChat}
             onToggleMute={() =>
