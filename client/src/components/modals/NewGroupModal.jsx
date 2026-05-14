@@ -265,7 +265,7 @@ export default function NewGroupModal({
         const data = await res.json();
         
         if (res.ok) {
-          // Update the entire remoteChannelStatus with fresh data
+          // Update the remoteChannelStatus in groupForm
           setGroupForm((prev) => ({
             ...prev,
             remoteChannelStatus: data,
@@ -778,7 +778,7 @@ export default function NewGroupModal({
                     </button>
                   </div>
                 ) : null}
-                {!groupForm.remoteChannelLoading && groupForm.remoteChannelEnabled && remoteStatus?.source ? (
+                {!groupForm.remoteChannelLoading && groupForm.remoteChannelEnabled && remoteStatus?.source && chatId ? (
                   <div className="mt-3">
                     <RemoteChannelQueueStatus 
                       queue={remoteStatus.source?.queue || {}} 

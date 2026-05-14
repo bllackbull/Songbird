@@ -946,6 +946,7 @@ export function claimNextRemoteChannelQueueItem(lockOwner, nowIso) {
      WHERE q.provider = 'telegram'
        AND s.provider = 'telegram'
        AND s.enabled = 1
+       AND s.paused = 0
        AND q.source_version = s.source_version
        AND c.type = 'channel'
        AND q.status IN ('pending', 'retry')
