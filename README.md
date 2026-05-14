@@ -128,7 +128,7 @@ docker compose -f docker-compose.yaml ps
 docker compose -f docker-compose.yaml logs -f
 ```
 > [!IMPORTANT]
-> Docker automatically configures the nginx config to run on port 443 using the self-signed cert you previosuly generated.  
+> Docker automatically configures the nginx config to run on port 443 using the self-signed cert you previously generated.  
 >To change and customize the nginx config, refer to the [Configure Nginx](#configure-nginx) section.
 
 ## Manual Installation
@@ -812,6 +812,7 @@ If you plan to host the app at a subpath (e.g., `example.com/songbird/`) you wil
 ## Author
 
 - Maintainer: [@bllackbull](https://github.com/bllackbull)
+- Contributors: [@nkhalili](https://github.com/nkhalili)
 
 ## Contributing
 
@@ -854,4 +855,4 @@ UQDzQ3xbWzKQvw8X8sWU82dksBeYqTHrT9sLzhBOyaESPjVy
 
 ## License
 
-This project is licensed under the MIT License. See the see [LICENSE](LICENSE) file for details.s
+This project is licensed under the MIT License. See the see [LICENSE](LICENSE) file for details.

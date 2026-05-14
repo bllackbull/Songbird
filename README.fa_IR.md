@@ -815,6 +815,7 @@ docker compose exec songbird npm --prefix /app/server run db:inspect
 ## نویسنده
 
 - سازنده: [@bllackbull](https://github.com/bllackbull)
+- مشارکت کنندگان: [@nkhalili](https://github.com/nkhalili)
 
 ## مشارکت
 
