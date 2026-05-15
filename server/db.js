@@ -2089,7 +2089,7 @@ export function getMessageAuthors(messageIds = []) {
   if (!normalized.length) return [];
   const placeholders = normalized.map(() => "?").join(", ");
   return getAll(
-    `SELECT id, user_id FROM chat_messages WHERE id IN (${placeholders})`,
+    `SELECT id, user_id, client_request_id FROM chat_messages WHERE id IN (${placeholders})`,
     normalized,
   );
 }

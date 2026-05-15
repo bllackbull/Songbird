@@ -369,16 +369,25 @@ function registerMessageRoutes(app, deps) {
         acc[id] = Number(row?.count || 0);
         return acc;
       }, {});
-      const authorRows = getMessageAuthors(messageIds);
-      authorRows.forEach((row) => {
-        const id = Number(row?.id || 0);
-        if (!id) return;
-        counts[id] = Number(counts[id] || 0) + 1;
-      });
+      
+      // For regular messages (not remote), add +1 for the author
+      // For remote messages, don't add the author count (starts at 0)
       enriched.forEach((msg) => {
         const id = Number(msg?.id || 0);
         if (!id) return;
-        msg.seenCount = Number(counts[id] || 1);
+        const isRemote = isRemoteChannelMessage(msg);
+        if (!isRemote) {
+          counts[id] = Number(counts[id] || 0) + 1;
+        }
+      });
+      
+      enriched.forEach((msg) => {
+        const id = Number(msg?.id || 0);
+        if (!id) return;
+        // Remote messages start at 0 views, regular messages start at 1
+        const isRemote = isRemoteChannelMessage(msg);
+        const defaultCount = isRemote ? 0 : 1;
+        msg.seenCount = Number(counts[id] || defaultCount);
       });
     }
 
@@ -484,12 +493,13 @@ function registerMessageRoutes(app, deps) {
     }
 
     const authors = getMessageAuthors(messageIds);
-    const authorByMessageId = authors.reduce((acc, row) => {
+    const messages = authors.reduce((acc, row) => {
       const id = Number(row?.id || 0);
       if (!id) return acc;
-      acc[id] = Number(row?.user_id || 0);
+      acc[id] = row;
       return acc;
     }, {});
+    
     const rows = getMessageReadCounts(messageIds);
     const counts = rows.reduce((acc, row) => {
       const id = Number(row?.message_id || 0);
@@ -497,10 +507,17 @@ function registerMessageRoutes(app, deps) {
       acc[id] = Number(row?.count || 0);
       return acc;
     }, {});
-    Object.keys(authorByMessageId).forEach((key) => {
+    
+    // For regular messages (not remote), add +1 for the author
+    // For remote messages, don't add the author count (starts at 0)
+    Object.keys(messages).forEach((key) => {
       const id = Number(key);
       if (!id) return;
-      counts[id] = Number(counts[id] || 0) + 1;
+      const msg = messages[id];
+      const isRemote = isRemoteChannelMessage(msg);
+      if (!isRemote) {
+        counts[id] = Number(counts[id] || 0) + 1;
+      }
     });
 
     res.json({ ok: true, counts });
