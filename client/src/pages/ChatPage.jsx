@@ -5575,7 +5575,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           const source = data?.source || null;
           setNewGroupForm((prev) => ({
             ...prev,
-            remoteChannelEnabled: Boolean(source?.enabled),
+            remoteChannelEnabled:
+              Boolean(appInfo?.remoteChannels?.uiEnabled) &&
+              Boolean(source?.enabled),
             remoteChannelProvider: source?.provider || "telegram",
             remoteChannelSource:
               source?.sourceRaw ||
@@ -6534,7 +6536,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             showRemoteChannelSettings={Boolean(
               groupModalType === "channel",
             )}
-            remoteChannelAvailable={Boolean(appInfo?.remoteChannels?.enabled)}
+            remoteChannelAvailable={Boolean(
+              appInfo?.remoteChannels?.enabled &&
+              appInfo?.remoteChannels?.uiEnabled
+            )}
             entityLabel={groupModalType === "channel" ? "Channel" : "Group"}
             onDeleteChat={editingGroup ? handleDeleteActiveGroup : null}
             chatId={editingGroup ? activeChat?.id : null}
@@ -6577,7 +6582,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             onJoinChat={handleJoinMentionChat}
             showMembers={shouldShowMembersList}
             membersBatchSize={CHAT_PAGE_CONFIG.newChatSearchMaxResults}
-            remoteChannelAvailable={Boolean(appInfo?.remoteChannels?.enabled)}
+            remoteChannelAvailable={Boolean(
+              appInfo?.remoteChannels?.enabled &&
+              appInfo?.remoteChannels?.uiEnabled
+            )}
             onClose={closeProfileModal}
             onOpenChat={handleOpenProfileChat}
             onToggleMute={() =>
