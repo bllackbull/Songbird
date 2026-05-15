@@ -16,6 +16,8 @@ function registerAppRoutes(app, deps) {
         enabled: Boolean(
           REMOTE_CHANNELS?.enabled && REMOTE_CHANNELS?.telegramConfigured,
         ),
+        uiEnabled: Boolean(REMOTE_CHANNELS?.uiEnabled),
+        mediaStreamEnabled: Boolean(REMOTE_CHANNELS?.mediaStreamEnabled),
         telegramConfigured: Boolean(REMOTE_CHANNELS?.telegramConfigured),
         proxyConfigured: Boolean(REMOTE_CHANNELS?.proxyConfigured),
       },

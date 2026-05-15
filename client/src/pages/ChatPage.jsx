@@ -6540,6 +6540,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               appInfo?.remoteChannels?.enabled &&
               appInfo?.remoteChannels?.uiEnabled
             )}
+            remoteChannelMediaStreamAllowed={Boolean(
+              appInfo?.remoteChannels?.mediaStreamEnabled
+            )}
             entityLabel={groupModalType === "channel" ? "Channel" : "Group"}
             onDeleteChat={editingGroup ? handleDeleteActiveGroup : null}
             chatId={editingGroup ? activeChat?.id : null}

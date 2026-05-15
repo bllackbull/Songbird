@@ -61,6 +61,7 @@ export default function NewGroupModal({
   onRegenerateInvite,
   showRemoteChannelSettings = false,
   remoteChannelAvailable = true,
+  remoteChannelMediaStreamAllowed = false,
   entityLabel = "Group",
   onDeleteChat,
   chatId = null,
@@ -301,9 +302,6 @@ export default function NewGroupModal({
   const remoteChannelEnabled = Boolean(groupForm.remoteChannelEnabled);
   const remoteChannelSyncMetadata = Boolean(
     groupForm.remoteChannelSyncMetadata,
-  );
-  const remoteChannelMediaStreamAllowed = Boolean(
-    appInfo?.remoteChannels?.mediaStreamEnabled,
   );
   const remoteChannelStreamMedia =
     fileUploadEnabled &&

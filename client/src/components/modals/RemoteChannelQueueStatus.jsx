@@ -129,7 +129,7 @@ export default function RemoteChannelQueueStatus({
             onClick={onResume || onPause}
             disabled={!onResume && !onPause}
             className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
-            title={onResume ? "Resume mirroring" : "Pause mirroring"}
+            title={onResume ? "Resume queue" : "Pause queue"}
           >
             {onResume ? (
               <>
@@ -182,7 +182,7 @@ export default function RemoteChannelQueueStatus({
             title="Test connection to target channel"
           >
             {testConnectionLoading ? (
-              <Refresh size={13} className="animate-spin" />
+              <LoaderCircle size={13} className="animate-spin" />
             ) : testConnectionResult === 'success' ? (
               <Check size={13} />
             ) : testConnectionResult === 'error' ? (
