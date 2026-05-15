@@ -686,8 +686,11 @@ sudo systemctl reload nginx
 - ریست دیتابیس: `npm run db:reset`
 - حذف دیتابیس: `npm run db:delete`
 - ساخت گروه یا کانال: `npm run db:chat:create`
+- ساخت کانال با ریموت کانال: `npm run db:chat:create -- --type channel --name "My Channel" --owner alice --username my_channel --remote-channel <telegram-source> [--sync-metadata] [--stream-media]`
 - اضافه کردن کاربر به گروه یا کانال: `npm run db:chat:add`
 - ویرایش گروه یا کانال یا انتقال مالکیت: `npm run db:chat:edit`
+- ویرایش پیکربندی ریموت کانال: `npm run db:chat:edit -- <channel> --remote-channel <telegram-source> [--sync-metadata | --no-sync-metadata] [--stream-media | --no-stream-media]`
+- مدیریت صف ریموت کانال: `npm run db:chat:edit -- <channel> [--enable-remote | --disable-remote | --pause-queue | --resume-queue | --skip-queue | --skip-all-queue]`
 - حذف چت‌ها: `npm run db:chat:delete`
 - حذف فایل‌ها: `npm run db:file:delete` (برای حذف همه نیاز به `--all` دارد)
 - ویرایش کاربر: `npm run db:user:edit`
@@ -766,6 +769,11 @@ npm run db:chat:create -- --type channel --name "Announcements" --owner songbird
 
 ```bash
 cd server
+
+# ساخت کانال با ریموت کانال
+npm run db:chat:create -- --type channel --name "My Channel" --owner alice --username my_channel --remote-channel @telegram_source --sync-metadata --stream-media
+
+# اضافه کردن کاربر به چت
 npm run db:chat:add -- core.team songbird.sage2 songbird.sage3
 
 # می‌توانید از id چت هم استفاده کنید:
@@ -780,6 +788,19 @@ npm run db:chat:edit -- core.team --name "Core Team HQ" --visibility public --co
 
 # می‌توانید از id چت هم استفاده کنید:
 npm run db:chat:edit -- 1 --owner songbird.sage2
+
+# به‌روزرسانی پیکربندی ریموت کانال:
+npm run db:chat:edit -- my_channel --remote-channel @new_telegram_source
+npm run db:chat:edit -- my_channel --sync-metadata
+npm run db:chat:edit -- my_channel --no-stream-media
+
+# مدیریت ریموت کانال:
+npm run db:chat:edit -- my_channel --enable-remote
+npm run db:chat:edit -- my_channel --disable-remote
+npm run db:chat:edit -- my_channel --pause-queue
+npm run db:chat:edit -- my_channel --resume-queue
+npm run db:chat:edit -- my_channel --skip-queue
+npm run db:chat:edit -- my_channel --skip-all-queue
 ```
 
 ویرایش کاربر:

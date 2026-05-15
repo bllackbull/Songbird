@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { getCliArgs, getFlagValue } from "./_cli.js";
+import { getCliArgs, getFlagValue, hasFlag } from "./_cli.js";
 import { openDatabase, runAdminActionViaServer } from "./_db-admin.js";
 import { createInviteToken } from "../lib/inviteTokens.js";
 import {
@@ -10,6 +10,41 @@ import {
   normalizeGroupUsername,
 } from "../lib/dbToolHelpers.js";
 
+function normalizeTelegramSource(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+
+  // Numeric chat ID
+  const numericSource = raw.match(/^-?\d{5,}$/);
+  if (numericSource) {
+    return { sourceChatId: raw, sourceUsername: "" };
+  }
+
+  // URL or username
+  let candidate = raw;
+  if (/^https?:\/\//i.test(candidate)) {
+    try {
+      const url = new URL(candidate);
+      const host = url.hostname.toLowerCase();
+      if (!["t.me", "telegram.me"].includes(host)) {
+        return null;
+      }
+      const parts = url.pathname.split("/").filter(Boolean);
+      if (parts[0] === "s") parts.shift();
+      candidate = parts[0] || "";
+    } catch {
+      return null;
+    }
+  }
+
+  candidate = candidate.replace(/^@+/, "").trim();
+  if (!/^[a-zA-Z][a-zA-Z0-9_]{4,31}$/.test(candidate)) {
+    return null;
+  }
+
+  return { sourceChatId: "", sourceUsername: candidate.toLowerCase() };
+}
+
 async function main() {
   const args = getCliArgs();
   const type = normalizeChatType(getFlagValue(args, "--type"));
@@ -19,10 +54,16 @@ async function main() {
   const username = normalizeGroupUsername(getFlagValue(args, "--username"));
   const usersValue = getFlagValue(args, "--users");
   const memberSelectors = parseListValue(usersValue);
+  const remoteChannelValue = getFlagValue(args, "--remote-channel");
+  const syncMetadata = hasFlag(args, "--sync-metadata");
+  const streamMedia = hasFlag(args, "--stream-media");
 
   if (!name || !ownerSelector || !username) {
     console.error(
       'Usage: npm run db:chat:create -- --type group --name "My Group" --owner alice --username my_group [--visibility public|private] [--users bob,charlie]',
+    );
+    console.error(
+      'For channels with Remote Channel: [--remote-channel <telegram-source>] [--sync-metadata] [--stream-media]',
     );
     process.exit(1);
   }
@@ -34,12 +75,41 @@ async function main() {
     username,
     visibility,
     memberSelectors,
+    remoteChannelValue,
+    syncMetadata,
+    streamMedia,
   });
   if (remoteResult) {
     console.log(
       `Server mode chat created: id=${remoteResult.id} type=${remoteResult.type}`,
     );
     return;
+  }
+
+  // Validate Remote Channel configuration if provided
+  if (remoteChannelValue) {
+    if (type !== "channel") {
+      console.error("Remote Channel can only be configured for channels.");
+      process.exit(1);
+    }
+
+    const remoteChannelEnabled = String(
+      process.env.REMOTE_CHANNEL || "false"
+    ).toLowerCase() === "true";
+    if (!remoteChannelEnabled) {
+      console.error(
+        "Remote Channel feature is disabled. Configure and enable remote channel first",
+      );
+      process.exit(1);
+    }
+
+    const normalized = normalizeTelegramSource(remoteChannelValue);
+    if (!normalized) {
+      console.error(
+        "Invalid Telegram source. Use a channel username, t.me link, or numeric chat ID.",
+      );
+      process.exit(1);
+    }
   }
 
   const dbApi = await openDatabase();
@@ -134,6 +204,41 @@ async function main() {
     console.log(`Chat created: id=${chatId} type=${type} name=${name}`);
     console.log(`Owner: ${owner.username}`);
     console.log(`Members added: ${memberRows.length + 1}`);
+
+    // Configure Remote Channel if provided
+    if (remoteChannelValue && type === "channel") {
+      const normalized = normalizeTelegramSource(remoteChannelValue);
+      const sourceRaw = remoteChannelValue;
+      const sourceChatId = normalized.sourceChatId || null;
+      const sourceUsername = normalized.sourceUsername || null;
+      const enabled = 1;
+      const syncMeta = syncMetadata ? 1 : 0;
+      const streamMed = streamMedia ? 1 : 0;
+      const sourceVersion = 1;
+
+      dbApi.run(
+        `INSERT INTO remote_channel_sources (
+           chat_id, provider, source_raw, source_chat_id, source_username,
+           source_version, sync_metadata, stream_media, enabled, last_error, updated_at
+         )
+         VALUES (?, 'telegram', ?, ?, ?, ?, ?, ?, ?, NULL, datetime('now'))`,
+        [
+          chatId,
+          sourceRaw,
+          sourceChatId,
+          sourceUsername,
+          sourceVersion,
+          syncMeta,
+          streamMed,
+          enabled,
+        ],
+      );
+
+      dbApi.save();
+      console.log(`Remote Channel configured: source=${sourceRaw}`);
+      console.log(`Sync metadata: ${syncMetadata ? "yes" : "no"}`);
+      console.log(`Stream media: ${streamMedia ? "yes" : "no"}`);
+    }
   } finally {
     dbApi.close();
   }

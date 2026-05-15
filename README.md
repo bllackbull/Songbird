@@ -683,8 +683,11 @@ You can use these commands while in `/opt/songbird/server` directory to manage y
 - Reset DB: `npm run db:reset`
 - Delete DB: `npm run db:delete`
 - Create a group or channel: `npm run db:chat:create`
+- Create a channel with Remote Channel: `npm run db:chat:create -- --type channel --name "My Channel" --owner alice --username my_channel --remote-channel <telegram-source> [--sync-metadata] [--stream-media]`
 - Add users to a group/channel: `npm run db:chat:add`
 - Edit a group/channel profile or transfer ownership: `npm run db:chat:edit`
+- Edit Remote Channel configuration: `npm run db:chat:edit -- <channel> --remote-channel <telegram-source> [--sync-metadata | --no-sync-metadata] [--stream-media | --no-stream-media]`
+- Manage Remote Channel queue: `npm run db:chat:edit -- <channel> [--enable-remote | --disable-remote | --pause-queue | --resume-queue | --skip-queue | --skip-all-queue]`
 - Delete chats (all or selected ids/usernames): `npm run db:chat:delete` (requires `--all` to delete everything)
 - Delete files (all or selected ids/filenames): `npm run db:file:delete` (requires `--all` to delete everything)
 - Edit a user profile: `npm run db:user:edit`
@@ -763,6 +766,11 @@ Add users to a group or channel:
 
 ```bash
 cd server
+
+# Create a channel with Remote Channel
+npm run db:chat:create -- --type channel --name "My Channel" --owner alice --username my_channel --remote-channel @telegram_source --sync-metadata --stream-media
+
+# Add users to a chat
 npm run db:chat:add -- core.team songbird.sage2 songbird.sage3
 
 # You can also use chat Id:
@@ -777,6 +785,19 @@ npm run db:chat:edit -- core.team --name "Core Team HQ" --visibility public --co
 
 # You can also use chat Id:
 npm run db:chat:edit -- 1 --owner songbird.sage2
+
+# Update Remote Channel configuration:
+npm run db:chat:edit -- my_channel --remote-channel @new_telegram_source
+npm run db:chat:edit -- my_channel --sync-metadata
+npm run db:chat:edit -- my_channel --no-stream-media
+
+# Manage Remote Channel:
+npm run db:chat:edit -- my_channel --enable-remote
+npm run db:chat:edit -- my_channel --disable-remote
+npm run db:chat:edit -- my_channel --pause-queue
+npm run db:chat:edit -- my_channel --resume-queue
+npm run db:chat:edit -- my_channel --skip-queue
+npm run db:chat:edit -- my_channel --skip-all-queue
 ```
 
 Edit a user profile:

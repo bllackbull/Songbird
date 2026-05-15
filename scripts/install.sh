@@ -3592,13 +3592,17 @@ User and chat management:
         Passes: -y selector
   14    Create group/channel
         Prompts: type, name, username, visibility, owner, optional members
-        Passes: --type --name --owner --username --visibility --users
+        For channels: optional remote channel configuration (Telegram source, sync metadata, stream media)
+        Passes: --type --name --owner --username --visibility --users [--remote-channel --sync-metadata --stream-media]
   15    Add members to chat
         Prompts: chat selector, all-users yes/no, or user selectors
         Passes: chat selector plus --all or user selectors
   16    Edit chat
         Prompts: chat selector and optional profile/settings fields
+        For channels with remote channel: menu with 9 actions (update source, toggle settings, enable/disable, pause/resume queue, skip queue items)
         Passes: selector plus any changed --name/--username/--visibility/--color/--owner/invite flag
+        Or: --remote-channel --sync-metadata/--no-sync-metadata --stream-media/--no-stream-media
+        Or: --enable-remote/--disable-remote --pause-queue/--resume-queue --skip-queue/--skip-all-queue
 
 Remote channel configuration:
   17    Configure Remote Channel
@@ -3830,6 +3834,10 @@ db_chat_create() {
   local visibility=""
   local owner=""
   local members=""
+  local configure_remote="no"
+  local remote_source=""
+  local sync_metadata="no"
+  local stream_media="no"
 
   prompt_read "Type (group/channel, default: group): " type
   type="${type#"${type%%[![:space:]]*}"}"
@@ -3845,13 +3853,39 @@ db_chat_create() {
   owner="$(prompt_non_empty "Owner username or id")"
   prompt_read "Add members (comma separated usernames/ids, optional): " members
 
-  run_db_command npm --prefix server run db:chat:create -- \
-    --type "$type" \
-    --name "$name" \
-    --owner "$owner" \
-    --username "$username" \
-    --visibility "$visibility" \
+  local args=(
+    --type "$type"
+    --name "$name"
+    --owner "$owner"
+    --username "$username"
+    --visibility "$visibility"
     --users "$members"
+  )
+
+  # Only offer remote channel configuration for channels
+  if [[ "${type,,}" == "channel" ]]; then
+    configure_remote="$(prompt_yes_no "Configure remote channel for this channel?" "no")"
+    
+    if [[ "$configure_remote" == "yes" ]]; then
+      local remote_enabled="$(get_existing_env_value "REMOTE_CHANNEL" "false")"
+      remote_enabled="${remote_enabled,,}"
+      if [[ "$remote_enabled" != "true" ]]; then
+        warn "Remote channel feature is disabled. Configure it first."
+        press_enter_to_continue
+        return 1
+      fi
+      
+      remote_source="$(prompt_non_empty "Telegram source (username, t.me link, or chat ID)")"
+      sync_metadata="$(prompt_yes_no "Sync metadata (name/avatar) from Telegram?" "yes")"
+      stream_media="$(prompt_yes_no "Stream media files from Telegram?" "yes")"
+      
+      args+=(--remote-channel "$remote_source")
+      [[ "$sync_metadata" == "yes" ]] && args+=(--sync-metadata)
+      [[ "$stream_media" == "yes" ]] && args+=(--stream-media)
+    fi
+  fi
+
+  run_db_command npm --prefix server run db:chat:create -- "${args[@]}"
   press_enter_to_continue
 }
 
@@ -3890,9 +3924,93 @@ db_chat_edit() {
   local owner=""
   local invites=""
   local effective_visibility=""
+  local configure_remote="no"
+  local remote_action=""
+  local remote_source=""
+  local sync_metadata=""
+  local stream_media=""
   local args=()
 
   chat="$(prompt_non_empty "Chat id or username")"
+  
+  configure_remote="$(prompt_yes_no "Update remote channel configuration or queue?" "no")"
+  
+  if [[ "$configure_remote" == "yes" ]]; then
+    local remote_enabled="$(get_existing_env_value "REMOTE_CHANNEL" "false")"
+    remote_enabled="${remote_enabled,,}"
+    if [[ "$remote_enabled" != "true" ]]; then
+      warn "Remote channel feature is disabled. Configure it first."
+      press_enter_to_continue
+      return 1
+    fi
+    
+    args+=("$chat")
+    
+    printf "\n Remote channel Actions:\n"
+    printf "  1. Update Telegram source\n"
+    printf "  2. Toggle sync metadata\n"
+    printf "  3. Toggle stream media\n"
+    printf "  4. Enable remote channeln"
+    printf "  5. Disable remote channeln"
+    printf "  6. Pause queue\n"
+    printf "  7. Resume queue\n"
+    printf "  8. Skip current queue item\n"
+    printf "  9. Skip all queue items\n"
+    printf "\n"
+    
+    prompt_read "Select action (1-9, or leave blank to cancel): " remote_action
+    
+    case "$remote_action" in
+      1)
+        remote_source="$(prompt_non_empty "New Telegram source (username, t.me link, or chat ID)")"
+        args+=(--remote-channel "$remote_source")
+        ;;
+      2)
+        prompt_read "Sync metadata? (yes/no): " sync_metadata
+        if [[ "${sync_metadata,,}" == "yes" ]]; then
+          args+=(--sync-metadata)
+        elif [[ "${sync_metadata,,}" == "no" ]]; then
+          args+=(--no-sync-metadata)
+        fi
+        ;;
+      3)
+        prompt_read "Stream media? (yes/no): " stream_media
+        if [[ "${stream_media,,}" == "yes" ]]; then
+          args+=(--stream-media)
+        elif [[ "${stream_media,,}" == "no" ]]; then
+          args+=(--no-stream-media)
+        fi
+        ;;
+      4)
+        args+=(--enable-remote)
+        ;;
+      5)
+        args+=(--disable-remote)
+        ;;
+      6)
+        args+=(--pause-queue)
+        ;;
+      7)
+        args+=(--resume-queue)
+        ;;
+      8)
+        args+=(--skip-queue)
+        ;;
+      9)
+        args+=(--skip-all-queue)
+        ;;
+      *)
+        log "No action selected. Canceled."
+        press_enter_to_continue
+        return 0
+        ;;
+    esac
+    
+    run_db_command npm --prefix server run db:chat:edit -- "${args[@]}"
+    press_enter_to_continue
+    return 0
+  fi
+
   prompt_read "New chat name (optional): " name
   prompt_read "New chat username/handle (optional, without @): " username
   prompt_read "Visibility (public/private, optional): " visibility
