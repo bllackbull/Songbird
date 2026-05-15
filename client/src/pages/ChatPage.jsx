@@ -5584,7 +5584,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               "",
             remoteChannelSyncMetadata: Boolean(source?.syncMetadata),
             remoteChannelStreamMedia:
-              CHAT_PAGE_CONFIG.fileUploadEnabled && Boolean(source?.streamMedia),
+              CHAT_PAGE_CONFIG.fileUploadEnabled &&
+              Boolean(appInfo?.remoteChannels?.mediaStreamEnabled) &&
+              Boolean(source?.streamMedia),
             remoteChannelStatus: data,
             remoteChannelLoading: false,
           }));
@@ -5718,9 +5720,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     ).toLowerCase();
     const remoteChannelSyncMetadata =
       remoteChannelEnabled && Boolean(newGroupForm.remoteChannelSyncMetadata);
+    const remoteChannelMediaStreamAllowed = Boolean(
+      appInfo?.remoteChannels?.mediaStreamEnabled,
+    );
     const remoteChannelStreamMedia =
       remoteChannelEnabled &&
       CHAT_PAGE_CONFIG.fileUploadEnabled &&
+      remoteChannelMediaStreamAllowed &&
       Boolean(newGroupForm.remoteChannelStreamMedia);
     const shouldSaveRemoteChannel = Boolean(
       isChannel &&

@@ -459,6 +459,7 @@ nano .env
 | `MESSAGE_TEXT_RETENTION` | `integer` | `0` | Auto-delete text-only messages after N days (`0` disables). |
 | `MESSAGE_MAX_CHARS` | `integer` | `4000` | Max message length. |
 | `REMOTE_CHANNEL` | `boolean` | `false` | Enable the server-side Remote Channel worker. |
+| `REMOTE_CHANNEL_MEDIA_STREAM` | `boolean` | `true` | Allow channel owners to enable the "Stream Media Files" option in the UI. When `false`, the option is disabled and locked for all channels. |
 | `REMOTE_CHANNEL_TELEGRAM_API_ID` | `integer` | `0` | Telegram API ID. |
 | `REMOTE_CHANNEL_TELEGRAM_API_HASH` | `string` | `""` | Telegram API hash. |
 | `REMOTE_CHANNEL_TELEGRAM_SESSION_STRING` | `string` | `""` | Telegram StringSession. Treat it like a password. |

@@ -276,6 +276,10 @@ const TRANSCODE_VIDEOS_TO_H264 = readEnvBool(
 
 const FILE_UPLOAD = readEnvBool("FILE_UPLOAD", true);
 const REMOTE_CHANNEL = readEnvBool("REMOTE_CHANNEL", false);
+const REMOTE_CHANNEL_MEDIA_STREAM = readEnvBool(
+  "REMOTE_CHANNEL_MEDIA_STREAM",
+  true,
+);
 const REMOTE_CHANNEL_TELEGRAM_API_ID = readEnvInt(
   "REMOTE_CHANNEL_TELEGRAM_API_ID",
   0,
@@ -297,6 +301,7 @@ const REMOTE_CHANNEL_TELEGRAM_CONFIGURED = Boolean(
 );
 const REMOTE_CHANNEL_CONFIG = {
   enabled: REMOTE_CHANNEL,
+  mediaStreamEnabled: REMOTE_CHANNEL_MEDIA_STREAM,
   telegramConfigured: REMOTE_CHANNEL_TELEGRAM_CONFIGURED,
   proxyConfigured: Boolean(REMOTE_CHANNEL_PROXY_URL),
   telegramApiId: REMOTE_CHANNEL_TELEGRAM_API_ID,
@@ -542,6 +547,7 @@ const apiDeps = {
   ACCOUNT_CREATION,
   REMOTE_CHANNELS: {
     enabled: REMOTE_CHANNEL_CONFIG.enabled,
+    mediaStreamEnabled: REMOTE_CHANNEL_CONFIG.mediaStreamEnabled,
     telegramConfigured: REMOTE_CHANNEL_CONFIG.telegramConfigured,
     proxyConfigured: REMOTE_CHANNEL_CONFIG.proxyConfigured,
   },

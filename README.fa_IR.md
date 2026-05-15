@@ -464,6 +464,7 @@ nano .env
 | `MESSAGE_TEXT_RETENTION` | `عدد` | `0` | حذف خودکار پیام‌های فقط متنی بعد از N روز. (`0` یعنی غیرفعال) |
 | `MESSAGE_MAX_CHARS` | `عدد` | `4000` | حداکثر طول پیام. |
 | `REMOTE_CHANNEL` | `بولی` | `false` | فعال‌کردن worker سمت سرور و تنظیمات owner کانال برای Remote Channel. |
+| `REMOTE_CHANNEL_MEDIA_STREAM` | `بولی` | `true` | اجازه فعال‌سازی گزینه "Stream Media Files" در رابط کاربری برای مالکان کانال. وقتی `false` .باشد، این گزینه برای همه کانال‌ها غیرفعال و قفل می‌شود |
 | `REMOTE_CHANNEL_TELEGRAM_API_ID` | `عدد` | `0` | API ID تلگرام. |
 | `REMOTE_CHANNEL_TELEGRAM_API_HASH` | `رشته` | `""` | API hash تلگرام. |
 | `REMOTE_CHANNEL_TELEGRAM_SESSION_STRING` | `رشته` | `""` | مقدار Telegram StringSession. مثل رمز عبور از آن محافظت کنید. |
