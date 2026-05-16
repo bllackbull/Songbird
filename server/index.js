@@ -722,6 +722,8 @@ const remoteChannelManager = createRemoteChannelManager({
   markRemoteChannelQueueItemDone,
   markRemoteChannelQueueItemRetry,
   markRemoteChannelQueueItemSkipped,
+  skipAllRemoteChannelQueueItems,
+  skipCurrentRemoteChannelQueueItem,
   path,
   probeVideoMetadata,
   sanitizeDurationSeconds,

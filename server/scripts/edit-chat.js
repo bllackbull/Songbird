@@ -184,10 +184,13 @@ async function main() {
                lock_owner = NULL,
                last_error = 'Manually skipped via CLI.',
                processed_at = datetime('now')
-           WHERE source_id = ?
-             AND status IN ('pending', 'retry', 'processing')
-           ORDER BY id ASC
-           LIMIT 1`,
+           WHERE id = (
+             SELECT id FROM remote_channel_queue
+             WHERE source_id = ?
+               AND status IN ('pending', 'retry', 'processing')
+             ORDER BY id ASC
+             LIMIT 1
+           )`,
           [Number(existing.id)],
         );
         dbApi.save();
@@ -208,7 +211,7 @@ async function main() {
                last_error = 'Manually skipped via CLI.',
                processed_at = datetime('now')
            WHERE source_id = ?
-             AND status IN ('pending', 'retry', 'processing')`,
+             AND status IN ('pending', 'retry')`,
           [Number(existing.id)],
         );
         dbApi.save();

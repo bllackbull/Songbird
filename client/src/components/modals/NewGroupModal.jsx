@@ -70,6 +70,7 @@ export default function NewGroupModal({
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [remoteSourceMenuOpen, setRemoteSourceMenuOpen] = useState(false);
   const [remoteActionLoading, setRemoteActionLoading] = useState(false);
+  const [testConnectionLoading, setTestConnectionLoading] = useState(false);
   const [testConnectionResult, setTestConnectionResult] = useState(null); // 'success', 'error', or null
   const groupPhotoInputRef = useRef(null);
   const groupSearchInputRef = useRef(null);
@@ -177,8 +178,8 @@ export default function NewGroupModal({
   };
 
   const handleTestConnection = async () => {
-    if (!chatId || remoteActionLoading) return;
-    setRemoteActionLoading(true);
+    if (!chatId || remoteActionLoading || testConnectionLoading) return;
+    setTestConnectionLoading(true);
     setTestConnectionResult(null);
     try {
       const res = await testRemoteChannelConnection(chatId);
@@ -197,7 +198,7 @@ export default function NewGroupModal({
       setTestConnectionResult('error');
       setTimeout(() => setTestConnectionResult(null), 5000);
     } finally {
-      setRemoteActionLoading(false);
+      setTestConnectionLoading(false);
     }
   };
 
@@ -791,9 +792,9 @@ export default function NewGroupModal({
                       onResume={remoteStatus.source?.paused ? (remoteActionLoading ? null : handleResumeRemoteChannel) : null}
                       onSkip={remoteActionLoading ? null : handleSkipQueueItem}
                       onSkipAll={remoteActionLoading ? null : handleSkipAllQueueItems}
-                      onTestConnection={remoteActionLoading ? null : handleTestConnection}
+                      onTestConnection={remoteActionLoading || testConnectionLoading ? null : handleTestConnection}
                       testConnectionResult={testConnectionResult}
-                      testConnectionLoading={remoteActionLoading && testConnectionResult === null}
+                      testConnectionLoading={testConnectionLoading}
                     />
                   </div>
                 ) : null}

@@ -231,7 +231,12 @@ function registerRemoteChannelRoutes(app, deps) {
       return res.status(404).json({ error: "Remote channel not found." });
     }
 
-    const skipped = skipCurrentRemoteChannelQueueItem(source.id);
+    // Use the manager's abort path so in-flight (processing) items are also
+    // interrupted via the in-memory abort set.
+    const skipped =
+      typeof remoteChannelManager?.abortQueueItem === "function"
+        ? remoteChannelManager.abortQueueItem(source.id)
+        : skipCurrentRemoteChannelQueueItem(source.id);
 
     return res.json({
       ok: true,
@@ -250,7 +255,12 @@ function registerRemoteChannelRoutes(app, deps) {
       return res.status(404).json({ error: "Remote channel not found." });
     }
 
-    const skipped = skipAllRemoteChannelQueueItems(source.id);
+    // Use the manager's abort path so in-flight (processing) items are also
+    // interrupted via the in-memory abort set.
+    const skipped =
+      typeof remoteChannelManager?.abortAllQueueItems === "function"
+        ? remoteChannelManager.abortAllQueueItems(source.id)
+        : skipAllRemoteChannelQueueItems(source.id);
 
     return res.json({
       ok: true,

@@ -579,6 +579,8 @@ function createRemoteChannelManager(deps = {}) {
     markRemoteChannelQueueItemDone,
     markRemoteChannelQueueItemRetry,
     markRemoteChannelQueueItemSkipped,
+    skipAllRemoteChannelQueueItems: skipAllRemoteChannelQueueItemsDb,
+    skipCurrentRemoteChannelQueueItem: skipCurrentRemoteChannelQueueItemDb,
     path,
     probeVideoMetadata,
     sanitizeDurationSeconds,
@@ -646,6 +648,12 @@ function createRemoteChannelManager(deps = {}) {
   let clientResetRequired = false;
   let clientResetReason = "";
   let lastProviderStateSavedAt = 0;
+
+  // Set of queue item IDs that have been aborted while in-flight. The worker
+  // checks this at each async yield point and stops processing the item early.
+  const abortedItemIds = new Set();
+  // Set of source IDs for which ALL active items should be aborted.
+  const abortedSourceIds = new Set();
 
   const log = (...args) => debugLog("remote-channel", ...args);
 
@@ -1575,6 +1583,16 @@ function createRemoteChannelManager(deps = {}) {
   }
 
   async function processQueueItem(item) {
+    const throwIfAborted = () => {
+      if (
+        abortedItemIds.has(Number(item.id)) ||
+        abortedSourceIds.has(Number(item.source_id))
+      ) {
+        throw Object.assign(new Error("Queue item was manually skipped."), { isAbort: true });
+      }
+    };
+
+    throwIfAborted();
     const currentSource =
       typeof getRemoteChannelSourceById === "function"
         ? getRemoteChannelSourceById(item.source_id)
@@ -1662,6 +1680,9 @@ function createRemoteChannelManager(deps = {}) {
 
     const ensureMessage = (fallbackBody = "", options = {}) => {
       if (messageId) return messageId;
+      // Check abort before creating the message — once it's created and the
+      // SSE event is emitted, the message is already visible in the channel.
+      throwIfAborted();
       messageBody =
         body ||
         String(fallbackBody || "").trim() ||
@@ -1726,6 +1747,7 @@ function createRemoteChannelManager(deps = {}) {
     }
 
     if (shouldStreamMedia) {
+      throwIfAborted();
       const activeClient = await ensureClient();
       const resolved = await resolveSource(activeClient, currentSource);
       await streamTelegramMediaFiles({
@@ -1768,6 +1790,14 @@ function createRemoteChannelManager(deps = {}) {
     try {
       await processQueueItem(item);
     } catch (error) {
+      if (error?.isAbort) {
+        // Item was manually skipped while in-flight. The DB row was already
+        // marked skipped by the abort call; just clean up the in-memory set.
+        abortedItemIds.delete(Number(item.id));
+        markRemoteChannelQueueItemSkipped(item.id, "Manually skipped.");
+        log("queue:aborted", { id: Number(item.id) });
+        return;
+      }
       const attempts = Number(item?.attempts || 0) + 1;
       const failed = attempts >= maxAttempts;
       const message = errorMessage(error);
@@ -1892,12 +1922,39 @@ function createRemoteChannelManager(deps = {}) {
     }
   }
 
+  function abortQueueItem(sourceId) {
+    const id = Number(sourceId || 0);
+    if (!id) return 0;
+    // Mark the lowest active item in the DB as skipped.
+    const count = skipCurrentRemoteChannelQueueItemDb(id);
+    // Signal abort for any in-flight item on this source. We can't cheaply
+    // know the exact item ID without an extra query, so we use the source-level
+    // abort set with a short TTL so only the current batch is affected.
+    abortedSourceIds.add(id);
+    setTimeout(() => abortedSourceIds.delete(id), queueIntervalMs * 2 + staleLockMs);
+    return count;
+  }
+
+  function abortAllQueueItems(sourceId) {
+    const id = Number(sourceId || 0);
+    if (!id) return 0;
+    // Signal all in-flight items for this source to stop at the next yield.
+    abortedSourceIds.add(id);
+    // Clear the source-level abort flag after a window long enough to cover
+    // any currently in-flight batch.
+    setTimeout(() => abortedSourceIds.delete(id), staleLockMs);
+    // Mark all pending/retry/processing DB rows as skipped.
+    return skipAllRemoteChannelQueueItemsDb(id);
+  }
+
   return {
     start,
     stop,
     isEnabled: () => enabled,
     syncSourceMetadata,
     testConnection,
+    abortQueueItem,
+    abortAllQueueItems,
   };
 }
 

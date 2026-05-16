@@ -766,11 +766,15 @@ export function skipCurrentRemoteChannelQueueItem(sourceId) {
      SET status = 'skipped',
          locked_at = NULL,
          lock_owner = NULL,
+         last_error = 'Manually skipped.',
          processed_at = datetime('now')
-     WHERE source_id = ?
-       AND status IN ('pending', 'retry', 'processing')
-     ORDER BY id ASC
-     LIMIT 1`,
+     WHERE id = (
+       SELECT id FROM remote_channel_queue
+       WHERE source_id = ?
+         AND status IN ('pending', 'retry', 'processing')
+       ORDER BY id ASC
+       LIMIT 1
+     )`,
     [id],
   );
 }
@@ -784,6 +788,7 @@ export function skipAllRemoteChannelQueueItems(sourceId) {
      SET status = 'skipped',
          locked_at = NULL,
          lock_owner = NULL,
+         last_error = 'Manually skipped.',
          processed_at = datetime('now')
      WHERE source_id = ?
        AND status IN ('pending', 'retry', 'processing')`,
