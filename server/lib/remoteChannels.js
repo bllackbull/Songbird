@@ -872,7 +872,10 @@ function createRemoteChannelManager(deps = {}) {
     const title = resolveEntityTitle(entity, source);
     const username = resolveEntityUsername(entity, source);
     const sourceChatId = resolveEntityChatId(entity, source);
-    const avatarUrl = await cacheSourceAvatar(activeClient, source, entity);
+    // Skip avatar download when file uploads are disabled — only sync the name.
+    const avatarUrl = fileUploadEnabled
+      ? await cacheSourceAvatar(activeClient, source, entity)
+      : source?.source_avatar_url || "";
 
     return { entity, title, username, sourceChatId, avatarUrl };
   }
