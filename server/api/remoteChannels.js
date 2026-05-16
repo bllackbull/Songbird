@@ -200,16 +200,12 @@ function registerRemoteChannelRoutes(app, deps) {
       syncMetadata &&
       typeof remoteChannelManager?.syncSourceMetadata === "function"
     ) {
-      try {
-        await remoteChannelManager.syncSourceMetadata(source.id);
-        source = getRemoteChannelSourceByChatId(context.chatId) || source;
-      } catch (error) {
-        return res.status(400).json({
-          error: `Unable to sync Telegram metadata: ${
-            error?.message || "Unknown error"
-          }`,
-        });
-      }
+      // Run metadata sync in the background so the response is not blocked by
+      // Telegram network round-trips (getEntity + downloadProfilePhoto).
+      const sourceId = source.id;
+      remoteChannelManager.syncSourceMetadata(sourceId).catch(() => {
+        // Errors are recorded on the source record by syncSourceMetadata itself.
+      });
     }
 
     return res.json({

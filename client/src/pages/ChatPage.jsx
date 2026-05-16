@@ -5730,14 +5730,41 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       CHAT_PAGE_CONFIG.fileUploadEnabled &&
       remoteChannelMediaStreamAllowed &&
       Boolean(newGroupForm.remoteChannelStreamMedia);
+    // When editing, only call the remote channel API if something actually changed.
+    // Compare current form values against what was loaded from the server.
+    const originalRemoteChannel = editingGroup
+      ? newGroupForm.remoteChannelStatus?.source || null
+      : null;
+    const originalEnabled =
+      Boolean(appInfo?.remoteChannels?.uiEnabled) &&
+      Boolean(originalRemoteChannel?.enabled);
+    const originalSource =
+      originalRemoteChannel?.sourceRaw ||
+      (originalRemoteChannel?.sourceUsername
+        ? `@${originalRemoteChannel.sourceUsername}`
+        : "") ||
+      originalRemoteChannel?.sourceChatId ||
+      "";
+    const originalSyncMetadata = Boolean(originalRemoteChannel?.syncMetadata);
+    const originalStreamMedia =
+      CHAT_PAGE_CONFIG.fileUploadEnabled &&
+      Boolean(appInfo?.remoteChannels?.mediaStreamEnabled) &&
+      Boolean(originalRemoteChannel?.streamMedia);
+    const remoteChannelChanged =
+      remoteChannelEnabled !== originalEnabled ||
+      remoteChannelSource !== originalSource ||
+      remoteChannelSyncMetadata !== originalSyncMetadata ||
+      remoteChannelStreamMedia !== originalStreamMedia;
+
     const shouldSaveRemoteChannel = Boolean(
       isChannel &&
         appInfo?.remoteChannels?.enabled &&
-        (editingGroup ||
-          remoteChannelEnabled ||
-          remoteChannelSource ||
-          remoteChannelSyncMetadata ||
-          remoteChannelStreamMedia),
+        (editingGroup
+          ? remoteChannelChanged
+          : remoteChannelEnabled ||
+            remoteChannelSource ||
+            remoteChannelSyncMetadata ||
+            remoteChannelStreamMedia),
     );
     if (shouldSaveRemoteChannel && remoteChannelEnabled && !remoteChannelSource) {
       setNewGroupError("Remote Channel source is required.");
