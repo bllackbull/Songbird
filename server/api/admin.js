@@ -11,6 +11,41 @@ import { createInviteToken } from "../lib/inviteTokens.js";
 import { storageEncryption } from "../lib/storageEncryption.js";
 import crypto from "crypto";
 
+function normalizeTelegramSource(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+
+  // Numeric chat ID
+  const numericSource = raw.match(/^-?\d{5,}$/);
+  if (numericSource) {
+    return { sourceChatId: raw, sourceUsername: "" };
+  }
+
+  // URL or username
+  let candidate = raw;
+  if (/^https?:\/\//i.test(candidate)) {
+    try {
+      const url = new URL(candidate);
+      const host = url.hostname.toLowerCase();
+      if (!["t.me", "telegram.me"].includes(host)) {
+        return null;
+      }
+      const parts = url.pathname.split("/").filter(Boolean);
+      if (parts[0] === "s") parts.shift();
+      candidate = parts[0] || "";
+    } catch {
+      return null;
+    }
+  }
+
+  candidate = candidate.replace(/^@+/, "").trim();
+  if (!/^[a-zA-Z][a-zA-Z0-9_]{4,31}$/.test(candidate)) {
+    return null;
+  }
+
+  return { sourceChatId: "", sourceUsername: candidate.toLowerCase() };
+}
+
 function registerAdminRoutes(app, deps) {
   const {
     adminGetAll,
@@ -563,6 +598,55 @@ function registerAdminRoutes(app, deps) {
         }
         adminSave();
 
+        // Configure Remote Channel if provided
+        const remoteChannelValue = payload.remoteChannelValue
+          ? String(payload.remoteChannelValue).trim()
+          : null;
+        const syncMetadata = Boolean(payload.syncMetadata);
+        const streamMedia = Boolean(payload.streamMedia);
+
+        if (remoteChannelValue && row.type === "channel") {
+          const remoteChannelEnabled =
+            String(process.env.REMOTE_CHANNEL || "false").toLowerCase() ===
+            "true";
+          if (!remoteChannelEnabled) {
+            return res.status(400).json({
+              error:
+                "Remote Channel feature is disabled. Configure and enable remote channel first.",
+            });
+          }
+
+          const normalized = normalizeTelegramSource(remoteChannelValue);
+          if (!normalized) {
+            return res.status(400).json({
+              error:
+                "Invalid Telegram source. Use a channel username, t.me link, or numeric chat ID.",
+            });
+          }
+
+          const sourceChatId = normalized.sourceChatId || null;
+          const sourceUsername = normalized.sourceUsername || null;
+
+          adminRun(
+            `INSERT INTO remote_channel_sources (
+               chat_id, provider, source_raw, source_chat_id, source_username,
+               source_version, sync_metadata, stream_media, enabled, last_error, updated_at
+             )
+             VALUES (?, 'telegram', ?, ?, ?, ?, ?, ?, ?, NULL, datetime('now'))`,
+            [
+              Number(row.id),
+              remoteChannelValue,
+              sourceChatId,
+              sourceUsername,
+              1,
+              syncMetadata ? 1 : 0,
+              streamMedia ? 1 : 0,
+              1,
+            ],
+          );
+          adminSave();
+        }
+
         return res.json({
           ok: true,
           result: {
@@ -570,6 +654,7 @@ function registerAdminRoutes(app, deps) {
             type: row.type,
             name: row.name || "",
             addedMembers: members.length + 1,
+            remoteChannelConfigured: Boolean(remoteChannelValue && row.type === "channel"),
           },
         });
       }
@@ -1515,6 +1600,305 @@ function registerAdminRoutes(app, deps) {
             removedAvatars: targetAvatarUsers.length,
           },
         });
+      }
+
+      if (action === "edit_remote_channel") {
+        const chatSelector = String(payload.chatSelector || "").trim();
+        const chat = resolveChatRow(
+          { getRow: adminGetRow, getAll: adminGetAll },
+          chatSelector,
+        );
+        if (!chat?.id) {
+          return res.status(404).json({ error: "Chat not found." });
+        }
+        if (chat.type !== "channel") {
+          return res.status(400).json({
+            error: "Remote Channel can only be configured for channels.",
+          });
+        }
+
+        const remoteChannelEnabled =
+          String(process.env.REMOTE_CHANNEL || "false").toLowerCase() ===
+          "true";
+        if (!remoteChannelEnabled) {
+          return res.status(400).json({
+            error:
+              "Remote Channel feature is disabled. Configure and enable remote channel first.",
+          });
+        }
+
+        const remoteChannelValue = payload.remoteChannelValue
+          ? String(payload.remoteChannelValue).trim()
+          : null;
+        const syncMetadata =
+          payload.syncMetadata === true
+            ? true
+            : payload.syncMetadata === false
+              ? false
+              : null;
+        const streamMedia =
+          payload.streamMedia === true
+            ? true
+            : payload.streamMedia === false
+              ? false
+              : null;
+        const enableRemote = Boolean(payload.enableRemote);
+        const disableRemote = Boolean(payload.disableRemote);
+        const pauseQueue = Boolean(payload.pauseQueue);
+        const resumeQueue = Boolean(payload.resumeQueue);
+        const skipQueue = Boolean(payload.skipQueue);
+        const skipAllQueue = Boolean(payload.skipAllQueue);
+
+        const existing = adminGetRow(
+          "SELECT id, source_raw, source_chat_id, source_username, source_version, sync_metadata, stream_media, enabled, paused FROM remote_channel_sources WHERE chat_id = ?",
+          [Number(chat.id)],
+        );
+
+        if (
+          !existing?.id &&
+          !remoteChannelValue &&
+          (syncMetadata !== null ||
+            streamMedia !== null ||
+            enableRemote ||
+            disableRemote ||
+            pauseQueue ||
+            resumeQueue ||
+            skipQueue ||
+            skipAllQueue)
+        ) {
+          return res.status(404).json({
+            error: `No Remote Channel configured for chat: id=${chat.id}. Configure it during channel creation with db:chat:create.`,
+          });
+        }
+
+        if (pauseQueue) {
+          adminRun(
+            "UPDATE remote_channel_sources SET paused = 1, updated_at = datetime('now') WHERE chat_id = ?",
+            [Number(chat.id)],
+          );
+          adminSave();
+          return res.json({ ok: true, result: { chatId: Number(chat.id), paused: true } });
+        }
+
+        if (resumeQueue) {
+          adminRun(
+            "UPDATE remote_channel_sources SET paused = 0, updated_at = datetime('now') WHERE chat_id = ?",
+            [Number(chat.id)],
+          );
+          adminSave();
+          return res.json({ ok: true, result: { chatId: Number(chat.id), paused: false } });
+        }
+
+        if (skipQueue) {
+          adminRun(
+            `UPDATE remote_channel_queue
+             SET status = 'skipped',
+                 locked_at = NULL,
+                 lock_owner = NULL,
+                 last_error = 'Manually skipped via CLI.',
+                 processed_at = datetime('now')
+             WHERE id = (
+               SELECT id FROM remote_channel_queue
+               WHERE source_id = ?
+                 AND status IN ('pending', 'retry', 'processing')
+               ORDER BY id ASC
+               LIMIT 1
+             )`,
+            [Number(existing.id)],
+          );
+          adminSave();
+          return res.json({ ok: true, result: { chatId: Number(chat.id), skippedOne: true } });
+        }
+
+        if (skipAllQueue) {
+          adminRun(
+            `UPDATE remote_channel_queue
+             SET status = 'skipped',
+                 locked_at = NULL,
+                 lock_owner = NULL,
+                 last_error = 'Manually skipped via CLI.',
+                 processed_at = datetime('now')
+             WHERE source_id = ?
+               AND status IN ('pending', 'retry')`,
+            [Number(existing.id)],
+          );
+          adminSave();
+          return res.json({ ok: true, result: { chatId: Number(chat.id), skippedAll: true } });
+        }
+
+        if (disableRemote) {
+          if (existing?.id) {
+            adminRun(
+              "UPDATE remote_channel_sources SET enabled = 0, updated_at = datetime('now') WHERE chat_id = ?",
+              [Number(chat.id)],
+            );
+            adminSave();
+          }
+          return res.json({ ok: true, result: { chatId: Number(chat.id), enabled: false } });
+        }
+
+        if (enableRemote) {
+          if (!existing?.id) {
+            return res.status(404).json({
+              error: `No Remote Channel configured for chat: id=${chat.id}. Configure it during channel creation with db:chat:create.`,
+            });
+          }
+          adminRun(
+            "UPDATE remote_channel_sources SET enabled = 1, updated_at = datetime('now') WHERE chat_id = ?",
+            [Number(chat.id)],
+          );
+          adminSave();
+          return res.json({ ok: true, result: { chatId: Number(chat.id), enabled: true } });
+        }
+
+        if (remoteChannelValue) {
+          const normalized = normalizeTelegramSource(remoteChannelValue);
+          if (!normalized) {
+            return res.status(400).json({
+              error:
+                "Invalid Telegram source. Use a channel username, t.me link, or numeric chat ID.",
+            });
+          }
+
+          const sourceChatId = normalized.sourceChatId || null;
+          const sourceUsername = normalized.sourceUsername || null;
+          const sourceChanged = Boolean(
+            existing?.id &&
+              (String(existing.source_raw || "") !==
+                String(remoteChannelValue || "") ||
+                String(existing.source_chat_id || "") !==
+                  String(normalized.sourceChatId || "") ||
+                String(existing.source_username || "") !==
+                  String(normalized.sourceUsername || "")),
+          );
+          const sourceVersion = sourceChanged
+            ? Math.max(1, Number(existing?.source_version || 1)) + 1
+            : Math.max(1, Number(existing?.source_version || 1));
+          const nextSyncMetadata =
+            syncMetadata === true
+              ? 1
+              : syncMetadata === false
+                ? 0
+                : Number(existing?.sync_metadata || 0);
+          const nextStreamMedia =
+            streamMedia === true
+              ? 1
+              : streamMedia === false
+                ? 0
+                : Number(existing?.stream_media || 0);
+          const nextEnabled = Number(existing?.enabled ?? 1);
+
+          adminRun(
+            `INSERT INTO remote_channel_sources (
+               chat_id, provider, source_raw, source_chat_id, source_username,
+               source_version, sync_metadata, stream_media, enabled, last_error, updated_at
+             )
+             VALUES (?, 'telegram', ?, ?, ?, ?, ?, ?, ?, NULL, datetime('now'))
+             ON CONFLICT(chat_id) DO UPDATE SET
+               provider = excluded.provider,
+               source_title = CASE
+                 WHEN COALESCE(remote_channel_sources.source_raw, '') != COALESCE(excluded.source_raw, '')
+                   OR COALESCE(remote_channel_sources.source_chat_id, '') != COALESCE(excluded.source_chat_id, '')
+                   OR COALESCE(remote_channel_sources.source_username, '') != COALESCE(excluded.source_username, '')
+                 THEN NULL
+                 ELSE remote_channel_sources.source_title
+               END,
+               source_avatar_url = CASE
+                 WHEN COALESCE(remote_channel_sources.source_raw, '') != COALESCE(excluded.source_raw, '')
+                   OR COALESCE(remote_channel_sources.source_chat_id, '') != COALESCE(excluded.source_chat_id, '')
+                   OR COALESCE(remote_channel_sources.source_username, '') != COALESCE(excluded.source_username, '')
+                 THEN NULL
+                 ELSE remote_channel_sources.source_avatar_url
+               END,
+               last_remote_message_id = CASE
+                 WHEN COALESCE(remote_channel_sources.source_raw, '') != COALESCE(excluded.source_raw, '')
+                   OR COALESCE(remote_channel_sources.source_chat_id, '') != COALESCE(excluded.source_chat_id, '')
+                   OR COALESCE(remote_channel_sources.source_username, '') != COALESCE(excluded.source_username, '')
+                 THEN NULL
+                 ELSE remote_channel_sources.last_remote_message_id
+               END,
+               source_raw = excluded.source_raw,
+               source_chat_id = excluded.source_chat_id,
+               source_username = excluded.source_username,
+               source_version = excluded.source_version,
+               sync_metadata = excluded.sync_metadata,
+               stream_media = excluded.stream_media,
+               enabled = excluded.enabled,
+               last_error = NULL,
+               updated_at = datetime('now')`,
+            [
+              Number(chat.id),
+              remoteChannelValue,
+              sourceChatId,
+              sourceUsername,
+              sourceVersion,
+              nextSyncMetadata,
+              nextStreamMedia,
+              nextEnabled,
+            ],
+          );
+
+          if (existing?.id && sourceVersion > Number(existing.source_version || 1)) {
+            adminRun(
+              `UPDATE remote_channel_queue
+               SET status = 'skipped',
+                   locked_at = NULL,
+                   lock_owner = NULL,
+                   last_error = 'Remote source changed before this item was mirrored.',
+                   processed_at = datetime('now')
+               WHERE source_id = ?
+                 AND status IN ('pending', 'retry', 'processing')`,
+              [Number(existing.id)],
+            );
+          }
+
+          adminSave();
+          return res.json({
+            ok: true,
+            result: {
+              chatId: Number(chat.id),
+              source: remoteChannelValue,
+              syncMetadata: Boolean(nextSyncMetadata),
+              streamMedia: Boolean(nextStreamMedia),
+            },
+          });
+        }
+
+        // Only updating flags (sync_metadata / stream_media)
+        if (syncMetadata !== null || streamMedia !== null) {
+          if (!existing?.id) {
+            return res.status(404).json({
+              error: `No Remote Channel configured for chat: id=${chat.id}.`,
+            });
+          }
+          const nextSyncMetadata =
+            syncMetadata === true
+              ? 1
+              : syncMetadata === false
+                ? 0
+                : Number(existing.sync_metadata || 0);
+          const nextStreamMedia =
+            streamMedia === true
+              ? 1
+              : streamMedia === false
+                ? 0
+                : Number(existing.stream_media || 0);
+          adminRun(
+            "UPDATE remote_channel_sources SET sync_metadata = ?, stream_media = ?, updated_at = datetime('now') WHERE chat_id = ?",
+            [nextSyncMetadata, nextStreamMedia, Number(chat.id)],
+          );
+          adminSave();
+          return res.json({
+            ok: true,
+            result: {
+              chatId: Number(chat.id),
+              syncMetadata: Boolean(nextSyncMetadata),
+              streamMedia: Boolean(nextStreamMedia),
+            },
+          });
+        }
+
+        return res.status(400).json({ error: "No remote channel changes specified." });
       }
 
       if (action === "reset_db" || action === "delete_db") {
