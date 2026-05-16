@@ -257,7 +257,7 @@ export default function NewGroupModal({
 
   // Poll for remote channel queue updates every 3 seconds
   useEffect(() => {
-    if (!open || !showRemoteChannelSettings || !chatId || !username) {
+    if (!open || !showRemoteChannelSettings || !chatId || !username || creatingGroup) {
       return undefined;
     }
 
@@ -284,7 +284,7 @@ export default function NewGroupModal({
     const intervalId = setInterval(pollQueueStatus, 3000);
 
     return () => clearInterval(intervalId);
-  }, [open, showRemoteChannelSettings, chatId, username, setGroupForm]);
+  }, [open, showRemoteChannelSettings, chatId, username, creatingGroup, setGroupForm]);
 
   if (!open) return null;
   if (typeof document === "undefined") return null;
@@ -782,7 +782,7 @@ export default function NewGroupModal({
                     </button>
                   </div>
                 ) : null}
-                {!groupForm.remoteChannelLoading && groupForm.remoteChannelEnabled && remoteStatus?.source && chatId ? (
+                {!groupForm.remoteChannelLoading && !creatingGroup && groupForm.remoteChannelEnabled && remoteStatus?.source?.enabled && chatId ? (
                   <div className="mt-3">
                     <RemoteChannelQueueStatus 
                       queue={remoteStatus.source?.queue || {}} 
