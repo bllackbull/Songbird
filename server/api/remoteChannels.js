@@ -94,16 +94,50 @@ function registerRemoteChannelRoutes(app, deps) {
   };
 
   app.get("/api/chats/:chatId/remote-channel", (req, res) => {
-    const context = requireChannelOwner(req, res);
-    if (!context) return;
+    // Any channel member can view the connection status.
+    // Queue details are only included for the channel owner.
+    const session = requireSession(req, res);
+    if (!session) return;
 
-    const source = getRemoteChannelSourceByChatId(context.chatId);
+    const chatId = Number(req.params?.chatId || 0);
+    const username = String(req.query?.username || session.username || "").trim();
+
+    if (!chatId || !username) {
+      return res.status(400).json({ error: "Channel id and username are required." });
+    }
+    if (!requireSessionUsernameMatch(res, session, username)) return;
+
+    const user = findUserByUsername(username.toLowerCase());
+    if (!user) return res.status(404).json({ error: "User not found." });
+
+    const chat = findChatById(chatId);
+    if (!chat || String(chat.type || "").toLowerCase() !== "channel") {
+      return res.status(404).json({ error: "Channel not found." });
+    }
+
+    if (!isMember(chatId, user.id)) {
+      return res.status(403).json({ error: "Not a member of this channel." });
+    }
+
+    const isOwner = listChatMembers(chatId).some(
+      (member) =>
+        Number(member.id) === Number(user.id) &&
+        String(member.role || "").toLowerCase() === "owner",
+    );
+
+    const source = getRemoteChannelSourceByChatId(chatId);
+    const serialized = serializeSource(source);
+
+    // Strip queue details for non-owners
+    if (serialized && !isOwner) {
+      delete serialized.queue;
+    }
 
     return res.json({
       available: isRemoteChannelAvailable(),
       telegramConfigured: Boolean(REMOTE_CHANNELS?.telegramConfigured),
       proxyConfigured: Boolean(REMOTE_CHANNELS?.proxyConfigured),
-      source: serializeSource(source),
+      source: serialized,
     });
   });
 

@@ -16,7 +16,14 @@ import {
 import { copyTextToClipboard } from "../../utils/clipboard.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import { hasPersian } from "../../utils/fontUtils.js";
-import { getRemoteChannelSettings } from "../../api/chatApi.js";
+import {
+  getRemoteChannelSettings,
+  pauseRemoteChannel,
+  resumeRemoteChannel,
+  skipRemoteChannelQueueItem,
+  skipAllRemoteChannelQueueItems,
+  testRemoteChannelConnection,
+} from "../../api/chatApi.js";
 import Avatar from "../common/Avatar.jsx";
 import RemoteChannelQueueStatus from "./RemoteChannelQueueStatus.jsx";
 
@@ -49,6 +56,9 @@ export default function ChatProfileModal({
   const [memberQuery, setMemberQuery] = useState("");
   const [memberLimit, setMemberLimit] = useState(membersBatchSize);
   const [remoteChannelStatus, setRemoteChannelStatus] = useState(null);
+  const [remoteActionLoading, setRemoteActionLoading] = useState(false);
+  const [testConnectionLoading, setTestConnectionLoading] = useState(false);
+  const [testConnectionResult, setTestConnectionResult] = useState(null); // 'success', 'error', or null
   const membersListRef = useRef(null);
   
   // Fetch remote channel status for channels
@@ -77,11 +87,105 @@ export default function ChatProfileModal({
 
     return () => clearInterval(intervalId);
   }, [open, chat?.id, chat?.type, currentUser?.username, remoteChannelAvailable]);
+
+  // Remote channel action handlers (owner only)
+  const handlePauseRemoteChannel = async () => {
+    if (!chat?.id || remoteActionLoading) return;
+    setRemoteActionLoading(true);
+    try {
+      const res = await pauseRemoteChannel(chat.id);
+      if (res.ok) {
+        const statusRes = await getRemoteChannelSettings({ chatId: chat.id, username: currentUser.username });
+        const data = await statusRes.json();
+        if (statusRes.ok) setRemoteChannelStatus(data);
+      }
+    } catch (error) {
+      console.error("Failed to pause remote channel:", error);
+    } finally {
+      setRemoteActionLoading(false);
+    }
+  };
+
+  const handleResumeRemoteChannel = async () => {
+    if (!chat?.id || remoteActionLoading) return;
+    setRemoteActionLoading(true);
+    try {
+      const res = await resumeRemoteChannel(chat.id);
+      if (res.ok) {
+        const statusRes = await getRemoteChannelSettings({ chatId: chat.id, username: currentUser.username });
+        const data = await statusRes.json();
+        if (statusRes.ok) setRemoteChannelStatus(data);
+      }
+    } catch (error) {
+      console.error("Failed to resume remote channel:", error);
+    } finally {
+      setRemoteActionLoading(false);
+    }
+  };
+
+  const handleSkipQueueItem = async () => {
+    if (!chat?.id || remoteActionLoading) return;
+    setRemoteActionLoading(true);
+    try {
+      const res = await skipRemoteChannelQueueItem(chat.id);
+      if (res.ok) {
+        const statusRes = await getRemoteChannelSettings({ chatId: chat.id, username: currentUser.username });
+        const data = await statusRes.json();
+        if (statusRes.ok) setRemoteChannelStatus(data);
+      }
+    } catch (error) {
+      console.error("Failed to skip queue item:", error);
+    } finally {
+      setRemoteActionLoading(false);
+    }
+  };
+
+  const handleSkipAllQueueItems = async () => {
+    if (!chat?.id || remoteActionLoading) return;
+    setRemoteActionLoading(true);
+    try {
+      const res = await skipAllRemoteChannelQueueItems(chat.id);
+      if (res.ok) {
+        const statusRes = await getRemoteChannelSettings({ chatId: chat.id, username: currentUser.username });
+        const data = await statusRes.json();
+        if (statusRes.ok) setRemoteChannelStatus(data);
+      }
+    } catch (error) {
+      console.error("Failed to skip all queue items:", error);
+    } finally {
+      setRemoteActionLoading(false);
+    }
+  };
+
+  const handleTestConnection = async () => {
+    if (!chat?.id || remoteActionLoading || testConnectionLoading) return;
+    setTestConnectionLoading(true);
+    setTestConnectionResult(null);
+    try {
+      const res = await testRemoteChannelConnection(chat.id);
+      if (res.ok) {
+        setTestConnectionResult("success");
+        setTimeout(() => setTestConnectionResult(null), 3000);
+      } else {
+        setTestConnectionResult("error");
+        setTimeout(() => setTestConnectionResult(null), 5000);
+      }
+    } catch (error) {
+      console.error("Failed to test connection:", error);
+      setTestConnectionResult("error");
+      setTimeout(() => setTestConnectionResult(null), 5000);
+    } finally {
+      setTestConnectionLoading(false);
+    }
+  };
   
   const handleClose = () => {
     setMemberQuery("");
     setMemberLimit(membersBatchSize);
     setRemoteChannelStatus(null);
+    setRemoteActionLoading(false);
+    setTestConnectionLoading(false);
+    setTestConnectionResult(null);
     onClose?.();
   };
   const handleCopyInviteLink = async () => {
@@ -351,13 +455,22 @@ export default function ChatProfileModal({
                 </span>
               </div>
             </div>
-            <div className="mt-3">
-              <RemoteChannelQueueStatus 
-                queue={remoteChannelStatus.source?.queue || {}} 
-                sourceEnabled={Boolean(remoteChannelStatus.source?.enabled)}
-                readOnly={true}
-              />
-            </div>
+            {isOwner ? (
+              <div className="mt-3">
+                <RemoteChannelQueueStatus 
+                  queue={remoteChannelStatus.source?.queue || {}} 
+                  sourceEnabled={Boolean(remoteChannelStatus.source?.enabled)}
+                  readOnly={false}
+                  onPause={remoteChannelStatus.source?.paused ? null : (remoteActionLoading ? null : handlePauseRemoteChannel)}
+                  onResume={remoteChannelStatus.source?.paused ? (remoteActionLoading ? null : handleResumeRemoteChannel) : null}
+                  onSkip={remoteActionLoading ? null : handleSkipQueueItem}
+                  onSkipAll={remoteActionLoading ? null : handleSkipAllQueueItems}
+                  onTestConnection={remoteActionLoading || testConnectionLoading ? null : handleTestConnection}
+                  testConnectionResult={testConnectionResult}
+                  testConnectionLoading={testConnectionLoading}
+                />
+              </div>
+            ) : null}
           </div>
         ) : null}
 

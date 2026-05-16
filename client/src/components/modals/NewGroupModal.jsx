@@ -18,16 +18,7 @@ import { getAvatarStyle } from "../../utils/avatarColor.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import { NICKNAME_MAX, USERNAME_MAX } from "../../utils/nameLimits.js";
-import { 
-  getRemoteChannelSettings,
-  pauseRemoteChannel,
-  resumeRemoteChannel,
-  skipRemoteChannelQueueItem,
-  skipAllRemoteChannelQueueItems,
-  testRemoteChannelConnection,
-} from "../../api/chatApi.js";
 import ConfirmPasswordModal from "./ConfirmPasswordModal.jsx";
-import RemoteChannelQueueStatus from "./RemoteChannelQueueStatus.jsx";
 import Avatar from "../common/Avatar.jsx";
 
 export default function NewGroupModal({
@@ -69,9 +60,6 @@ export default function NewGroupModal({
 }) {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [remoteSourceMenuOpen, setRemoteSourceMenuOpen] = useState(false);
-  const [remoteActionLoading, setRemoteActionLoading] = useState(false);
-  const [testConnectionLoading, setTestConnectionLoading] = useState(false);
-  const [testConnectionResult, setTestConnectionResult] = useState(null); // 'success', 'error', or null
   const groupPhotoInputRef = useRef(null);
   const groupSearchInputRef = useRef(null);
   const remoteSourceButtonRef = useRef(null);
@@ -83,124 +71,6 @@ export default function NewGroupModal({
     groupForm.visibility === "private" ||
     !remoteChannelAvailable ||
     !groupForm.remoteChannelEnabled;
-
-  // Remote channel action handlers
-  const handlePauseRemoteChannel = async () => {
-    if (!chatId || remoteActionLoading) return;
-    setRemoteActionLoading(true);
-    try {
-      const res = await pauseRemoteChannel(chatId);
-      if (res.ok) {
-        // Refresh status immediately
-        const statusRes = await getRemoteChannelSettings({ chatId, username });
-        const data = await statusRes.json();
-        if (statusRes.ok) {
-          setGroupForm((prev) => ({
-            ...prev,
-            remoteChannelStatus: data,
-          }));
-        }
-      }
-    } catch (error) {
-      console.error("Failed to pause remote channel:", error);
-    } finally {
-      setRemoteActionLoading(false);
-    }
-  };
-
-  const handleResumeRemoteChannel = async () => {
-    if (!chatId || remoteActionLoading) return;
-    setRemoteActionLoading(true);
-    try {
-      const res = await resumeRemoteChannel(chatId);
-      if (res.ok) {
-        // Refresh status immediately
-        const statusRes = await getRemoteChannelSettings({ chatId, username });
-        const data = await statusRes.json();
-        if (statusRes.ok) {
-          setGroupForm((prev) => ({
-            ...prev,
-            remoteChannelStatus: data,
-          }));
-        }
-      }
-    } catch (error) {
-      console.error("Failed to resume remote channel:", error);
-    } finally {
-      setRemoteActionLoading(false);
-    }
-  };
-
-  const handleSkipQueueItem = async () => {
-    if (!chatId || remoteActionLoading) return;
-    setRemoteActionLoading(true);
-    try {
-      const res = await skipRemoteChannelQueueItem(chatId);
-      if (res.ok) {
-        // Refresh status immediately
-        const statusRes = await getRemoteChannelSettings({ chatId, username });
-        const data = await statusRes.json();
-        if (statusRes.ok) {
-          setGroupForm((prev) => ({
-            ...prev,
-            remoteChannelStatus: data,
-          }));
-        }
-      }
-    } catch (error) {
-      console.error("Failed to skip queue item:", error);
-    } finally {
-      setRemoteActionLoading(false);
-    }
-  };
-
-  const handleSkipAllQueueItems = async () => {
-    if (!chatId || remoteActionLoading) return;
-    setRemoteActionLoading(true);
-    try {
-      const res = await skipAllRemoteChannelQueueItems(chatId);
-      if (res.ok) {
-        // Refresh status immediately
-        const statusRes = await getRemoteChannelSettings({ chatId, username });
-        const data = await statusRes.json();
-        if (statusRes.ok) {
-          setGroupForm((prev) => ({
-            ...prev,
-            remoteChannelStatus: data,
-          }));
-        }
-      }
-    } catch (error) {
-      console.error("Failed to skip all queue items:", error);
-    } finally {
-      setRemoteActionLoading(false);
-    }
-  };
-
-  const handleTestConnection = async () => {
-    if (!chatId || remoteActionLoading || testConnectionLoading) return;
-    setTestConnectionLoading(true);
-    setTestConnectionResult(null);
-    try {
-      const res = await testRemoteChannelConnection(chatId);
-      const data = await res.json();
-      if (res.ok) {
-        setTestConnectionResult('success');
-        // Reset after 3 seconds
-        setTimeout(() => setTestConnectionResult(null), 3000);
-      } else {
-        setTestConnectionResult('error');
-        // Reset after 5 seconds
-        setTimeout(() => setTestConnectionResult(null), 5000);
-      }
-    } catch (error) {
-      console.error("Failed to test connection:", error);
-      setTestConnectionResult('error');
-      setTimeout(() => setTestConnectionResult(null), 5000);
-    } finally {
-      setTestConnectionLoading(false);
-    }
-  };
 
   useEffect(() => {
     if (!open || !remoteSourceMenuOpen) return undefined;
@@ -254,37 +124,6 @@ export default function NewGroupModal({
     const timeoutId = window.setTimeout(() => setRemoteSourceMenuOpen(false), 0);
     return () => window.clearTimeout(timeoutId);
   }, [remoteMenuShouldClose, remoteSourceMenuOpen]);
-
-  // Poll for remote channel queue updates every 3 seconds
-  useEffect(() => {
-    if (!open || !showRemoteChannelSettings || !chatId || !username || creatingGroup) {
-      return undefined;
-    }
-
-    const pollQueueStatus = async () => {
-      try {
-        const res = await getRemoteChannelSettings({ chatId, username });
-        const data = await res.json();
-        
-        if (res.ok) {
-          // Update the remoteChannelStatus in groupForm
-          setGroupForm((prev) => ({
-            ...prev,
-            remoteChannelStatus: data,
-          }));
-        }
-      } catch (error) {
-        // Silently fail - don't disrupt the UI
-        console.error("Failed to poll queue status:", error);
-      }
-    };
-
-    // Poll immediately, then every 3 seconds
-    pollQueueStatus();
-    const intervalId = setInterval(pollQueueStatus, 3000);
-
-    return () => clearInterval(intervalId);
-  }, [open, showRemoteChannelSettings, chatId, username, creatingGroup, setGroupForm]);
 
   if (!open) return null;
   if (typeof document === "undefined") return null;
@@ -780,22 +619,6 @@ export default function NewGroupModal({
                         <span className="inline-block h-5 w-5 rounded-full bg-white shadow transition" />
                       </span>
                     </button>
-                  </div>
-                ) : null}
-                {!groupForm.remoteChannelLoading && !creatingGroup && groupForm.remoteChannelEnabled && remoteStatus?.source?.enabled && chatId ? (
-                  <div className="mt-3">
-                    <RemoteChannelQueueStatus 
-                      queue={remoteStatus.source?.queue || {}} 
-                      sourceEnabled={Boolean(remoteStatus.source?.enabled)}
-                      readOnly={false}
-                      onPause={remoteStatus.source?.paused ? null : (remoteActionLoading ? null : handlePauseRemoteChannel)}
-                      onResume={remoteStatus.source?.paused ? (remoteActionLoading ? null : handleResumeRemoteChannel) : null}
-                      onSkip={remoteActionLoading ? null : handleSkipQueueItem}
-                      onSkipAll={remoteActionLoading ? null : handleSkipAllQueueItems}
-                      onTestConnection={remoteActionLoading || testConnectionLoading ? null : handleTestConnection}
-                      testConnectionResult={testConnectionResult}
-                      testConnectionLoading={testConnectionLoading}
-                    />
                   </div>
                 ) : null}
               </div>
