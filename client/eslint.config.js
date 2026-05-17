@@ -45,6 +45,7 @@ export default [
       "no-empty": ["error", { allowEmptyCatch: true }],
       "react-hooks/immutability": "off",
       "react-hooks/purity": "off",
+      "react-hooks/set-state-in-effect": "off",
     },
   },
   {

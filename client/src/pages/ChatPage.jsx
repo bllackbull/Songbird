@@ -3208,7 +3208,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       .finally(() => {
         isMarkingReadRef.current = false;
       });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAppActive, user?.username, canMarkReadInCurrentView]);
 
   useResumeRefresh({

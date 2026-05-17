@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download, File, Pause, Play } from "../../../icons/lucide.js";
 import { CHAT_PAGE_CONFIG } from "../../../settings/chatPageConfig.js";
 import { CACHE_STORES } from "../../../utils/cacheDb.js";
@@ -874,8 +874,10 @@ export function MessageFiles({
   handleVideoThumbLoadedMetadata,
   getFileRenderType,
 }) {
-  if (!files.length) return null;
-  const resolveFileRenderType = getFileRenderType || (() => "document");
+  const resolveFileRenderType = useMemo(
+    () => getFileRenderType || (() => "document"),
+    [getFileRenderType],
+  );
   const thumbFallbackTimersRef = useRef(new Map());
 
   const canPersistMediaCache = () => {
@@ -884,7 +886,7 @@ export function MessageFiles({
     return true;
   };
 
-  const writeMediaCache = async (store, key, payload) => {
+  const writeMediaCache = useCallback(async (store, key, payload) => {
     if (typeof window === "undefined") return;
     if (!canPersistMediaCache()) return;
     try {
@@ -892,7 +894,7 @@ export function MessageFiles({
     } catch (_) {
       // ignore storage failures
     }
-  };
+  }, []);
 
   const getMediaAspectRatio = (file) => {
     const key = file?.id || `${file?.name || ""}-${file?.sizeBytes || 0}`;
@@ -1005,7 +1007,7 @@ export function MessageFiles({
     }
   };
 
-  const markMediaThumbLoaded = (thumbKey) => {
+  const markMediaThumbLoaded = useCallback((thumbKey) => {
     const timerId = thumbFallbackTimersRef.current.get(thumbKey);
     if (timerId) {
       window.clearTimeout(timerId);
@@ -1030,9 +1032,9 @@ export function MessageFiles({
       return next;
     });
     onMessageMediaLoaded?.();
-  };
+  }, [setLoadedMediaThumbs, mediaThumbCacheKey, mediaCacheVersion, onMessageMediaLoaded, writeMediaCache]);
 
-  const scheduleThumbFallback = (thumbKey, delayMs) => {
+  const scheduleThumbFallback = useCallback((thumbKey, delayMs) => {
     if (typeof window === "undefined") return;
     if (loadedMediaThumbs.has(thumbKey)) return;
     if (thumbFallbackTimersRef.current.has(thumbKey)) return;
@@ -1043,7 +1045,7 @@ export function MessageFiles({
       markMediaThumbLoaded(thumbKey);
     }, fallbackDelay);
     thumbFallbackTimersRef.current.set(thumbKey, timerId);
-  };
+  }, [loadedMediaThumbs, isDesktop, markMediaThumbLoaded]);
 
   useEffect(() => {
     const activeThumbs = new Set();
@@ -1075,7 +1077,10 @@ export function MessageFiles({
     resolveFileRenderType,
     videoPosterByUrl,
     isDesktop,
+    scheduleThumbFallback,
   ]);
+
+  if (!files.length) return null;
 
   const handleVideoThumbReady = (event, thumbKey, videoUrl) => {
     const video = event.currentTarget;

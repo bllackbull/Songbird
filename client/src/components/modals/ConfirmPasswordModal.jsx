@@ -19,7 +19,6 @@ export default function ConfirmPasswordModal({
 
   useEffect(() => {
     if (!open) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setStep("confirm");
       setPassword("");
       setShowPassword(false);

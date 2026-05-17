@@ -55,8 +55,8 @@ export default function NewGroupModal({
   remoteChannelMediaStreamAllowed = false,
   entityLabel = "Group",
   onDeleteChat,
-  chatId = null,
-  username = "",
+  chatId: _chatId = null,
+  username: _username = "",
 }) {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [remoteSourceMenuOpen, setRemoteSourceMenuOpen] = useState(false);
