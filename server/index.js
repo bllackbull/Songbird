@@ -773,7 +773,7 @@ if (isProduction) {
     }),
   );
 
-  app.get("*", (req, res) => {
+  app.get("*path", (req, res) => {
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.sendFile(path.join(clientDist, "index.html"));
   });
