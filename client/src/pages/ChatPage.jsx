@@ -31,6 +31,7 @@ import { useNewChatSearch } from "../hooks/chat/useNewChatSearch.js";
 import { useNewGroupModal } from "../hooks/chat/useNewGroupModal.js";
 import { usePerfTelemetry } from "../hooks/chat/usePerfTelemetry.js";
 import { useResumeRefresh } from "../hooks/chat/useResumeRefresh.js";
+import { useMessageVisibility } from "../hooks/chat/useMessageVisibility.js";
 import { useAppReleaseInfo } from "../hooks/useAppReleaseInfo.js";
 import { Bookmark } from "../icons/lucide.js";
 import { CLIPBOARD_COPY_EVENT } from "../utils/clipboard.js";
@@ -392,6 +393,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const channelSeenQueueRef = useRef([]);
   const channelSeenActiveRef = useRef(false);
   const channelSeenLoadedRef = useRef(new Set());
+  // Always-current snapshot of messages for use in callbacks without stale closures
+  const messagesRef = useRef([]);
   const channelSeenTimerRef = useRef(null);
   const channelSeenLatestRefreshRef = useRef(0);
   const messagesCacheRef = useRef(new Map());
@@ -1338,6 +1341,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setUnreadInChat,
     setIsAtBottom,
     setUserScrolledUp,
+    setChats,
+    unreadMarkerIdRef,
+    openingChatRef,
   });
 
 
@@ -1611,11 +1617,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       openingChatRef.current = true;
       pendingScrollToBottomRef.current = false;
       suppressScrolledUpRef.current = true;
-      setChats((prev) =>
-        prev.map((chat) =>
-            chat.id === openedChatId ? { ...chat, unread_count: 0 } : chat,
-        ),
-      );
       const unreadCount = Number(openedChat?.unread_count || 0);
       // MOBILE FIX: Always respect messageFetchLimit, even on mobile.
       // Loading 10,000 messages causes severe performance issues on mobile devices.
@@ -1676,7 +1677,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           canMarkReadNow &&
           isAppActiveNow &&
           isAtBottomRef.current &&
-          !userScrolledUpRef.current
+          !userScrolledUpRef.current &&
+          unreadMarkerIdRef.current === null &&
+          openingUnreadCountRef.current === 0
         ) {
           await markMessagesRead({ chatId: openedChatId, username: user.username }).catch(
             () => null,
@@ -1847,6 +1850,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     messagesLength: messages.length,
     loadingMessages,
   });
+
+  // Keep messagesRef in sync so callbacks can read current messages without
+  // stale closures and without adding messages to their dependency arrays.
+  messagesRef.current = messages;
 
   const getVisibleChannelMessageIds = useCallback(() => {
     if (!chatScrollRef.current) return [];
@@ -3084,6 +3091,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   useLayoutEffect(() => {
     if (!activeChatId) return;
+    // Only re-align on initial open (pendingScrollToUnreadRef is set by the
+    // loader). Do NOT re-fire when unreadMarkerId changes mid-session — that
+    // would scroll the user back to the chip every time a new message arrives.
+    if (!pendingScrollToUnreadRef.current) return;
     if (!unreadMarkerIdRef.current) return;
     if (loadingMessages || messages.length === 0) return;
     const unreadId = Number(unreadMarkerIdRef.current || 0);
@@ -3164,23 +3175,19 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, [showSettings, settingsPanel]);
 
   useEffect(() => {
+    if (!isAppActive) return;
     const activeId = activeChatIdRef.current;
-    const isDocumentActiveNow =
-      typeof document !== "undefined" &&
-      document.visibilityState === "visible" &&
-      document.hasFocus();
     if (
       !activeId ||
       !user?.username ||
       isMarkingReadRef.current ||
-      !isDocumentActiveNow ||
       !canMarkReadInCurrentView ||
       !isAtBottomRef.current ||
       userScrolledUpRef.current
     ) {
       return;
     }
-    const hasUnreadFromOthers = messages.some(
+    const hasUnreadFromOthers = messagesRef.current.some(
       (msg) =>
         isMessageFromOtherUser(msg, { username: user?.username }) &&
         !msg._readByMe,
@@ -3201,7 +3208,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       .finally(() => {
         isMarkingReadRef.current = false;
       });
-  }, [messages, user?.username, isAppActive, canMarkReadInCurrentView]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAppActive, user?.username, canMarkReadInCurrentView]);
 
   useResumeRefresh({
     isAppActive,
@@ -3209,6 +3217,62 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     loadChatsRef,
     scheduleMessageRefreshRef,
     activeChatIdRef,
+  });
+
+  // Per-message visibility tracking: mark each unread message as seen as it
+  // scrolls into view and decrement the sidebar badge.
+  // The chip (unreadMarkerId) is intentionally NOT moved — it stays fixed at
+  // the original first-unread position for the duration of this chat session.
+  // It only repositions on the next open of the chat.
+  const handleMessageSeen = useCallback(
+    (messageId) => {
+      const id = Number(messageId);
+      if (!id || !activeChatIdRef.current || !user?.username) return;
+      if (!canMarkReadInCurrentView) return;
+
+      // Mark the message as read in local state immediately
+      setMessages((prev) =>
+        prev.map((msg) => {
+          const serverId = Number(msg?._serverId || msg?.id || 0);
+          if (serverId !== id) return msg;
+          if (msg._readByMe) return msg;
+          return { ...msg, _readByMe: true };
+        }),
+      );
+
+      // Decrement the sidebar unread badge by 1 (floor at 0)
+      setChats((prev) =>
+        prev.map((chat) => {
+          if (Number(chat?.id) !== Number(activeChatIdRef.current)) return chat;
+          const next = Math.max(0, Number(chat?.unread_count || 0) - 1);
+          return { ...chat, unread_count: next };
+        }),
+      );
+
+      // Fire the API call (best-effort)
+      markMessageRead({
+        chatId: activeChatIdRef.current,
+        username: user.username,
+        messageId: id,
+      }).catch(() => null);
+    },
+    [
+      activeChatIdRef,
+      canMarkReadInCurrentView,
+      markMessageRead,
+      setChats,
+      setMessages,
+      user,
+    ],
+  );
+
+  const { registerMessageRef } = useMessageVisibility({
+    activeChatId,
+    user,
+    canMarkReadInCurrentView,
+    isAppActive,
+    chatScrollRef,
+    onMessageSeen: handleMessageSeen,
   });
 
   const pruneDeletedMessagesFromCache = useCallback(
@@ -4242,16 +4306,32 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               typeof document !== "undefined" &&
               document.visibilityState === "visible" &&
               document.hasFocus();
+            // Only zero the badge for the active chat if the user has actually
+            // scrolled to the bottom and seen everything (no unread marker).
+            // Without this guard, any loadChats call (SSE, polling, etc.) would
+            // instantly clear the badge even while the user is reading.
+            // Also never clear while the chat is still opening (openingChatRef).
+            const userIsAtBottom =
+              isAtBottomRef.current &&
+              !userScrolledUpRef.current &&
+              unreadMarkerIdRef.current === null &&
+              !openingChatRef.current;
             const canClearActiveUnread =
               isActiveChat &&
               !options.preserveActiveUnread &&
-              isReadableNow;
+              isReadableNow &&
+              userIsAtBottom;
             const resolveUnread = (serverCount, prevChat) => {
               if (canClearActiveUnread) return 0;
               const server = Number(serverCount || 0);
-              if (isActiveChat && options.preserveActiveUnread && isReadableNow) {
+              if (isActiveChat && isReadableNow) {
                 const local = Number(prevChat?.unread_count ?? server);
-                return Math.min(server, local);
+                if (openingChatRef.current || unreadMarkerIdRef.current !== null) {
+                  return local;
+                }
+                if (options.preserveActiveUnread) {
+                  return Math.min(server, local);
+                }
               }
               return server;
             };
@@ -6422,6 +6502,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         copyToastVisible={copyToastVisible}
         microphonePermissionStatus={microphonePermission}
         onRequestMicrophonePermission={requestMicrophonePermission}
+        registerMessageRef={registerMessageRef}
         permissionsPrompt={{
           show: showPermissionsPrompt,
           mode: activePermissionPrompt,

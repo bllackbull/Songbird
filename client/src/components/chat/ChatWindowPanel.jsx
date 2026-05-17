@@ -119,6 +119,7 @@ export default function ChatWindowPanel({
   onRequestMicrophonePermission = null,
   permissionsPrompt = null,
   copyToastVisible = false,
+  registerMessageRef = null,
 }) {
   const MEDIA_CACHE_VERSION = 1;
   const MEDIA_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -1126,6 +1127,7 @@ export default function ChatWindowPanel({
       onForwardMessage={onForwardMessage}
       mentionRefreshToken={mentionRefreshToken}
       onOpenContextMenu={onOpenContextMenu}
+      visibilityRef={registerMessageRef ? registerMessageRef(msg) : null}
       onJumpToMessage={(messageId) => {
         const target = document.getElementById(`message-${messageId}`);
         if (target && typeof target.scrollIntoView === "function") {

@@ -161,6 +161,7 @@ export const MessageItem = memo(function MessageItem({
   onJumpToMessage,
   canSwipeReply = true,
   onOpenContextMenu,
+  visibilityRef = null,
 }) {
   const isOwn = !isChannelChat && msg.username === user.username;
   const isRead = Boolean(msg.read_at);
@@ -840,6 +841,7 @@ export const MessageItem = memo(function MessageItem({
       data-msg-day={dayLabel}
       data-msg-day-key={msg?._dayKey || ""}
       style={{ scrollMarginTop: "96px" }}
+      ref={visibilityRef}
       className={`w-full max-w-full overflow-x-hidden px-0 pb-3 md:px-3 ${
         isFirstInGroup ? "pt-2" : ""
       }`}

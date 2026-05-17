@@ -22,6 +22,9 @@ export function useChatScroll({
   setUnreadInChat,
   setIsAtBottom,
   setUserScrolledUp,
+  setChats,
+  unreadMarkerIdRef,
+  openingChatRef,
 }) {
   const CHAT_BOTTOM_THRESHOLD_PX = 24;
   const SCROLLED_UP_INDICATOR_THRESHOLD_PX = 160;
@@ -170,7 +173,9 @@ export function useChatScroll({
         ) {
           if (
             pendingScrollToUnreadRef.current !== null ||
-            Number(unreadAnchorLockUntilRef.current || 0) > Date.now()
+            Number(unreadAnchorLockUntilRef.current || 0) > Date.now() ||
+            unreadMarkerIdRef.current !== null ||
+            openingChatRef.current
           ) {
             return;
           }
@@ -178,6 +183,14 @@ export function useChatScroll({
             (msg) => isMessageFromOtherUser(msg, user) && !msg._readByMe,
           );
           if (hasUnreadFromOthers) {
+            // Clear the sidebar badge — the user has scrolled to the bottom.
+            setChats((prev) =>
+              prev.map((chat) =>
+                Number(chat?.id) === Number(activeId)
+                  ? { ...chat, unread_count: 0 }
+                  : chat,
+              ),
+            );
             isMarkingReadRef.current = true;
             markMessagesRead({ chatId: activeId, username: user.username })
               .catch(() => null)
@@ -198,12 +211,15 @@ export function useChatScroll({
       markMessagesRead,
       mediaLoadSnapTimerRef,
       messages,
+      openingChatRef,
       pendingScrollToUnreadRef,
+      setChats,
       setIsAtBottom,
       setUnreadInChat,
       setUserScrolledUp,
       suppressScrolledUpRef,
       unreadAnchorLockUntilRef,
+      unreadMarkerIdRef,
       user,
       userScrolledUpRef,
       SCROLLED_UP_INDICATOR_THRESHOLD_PX,

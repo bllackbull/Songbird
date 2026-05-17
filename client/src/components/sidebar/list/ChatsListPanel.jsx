@@ -776,8 +776,6 @@ export default function ChatsListPanel({
                   if (window.matchMedia("(max-width: 767px)").matches) {
                     setMobileTab("chat");
                   }
-                  isAtBottomRef.current = true;
-                  setIsAtBottom(true);
                   setUnreadInChat(0);
                   lastMessageIdRef.current = null;
                 }}

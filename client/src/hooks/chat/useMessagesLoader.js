@@ -1007,7 +1007,7 @@ export function useMessagesLoader({
         (!isMobileViewport || mobileTab === "chat") &&
         isAtBottomRef.current &&
         !userScrolledUpRef.current &&
-        (shouldAutoMarkReadRef.current || options.initialLoad)
+        shouldAutoMarkReadRef.current
       ) {
         await markMessagesRead({ chatId, username: user.username }).catch(
           () => null,
