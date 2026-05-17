@@ -2783,13 +2783,17 @@ ensure_songbird_stopped_for_update() {
   log "Checking whether Songbird is running before update..."
 
   if songbird_service_is_running; then
-    warn "Songbird service is running. Stop it before updating so database migrations cannot race the running server."
-    press_enter_to_continue
-    return 1
+    log "Songbird service is running. Stopping it before update..."
+    if ! run_as_root systemctl stop songbird.service; then
+      warn "Failed to stop Songbird service. Stop it manually before updating."
+      press_enter_to_continue
+      return 1
+    fi
+    log "Songbird service stopped."
   fi
 
   if songbird_healthcheck_responds "$port"; then
-    warn "Songbird is running on port ${port}. Stop it before updating so database migrations cannot race the running server."
+    warn "Songbird is still running on port ${port}. Stop it before updating."
     press_enter_to_continue
     return 1
   fi
