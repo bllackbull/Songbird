@@ -3102,11 +3102,22 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   useLayoutEffect(() => {
     if (!activeChatId) return;
     if (!pendingScrollToBottomRef.current) return;
-    if (
-      pendingScrollToUnreadRef.current !== null ||
-      unreadMarkerIdRef.current !== null ||
-      Date.now() < Number(unreadAnchorLockUntilRef.current || 0)
-    ) {
+    if (pendingScrollToUnreadRef.current !== null) {
+      pendingScrollToBottomRef.current = false;
+      return;
+    }
+    if (unreadMarkerIdRef.current !== null) {
+      if (isAtBottomRef.current && !userScrolledUpRef.current) {
+        setUnreadMarkerId(null);
+        unreadMarkerIdRef.current = null;
+        unreadAnchorLockUntilRef.current = 0;
+        clearUnreadAlignTimers();
+      } else {
+        pendingScrollToBottomRef.current = false;
+        return;
+      }
+    }
+    if (Date.now() < Number(unreadAnchorLockUntilRef.current || 0)) {
       pendingScrollToBottomRef.current = false;
       return;
     }
@@ -3175,6 +3186,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         !msg._readByMe,
     );
     if (!hasUnreadFromOthers) return;
+
+    setChats((prev) =>
+      prev.map((chat) =>
+        Number(chat?.id) === Number(activeId)
+          ? { ...chat, unread_count: 0 }
+          : chat,
+      ),
+    );
 
     isMarkingReadRef.current = true;
     markMessagesRead({ chatId: activeId, username: user.username })
@@ -4218,13 +4237,24 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           .map((chat) => {
             const isActiveChat =
               Number(activeChatIdRef.current || 0) === Number(chat?.id || 0);
-            const canClearActiveUnread =
-              isActiveChat &&
-              !options.preserveActiveUnread &&
+            const isReadableNow =
               canMarkReadInCurrentView &&
               typeof document !== "undefined" &&
               document.visibilityState === "visible" &&
               document.hasFocus();
+            const canClearActiveUnread =
+              isActiveChat &&
+              !options.preserveActiveUnread &&
+              isReadableNow;
+            const resolveUnread = (serverCount, prevChat) => {
+              if (canClearActiveUnread) return 0;
+              const server = Number(serverCount || 0);
+              if (isActiveChat && options.preserveActiveUnread && isReadableNow) {
+                const local = Number(prevChat?.unread_count ?? server);
+                return Math.min(server, local);
+              }
+              return server;
+            };
             const muted = Boolean(Number(chat?.muted || 0));
             const files = Array.isArray(chat?.last_message_files)
               ? chat.last_message_files
@@ -4253,18 +4283,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                 ...chat,
                 _lastMessagePending: true,
                 last_message_read_at: null,
-                unread_count: canClearActiveUnread
-                  ? 0
-                  : Number(chat?.unread_count || 0),
+                unread_count: resolveUnread(chat?.unread_count, prevChats.find((p) => Number(p.id) === Number(chat.id))),
                 _muted: muted,
               };
             }
             if (!hasProcessingVideo || !isFromOther) {
               return {
                 ...chat,
-                unread_count: canClearActiveUnread
-                  ? 0
-                  : Number(chat?.unread_count || 0),
+                unread_count: resolveUnread(chat?.unread_count, prevChats.find((p) => Number(p.id) === Number(chat.id))),
                 _muted: muted,
               };
             }
@@ -4274,9 +4300,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             if (!previous) {
               return {
                 ...chat,
-                unread_count: canClearActiveUnread
-                  ? 0
-                  : Number(chat?.unread_count || 0),
+                unread_count: resolveUnread(chat?.unread_count, null),
                 _muted: muted,
               };
             }
@@ -4292,9 +4316,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               last_message_read_at:
                 previous.last_message_read_at ?? chat.last_message_read_at ?? null,
               last_message_files: previous.last_message_files || [],
-              unread_count: canClearActiveUnread
-                ? 0
-                : Number(chat?.unread_count || previous.unread_count || 0),
+              unread_count: resolveUnread(chat?.unread_count, previous),
               _muted: muted,
             };
           })
