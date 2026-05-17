@@ -3939,7 +3939,7 @@ db_chat_edit() {
 
   chat="$(prompt_non_empty "Chat id or username")"
   
-  configure_remote="$(prompt_yes_no "Update remote channel configuration or queue?" "no")"
+  configure_remote="$(prompt_yes_no "Update remote channel configuration?" "no")"
   
   if [[ "$configure_remote" == "yes" ]]; then
     local remote_enabled="$(get_existing_env_value "REMOTE_CHANNEL" "false")"
@@ -3956,8 +3956,8 @@ db_chat_edit() {
     printf "  1. Update Telegram source\n"
     printf "  2. Toggle sync metadata\n"
     printf "  3. Toggle stream media\n"
-    printf "  4. Enable remote channeln"
-    printf "  5. Disable remote channeln"
+    printf "  4. Enable remote channel\n"
+    printf "  5. Disable remote channel\n"
     printf "  6. Pause queue\n"
     printf "  7. Resume queue\n"
     printf "  8. Skip current queue item\n"
