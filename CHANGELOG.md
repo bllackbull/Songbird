@@ -1,13 +1,13 @@
-## 0.10.0
-
-### New Features
-
-- 📡 Remote Channel
+## 0.10.1
 
 ### Improvements
 
-- 🔗 Invite Link System simplification
-- 🎨 Create/Edit Chat modal UI overhaul
+- 📄 Remote channel queue status report on channel profile.
+- 🎛️ Remote channel queue action buttons to pause, skip or test connection.
+- 📡 Force remote channel client reset on connection erros to prevent reconnection deadlock.
+- 💨 Channel profile modal Loading Speed improvement while remote channel is active.
+- ⚙️ env vars to disable remote channel option or stream media option in UI.
+- ➕ Remote channel configuration support in "Create Chat" and "Edit Chat" database commands.
 - 🔧 Bug fixes
 
 **⏺️ If you encountered any problem, don't forget to submit an issue on Songbird github repository.**
@@ -19,6 +19,18 @@
 📢 [Songbird Telegram channel](https://t.me/songbirdapp)
 
 🌐 [Songbird Github repository](https://github.com/bllackbull/Songbird)
+
+## 0.10.0
+
+### New Features
+
+- 📡 Remote Channel
+
+### Improvements
+
+- 🔗 Invite Link System simplification
+- 🎨 Create/Edit Chat modal UI overhaul
+- 🔧 Bug fixes
 
 ## 0.9.2
 
