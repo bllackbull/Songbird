@@ -5,7 +5,9 @@
 - 📄 Remote channel queue status report on channel profile.
 - 🎛️ Remote channel queue action buttons to pause, skip or test connection.
 - 📡 Force remote channel client reset on connection erros to prevent reconnection deadlock.
-- 💨 Channel profile modal Loading Speed improvement while remote channel is active.
+- 📨 Parallelize remote channel source polling.
+- 🔗 Proxy configuration to reach push notification endpoints.
+- 💨 Remote channel optimization and loading speed improvements.
 - ⚙️ env vars to disable remote channel option or stream media option in UI.
 - ➕ Remote channel configuration support in "Create Chat" and "Edit Chat" database commands.
 - 🔧 Bug fixes

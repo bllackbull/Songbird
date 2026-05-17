@@ -757,6 +757,21 @@ export function updateRemoteChannelSourcePaused(sourceId, paused) {
   );
 }
 
+export function getCurrentRemoteChannelQueueItemId(sourceId) {
+  const id = Number(sourceId || 0);
+  if (!id) return null;
+
+  const row = getRow(
+    `SELECT id FROM remote_channel_queue
+     WHERE source_id = ?
+       AND status IN ('pending', 'retry', 'processing')
+     ORDER BY id ASC
+     LIMIT 1`,
+    [id],
+  );
+  return row ? Number(row.id) : null;
+}
+
 export function skipCurrentRemoteChannelQueueItem(sourceId) {
   const id = Number(sourceId || 0);
   if (!id) return 0;

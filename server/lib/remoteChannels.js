@@ -581,6 +581,7 @@ function createRemoteChannelManager(deps = {}) {
     markRemoteChannelQueueItemSkipped,
     skipAllRemoteChannelQueueItems: skipAllRemoteChannelQueueItemsDb,
     skipCurrentRemoteChannelQueueItem: skipCurrentRemoteChannelQueueItemDb,
+    getCurrentRemoteChannelQueueItemId,
     path,
     probeVideoMetadata,
     sanitizeDurationSeconds,
@@ -1819,8 +1820,9 @@ function createRemoteChannelManager(deps = {}) {
     const staleBefore = new Date(Date.now() - staleLockMs).toISOString();
     releaseStaleRemoteChannelQueueItems(staleBefore);
 
-    // Claim the full batch up-front, then process all items concurrently so
-    // that slow media downloads on one item do not block text-only items.
+    // Claim the full batch up-front, then process items concurrently across
+    // different sources. Items from the same source are processed sequentially
+    // to preserve chronological mirroring order.
     const items = [];
     for (let index = 0; index < queueBatchSize; index += 1) {
       if (stopped) break;
@@ -1831,9 +1833,25 @@ function createRemoteChannelManager(deps = {}) {
       if (!item?.id) break;
       items.push(item);
     }
-    if (items.length) {
-      await Promise.all(items.map((item) => processClaimedItem(item)));
+    if (!items.length) return;
+
+    // Group by source_id so each source's items run in order.
+    const bySource = new Map();
+    for (const item of items) {
+      const key = Number(item.source_id);
+      if (!bySource.has(key)) bySource.set(key, []);
+      bySource.get(key).push(item);
     }
+
+    // Run each source's chain concurrently with other sources.
+    await Promise.all(
+      [...bySource.values()].map((sourceItems) =>
+        sourceItems.reduce(
+          (chain, item) => chain.then(() => processClaimedItem(item)),
+          Promise.resolve(),
+        ),
+      ),
+    );
   }
 
   async function runQueueLoop() {
@@ -1928,13 +1946,14 @@ function createRemoteChannelManager(deps = {}) {
   function abortQueueItem(sourceId) {
     const id = Number(sourceId || 0);
     if (!id) return 0;
+    const itemId = getCurrentRemoteChannelQueueItemId(id);
     // Mark the lowest active item in the DB as skipped.
     const count = skipCurrentRemoteChannelQueueItemDb(id);
-    // Signal abort for any in-flight item on this source. We can't cheaply
-    // know the exact item ID without an extra query, so we use the source-level
-    // abort set with a short TTL so only the current batch is affected.
-    abortedSourceIds.add(id);
-    setTimeout(() => abortedSourceIds.delete(id), queueIntervalMs * 2 + staleLockMs);
+    // Signal abort for the specific in-flight item only.
+    if (itemId) {
+      abortedItemIds.add(itemId);
+      setTimeout(() => abortedItemIds.delete(itemId), queueIntervalMs * 2 + staleLockMs);
+    }
     return count;
   }
 
