@@ -143,17 +143,17 @@ export default function NewGroupModal({
   const remoteChannelSyncMetadata = Boolean(
     groupForm.remoteChannelSyncMetadata,
   );
-  const remoteChannelStreamMedia =
-    fileUploadEnabled &&
-    remoteChannelMediaStreamAllowed &&
-    Boolean(groupForm.remoteChannelStreamMedia);
   const privateChatEnabled = groupForm.visibility === "private";
   const memberInvitesLocked = !privateChatEnabled;
   const memberInvitesEnabled =
     memberInvitesLocked || groupForm.allowMemberInvites !== false;
   const remoteChannelLocked = privateChatEnabled || !remoteChannelAvailable;
   const effectiveRemoteChannelEnabled =
-    !remoteChannelLocked && remoteChannelEnabled;
+    privateChatEnabled ? false : remoteChannelEnabled;
+  const remoteChannelStreamMediaLocked = !fileUploadEnabled || !remoteChannelMediaStreamAllowed;
+  const remoteChannelStreamMedia =
+    fileUploadEnabled &&
+    Boolean(groupForm.remoteChannelStreamMedia);
   const remoteProviderLabel =
     groupForm.remoteChannelProvider === "telegram" ? "Telegram" : "Telegram";
   const privacyOptionClass = (locked = false) =>
@@ -590,9 +590,9 @@ export default function NewGroupModal({
                       type="button"
                       role="switch"
                       aria-checked={remoteChannelStreamMedia}
-                      disabled={!fileUploadEnabled || !remoteChannelMediaStreamAllowed}
+                      disabled={remoteChannelStreamMediaLocked}
                       onClick={() => {
-                        if (!fileUploadEnabled || !remoteChannelMediaStreamAllowed) return;
+                        if (remoteChannelStreamMediaLocked) return;
                         setGroupForm((prev) => ({
                           ...prev,
                           remoteChannelStreamMedia:
@@ -600,7 +600,7 @@ export default function NewGroupModal({
                         }));
                       }}
                       className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left text-sm font-semibold transition ${
-                        fileUploadEnabled && remoteChannelMediaStreamAllowed
+                        !remoteChannelStreamMediaLocked
                           ? "border-emerald-200/70 bg-white/90 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_18px_rgba(16,185,129,0.18)] dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
                           : "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-500"
                       }`}

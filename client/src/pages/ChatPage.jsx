@@ -5689,9 +5689,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           const source = data?.source || null;
           setNewGroupForm((prev) => ({
             ...prev,
-            remoteChannelEnabled:
-              Boolean(appInfo?.remoteChannels?.uiEnabled) &&
-              Boolean(source?.enabled),
+            remoteChannelEnabled: Boolean(source?.enabled),
             remoteChannelProvider: source?.provider || "telegram",
             remoteChannelSource:
               source?.sourceRaw ||
@@ -5701,7 +5699,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             remoteChannelSyncMetadata: Boolean(source?.syncMetadata),
             remoteChannelStreamMedia:
               CHAT_PAGE_CONFIG.fileUploadEnabled &&
-              Boolean(appInfo?.remoteChannels?.mediaStreamEnabled) &&
               Boolean(source?.streamMedia),
             remoteChannelStatus: data,
             remoteChannelLoading: false,
@@ -5850,7 +5847,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       ? newGroupForm.remoteChannelStatus?.source || null
       : null;
     const originalEnabled =
-      Boolean(appInfo?.remoteChannels?.uiEnabled) &&
       Boolean(originalRemoteChannel?.enabled);
     const originalSource =
       originalRemoteChannel?.sourceRaw ||
@@ -5862,7 +5858,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const originalSyncMetadata = Boolean(originalRemoteChannel?.syncMetadata);
     const originalStreamMedia =
       CHAT_PAGE_CONFIG.fileUploadEnabled &&
-      Boolean(appInfo?.remoteChannels?.mediaStreamEnabled) &&
       Boolean(originalRemoteChannel?.streamMedia);
     const remoteChannelChanged =
       remoteChannelEnabled !== originalEnabled ||
