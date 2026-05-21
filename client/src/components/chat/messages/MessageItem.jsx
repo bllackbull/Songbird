@@ -27,7 +27,7 @@ import {
   extractMessageBodyText,
   FILE_SUMMARY_PATTERN,
 } from "../../../utils/messageContent.js";
-import { resolveMention } from "../../../utils/mentions.js";
+import { resolveMention, getCachedMention } from "../../../utils/mentions.js";
 import { summarizeFiles } from "../../../utils/messagePreview.js";
 import Avatar from "../../common/Avatar.jsx";
 
@@ -364,14 +364,29 @@ export const MessageItem = memo(function MessageItem({
           .replace(/^@/, "");
       const mention = String(rawMention || "").toLowerCase();
       if (!mention) return;
+
+      // Open the modal immediately with cached data (if available) so the
+      // user sees something right away, then refresh in the background.
+      const cached = getCachedMention(mention, { allowStale: true });
+      if (cached?.status === "valid" && cached.data) {
+        markValid(mentionEl);
+        if (typeof onOpenMentionRef.current === "function") {
+          onOpenMentionRef.current(cached.data);
+        }
+      }
+
       resolveMention(mention, user.username, {
         fallbackToCacheOnError: true,
+        // Force a fresh fetch only when there was no usable cache hit
+        force: !cached || cached.status !== "valid",
       }).then((result) => {
         if (!result || result.status !== "valid") {
           markInvalid(mentionEl);
           return;
         }
         markValid(mentionEl);
+        // If we already opened with cached data, the modal is already visible;
+        // openMentionProfile will update it with fresh data.
         if (typeof onOpenMentionRef.current === "function") {
           onOpenMentionRef.current(result.data);
         }
