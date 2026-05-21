@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
+import { LoaderCircle } from "../../icons/lucide.js";
 
 const DELETE_FOR_EVERYONE_PREFERENCE_KEY =
   "songbird-delete-message-for-everyone";
@@ -18,6 +19,7 @@ export default function DeleteMessageScopeModal({
   const [deleteForEveryone, setDeleteForEveryone] = useState(
     readDeleteForEveryonePreference,
   );
+  const [submitting, setSubmitting] = useState(false);
 
   const handleDeleteForEveryoneChange = (nextValue) => {
     setDeleteForEveryone(nextValue);
@@ -26,6 +28,16 @@ export default function DeleteMessageScopeModal({
       DELETE_FOR_EVERYONE_PREFERENCE_KEY,
       nextValue ? "1" : "0",
     );
+  };
+
+  const handleConfirm = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      await onConfirm?.(allowDeleteForEveryone ? deleteForEveryone : false);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (!open) return null;
@@ -48,7 +60,8 @@ export default function DeleteMessageScopeModal({
             onClick={() => handleDeleteForEveryoneChange(!deleteForEveryone)}
             role="switch"
             aria-checked={deleteForEveryone}
-            className="mt-4 flex w-full items-center justify-between rounded-2xl border border-emerald-200/70 bg-white/90 px-4 py-3 text-left text-sm font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_18px_rgba(16,185,129,0.18)] dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+            disabled={submitting}
+            className="mt-4 flex w-full items-center justify-between rounded-2xl border border-emerald-200/70 bg-white/90 px-4 py-3 text-left text-sm font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_18px_rgba(16,185,129,0.18)] disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
           >
             <span>Delete for everyone</span>
             <span
@@ -66,19 +79,23 @@ export default function DeleteMessageScopeModal({
           <button
             type="button"
             onClick={() => {
+              if (submitting) return;
               onClose?.();
             }}
-            className="rounded-full border border-emerald-200 bg-white px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+            disabled={submitting}
+            className="rounded-full border border-emerald-200 bg-white px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
           >
             Cancel
           </button>
           <button
             type="button"
-            onClick={() => {
-              onConfirm?.(allowDeleteForEveryone ? deleteForEveryone : false);
-            }}
-            className="rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:shadow-[0_0_14px_rgba(244,63,94,0.2)] dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200"
+            onClick={handleConfirm}
+            disabled={submitting}
+            className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:shadow-[0_0_14px_rgba(244,63,94,0.2)] disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200"
           >
+            {submitting ? (
+              <LoaderCircle size={13} className="animate-spin" />
+            ) : null}
             Delete
           </button>
         </div>

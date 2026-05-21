@@ -27,6 +27,7 @@ export default function RemoteChannelQueueStatus({
   onTestConnection,
   testConnectionResult = null,
   testConnectionLoading = false,
+  actionLoading = false,
 }) {
   const pending = Number(queue.pending || 0);
   const processing = Number(queue.processing || 0);
@@ -127,42 +128,47 @@ export default function RemoteChannelQueueStatus({
           <button
             type="button"
             onClick={onResume || onPause}
-            disabled={!onResume && !onPause}
+            disabled={(!onResume && !onPause) || actionLoading}
             className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
             title={onResume ? "Resume queue" : "Pause queue"}
           >
-            {onResume ? (
-              <>
-                <Play size={13} />
-                Resume
-              </>
+            {actionLoading ? (
+              <LoaderCircle size={13} className="animate-spin" />
+            ) : onResume ? (
+              <Play size={13} />
             ) : (
-              <>
-                <Pause size={13} />
-                Pause
-              </>
+              <Pause size={13} />
             )}
+            {onResume ? "Resume" : "Pause"}
           </button>
           
           <button
             type="button"
             onClick={onSkip}
-            disabled={!onSkip || active === 0}
+            disabled={!onSkip || active === 0 || actionLoading}
             className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
             title="Skip current item"
           >
-            <FastForward size={13} />
+            {actionLoading ? (
+              <LoaderCircle size={13} className="animate-spin" />
+            ) : (
+              <FastForward size={13} />
+            )}
             Skip
           </button>
           
           <button
             type="button"
             onClick={onSkipAll}
-            disabled={!onSkipAll || active === 0}
+            disabled={!onSkipAll || active === 0 || actionLoading}
             className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
             title="Skip all queued items"
           >
-            <SkipForward size={13} />
+            {actionLoading ? (
+              <LoaderCircle size={13} className="animate-spin" />
+            ) : (
+              <SkipForward size={13} />
+            )}
             Skip All
           </button>
           

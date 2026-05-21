@@ -2800,6 +2800,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
     const body = String(forwardMessageTarget?.body || "");
 
+    // Capture state before clearing it
+    const capturedTarget = forwardMessageTarget;
+
+    // Close the modal immediately for instant feedback
+    setForwardMessageTarget(null);
+    setForwardSavedChat(null);
+
     try {
       const res = await forwardMessage({
         username: user.username,
@@ -2810,29 +2817,27 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         forwardedFromLabel: originalForwardLabel,
         forwardedFromUserId: isActiveChannelChat
           ? null
-          : Number(forwardMessageTarget?.user_id || 0) || Number(user?.id || 0) || null,
+          : Number(capturedTarget?.user_id || 0) || Number(user?.id || 0) || null,
         forwardedFromUsername: isActiveChannelChat
           ? ""
           : String(
-              forwardMessageTarget?.username || user?.username || "",
+              capturedTarget?.username || user?.username || "",
             ).trim(),
         forwardedFromAvatarUrl: isActiveChannelChat
           ? ""
           : String(
-              forwardMessageTarget?.avatar_url || user?.avatarUrl || "",
+              capturedTarget?.avatar_url || user?.avatarUrl || "",
             ).trim(),
         forwardedFromColor: isActiveChannelChat
           ? ""
           : String(
-              forwardMessageTarget?.color || user?.color || "#10b981",
+              capturedTarget?.color || user?.color || "#10b981",
             ).trim(),
       });
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data?.error || "Unable to forward message.");
       }
-      setForwardMessageTarget(null);
-      setForwardSavedChat(null);
       await loadChats({ silent: true });
     } catch (error) {
       setUploadError(String(error?.message || "Unable to forward message."));
@@ -3373,6 +3378,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   async function performDeleteMessage(message, scope = "self") {
     const messageId = Number(message?.id || message?._serverId || 0);
     if (!activeChatId || !messageId || !user?.username) return;
+    // Close the modal and apply the local hide immediately for instant feedback
+    setMessageDeleteScopeOpen(false);
+    setPendingDeleteMessage(null);
+    applyDeletedMessageLocally(messageId);
     try {
       const res = await deleteMessage({
         chatId: Number(activeChatId),
@@ -3384,13 +3393,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (!res.ok) {
         throw new Error(data?.error || "Unable to delete message.");
       }
-      applyDeletedMessageLocally(messageId);
       await loadChats({ silent: true });
     } catch (error) {
       setUploadError(String(error?.message || "Unable to delete message."));
-    } finally {
-      setMessageDeleteScopeOpen(false);
-      setPendingDeleteMessage(null);
     }
   }
 

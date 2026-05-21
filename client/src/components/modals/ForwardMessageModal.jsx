@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Close, SendHorizontal } from "../../icons/lucide.js";
+import { Close, LoaderCircle, SendHorizontal } from "../../icons/lucide.js";
 import ForwardChatGridItem from "../forward/ForwardChatGridItem.jsx";
 import {
   canForwardToChat,
@@ -18,10 +18,12 @@ export default function ForwardMessageModal({
   onSubmit,
 }) {
   const [selectedChatIds, setSelectedChatIds] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!open) {
       setSelectedChatIds([]);
+      setSubmitting(false);
     }
   }, [open]);
 
@@ -45,6 +47,16 @@ export default function ForwardMessageModal({
 
   if (!open) return null;
 
+  const handleSubmit = async () => {
+    if (!selectedChatIds.length || submitting) return;
+    setSubmitting(true);
+    try {
+      await onSubmit?.(selectedChatIds);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
       <div className="flex w-full max-w-md flex-col overflow-hidden rounded-3xl border border-emerald-100/70 bg-white px-6 py-5 shadow-xl dark:border-emerald-500/30 dark:bg-slate-950">
@@ -55,7 +67,8 @@ export default function ForwardMessageModal({
           <button
             type="button"
             onClick={onClose}
-            className="flex items-center justify-center rounded-full border border-rose-200 p-2 text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 hover:shadow-[0_0_16px_rgba(244,63,94,0.2)] dark:border-rose-500/30 dark:text-rose-200 dark:hover:bg-rose-500/10"
+            disabled={submitting}
+            className="flex items-center justify-center rounded-full border border-rose-200 p-2 text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 hover:shadow-[0_0_16px_rgba(244,63,94,0.2)] disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-500/30 dark:text-rose-200 dark:hover:bg-rose-500/10"
             aria-label="Close"
           >
             <Close size={18} className="icon-anim-pop" />
@@ -76,6 +89,7 @@ export default function ForwardMessageModal({
                 initialsSource={display.initials}
                 selected={selected}
                 onClick={() => {
+                  if (submitting) return;
                   const chatId = Number(chat.id);
                   setSelectedChatIds((prev) =>
                     prev.includes(chatId)
@@ -91,12 +105,16 @@ export default function ForwardMessageModal({
         <div className="mt-4 flex items-center justify-end">
           <button
             type="button"
-            disabled={!selectedChatIds.length}
-            onClick={() => onSubmit?.(selectedChatIds)}
+            disabled={!selectedChatIds.length || submitting}
+            onClick={handleSubmit}
             className="inline-flex h-10 items-center gap-2 rounded-full bg-emerald-500 px-5 text-sm font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-emerald-500/40 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <SendHorizontal size={16} className="icon-anim-slide" />
-            Send
+            {submitting ? (
+              <LoaderCircle size={16} className="animate-spin" />
+            ) : (
+              <SendHorizontal size={16} className="icon-anim-slide" />
+            )}
+            {submitting ? "Sending..." : "Send"}
           </button>
         </div>
       </div>

@@ -96,9 +96,10 @@ export default function ChatProfileModal({
     try {
       const res = await pauseRemoteChannel(chat.id);
       if (res.ok) {
-        const statusRes = await getRemoteChannelSettings({ chatId: chat.id, username: currentUser.username });
-        const data = await statusRes.json();
-        if (statusRes.ok) setRemoteChannelStatus(data);
+        // Optimistically reflect the paused state; polling will sync the rest.
+        setRemoteChannelStatus((prev) =>
+          prev?.source ? { ...prev, source: { ...prev.source, paused: true } } : prev,
+        );
       }
     } catch (error) {
       console.error("Failed to pause remote channel:", error);
@@ -113,9 +114,10 @@ export default function ChatProfileModal({
     try {
       const res = await resumeRemoteChannel(chat.id);
       if (res.ok) {
-        const statusRes = await getRemoteChannelSettings({ chatId: chat.id, username: currentUser.username });
-        const data = await statusRes.json();
-        if (statusRes.ok) setRemoteChannelStatus(data);
+        // Optimistically reflect the resumed state; polling will sync the rest.
+        setRemoteChannelStatus((prev) =>
+          prev?.source ? { ...prev, source: { ...prev.source, paused: false } } : prev,
+        );
       }
     } catch (error) {
       console.error("Failed to resume remote channel:", error);
@@ -128,12 +130,12 @@ export default function ChatProfileModal({
     if (!chat?.id || remoteActionLoading) return;
     setRemoteActionLoading(true);
     try {
-      const res = await skipRemoteChannelQueueItem(chat.id);
-      if (res.ok) {
-        const statusRes = await getRemoteChannelSettings({ chatId: chat.id, username: currentUser.username });
-        const data = await statusRes.json();
-        if (statusRes.ok) setRemoteChannelStatus(data);
-      }
+      await skipRemoteChannelQueueItem(chat.id);
+      // Optimistically clear the queue display — the polling interval will
+      // refresh the real counts within 3 seconds.
+      setRemoteChannelStatus((prev) =>
+        prev ? { ...prev, queue: { ...(prev.queue || {}), pending: 0, processing: 0, retry: 0 } } : prev,
+      );
     } catch (error) {
       console.error("Failed to skip queue item:", error);
     } finally {
@@ -145,12 +147,12 @@ export default function ChatProfileModal({
     if (!chat?.id || remoteActionLoading) return;
     setRemoteActionLoading(true);
     try {
-      const res = await skipAllRemoteChannelQueueItems(chat.id);
-      if (res.ok) {
-        const statusRes = await getRemoteChannelSettings({ chatId: chat.id, username: currentUser.username });
-        const data = await statusRes.json();
-        if (statusRes.ok) setRemoteChannelStatus(data);
-      }
+      await skipAllRemoteChannelQueueItems(chat.id);
+      // Optimistically clear the queue display — the polling interval will
+      // refresh the real counts within 3 seconds.
+      setRemoteChannelStatus((prev) =>
+        prev ? { ...prev, queue: { ...(prev.queue || {}), pending: 0, processing: 0, retry: 0 } } : prev,
+      );
     } catch (error) {
       console.error("Failed to skip all queue items:", error);
     } finally {
@@ -479,6 +481,7 @@ export default function ChatProfileModal({
                       onTestConnection={remoteActionLoading || testConnectionLoading ? null : handleTestConnection}
                       testConnectionResult={testConnectionResult}
                       testConnectionLoading={testConnectionLoading}
+                      actionLoading={remoteActionLoading}
                     />
                   </div>
                 ) : null}
