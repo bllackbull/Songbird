@@ -6,6 +6,7 @@ import {
   Bookmark,
   Chat,
   Close,
+  LoaderCircle,
   LogIn,
   LogOut,
   Pencil,
@@ -439,37 +440,49 @@ export default function ChatProfileModal({
           </div>
         ) : null}
 
-        {isChannel && remoteChannelStatus?.source?.enabled ? (
+        {isChannel && remoteChannelAvailable ? (
           <div className="mt-4 rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
-            <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-              Connection
-            </p>
-            <div className="mt-3">
-              <div className="flex w-full items-center justify-between rounded-2xl border border-emerald-200/70 bg-white/90 px-4 py-3 text-sm font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-emerald-200">
-                <span className="flex items-center gap-3">
-                  <SatelliteDish size={18} />
-                  Remote Channel
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                Connection
+              </p>
+              {remoteChannelStatus === null ? (
+                <span className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                  <LoaderCircle size={14} className="animate-spin text-emerald-500" />
+                  Loading...
                 </span>
-                <span className="text-xs text-slate-600 dark:text-slate-400">
-                  {remoteChannelStatus.source.provider === "telegram" ? "Telegram" : remoteChannelStatus.source.provider}: {remoteChannelStatus.source.sourceUsername || remoteChannelStatus.source.sourceChatId}
-                </span>
-              </div>
+              ) : null}
             </div>
-            {isOwner ? (
-              <div className="mt-3">
-                <RemoteChannelQueueStatus 
-                  queue={remoteChannelStatus.source?.queue || {}} 
-                  sourceEnabled={Boolean(remoteChannelStatus.source?.enabled)}
-                  readOnly={false}
-                  onPause={remoteChannelStatus.source?.paused ? null : (remoteActionLoading ? null : handlePauseRemoteChannel)}
-                  onResume={remoteChannelStatus.source?.paused ? (remoteActionLoading ? null : handleResumeRemoteChannel) : null}
-                  onSkip={remoteActionLoading ? null : handleSkipQueueItem}
-                  onSkipAll={remoteActionLoading ? null : handleSkipAllQueueItems}
-                  onTestConnection={remoteActionLoading || testConnectionLoading ? null : handleTestConnection}
-                  testConnectionResult={testConnectionResult}
-                  testConnectionLoading={testConnectionLoading}
-                />
-              </div>
+            {remoteChannelStatus !== null && remoteChannelStatus?.source?.enabled ? (
+              <>
+                <div className="mt-3">
+                  <div className="flex w-full items-center justify-between rounded-2xl border border-emerald-200/70 bg-white/90 px-4 py-3 text-sm font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-emerald-200">
+                    <span className="flex items-center gap-3">
+                      <SatelliteDish size={18} />
+                      Remote Channel
+                    </span>
+                    <span className="text-xs text-slate-600 dark:text-slate-400">
+                      {remoteChannelStatus.source.provider === "telegram" ? "Telegram" : remoteChannelStatus.source.provider}: {remoteChannelStatus.source.sourceUsername || remoteChannelStatus.source.sourceChatId}
+                    </span>
+                  </div>
+                </div>
+                {isOwner ? (
+                  <div className="mt-3">
+                    <RemoteChannelQueueStatus 
+                      queue={remoteChannelStatus.source?.queue || {}} 
+                      sourceEnabled={Boolean(remoteChannelStatus.source?.enabled)}
+                      readOnly={false}
+                      onPause={remoteChannelStatus.source?.paused ? null : (remoteActionLoading ? null : handlePauseRemoteChannel)}
+                      onResume={remoteChannelStatus.source?.paused ? (remoteActionLoading ? null : handleResumeRemoteChannel) : null}
+                      onSkip={remoteActionLoading ? null : handleSkipQueueItem}
+                      onSkipAll={remoteActionLoading ? null : handleSkipAllQueueItems}
+                      onTestConnection={remoteActionLoading || testConnectionLoading ? null : handleTestConnection}
+                      testConnectionResult={testConnectionResult}
+                      testConnectionLoading={testConnectionLoading}
+                    />
+                  </div>
+                ) : null}
+              </>
             ) : null}
           </div>
         ) : null}
