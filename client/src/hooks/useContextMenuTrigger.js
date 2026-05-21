@@ -91,6 +91,16 @@ export function useContextMenuTrigger({
       if (!isMobile || event.pointerType !== "touch") return;
       clearHoldTimer();
       suppressClickRef.current = false;
+
+      const target = event.target instanceof Element ? event.target : null;
+      const surface = event.currentTarget instanceof Element ? event.currentTarget : null;
+      if (target && surface && target !== surface) {
+        const interactive = target.closest("button, a, input, textarea, select, [role='button']");
+        if (interactive && surface.contains(interactive) && interactive !== surface) {
+          return;
+        }
+      }
+
       const scrollTarget = findScrollableAncestor(event.target);
       pointerRef.current = {
         active: true,
