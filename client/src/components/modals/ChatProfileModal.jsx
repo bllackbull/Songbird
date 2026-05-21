@@ -291,7 +291,7 @@ export default function ChatProfileModal({
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/45 px-5">
       <div className="app-scroll max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-3xl border border-emerald-100/70 bg-white p-5 shadow-xl dark:border-emerald-500/30 dark:bg-slate-950">
         <div className="mb-3 flex items-center justify-between">
-          {!isReadOnly && (isGroup || isChannel) && isOwner ? (
+          {!isReadOnly && (isGroup || isChannel) && isOwner && onEditGroup ? (
             <button
               type="button"
               onClick={onEditGroup}

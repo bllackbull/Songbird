@@ -6741,7 +6741,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             onOpenMember={openMemberProfileFromList}
             onRemoveMember={handleRemoveGroupMember}
             onOpenUserContextMenu={openContextMenu}
-            onEditGroup={openEditGroupFromProfile}
+            onEditGroup={mentionProfileChat && Number(mentionProfileChat.id) !== Number(activeChat?.id) ? undefined : openEditGroupFromProfile}
             onEditSelfProfile={openSelfProfileEditor}
           />
         </Suspense>
