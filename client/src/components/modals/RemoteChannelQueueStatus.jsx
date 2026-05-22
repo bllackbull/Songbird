@@ -116,7 +116,7 @@ export default function RemoteChannelQueueStatus({
   // Box turns red when disconnected
   const isDisconnected = testConnectionResult === "error" && active === 0;
   const boxClass = isDisconnected
-    ? "rounded-xl border border-rose-200/80 bg-rose-50/60 px-3 py-2.5 dark:border-rose-500/30 dark:bg-rose-500/5"
+    ? "rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 dark:border-rose-500/30 dark:bg-rose-900/30"
     : "rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-2.5 dark:border-emerald-500/30 dark:bg-emerald-500/10";
 
   const canTest = Boolean(onTestConnection) && !testConnectionLoading && !actionLoading;
@@ -131,13 +131,15 @@ export default function RemoteChannelQueueStatus({
         disabled={!canTest}
         className={`w-full text-left transition ${boxClass} ${
           canTest
-            ? "cursor-pointer hover:brightness-95 dark:hover:brightness-110"
+            ? isDisconnected
+              ? "cursor-pointer hover:border-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/45"
+              : "cursor-pointer hover:border-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-500/15"
             : "cursor-default"
         }`}
         title={canTest ? "Click to test connection" : undefined}
       >
         <div className="flex items-center justify-between">
-          <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+          <p className={`text-xs font-semibold ${isDisconnected ? "text-rose-600 dark:text-rose-200" : "text-slate-700 dark:text-slate-200"}`}>
             Queue Status
           </p>
           <span className={`inline-flex items-center gap-1 text-[10px] font-medium ${connectionBadge.className}`}>
