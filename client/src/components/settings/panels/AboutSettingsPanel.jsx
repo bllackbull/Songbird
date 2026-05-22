@@ -156,13 +156,13 @@ export function AboutSettingsPanel({
       return {
         className:
           "border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200",
-        label: "Already up to date",
+        label: "Up to date",
         icon: <Check size={13} />,
       };
     }
     return {
       className: "bg-emerald-500 text-white hover:bg-emerald-400",
-      label: "Check",
+      label: appInfoLoading ? "Loading..." : versionLabel,
       icon: <Refresh size={13} />,
     };
   })();
@@ -176,16 +176,9 @@ export function AboutSettingsPanel({
             : "app-scroll max-h-[calc(100dvh-18rem)] space-y-3 overflow-y-auto pr-1"
         }
       >
-        <div className={rowBase}>
-          <span>App version</span>
-          <span className="truncate text-slate-600 dark:text-slate-300">
-            {appInfoLoading ? "Loading..." : versionLabel}
-          </span>
-        </div>
-
         <div className={`${rowBase} items-start`}>
           <div className="min-w-0 flex-1">
-            <p>Check for updates</p>
+            <p>App version</p>
             {appInfoError ? (
               <p className="mt-1 text-xs font-normal text-rose-600 dark:text-rose-300">
                 {appInfoError}
