@@ -161,7 +161,8 @@ export function AboutSettingsPanel({
       };
     }
     return {
-      className: "bg-emerald-500 text-white hover:bg-emerald-400",
+      className:
+        "border border-emerald-200 bg-white text-emerald-700 hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10",
       label: appInfoLoading ? "Loading..." : versionLabel,
       icon: <Refresh size={13} />,
     };
