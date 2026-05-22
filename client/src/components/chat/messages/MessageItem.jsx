@@ -14,6 +14,7 @@ import {
   Reply,
   Video,
 } from "../../../icons/lucide.js";
+import { FaTelegram } from "react-icons/fa6";
 import { hasPersian } from "../../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../../utils/avatarInitials.js";
 import ContextMenuSurface from "../../context-menu/ContextMenuSurface.jsx";
@@ -184,6 +185,12 @@ export const MessageItem = memo(function MessageItem({
     isRemoteForwardedOrigin
       ? Number(chatId || msg?.chat_id || msg?.chatId || msg?._chatId || 0)
       : 0;
+  // Derive the provider from the client_request_id prefix
+  const remoteForwardedProvider = isRemoteForwardedOrigin
+    ? /^remote:tg:/i.test(clientRequestId)
+      ? "telegram"
+      : "unknown"
+    : null;
   const forwardedFromUsername = String(msg?.forwarded_from_username || "").trim();
   const liveForwardedChatName = String(forwardedChat?.name || "").trim();
   const liveForwardedUserName = String(
@@ -744,6 +751,9 @@ export const MessageItem = memo(function MessageItem({
             placeholderContent={canOpenForwardedOrigin ? null : ""}
             className="h-4 w-4 shrink-0 text-[8px]"
           />
+          {remoteForwardedProvider === "telegram" ? (
+            <FaTelegram size={13} className="shrink-0" />
+          ) : null}
           <span
             className={`min-w-0 max-w-[18rem] truncate ${
               forwardedLabelHasPersian ? "font-fa" : ""
@@ -752,7 +762,9 @@ export const MessageItem = memo(function MessageItem({
             style={{ unicodeBidi: "isolate" }}
             title={forwardedFromLabel}
           >
-            {forwardedFromLabel}
+            {remoteForwardedProvider === "telegram"
+              ? forwardedFromLabel.replace(/^telegram:\s*/i, "")
+              : forwardedFromLabel}
           </span>
         </button>
       </div>
