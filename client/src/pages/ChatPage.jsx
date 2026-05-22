@@ -6723,7 +6723,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             showMembers={shouldShowMembersList}
             membersBatchSize={CHAT_PAGE_CONFIG.newChatSearchMaxResults}
             remoteChannelAvailable={Boolean(
-              appInfo?.remoteChannels?.enabled
+              appInfo?.remoteChannels?.enabled &&
+                !(mentionProfileChat && Number(mentionProfileChat.id) !== Number(activeChat?.id))
             )}
             onClose={closeProfileModal}
             onOpenChat={handleOpenProfileChat}
