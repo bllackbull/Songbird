@@ -93,6 +93,13 @@ export default function ChatProfileModal({
     return () => clearInterval(intervalId);
   }, [open, chat?.id, chat?.type, currentUser?.username, remoteChannelAvailable]);
 
+  // Auto-test connection on modal open
+  useEffect(() => {
+    if (!open || chat?.type !== "channel" || !remoteChannelAvailable || !chat?.id) return;
+    handleTestConnection();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, chat?.id, chat?.type, remoteChannelAvailable]);
+
   // Remote channel action handlers (owner only)
   const handlePauseRemoteChannel = async () => {
     if (!chat?.id || remoteActionLoading) return;
@@ -172,15 +179,12 @@ export default function ChatProfileModal({
       const res = await testRemoteChannelConnection(chat.id);
       if (res.ok) {
         setTestConnectionResult("success");
-        setTimeout(() => setTestConnectionResult(null), 3000);
       } else {
         setTestConnectionResult("error");
-        setTimeout(() => setTestConnectionResult(null), 5000);
       }
     } catch (error) {
       console.error("Failed to test connection:", error);
       setTestConnectionResult("error");
-      setTimeout(() => setTestConnectionResult(null), 5000);
     } finally {
       setTestConnectionLoading(false);
     }
