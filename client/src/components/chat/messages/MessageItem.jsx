@@ -375,11 +375,17 @@ export const MessageItem = memo(function MessageItem({
         }
       }
 
+      const needsLoad = !cached || cached.status !== "valid";
+      if (needsLoad) {
+        mentionEl.classList.add("sb-mention-loading");
+      }
+
       resolveMention(mention, user.username, {
         fallbackToCacheOnError: true,
         // Force a fresh fetch only when there was no usable cache hit
-        force: !cached || cached.status !== "valid",
+        force: needsLoad,
       }).then((result) => {
+        mentionEl.classList.remove("sb-mention-loading");
         if (!result || result.status !== "valid") {
           markInvalid(mentionEl);
           return;
