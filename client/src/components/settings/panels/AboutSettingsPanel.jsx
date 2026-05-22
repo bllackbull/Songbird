@@ -24,30 +24,25 @@ function WalletRow({ label, address }) {
 
   return (
     <div className="rounded-2xl border border-emerald-200/70 bg-white/90 p-3 dark:border-emerald-500/30 dark:bg-slate-900/50">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-600 dark:text-emerald-300">
-            {label}
-          </p>
-          <code className="mt-2 block break-all text-xs text-slate-700 dark:text-slate-200">
-            {address}
-          </code>
-        </div>
-        <button
-          type="button"
-          onClick={async () => {
-            const didCopy = await copyTextToClipboard(address);
-            if (!didCopy) return;
-            setCopied(true);
-            window.setTimeout(() => setCopied(false), 1400);
-          }}
-          className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
-          aria-label={`Copy ${label} wallet`}
-        >
-          <Copy size={12} className="icon-anim-pop" />
-          {copied ? "Copied" : "Copy"}
-        </button>
-      </div>
+      <p className="text-xs font-semibold uppercase text-slate-600 dark:text-white">
+        {label}
+      </p>
+      <button
+        type="button"
+        onClick={async () => {
+          const didCopy = await copyTextToClipboard(address);
+          if (!didCopy) return;
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1500);
+        }}
+        className="mt-2 flex w-full items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-left text-xs text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/15"
+        aria-label={`Copy ${label} wallet address`}
+      >
+        <code className="min-w-0 flex-1 break-all font-mono">{address}</code>
+        <span className="ml-1 shrink-0 text-emerald-600 dark:text-emerald-400">
+          {copied ? <Check size={14} /> : <Copy size={14} />}
+        </span>
+      </button>
     </div>
   );
 }
