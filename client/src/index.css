@@ -807,6 +807,17 @@ label:hover .icon-anim-drop {
 .sb-mention-active {
   color: #38bdf8;
   cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.sb-mention-active:hover {
+  background-color: rgba(56, 189, 248, 0.15);
+  color: #0ea5e9;
+}
+
+.dark .sb-mention-active:hover {
+  background-color: rgba(56, 189, 248, 0.18);
+  color: #7dd3fc;
 }
 
 .sb-link,
