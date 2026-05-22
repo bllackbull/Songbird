@@ -1699,14 +1699,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, [activeChatId]);
 
   useEffect(() => {
-    if (!userScrolledUp) return;
-    setUnreadInChat((prev) => {
-      if (prev > 0) return prev;
-      return Number(activeChat?.unread_count || 0);
-    });
-  }, [userScrolledUp, activeChat?.unread_count]);
-
-  useEffect(() => {
     clearPendingUploads();
     clearPendingVoiceMessage();
     if (activeUploadProgressHideTimerRef.current) {
@@ -1810,6 +1802,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (canSendInActiveChat) return;
     stopTypingIndicator(activeChatIdRef.current);
   }, [canSendInActiveChat, stopTypingIndicator]);
+
+  useEffect(() => {
+    if (!userScrolledUp) return;
+    setUnreadInChat((prev) => {
+      if (prev > 0) return prev;
+      return Number(activeChat?.unread_count || 0);
+    });
+  }, [userScrolledUp, activeChat?.unread_count]);
 
   const {
     loadMessages,
