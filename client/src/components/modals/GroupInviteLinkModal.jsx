@@ -1,13 +1,18 @@
-import { Users } from "../../icons/lucide.js";
+import { useState } from "react";
+import { Check, Copy, Users } from "../../icons/lucide.js";
 import { copyTextToClipboard } from "../../utils/clipboard.js";
 
 export default function GroupInviteLinkModal({ open, inviteLink, onClose }) {
+  const [copied, setCopied] = useState(false);
+
   if (!open) return null;
 
   const handleCopyInviteLink = async () => {
     const value = String(inviteLink || "");
     if (!value) return;
     await copyTextToClipboard(value);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
   };
 
   return (
@@ -23,10 +28,13 @@ export default function GroupInviteLinkModal({ open, inviteLink, onClose }) {
         <button
           type="button"
           onClick={handleCopyInviteLink}
-          className="mt-3 block w-full rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-left text-xs text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/15"
+          className="mt-3 flex w-full items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-left text-xs text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/15"
           aria-label="Copy invite link"
         >
-          <span className="break-all">{inviteLink}</span>
+          <span className="min-w-0 flex-1 break-all">{inviteLink}</span>
+          <span className="ml-1 shrink-0 text-emerald-600 dark:text-emerald-400">
+            {copied ? <Check size={14} /> : <Copy size={14} />}
+          </span>
         </button>
         <div className="mt-4 flex items-center justify-end gap-2">
           <button

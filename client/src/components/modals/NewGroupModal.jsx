@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  Check,
   ChevronDown,
   Close,
   CloudSync,
+  Copy,
   ImageIcon,
   LoaderCircle,
   Lock,
@@ -60,6 +62,7 @@ export default function NewGroupModal({
 }) {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [remoteSourceMenuOpen, setRemoteSourceMenuOpen] = useState(false);
+  const [inviteLinkCopied, setInviteLinkCopied] = useState(false);
   const groupPhotoInputRef = useRef(null);
   const groupSearchInputRef = useRef(null);
   const remoteSourceButtonRef = useRef(null);
@@ -391,14 +394,21 @@ export default function NewGroupModal({
                     const value = String(currentInviteLink || "");
                     if (!value) return;
                     await copyTextToClipboard(value);
+                    setInviteLinkCopied(true);
+                    setTimeout(() => setInviteLinkCopied(false), 1500);
                   }}
                   disabled={!currentInviteLink}
-                  className="mt-2 block w-full rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-left text-xs text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-300/60 disabled:cursor-default disabled:opacity-70 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/15"
+                  className="mt-2 flex w-full items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-left text-xs text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-300/60 disabled:cursor-default disabled:opacity-70 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/15"
                   aria-label="Copy invite link"
                 >
-                  <span className="break-all">
+                  <span className="min-w-0 flex-1 break-all">
                     {currentInviteLink || "No invite link available."}
                   </span>
+                  {currentInviteLink ? (
+                    <span className="ml-1 shrink-0 text-emerald-600 dark:text-emerald-400">
+                      {inviteLinkCopied ? <Check size={14} /> : <Copy size={14} />}
+                    </span>
+                  ) : null}
                 </button>
                 {onRegenerateInvite ? (
                   <div className="mt-3 flex items-center justify-end gap-2">

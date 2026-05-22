@@ -5,7 +5,9 @@ import {
   ArrowDown,
   Bookmark,
   Chat,
+  Check,
   Close,
+  Copy,
   LoaderCircle,
   LogIn,
   LogOut,
@@ -60,6 +62,7 @@ export default function ChatProfileModal({
   const [remoteActionLoading, setRemoteActionLoading] = useState(false);
   const [testConnectionLoading, setTestConnectionLoading] = useState(false);
   const [testConnectionResult, setTestConnectionResult] = useState(null); // 'success', 'error', or null
+  const [inviteCopied, setInviteCopied] = useState(false);
   const membersListRef = useRef(null);
   
   // Fetch remote channel status for channels
@@ -189,12 +192,15 @@ export default function ChatProfileModal({
     setRemoteActionLoading(false);
     setTestConnectionLoading(false);
     setTestConnectionResult(null);
+    setInviteCopied(false);
     onClose?.();
   };
   const handleCopyInviteLink = async () => {
     const value = String(inviteLink || "");
     if (!value) return;
     await copyTextToClipboard(value);
+    setInviteCopied(true);
+    setTimeout(() => setInviteCopied(false), 1500);
   };
 
   const isGroup = chat?.type === "group";
@@ -432,12 +438,17 @@ export default function ChatProfileModal({
               type="button"
               onClick={handleCopyInviteLink}
               disabled={!inviteLink}
-              className="mt-2 block w-full rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-left text-xs text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-300/60 disabled:cursor-default disabled:opacity-70 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/15"
+              className="mt-2 flex w-full items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-left text-xs text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-300/60 disabled:cursor-default disabled:opacity-70 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/15"
               aria-label="Copy invite link"
             >
-              <span className="break-all">
+              <span className="min-w-0 flex-1 break-all">
                 {inviteLink || "No invite link available."}
               </span>
+              {inviteLink ? (
+                <span className="ml-1 shrink-0 text-emerald-600 dark:text-emerald-400">
+                  {inviteCopied ? <Check size={14} /> : <Copy size={14} />}
+                </span>
+              ) : null}
             </button>
           </div>
         ) : null}
