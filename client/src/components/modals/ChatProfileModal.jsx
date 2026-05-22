@@ -16,6 +16,7 @@ import {
   Volume2,
   VolumeX,
 } from "../../icons/lucide.js";
+import { FaTelegram } from "react-icons/fa6";
 import { copyTextToClipboard } from "../../utils/clipboard.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import { hasPersian } from "../../utils/fontUtils.js";
@@ -475,7 +476,12 @@ export default function ChatProfileModal({
                       Remote Channel
                     </span>
                     <span className="text-xs text-slate-600 dark:text-slate-400">
-                      {remoteChannelStatus.source.provider === "telegram" ? "Telegram" : remoteChannelStatus.source.provider}: {remoteChannelStatus.source.sourceUsername || remoteChannelStatus.source.sourceChatId}
+                      {remoteChannelStatus.source.provider === "telegram" ? (
+                        <FaTelegram size={18} className="inline-block align-middle" />
+                      ) : (
+                        <span>{remoteChannelStatus.source.provider}:</span>
+                      )}{" "}
+                      {remoteChannelStatus.source.sourceUsername || remoteChannelStatus.source.sourceChatId}
                     </span>
                   </div>
                 </div>
