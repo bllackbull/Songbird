@@ -2,7 +2,6 @@ import { useMemo, useRef, useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import ContextMenuSurface from "../context-menu/ContextMenuSurface.jsx";
 import {
-  ArrowDown,
   Bookmark,
   Chat,
   Check,
@@ -65,7 +64,24 @@ export default function ChatProfileModal({
   const [testConnectionResult, setTestConnectionResult] = useState(null); // 'success', 'error', or null
   const [inviteCopied, setInviteCopied] = useState(false);
   const membersListRef = useRef(null);
+  const membersSentinelRef = useRef(null);
   
+  // Infinite scroll: load more members when sentinel comes into view
+  useEffect(() => {
+    const sentinel = membersSentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setMemberLimit((prev) => prev + membersBatchSize);
+        }
+      },
+      { threshold: 0.1 },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  });
+
   // Fetch remote channel status for channels
   useEffect(() => {
     if (!open || chat?.type !== "channel" || !remoteChannelAvailable || !currentUser?.username) {
@@ -267,29 +283,27 @@ export default function ChatProfileModal({
       const username = String(member?.username || "").toLowerCase();
       return nickname.includes(query) || username.includes(query);
     });
+    const sortKey = (m) =>
+      String(m?.nickname || m?.username || "").toLowerCase();
+    const sortFn = (a, b) =>
+      sortKey(a).localeCompare(sortKey(b), undefined, { numeric: true, sensitivity: "base" });
     const owners = normalized
       .filter((member) => String(member.role || "").toLowerCase() === "owner")
-      .sort((a, b) =>
-        String(a.username || "").localeCompare(String(b.username || "")),
-      );
+      .sort(sortFn);
     const online = normalized
       .filter(
         (member) =>
           String(member.role || "").toLowerCase() !== "owner" &&
           String(member.status || "").toLowerCase() === "online",
       )
-      .sort((a, b) =>
-        String(a.username || "").localeCompare(String(b.username || "")),
-      );
+      .sort(sortFn);
     const offline = normalized
       .filter(
         (member) =>
           String(member.role || "").toLowerCase() !== "owner" &&
           String(member.status || "").toLowerCase() !== "online",
       )
-      .sort((a, b) =>
-        String(a.username || "").localeCompare(String(b.username || "")),
-      );
+      .sort(sortFn);
     return [...owners, ...online, ...offline];
   }, [memberQuery, members]);
 
@@ -513,6 +527,9 @@ export default function ChatProfileModal({
 
         {canSeeMembers ? (
           <div className="mt-4 rounded-2xl border border-emerald-200/80 p-3 dark:border-emerald-500/30">
+            <p className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-200">
+              Members
+            </p>
             <div className="relative">
               <input
                 value={memberQuery}
@@ -629,24 +646,7 @@ export default function ChatProfileModal({
             </div>
 
             {hasMoreMembers ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setMemberLimit((prev) => prev + membersBatchSize);
-                  setTimeout(() => {
-                    if (membersListRef.current) {
-                      membersListRef.current.scrollTo({
-                        top: membersListRef.current.scrollHeight,
-                        behavior: "smooth",
-                      });
-                    }
-                  }, 0);
-                }}
-                className="mt-2 inline-flex w-full items-center justify-center gap-1 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
-              >
-                <ArrowDown size={12} className="icon-anim-pop" />
-                Show more
-              </button>
+              <div ref={membersSentinelRef} className="mt-2 h-4" aria-hidden="true" />
             ) : null}
           </div>
         ) : null}
