@@ -3261,6 +3261,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         }),
       );
 
+      // Keep the jump-to-bottom button badge in sync with the sidebar badge.
+      setUnreadInChat((prev) => Math.max(0, prev - 1));
+
       // Fire the API call (best-effort)
       markMessageRead({
         chatId: activeChatIdRef.current,
@@ -3274,6 +3277,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       markMessageRead,
       setChats,
       setMessages,
+      setUnreadInChat,
       user,
     ],
   );
