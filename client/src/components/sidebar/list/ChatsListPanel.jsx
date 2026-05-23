@@ -763,6 +763,7 @@ export default function ChatsListPanel({
               <ContextMenuSurface
                 type="button"
                 as="button"
+                aria-label={`${name}${conv.unread_count > 0 ? `, ${conv.unread_count} unread` : ""}`}
                 onClick={() => {
                   if (editMode) return;
                   setActiveChatId(Number(conv.id));

@@ -29,6 +29,7 @@ import {
 } from "../../api/chatApi.js";
 import Avatar from "../common/Avatar.jsx";
 import RemoteChannelQueueStatus from "./RemoteChannelQueueStatus.jsx";
+import { useFocusTrap } from "../../hooks/useFocusTrap.js";
 
 const MEMBERS_BATCH_SIZE = 10;
 
@@ -65,6 +66,8 @@ export default function ChatProfileModal({
   const [inviteCopied, setInviteCopied] = useState(false);
   const membersListRef = useRef(null);
   const membersSentinelRef = useRef(null);
+  const dialogRef = useRef(null);
+  useFocusTrap(dialogRef, open);
   
   // Infinite scroll: load more members when sentinel comes into view
   useEffect(() => {
@@ -315,8 +318,13 @@ export default function ChatProfileModal({
 
   return createPortal(
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/45 px-5">
-      <div className="app-scroll max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-3xl border border-emerald-100/70 bg-white p-5 shadow-xl dark:border-emerald-500/30 dark:bg-slate-950">
-        <div className="mb-3 flex items-center justify-between">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={profileName}
+        className="app-scroll max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-3xl border border-emerald-100/70 bg-white p-5 shadow-xl dark:border-emerald-500/30 dark:bg-slate-950"
+      >        <div className="mb-3 flex items-center justify-between">
           {!isReadOnly && (isGroup || isChannel) && isOwner && onEditGroup ? (
             <button
               type="button"

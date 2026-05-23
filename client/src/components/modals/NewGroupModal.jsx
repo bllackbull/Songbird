@@ -22,6 +22,7 @@ import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import { NICKNAME_MAX, USERNAME_MAX } from "../../utils/nameLimits.js";
 import ConfirmPasswordModal from "./ConfirmPasswordModal.jsx";
 import Avatar from "../common/Avatar.jsx";
+import { useFocusTrap } from "../../hooks/useFocusTrap.js";
 
 export default function NewGroupModal({
   open,
@@ -68,6 +69,8 @@ export default function NewGroupModal({
   const remoteSourceButtonRef = useRef(null);
   const remoteSourceMenuRef = useRef(null);
   const ignoreRemoteSourceButtonClickRef = useRef(false);
+  const dialogRef = useRef(null);
+  useFocusTrap(dialogRef, open);
   const remoteMenuShouldClose =
     !open ||
     !showRemoteChannelSettings ||
@@ -183,9 +186,15 @@ export default function NewGroupModal({
   return createPortal(
     <>
       <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/40 px-6">
-        <div className="app-scroll max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-2xl border border-emerald-100/70 bg-white p-6 shadow-xl dark:border-emerald-500/30 dark:bg-slate-950">
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="new-group-modal-title"
+          className="app-scroll max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-2xl border border-emerald-100/70 bg-white p-6 shadow-xl dark:border-emerald-500/30 dark:bg-slate-950"
+        >
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-emerald-700 dark:text-emerald-200">
+            <h3 id="new-group-modal-title" className="text-lg font-semibold text-emerald-700 dark:text-emerald-200">
               {title}
             </h3>
             <button

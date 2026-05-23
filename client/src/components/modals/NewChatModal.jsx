@@ -1,8 +1,10 @@
 import { createPortal } from "react-dom";
+import { useRef } from "react";
 import { Close } from "../../icons/lucide.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import Avatar from "../common/Avatar.jsx";
+import { useFocusTrap } from "../../hooks/useFocusTrap.js";
 
 export default function NewChatModal({
   open,
@@ -18,6 +20,9 @@ export default function NewChatModal({
   startDirectMessage,
   onClose,
 }) {
+  const dialogRef = useRef(null);
+  useFocusTrap(dialogRef, open);
+
   if (!open) return null;
   if (typeof document === "undefined") return null;
   const dmSearchHasPersian = hasPersian(newChatUsername || "");
@@ -34,9 +39,15 @@ export default function NewChatModal({
         paddingRight: "max(1.5rem, env(safe-area-inset-right))",
       }}
     >
-      <div className="w-full max-w-sm rounded-2xl border border-emerald-100/70 bg-white p-6 shadow-xl dark:border-emerald-500/30 dark:bg-slate-950">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="new-chat-modal-title"
+        className="w-full max-w-sm rounded-2xl border border-emerald-100/70 bg-white p-6 shadow-xl dark:border-emerald-500/30 dark:bg-slate-950"
+      >
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-emerald-700 dark:text-emerald-200">
+          <h3 id="new-chat-modal-title" className="text-lg font-semibold text-emerald-700 dark:text-emerald-200">
             New DM
           </h3>
           <button

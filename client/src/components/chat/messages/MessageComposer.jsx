@@ -1061,6 +1061,13 @@ export function MessageComposer({
               name="message"
               rows={1}
               placeholder="Type a message"
+              aria-label={
+                editTarget
+                  ? "Edit message"
+                  : replyTarget
+                  ? `Reply to ${replyTarget.displayName || replyTarget.username || "message"}`
+                  : "Type a message"
+              }
               value={messageValue}
               maxLength={
                 Number.isFinite(Number(messageMaxChars))
@@ -1142,6 +1149,15 @@ export function MessageComposer({
           disabled={
             ((micMode || isRecording) && micDisabled) ||
             (!micMode && !isRecording && !canSubmitMessage)
+          }
+          aria-label={
+            isRecording
+              ? "Stop recording"
+              : micMode
+              ? "Record voice message"
+              : editTarget
+              ? "Save edit"
+              : "Send message"
           }
           className={`inline-flex h-11 items-center justify-center rounded-2xl px-4 py-2 text-sm font-semibold text-white shadow-lg transition disabled:cursor-not-allowed disabled:opacity-70 ${
             isRecording

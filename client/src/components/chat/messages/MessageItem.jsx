@@ -1340,18 +1340,24 @@ export const MessageItem = memo(function MessageItem({
                       }`}
                     >
                       {isSending ? (
-                        <Clock12
-                          size={15}
-                          strokeWidth={2.4}
-                          className="animate-spin"
-                          aria-hidden="true"
-                        />
+                        <>
+                          <Clock12
+                            size={15}
+                            strokeWidth={2.4}
+                            className="animate-spin"
+                            aria-hidden="true"
+                          />
+                          <span className="sr-only">Sending</span>
+                        </>
                       ) : isFailed ? (
-                        <AlertCircle
-                          size={15}
-                          strokeWidth={2.4}
-                          aria-hidden="true"
-                        />
+                        <>
+                          <AlertCircle
+                            size={15}
+                            strokeWidth={2.4}
+                            aria-hidden="true"
+                          />
+                          <span className="sr-only">Failed to send</span>
+                        </>
                       ) : isChannelChat ? (
                         <>
                           <Eye
@@ -1361,15 +1367,22 @@ export const MessageItem = memo(function MessageItem({
                             className="-translate-y-px"
                           />
                           <span>{formatSeenCount(seenCount)}</span>
+                          <span className="sr-only">views</span>
                         </>
                       ) : isRead ? (
-                        <CheckCheck
-                          size={15}
-                          strokeWidth={2.5}
-                          aria-hidden="true"
-                        />
+                        <>
+                          <CheckCheck
+                            size={15}
+                            strokeWidth={2.5}
+                            aria-hidden="true"
+                          />
+                          <span className="sr-only">Read</span>
+                        </>
                       ) : (
-                        <Check size={15} strokeWidth={2.5} aria-hidden="true" />
+                        <>
+                          <Check size={15} strokeWidth={2.5} aria-hidden="true" />
+                          <span className="sr-only">Sent</span>
+                        </>
                       )}
                     </span>
                   ) : null}

@@ -1,9 +1,13 @@
 import { useState } from "react";
+import { useRef } from "react";
 import { Check, Copy, Users } from "../../icons/lucide.js";
 import { copyTextToClipboard } from "../../utils/clipboard.js";
+import { useFocusTrap } from "../../hooks/useFocusTrap.js";
 
 export default function GroupInviteLinkModal({ open, inviteLink, onClose }) {
   const [copied, setCopied] = useState(false);
+  const dialogRef = useRef(null);
+  useFocusTrap(dialogRef, open);
 
   if (!open) return null;
 
@@ -17,8 +21,14 @@ export default function GroupInviteLinkModal({ open, inviteLink, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6">
-      <div className="w-full max-w-md rounded-2xl border border-emerald-100/70 bg-white p-6 shadow-xl dark:border-emerald-500/30 dark:bg-slate-950">
-        <h3 className="flex items-center gap-2 text-lg font-semibold text-emerald-700 dark:text-emerald-200">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="invite-link-modal-title"
+        className="w-full max-w-md rounded-2xl border border-emerald-100/70 bg-white p-6 shadow-xl dark:border-emerald-500/30 dark:bg-slate-950"
+      >
+        <h3 id="invite-link-modal-title" className="flex items-center gap-2 text-lg font-semibold text-emerald-700 dark:text-emerald-200">
           <Users size={18} />
           Group created
         </h3>

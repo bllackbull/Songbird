@@ -7,12 +7,57 @@ export default function AppContextMenu({ menu, onClose }) {
   const menuRef = useRef(null);
   const [desktopPosition, setDesktopPosition] = useState({ x: 0, y: 0 });
   const [verticalPlacement, setVerticalPlacement] = useState("below");
+  const [focusedIndex, setFocusedIndex] = useState(-1);
 
   useEffect(() => {
     if (!menu) return undefined;
+    // Reset focused index and move focus into the menu
+    setFocusedIndex(0);
+    return undefined;
+  }, [menu]);
+
+  // Focus the active menu item whenever focusedIndex changes
+  useEffect(() => {
+    if (!menu || focusedIndex < 0) return;
+    const container = menuRef.current;
+    if (!container) return;
+    const items = container.querySelectorAll('[role="menuitem"]');
+    const target = items[focusedIndex];
+    if (target) {
+      try {
+        target.focus({ preventScroll: true });
+      } catch {
+        target.focus();
+      }
+    }
+  }, [focusedIndex, menu]);
+
+  useEffect(() => {
+    if (!menu) return undefined;
+    const items = menu.items || [];
     const handleKeyDown = (event) => {
       if (event.key === "Escape") {
         onClose?.();
+        return;
+      }
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setFocusedIndex((prev) => (prev + 1) % items.length);
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setFocusedIndex((prev) => (prev - 1 + items.length) % items.length);
+        return;
+      }
+      if (event.key === "Home") {
+        event.preventDefault();
+        setFocusedIndex(0);
+        return;
+      }
+      if (event.key === "End") {
+        event.preventDefault();
+        setFocusedIndex(items.length - 1);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -71,6 +116,8 @@ export default function AppContextMenu({ menu, onClose }) {
 
       <div
         ref={menuRef}
+        role="menu"
+        aria-label="Context menu"
         className={`fixed overflow-hidden rounded-[1.25rem] border border-slate-300/80 bg-white text-slate-900 shadow-[0_18px_46px_rgba(15,23,42,0.2)] dark:border-white/10 dark:bg-slate-800 dark:text-slate-100 ${
           verticalPlacement === "below"
             ? "sb-context-menu-open-down"
@@ -86,16 +133,19 @@ export default function AppContextMenu({ menu, onClose }) {
         }}
       >
         <div className="py-1.5">
-          {menu.items.map((item) => {
+          {menu.items.map((item, index) => {
             const Icon = item.icon;
             return (
               <button
                 key={item.id}
                 type="button"
+                role="menuitem"
+                tabIndex={focusedIndex === index ? 0 : -1}
                 onClick={() => {
                   item.onSelect?.();
                   onClose?.();
                 }}
+                onFocus={() => setFocusedIndex(index)}
                 className={`flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition ${
                   item.danger
                     ? "text-rose-600 dark:text-rose-300 hover:bg-black/5 dark:hover:bg-white/10"
@@ -103,7 +153,7 @@ export default function AppContextMenu({ menu, onClose }) {
                 }`}
               >
                 {Icon ? (
-                  <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center">
+                  <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center" aria-hidden="true">
                     <Icon size={16} />
                   </span>
                 ) : null}

@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Close, LoaderCircle, SendHorizontal } from "../../icons/lucide.js";
 import ForwardChatGridItem from "../forward/ForwardChatGridItem.jsx";
+import { useFocusTrap } from "../../hooks/useFocusTrap.js";
 import {
   canForwardToChat,
   excludeForwardSourceChat,
@@ -19,6 +20,8 @@ export default function ForwardMessageModal({
 }) {
   const [selectedChatIds, setSelectedChatIds] = useState([]);
   const [submitting, setSubmitting] = useState(false);
+  const dialogRef = useRef(null);
+  useFocusTrap(dialogRef, open);
 
   useEffect(() => {
     if (!open) {
@@ -59,9 +62,15 @@ export default function ForwardMessageModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
-      <div className="flex w-full max-w-md flex-col overflow-hidden rounded-3xl border border-emerald-100/70 bg-white px-6 py-5 shadow-xl dark:border-emerald-500/30 dark:bg-slate-950">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="forward-modal-title"
+        className="flex w-full max-w-md flex-col overflow-hidden rounded-3xl border border-emerald-100/70 bg-white px-6 py-5 shadow-xl dark:border-emerald-500/30 dark:bg-slate-950"
+      >
         <div className="flex items-center justify-between pb-1">
-          <h3 className="text-base font-semibold text-emerald-800 dark:text-emerald-200">
+          <h3 id="forward-modal-title" className="text-base font-semibold text-emerald-800 dark:text-emerald-200">
             Send to...
           </h3>
           <button
