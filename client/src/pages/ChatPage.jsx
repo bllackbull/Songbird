@@ -955,30 +955,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       displayName: replyName || "Unknown",
       color: replyColor,
     });
-    if (!userScrolledUpRef.current) {
-      pendingScrollToBottomRef.current = true;
-      scrollChatToBottom("auto");
-      requestAnimationFrame(() => {
-        scrollChatToBottom("auto");
-      });
-      window.setTimeout(() => {
-        scrollChatToBottom("auto");
-      }, 80);
-    }
+    scrollToBottomIfSafe("auto");
   };
 
   const handleClearReply = () => {
     setReplyTarget(null);
-    if (!userScrolledUpRef.current) {
-      pendingScrollToBottomRef.current = true;
-      scrollChatToBottom("auto");
-      requestAnimationFrame(() => {
-        scrollChatToBottom("auto");
-      });
-      window.setTimeout(() => {
-        scrollChatToBottom("auto");
-      }, 80);
-    }
+    scrollToBottomIfSafe("auto");
   };
 
   const handleStartEdit = (msg) => {
@@ -995,16 +977,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       body: msg.body || "",
       files: Array.isArray(msg.files) ? msg.files : [],
     });
-    if (!userScrolledUpRef.current) {
-      pendingScrollToBottomRef.current = true;
-      scrollChatToBottom("auto");
-      requestAnimationFrame(() => {
-        scrollChatToBottom("auto");
-      });
-      window.setTimeout(() => {
-        scrollChatToBottom("auto");
-      }, 80);
-    }
+    scrollToBottomIfSafe("auto");
   };
 
   const handleClearEdit = () => {
@@ -1347,6 +1320,32 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     openingChatRef,
   });
 
+  /**
+   * Scroll to bottom only when it is safe to do so.
+   *
+   * @param {"auto"|"smooth"} behavior
+   * @param {{ force?: boolean }} opts  Pass force:true to bypass the anchor
+   *   check (e.g. after the user explicitly clicks "jump to latest").
+   */
+  const scrollToBottomIfSafe = useCallback(
+    (behavior = "auto", { force = false } = {}) => {
+      if (!force) {
+        if (unreadMarkerIdRef.current !== null) return;
+        if (Date.now() < Number(unreadAnchorLockUntilRef.current || 0)) return;
+        if (pendingScrollToUnreadRef.current !== null) return;
+      }
+      if (userScrolledUpRef.current && !force) return;
+      pendingScrollToBottomRef.current = true;
+      scrollChatToBottom(behavior);
+      requestAnimationFrame(() => {
+        scrollChatToBottom(behavior);
+      });
+      window.setTimeout(() => {
+        scrollChatToBottom(behavior);
+      }, 80);
+    },
+    [scrollChatToBottom, unreadMarkerIdRef, unreadAnchorLockUntilRef, pendingScrollToUnreadRef, userScrolledUpRef, pendingScrollToBottomRef],
+  );
 
   useEffect(() => {
     pendingUploadFilesRef.current = pendingUploadFiles;
@@ -1757,17 +1756,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const now = activeUploadProgress;
     // When upload bar closes, force a final snap to bottom.
     if (activeChatId && prev !== null && now === null) {
-      pendingScrollToBottomRef.current = true;
-      userScrolledUpRef.current = false;
-      setUserScrolledUp(false);
-      isAtBottomRef.current = true;
-      setIsAtBottom(true);
-      requestAnimationFrame(() => {
-        scrollChatToBottom("auto");
-        requestAnimationFrame(() => {
-          scrollChatToBottom("auto");
-        });
-      });
+      scrollToBottomIfSafe("auto");
     }
     prevUploadProgressRef.current = now;
   }, [activeUploadProgress, activeChatId]);
@@ -3077,9 +3066,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     requestAnimationFrame(() => {
       const unreadId = Number(pendingUnread);
       const scroller = chatScrollRef.current;
-      if (scroller) {
-        scheduleUnreadAnchorAlignment(unreadId);
-      }
+      // Set the lock BEFORE scrolling so handleChatScroll sees it when the
+      // programmatic scroll event fires synchronously inside scrollTo().
       pendingScrollToUnreadRef.current = null;
       pendingScrollToBottomRef.current = false;
       isAtBottomRef.current = false;
@@ -3088,6 +3076,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       setUserScrolledUp(true);
       unreadAnchorLockUntilRef.current = Date.now() + 4000;
       shouldAutoMarkReadRef.current = true;
+      if (scroller) {
+        scheduleUnreadAnchorAlignment(unreadId);
+      }
         if (scroller) {
           window.setTimeout(() => {
             // If an unread anchor is active, don't reset scroll state.
@@ -3122,13 +3113,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const unreadId = Number(unreadMarkerIdRef.current || 0);
     if (!unreadId) return;
     requestAnimationFrame(() => {
-      scheduleUnreadAnchorAlignment(unreadId);
+      // Set lock BEFORE scrolling so handleChatScroll sees it immediately.
       pendingScrollToBottomRef.current = false;
       isAtBottomRef.current = false;
       setIsAtBottom(false);
       userScrolledUpRef.current = true;
       setUserScrolledUp(true);
       unreadAnchorLockUntilRef.current = Date.now() + 5000;
+      scheduleUnreadAnchorAlignment(unreadId);
     });
   }, [activeChatId, unreadMarkerId, messages.length, loadingMessages]);
 
@@ -3443,6 +3435,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     userScrolledUpRef,
     isAtBottomRef,
     pendingScrollToBottomRef,
+    unreadMarkerIdRef,
+    unreadAnchorLockUntilRef,
+    pendingScrollToUnreadRef,
     setUnreadInChat,
     setMessages,
     setChats,
@@ -4530,16 +4525,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     });
     setPendingUploadType("");
     setUploadError("");
-    if (!userScrolledUpRef.current) {
-      pendingScrollToBottomRef.current = true;
-      scrollChatToBottom("auto");
-      requestAnimationFrame(() => {
-        scrollChatToBottom("auto");
-      });
-      window.setTimeout(() => {
-        scrollChatToBottom("auto");
-      }, 80);
-    }
+    scrollToBottomIfSafe("auto");
   }
 
   function clearPendingVoiceMessage() {
@@ -4601,16 +4587,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       kind: "voice",
     });
     if (activeChatId && !userScrolledUpRef.current) {
-      pendingScrollToBottomRef.current = true;
-      isAtBottomRef.current = true;
-      setIsAtBottom(true);
-      scrollChatToBottom("auto");
-      requestAnimationFrame(() => {
-        scrollChatToBottom("auto");
-      });
-      window.setTimeout(() => {
-        scrollChatToBottom("auto");
-      }, 80);
+      scrollToBottomIfSafe("auto");
     }
   }
 
@@ -4883,16 +4860,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setPendingUploadFiles((prev) => (append ? [...prev, ...nextItems] : nextItems));
     setPendingUploadType(uploadType);
     if (activeChatId && !userScrolledUpRef.current) {
-      pendingScrollToBottomRef.current = true;
-      isAtBottomRef.current = true;
-      setIsAtBottom(true);
-      scrollChatToBottom("auto");
-      requestAnimationFrame(() => {
-        scrollChatToBottom("auto");
-      });
-      window.setTimeout(() => {
-        scrollChatToBottom("auto");
-      }, 80);
+      scrollToBottomIfSafe("auto");
     }
   }
 
