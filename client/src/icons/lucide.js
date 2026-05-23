@@ -41,7 +41,7 @@ import {
   Pencil,
   Play,
   Plus,
-  RefreshCcw as Refresh,
+  RefreshCw as Refresh,
   Reply,
   Rocket,
   SatelliteDish,
