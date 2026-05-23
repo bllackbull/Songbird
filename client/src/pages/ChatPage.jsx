@@ -3090,19 +3090,23 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       shouldAutoMarkReadRef.current = true;
         if (scroller) {
           window.setTimeout(() => {
+            // If an unread anchor is active, don't reset scroll state.
             if (unreadMarkerIdRef.current !== null) {
+              return;
+            }
+            if (Date.now() < Number(unreadAnchorLockUntilRef.current || 0)) {
               return;
             }
             const distance =
               scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
             if (distance <= 120) {
               isAtBottomRef.current = true;
-            setIsAtBottom(true);
-            userScrolledUpRef.current = false;
-            setUserScrolledUp(false);
-            unreadAnchorLockUntilRef.current = 0;
-          }
-        }, 90);
+              setIsAtBottom(true);
+              userScrolledUpRef.current = false;
+              setUserScrolledUp(false);
+              unreadAnchorLockUntilRef.current = 0;
+            }
+          }, 90);
       }
     });
   }, [activeChatId, messages, loadingMessages]);
