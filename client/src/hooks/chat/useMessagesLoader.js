@@ -47,6 +47,7 @@ export function useMessagesLoader({
   CHAT_PAGE_CONFIG,
   listMessagesByQuery,
   markMessagesRead,
+  fetchFirstUnreadMessage,
 }) {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
@@ -180,6 +181,12 @@ export function useMessagesLoader({
       if (options.beforeCreatedAt) {
         query.set("beforeCreatedAt", String(options.beforeCreatedAt));
       }
+      if (options.afterId) {
+        query.set("afterId", String(options.afterId));
+      }
+      if (options.afterCreatedAt) {
+        query.set("afterCreatedAt", String(options.afterCreatedAt));
+      }
       const res = await listMessagesByQuery(
         Object.fromEntries(query.entries()),
         { cache: "no-store", signal: controller.signal },
@@ -197,12 +204,17 @@ export function useMessagesLoader({
       if (activeChatIdRef.current !== requestChatId) {
         return;
       }
+      // When loading with afterId (unread anchor), hasMore means there are newer
+      // messages beyond the window — not older ones. Since we anchored mid-history,
+      // there are always older messages to load via pagination.
       setHasOlderMessages((prev) =>
-        options.prepend
-          ? Boolean(data?.hasMore)
-          : options.preserveHistory
-            ? prev || Boolean(data?.hasMore)
-            : Boolean(data?.hasMore),
+        options.afterId
+          ? true
+          : options.prepend
+            ? Boolean(data?.hasMore)
+            : options.preserveHistory
+              ? prev || Boolean(data?.hasMore)
+              : Boolean(data?.hasMore),
       );
       const chatType =
         chats.find((chat) => Number(chat.id) === Number(requestChatId))?.type ||
@@ -919,20 +931,50 @@ export function useMessagesLoader({
           openingUnreadCountRef.current > 0 &&
           !options.forceUnreadFetch
         ) {
-          const boostedLimit = Math.min(
-            CHAT_PAGE_CONFIG.messageFetchLimit,
-            Math.max(
-              CHAT_PAGE_CONFIG.messageFetchLimit,
-              Number(openingUnreadCountRef.current || 0) + 200,
-              Number(options.limit || 0) + 200,
-            ),
-          );
-          void loadMessages(chatId, {
-            silent: true,
-            preserveHistory: true,
-            limit: boostedLimit,
-            forceUnreadFetch: true,
-          });
+          // The first unread message is older than the current window.
+          // Ask the server for its exact position, then reload anchored from there.
+          void (async () => {
+            try {
+              const anchorRes = await fetchFirstUnreadMessage(
+                { chatId, username: user.username },
+                { cache: "no-store" },
+              );
+              if (activeChatIdRef.current !== requestChatId) return;
+              const anchorData = await anchorRes.json();
+              if (activeChatIdRef.current !== requestChatId) return;
+              const anchor = anchorData?.firstUnread;
+              if (anchor?.id && anchor?.created_at) {
+                // Load messageFetchLimit messages starting from the first unread
+                void loadMessages(chatId, {
+                  silent: true,
+                  preserveHistory: true,
+                  afterId: anchor.id,
+                  afterCreatedAt: anchor.created_at,
+                  limit: CHAT_PAGE_CONFIG.messageFetchLimit,
+                  forceUnreadFetch: true,
+                });
+              } else {
+                // No unread messages found server-side — scroll to bottom
+                openingHadUnreadRef.current = false;
+                openingUnreadCountRef.current = 0;
+                openingChatRef.current = false;
+                allowStartReachedRef.current = true;
+                pendingScrollToBottomRef.current = true;
+                isAtBottomRef.current = true;
+                setIsAtBottom(true);
+                userScrolledUpRef.current = false;
+                setUserScrolledUp(false);
+                shouldAutoMarkReadRef.current = true;
+              }
+            } catch {
+              // Fallback: just scroll to bottom if the anchor fetch fails
+              openingHadUnreadRef.current = false;
+              openingUnreadCountRef.current = 0;
+              openingChatRef.current = false;
+              allowStartReachedRef.current = true;
+              pendingScrollToBottomRef.current = true;
+            }
+          })();
           return;
         }
 

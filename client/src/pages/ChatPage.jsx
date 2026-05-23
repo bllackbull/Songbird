@@ -86,6 +86,7 @@ import {
   logout,
   markMessageRead,
   markMessagesRead,
+  fetchFirstUnreadMessage,
   pingPresence,
   searchUsers,
   sendTypingIndicator,
@@ -1852,6 +1853,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     CHAT_PAGE_CONFIG,
     listMessagesByQuery,
     markMessagesRead,
+    fetchFirstUnreadMessage,
   });
   usePerfTelemetry({
     activeChatId,

@@ -320,6 +320,14 @@ export const listMessagesByQuery = (params = {}, options = {}) => {
   return apiFetch(`${API_BASE}/api/messages${suffix}`, options);
 };
 
+export const fetchFirstUnreadMessage = ({ chatId, username }, options = {}) => {
+  const params = new URLSearchParams({
+    chatId: String(chatId),
+    username: String(username),
+  });
+  return apiFetch(`${API_BASE}/api/messages/first-unread?${params.toString()}`, options);
+};
+
 export const sendMessage = (payload) =>
   apiFetch(`${API_BASE}/api/messages`, {
     method: "POST",

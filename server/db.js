@@ -1824,11 +1824,17 @@ export function getMessages(chatId, options = {}) {
     : 50;
   const beforeIdRaw = Number(options.beforeId || 0);
   const beforeCreatedAtRaw = String(options.beforeCreatedAt || "").trim();
+  const afterIdRaw = Number(options.afterId || 0);
+  const afterCreatedAtRaw = String(options.afterCreatedAt || "").trim();
   const viewerUserIdRaw = Number(options.viewerUserId || 0);
   const hasViewerUserId = Number.isFinite(viewerUserIdRaw) && viewerUserIdRaw > 0;
   const hasBeforeId = Number.isFinite(beforeIdRaw) && beforeIdRaw > 0;
   const hasBeforeCreatedAt = Boolean(beforeCreatedAtRaw);
   const hasBefore = hasBeforeId && hasBeforeCreatedAt;
+  const hasAfterId = Number.isFinite(afterIdRaw) && afterIdRaw > 0;
+  const hasAfterCreatedAt = Boolean(afterCreatedAtRaw);
+  // afterId anchor: fetch messages at or after this message (inclusive), ascending
+  const hasAfter = hasAfterId && hasAfterCreatedAt;
 
   const visibilitySql = hasViewerUserId
     ? `
@@ -1850,7 +1856,20 @@ export function getMessages(chatId, options = {}) {
        )`
     : "";
 
-  const whereSql = `WHERE chat_messages.chat_id = ?${visibilitySql}${beforeSql}`;
+  // afterSql: inclusive — includes the anchor message itself so the unread
+  // divider message is always present in the returned window.
+  const afterSql = hasAfter
+    ? `
+       AND (
+         julianday(chat_messages.created_at) > julianday(?)
+         OR (
+           julianday(chat_messages.created_at) = julianday(?)
+           AND chat_messages.id >= ?
+         )
+       )`
+    : "";
+
+  const whereSql = `WHERE chat_messages.chat_id = ?${visibilitySql}${beforeSql}${afterSql}`;
   const replyJoinVisibilitySql = hasViewerUserId
     ? `AND ${getVisibleMessageFilterSql(
         "reply",
@@ -1869,9 +1888,19 @@ export function getMessages(chatId, options = {}) {
   if (hasBefore) {
     params.push(beforeCreatedAtRaw, beforeCreatedAtRaw, beforeIdRaw);
   }
+  if (hasAfter) {
+    params.push(afterCreatedAtRaw, afterCreatedAtRaw, afterIdRaw);
+  }
   params.push(limit + 1);
 
-  const rowsDesc = getAll(
+  // When using afterId we fetch ascending (oldest-first) so we get the window
+  // starting from the anchor. Without afterId we keep the existing behaviour
+  // of fetching descending (newest-first) and reversing.
+  const orderSql = hasAfter
+    ? "ORDER BY julianday(chat_messages.created_at) ASC, chat_messages.id ASC"
+    : "ORDER BY julianday(chat_messages.created_at) DESC, chat_messages.id DESC";
+
+  const rowsRaw = getAll(
     `
     SELECT chat_messages.id,
       COALESCE(chat_messages.edited_body, chat_messages.body) AS body,
@@ -1908,14 +1937,17 @@ export function getMessages(chatId, options = {}) {
       ${replyJoinVisibilitySql}
     LEFT JOIN users reply_user ON reply_user.id = reply.user_id
     ${whereSql}
-    ORDER BY julianday(chat_messages.created_at) DESC, chat_messages.id DESC
+    ${orderSql}
     LIMIT ?
   `,
     params,
   );
 
-  const hasMore = rowsDesc.length > limit;
-  const rows = rowsDesc.slice(0, limit).reverse();
+  const hasMore = rowsRaw.length > limit;
+  // For the afterId path rows are already ASC; for the beforeId path reverse DESC→ASC.
+  const rows = hasAfter
+    ? rowsRaw.slice(0, limit)
+    : rowsRaw.slice(0, limit).reverse();
 
   const totalRow = getRow(
     hasViewerUserId
@@ -1940,6 +1972,47 @@ export function getMessages(chatId, options = {}) {
     hasMore,
     totalCount,
   };
+}
+
+/**
+ * Returns the first message in a chat that the given user has not read yet
+ * (from another user or a remote message), along with its created_at timestamp.
+ * Returns null if there are no unread messages.
+ */
+export function getFirstUnreadMessage(chatId, viewerUserId) {
+  const cid = Number(chatId);
+  const uid = Number(viewerUserId);
+  if (!cid || !uid) return null;
+
+  const row = getRow(
+    `
+    SELECT cm.id, cm.created_at
+    FROM chat_messages cm
+    WHERE cm.chat_id = ?
+      AND (
+        cm.user_id != ?
+        OR LOWER(COALESCE(cm.client_request_id, '')) LIKE 'remote:%'
+      )
+      AND cm.hidden_everyone_at IS NULL
+      AND cm.id NOT IN (
+        SELECT hidden_chat_messages.message_id
+        FROM hidden_chat_messages
+        WHERE hidden_chat_messages.user_id = ?
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM chat_message_reads cmr
+        WHERE cmr.message_id = cm.id
+          AND cmr.user_id = ?
+      )
+    ORDER BY julianday(cm.created_at) ASC, cm.id ASC
+    LIMIT 1
+    `,
+    [cid, uid, uid, uid],
+  );
+
+  if (!row) return null;
+  return { id: Number(row.id), created_at: row.created_at };
 }
 
 export function listMessageFilesByMessageIds(messageIds = []) {
