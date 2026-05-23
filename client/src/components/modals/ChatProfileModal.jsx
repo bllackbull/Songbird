@@ -115,7 +115,7 @@ export default function ChatProfileModal({
   // Auto-test connection on modal open (only if remote channel is enabled for this chat)
   useEffect(() => {
     if (!open || chat?.type !== "channel" || !remoteChannelAvailable || !chat?.id) return;
-    if (!Boolean(Number(chat?.remote_channel_enabled || 0))) return;
+    if (!Number(chat?.remote_channel_enabled || 0)) return;
     handleTestConnection();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, chat?.id, chat?.type, remoteChannelAvailable, chat?.remote_channel_enabled]);

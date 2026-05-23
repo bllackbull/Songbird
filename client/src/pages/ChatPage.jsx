@@ -3360,26 +3360,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     [user?.username],
   );
 
-  function applyDeletedMessageLocally(messageId) {
-    const numericMessageId = Number(messageId || 0);
-    if (!numericMessageId) return;
-    setMessages((prev) =>
-      prev
-        .filter((msg) => Number(msg?._serverId || msg?.id || 0) !== numericMessageId)
-        .map((msg) => {
-          const replyId = Number(msg?.replyTo?.id || 0);
-          if (!replyId || replyId !== numericMessageId) return msg;
-          return {
-            ...msg,
-            replyTo: null,
-          };
-        }),
-    );
-    if (activeChatId) {
-      pruneDeletedMessagesFromCache(activeChatId, [numericMessageId]);
-    }
-  }
-
   async function performDeleteMessage(message, scope = "self") {
     const messageId = Number(message?.id || message?._serverId || 0);
     if (!activeChatId || !messageId || !user?.username) return;
