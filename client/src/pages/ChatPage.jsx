@@ -3387,10 +3387,25 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   async function performDeleteMessage(message, scope = "self") {
     const messageId = Number(message?.id || message?._serverId || 0);
     if (!activeChatId || !messageId || !user?.username) return;
-    // Close the modal and apply the local hide immediately for instant feedback
     setMessageDeleteScopeOpen(false);
     setPendingDeleteMessage(null);
-    applyDeletedMessageLocally(messageId);
+
+    // Snapshot current messages so we can roll back on failure
+    let snapshotMessages;
+    setMessages((prev) => {
+      snapshotMessages = prev;
+      return prev
+        .filter((msg) => Number(msg?._serverId || msg?.id || 0) !== messageId)
+        .map((msg) => {
+          const replyId = Number(msg?.replyTo?.id || 0);
+          if (!replyId || replyId !== messageId) return msg;
+          return { ...msg, replyTo: null };
+        });
+    });
+    if (activeChatId) {
+      pruneDeletedMessagesFromCache(activeChatId, [messageId]);
+    }
+
     try {
       const res = await deleteMessage({
         chatId: Number(activeChatId),
@@ -3404,6 +3419,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }
       await loadChats({ silent: true });
     } catch (error) {
+      // Restore the optimistically removed message on failure
+      if (snapshotMessages) {
+        setMessages(snapshotMessages);
+      }
       setUploadError(String(error?.message || "Unable to delete message."));
     }
   }
