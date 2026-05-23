@@ -1533,6 +1533,7 @@ export function listChatsForUser(userId) {
       mc.group_avatar_url,
       mc.created_by_user_id,
       mc.muted,
+      COALESCE(rcs.enabled, 0) AS remote_channel_enabled,
       lvm.last_message_id,
       last_vm.body AS last_message,
       last_vm.created_at AS last_time,
@@ -1558,6 +1559,7 @@ export function listChatsForUser(userId) {
     LEFT JOIN last_outgoing_message_ids lom ON lom.chat_id = mc.id
     LEFT JOIN visible_messages outgoing_vm ON outgoing_vm.id = lom.last_outgoing_message_id
     LEFT JOIN unread_counts uc ON uc.chat_id = mc.id
+    LEFT JOIN remote_channel_sources rcs ON rcs.chat_id = mc.id AND rcs.enabled = 1
     ORDER BY lvm.last_message_id DESC, mc.created_at DESC
   `,
     [

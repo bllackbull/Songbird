@@ -109,12 +109,13 @@ export default function ChatProfileModal({
     return () => clearInterval(intervalId);
   }, [open, chat?.id, chat?.type, currentUser?.username, remoteChannelAvailable]);
 
-  // Auto-test connection on modal open
+  // Auto-test connection on modal open (only if remote channel is enabled for this chat)
   useEffect(() => {
     if (!open || chat?.type !== "channel" || !remoteChannelAvailable || !chat?.id) return;
+    if (!Boolean(Number(chat?.remote_channel_enabled || 0))) return;
     handleTestConnection();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, chat?.id, chat?.type, remoteChannelAvailable]);
+  }, [open, chat?.id, chat?.type, remoteChannelAvailable, chat?.remote_channel_enabled]);
 
   // Remote channel action handlers (owner only)
   const handlePauseRemoteChannel = async () => {
@@ -472,7 +473,7 @@ export default function ChatProfileModal({
           </div>
         ) : null}
 
-        {isChannel && remoteChannelAvailable ? (
+        {isChannel && remoteChannelAvailable && Boolean(Number(chat?.remote_channel_enabled || 0)) ? (
           <div className="mt-4 rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
             <div className="flex items-center justify-between">
               <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
