@@ -1656,8 +1656,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         })();
       }
         void (async () => {
+          // If we have cached messages, always show them immediately
+          const shouldFetchSilently = hasCachedMessages && sseConnected;
           const shouldFetchInitial =
-            openingUnreadCountRef.current > 0 || !cached || !sseConnected || !hasCachedMessages;
+            !shouldFetchSilently &&
+            (openingUnreadCountRef.current > 0 || !cached || !sseConnected || !hasCachedMessages);
           if (shouldFetchInitial) {
             await loadMessages(openedChatId, { initialLoad: true, limit: initialLimit });
           } else {
@@ -1666,7 +1669,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               pendingScrollToBottomRef.current = true;
               scrollChatToBottom("auto");
             }
-            // Refresh to reconcile cached messages (e.g., deleted files).
+            // Refresh to reconcile cached messages and resolve unread anchor.
             void loadMessages(openedChatId, {
               initialLoad: true,
               silent: true,

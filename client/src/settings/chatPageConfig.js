@@ -54,7 +54,7 @@ export const CHAT_PAGE_CONFIG = {
     integer: true,
     min: 250,
   }),
-  messageFetchLimit: readEnvNumber("CHAT_MESSAGE_FETCH_LIMIT", 300, {
+  messageFetchLimit: readEnvNumber("CHAT_MESSAGE_FETCH_LIMIT", 60, {
     integer: true,
     min: 1,
   }),
