@@ -48,6 +48,7 @@
     "express-rate-limit": "^8.2.1",
     "https-proxy-agent": "^7.0.5",
     "multer": "^2.1.1",
+    "socket.io": "^4.8.3",
     "sql.js": "^1.14.1",
     "telegram": "^2.26.22",
     "web-push": "^3.6.7"

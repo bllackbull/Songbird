@@ -1,4 +1,5 @@
 import express from "express";
+import http from "node:http";
 import path from "node:path";
 import fs from "node:fs";
 import crypto from "node:crypto";
@@ -10,6 +11,7 @@ import compression from "compression";
 import rateLimit from "express-rate-limit";
 import multer from "multer";
 import webpush from "web-push";
+import { Server as SocketIOServer } from "socket.io";
 import { registerApiRoutes } from "./api/index.js";
 import { ensureValidVapidKeys } from "./lib/vapid.js";
 import { createSseHub } from "./lib/sse.js";
@@ -961,6 +963,208 @@ if (MESSAGE_TEXT_RETENTION_DAYS > 0) {
 backfillStorageEncryption();
 remoteChannelManager.start();
 
-app.listen(port, () => {
+// ─── HTTP Server + Socket.IO ─────────────────────────────────────────────────
+const server = http.createServer(app);
+
+const io = new SocketIOServer(server, {
+  cors: isProduction
+    ? { origin: false }
+    : { origin: "*", methods: ["GET", "POST"] },
+  transports: ["websocket", "polling"],
+});
+
+// Socket.IO session authentication middleware
+io.use((socket, next) => {
+  const cookieHeader = socket.handshake.headers?.cookie || "";
+  const cookies = Object.fromEntries(
+    cookieHeader.split(";").map((c) => {
+      const [key, ...val] = c.trim().split("=");
+      return [key, val.join("=")];
+    }),
+  );
+  const token = cookies.sid || socket.handshake.auth?.token || socket.handshake.query?.token;
+  if (!token) return next(new Error("Authentication required"));
+  const session = getSession(token);
+  if (!session) return next(new Error("Invalid session"));
+  const user = findUserById(session.user_id);
+  if (!user) return next(new Error("User not found"));
+  socket.userId = user.id;
+  socket.username = user.username;
+  next();
+});
+
+// ─── Call Signaling ──────────────────────────────────────────────────────────
+const TURN_STUN_URL = process.env.TURN_STUN_URL || "stun:stun.l.google.com:19302";
+const TURN_URL = process.env.TURN_URL || "";
+const TURN_USERNAME = process.env.TURN_USERNAME || "";
+const TURN_CREDENTIAL = process.env.TURN_CREDENTIAL || "";
+
+function getIceServers() {
+  const servers = [{ urls: TURN_STUN_URL }];
+  if (TURN_URL) {
+    servers.push({
+      urls: TURN_URL,
+      username: TURN_USERNAME,
+      credential: TURN_CREDENTIAL,
+    });
+  }
+  return servers;
+}
+
+const activeCalls = new Map(); // chatId → { callerId, calleeId, type, startedAt }
+
+io.on("connection", (socket) => {
+  // Join a room for the user so we can target them
+  socket.join(`user:${socket.username}`);
+
+  // Start a call
+  socket.on("call:start", ({ chatId, calleeUsername, type }) => {
+    const callType = type === "video" ? "video" : "voice";
+    const chatIdNum = Number(chatId);
+    if (!chatIdNum || !calleeUsername) return;
+
+    // Check membership
+    if (!isMember(chatIdNum, socket.userId)) return;
+
+    const calleeUser = findUserByUsername(calleeUsername.toLowerCase());
+    if (!calleeUser) return;
+    if (!isMember(chatIdNum, calleeUser.id)) return;
+
+    // Store active call
+    activeCalls.set(chatIdNum, {
+      callerId: socket.userId,
+      callerUsername: socket.username,
+      calleeId: calleeUser.id,
+      calleeUsername: calleeUser.username,
+      type: callType,
+      startedAt: Date.now(),
+    });
+
+    // Notify callee
+    io.to(`user:${calleeUser.username}`).emit("call:incoming", {
+      chatId: chatIdNum,
+      callerUsername: socket.username,
+      callerNickname: findUserById(socket.userId)?.nickname || socket.username,
+      callerAvatar: findUserById(socket.userId)?.avatar_url || "",
+      type: callType,
+      iceServers: getIceServers(),
+    });
+
+    // Send ICE servers back to caller
+    socket.emit("call:started", {
+      chatId: chatIdNum,
+      iceServers: getIceServers(),
+    });
+  });
+
+  // Accept a call
+  socket.on("call:accept", ({ chatId }) => {
+    const chatIdNum = Number(chatId);
+    const call = activeCalls.get(chatIdNum);
+    if (!call) return;
+
+    io.to(`user:${call.callerUsername}`).emit("call:accepted", {
+      chatId: chatIdNum,
+    });
+  });
+
+  // Reject a call
+  socket.on("call:reject", ({ chatId }) => {
+    const chatIdNum = Number(chatId);
+    const call = activeCalls.get(chatIdNum);
+    if (!call) return;
+
+    io.to(`user:${call.callerUsername}`).emit("call:rejected", {
+      chatId: chatIdNum,
+    });
+    activeCalls.delete(chatIdNum);
+  });
+
+  // End a call
+  socket.on("call:end", ({ chatId }) => {
+    const chatIdNum = Number(chatId);
+    const call = activeCalls.get(chatIdNum);
+    if (!call) return;
+
+    // Notify both parties
+    io.to(`user:${call.callerUsername}`).emit("call:ended", { chatId: chatIdNum });
+    io.to(`user:${call.calleeUsername}`).emit("call:ended", { chatId: chatIdNum });
+    activeCalls.delete(chatIdNum);
+  });
+
+  // WebRTC signaling: offer
+  socket.on("call:offer", ({ chatId, offer }) => {
+    const chatIdNum = Number(chatId);
+    const call = activeCalls.get(chatIdNum);
+    if (!call) return;
+
+    const targetUsername =
+      socket.username === call.callerUsername
+        ? call.calleeUsername
+        : call.callerUsername;
+    io.to(`user:${targetUsername}`).emit("call:offer", {
+      chatId: chatIdNum,
+      offer,
+    });
+  });
+
+  // WebRTC signaling: answer
+  socket.on("call:answer", ({ chatId, answer }) => {
+    const chatIdNum = Number(chatId);
+    const call = activeCalls.get(chatIdNum);
+    if (!call) return;
+
+    const targetUsername =
+      socket.username === call.callerUsername
+        ? call.calleeUsername
+        : call.callerUsername;
+    io.to(`user:${targetUsername}`).emit("call:answer", {
+      chatId: chatIdNum,
+      answer,
+    });
+  });
+
+  // WebRTC signaling: ICE candidate
+  socket.on("call:ice-candidate", ({ chatId, candidate }) => {
+    const chatIdNum = Number(chatId);
+    const call = activeCalls.get(chatIdNum);
+    if (!call) return;
+
+    const targetUsername =
+      socket.username === call.callerUsername
+        ? call.calleeUsername
+        : call.callerUsername;
+    io.to(`user:${targetUsername}`).emit("call:ice-candidate", {
+      chatId: chatIdNum,
+      candidate,
+    });
+  });
+
+  // Handle disconnect — end any active calls
+  socket.on("disconnect", () => {
+    for (const [chatId, call] of activeCalls.entries()) {
+      if (call.callerUsername === socket.username || call.calleeUsername === socket.username) {
+        const otherUsername =
+          call.callerUsername === socket.username
+            ? call.calleeUsername
+            : call.callerUsername;
+        io.to(`user:${otherUsername}`).emit("call:ended", {
+          chatId,
+          reason: "disconnect",
+        });
+        activeCalls.delete(chatId);
+      }
+    }
+  });
+});
+
+// ICE servers endpoint for client
+app.get("/api/calls/ice-servers", (req, res) => {
+  const session = getSessionFromRequest(req);
+  if (!session) return res.status(401).json({ error: "Unauthorized" });
+  res.json({ iceServers: getIceServers() });
+});
+
+server.listen(port, () => {
   console.log(`Songbird server running on http://localhost:${port}`);
 });

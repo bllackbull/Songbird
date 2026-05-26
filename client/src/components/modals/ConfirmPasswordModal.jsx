@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Close, Eye, EyeOff } from "../../icons/lucide.js";
+import { useFocusTrap } from "../../hooks/useFocusTrap.js";
 
 export default function ConfirmPasswordModal({
   open,
@@ -16,6 +17,8 @@ export default function ConfirmPasswordModal({
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const dialogRef = useRef(null);
+  useFocusTrap(dialogRef, open);
 
   useEffect(() => {
     if (!open) {
@@ -37,9 +40,15 @@ export default function ConfirmPasswordModal({
 
   return createPortal(
     <div className="fixed inset-0 z-[320] flex items-center justify-center bg-black/40 px-6">
-      <div className="w-full max-w-sm rounded-2xl border border-rose-100/70 bg-white p-6 shadow-xl dark:border-rose-500/30 dark:bg-slate-950">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-password-modal-title"
+        className="w-full max-w-sm rounded-2xl border border-rose-100/70 bg-white p-6 shadow-xl dark:border-rose-500/30 dark:bg-slate-950"
+      >
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-rose-600 dark:text-rose-300">
+          <h3 id="confirm-password-modal-title" className="text-lg font-semibold text-rose-600 dark:text-rose-300">
             {title}
           </h3>
           <button

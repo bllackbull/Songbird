@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { ArrowLeft, ArrowRight, Close } from "../../icons/lucide.js";
 import { copyTextToClipboard } from "../../utils/clipboard.js";
 import { renderMarkdownBlock } from "../../utils/markdown.js";
+import { useFocusTrap } from "../../hooks/useFocusTrap.js";
 
 function normalizeVersionLabel(value) {
   return String(value || "")
@@ -54,6 +55,7 @@ export default function WhatsNewModal({
 }) {
   const panelRef = useRef(null);
   const contentRef = useRef(null);
+  useFocusTrap(panelRef, open);
   const sections = useMemo(
     () => getSections(changelogSections, version, changelog),
     [changelogSections, version, changelog],
@@ -231,14 +233,17 @@ export default function WhatsNewModal({
       <div
         ref={panelRef}
         tabIndex={-1}
-        className="flex max-h-[min(88vh,52rem)] w-full max-w-2xl flex-col overflow-hidden rounded-[2rem] border border-emerald-100/70 bg-white shadow-2xl outline-none dark:border-emerald-500/30 dark:bg-slate-950"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="whats-new-modal-title"
+        className="flex h-[min(68vh,44rem)] w-full max-w-2xl flex-col overflow-hidden rounded-[2rem] border border-emerald-100/70 bg-white shadow-2xl outline-none dark:border-emerald-500/30 dark:bg-slate-950"
       >
         <div className="flex items-start justify-between gap-4 border-b border-emerald-100/70 px-6 py-5 dark:border-emerald-500/20">
           <div>
             <p className="text-[10px] uppercase tracking-[0.28em] text-emerald-500/80">
               What's New
             </p>
-            <h3 className="mt-2 text-2xl font-bold text-emerald-700 dark:text-emerald-200">
+            <h3 id="whats-new-modal-title" className="mt-2 text-2xl font-bold text-emerald-700 dark:text-emerald-200">
               Songbird {activeSection?.heading || version || ""}
             </h3>
           </div>

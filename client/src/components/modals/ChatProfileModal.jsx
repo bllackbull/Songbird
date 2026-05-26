@@ -2,10 +2,12 @@ import { useMemo, useRef, useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import ContextMenuSurface from "../context-menu/ContextMenuSurface.jsx";
 import {
-  ArrowDown,
   Bookmark,
   Chat,
+  Check,
   Close,
+  Copy,
+  LoaderCircle,
   LogIn,
   LogOut,
   Pencil,
@@ -13,6 +15,7 @@ import {
   Volume2,
   VolumeX,
 } from "../../icons/lucide.js";
+import { FaTelegram } from "react-icons/fa6";
 import { copyTextToClipboard } from "../../utils/clipboard.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import { hasPersian } from "../../utils/fontUtils.js";
@@ -26,6 +29,7 @@ import {
 } from "../../api/chatApi.js";
 import Avatar from "../common/Avatar.jsx";
 import RemoteChannelQueueStatus from "./RemoteChannelQueueStatus.jsx";
+import { useFocusTrap } from "../../hooks/useFocusTrap.js";
 
 const MEMBERS_BATCH_SIZE = 10;
 
@@ -59,8 +63,28 @@ export default function ChatProfileModal({
   const [remoteActionLoading, setRemoteActionLoading] = useState(false);
   const [testConnectionLoading, setTestConnectionLoading] = useState(false);
   const [testConnectionResult, setTestConnectionResult] = useState(null); // 'success', 'error', or null
+  const [inviteCopied, setInviteCopied] = useState(false);
   const membersListRef = useRef(null);
+  const membersSentinelRef = useRef(null);
+  const dialogRef = useRef(null);
+  useFocusTrap(dialogRef, open);
   
+  // Infinite scroll: load more members when sentinel comes into view
+  useEffect(() => {
+    const sentinel = membersSentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setMemberLimit((prev) => prev + membersBatchSize);
+        }
+      },
+      { threshold: 0.1 },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  });
+
   // Fetch remote channel status for channels
   useEffect(() => {
     if (!open || chat?.type !== "channel" || !remoteChannelAvailable || !currentUser?.username) {
@@ -88,6 +112,14 @@ export default function ChatProfileModal({
     return () => clearInterval(intervalId);
   }, [open, chat?.id, chat?.type, currentUser?.username, remoteChannelAvailable]);
 
+  // Auto-test connection on modal open (only if remote channel is enabled for this chat)
+  useEffect(() => {
+    if (!open || chat?.type !== "channel" || !remoteChannelAvailable || !chat?.id) return;
+    if (!Number(chat?.remote_channel_enabled || 0)) return;
+    handleTestConnection();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, chat?.id, chat?.type, remoteChannelAvailable, chat?.remote_channel_enabled]);
+
   // Remote channel action handlers (owner only)
   const handlePauseRemoteChannel = async () => {
     if (!chat?.id || remoteActionLoading) return;
@@ -95,9 +127,10 @@ export default function ChatProfileModal({
     try {
       const res = await pauseRemoteChannel(chat.id);
       if (res.ok) {
-        const statusRes = await getRemoteChannelSettings({ chatId: chat.id, username: currentUser.username });
-        const data = await statusRes.json();
-        if (statusRes.ok) setRemoteChannelStatus(data);
+        // Optimistically reflect the paused state; polling will sync the rest.
+        setRemoteChannelStatus((prev) =>
+          prev?.source ? { ...prev, source: { ...prev.source, paused: true } } : prev,
+        );
       }
     } catch (error) {
       console.error("Failed to pause remote channel:", error);
@@ -112,9 +145,10 @@ export default function ChatProfileModal({
     try {
       const res = await resumeRemoteChannel(chat.id);
       if (res.ok) {
-        const statusRes = await getRemoteChannelSettings({ chatId: chat.id, username: currentUser.username });
-        const data = await statusRes.json();
-        if (statusRes.ok) setRemoteChannelStatus(data);
+        // Optimistically reflect the resumed state; polling will sync the rest.
+        setRemoteChannelStatus((prev) =>
+          prev?.source ? { ...prev, source: { ...prev.source, paused: false } } : prev,
+        );
       }
     } catch (error) {
       console.error("Failed to resume remote channel:", error);
@@ -127,12 +161,12 @@ export default function ChatProfileModal({
     if (!chat?.id || remoteActionLoading) return;
     setRemoteActionLoading(true);
     try {
-      const res = await skipRemoteChannelQueueItem(chat.id);
-      if (res.ok) {
-        const statusRes = await getRemoteChannelSettings({ chatId: chat.id, username: currentUser.username });
-        const data = await statusRes.json();
-        if (statusRes.ok) setRemoteChannelStatus(data);
-      }
+      await skipRemoteChannelQueueItem(chat.id);
+      // Optimistically clear the queue display — the polling interval will
+      // refresh the real counts within 3 seconds.
+      setRemoteChannelStatus((prev) =>
+        prev ? { ...prev, queue: { ...(prev.queue || {}), pending: 0, processing: 0, retry: 0 } } : prev,
+      );
     } catch (error) {
       console.error("Failed to skip queue item:", error);
     } finally {
@@ -144,12 +178,12 @@ export default function ChatProfileModal({
     if (!chat?.id || remoteActionLoading) return;
     setRemoteActionLoading(true);
     try {
-      const res = await skipAllRemoteChannelQueueItems(chat.id);
-      if (res.ok) {
-        const statusRes = await getRemoteChannelSettings({ chatId: chat.id, username: currentUser.username });
-        const data = await statusRes.json();
-        if (statusRes.ok) setRemoteChannelStatus(data);
-      }
+      await skipAllRemoteChannelQueueItems(chat.id);
+      // Optimistically clear the queue display — the polling interval will
+      // refresh the real counts within 3 seconds.
+      setRemoteChannelStatus((prev) =>
+        prev ? { ...prev, queue: { ...(prev.queue || {}), pending: 0, processing: 0, retry: 0 } } : prev,
+      );
     } catch (error) {
       console.error("Failed to skip all queue items:", error);
     } finally {
@@ -165,15 +199,12 @@ export default function ChatProfileModal({
       const res = await testRemoteChannelConnection(chat.id);
       if (res.ok) {
         setTestConnectionResult("success");
-        setTimeout(() => setTestConnectionResult(null), 3000);
       } else {
         setTestConnectionResult("error");
-        setTimeout(() => setTestConnectionResult(null), 5000);
       }
     } catch (error) {
       console.error("Failed to test connection:", error);
       setTestConnectionResult("error");
-      setTimeout(() => setTestConnectionResult(null), 5000);
     } finally {
       setTestConnectionLoading(false);
     }
@@ -186,12 +217,15 @@ export default function ChatProfileModal({
     setRemoteActionLoading(false);
     setTestConnectionLoading(false);
     setTestConnectionResult(null);
+    setInviteCopied(false);
     onClose?.();
   };
   const handleCopyInviteLink = async () => {
     const value = String(inviteLink || "");
     if (!value) return;
     await copyTextToClipboard(value);
+    setInviteCopied(true);
+    setTimeout(() => setInviteCopied(false), 1500);
   };
 
   const isGroup = chat?.type === "group";
@@ -253,29 +287,27 @@ export default function ChatProfileModal({
       const username = String(member?.username || "").toLowerCase();
       return nickname.includes(query) || username.includes(query);
     });
+    const sortKey = (m) =>
+      String(m?.nickname || m?.username || "").toLowerCase();
+    const sortFn = (a, b) =>
+      sortKey(a).localeCompare(sortKey(b), undefined, { numeric: true, sensitivity: "base" });
     const owners = normalized
       .filter((member) => String(member.role || "").toLowerCase() === "owner")
-      .sort((a, b) =>
-        String(a.username || "").localeCompare(String(b.username || "")),
-      );
+      .sort(sortFn);
     const online = normalized
       .filter(
         (member) =>
           String(member.role || "").toLowerCase() !== "owner" &&
           String(member.status || "").toLowerCase() === "online",
       )
-      .sort((a, b) =>
-        String(a.username || "").localeCompare(String(b.username || "")),
-      );
+      .sort(sortFn);
     const offline = normalized
       .filter(
         (member) =>
           String(member.role || "").toLowerCase() !== "owner" &&
           String(member.status || "").toLowerCase() !== "online",
       )
-      .sort((a, b) =>
-        String(a.username || "").localeCompare(String(b.username || "")),
-      );
+      .sort(sortFn);
     return [...owners, ...online, ...offline];
   }, [memberQuery, members]);
 
@@ -286,9 +318,14 @@ export default function ChatProfileModal({
 
   return createPortal(
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/45 px-5">
-      <div className="app-scroll max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-3xl border border-emerald-100/70 bg-white p-5 shadow-xl dark:border-emerald-500/30 dark:bg-slate-950">
-        <div className="mb-3 flex items-center justify-between">
-          {!isReadOnly && (isGroup || isChannel) && isOwner ? (
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={profileName}
+        className="app-scroll max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-3xl border border-emerald-100/70 bg-white p-5 shadow-xl dark:border-emerald-500/30 dark:bg-slate-950"
+      >        <div className="mb-3 flex items-center justify-between">
+          {!isReadOnly && (isGroup || isChannel) && isOwner && onEditGroup ? (
             <button
               type="button"
               onClick={onEditGroup}
@@ -429,53 +466,79 @@ export default function ChatProfileModal({
               type="button"
               onClick={handleCopyInviteLink}
               disabled={!inviteLink}
-              className="mt-2 block w-full rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-left text-xs text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-300/60 disabled:cursor-default disabled:opacity-70 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/15"
+              className="mt-2 flex w-full items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-left text-xs text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-300/60 disabled:cursor-default disabled:opacity-70 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/15"
               aria-label="Copy invite link"
             >
-              <span className="break-all">
+              <span className="min-w-0 flex-1 break-all">
                 {inviteLink || "No invite link available."}
               </span>
+              {inviteLink ? (
+                <span className="ml-1 shrink-0 text-emerald-600 dark:text-emerald-400">
+                  {inviteCopied ? <Check size={14} /> : <Copy size={14} />}
+                </span>
+              ) : null}
             </button>
           </div>
         ) : null}
 
-        {isChannel && remoteChannelStatus?.source?.enabled ? (
+        {isChannel && remoteChannelAvailable && Boolean(Number(chat?.remote_channel_enabled || 0)) ? (
           <div className="mt-4 rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
-            <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-              Connection
-            </p>
-            <div className="mt-3">
-              <div className="flex w-full items-center justify-between rounded-2xl border border-emerald-200/70 bg-white/90 px-4 py-3 text-sm font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-emerald-200">
-                <span className="flex items-center gap-3">
-                  <SatelliteDish size={18} />
-                  Remote Channel
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                Connection
+              </p>
+              {remoteChannelStatus === null ? (
+                <span className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                  <LoaderCircle size={14} className="animate-spin text-emerald-500" />
+                  Loading...
                 </span>
-                <span className="text-xs text-slate-600 dark:text-slate-400">
-                  {remoteChannelStatus.source.provider === "telegram" ? "Telegram" : remoteChannelStatus.source.provider}: {remoteChannelStatus.source.sourceUsername || remoteChannelStatus.source.sourceChatId}
-                </span>
-              </div>
+              ) : null}
             </div>
-            {isOwner ? (
-              <div className="mt-3">
-                <RemoteChannelQueueStatus 
-                  queue={remoteChannelStatus.source?.queue || {}} 
-                  sourceEnabled={Boolean(remoteChannelStatus.source?.enabled)}
-                  readOnly={false}
-                  onPause={remoteChannelStatus.source?.paused ? null : (remoteActionLoading ? null : handlePauseRemoteChannel)}
-                  onResume={remoteChannelStatus.source?.paused ? (remoteActionLoading ? null : handleResumeRemoteChannel) : null}
-                  onSkip={remoteActionLoading ? null : handleSkipQueueItem}
-                  onSkipAll={remoteActionLoading ? null : handleSkipAllQueueItems}
-                  onTestConnection={remoteActionLoading || testConnectionLoading ? null : handleTestConnection}
-                  testConnectionResult={testConnectionResult}
-                  testConnectionLoading={testConnectionLoading}
-                />
-              </div>
+            {remoteChannelStatus !== null && remoteChannelStatus?.source?.enabled ? (
+              <>
+                <div className="mt-3">
+                  <div className="flex w-full items-center justify-between rounded-2xl border border-emerald-200/70 bg-white/90 px-4 py-3 text-sm font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-emerald-200">
+                    <span className="flex items-center gap-3">
+                      <SatelliteDish size={18} />
+                      Remote Channel
+                    </span>
+                    <span className="text-xs text-slate-600 dark:text-slate-400">
+                      {remoteChannelStatus.source.provider === "telegram" ? (
+                        <FaTelegram size={18} className="inline-block align-middle" />
+                      ) : (
+                        <span>{remoteChannelStatus.source.provider}:</span>
+                      )}{" "}
+                      {remoteChannelStatus.source.sourceUsername || remoteChannelStatus.source.sourceChatId}
+                    </span>
+                  </div>
+                </div>
+                {isOwner ? (
+                  <div className="mt-3">
+                    <RemoteChannelQueueStatus 
+                      queue={remoteChannelStatus.source?.queue || {}} 
+                      sourceEnabled={Boolean(remoteChannelStatus.source?.enabled)}
+                      readOnly={false}
+                      onPause={remoteChannelStatus.source?.paused ? null : (remoteActionLoading ? null : handlePauseRemoteChannel)}
+                      onResume={remoteChannelStatus.source?.paused ? (remoteActionLoading ? null : handleResumeRemoteChannel) : null}
+                      onSkip={remoteActionLoading ? null : handleSkipQueueItem}
+                      onSkipAll={remoteActionLoading ? null : handleSkipAllQueueItems}
+                      onTestConnection={remoteActionLoading || testConnectionLoading ? null : handleTestConnection}
+                      testConnectionResult={testConnectionResult}
+                      testConnectionLoading={testConnectionLoading}
+                      actionLoading={remoteActionLoading}
+                    />
+                  </div>
+                ) : null}
+              </>
             ) : null}
           </div>
         ) : null}
 
         {canSeeMembers ? (
           <div className="mt-4 rounded-2xl border border-emerald-200/80 p-3 dark:border-emerald-500/30">
+            <p className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-200">
+              Members
+            </p>
             <div className="relative">
               <input
                 value={memberQuery}
@@ -592,24 +655,7 @@ export default function ChatProfileModal({
             </div>
 
             {hasMoreMembers ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setMemberLimit((prev) => prev + membersBatchSize);
-                  setTimeout(() => {
-                    if (membersListRef.current) {
-                      membersListRef.current.scrollTo({
-                        top: membersListRef.current.scrollHeight,
-                        behavior: "smooth",
-                      });
-                    }
-                  }, 0);
-                }}
-                className="mt-2 inline-flex w-full items-center justify-center gap-1 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
-              >
-                <ArrowDown size={12} className="icon-anim-pop" />
-                Show more
-              </button>
+              <div ref={membersSentinelRef} className="mt-2 h-4" aria-hidden="true" />
             ) : null}
           </div>
         ) : null}

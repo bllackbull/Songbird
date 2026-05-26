@@ -1,3 +1,27 @@
+## 0.10.2
+
+- 🎨 UI design update for the about page and queue status section
+- 🖱️ Infinite scroll on chat members list
+- 🦻 Accessibility improvements
+- 💨 Performance optimization
+- 🔧 Bug fixes
+
+
+
+
+
+
+
+**⏺️ If you encountered any problem, don't forget to submit an issue on Songbird github repository.**
+
+**⭐ Don't forget to give a star to Songbird github repository!**
+
+🕊️ [Songbird main server](https://chat.songbird.website/invite/songbird)
+
+📢 [Songbird Telegram channel](https://t.me/songbirdapp)
+
+🌐 [Songbird Github repository](https://github.com/bllackbull/Songbird)
+
 ## 0.10.1
 
 ### Improvements
@@ -11,16 +35,6 @@
 - ⚙️ env vars to disable remote channel option or stream media option in UI.
 - ➕ Remote channel configuration support in "Create Chat" and "Edit Chat" database commands.
 - 🔧 Bug fixes
-
-**⏺️ If you encountered any problem, don't forget to submit an issue on Songbird github repository.**
-
-**⭐ Don't forget to give a star to Songbird github repository!**
-
-🕊️ [Songbird main server](https://chat.songbird.website/invite/songbird)
-
-📢 [Songbird Telegram channel](https://t.me/songbirdapp)
-
-🌐 [Songbird Github repository](https://github.com/bllackbull/Songbird)
 
 ## 0.10.0
 

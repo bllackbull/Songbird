@@ -131,8 +131,13 @@ export function useChatScroll({
       }
       if (atBottom && !scrolledUpByUser) {
         suppressScrolledUpRef.current = false;
-        unreadAnchorLockUntilRef.current = 0;
-        clearUnreadAlignTimers();
+        // Only release the anchor lock on a genuine user scroll to bottom.
+        // Programmatic scrolls (e.g. initial anchor alignment) must not clear
+        // the lock — the lock was set to protect against exactly this.
+        if (event?.isTrusted) {
+          unreadAnchorLockUntilRef.current = 0;
+          clearUnreadAlignTimers();
+        }
         if (userScrolledUpRef.current) {
           userScrolledUpRef.current = false;
           setUserScrolledUp(false);

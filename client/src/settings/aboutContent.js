@@ -13,7 +13,7 @@ export const ABOUT_CONTENT = {
       href: "https://t.me/songbirdapp",
     },
     {
-      icon: "website",
+      icon: "songbird",
       href: "https://chat.songbird.website/invite/songbird",
     },
   ],

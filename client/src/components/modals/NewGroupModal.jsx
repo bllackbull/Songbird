@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  Check,
   ChevronDown,
   Close,
   CloudSync,
+  Copy,
   ImageIcon,
   LoaderCircle,
   Lock,
@@ -20,6 +22,7 @@ import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import { NICKNAME_MAX, USERNAME_MAX } from "../../utils/nameLimits.js";
 import ConfirmPasswordModal from "./ConfirmPasswordModal.jsx";
 import Avatar from "../common/Avatar.jsx";
+import { useFocusTrap } from "../../hooks/useFocusTrap.js";
 
 export default function NewGroupModal({
   open,
@@ -60,11 +63,14 @@ export default function NewGroupModal({
 }) {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [remoteSourceMenuOpen, setRemoteSourceMenuOpen] = useState(false);
+  const [inviteLinkCopied, setInviteLinkCopied] = useState(false);
   const groupPhotoInputRef = useRef(null);
   const groupSearchInputRef = useRef(null);
   const remoteSourceButtonRef = useRef(null);
   const remoteSourceMenuRef = useRef(null);
   const ignoreRemoteSourceButtonClickRef = useRef(false);
+  const dialogRef = useRef(null);
+  useFocusTrap(dialogRef, open);
   const remoteMenuShouldClose =
     !open ||
     !showRemoteChannelSettings ||
@@ -143,17 +149,17 @@ export default function NewGroupModal({
   const remoteChannelSyncMetadata = Boolean(
     groupForm.remoteChannelSyncMetadata,
   );
-  const remoteChannelStreamMedia =
-    fileUploadEnabled &&
-    remoteChannelMediaStreamAllowed &&
-    Boolean(groupForm.remoteChannelStreamMedia);
   const privateChatEnabled = groupForm.visibility === "private";
   const memberInvitesLocked = !privateChatEnabled;
   const memberInvitesEnabled =
     memberInvitesLocked || groupForm.allowMemberInvites !== false;
   const remoteChannelLocked = privateChatEnabled || !remoteChannelAvailable;
   const effectiveRemoteChannelEnabled =
-    !remoteChannelLocked && remoteChannelEnabled;
+    privateChatEnabled ? false : remoteChannelEnabled;
+  const remoteChannelStreamMediaLocked = !fileUploadEnabled || !remoteChannelMediaStreamAllowed;
+  const remoteChannelStreamMedia =
+    fileUploadEnabled &&
+    Boolean(groupForm.remoteChannelStreamMedia);
   const remoteProviderLabel =
     groupForm.remoteChannelProvider === "telegram" ? "Telegram" : "Telegram";
   const privacyOptionClass = (locked = false) =>
@@ -180,9 +186,15 @@ export default function NewGroupModal({
   return createPortal(
     <>
       <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/40 px-6">
-        <div className="app-scroll max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-2xl border border-emerald-100/70 bg-white p-6 shadow-xl dark:border-emerald-500/30 dark:bg-slate-950">
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="new-group-modal-title"
+          className="app-scroll max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-2xl border border-emerald-100/70 bg-white p-6 shadow-xl dark:border-emerald-500/30 dark:bg-slate-950"
+        >
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-emerald-700 dark:text-emerald-200">
+            <h3 id="new-group-modal-title" className="text-lg font-semibold text-emerald-700 dark:text-emerald-200">
               {title}
             </h3>
             <button
@@ -391,14 +403,21 @@ export default function NewGroupModal({
                     const value = String(currentInviteLink || "");
                     if (!value) return;
                     await copyTextToClipboard(value);
+                    setInviteLinkCopied(true);
+                    setTimeout(() => setInviteLinkCopied(false), 1500);
                   }}
                   disabled={!currentInviteLink}
-                  className="mt-2 block w-full rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-left text-xs text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-300/60 disabled:cursor-default disabled:opacity-70 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/15"
+                  className="mt-2 flex w-full items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-left text-xs text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-300/60 disabled:cursor-default disabled:opacity-70 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/15"
                   aria-label="Copy invite link"
                 >
-                  <span className="break-all">
+                  <span className="min-w-0 flex-1 break-all">
                     {currentInviteLink || "No invite link available."}
                   </span>
+                  {currentInviteLink ? (
+                    <span className="ml-1 shrink-0 text-emerald-600 dark:text-emerald-400">
+                      {inviteLinkCopied ? <Check size={14} /> : <Copy size={14} />}
+                    </span>
+                  ) : null}
                 </button>
                 {onRegenerateInvite ? (
                   <div className="mt-3 flex items-center justify-end gap-2">
@@ -590,9 +609,9 @@ export default function NewGroupModal({
                       type="button"
                       role="switch"
                       aria-checked={remoteChannelStreamMedia}
-                      disabled={!fileUploadEnabled || !remoteChannelMediaStreamAllowed}
+                      disabled={remoteChannelStreamMediaLocked}
                       onClick={() => {
-                        if (!fileUploadEnabled || !remoteChannelMediaStreamAllowed) return;
+                        if (remoteChannelStreamMediaLocked) return;
                         setGroupForm((prev) => ({
                           ...prev,
                           remoteChannelStreamMedia:
@@ -600,7 +619,7 @@ export default function NewGroupModal({
                         }));
                       }}
                       className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left text-sm font-semibold transition ${
-                        fileUploadEnabled && remoteChannelMediaStreamAllowed
+                        !remoteChannelStreamMediaLocked
                           ? "border-emerald-200/70 bg-white/90 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_18px_rgba(16,185,129,0.18)] dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
                           : "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-500"
                       }`}

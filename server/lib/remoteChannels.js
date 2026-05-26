@@ -1245,10 +1245,25 @@ function createRemoteChannelManager(deps = {}) {
       "DocumentAttributeVideo",
       "DocumentAttributeImageSize",
     ]);
-    return {
-      width: attr?.w,
-      height: attr?.h,
-    };
+    if (attr?.w > 0 && attr?.h > 0) {
+      return { width: attr.w, height: attr.h };
+    }
+
+    // For Telegram photos
+    const photo = getTelegramPhoto(message);
+    const sizes = photo?.sizes;
+    if (Array.isArray(sizes) && sizes.length > 0) {
+      // Pick the largest size entry that has explicit pixel dimensions
+      const best = sizes
+        .filter((s) => s?.w > 0 && s?.h > 0)
+        .reduce((largest, s) => {
+          const area = s.w * s.h;
+          return area > (largest?.w || 0) * (largest?.h || 0) ? s : largest;
+        }, null);
+      if (best) return { width: best.w, height: best.h };
+    }
+
+    return { width: undefined, height: undefined };
   }
 
   function getTelegramMediaDuration(message) {

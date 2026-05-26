@@ -807,6 +807,49 @@ label:hover .icon-anim-drop {
 .sb-mention-active {
   color: #38bdf8;
   cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.sb-mention-active:hover {
+  background-color: rgba(56, 189, 248, 0.15);
+  color: #0ea5e9;
+}
+
+.dark .sb-mention-active:hover {
+  background-color: rgba(56, 189, 248, 0.18);
+  color: #7dd3fc;
+}
+
+.sb-mention-loading {
+  cursor: wait;
+  color: #38bdf8;
+  background: linear-gradient(
+    90deg,
+    rgba(56, 189, 248, 0.08) 25%,
+    rgba(56, 189, 248, 0.22) 50%,
+    rgba(56, 189, 248, 0.08) 75%
+  );
+  background-size: 200% 100%;
+  animation: sb-mention-shimmer 1.2s ease-in-out infinite;
+  border-radius: 6px;
+  padding: 2px 4px;
+  margin: -2px -4px;
+}
+
+.dark .sb-mention-loading {
+  background: linear-gradient(
+    90deg,
+    rgba(56, 189, 248, 0.10) 25%,
+    rgba(56, 189, 248, 0.28) 50%,
+    rgba(56, 189, 248, 0.10) 75%
+  );
+  background-size: 200% 100%;
+  animation: sb-mention-shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes sb-mention-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 .sb-link,

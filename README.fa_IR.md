@@ -482,7 +482,7 @@ nano .env
 | `CHAT_PENDING_RETRY_INTERVAL` | `عدد` | `4000` | فاصله تلاش مجدد برای پیام‌های pending هنگام اتصال. (میلی‌ثانیه) |
 | `CHAT_PENDING_STATUS_CHECK_INTERVAL` | `عدد` | `1000` | فاصله بررسی timeout برای پیام‌های pending. (میلی‌ثانیه) |
 | `CHAT_CACHE_TTL` | `عدد` | `24` | مدت اعتبار کش محلی لیست چت‌ها و پیام‌ها. (ساعت) |
-| `CHAT_MESSAGE_FETCH_LIMIT` | `عدد` | `300` | حداکثر تعداد پیام در هر بار دریافت اولیه یا آخرین پنجره. |
+| `CHAT_MESSAGE_FETCH_LIMIT` | `عدد` | `60` | حداکثر تعداد پیام در هر بار دریافت اولیه یا آخرین پنجره. |
 | `CHAT_MESSAGE_PAGE_SIZE` | `عدد` | `60` | تعداد پیام هنگام بارگذاری پیام‌های قدیمی‌تر. |
 | `CHAT_LIST_REFRESH_INTERVAL` | `عدد` | `20000` | فاصله رفرش پس‌زمینه لیست چت‌ها. (میلی‌ثانیه) |
 | `CHAT_PRESENCE_PING_INTERVAL` | `عدد` | `5000` | فاصله heartbeat برای presence. (میلی‌ثانیه) |
