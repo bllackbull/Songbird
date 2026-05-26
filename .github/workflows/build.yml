@@ -19,15 +19,13 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 24
-
-      # Root deps (concurrently, tooling)
-      - name: Install root dependencies
-        run: npm install
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
 
       # Client deps (Vite, React)
       - name: Install client dependencies
-        run: npm install --prefix client
+        run: npm ci --prefix client
 
       # Build client (static assets)
       - name: Build client
