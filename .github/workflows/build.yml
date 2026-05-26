@@ -11,7 +11,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repo
@@ -25,11 +25,6 @@ jobs:
       # Root deps (concurrently, tooling)
       - name: Install root dependencies
         run: npm install
-
-      # Server deps (runtime verification — non-blocking)
-      - name: Install server dependencies
-        run: npm install --prefix server
-        continue-on-error: true
 
       # Client deps (Vite, React)
       - name: Install client dependencies
