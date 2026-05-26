@@ -58,6 +58,7 @@ import {
   getMessageAuthors,
   getMessageReadByUser,
   getMessages,
+  getFirstUnreadMessage,
   recordMessageReads,
   listMessageFilesByMessageIds,
   markGroupMemberRemoved,
@@ -114,6 +115,9 @@ import {
   updateRemoteChannelSourcePaused,
   updateRemoteChannelSourceSeen,
   upsertRemoteChannelSource,
+  toggleReaction,
+  getReactionsForMessages,
+  getReactionsForMessage,
 } from "./db.js";
 
 process.title = "songbird-server";
@@ -121,8 +125,8 @@ process.title = "songbird-server";
 const app = express();
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRootDir = path.resolve(serverDir, "..");
-dotenv.config({ path: path.join(projectRootDir, ".env"), override: true });
-dotenv.config({ path: path.join(serverDir, ".env"), override: true });
+dotenv.config({ path: path.join(projectRootDir, ".env"), override: true, quiet: true });
+dotenv.config({ path: path.join(serverDir, ".env"), override: true, quiet: true });
 
 const port = process.env.SERVER_PORT || process.env.PORT || 5174;
 const appEnv = process.env.APP_ENV || "production";
@@ -611,6 +615,7 @@ const apiDeps = {
   getMessageAuthors,
   getMessageReadByUser,
   getMessages,
+  getFirstUnreadMessage,
   getRemoteChannelProviderState,
   getRemoteChannelQueueSummary,
   getRemoteChannelSourceByChatId,
@@ -692,6 +697,9 @@ const apiDeps = {
   upsertPushSubscription,
   sendPushNotificationToUsers,
   storageEncryption,
+  toggleReaction,
+  getReactionsForMessages,
+  getReactionsForMessage,
 };
 
 const remoteChannelManager = createRemoteChannelManager({

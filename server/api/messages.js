@@ -29,6 +29,7 @@ function registerMessageRoutes(app, deps) {
     findUserById,
     findUserByUsername,
     getMessages,
+    getFirstUnreadMessage,
     hideMessageForEveryone,
     hideMessageForUser,
     getMessageReadCounts,
@@ -63,6 +64,7 @@ function registerMessageRoutes(app, deps) {
     enqueueVideoTranscodeJob,
     markMessagesRead,
     markMessageRead,
+    getReactionsForMessages,
   } = deps;
 
   const computeTextExpiryIso = (createdAt) => {
@@ -196,6 +198,8 @@ function registerMessageRoutes(app, deps) {
     const username = req.query.username?.toString();
     const beforeId = Number(req.query.beforeId || 0);
     const beforeCreatedAt = req.query.beforeCreatedAt?.toString() || "";
+    const afterId = Number(req.query.afterId || 0);
+    const afterCreatedAt = req.query.afterCreatedAt?.toString() || "";
     const limitRaw = Number(req.query.limit || 50);
     const limit = Number.isFinite(limitRaw)
       ? Math.max(1, Math.min(10000, limitRaw))
@@ -218,6 +222,8 @@ function registerMessageRoutes(app, deps) {
     let { messages, hasMore, totalCount } = getMessages(chatId, {
       beforeId: beforeId > 0 ? beforeId : null,
       beforeCreatedAt: beforeCreatedAt || null,
+      afterId: afterId > 0 ? afterId : null,
+      afterCreatedAt: afterCreatedAt || null,
       limit,
       viewerUserId: user.id,
     });
@@ -239,6 +245,8 @@ function registerMessageRoutes(app, deps) {
       const refreshed = getMessages(chatId, {
         beforeId: beforeId > 0 ? beforeId : null,
         beforeCreatedAt: beforeCreatedAt || null,
+        afterId: afterId > 0 ? afterId : null,
+        afterCreatedAt: afterCreatedAt || null,
         limit,
         viewerUserId: user.id,
       });
@@ -399,7 +407,39 @@ function registerMessageRoutes(app, deps) {
       hasMore,
     });
 
+    // Hydrate reactions
+    const reactionMap = getReactionsForMessages(messageIds);
+    enriched.forEach((msg) => {
+      const id = Number(msg?.id || 0);
+      msg.reactions = reactionMap[id] || [];
+    });
+
     res.json({ chatId, messages: enriched, hasMore, totalCount });
+  });
+
+  app.get("/api/messages/first-unread", (req, res) => {
+    const session = requireSession(req, res);
+    if (!session) return;
+
+    const chatId = Number(req.query.chatId);
+    const username = req.query.username?.toString();
+
+    if (!chatId || !username) {
+      return res.status(400).json({ error: "Chat and username are required." });
+    }
+    if (!requireSessionUsernameMatch(res, session, username)) return;
+
+    const user = findUserByUsername(username.toLowerCase());
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    if (!isMember(chatId, user.id)) {
+      return res.status(403).json({ error: "Not a member of this chat." });
+    }
+
+    const firstUnread = getFirstUnreadMessage(chatId, user.id);
+    res.json({ firstUnread: firstUnread || null });
   });
 
   app.post("/api/messages/read", (req, res) => {

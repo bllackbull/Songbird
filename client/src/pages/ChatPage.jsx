@@ -86,6 +86,7 @@ import {
   logout,
   markMessageRead,
   markMessagesRead,
+  fetchFirstUnreadMessage,
   pingPresence,
   searchUsers,
   sendTypingIndicator,
@@ -110,6 +111,7 @@ import {
   updateProfile,
   updateStatus as updateStatusRequest,
   uploadAvatar,
+  toggleReaction,
 } from "../api/chatApi.js";
 import { APP_CONFIG } from "../settings/appConfig.js";
 import {
@@ -954,30 +956,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       displayName: replyName || "Unknown",
       color: replyColor,
     });
-    if (!userScrolledUpRef.current) {
-      pendingScrollToBottomRef.current = true;
-      scrollChatToBottom("auto");
-      requestAnimationFrame(() => {
-        scrollChatToBottom("auto");
-      });
-      window.setTimeout(() => {
-        scrollChatToBottom("auto");
-      }, 80);
-    }
+    scrollToBottomIfSafe("auto");
   };
 
   const handleClearReply = () => {
     setReplyTarget(null);
-    if (!userScrolledUpRef.current) {
-      pendingScrollToBottomRef.current = true;
-      scrollChatToBottom("auto");
-      requestAnimationFrame(() => {
-        scrollChatToBottom("auto");
-      });
-      window.setTimeout(() => {
-        scrollChatToBottom("auto");
-      }, 80);
-    }
+    scrollToBottomIfSafe("auto");
   };
 
   const handleStartEdit = (msg) => {
@@ -994,16 +978,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       body: msg.body || "",
       files: Array.isArray(msg.files) ? msg.files : [],
     });
-    if (!userScrolledUpRef.current) {
-      pendingScrollToBottomRef.current = true;
-      scrollChatToBottom("auto");
-      requestAnimationFrame(() => {
-        scrollChatToBottom("auto");
-      });
-      window.setTimeout(() => {
-        scrollChatToBottom("auto");
-      }, 80);
-    }
+    scrollToBottomIfSafe("auto");
   };
 
   const handleClearEdit = () => {
@@ -1044,6 +1019,25 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const files = getMessageFiles(message);
     if (!files.length) return;
     downloadMessageFiles(files);
+  }, []);
+
+  const handleToggleReaction = useCallback(async (message, emoji) => {
+    const messageId = Number(message?._serverId || message?.id || 0);
+    if (!messageId || !emoji) return;
+    try {
+      const res = await toggleReaction(messageId, emoji);
+      if (!res.ok) return;
+      const data = await res.json();
+      setMessages((prev) =>
+        prev.map((msg) => {
+          const id = Number(msg?._serverId || msg?.id || 0);
+          if (id !== messageId) return msg;
+          return { ...msg, reactions: data.reactions || [] };
+        }),
+      );
+    } catch {
+      // ignore
+    }
   }, []);
 
   const handleOpenForwardOrigin = async (target) => {
@@ -1346,6 +1340,32 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     openingChatRef,
   });
 
+  /**
+   * Scroll to bottom only when it is safe to do so.
+   *
+   * @param {"auto"|"smooth"} behavior
+   * @param {{ force?: boolean }} opts  Pass force:true to bypass the anchor
+   *   check (e.g. after the user explicitly clicks "jump to latest").
+   */
+  const scrollToBottomIfSafe = useCallback(
+    (behavior = "auto", { force = false } = {}) => {
+      if (!force) {
+        if (unreadMarkerIdRef.current !== null) return;
+        if (Date.now() < Number(unreadAnchorLockUntilRef.current || 0)) return;
+        if (pendingScrollToUnreadRef.current !== null) return;
+      }
+      if (userScrolledUpRef.current && !force) return;
+      pendingScrollToBottomRef.current = true;
+      scrollChatToBottom(behavior);
+      requestAnimationFrame(() => {
+        scrollChatToBottom(behavior);
+      });
+      window.setTimeout(() => {
+        scrollChatToBottom(behavior);
+      }, 80);
+    },
+    [scrollChatToBottom, unreadMarkerIdRef, unreadAnchorLockUntilRef, pendingScrollToUnreadRef, userScrolledUpRef, pendingScrollToBottomRef],
+  );
 
   useEffect(() => {
     pendingUploadFilesRef.current = pendingUploadFiles;
@@ -1655,8 +1675,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         })();
       }
         void (async () => {
+          // If we have cached messages, always show them immediately
+          const shouldFetchSilently = hasCachedMessages && sseConnected;
           const shouldFetchInitial =
-            openingUnreadCountRef.current > 0 || !cached || !sseConnected || !hasCachedMessages;
+            !shouldFetchSilently &&
+            (openingUnreadCountRef.current > 0 || !cached || !sseConnected || !hasCachedMessages);
           if (shouldFetchInitial) {
             await loadMessages(openedChatId, { initialLoad: true, limit: initialLimit });
           } else {
@@ -1665,7 +1688,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               pendingScrollToBottomRef.current = true;
               scrollChatToBottom("auto");
             }
-            // Refresh to reconcile cached messages (e.g., deleted files).
+            // Refresh to reconcile cached messages and resolve unread anchor.
             void loadMessages(openedChatId, {
               initialLoad: true,
               silent: true,
@@ -1753,17 +1776,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const now = activeUploadProgress;
     // When upload bar closes, force a final snap to bottom.
     if (activeChatId && prev !== null && now === null) {
-      pendingScrollToBottomRef.current = true;
-      userScrolledUpRef.current = false;
-      setUserScrolledUp(false);
-      isAtBottomRef.current = true;
-      setIsAtBottom(true);
-      requestAnimationFrame(() => {
-        scrollChatToBottom("auto");
-        requestAnimationFrame(() => {
-          scrollChatToBottom("auto");
-        });
-      });
+      scrollToBottomIfSafe("auto");
     }
     prevUploadProgressRef.current = now;
   }, [activeUploadProgress, activeChatId]);
@@ -1802,6 +1815,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (canSendInActiveChat) return;
     stopTypingIndicator(activeChatIdRef.current);
   }, [canSendInActiveChat, stopTypingIndicator]);
+
+  useEffect(() => {
+    if (!userScrolledUp) return;
+    setUnreadInChat((prev) => {
+      if (prev > 0) return prev;
+      return Number(activeChat?.unread_count || 0);
+    });
+  }, [userScrolledUp, activeChat?.unread_count]);
 
   const {
     loadMessages,
@@ -1844,6 +1865,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     CHAT_PAGE_CONFIG,
     listMessagesByQuery,
     markMessagesRead,
+    fetchFirstUnreadMessage,
   });
   usePerfTelemetry({
     activeChatId,
@@ -2792,6 +2814,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
     const body = String(forwardMessageTarget?.body || "");
 
+    // Capture state before clearing it
+    const capturedTarget = forwardMessageTarget;
+
+    // Close the modal immediately for instant feedback
+    setForwardMessageTarget(null);
+    setForwardSavedChat(null);
+
     try {
       const res = await forwardMessage({
         username: user.username,
@@ -2802,29 +2831,27 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         forwardedFromLabel: originalForwardLabel,
         forwardedFromUserId: isActiveChannelChat
           ? null
-          : Number(forwardMessageTarget?.user_id || 0) || Number(user?.id || 0) || null,
+          : Number(capturedTarget?.user_id || 0) || Number(user?.id || 0) || null,
         forwardedFromUsername: isActiveChannelChat
           ? ""
           : String(
-              forwardMessageTarget?.username || user?.username || "",
+              capturedTarget?.username || user?.username || "",
             ).trim(),
         forwardedFromAvatarUrl: isActiveChannelChat
           ? ""
           : String(
-              forwardMessageTarget?.avatar_url || user?.avatarUrl || "",
+              capturedTarget?.avatar_url || user?.avatarUrl || "",
             ).trim(),
         forwardedFromColor: isActiveChannelChat
           ? ""
           : String(
-              forwardMessageTarget?.color || user?.color || "#10b981",
+              capturedTarget?.color || user?.color || "#10b981",
             ).trim(),
       });
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data?.error || "Unable to forward message.");
       }
-      setForwardMessageTarget(null);
-      setForwardSavedChat(null);
       await loadChats({ silent: true });
     } catch (error) {
       setUploadError(String(error?.message || "Unable to forward message."));
@@ -3059,9 +3086,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     requestAnimationFrame(() => {
       const unreadId = Number(pendingUnread);
       const scroller = chatScrollRef.current;
-      if (scroller) {
-        scheduleUnreadAnchorAlignment(unreadId);
-      }
+      // Set the lock BEFORE scrolling so handleChatScroll sees it when the
+      // programmatic scroll event fires synchronously inside scrollTo().
       pendingScrollToUnreadRef.current = null;
       pendingScrollToBottomRef.current = false;
       isAtBottomRef.current = false;
@@ -3070,21 +3096,28 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       setUserScrolledUp(true);
       unreadAnchorLockUntilRef.current = Date.now() + 4000;
       shouldAutoMarkReadRef.current = true;
+      if (scroller) {
+        scheduleUnreadAnchorAlignment(unreadId);
+      }
         if (scroller) {
           window.setTimeout(() => {
+            // If an unread anchor is active, don't reset scroll state.
             if (unreadMarkerIdRef.current !== null) {
+              return;
+            }
+            if (Date.now() < Number(unreadAnchorLockUntilRef.current || 0)) {
               return;
             }
             const distance =
               scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
             if (distance <= 120) {
               isAtBottomRef.current = true;
-            setIsAtBottom(true);
-            userScrolledUpRef.current = false;
-            setUserScrolledUp(false);
-            unreadAnchorLockUntilRef.current = 0;
-          }
-        }, 90);
+              setIsAtBottom(true);
+              userScrolledUpRef.current = false;
+              setUserScrolledUp(false);
+              unreadAnchorLockUntilRef.current = 0;
+            }
+          }, 90);
       }
     });
   }, [activeChatId, messages, loadingMessages]);
@@ -3100,13 +3133,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const unreadId = Number(unreadMarkerIdRef.current || 0);
     if (!unreadId) return;
     requestAnimationFrame(() => {
-      scheduleUnreadAnchorAlignment(unreadId);
+      // Set lock BEFORE scrolling so handleChatScroll sees it immediately.
       pendingScrollToBottomRef.current = false;
       isAtBottomRef.current = false;
       setIsAtBottom(false);
       userScrolledUpRef.current = true;
       setUserScrolledUp(true);
       unreadAnchorLockUntilRef.current = Date.now() + 5000;
+      scheduleUnreadAnchorAlignment(unreadId);
     });
   }, [activeChatId, unreadMarkerId, messages.length, loadingMessages]);
 
@@ -3248,6 +3282,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         }),
       );
 
+      // Keep the jump-to-bottom button badge in sync with the sidebar badge.
+      setUnreadInChat((prev) => Math.max(0, prev - 1));
+
       // Fire the API call (best-effort)
       markMessageRead({
         chatId: activeChatIdRef.current,
@@ -3261,6 +3298,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       markMessageRead,
       setChats,
       setMessages,
+      setUnreadInChat,
       user,
     ],
   );
@@ -3342,29 +3380,28 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     [user?.username],
   );
 
-  function applyDeletedMessageLocally(messageId) {
-    const numericMessageId = Number(messageId || 0);
-    if (!numericMessageId) return;
-    setMessages((prev) =>
-      prev
-        .filter((msg) => Number(msg?._serverId || msg?.id || 0) !== numericMessageId)
-        .map((msg) => {
-          const replyId = Number(msg?.replyTo?.id || 0);
-          if (!replyId || replyId !== numericMessageId) return msg;
-          return {
-            ...msg,
-            replyTo: null,
-          };
-        }),
-    );
-    if (activeChatId) {
-      pruneDeletedMessagesFromCache(activeChatId, [numericMessageId]);
-    }
-  }
-
   async function performDeleteMessage(message, scope = "self") {
     const messageId = Number(message?.id || message?._serverId || 0);
     if (!activeChatId || !messageId || !user?.username) return;
+    setMessageDeleteScopeOpen(false);
+    setPendingDeleteMessage(null);
+
+    // Snapshot current messages so we can roll back on failure
+    let snapshotMessages;
+    setMessages((prev) => {
+      snapshotMessages = prev;
+      return prev
+        .filter((msg) => Number(msg?._serverId || msg?.id || 0) !== messageId)
+        .map((msg) => {
+          const replyId = Number(msg?.replyTo?.id || 0);
+          if (!replyId || replyId !== messageId) return msg;
+          return { ...msg, replyTo: null };
+        });
+    });
+    if (activeChatId) {
+      pruneDeletedMessagesFromCache(activeChatId, [messageId]);
+    }
+
     try {
       const res = await deleteMessage({
         chatId: Number(activeChatId),
@@ -3376,13 +3413,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (!res.ok) {
         throw new Error(data?.error || "Unable to delete message.");
       }
-      applyDeletedMessageLocally(messageId);
       await loadChats({ silent: true });
     } catch (error) {
+      // Restore the optimistically removed message on failure
+      if (snapshotMessages) {
+        setMessages(snapshotMessages);
+      }
       setUploadError(String(error?.message || "Unable to delete message."));
-    } finally {
-      setMessageDeleteScopeOpen(false);
-      setPendingDeleteMessage(null);
     }
   }
 
@@ -3398,6 +3435,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     userScrolledUpRef,
     isAtBottomRef,
     pendingScrollToBottomRef,
+    unreadMarkerIdRef,
+    unreadAnchorLockUntilRef,
+    pendingScrollToUnreadRef,
     setUnreadInChat,
     setMessages,
     setChats,
@@ -4485,16 +4525,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     });
     setPendingUploadType("");
     setUploadError("");
-    if (!userScrolledUpRef.current) {
-      pendingScrollToBottomRef.current = true;
-      scrollChatToBottom("auto");
-      requestAnimationFrame(() => {
-        scrollChatToBottom("auto");
-      });
-      window.setTimeout(() => {
-        scrollChatToBottom("auto");
-      }, 80);
-    }
+    scrollToBottomIfSafe("auto");
   }
 
   function clearPendingVoiceMessage() {
@@ -4556,16 +4587,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       kind: "voice",
     });
     if (activeChatId && !userScrolledUpRef.current) {
-      pendingScrollToBottomRef.current = true;
-      isAtBottomRef.current = true;
-      setIsAtBottom(true);
-      scrollChatToBottom("auto");
-      requestAnimationFrame(() => {
-        scrollChatToBottom("auto");
-      });
-      window.setTimeout(() => {
-        scrollChatToBottom("auto");
-      }, 80);
+      scrollToBottomIfSafe("auto");
     }
   }
 
@@ -4838,16 +4860,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setPendingUploadFiles((prev) => (append ? [...prev, ...nextItems] : nextItems));
     setPendingUploadType(uploadType);
     if (activeChatId && !userScrolledUpRef.current) {
-      pendingScrollToBottomRef.current = true;
-      isAtBottomRef.current = true;
-      setIsAtBottom(true);
-      scrollChatToBottom("auto");
-      requestAnimationFrame(() => {
-        scrollChatToBottom("auto");
-      });
-      window.setTimeout(() => {
-        scrollChatToBottom("auto");
-      }, 80);
+      scrollToBottomIfSafe("auto");
     }
   }
 
@@ -5676,9 +5689,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           const source = data?.source || null;
           setNewGroupForm((prev) => ({
             ...prev,
-            remoteChannelEnabled:
-              Boolean(appInfo?.remoteChannels?.uiEnabled) &&
-              Boolean(source?.enabled),
+            remoteChannelEnabled: Boolean(source?.enabled),
             remoteChannelProvider: source?.provider || "telegram",
             remoteChannelSource:
               source?.sourceRaw ||
@@ -5688,7 +5699,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             remoteChannelSyncMetadata: Boolean(source?.syncMetadata),
             remoteChannelStreamMedia:
               CHAT_PAGE_CONFIG.fileUploadEnabled &&
-              Boolean(appInfo?.remoteChannels?.mediaStreamEnabled) &&
               Boolean(source?.streamMedia),
             remoteChannelStatus: data,
             remoteChannelLoading: false,
@@ -5837,7 +5847,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       ? newGroupForm.remoteChannelStatus?.source || null
       : null;
     const originalEnabled =
-      Boolean(appInfo?.remoteChannels?.uiEnabled) &&
       Boolean(originalRemoteChannel?.enabled);
     const originalSource =
       originalRemoteChannel?.sourceRaw ||
@@ -5849,7 +5858,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const originalSyncMetadata = Boolean(originalRemoteChannel?.syncMetadata);
     const originalStreamMedia =
       CHAT_PAGE_CONFIG.fileUploadEnabled &&
-      Boolean(appInfo?.remoteChannels?.mediaStreamEnabled) &&
       Boolean(originalRemoteChannel?.streamMedia);
     const remoteChannelChanged =
       remoteChannelEnabled !== originalEnabled ||
@@ -6485,6 +6493,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         forwardedUserStatusByKey={forwardedUserStatusByKey}
         onForwardMessage={handleOpenForwardModal}
         onOpenContextMenu={openContextMenu}
+        onToggleReaction={handleToggleReaction}
         onUserScrollIntent={handleUserScrollIntent}
         onFloatingDayNavigate={handleFloatingDayNavigate}
         canSwipeReply={canSwipeReply}
@@ -6715,7 +6724,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             showMembers={shouldShowMembersList}
             membersBatchSize={CHAT_PAGE_CONFIG.newChatSearchMaxResults}
             remoteChannelAvailable={Boolean(
-              appInfo?.remoteChannels?.enabled
+              appInfo?.remoteChannels?.enabled &&
+                !(mentionProfileChat && Number(mentionProfileChat.id) !== Number(activeChat?.id))
             )}
             onClose={closeProfileModal}
             onOpenChat={handleOpenProfileChat}
@@ -6728,7 +6738,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             onOpenMember={openMemberProfileFromList}
             onRemoveMember={handleRemoveGroupMember}
             onOpenUserContextMenu={openContextMenu}
-            onEditGroup={openEditGroupFromProfile}
+            onEditGroup={mentionProfileChat && Number(mentionProfileChat.id) !== Number(activeChat?.id) ? undefined : openEditGroupFromProfile}
             onEditSelfProfile={openSelfProfileEditor}
           />
         </Suspense>

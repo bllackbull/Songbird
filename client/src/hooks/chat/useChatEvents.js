@@ -42,6 +42,9 @@ export function useChatEvents({
   userScrolledUpRef,
   isAtBottomRef,
   pendingScrollToBottomRef,
+  unreadMarkerIdRef,
+  unreadAnchorLockUntilRef,
+  pendingScrollToUnreadRef,
   setUnreadInChat,
   setMessages,
   setChats,
@@ -150,7 +153,8 @@ export function useChatEvents({
           payload.type !== "presence_update" &&
           payload.type !== "profile_updated" &&
           payload.type !== "chat_typing" &&
-          payload.type !== "session_revoked"
+          payload.type !== "session_revoked" &&
+          payload.type !== "chat_message_reaction"
         ) {
           return;
         }
@@ -274,7 +278,14 @@ export function useChatEvents({
             } else if (userScrolledUpRef.current && !isAtBottomRef.current) {
               setUnreadInChat((prev) => prev + 1);
             } else {
-              pendingScrollToBottomRef.current = true;
+              // Only scroll to bottom if no unread anchor is active
+              const anchorActive =
+                (unreadMarkerIdRef?.current !== null && unreadMarkerIdRef?.current !== undefined) ||
+                Date.now() < Number(unreadAnchorLockUntilRef?.current || 0) ||
+                (pendingScrollToUnreadRef?.current !== null && pendingScrollToUnreadRef?.current !== undefined);
+              if (!anchorActive) {
+                pendingScrollToBottomRef.current = true;
+              }
               setChats((prev) =>
                 prev.map((chat) =>
                   Number(chat?.id) === Number(payloadChatId)
@@ -349,6 +360,19 @@ export function useChatEvents({
           if (isUpdateEvent) {
             scheduleLoadChats();
           }
+          if (payload.type === "chat_message_reaction") {
+            const reactionMsgId = Number(payload?.messageId || 0);
+            if (reactionMsgId) {
+              setMessages((prev) =>
+                prev.map((msg) => {
+                  const serverId = Number(msg?._serverId || msg?.id || 0);
+                  if (serverId !== reactionMsgId) return msg;
+                  return { ...msg, reactions: payload.reactions || [] };
+                }),
+              );
+            }
+            return;
+          }
           scheduleMessageRefreshRef.current?.(currentActiveId, {
             preserveHistory: true,
             pruneMissing: isUpdateEvent,
@@ -396,6 +420,7 @@ export function useChatEvents({
     isAtBottomRef,
     loadChatsRef,
     pendingScrollToBottomRef,
+    pendingScrollToUnreadRef,
     scheduleMessageRefreshRef,
     setChats,
     setMessages,
@@ -406,6 +431,8 @@ export function useChatEvents({
     markMessagesRead,
     sseReconnectDelayMs,
     sseReconnectRef,
+    unreadAnchorLockUntilRef,
+    unreadMarkerIdRef,
     userScrolledUpRef,
     username,
     usernameRef,

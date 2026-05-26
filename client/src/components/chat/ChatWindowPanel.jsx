@@ -120,6 +120,7 @@ export default function ChatWindowPanel({
   permissionsPrompt = null,
   copyToastVisible = false,
   registerMessageRef = null,
+  onToggleReaction,
 }) {
   const MEDIA_CACHE_VERSION = 1;
   const MEDIA_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -1128,6 +1129,7 @@ export default function ChatWindowPanel({
       mentionRefreshToken={mentionRefreshToken}
       onOpenContextMenu={onOpenContextMenu}
       visibilityRef={registerMessageRef ? registerMessageRef(msg) : null}
+      onToggleReaction={onToggleReaction}
       onJumpToMessage={(messageId) => {
         const target = document.getElementById(`message-${messageId}`);
         if (target && typeof target.scrollIntoView === "function") {
