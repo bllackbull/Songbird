@@ -41,15 +41,15 @@
     "remote:configure": "node scripts/configure-remote-channel.js"
   },
   "dependencies": {
-    "bcryptjs": "^3.0.3",
+    "bcryptjs": "^2.4.3",
     "compression": "^1.8.1",
-    "dotenv": "^17.4.2",
-    "express": "^5.2.1",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
     "express-rate-limit": "^8.2.1",
     "https-proxy-agent": "^7.0.5",
-    "multer": "^2.1.1",
+    "multer": "^1.4.5-lts.1",
     "socket.io": "^4.8.3",
-    "sql.js": "^1.14.1",
+    "sql.js": "^1.13.0",
     "telegram": "^2.26.22",
     "web-push": "^3.6.7"
   }
