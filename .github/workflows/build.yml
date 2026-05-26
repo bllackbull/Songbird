@@ -23,7 +23,9 @@ jobs:
 
       - name: Install client dependencies
         working-directory: client
-        run: npm install --registry https://registry.npmjs.org/
+        run: |
+          rm -f package-lock.json
+          npm install --registry https://registry.npmjs.org/
 
       - name: Build client
         working-directory: client
