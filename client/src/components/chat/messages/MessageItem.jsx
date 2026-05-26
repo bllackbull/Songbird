@@ -14,6 +14,7 @@ import {
   Reply,
   Video,
 } from "../../../icons/lucide.js";
+import { FaTelegram } from "react-icons/fa6";
 import { hasPersian } from "../../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../../utils/avatarInitials.js";
 import ContextMenuSurface from "../../context-menu/ContextMenuSurface.jsx";
@@ -27,7 +28,7 @@ import {
   extractMessageBodyText,
   FILE_SUMMARY_PATTERN,
 } from "../../../utils/messageContent.js";
-import { resolveMention } from "../../../utils/mentions.js";
+import { resolveMention, getCachedMention } from "../../../utils/mentions.js";
 import { summarizeFiles } from "../../../utils/messagePreview.js";
 import Avatar from "../../common/Avatar.jsx";
 
@@ -184,6 +185,12 @@ export const MessageItem = memo(function MessageItem({
     isRemoteForwardedOrigin
       ? Number(chatId || msg?.chat_id || msg?.chatId || msg?._chatId || 0)
       : 0;
+  // Derive the provider from the client_request_id prefix
+  const remoteForwardedProvider = isRemoteForwardedOrigin
+    ? /^remote:tg:/i.test(clientRequestId)
+      ? "telegram"
+      : "unknown"
+    : null;
   const forwardedFromUsername = String(msg?.forwarded_from_username || "").trim();
   const liveForwardedChatName = String(forwardedChat?.name || "").trim();
   const liveForwardedUserName = String(
@@ -364,14 +371,35 @@ export const MessageItem = memo(function MessageItem({
           .replace(/^@/, "");
       const mention = String(rawMention || "").toLowerCase();
       if (!mention) return;
+
+      // Open the modal immediately with cached data (if available) so the
+      // user sees something right away, then refresh in the background.
+      const cached = getCachedMention(mention, { allowStale: true });
+      if (cached?.status === "valid" && cached.data) {
+        markValid(mentionEl);
+        if (typeof onOpenMentionRef.current === "function") {
+          onOpenMentionRef.current(cached.data);
+        }
+      }
+
+      const needsLoad = !cached || cached.status !== "valid";
+      if (needsLoad) {
+        mentionEl.classList.add("sb-mention-loading");
+      }
+
       resolveMention(mention, user.username, {
         fallbackToCacheOnError: true,
+        // Force a fresh fetch only when there was no usable cache hit
+        force: needsLoad,
       }).then((result) => {
+        mentionEl.classList.remove("sb-mention-loading");
         if (!result || result.status !== "valid") {
           markInvalid(mentionEl);
           return;
         }
         markValid(mentionEl);
+        // If we already opened with cached data, the modal is already visible;
+        // openMentionProfile will update it with fresh data.
         if (typeof onOpenMentionRef.current === "function") {
           onOpenMentionRef.current(result.data);
         }
@@ -723,6 +751,9 @@ export const MessageItem = memo(function MessageItem({
             placeholderContent={canOpenForwardedOrigin ? null : ""}
             className="h-4 w-4 shrink-0 text-[8px]"
           />
+          {remoteForwardedProvider === "telegram" ? (
+            <FaTelegram size={13} className="shrink-0" />
+          ) : null}
           <span
             className={`min-w-0 max-w-[18rem] truncate ${
               forwardedLabelHasPersian ? "font-fa" : ""
@@ -731,7 +762,9 @@ export const MessageItem = memo(function MessageItem({
             style={{ unicodeBidi: "isolate" }}
             title={forwardedFromLabel}
           >
-            {forwardedFromLabel}
+            {remoteForwardedProvider === "telegram"
+              ? forwardedFromLabel.replace(/^telegram:\s*/i, "")
+              : forwardedFromLabel}
           </span>
         </button>
       </div>
@@ -1307,18 +1340,24 @@ export const MessageItem = memo(function MessageItem({
                       }`}
                     >
                       {isSending ? (
-                        <Clock12
-                          size={15}
-                          strokeWidth={2.4}
-                          className="animate-spin"
-                          aria-hidden="true"
-                        />
+                        <>
+                          <Clock12
+                            size={15}
+                            strokeWidth={2.4}
+                            className="animate-spin"
+                            aria-hidden="true"
+                          />
+                          <span className="sr-only">Sending</span>
+                        </>
                       ) : isFailed ? (
-                        <AlertCircle
-                          size={15}
-                          strokeWidth={2.4}
-                          aria-hidden="true"
-                        />
+                        <>
+                          <AlertCircle
+                            size={15}
+                            strokeWidth={2.4}
+                            aria-hidden="true"
+                          />
+                          <span className="sr-only">Failed to send</span>
+                        </>
                       ) : isChannelChat ? (
                         <>
                           <Eye
@@ -1328,15 +1367,22 @@ export const MessageItem = memo(function MessageItem({
                             className="-translate-y-px"
                           />
                           <span>{formatSeenCount(seenCount)}</span>
+                          <span className="sr-only">views</span>
                         </>
                       ) : isRead ? (
-                        <CheckCheck
-                          size={15}
-                          strokeWidth={2.5}
-                          aria-hidden="true"
-                        />
+                        <>
+                          <CheckCheck
+                            size={15}
+                            strokeWidth={2.5}
+                            aria-hidden="true"
+                          />
+                          <span className="sr-only">Read</span>
+                        </>
                       ) : (
-                        <Check size={15} strokeWidth={2.5} aria-hidden="true" />
+                        <>
+                          <Check size={15} strokeWidth={2.5} aria-hidden="true" />
+                          <span className="sr-only">Sent</span>
+                        </>
                       )}
                     </span>
                   ) : null}

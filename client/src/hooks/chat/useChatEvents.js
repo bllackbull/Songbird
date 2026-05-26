@@ -42,6 +42,9 @@ export function useChatEvents({
   userScrolledUpRef,
   isAtBottomRef,
   pendingScrollToBottomRef,
+  unreadMarkerIdRef,
+  unreadAnchorLockUntilRef,
+  pendingScrollToUnreadRef,
   setUnreadInChat,
   setMessages,
   setChats,
@@ -274,7 +277,14 @@ export function useChatEvents({
             } else if (userScrolledUpRef.current && !isAtBottomRef.current) {
               setUnreadInChat((prev) => prev + 1);
             } else {
-              pendingScrollToBottomRef.current = true;
+              // Only scroll to bottom if no unread anchor is active
+              const anchorActive =
+                (unreadMarkerIdRef?.current !== null && unreadMarkerIdRef?.current !== undefined) ||
+                Date.now() < Number(unreadAnchorLockUntilRef?.current || 0) ||
+                (pendingScrollToUnreadRef?.current !== null && pendingScrollToUnreadRef?.current !== undefined);
+              if (!anchorActive) {
+                pendingScrollToBottomRef.current = true;
+              }
               setChats((prev) =>
                 prev.map((chat) =>
                   Number(chat?.id) === Number(payloadChatId)
@@ -396,6 +406,7 @@ export function useChatEvents({
     isAtBottomRef,
     loadChatsRef,
     pendingScrollToBottomRef,
+    pendingScrollToUnreadRef,
     scheduleMessageRefreshRef,
     setChats,
     setMessages,
@@ -406,6 +417,8 @@ export function useChatEvents({
     markMessagesRead,
     sseReconnectDelayMs,
     sseReconnectRef,
+    unreadAnchorLockUntilRef,
+    unreadMarkerIdRef,
     userScrolledUpRef,
     username,
     usernameRef,
