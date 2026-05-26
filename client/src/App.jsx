@@ -15,9 +15,11 @@ const CHUNK_RECOVERY_ATTEMPT_KEY = 'songbird-chunk-recovery-attempted'
 const loadAuthPage = () => import('./pages/AuthPage.jsx')
 const loadChatPage = () => import('./pages/ChatPage.jsx')
 const loadInvitePage = () => import('./pages/InvitePage.jsx')
+const loadAdminPage = () => import('./pages/AdminPage.jsx')
 const AuthPage = lazy(loadAuthPage)
 const ChatPage = lazy(loadChatPage)
 const InvitePage = lazy(loadInvitePage)
+const AdminPage = lazy(loadAdminPage)
 
 function getPreloadMode() {
   if (typeof navigator === 'undefined') return 'eager'
@@ -62,6 +64,7 @@ function getRoute(pathname) {
   if (pathname === '/signup') return 'signup'
   if (pathname.startsWith('/invite/')) return 'invite'
   if (pathname === '/chat') return 'chat'
+  if (pathname === '/admin') return 'admin'
   return 'login'
 }
 
@@ -187,6 +190,7 @@ export default function App() {
       avatarUrl: data.avatarUrl || null,
       color: data.color || null,
       status: data.status || 'online',
+      role: data.role || 'user',
     }
   }
 
@@ -702,7 +706,7 @@ export default function App() {
       return
     }
 
-    if (!user && (route === 'chat' || route === 'invite')) {
+    if (!user && (route === 'chat' || route === 'invite' || route === 'admin')) {
       if (route === 'invite') {
         const nextPath = window.location.pathname
         if (nextPath.startsWith('/invite/')) {
@@ -977,6 +981,9 @@ export default function App() {
               )}
               {route === 'chat' && user ? (
                 <ChatPage user={user} setUser={setUser} isDark={isDark} setIsDark={setIsDark} toggleTheme={toggleTheme} />
+              ) : null}
+              {route === 'admin' && user ? (
+                <AdminPage user={user} onBack={() => navigate('/chat', true)} />
               ) : null}
               {route === 'invite' && user ? (
                 <InvitePage

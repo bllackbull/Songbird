@@ -5,6 +5,7 @@ import {
   Info,
   LogOut,
   Rocket,
+  Settings,
   ShieldCheck,
   User,
 } from "../../../icons/lucide.js";
@@ -24,6 +25,7 @@ export function SettingsMenuActions({
   onOpenNotifications,
   onOpenSavedMessages,
   onOpenWhatsNew,
+  userRole,
 }) {
   const isMobile = variant === "mobile";
   const buttonBase = isMobile
@@ -96,6 +98,15 @@ export function SettingsMenuActions({
         <Info size={18} className="icon-anim-sway" />
         About
       </button>
+      {userRole === "admin" || userRole === "owner" ? (
+        <a
+          href="/admin"
+          className={`mt-1 ${buttonBase} text-purple-600 transition hover:border-purple-300 hover:bg-purple-100 hover:shadow-[0_0_18px_rgba(147,51,234,0.18)] dark:text-purple-300 dark:hover:border-purple-500/30 dark:hover:bg-purple-500/10`}
+        >
+          <Settings size={18} className="icon-anim-sway" />
+          Admin Panel
+        </a>
+      ) : null}
       <button
         type="button"
         onClick={handleLogout}

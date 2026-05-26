@@ -8,6 +8,7 @@ import { registerPushRoutes } from "./push.js";
 import { registerPresenceRoutes } from "./presence.js";
 import { registerProfileRoutes } from "./profile.js";
 import { registerRemoteChannelRoutes } from "./remoteChannels.js";
+import { registerAdminPanelRoutes } from "./adminPanel.js";
 
 function registerApiRoutes(app, deps) {
   registerHealthRoutes(app, deps);
@@ -19,6 +20,7 @@ function registerApiRoutes(app, deps) {
   registerRemoteChannelRoutes(app, deps);
   registerMessageRoutes(app, deps);
   registerPushRoutes(app, deps);
+  registerAdminPanelRoutes(app, deps);
   registerAdminRoutes(app, deps);
 }
 

@@ -114,6 +114,15 @@ import {
   updateRemoteChannelSourcePaused,
   updateRemoteChannelSourceSeen,
   upsertRemoteChannelSource,
+  setUserRole,
+  isUserAdmin,
+  bootstrapAdminUsers,
+  getAdminStats,
+  adminListUsers,
+  adminListChats,
+  adminBanUser,
+  adminDeleteUser,
+  adminDeleteChat,
 } from "./db.js";
 
 process.title = "songbird-server";
@@ -692,6 +701,14 @@ const apiDeps = {
   upsertPushSubscription,
   sendPushNotificationToUsers,
   storageEncryption,
+  setUserRole,
+  isUserAdmin,
+  getAdminStats,
+  adminListUsers,
+  adminListChats,
+  adminBanUser,
+  adminDeleteUser,
+  adminDeleteChat,
 };
 
 const remoteChannelManager = createRemoteChannelManager({
@@ -960,6 +977,15 @@ if (MESSAGE_TEXT_RETENTION_DAYS > 0) {
 
 backfillStorageEncryption();
 remoteChannelManager.start();
+
+// Bootstrap admin users from environment
+const ADMIN_USERNAMES = (process.env.ADMIN_USERNAMES || "")
+  .split(",")
+  .map((u) => u.trim().toLowerCase())
+  .filter(Boolean);
+if (ADMIN_USERNAMES.length) {
+  bootstrapAdminUsers(ADMIN_USERNAMES);
+}
 
 app.listen(port, () => {
   console.log(`Songbird server running on http://localhost:${port}`);
