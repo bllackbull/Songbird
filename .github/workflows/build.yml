@@ -20,13 +20,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: client/package-lock.json
 
-      # Client deps (Vite, React)
       - name: Install client dependencies
-        run: npm ci --prefix client
+        working-directory: client
+        run: npm install
 
-      # Build client (static assets)
       - name: Build client
-        run: npm run build --prefix client
+        working-directory: client
+        run: npm run build
