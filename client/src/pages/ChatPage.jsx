@@ -403,6 +403,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const messageBlobUrlsRef = useRef(new Set());
   const [sseConnected, setSseConnected] = useState(false);
   const lazyChunksPreloadedRef = useRef(false);
+  const [showFloatingLabel, setShowFloatingLabel] = useState(true);
 
   useEffect(() => {
     setReplyTarget(null);
@@ -1318,6 +1319,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setChats,
     unreadMarkerIdRef,
     openingChatRef,
+    setShowFloatingLabel
   });
 
   /**
@@ -6506,6 +6508,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           onDismiss: (mode) =>
             dismissPermissionsPrompt(mode || activePermissionPrompt),
         }}
+        showFloatingLabel={showFloatingLabel}
       />
 
       <MobileTabMenu

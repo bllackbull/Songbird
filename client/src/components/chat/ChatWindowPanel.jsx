@@ -120,6 +120,7 @@ export default function ChatWindowPanel({
   permissionsPrompt = null,
   copyToastVisible = false,
   registerMessageRef = null,
+                                          showFloatingLabel
 }) {
   const MEDIA_CACHE_VERSION = 1;
   const MEDIA_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -1591,7 +1592,7 @@ export default function ChatWindowPanel({
       ) : null}
 
       <div className="flex-1 min-h-0">
-        {activeChatId && floatingDay.key && isTimelineScrollable ? (
+        {activeChatId && floatingDay.key && isTimelineScrollable && showFloatingLabel ? (
           <div
             className="absolute left-1/2 z-[3] -translate-x-1/2"
             style={{
