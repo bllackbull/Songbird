@@ -31,6 +31,7 @@ import {
 import { resolveMention, getCachedMention } from "../../../utils/mentions.js";
 import { summarizeFiles } from "../../../utils/messagePreview.js";
 import Avatar from "../../common/Avatar.jsx";
+import { MessageReactions } from "./MessageReactions.jsx";
 
 const MAX_MESSAGE_HTML_CACHE_ENTRIES = 800;
 const messageBodyHtmlCache = new Map();
@@ -130,6 +131,7 @@ const getMessageRenderSignature = (msg) => {
     getSystemEventSignature(msg?._systemEvent),
     getFileSignature(msg?.files),
     getFileSignature(msg?._files),
+    JSON.stringify(msg?.reactions || []),
   ].join("~~");
 };
 
@@ -163,6 +165,7 @@ export const MessageItem = memo(function MessageItem({
   canSwipeReply = true,
   onOpenContextMenu,
   visibilityRef = null,
+  onToggleReaction,
 }) {
   const isOwn = !isChannelChat && msg.username === user.username;
   const isRead = Boolean(msg.read_at);
@@ -1187,6 +1190,12 @@ export const MessageItem = memo(function MessageItem({
                     @{mentionDebug?.active ?? 0}/{mentionDebug?.total ?? 0}
                   </div>
                 ) : null}
+                <MessageReactions
+                  reactions={msg.reactions}
+                  currentUsername={user.username}
+                  onToggleReaction={(emoji) => onToggleReaction?.(msg, emoji)}
+                  isOwn={isOwn}
+                />
                 <div className="mt-2 flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
                   <span>{msg._timeLabel || formatTime(msg.created_at)}</span>
                   {isEdited ? <span>edited</span> : null}
@@ -1315,6 +1324,12 @@ export const MessageItem = memo(function MessageItem({
                   @{mentionDebug?.active ?? 0}/{mentionDebug?.total ?? 0}
                 </div>
               ) : null}
+              <MessageReactions
+                reactions={msg.reactions}
+                currentUsername={user.username}
+                onToggleReaction={(emoji) => onToggleReaction?.(msg, emoji)}
+                isOwn={isOwn}
+              />
               <div
                 className={`mt-2 flex w-full items-center text-[10px] ${
                   isOwn

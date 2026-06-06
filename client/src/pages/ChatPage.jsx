@@ -111,6 +111,7 @@ import {
   updateProfile,
   updateStatus as updateStatusRequest,
   uploadAvatar,
+  toggleReaction,
 } from "../api/chatApi.js";
 import { APP_CONFIG } from "../settings/appConfig.js";
 import {
@@ -1018,6 +1019,25 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const files = getMessageFiles(message);
     if (!files.length) return;
     downloadMessageFiles(files);
+  }, []);
+
+  const handleToggleReaction = useCallback(async (message, emoji) => {
+    const messageId = Number(message?._serverId || message?.id || 0);
+    if (!messageId || !emoji) return;
+    try {
+      const res = await toggleReaction(messageId, emoji);
+      if (!res.ok) return;
+      const data = await res.json();
+      setMessages((prev) =>
+        prev.map((msg) => {
+          const id = Number(msg?._serverId || msg?.id || 0);
+          if (id !== messageId) return msg;
+          return { ...msg, reactions: data.reactions || [] };
+        }),
+      );
+    } catch {
+      // ignore
+    }
   }, []);
 
   const handleOpenForwardOrigin = async (target) => {
@@ -6473,6 +6493,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         forwardedUserStatusByKey={forwardedUserStatusByKey}
         onForwardMessage={handleOpenForwardModal}
         onOpenContextMenu={openContextMenu}
+        onToggleReaction={handleToggleReaction}
         onUserScrollIntent={handleUserScrollIntent}
         onFloatingDayNavigate={handleFloatingDayNavigate}
         canSwipeReply={canSwipeReply}

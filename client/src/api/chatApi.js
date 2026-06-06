@@ -372,3 +372,10 @@ export const getSseStreamUrl = (username) =>
   `${API_BASE}/api/events?username=${encodeURIComponent(username)}`;
 
 export const getMessagesUploadUrl = () => `${API_BASE}/api/messages/upload`;
+
+export const toggleReaction = (messageId, emoji) =>
+  apiFetch(`${API_BASE}/api/messages/${encodeURIComponent(messageId)}/reactions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ emoji }),
+  });

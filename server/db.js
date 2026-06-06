@@ -2403,3 +2403,56 @@ export function adminRun(sql, params = []) {
 export function adminSave() {
   saveDatabase();
 }
+
+// ─── Message Reactions ───────────────────────────────────────────────────────
+
+export function toggleReaction(messageId, userId, emoji) {
+  const existing = getRow(
+    "SELECT id FROM message_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?",
+    [messageId, userId, emoji],
+  );
+  if (existing) {
+    run("DELETE FROM message_reactions WHERE id = ?", [existing.id]);
+    return { added: false };
+  }
+  run(
+    "INSERT INTO message_reactions (message_id, user_id, emoji) VALUES (?, ?, ?)",
+    [messageId, userId, emoji],
+  );
+  return { added: true };
+}
+
+export function getReactionsForMessages(messageIds) {
+  if (!messageIds || !messageIds.length) return {};
+  const placeholders = messageIds.map(() => "?").join(",");
+  const rows = getAll(
+    `SELECT r.message_id, r.emoji, r.user_id, u.username
+     FROM message_reactions r
+     JOIN users u ON u.id = r.user_id
+     WHERE r.message_id IN (${placeholders})
+     ORDER BY r.created_at ASC`,
+    messageIds,
+  );
+  const result = {};
+  for (const row of rows) {
+    const msgId = row.message_id;
+    if (!result[msgId]) result[msgId] = [];
+    result[msgId].push({
+      emoji: row.emoji,
+      userId: row.user_id,
+      username: row.username,
+    });
+  }
+  return result;
+}
+
+export function getReactionsForMessage(messageId) {
+  return getAll(
+    `SELECT r.emoji, r.user_id, u.username
+     FROM message_reactions r
+     JOIN users u ON u.id = r.user_id
+     WHERE r.message_id = ?
+     ORDER BY r.created_at ASC`,
+    [messageId],
+  );
+}

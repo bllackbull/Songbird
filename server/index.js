@@ -115,6 +115,9 @@ import {
   updateRemoteChannelSourcePaused,
   updateRemoteChannelSourceSeen,
   upsertRemoteChannelSource,
+  toggleReaction,
+  getReactionsForMessages,
+  getReactionsForMessage,
 } from "./db.js";
 
 process.title = "songbird-server";
@@ -694,6 +697,9 @@ const apiDeps = {
   upsertPushSubscription,
   sendPushNotificationToUsers,
   storageEncryption,
+  toggleReaction,
+  getReactionsForMessages,
+  getReactionsForMessage,
 };
 
 const remoteChannelManager = createRemoteChannelManager({

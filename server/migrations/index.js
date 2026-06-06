@@ -24,6 +24,7 @@ import { migration023ChatLeftMembers } from "./023-chat-left-members.js";
 import { migration024RemoteChannelQueue } from "./024-remote-channel-queue.js";
 import { migration025RemoteChannelPerformance } from "./025-remote-channel-performance.js";
 import { migration026RemoteChannelPause } from "./026-remote-channel-pause.js";
+import { migration027MessageReactions } from "./027-message-reactions.js";
 
 export const migrations = [
   migration001InitialSchema,
@@ -52,4 +53,5 @@ export const migrations = [
   migration024RemoteChannelQueue,
   migration025RemoteChannelPerformance,
   migration026RemoteChannelPause,
+  migration027MessageReactions,
 ];

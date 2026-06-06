@@ -64,6 +64,7 @@ function registerMessageRoutes(app, deps) {
     enqueueVideoTranscodeJob,
     markMessagesRead,
     markMessageRead,
+    getReactionsForMessages,
   } = deps;
 
   const computeTextExpiryIso = (createdAt) => {
@@ -404,6 +405,13 @@ function registerMessageRoutes(app, deps) {
       messageCount: enriched.length,
       fileCount: files.length,
       hasMore,
+    });
+
+    // Hydrate reactions
+    const reactionMap = getReactionsForMessages(messageIds);
+    enriched.forEach((msg) => {
+      const id = Number(msg?.id || 0);
+      msg.reactions = reactionMap[id] || [];
     });
 
     res.json({ chatId, messages: enriched, hasMore, totalCount });
