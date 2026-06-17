@@ -1,5 +1,5 @@
 import { createInviteToken } from "../lib/inviteTokens.js";
-import { normalizeTelegramSource } from "../lib/remoteChannels.js";
+import { normalizeSongbirdSource, normalizeTelegramSource, resolveSongbirdSource } from "../lib/remoteChannels.js";
 
 function registerChatRoutes(app, deps) {
   const {
@@ -30,6 +30,7 @@ function registerChatRoutes(app, deps) {
     isMember,
     isVideoFileProcessing,
     listChatMembers,
+    listChatMembersForChats,
     listChatsForUser,
     listMessageFilesByMessageIds,
     listUsers,
@@ -56,6 +57,8 @@ function registerChatRoutes(app, deps) {
     setChatMemberRole,
     FILE_UPLOAD,
     REMOTE_CHANNELS,
+    ACCOUNT_CREATION,
+    getMessages,
     remoteChannelManager,
     upsertRemoteChannelSource,
   } = deps;
@@ -110,8 +113,10 @@ function registerChatRoutes(app, deps) {
     String(chat?.group_visibility || "public").trim().toLowerCase() ===
     "public";
   const isRemoteChannelAvailable = () =>
+    Boolean(REMOTE_CHANNELS?.enabled);
+  const isTelegramAvailable = () =>
     Boolean(REMOTE_CHANNELS?.enabled && REMOTE_CHANNELS?.telegramConfigured);
-  const normalizeCreateRemoteChannel = ({
+  const normalizeCreateRemoteChannel = async ({
     remoteChannel,
     chatType,
     visibility,
@@ -151,11 +156,19 @@ function registerChatRoutes(app, deps) {
     }
 
     const provider = String(remoteChannel.provider || "telegram").toLowerCase();
-    if (provider !== "telegram") {
+    if (provider !== "telegram" && provider !== "songbird") {
       return {
         shouldSave: true,
         error: "Remote Channel source is invalid.",
         status: 400,
+      };
+    }
+
+    if (provider === "telegram" && !isTelegramAvailable()) {
+      return {
+        shouldSave: true,
+        error: "Telegram Remote Channel is not configured on this server.",
+        status: 503,
       };
     }
 
@@ -164,27 +177,53 @@ function registerChatRoutes(app, deps) {
       sourceRaw: rawSource,
       sourceChatId: "",
       sourceUsername: "",
+      sourceUrl: "",
     };
-    if (enabled) {
-      normalized = normalizeTelegramSource(rawSource);
-      if (!normalized.ok) {
+
+    if (provider === "telegram") {
+      if (enabled) {
+        normalized = normalizeTelegramSource(rawSource);
+        if (!normalized.ok) {
+          return { shouldSave: true, error: normalized.error, status: 400 };
+        }
+      } else if (rawSource) {
+        const optionalNormalized = normalizeTelegramSource(rawSource);
+        if (optionalNormalized.ok) normalized = optionalNormalized;
+      }
+      if (enabled && !normalized.sourceChatId && !normalized.sourceUsername) {
         return {
           shouldSave: true,
-          error: normalized.error,
+          error: "Telegram source is required.",
           status: 400,
         };
       }
-    } else if (rawSource) {
-      const optionalNormalized = normalizeTelegramSource(rawSource);
-      if (optionalNormalized.ok) normalized = optionalNormalized;
-    }
-
-    if (enabled && !normalized.sourceChatId && !normalized.sourceUsername) {
-      return {
-        shouldSave: true,
-        error: "Telegram source is required.",
-        status: 400,
-      };
+    } else {
+      // provider === "songbird"
+      if (enabled) {
+        normalized = normalizeSongbirdSource(rawSource);
+        if (!normalized.ok) {
+          return { shouldSave: true, error: normalized.error, status: 400 };
+        }
+        // Resolve the actual channel username from the target server.
+        const resolved = await resolveSongbirdSource(
+          normalized.sourceUrl,
+          normalized.inviteTarget,
+        );
+        if (!resolved.ok) {
+          return { shouldSave: true, error: resolved.error, status: 400 };
+        }
+        normalized = { ...normalized, sourceUsername: resolved.sourceUsername };
+      } else if (rawSource) {
+        const optionalNormalized = normalizeSongbirdSource(rawSource);
+        if (optionalNormalized.ok) normalized = optionalNormalized;
+      }
+      if (enabled && !normalized.sourceUrl) {
+        return {
+          shouldSave: true,
+          error: "Songbird source URL is required.",
+          status: 400,
+        };
+      }
     }
 
     return {
@@ -192,8 +231,9 @@ function registerChatRoutes(app, deps) {
       enabled,
       provider,
       sourceRaw: normalized.sourceRaw,
-      sourceChatId: normalized.sourceChatId,
-      sourceUsername: normalized.sourceUsername,
+      sourceChatId: normalized.sourceChatId || "",
+      sourceUsername: normalized.sourceUsername || "",
+      sourceUrl: normalized.sourceUrl || "",
       syncMetadata,
       streamMedia,
     };
@@ -253,14 +293,17 @@ function registerChatRoutes(app, deps) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    let chats = listChatsForUser(user.id).map((conv) => {
-      const members = listChatMembers(conv.id).map((member) => ({
-        ...member,
-        avatar_url: ensureAvatarExists(member.id, member.avatar_url),
-      }));
-
-      return { ...conv, members };
-    });
+    let chats = (() => {
+      const convs = listChatsForUser(user.id);
+      const membersMap = listChatMembersForChats(convs.map((c) => c.id));
+      return convs.map((conv) => {
+        const members = (membersMap.get(Number(conv.id)) || []).map((member) => ({
+          ...member,
+          avatar_url: ensureAvatarExists(member.id, member.avatar_url),
+        }));
+        return { ...conv, members };
+      });
+    })();
 
     const initialLastMessageIds = chats
       .map((chat) => Number(chat.last_message_id || 0))
@@ -277,14 +320,17 @@ function registerChatRoutes(app, deps) {
           });
         });
       }
-      chats = listChatsForUser(user.id).map((conv) => {
-        const members = listChatMembers(conv.id).map((member) => ({
-          ...member,
-          avatar_url: ensureAvatarExists(member.id, member.avatar_url),
-        }));
-
-        return { ...conv, members };
-      });
+      chats = (() => {
+        const convs = listChatsForUser(user.id);
+        const membersMap = listChatMembersForChats(convs.map((c) => c.id));
+        return convs.map((conv) => {
+          const members = (membersMap.get(Number(conv.id)) || []).map((member) => ({
+            ...member,
+            avatar_url: ensureAvatarExists(member.id, member.avatar_url),
+          }));
+          return { ...conv, members };
+        });
+      })();
     }
 
     const lastMessageIds = chats
@@ -492,7 +538,7 @@ function registerChatRoutes(app, deps) {
       String(visibility || "").toLowerCase() === "private"
         ? "private"
         : "public";
-    const remoteChannelConfig = normalizeCreateRemoteChannel({
+    const remoteChannelConfig = await normalizeCreateRemoteChannel({
       remoteChannel,
       chatType: normalizedType,
       visibility: normalizedVisibility,
@@ -544,12 +590,14 @@ function registerChatRoutes(app, deps) {
           sourceRaw: remoteChannelConfig.sourceRaw,
           sourceChatId: remoteChannelConfig.sourceChatId,
           sourceUsername: remoteChannelConfig.sourceUsername,
+          sourceUrl: remoteChannelConfig.sourceUrl || "",
           syncMetadata: remoteChannelConfig.syncMetadata,
           streamMedia: remoteChannelConfig.streamMedia,
           enabled: remoteChannelConfig.enabled,
         });
         if (
           remoteChannelConfig.enabled &&
+          remoteChannelConfig.provider === "telegram" &&
           remoteChannelConfig.syncMetadata &&
           typeof remoteChannelManager?.syncSourceMetadata === "function"
         ) {
@@ -678,6 +726,85 @@ function registerChatRoutes(app, deps) {
       ok: true,
       id: chatId,
       alreadyMember: wasMember,
+    });
+  });
+
+  // Public unauthenticated metadata endpoint used by remote Songbird servers
+  // to sync channel name and avatar when "Sync Channel Metadata" is enabled.
+  // Only works for public channels on servers with SIGN_UP enabled.
+  app.get("/api/channels/:username/meta", (req, res) => {
+    if (!ACCOUNT_CREATION) {
+      // Private server — refuse to expose channel metadata to remote servers.
+      return res.status(403).json({ error: "This server is private." });
+    }
+
+    const username = String(req.params?.username || "").trim().toLowerCase();
+    if (!username) {
+      return res.status(400).json({ error: "Channel username is required." });
+    }
+
+    const chat = findChatByGroupUsername(username);
+    if (
+      !chat ||
+      String(chat.type || "").toLowerCase() !== "channel" ||
+      !isPublicChat(chat)
+    ) {
+      return res.status(404).json({ error: "Channel not found." });
+    }
+
+    // Cache for 5 minutes — metadata changes rarely and this endpoint is public.
+    res.setHeader("Cache-Control", "public, max-age=300");
+
+    return res.json({
+      name: chat.name || "Channel",
+      username: chat.group_username || "",
+      avatarUrl: normalizeGroupAvatarUrl(chat.group_avatar_url) || null,
+      color: chat.group_color || "#10b981",
+    });
+  });
+
+  // Public unauthenticated messages endpoint used by remote Songbird servers
+  app.get("/api/channels/:username/messages", (req, res) => {
+    if (!ACCOUNT_CREATION) {
+      return res.status(403).json({ error: "This server is private." });
+    }
+
+    const username = String(req.params?.username || "").trim().toLowerCase();
+    if (!username) {
+      return res.status(400).json({ error: "Channel username is required." });
+    }
+
+    const chat = findChatByGroupUsername(username);
+    if (
+      !chat ||
+      String(chat.type || "").toLowerCase() !== "channel" ||
+      !isPublicChat(chat)
+    ) {
+      return res.status(404).json({ error: "Channel not found." });
+    }
+
+    const afterId = Number(req.query.afterId || 0) || 0;
+    const limitRaw = Number(req.query.limit || 50);
+    const limit = Math.max(1, Math.min(100, Number.isFinite(limitRaw) ? limitRaw : 50));
+
+    const { messages } = getMessages(Number(chat.id), {
+      afterId: afterId > 0 ? afterId : null,
+      limit,
+      viewerUserId: null,
+    });
+
+    // Return only the fields the remote poller needs — no auth-sensitive data.
+    const publicMessages = messages.map((msg) => ({
+      id: Number(msg.id),
+      body: String(msg.body || "").trim(),
+      createdAt: msg.created_at || null,
+      clientRequestId: msg.client_request_id || null,
+    }));
+
+    return res.json({
+      channelUsername: chat.group_username || username,
+      messages: publicMessages,
+      hasMore: publicMessages.length === limit,
     });
   });
 

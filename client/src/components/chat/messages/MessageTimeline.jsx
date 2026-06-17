@@ -316,6 +316,10 @@ export function MessageTimeline({
         onTouchStartCapture={handleScrollIntent}
         onTouchMoveCapture={handleScrollIntent}
         onWheelCapture={handleScrollIntent}
+        role="log"
+        aria-live="polite"
+        aria-label="Messages"
+        aria-relevant="additions"
         className="chat-scroll h-full overflow-y-auto overflow-x-hidden px-0 pb-3 pt-1 md:px-2"
         style={chatScrollStyle}
       >
@@ -342,6 +346,7 @@ export function MessageTimeline({
                     <button
                       type="button"
                       onClick={() => handleGroupChipClick(row.dayKey)}
+                      aria-label={`Jump to messages from ${row.dayLabel || row.dayKey}`}
                       className="inline-flex w-max items-center justify-center rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
                     >
                       <span

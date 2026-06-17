@@ -1,8 +1,7 @@
 import { getCliArgs, getPositionalArgs, getFlagValue } from "./_cli.js";
 import { openDatabase, runAdminActionViaServer } from "./_db-admin.js";
 import { normalizeHexColor, resolveUserRow } from "../lib/dbToolHelpers.js";
-
-const USERNAME_REGEX = /^[a-z0-9._]+$/;
+import { USERNAME_REGEX } from "../lib/validation.js";
 const ALLOWED_STATUSES = new Set(["online", "invisible"]);
 
 const clampEnvInt = (value, fallback, { min, max } = {}) => {

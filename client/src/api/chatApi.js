@@ -35,11 +35,11 @@ export const resolveMentions = ({ username, mentions }) =>
 
 export const fetchPushPublicKey = () => apiFetch(`${API_BASE}/api/push/public-key`);
 
-export const subscribePush = ({ username, subscription }) =>
+export const subscribePush = ({ username, subscription, messagePreview }) =>
   apiFetch(`${API_BASE}/api/push/subscribe`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, subscription }),
+    body: JSON.stringify({ username, subscription, messagePreview }),
   });
 
 export const unsubscribePush = ({ username, endpoint }) =>
@@ -318,6 +318,14 @@ export const listMessagesByQuery = (params = {}, options = {}) => {
   const query = search.toString();
   const suffix = query ? `?${query}` : "";
   return apiFetch(`${API_BASE}/api/messages${suffix}`, options);
+};
+
+export const fetchFirstUnreadMessage = ({ chatId, username }, options = {}) => {
+  const params = new URLSearchParams({
+    chatId: String(chatId),
+    username: String(username),
+  });
+  return apiFetch(`${API_BASE}/api/messages/first-unread?${params.toString()}`, options);
 };
 
 export const sendMessage = (payload) =>

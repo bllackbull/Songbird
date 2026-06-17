@@ -13,12 +13,11 @@ function registerAppRoutes(app, deps) {
       currentChangelog: appMeta.currentChangelog,
       repository: appMeta.repository,
       remoteChannels: {
-        enabled: Boolean(
-          REMOTE_CHANNELS?.enabled && REMOTE_CHANNELS?.telegramConfigured,
-        ),
+        enabled: Boolean(REMOTE_CHANNELS?.enabled),
         uiEnabled: Boolean(REMOTE_CHANNELS?.uiEnabled),
         mediaStreamEnabled: Boolean(REMOTE_CHANNELS?.mediaStreamEnabled),
         telegramConfigured: Boolean(REMOTE_CHANNELS?.telegramConfigured),
+        songbirdConfigured: Boolean(REMOTE_CHANNELS?.enabled),
         proxyConfigured: Boolean(REMOTE_CHANNELS?.proxyConfigured),
       },
     });

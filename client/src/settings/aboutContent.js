@@ -13,7 +13,7 @@ export const ABOUT_CONTENT = {
       href: "https://t.me/songbirdapp",
     },
     {
-      icon: "website",
+      icon: "songbird",
       href: "https://chat.songbird.website/invite/songbird",
     },
   ],
@@ -29,10 +29,6 @@ export const ABOUT_CONTENT = {
     {
       label: "TRX",
       address: "TPf1bEhipKpGkjo5N2Scj9nufNNh5TNrwX",
-    },
-    {
-      label: "USDT (TRC20)",
-      address: "0x63313383611BbE11f4fEc139c14ad0b70281b822",
     },
     {
       label: "BTC",

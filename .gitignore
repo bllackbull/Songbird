@@ -12,6 +12,10 @@ data/
 # Vite cache
 .vite/
 
+# VitePress
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+
 # Env
 .env
 .env.local

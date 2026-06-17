@@ -13,8 +13,8 @@ import {
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRootDir = path.resolve(serverDir, "..");
-dotenv.config({ path: path.join(projectRootDir, ".env"), override: true });
-dotenv.config({ path: path.join(serverDir, ".env"), override: true });
+dotenv.config({ path: path.join(projectRootDir, ".env"), override: true, quiet: true });
+dotenv.config({ path: path.join(serverDir, ".env"), override: true, quiet: true });
 ensureStorageEncryptionKey({ projectRootDir, fsImpl: fs, pathImpl: path, cryptoImpl: crypto });
 const dataDir = path.resolve(serverDir, "..", "data");
 const dbPath = path.join(dataDir, "songbird.db");
@@ -504,11 +504,11 @@ const normalizeRemoteSourceChatId = (value) => {
 export function getRemoteChannelSourceByChatId(chatId) {
   return getRow(
     `SELECT id, chat_id, provider, source_raw, source_chat_id, source_username,
-            source_title, source_avatar_url, last_remote_message_id, enabled,
-            paused, source_version, sync_metadata, stream_media, last_error,
-            last_seen_at, created_at, updated_at
+            source_url, source_title, source_avatar_url, last_remote_message_id,
+            enabled, paused, source_version, sync_metadata, stream_media,
+            last_error, last_seen_at, created_at, updated_at
      FROM remote_channel_sources
-     WHERE chat_id = ? AND provider = 'telegram'`,
+     WHERE chat_id = ?`,
     [Number(chatId)],
   );
 }
@@ -516,11 +516,11 @@ export function getRemoteChannelSourceByChatId(chatId) {
 export function getRemoteChannelSourceById(sourceId) {
   return getRow(
     `SELECT id, chat_id, provider, source_raw, source_chat_id, source_username,
-            source_title, source_avatar_url, last_remote_message_id, enabled,
-            paused, source_version, sync_metadata, stream_media, last_error,
-            last_seen_at, created_at, updated_at
+            source_url, source_title, source_avatar_url, last_remote_message_id,
+            enabled, paused, source_version, sync_metadata, stream_media,
+            last_error, last_seen_at, created_at, updated_at
      FROM remote_channel_sources
-     WHERE id = ? AND provider = 'telegram'`,
+     WHERE id = ?`,
     [Number(sourceId)],
   );
 }
@@ -529,10 +529,11 @@ export function upsertRemoteChannelSource(payload = {}) {
   const chatId = Number(payload.chatId || 0);
   if (!chatId) return null;
 
-  const provider = "telegram";
+  const provider = String(payload.provider || "telegram").toLowerCase();
   const sourceRaw = String(payload.sourceRaw || "").trim() || null;
   const sourceChatId = normalizeRemoteSourceChatId(payload.sourceChatId);
   const sourceUsername = normalizeRemoteSourceUsername(payload.sourceUsername);
+  const sourceUrl = String(payload.sourceUrl || "").trim() || null;
   const enabled = payload.enabled ? 1 : 0;
   const syncMetadata = payload.syncMetadata ? 1 : 0;
   const streamMedia = payload.streamMedia ? 1 : 0;
@@ -541,7 +542,9 @@ export function upsertRemoteChannelSource(payload = {}) {
     current?.id &&
       (String(current.source_raw || "") !== String(sourceRaw || "") ||
         String(current.source_chat_id || "") !== String(sourceChatId || "") ||
-        String(current.source_username || "") !== String(sourceUsername || "")),
+        String(current.source_username || "") !== String(sourceUsername || "") ||
+        String(current.source_url || "") !== String(sourceUrl || "") ||
+        String(current.provider || "telegram") !== provider),
   );
   const currentSourceVersion = Math.max(
     1,
@@ -554,15 +557,18 @@ export function upsertRemoteChannelSource(payload = {}) {
   run(
     `INSERT INTO remote_channel_sources (
        chat_id, provider, source_raw, source_chat_id, source_username,
-       source_version, sync_metadata, stream_media, enabled, last_error, updated_at
+       source_url, source_version, sync_metadata, stream_media, enabled,
+       last_error, updated_at
      )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, datetime('now'))
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, datetime('now'))
      ON CONFLICT(chat_id) DO UPDATE SET
        provider = excluded.provider,
        source_title = CASE
          WHEN COALESCE(remote_channel_sources.source_raw, '') != COALESCE(excluded.source_raw, '')
            OR COALESCE(remote_channel_sources.source_chat_id, '') != COALESCE(excluded.source_chat_id, '')
            OR COALESCE(remote_channel_sources.source_username, '') != COALESCE(excluded.source_username, '')
+           OR COALESCE(remote_channel_sources.source_url, '') != COALESCE(excluded.source_url, '')
+           OR remote_channel_sources.provider != excluded.provider
          THEN NULL
          ELSE remote_channel_sources.source_title
        END,
@@ -570,6 +576,8 @@ export function upsertRemoteChannelSource(payload = {}) {
          WHEN COALESCE(remote_channel_sources.source_raw, '') != COALESCE(excluded.source_raw, '')
            OR COALESCE(remote_channel_sources.source_chat_id, '') != COALESCE(excluded.source_chat_id, '')
            OR COALESCE(remote_channel_sources.source_username, '') != COALESCE(excluded.source_username, '')
+           OR COALESCE(remote_channel_sources.source_url, '') != COALESCE(excluded.source_url, '')
+           OR remote_channel_sources.provider != excluded.provider
          THEN NULL
          ELSE remote_channel_sources.source_avatar_url
        END,
@@ -577,12 +585,15 @@ export function upsertRemoteChannelSource(payload = {}) {
          WHEN COALESCE(remote_channel_sources.source_raw, '') != COALESCE(excluded.source_raw, '')
            OR COALESCE(remote_channel_sources.source_chat_id, '') != COALESCE(excluded.source_chat_id, '')
            OR COALESCE(remote_channel_sources.source_username, '') != COALESCE(excluded.source_username, '')
+           OR COALESCE(remote_channel_sources.source_url, '') != COALESCE(excluded.source_url, '')
+           OR remote_channel_sources.provider != excluded.provider
          THEN NULL
          ELSE remote_channel_sources.last_remote_message_id
        END,
        source_raw = excluded.source_raw,
        source_chat_id = excluded.source_chat_id,
        source_username = excluded.source_username,
+       source_url = excluded.source_url,
        source_version = excluded.source_version,
        sync_metadata = excluded.sync_metadata,
        stream_media = excluded.stream_media,
@@ -595,6 +606,7 @@ export function upsertRemoteChannelSource(payload = {}) {
       sourceRaw,
       sourceChatId,
       sourceUsername,
+      sourceUrl,
       sourceVersion,
       syncMetadata,
       streamMedia,
@@ -628,9 +640,9 @@ export function upsertRemoteChannelSource(payload = {}) {
 export function listEnabledRemoteChannelSources(provider = "telegram") {
   return getAll(
     `SELECT id, chat_id, provider, source_raw, source_chat_id, source_username,
-            source_title, source_avatar_url, last_remote_message_id, enabled,
-            paused, source_version, sync_metadata, stream_media, last_error,
-            last_seen_at, created_at, updated_at
+            source_url, source_title, source_avatar_url, last_remote_message_id,
+            enabled, paused, source_version, sync_metadata, stream_media,
+            last_error, last_seen_at, created_at, updated_at
      FROM remote_channel_sources
      WHERE provider = ? AND enabled = 1 AND paused = 0
      ORDER BY id ASC`,
@@ -863,7 +875,7 @@ export function enqueueRemoteChannelQueueItem(payload = {}) {
   const sourceId = Number(payload.sourceId || 0);
   if (!sourceId) return null;
 
-  const provider = "telegram";
+  const provider = String(payload.provider || "telegram").toLowerCase();
   const telegramUpdateId = Number.isFinite(Number(payload.telegramUpdateId))
     ? Math.trunc(Number(payload.telegramUpdateId))
     : null;
@@ -963,8 +975,7 @@ export function claimNextRemoteChannelQueueItem(lockOwner, nowIso) {
      FROM remote_channel_queue q
      JOIN remote_channel_sources s ON s.id = q.source_id
      JOIN chats c ON c.id = s.chat_id
-     WHERE q.provider = 'telegram'
-       AND s.provider = 'telegram'
+     WHERE q.provider = s.provider
        AND s.enabled = 1
        AND s.paused = 0
        AND q.source_version = s.source_version
@@ -1044,6 +1055,20 @@ export function markRemoteChannelQueueItemRetry(id, payload = {}) {
       String(payload.error || "").slice(0, 1000) || null,
       Number(id),
     ],
+  );
+}
+
+/**
+ * Delete completed (done/skipped/failed) queue rows older than the given ISO
+ * timestamp. Prevents the remote_channel_queue table from growing unboundedly.
+ */
+export function purgeOldRemoteChannelQueueItems(olderThanIso) {
+  return run(
+    `DELETE FROM remote_channel_queue
+     WHERE status IN ('done', 'skipped', 'failed')
+       AND processed_at IS NOT NULL
+       AND processed_at < ?`,
+    [String(olderThanIso)],
   );
 }
 
@@ -1235,6 +1260,39 @@ export function listChatMembers(chatId) {
   `,
     [chatId],
   );
+}
+
+/**
+ * Batch version of listChatMembers — fetches members for multiple chats in
+ * a single query instead of one query per chat, eliminating the N+1 pattern
+ * in the /api/chats list endpoint.
+ *
+ * @param {number[]} chatIds
+ * @returns {Map<number, Array>} map of chatId → members array
+ */
+export function listChatMembersForChats(chatIds = []) {
+  const ids = chatIds.map(Number).filter((id) => Number.isFinite(id) && id > 0);
+  if (!ids.length) return new Map();
+  const placeholders = ids.map(() => "?").join(", ");
+  const rows = getAll(
+    `
+    SELECT chat_members.chat_id,
+           users.id, users.username, users.nickname, users.avatar_url, users.color, users.status,
+           chat_members.role
+    FROM chat_members
+    JOIN users ON users.id = chat_members.user_id
+    WHERE chat_members.chat_id IN (${placeholders})
+    ORDER BY chat_members.chat_id, users.username
+    `,
+    ids,
+  );
+  const map = new Map();
+  for (const row of rows) {
+    const cid = Number(row.chat_id);
+    if (!map.has(cid)) map.set(cid, []);
+    map.get(cid).push(row);
+  }
+  return map;
 }
 
 export function getChatMemberRole(chatId, userId) {
@@ -1533,6 +1591,7 @@ export function listChatsForUser(userId) {
       mc.group_avatar_url,
       mc.created_by_user_id,
       mc.muted,
+      COALESCE(rcs.enabled, 0) AS remote_channel_enabled,
       lvm.last_message_id,
       last_vm.body AS last_message,
       last_vm.created_at AS last_time,
@@ -1558,6 +1617,7 @@ export function listChatsForUser(userId) {
     LEFT JOIN last_outgoing_message_ids lom ON lom.chat_id = mc.id
     LEFT JOIN visible_messages outgoing_vm ON outgoing_vm.id = lom.last_outgoing_message_id
     LEFT JOIN unread_counts uc ON uc.chat_id = mc.id
+    LEFT JOIN remote_channel_sources rcs ON rcs.chat_id = mc.id AND rcs.enabled = 1
     ORDER BY lvm.last_message_id DESC, mc.created_at DESC
   `,
     [
@@ -1822,11 +1882,17 @@ export function getMessages(chatId, options = {}) {
     : 50;
   const beforeIdRaw = Number(options.beforeId || 0);
   const beforeCreatedAtRaw = String(options.beforeCreatedAt || "").trim();
+  const afterIdRaw = Number(options.afterId || 0);
+  const afterCreatedAtRaw = String(options.afterCreatedAt || "").trim();
   const viewerUserIdRaw = Number(options.viewerUserId || 0);
   const hasViewerUserId = Number.isFinite(viewerUserIdRaw) && viewerUserIdRaw > 0;
   const hasBeforeId = Number.isFinite(beforeIdRaw) && beforeIdRaw > 0;
   const hasBeforeCreatedAt = Boolean(beforeCreatedAtRaw);
   const hasBefore = hasBeforeId && hasBeforeCreatedAt;
+  const hasAfterId = Number.isFinite(afterIdRaw) && afterIdRaw > 0;
+  const hasAfterCreatedAt = Boolean(afterCreatedAtRaw);
+  // afterId anchor: fetch messages at or after this message (inclusive), ascending
+  const hasAfter = hasAfterId && hasAfterCreatedAt;
 
   const visibilitySql = hasViewerUserId
     ? `
@@ -1840,15 +1906,28 @@ export function getMessages(chatId, options = {}) {
   const beforeSql = hasBefore
     ? `
        AND (
-         julianday(chat_messages.created_at) < julianday(?)
+         chat_messages.created_at < ?
          OR (
-           julianday(chat_messages.created_at) = julianday(?)
+           chat_messages.created_at = ?
            AND chat_messages.id < ?
          )
        )`
     : "";
 
-  const whereSql = `WHERE chat_messages.chat_id = ?${visibilitySql}${beforeSql}`;
+  // afterSql: inclusive — includes the anchor message itself so the unread
+  // divider message is always present in the returned window.
+  const afterSql = hasAfter
+    ? `
+       AND (
+         chat_messages.created_at > ?
+         OR (
+           chat_messages.created_at = ?
+           AND chat_messages.id >= ?
+         )
+       )`
+    : "";
+
+  const whereSql = `WHERE chat_messages.chat_id = ?${visibilitySql}${beforeSql}${afterSql}`;
   const replyJoinVisibilitySql = hasViewerUserId
     ? `AND ${getVisibleMessageFilterSql(
         "reply",
@@ -1867,9 +1946,19 @@ export function getMessages(chatId, options = {}) {
   if (hasBefore) {
     params.push(beforeCreatedAtRaw, beforeCreatedAtRaw, beforeIdRaw);
   }
+  if (hasAfter) {
+    params.push(afterCreatedAtRaw, afterCreatedAtRaw, afterIdRaw);
+  }
   params.push(limit + 1);
 
-  const rowsDesc = getAll(
+  // When using afterId we fetch ascending (oldest-first) so we get the window
+  // starting from the anchor. Without afterId we keep the existing behaviour
+  // of fetching descending (newest-first) and reversing.
+  const orderSql = hasAfter
+    ? "ORDER BY chat_messages.created_at ASC, chat_messages.id ASC"
+    : "ORDER BY chat_messages.created_at DESC, chat_messages.id DESC";
+
+  const rowsRaw = getAll(
     `
     SELECT chat_messages.id,
       COALESCE(chat_messages.edited_body, chat_messages.body) AS body,
@@ -1906,38 +1995,63 @@ export function getMessages(chatId, options = {}) {
       ${replyJoinVisibilitySql}
     LEFT JOIN users reply_user ON reply_user.id = reply.user_id
     ${whereSql}
-    ORDER BY julianday(chat_messages.created_at) DESC, chat_messages.id DESC
+    ${orderSql}
     LIMIT ?
   `,
     params,
   );
 
-  const hasMore = rowsDesc.length > limit;
-  const rows = rowsDesc.slice(0, limit).reverse();
-
-  const totalRow = getRow(
-    hasViewerUserId
-      ? `SELECT COUNT(*) AS total
-         FROM chat_messages
-         WHERE chat_id = ?
-           AND ${getVisibleMessageFilterSql(
-             "chat_messages",
-             "WHERE hidden_chat_messages.user_id = ?",
-           )}`
-      : `SELECT COUNT(*) AS total
-         FROM chat_messages
-         WHERE chat_id = ?
-           AND chat_messages.hidden_everyone_at IS NULL`,
-    hasViewerUserId ? [chatId, viewerUserIdRaw] : [chatId],
-  );
-
-  const totalCount = Number(totalRow?.total || 0);
+  const hasMore = rowsRaw.length > limit;
+  // For the afterId path rows are already ASC; for the beforeId path reverse DESC→ASC.
+  const rows = hasAfter
+    ? rowsRaw.slice(0, limit)
+    : rowsRaw.slice(0, limit).reverse();
 
   return {
     messages: rows.map(decryptMessageRow),
     hasMore,
-    totalCount,
   };
+}
+
+/**
+ * Returns the first message in a chat that the given user has not read yet
+ * (from another user or a remote message), along with its created_at timestamp.
+ * Returns null if there are no unread messages.
+ */
+export function getFirstUnreadMessage(chatId, viewerUserId) {
+  const cid = Number(chatId);
+  const uid = Number(viewerUserId);
+  if (!cid || !uid) return null;
+
+  const row = getRow(
+    `
+    SELECT cm.id, cm.created_at
+    FROM chat_messages cm
+    WHERE cm.chat_id = ?
+      AND (
+        cm.user_id != ?
+        OR LOWER(COALESCE(cm.client_request_id, '')) LIKE 'remote:%'
+      )
+      AND cm.hidden_everyone_at IS NULL
+      AND cm.id NOT IN (
+        SELECT hidden_chat_messages.message_id
+        FROM hidden_chat_messages
+        WHERE hidden_chat_messages.user_id = ?
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM chat_message_reads cmr
+        WHERE cmr.message_id = cm.id
+          AND cmr.user_id = ?
+      )
+    ORDER BY julianday(cm.created_at) ASC, cm.id ASC
+    LIMIT 1
+    `,
+    [cid, uid, uid, uid],
+  );
+
+  if (!row) return null;
+  return { id: Number(row.id), created_at: row.created_at };
 }
 
 export function listMessageFilesByMessageIds(messageIds = []) {
@@ -2203,19 +2317,21 @@ export function setChatMuted(userId, chatId, muted) {
   ]);
 }
 
-export function upsertPushSubscription(userId, endpoint, p256dh, auth) {
+export function upsertPushSubscription(userId, endpoint, p256dh, auth, messagePreview = 1) {
   const uid = Number(userId || 0);
   const safeEndpoint = String(endpoint || "").trim();
   if (!uid || !safeEndpoint) return;
+  const preview = messagePreview === false || messagePreview === 0 ? 0 : 1;
   run(
-    `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, updated_at)
-     VALUES (?, ?, ?, ?, datetime('now'))
+    `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, message_preview, updated_at)
+     VALUES (?, ?, ?, ?, ?, datetime('now'))
      ON CONFLICT(endpoint) DO UPDATE SET
        user_id = excluded.user_id,
        p256dh = excluded.p256dh,
        auth = excluded.auth,
+       message_preview = excluded.message_preview,
        updated_at = datetime('now')`,
-    [uid, safeEndpoint, String(p256dh || ""), String(auth || "")],
+    [uid, safeEndpoint, String(p256dh || ""), String(auth || ""), preview],
   );
 }
 
@@ -2266,7 +2382,7 @@ export function listPushSubscriptionsByUserIds(userIds = []) {
   if (!ids.length) return [];
   const placeholders = ids.map(() => "?").join(", ");
   return getAll(
-    `SELECT user_id, endpoint, p256dh, auth
+    `SELECT user_id, endpoint, p256dh, auth, message_preview
      FROM push_subscriptions
      WHERE user_id IN (${placeholders})`,
     ids,

@@ -2,8 +2,7 @@ import bcrypt from "bcryptjs";
 import { getCliArgs, getPositionalArgs, getFlagValue } from "./_cli.js";
 import { openDatabase, runAdminActionViaServer } from "./_db-admin.js";
 import { setUserColor } from "../settings/colors.js";
-
-const USERNAME_REGEX = /^[a-z0-9._]+$/;
+import { USERNAME_REGEX } from "../lib/validation.js";
 const clampEnvInt = (value, fallback, { min, max } = {}) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;

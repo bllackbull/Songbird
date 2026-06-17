@@ -69,3 +69,20 @@ export const formatChatCardTimestamp = (dateValue) => {
     day: "2-digit",
   });
 };
+
+// Formats a count using compact notation
+export const formatCompactCount = (value) => {
+  const count = Math.max(0, Number(value || 0));
+  if (!Number.isFinite(count)) return "0";
+  if (count < 1000) return String(count);
+  if (count < 1_000_000) {
+    const next = (count / 1000).toFixed(1);
+    return `${next.replace(/\.0$/, "")}K`;
+  }
+  if (count < 1_000_000_000) {
+    const next = (count / 1_000_000).toFixed(1);
+    return `${next.replace(/\.0$/, "")}M`;
+  }
+  const next = (count / 1_000_000_000).toFixed(1);
+  return `${next.replace(/\.0$/, "")}B`;
+};

@@ -3,7 +3,6 @@ import {
   AlertCircle,
   Check,
   Copy,
-  Globe,
   Heart,
   LoaderCircle,
   Refresh,
@@ -13,10 +12,26 @@ import { checkAppVersion } from "../../../api/appMetaApi.js";
 import { ABOUT_CONTENT } from "../../../settings/aboutContent.js";
 import { copyTextToClipboard } from "../../../utils/clipboard.js";
 
+function SongbirdWebsiteIcon({ size = 24 }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 512 512"
+      fill="currentColor"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+      style={{ overflow: "visible" }}
+    >
+      <path d="M256 0C397.385 0 512 114.615 512 256C512 397.385 397.385 512 256 512C114.615 512 0 397.385 0 256C0 114.615 114.615 0 256 0ZM200.384 360.058C200.384 382.004 240.211 399.795 289.339 399.795C289.341 399.795 289.344 399.795 289.346 399.795V360.056H200.384V360.058ZM289.337 112.001C240.211 112.004 200.388 148.663 200.388 193.884C200.388 194.939 200.409 195.99 200.452 197.036L125.91 169.619C115.331 165.728 103.116 170.956 98.627 181.296C94.1384 191.636 99.0768 203.173 109.656 207.064L154.029 223.385C144.513 221.87 134.616 227.007 130.675 236.086C126.187 246.426 131.124 257.962 141.703 261.854L201.931 284.006C192.779 283.064 183.514 288.147 179.732 296.858C175.244 307.198 180.182 318.735 190.761 322.626L292.287 359.969C291.316 360.026 290.336 360.058 289.35 360.059V399.795C338.475 399.792 378.297 363.133 378.298 317.912C378.298 286.404 358.965 259.052 330.622 245.36C329.479 244.648 328.239 244.038 326.91 243.549L324.101 242.515C322.94 242.061 321.766 241.629 320.58 241.22L249.843 215.202C245.85 208.948 243.558 201.663 243.558 193.884C243.558 172.753 260.451 155.255 282.483 152.208C292.724 161.311 309.043 161.212 319.15 151.908L319.152 151.906L318.969 151.737H332.508V151.736H345.585V151.735C345.585 139.865 336.254 130.001 323.976 128.017C316.106 118.296 303.521 112 289.339 112H289.337V112.001Z" />
+    </svg>
+  );
+}
+
 const SOCIAL_ICONS = {
   github: FaGithub,
   telegram: FaTelegram,
-  website: Globe,
+  songbird: SongbirdWebsiteIcon,
 };
 
 function WalletRow({ label, address }) {
@@ -24,30 +39,25 @@ function WalletRow({ label, address }) {
 
   return (
     <div className="rounded-2xl border border-emerald-200/70 bg-white/90 p-3 dark:border-emerald-500/30 dark:bg-slate-900/50">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-600 dark:text-emerald-300">
-            {label}
-          </p>
-          <code className="mt-2 block break-all text-xs text-slate-700 dark:text-slate-200">
-            {address}
-          </code>
-        </div>
-        <button
-          type="button"
-          onClick={async () => {
-            const didCopy = await copyTextToClipboard(address);
-            if (!didCopy) return;
-            setCopied(true);
-            window.setTimeout(() => setCopied(false), 1400);
-          }}
-          className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
-          aria-label={`Copy ${label} wallet`}
-        >
-          <Copy size={12} className="icon-anim-pop" />
-          {copied ? "Copied" : "Copy"}
-        </button>
-      </div>
+      <p className="text-xs font-semibold uppercase text-slate-600 dark:text-white">
+        {label}
+      </p>
+      <button
+        type="button"
+        onClick={async () => {
+          const didCopy = await copyTextToClipboard(address);
+          if (!didCopy) return;
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1500);
+        }}
+        className="mt-2 flex w-full items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-left text-xs text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/15"
+        aria-label={`Copy ${label} wallet address`}
+      >
+        <code className="min-w-0 flex-1 break-all font-mono">{address}</code>
+        <span className="ml-1 shrink-0 text-emerald-600 dark:text-emerald-400">
+          {copied ? <Check size={14} /> : <Copy size={14} />}
+        </span>
+      </button>
     </div>
   );
 }
@@ -161,13 +171,14 @@ export function AboutSettingsPanel({
       return {
         className:
           "border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200",
-        label: "Already up to date",
+        label: "Up to date",
         icon: <Check size={13} />,
       };
     }
     return {
-      className: "bg-emerald-500 text-white hover:bg-emerald-400",
-      label: "Check",
+      className:
+        "border border-emerald-200 bg-white text-emerald-700 hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10",
+      label: appInfoLoading ? "Loading..." : versionLabel,
       icon: <Refresh size={13} />,
     };
   })();
@@ -181,16 +192,9 @@ export function AboutSettingsPanel({
             : "app-scroll max-h-[calc(100dvh-18rem)] space-y-3 overflow-y-auto pr-1"
         }
       >
-        <div className={rowBase}>
-          <span>App version</span>
-          <span className="truncate text-slate-600 dark:text-slate-300">
-            {appInfoLoading ? "Loading..." : versionLabel}
-          </span>
-        </div>
-
         <div className={`${rowBase} items-start`}>
           <div className="min-w-0 flex-1">
-            <p>Check for updates</p>
+            <p>App version</p>
             {appInfoError ? (
               <p className="mt-1 text-xs font-normal text-rose-600 dark:text-rose-300">
                 {appInfoError}

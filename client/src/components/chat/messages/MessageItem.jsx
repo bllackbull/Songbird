@@ -14,8 +14,26 @@ import {
   Reply,
   Video,
 } from "../../../icons/lucide.js";
+import { FaTelegram } from "react-icons/fa6";
+
+function SongbirdIcon({ size = 13 }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 512 512"
+      fill="currentColor"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+      style={{ overflow: "visible", flexShrink: 0 }}
+    >
+      <path d="M256 0C397.385 0 512 114.615 512 256C512 397.385 397.385 512 256 512C114.615 512 0 397.385 0 256C0 114.615 114.615 0 256 0ZM200.384 360.058C200.384 382.004 240.211 399.795 289.339 399.795C289.341 399.795 289.344 399.795 289.346 399.795V360.056H200.384V360.058ZM289.337 112.001C240.211 112.004 200.388 148.663 200.388 193.884C200.388 194.939 200.409 195.99 200.452 197.036L125.91 169.619C115.331 165.728 103.116 170.956 98.627 181.296C94.1384 191.636 99.0768 203.173 109.656 207.064L154.029 223.385C144.513 221.87 134.616 227.007 130.675 236.086C126.187 246.426 131.124 257.962 141.703 261.854L201.931 284.006C192.779 283.064 183.514 288.147 179.732 296.858C175.244 307.198 180.182 318.735 190.761 322.626L292.287 359.969C291.316 360.026 290.336 360.058 289.35 360.059V399.795C338.475 399.792 378.297 363.133 378.298 317.912C378.298 286.404 358.965 259.052 330.622 245.36C329.479 244.648 328.239 244.038 326.91 243.549L324.101 242.515C322.94 242.061 321.766 241.629 320.58 241.22L249.843 215.202C245.85 208.948 243.558 201.663 243.558 193.884C243.558 172.753 260.451 155.255 282.483 152.208C292.724 161.311 309.043 161.212 319.15 151.908L319.152 151.906L318.969 151.737H332.508V151.736H345.585V151.735C345.585 139.865 336.254 130.001 323.976 128.017C316.106 118.296 303.521 112 289.339 112H289.337V112.001Z" />
+    </svg>
+  );
+}
 import { hasPersian } from "../../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../../utils/avatarInitials.js";
+import { formatCompactCount } from "../../../utils/chatFormat.js";
 import ContextMenuSurface from "../../context-menu/ContextMenuSurface.jsx";
 import { MessageFiles } from "../media/MessageFiles.jsx";
 import {
@@ -27,7 +45,7 @@ import {
   extractMessageBodyText,
   FILE_SUMMARY_PATTERN,
 } from "../../../utils/messageContent.js";
-import { resolveMention } from "../../../utils/mentions.js";
+import { resolveMention, getCachedMention } from "../../../utils/mentions.js";
 import { summarizeFiles } from "../../../utils/messagePreview.js";
 import Avatar from "../../common/Avatar.jsx";
 
@@ -184,6 +202,14 @@ export const MessageItem = memo(function MessageItem({
     isRemoteForwardedOrigin
       ? Number(chatId || msg?.chat_id || msg?.chatId || msg?._chatId || 0)
       : 0;
+  // Derive the provider from the client_request_id prefix
+  const remoteForwardedProvider = isRemoteForwardedOrigin
+    ? /^remote:tg:/i.test(clientRequestId)
+      ? "telegram"
+      : /^remote:sb:/i.test(clientRequestId)
+        ? "songbird"
+        : "unknown"
+    : null;
   const forwardedFromUsername = String(msg?.forwarded_from_username || "").trim();
   const liveForwardedChatName = String(forwardedChat?.name || "").trim();
   const liveForwardedUserName = String(
@@ -364,14 +390,35 @@ export const MessageItem = memo(function MessageItem({
           .replace(/^@/, "");
       const mention = String(rawMention || "").toLowerCase();
       if (!mention) return;
+
+      // Open the modal immediately with cached data (if available) so the
+      // user sees something right away, then refresh in the background.
+      const cached = getCachedMention(mention, { allowStale: true });
+      if (cached?.status === "valid" && cached.data) {
+        markValid(mentionEl);
+        if (typeof onOpenMentionRef.current === "function") {
+          onOpenMentionRef.current(cached.data);
+        }
+      }
+
+      const needsLoad = !cached || cached.status !== "valid";
+      if (needsLoad) {
+        mentionEl.classList.add("sb-mention-loading");
+      }
+
       resolveMention(mention, user.username, {
         fallbackToCacheOnError: true,
+        // Force a fresh fetch only when there was no usable cache hit
+        force: needsLoad,
       }).then((result) => {
+        mentionEl.classList.remove("sb-mention-loading");
         if (!result || result.status !== "valid") {
           markInvalid(mentionEl);
           return;
         }
         markValid(mentionEl);
+        // If we already opened with cached data, the modal is already visible;
+        // openMentionProfile will update it with fresh data.
         if (typeof onOpenMentionRef.current === "function") {
           onOpenMentionRef.current(result.data);
         }
@@ -516,18 +563,7 @@ export const MessageItem = memo(function MessageItem({
 
   const formatSeenCount = (value) => {
     const count = Math.max(1, Number(value || 0));
-    if (!Number.isFinite(count)) return "1";
-    if (count < 1000) return String(count);
-    if (count < 1_000_000) {
-      const next = (count / 1000).toFixed(1);
-      return `${next.replace(/\.0$/, "")}K`;
-    }
-    if (count < 1_000_000_000) {
-      const next = (count / 1_000_000).toFixed(1);
-      return `${next.replace(/\.0$/, "")}M`;
-    }
-    const next = (count / 1_000_000_000).toFixed(1);
-    return `${next.replace(/\.0$/, "")}B`;
+    return formatCompactCount(count);
   };
   const formatExpiryBadge = () => {
     const files = Array.isArray(msg?.files) ? msg.files : [];
@@ -723,6 +759,11 @@ export const MessageItem = memo(function MessageItem({
             placeholderContent={canOpenForwardedOrigin ? null : ""}
             className="h-4 w-4 shrink-0 text-[8px]"
           />
+          {remoteForwardedProvider === "telegram" ? (
+            <FaTelegram size={13} className="shrink-0" />
+          ) : remoteForwardedProvider === "songbird" ? (
+            <SongbirdIcon size={13} />
+          ) : null}
           <span
             className={`min-w-0 max-w-[18rem] truncate ${
               forwardedLabelHasPersian ? "font-fa" : ""
@@ -731,7 +772,11 @@ export const MessageItem = memo(function MessageItem({
             style={{ unicodeBidi: "isolate" }}
             title={forwardedFromLabel}
           >
-            {forwardedFromLabel}
+            {remoteForwardedProvider === "telegram"
+              ? forwardedFromLabel.replace(/^telegram:\s*/i, "")
+              : remoteForwardedProvider === "songbird"
+                ? forwardedFromLabel.replace(/^songbird:\s*/i, "")
+                : forwardedFromLabel}
           </span>
         </button>
       </div>
@@ -1307,18 +1352,24 @@ export const MessageItem = memo(function MessageItem({
                       }`}
                     >
                       {isSending ? (
-                        <Clock12
-                          size={15}
-                          strokeWidth={2.4}
-                          className="animate-spin"
-                          aria-hidden="true"
-                        />
+                        <>
+                          <Clock12
+                            size={15}
+                            strokeWidth={2.4}
+                            className="animate-spin"
+                            aria-hidden="true"
+                          />
+                          <span className="sr-only">Sending</span>
+                        </>
                       ) : isFailed ? (
-                        <AlertCircle
-                          size={15}
-                          strokeWidth={2.4}
-                          aria-hidden="true"
-                        />
+                        <>
+                          <AlertCircle
+                            size={15}
+                            strokeWidth={2.4}
+                            aria-hidden="true"
+                          />
+                          <span className="sr-only">Failed to send</span>
+                        </>
                       ) : isChannelChat ? (
                         <>
                           <Eye
@@ -1328,15 +1379,22 @@ export const MessageItem = memo(function MessageItem({
                             className="-translate-y-px"
                           />
                           <span>{formatSeenCount(seenCount)}</span>
+                          <span className="sr-only">views</span>
                         </>
                       ) : isRead ? (
-                        <CheckCheck
-                          size={15}
-                          strokeWidth={2.5}
-                          aria-hidden="true"
-                        />
+                        <>
+                          <CheckCheck
+                            size={15}
+                            strokeWidth={2.5}
+                            aria-hidden="true"
+                          />
+                          <span className="sr-only">Read</span>
+                        </>
                       ) : (
-                        <Check size={15} strokeWidth={2.5} aria-hidden="true" />
+                        <>
+                          <Check size={15} strokeWidth={2.5} aria-hidden="true" />
+                          <span className="sr-only">Sent</span>
+                        </>
                       )}
                     </span>
                   ) : null}

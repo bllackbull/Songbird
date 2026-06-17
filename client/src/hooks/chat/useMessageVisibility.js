@@ -110,13 +110,6 @@ export function useMessageVisibility({
               }, VISIBILITY_DWELL_MS);
               dwellTimersRef.current.set(id, timer);
             }
-          } else {
-            // Left viewport before dwell completed — cancel
-            const timer = dwellTimersRef.current.get(id);
-            if (timer !== undefined) {
-              window.clearTimeout(timer);
-              dwellTimersRef.current.delete(id);
-            }
           }
         }
       },

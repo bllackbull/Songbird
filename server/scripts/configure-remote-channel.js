@@ -444,8 +444,8 @@ try {
   }
 
   envPath = options.envFile ? path.resolve(options.envFile) : defaultEnvPath;
-  dotenv.config({ path: envPath, override: true });
-  dotenv.config({ path: path.join(serverDir, ".env"), override: true });
+  dotenv.config({ path: envPath, override: true, quiet: true });
+  dotenv.config({ path: path.join(serverDir, ".env"), override: true, quiet: true });
 
   console.log("Songbird Remote Channel configuration");
   console.log(

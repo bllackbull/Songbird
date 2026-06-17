@@ -1,4 +1,6 @@
 import { createPortal } from "react-dom";
+import { useFocusTrap } from "../../hooks/useFocusTrap.js";
+import { useRef } from "react";
 
 export default function LeaveGroupModal({
   open,
@@ -6,13 +8,22 @@ export default function LeaveGroupModal({
   onConfirm,
   isChannel = false,
 }) {
+  const dialogRef = useRef(null);
+  useFocusTrap(dialogRef, open);
+
   if (!open) return null;
   if (typeof document === "undefined") return null;
 
   return createPortal(
     <div className="fixed inset-0 z-[320] flex items-center justify-center bg-black/40 px-6">
-      <div className="w-full max-w-sm rounded-2xl border border-rose-100/70 bg-white p-6 shadow-xl dark:border-rose-500/30 dark:bg-slate-950">
-        <h3 className="text-lg font-semibold text-rose-600 dark:text-rose-300">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="leave-modal-title"
+        className="w-full max-w-sm rounded-2xl border border-rose-100/70 bg-white p-6 shadow-xl dark:border-rose-500/30 dark:bg-slate-950"
+      >
+        <h3 id="leave-modal-title" className="text-lg font-semibold text-rose-600 dark:text-rose-300">
           {isChannel ? "Leave channel" : "Leave group"}
         </h3>
         <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">

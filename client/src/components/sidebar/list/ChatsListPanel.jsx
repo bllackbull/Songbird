@@ -21,6 +21,7 @@ import { getAvatarInitials } from "../../../utils/avatarInitials.js";
 import { renderMarkdownInlinePlain } from "../../../utils/markdown.js";
 import { summarizeFiles } from "../../../utils/messagePreview.js";
 import { isMessageAuthoredByUser } from "../../../utils/messageOwnership.js";
+import { formatCompactCount } from "../../../utils/chatFormat.js";
 import Avatar from "../../common/Avatar.jsx";
 
 export default function ChatsListPanel({
@@ -515,7 +516,7 @@ export default function ChatsListPanel({
           );
 
           let unreadCount = conv.unread_count;
-          if (unreadCount > 999) unreadCount = "+999";
+          if (unreadCount > 999) unreadCount = formatCompactCount(unreadCount);
 
           const card = (
             <div
@@ -763,6 +764,7 @@ export default function ChatsListPanel({
               <ContextMenuSurface
                 type="button"
                 as="button"
+                aria-label={`${name}${conv.unread_count > 0 ? `, ${conv.unread_count} unread` : ""}`}
                 onClick={() => {
                   if (editMode) return;
                   setActiveChatId(Number(conv.id));

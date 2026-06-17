@@ -1,4 +1,4 @@
-import { normalizeTelegramSource } from "../lib/remoteChannels.js";
+import { normalizeSongbirdSource, normalizeTelegramSource, resolveSongbirdSource } from "../lib/remoteChannels.js";
 
 function registerRemoteChannelRoutes(app, deps) {
   const {
@@ -19,8 +19,13 @@ function registerRemoteChannelRoutes(app, deps) {
     upsertRemoteChannelSource,
   } = deps;
 
-  const isRemoteChannelAvailable = () =>
+  // Telegram requires API credentials; Songbird just needs the feature enabled.
+  const isTelegramAvailable = () =>
     Boolean(REMOTE_CHANNELS?.enabled && REMOTE_CHANNELS?.telegramConfigured);
+  const isSongbirdAvailable = () =>
+    Boolean(REMOTE_CHANNELS?.enabled);
+  const isRemoteChannelAvailable = () =>
+    isTelegramAvailable() || isSongbirdAvailable();
 
   const requireChannelOwner = (req, res) => {
     const session = requireSession(req, res);
@@ -81,6 +86,7 @@ function registerRemoteChannelRoutes(app, deps) {
       sourceRaw: source.source_raw || "",
       sourceChatId: source.source_chat_id || "",
       sourceUsername: source.source_username || "",
+      sourceUrl: source.source_url || "",
       sourceTitle: source.source_title || "",
       sourceAvatarUrl: source.source_avatar_url || "",
       lastRemoteMessageId: Number(source.last_remote_message_id || 0) || null,
@@ -136,6 +142,7 @@ function registerRemoteChannelRoutes(app, deps) {
     return res.json({
       available: isRemoteChannelAvailable(),
       telegramConfigured: Boolean(REMOTE_CHANNELS?.telegramConfigured),
+      songbirdConfigured: isSongbirdAvailable(),
       proxyConfigured: Boolean(REMOTE_CHANNELS?.proxyConfigured),
       source: serialized,
     });
@@ -155,9 +162,17 @@ function registerRemoteChannelRoutes(app, deps) {
     const syncMetadata = Boolean(req.body?.syncMetadata);
     const streamMedia = Boolean(FILE_UPLOAD && req.body?.streamMedia);
     const provider = String(req.body?.provider || "telegram").toLowerCase();
-    if (provider !== "telegram") {
-      return res.status(400).json({ error: "Remote Channel source is invalid." });
+
+    if (provider !== "telegram" && provider !== "songbird") {
+      return res.status(400).json({ error: "Remote Channel provider is invalid." });
     }
+
+    if (provider === "telegram" && !isTelegramAvailable()) {
+      return res.status(503).json({
+        error: "Telegram Remote Channel is not configured on this server.",
+      });
+    }
+
     const rawSource = String(
       req.body?.source || req.body?.sourceRaw || "",
     ).trim();
@@ -167,29 +182,55 @@ function registerRemoteChannelRoutes(app, deps) {
       sourceRaw: rawSource,
       sourceChatId: "",
       sourceUsername: "",
+      sourceUrl: "",
     };
 
-    if (enabled) {
-      normalized = normalizeTelegramSource(rawSource);
-      if (!normalized.ok) {
-        return res.status(400).json({ error: normalized.error });
+    if (provider === "telegram") {
+      if (enabled) {
+        normalized = normalizeTelegramSource(rawSource);
+        if (!normalized.ok) {
+          return res.status(400).json({ error: normalized.error });
+        }
+      } else if (rawSource) {
+        const optionalNormalized = normalizeTelegramSource(rawSource);
+        if (optionalNormalized.ok) normalized = optionalNormalized;
       }
-    } else if (rawSource) {
-      const optionalNormalized = normalizeTelegramSource(rawSource);
-      if (optionalNormalized.ok) {
-        normalized = optionalNormalized;
+      if (enabled && !normalized.sourceChatId && !normalized.sourceUsername) {
+        return res.status(400).json({ error: "Telegram source is required." });
       }
-    }
-
-    if (enabled && !normalized.sourceChatId && !normalized.sourceUsername) {
-      return res.status(400).json({ error: "Telegram source is required." });
+    } else {
+      // provider === "songbird"
+      if (enabled) {
+        normalized = normalizeSongbirdSource(rawSource);
+        if (!normalized.ok) {
+          return res.status(400).json({ error: normalized.error });
+        }
+        // Resolve the actual channel username from the target server.
+        // This also validates the server is public and the channel exists.
+        const resolved = await resolveSongbirdSource(
+          normalized.sourceUrl,
+          normalized.inviteTarget,
+        );
+        if (!resolved.ok) {
+          return res.status(400).json({ error: resolved.error });
+        }
+        normalized = { ...normalized, sourceUsername: resolved.sourceUsername };
+      } else if (rawSource) {
+        const optionalNormalized = normalizeSongbirdSource(rawSource);
+        if (optionalNormalized.ok) normalized = optionalNormalized;
+      }
+      if (enabled && !normalized.sourceUrl) {
+        return res.status(400).json({ error: "Songbird source URL is required." });
+      }
     }
 
     let source = upsertRemoteChannelSource({
       chatId: context.chatId,
+      provider,
       sourceRaw: normalized.sourceRaw,
-      sourceChatId: normalized.sourceChatId,
-      sourceUsername: normalized.sourceUsername,
+      sourceChatId: normalized.sourceChatId || "",
+      sourceUsername: normalized.sourceUsername || "",
+      sourceUrl: normalized.sourceUrl || "",
       syncMetadata,
       streamMedia,
       enabled,
@@ -200,8 +241,7 @@ function registerRemoteChannelRoutes(app, deps) {
       syncMetadata &&
       typeof remoteChannelManager?.syncSourceMetadata === "function"
     ) {
-      // Run metadata sync in the background so the response is not blocked by
-      // Telegram network round-trips (getEntity + downloadProfilePhoto).
+      // Run metadata sync in the background — works for both Telegram and Songbird.
       const sourceId = source.id;
       remoteChannelManager.syncSourceMetadata(sourceId).catch(() => {
         // Errors are recorded on the source record by syncSourceMetadata itself.

@@ -24,7 +24,11 @@ import { migration023ChatLeftMembers } from "./023-chat-left-members.js";
 import { migration024RemoteChannelQueue } from "./024-remote-channel-queue.js";
 import { migration025RemoteChannelPerformance } from "./025-remote-channel-performance.js";
 import { migration026RemoteChannelPause } from "./026-remote-channel-pause.js";
-import { migration027UserRoles } from "./027-user-roles.js";
+import { migration027RemoteChannelSongbird } from "./027-remote-channel-songbird.js";
+import { migration as migration028PushMessagePreview } from "./028-push-message-preview.js";
+import { migration029RemoteChannelQueueSummaryIndex } from "./029-remote-channel-queue-summary-index.js";
+import { migration030HiddenMessagesCompositeIndex } from "./030-hidden-messages-composite-index.js";
+import { migration031UserRoles } from "./031-user-roles.js";
 
 export const migrations = [
   migration001InitialSchema,
@@ -53,5 +57,9 @@ export const migrations = [
   migration024RemoteChannelQueue,
   migration025RemoteChannelPerformance,
   migration026RemoteChannelPause,
-  migration027UserRoles,
+  migration027RemoteChannelSongbird,
+  migration028PushMessagePreview,
+  migration029RemoteChannelQueueSummaryIndex,
+  migration030HiddenMessagesCompositeIndex,
+  migration031UserRoles,
 ];

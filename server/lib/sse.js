@@ -4,6 +4,16 @@ export function createSseHub({ listChatMembers }) {
   // rapid SSE event bursts (e.g., multiple messages in quick succession).
   const memberCache = new Map(); // chatId → { members, expiresAt }
   const MEMBER_CACHE_TTL_MS = 8000;
+  // Sweep expired entries every 5 minutes to prevent unbounded Map growth.
+  const memberCacheSweepTimer = setInterval(() => {
+    const now = Date.now();
+    memberCache.forEach((entry, chatId) => {
+      if (entry.expiresAt <= now) memberCache.delete(chatId);
+    });
+  }, 5 * 60 * 1000);
+  if (typeof memberCacheSweepTimer.unref === "function") {
+    memberCacheSweepTimer.unref();
+  }
 
   function getCachedMembers(chatId) {
     const entry = memberCache.get(chatId);
@@ -67,5 +77,11 @@ export function createSseHub({ listChatMembers }) {
     emitSseEvent,
     emitChatEvent,
     getCachedMembers,
+    isUserConnected(username) {
+      const key = String(username || "").toLowerCase();
+      if (!key) return false;
+      const clients = sseClientsByUsername.get(key);
+      return Boolean(clients?.size);
+    },
   };
 }

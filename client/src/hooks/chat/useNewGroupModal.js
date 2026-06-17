@@ -19,7 +19,7 @@ export function useNewGroupModal({
     visibility: "public",
     allowMemberInvites: true,
     remoteChannelEnabled: false,
-    remoteChannelProvider: "telegram",
+    remoteChannelProvider: "songbird",
     remoteChannelSource: "",
     remoteChannelSyncMetadata: false,
     remoteChannelStreamMedia: false,

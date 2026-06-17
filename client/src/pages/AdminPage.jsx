@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../api/chatApi.js";
-import { ArrowLeft, Ban, Search, Trash, Users } from "../icons/lucide.js";
+import { ArrowLeft, Ban, Search, Trash } from "../icons/lucide.js";
 
 export default function AdminPage({ user, onBack }) {
   const [tab, setTab] = useState("dashboard");

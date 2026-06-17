@@ -12,6 +12,8 @@ export function createPushService({
     vapid.subject || "mailto:admin@example.com",
   ).trim();
   const PUSH_ENABLED = Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
+  
+  let proxyAgent = null;
 
   if (PUSH_ENABLED) {
     try {
@@ -24,10 +26,7 @@ export function createPushService({
       // Configure proxy if provided
       if (proxyUrl) {
         import('https-proxy-agent').then(({ HttpsProxyAgent }) => {
-          const proxyAgent = new HttpsProxyAgent(proxyUrl);
-          webpush.setDefaultOptions({
-            proxy: proxyAgent,
-          });
+          proxyAgent = new HttpsProxyAgent(proxyUrl);
           console.log(`[push] Using proxy: ${proxyUrl}`);
         }).catch((error) => {
           console.error(
@@ -66,8 +65,14 @@ export function createPushService({
     await Promise.all(
       targets.map(async (sub) => {
         const badge = badgeByUserId[sub.user_id] ?? 1;
-        const perUserBody = JSON.stringify({ ...payload, badge });
+        const showPreview = sub.message_preview !== 0;
+        const perUserPayload = showPreview
+          ? { ...payload, badge }
+          : { ...payload, body: "New message", badge };
+        const perUserBody = JSON.stringify(perUserPayload);
         try {
+          const sendOptions = { urgency: "high", TTL: 86400 };
+          if (proxyAgent) sendOptions.agent = proxyAgent;
           await webpush.sendNotification(
             {
               endpoint: sub.endpoint,
@@ -77,7 +82,7 @@ export function createPushService({
               },
             },
             perUserBody,
-            { urgency: "high", TTL: 86400 },
+            sendOptions,
           );
         } catch (error) {
           const status = Number(error?.statusCode || 0);

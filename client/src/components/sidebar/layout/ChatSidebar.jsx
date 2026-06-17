@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ChatsListPanel from "../list/ChatsListPanel.jsx";
 import {
   MobileSettingsPanel,
@@ -12,6 +12,7 @@ export default function ChatSidebar({
   isConnected,
   isUpdating,
   scrollEpoch = 0,
+  chatsScrollToTopEpoch = 0,
   editMode,
   visibleChats,
   selectedChats,
@@ -151,6 +152,11 @@ export default function ChatSidebar({
     if (!node) return;
     setIsChatsScrollable(node.scrollHeight - node.clientHeight > 4);
   };
+
+  useEffect(() => {
+    if (chatsScrollToTopEpoch === 0) return;
+    chatsScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  }, [chatsScrollToTopEpoch]);
 
   return (
     <aside
