@@ -33,7 +33,6 @@ import { useNewGroupModal } from "../hooks/chat/useNewGroupModal.js";
 import { usePerfTelemetry } from "../hooks/chat/usePerfTelemetry.js";
 import { useResumeRefresh } from "../hooks/chat/useResumeRefresh.js";
 import { useMessageVisibility } from "../hooks/chat/useMessageVisibility.js";
-import { useCallSocket } from "../hooks/chat/useCallSocket.js";
 import { useWebRTCCall } from "../hooks/chat/useWebRTCCall.js";
 import { useAppReleaseInfo } from "../hooks/useAppReleaseInfo.js";
 import { Bookmark } from "../icons/lucide.js";
@@ -1022,6 +1021,25 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (!files.length) return;
     downloadMessageFiles(files);
   }, []);
+
+  // ─── Call Hooks ───────────────────────────────────────────────────────────
+  const {
+    callState,
+    callType,
+    callPeer,
+    callDuration,
+    isMuted,
+    isCameraOff,
+    localVideoRef,
+    remoteVideoRef,
+    startCall,
+    acceptCall,
+    rejectCall,
+    endCall,
+    toggleMute,
+    toggleCamera,
+    handleSignal: handleCallSignal,
+  } = useWebRTCCall();
 
   const handleStartVoiceCall = useCallback(() => {
     if (!activeChatId || !activeHeaderPeer?.username) return;
@@ -3416,29 +3434,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
   }
 
-  // ─── Call Hooks ───────────────────────────────────────────────────────────
-  const { getSocket, connected: callSocketConnected } = useCallSocket({
-    username: user?.username,
-  });
-
-  const {
-    callState,
-    callType,
-    callChatId,
-    callPeer,
-    callDuration,
-    isMuted,
-    isCameraOff,
-    localVideoRef,
-    remoteVideoRef,
-    startCall,
-    acceptCall,
-    rejectCall,
-    endCall,
-    toggleMute,
-    toggleCamera,
-  } = useWebRTCCall({ getSocket, username: user?.username });
-
   useChatEvents({
     username: user?.username,
     getSseStreamUrl,
@@ -3601,6 +3596,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     onSessionRevoked: () => {
       handleLogout();
     },
+    onCallSignal: handleCallSignal,
   });
 
   useEffect(() => {

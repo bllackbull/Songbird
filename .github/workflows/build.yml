@@ -14,19 +14,26 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
+          cache: npm
 
+      # Root deps (concurrently, tooling)
+      - name: Install root dependencies
+        run: npm install
+
+      # Server deps (runtime verification)
+      - name: Install server dependencies
+        run: npm install --prefix server
+
+      # Client deps (Vite, React)
       - name: Install client dependencies
-        working-directory: client
-        run: |
-          rm -f package-lock.json
-          npm install --registry https://registry.npmjs.org/
+        run: npm install --prefix client
 
+      # Build client (static assets)
       - name: Build client
-        working-directory: client
-        run: npm run build
+        run: npm run build --prefix client

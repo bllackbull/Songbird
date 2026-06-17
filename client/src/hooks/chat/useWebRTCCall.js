@@ -1,9 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+// WebRTC signaling runs over the existing SSE + HTTP infrastructure. Outgoing
+// signals are sent with plain POST requests; incoming signals arrive through the
+// shared SSE stream and are handed to `handleSignal` by the chat events hook.
+async function postCallSignal(path, body) {
+  try {
+    const res = await fetch(`/api/calls/${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(body || {}),
+    });
+    return res.ok ? await res.json().catch(() => ({})) : null;
+  } catch (err) {
+    console.error(`Call signal '${path}' failed:`, err);
+    return null;
+  }
+}
+
 /**
- * Call states: idle | calling | ringing | connected | ended
+ * Call states: idle | calling | ringing | connected
  */
-export function useWebRTCCall({ getSocket, username }) {
+export function useWebRTCCall() {
   const [callState, setCallState] = useState("idle");
   const [callType, setCallType] = useState("voice"); // voice | video
   const [callChatId, setCallChatId] = useState(null);
@@ -21,7 +39,26 @@ export function useWebRTCCall({ getSocket, username }) {
   const iceServersRef = useRef([]);
   const pendingCandidatesRef = useRef([]);
 
-  // Cleanup
+  // Mirrors of state used inside stable callbacks (SSE handler, RTCPeerConnection
+  // event handlers) so they never read stale values or force re-subscription.
+  const callStateRef = useRef("idle");
+  const callTypeRef = useRef("voice");
+  const callChatIdRef = useRef(null);
+  // Breaks the createPeerConnection -> endCall reference cycle: the connection
+  // state handler calls the latest endCall via this ref instead of closing over
+  // it before it is declared.
+  const endCallRef = useRef(() => {});
+
+  useEffect(() => {
+    callStateRef.current = callState;
+  }, [callState]);
+  useEffect(() => {
+    callTypeRef.current = callType;
+  }, [callType]);
+  useEffect(() => {
+    callChatIdRef.current = callChatId;
+  }, [callChatId]);
+
   const cleanup = useCallback(() => {
     if (durationTimerRef.current) {
       clearInterval(durationTimerRef.current);
@@ -42,16 +79,34 @@ export function useWebRTCCall({ getSocket, username }) {
     setIsCameraOff(false);
   }, []);
 
+  const resetCallState = useCallback(() => {
+    setCallState("idle");
+    callStateRef.current = "idle";
+    setCallChatId(null);
+    callChatIdRef.current = null;
+    setCallPeer(null);
+    cleanup();
+  }, [cleanup]);
+
+  const flushPendingCandidates = useCallback(async (pc) => {
+    const pending = pendingCandidatesRef.current;
+    pendingCandidatesRef.current = [];
+    for (const candidate of pending) {
+      try {
+        await pc.addIceCandidate(candidate);
+      } catch (err) {
+        console.error("Failed to add ICE candidate:", err);
+      }
+    }
+  }, []);
+
   const createPeerConnection = useCallback(() => {
-    const pc = new RTCPeerConnection({
-      iceServers: iceServersRef.current,
-    });
+    const pc = new RTCPeerConnection({ iceServers: iceServersRef.current });
 
     pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        const socket = getSocket();
-        socket?.emit("call:ice-candidate", {
-          chatId: callChatId,
+      if (event.candidate && callChatIdRef.current) {
+        void postCallSignal("ice-candidate", {
+          chatId: callChatIdRef.current,
           candidate: event.candidate,
         });
       }
@@ -67,220 +122,212 @@ export function useWebRTCCall({ getSocket, username }) {
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === "connected") {
         setCallState("connected");
-        durationTimerRef.current = setInterval(() => {
-          setCallDuration((prev) => prev + 1);
-        }, 1000);
+        callStateRef.current = "connected";
+        if (!durationTimerRef.current) {
+          durationTimerRef.current = setInterval(() => {
+            setCallDuration((prev) => prev + 1);
+          }, 1000);
+        }
       }
       if (
         pc.connectionState === "disconnected" ||
         pc.connectionState === "failed"
       ) {
-        endCall();
+        endCallRef.current();
       }
     };
 
     peerConnectionRef.current = pc;
     return pc;
-  }, [getSocket, callChatId]);
+  }, []);
 
   // Start a call (caller)
   const startCall = useCallback(
     async ({ chatId, calleeUsername, type = "voice" }) => {
-      const socket = getSocket();
-      if (!socket) return;
+      const numericChatId = Number(chatId);
+      if (!numericChatId || !calleeUsername) return;
 
       setCallState("calling");
+      callStateRef.current = "calling";
       setCallType(type);
-      setCallChatId(chatId);
+      callTypeRef.current = type;
+      setCallChatId(numericChatId);
+      callChatIdRef.current = numericChatId;
       setCallPeer({ username: calleeUsername });
 
-      socket.emit("call:start", { chatId, calleeUsername, type });
+      const data = await postCallSignal("start", {
+        chatId: numericChatId,
+        calleeUsername,
+        type,
+      });
+      if (!data) {
+        resetCallState();
+        return;
+      }
+      iceServersRef.current = data.iceServers || [];
     },
-    [getSocket],
+    [resetCallState],
   );
 
   // Accept incoming call (callee)
   const acceptCall = useCallback(async () => {
-    const socket = getSocket();
-    if (!socket || !callChatId) return;
+    const chatId = callChatIdRef.current;
+    if (!chatId) return;
 
     setCallState("connected");
-    socket.emit("call:accept", { chatId: callChatId });
+    callStateRef.current = "connected";
+    await postCallSignal("accept", { chatId });
 
     const pc = createPeerConnection();
-    const constraints = {
-      audio: true,
-      video: callType === "video",
-    };
-
     try {
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: callTypeRef.current === "video",
+      });
       localStreamRef.current = stream;
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
       }
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
-
-      // Process any pending candidates
-      for (const candidate of pendingCandidatesRef.current) {
-        await pc.addIceCandidate(candidate);
-      }
-      pendingCandidatesRef.current = [];
     } catch (err) {
       console.error("Failed to get media:", err);
-      endCall();
+      endCallRef.current();
     }
-  }, [getSocket, callChatId, callType, createPeerConnection]);
+  }, [createPeerConnection]);
 
   // Reject incoming call
-  const rejectCall = useCallback(() => {
-    const socket = getSocket();
-    if (!socket || !callChatId) return;
-
-    socket.emit("call:reject", { chatId: callChatId });
-    setCallState("idle");
-    setCallChatId(null);
-    setCallPeer(null);
-    cleanup();
-  }, [getSocket, callChatId, cleanup]);
+  const rejectCall = useCallback(async () => {
+    const chatId = callChatIdRef.current;
+    resetCallState();
+    if (chatId) await postCallSignal("reject", { chatId });
+  }, [resetCallState]);
 
   // End active call
-  const endCall = useCallback(() => {
-    const socket = getSocket();
-    if (socket && callChatId) {
-      socket.emit("call:end", { chatId: callChatId });
-    }
-    setCallState("idle");
-    setCallChatId(null);
-    setCallPeer(null);
-    cleanup();
-  }, [getSocket, callChatId, cleanup]);
+  const endCall = useCallback(async () => {
+    const chatId = callChatIdRef.current;
+    resetCallState();
+    if (chatId) await postCallSignal("end", { chatId });
+  }, [resetCallState]);
 
-  // Toggle mute
+  useEffect(() => {
+    endCallRef.current = endCall;
+  }, [endCall]);
+
   const toggleMute = useCallback(() => {
     if (!localStreamRef.current) return;
-    const audioTracks = localStreamRef.current.getAudioTracks();
-    audioTracks.forEach((track) => {
+    localStreamRef.current.getAudioTracks().forEach((track) => {
       track.enabled = !track.enabled;
     });
     setIsMuted((prev) => !prev);
   }, []);
 
-  // Toggle camera
   const toggleCamera = useCallback(() => {
     if (!localStreamRef.current) return;
-    const videoTracks = localStreamRef.current.getVideoTracks();
-    videoTracks.forEach((track) => {
+    localStreamRef.current.getVideoTracks().forEach((track) => {
       track.enabled = !track.enabled;
     });
     setIsCameraOff((prev) => !prev);
   }, []);
 
-  // Socket event listeners
-  useEffect(() => {
-    const socket = getSocket();
-    if (!socket) return;
-
-    const handleIncoming = (data) => {
-      setCallState("ringing");
-      setCallType(data.type || "voice");
-      setCallChatId(data.chatId);
-      setCallPeer({
-        username: data.callerUsername,
-        nickname: data.callerNickname,
-        avatar: data.callerAvatar,
-      });
-      iceServersRef.current = data.iceServers || [];
-    };
-
-    const handleStarted = (data) => {
-      iceServersRef.current = data.iceServers || [];
-    };
-
-    const handleAccepted = async () => {
-      // Caller creates offer after callee accepts
-      const pc = createPeerConnection();
-      const constraints = {
-        audio: true,
-        video: callType === "video",
-      };
-
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        localStreamRef.current = stream;
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = stream;
+  // Handle a signaling message delivered over the SSE stream.
+  const handleSignal = useCallback(
+    async (payload) => {
+      if (!payload?.type) return;
+      switch (payload.type) {
+        case "call:incoming": {
+          // Busy: auto-reject a second incoming call.
+          if (callStateRef.current !== "idle") {
+            void postCallSignal("reject", { chatId: payload.chatId });
+            return;
+          }
+          setCallState("ringing");
+          callStateRef.current = "ringing";
+          setCallType(payload.callType || "voice");
+          callTypeRef.current = payload.callType || "voice";
+          setCallChatId(payload.chatId);
+          callChatIdRef.current = payload.chatId;
+          setCallPeer({
+            username: payload.callerUsername,
+            nickname: payload.callerNickname,
+            avatar: payload.callerAvatar,
+          });
+          iceServersRef.current = payload.iceServers || [];
+          break;
         }
-        stream.getTracks().forEach((track) => pc.addTrack(track, stream));
-
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        socket.emit("call:offer", { chatId: callChatId, offer });
-      } catch (err) {
-        console.error("Failed to create offer:", err);
-        endCall();
+        case "call:accepted": {
+          // Caller creates the offer once the callee accepts.
+          const pc = createPeerConnection();
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+              audio: true,
+              video: callTypeRef.current === "video",
+            });
+            localStreamRef.current = stream;
+            if (localVideoRef.current) {
+              localVideoRef.current.srcObject = stream;
+            }
+            stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            await postCallSignal("offer", {
+              chatId: callChatIdRef.current,
+              offer,
+            });
+          } catch (err) {
+            console.error("Failed to create offer:", err);
+            endCallRef.current();
+          }
+          break;
+        }
+        case "call:rejected":
+        case "call:ended": {
+          resetCallState();
+          break;
+        }
+        case "call:offer": {
+          const pc = peerConnectionRef.current;
+          if (!pc) return;
+          await pc.setRemoteDescription(
+            new RTCSessionDescription(payload.offer),
+          );
+          await flushPendingCandidates(pc);
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          await postCallSignal("answer", { chatId: payload.chatId, answer });
+          break;
+        }
+        case "call:answer": {
+          const pc = peerConnectionRef.current;
+          if (!pc) return;
+          await pc.setRemoteDescription(
+            new RTCSessionDescription(payload.answer),
+          );
+          await flushPendingCandidates(pc);
+          break;
+        }
+        case "call:ice-candidate": {
+          const pc = peerConnectionRef.current;
+          const candidate = new RTCIceCandidate(payload.candidate);
+          if (!pc || !pc.remoteDescription) {
+            pendingCandidatesRef.current.push(candidate);
+            return;
+          }
+          try {
+            await pc.addIceCandidate(candidate);
+          } catch (err) {
+            console.error("Failed to add ICE candidate:", err);
+          }
+          break;
+        }
+        default:
+          break;
       }
-    };
+    },
+    [createPeerConnection, resetCallState, flushPendingCandidates],
+  );
 
-    const handleRejected = () => {
-      setCallState("idle");
-      setCallChatId(null);
-      setCallPeer(null);
-      cleanup();
-    };
-
-    const handleEnded = () => {
-      setCallState("idle");
-      setCallChatId(null);
-      setCallPeer(null);
-      cleanup();
-    };
-
-    const handleOffer = async (data) => {
-      const pc = peerConnectionRef.current;
-      if (!pc) return;
-
-      await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      socket.emit("call:answer", { chatId: data.chatId, answer });
-    };
-
-    const handleAnswer = async (data) => {
-      const pc = peerConnectionRef.current;
-      if (!pc) return;
-      await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-    };
-
-    const handleIceCandidate = async (data) => {
-      const pc = peerConnectionRef.current;
-      if (!pc || !pc.remoteDescription) {
-        pendingCandidatesRef.current.push(new RTCIceCandidate(data.candidate));
-        return;
-      }
-      await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-    };
-
-    socket.on("call:incoming", handleIncoming);
-    socket.on("call:started", handleStarted);
-    socket.on("call:accepted", handleAccepted);
-    socket.on("call:rejected", handleRejected);
-    socket.on("call:ended", handleEnded);
-    socket.on("call:offer", handleOffer);
-    socket.on("call:answer", handleAnswer);
-    socket.on("call:ice-candidate", handleIceCandidate);
-
-    return () => {
-      socket.off("call:incoming", handleIncoming);
-      socket.off("call:started", handleStarted);
-      socket.off("call:accepted", handleAccepted);
-      socket.off("call:rejected", handleRejected);
-      socket.off("call:ended", handleEnded);
-      socket.off("call:offer", handleOffer);
-      socket.off("call:answer", handleAnswer);
-      socket.off("call:ice-candidate", handleIceCandidate);
-    };
-  }, [getSocket, callType, callChatId, createPeerConnection, endCall, cleanup]);
+  // End any active call when the component unmounts.
+  useEffect(() => cleanup, [cleanup]);
 
   return {
     callState,
@@ -298,5 +345,6 @@ export function useWebRTCCall({ getSocket, username }) {
     endCall,
     toggleMute,
     toggleCamera,
+    handleSignal,
   };
 }
