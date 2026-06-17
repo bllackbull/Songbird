@@ -2365,13 +2365,17 @@ export function getAdminStats() {
   return { totalUsers, totalChats, totalMessages, totalSessions, bannedUsers, onlineUsers };
 }
 
+function escapeLikePattern(value) {
+  return String(value).replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
 export function adminListUsers({ limit = 50, offset = 0, search = "" }) {
   const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
   const safeOffset = Math.max(0, Number(offset) || 0);
   if (search) {
-    const like = `%${search}%`;
+    const like = `%${escapeLikePattern(search)}%`;
     return getAll(
-      "SELECT id, username, nickname, avatar_url, color, status, role, banned, created_at, last_seen FROM users WHERE username LIKE ? OR nickname LIKE ? ORDER BY id DESC LIMIT ? OFFSET ?",
+      "SELECT id, username, nickname, avatar_url, color, status, role, banned, created_at, last_seen FROM users WHERE username LIKE ? ESCAPE '\\' OR nickname LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ? OFFSET ?",
       [like, like, safeLimit, safeOffset],
     );
   }
@@ -2397,14 +2401,14 @@ export function adminBanUser(userId, banned) {
   return run("UPDATE users SET banned = ? WHERE id = ?", [banned ? 1 : 0, userId]);
 }
 
+// Delegate to the canonical deletion helpers so the admin panel performs the
+// same full cleanup (message files, reads, hidden chats, mutes, ownership
+// transfers, etc.) inside a transaction. Returns the storedNames of orphaned
+// upload files so the caller can remove them from disk.
 export function adminDeleteUser(userId) {
-  run("DELETE FROM sessions WHERE user_id = ?", [userId]);
-  run("DELETE FROM chat_members WHERE user_id = ?", [userId]);
-  run("DELETE FROM users WHERE id = ?", [userId]);
+  return deleteUserById(userId);
 }
 
 export function adminDeleteChat(chatId) {
-  run("DELETE FROM chat_messages WHERE chat_id = ?", [chatId]);
-  run("DELETE FROM chat_members WHERE chat_id = ?", [chatId]);
-  run("DELETE FROM chats WHERE id = ?", [chatId]);
+  return deleteChatById(chatId);
 }

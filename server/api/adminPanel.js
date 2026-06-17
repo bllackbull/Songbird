@@ -9,6 +9,7 @@ function registerAdminPanelRoutes(app, deps) {
     adminBanUser,
     adminDeleteUser,
     adminDeleteChat,
+    removeStoredFileNames,
     setUserRole,
   } = deps;
 
@@ -83,7 +84,12 @@ function registerAdminPanelRoutes(app, deps) {
     if (userId === session.user_id) {
       return res.status(400).json({ error: "Cannot delete yourself" });
     }
-    adminDeleteUser(userId);
+    const user = findUserById(userId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    const { storedNames } = adminDeleteUser(userId) || {};
+    if (Array.isArray(storedNames) && storedNames.length > 0) {
+      removeStoredFileNames(storedNames);
+    }
     res.json({ ok: true });
   });
 
@@ -103,7 +109,10 @@ function registerAdminPanelRoutes(app, deps) {
     if (!session) return;
     const chatId = Number(req.params.id);
     if (!chatId) return res.status(400).json({ error: "Invalid chat ID" });
-    adminDeleteChat(chatId);
+    const { storedNames } = adminDeleteChat(chatId) || {};
+    if (Array.isArray(storedNames) && storedNames.length > 0) {
+      removeStoredFileNames(storedNames);
+    }
     res.json({ ok: true });
   });
 }
