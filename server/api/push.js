@@ -22,7 +22,7 @@ function registerPushRoutes(app, deps) {
   app.post("/api/push/subscribe", (req, res) => {
     const session = requireSession(req, res);
     if (!session) return;
-    const { username, subscription } = req.body || {};
+    const { username, subscription, messagePreview } = req.body || {};
     if (!username || !subscription?.endpoint) {
       return res
         .status(400)
@@ -37,6 +37,7 @@ function registerPushRoutes(app, deps) {
         subscription.endpoint,
         subscription.keys?.p256dh,
         subscription.keys?.auth,
+        messagePreview === false ? 0 : 1,
       );
       return res.json({ ok: true });
     } catch (error) {

@@ -25,11 +25,13 @@ export function useChatScroll({
   setChats,
   unreadMarkerIdRef,
   openingChatRef,
+  setShowFloatingLabel,
 }) {
   const CHAT_BOTTOM_THRESHOLD_PX = 24;
   const SCROLLED_UP_INDICATOR_THRESHOLD_PX = 160;
   const JUMP_TO_LATEST_SECOND_SNAP_THRESHOLD_PX = 24;
   const JUMP_TO_LATEST_DURATION_MS = 860;
+  const FLOATING_LABEL_TOP_MARGIN_THRESHOLD  = 16;
   const pendingScrollToBottomRef = useRef(false);
   const smoothScrollAnimRef = useRef(null);
   const lastScrollTopRef = useRef(0);
@@ -114,6 +116,7 @@ export function useChatScroll({
   const handleChatScroll = useCallback(
     (event) => {
       const target = event.currentTarget;
+      setShowFloatingLabel(target.scrollTop >= FLOATING_LABEL_TOP_MARGIN_THRESHOLD);
       const previousTop = Number(lastScrollTopRef.current || 0);
       const currentTop = Number(target.scrollTop || 0);
       const scrolledUpByUser = Boolean(
@@ -227,6 +230,7 @@ export function useChatScroll({
       unreadMarkerIdRef,
       user,
       userScrolledUpRef,
+      setShowFloatingLabel,
       SCROLLED_UP_INDICATOR_THRESHOLD_PX,
     ],
   );

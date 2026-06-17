@@ -368,6 +368,15 @@ export function createVideoTranscodeManager({
   };
 
   const enqueueVideoTranscodeJob = (job) => {
+    // Cap the in-memory queue to prevent unbounded growth when uploads arrive
+    // faster than ffmpeg can process them.
+    const MAX_QUEUE_DEPTH = 200;
+    if (videoTranscodeQueue.length >= MAX_QUEUE_DEPTH) {
+      console.warn(
+        `[video-transcode] queue full (${videoTranscodeQueue.length} jobs); dropping job for file ${Number(job?.fileId || 0)}`,
+      );
+      return;
+    }
     videoTranscodeQueue.push(job);
     void processVideoTranscodeQueue();
   };

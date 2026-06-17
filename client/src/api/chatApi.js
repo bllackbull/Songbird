@@ -35,11 +35,11 @@ export const resolveMentions = ({ username, mentions }) =>
 
 export const fetchPushPublicKey = () => apiFetch(`${API_BASE}/api/push/public-key`);
 
-export const subscribePush = ({ username, subscription }) =>
+export const subscribePush = ({ username, subscription, messagePreview }) =>
   apiFetch(`${API_BASE}/api/push/subscribe`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, subscription }),
+    body: JSON.stringify({ username, subscription, messagePreview }),
   });
 
 export const unsubscribePush = ({ username, endpoint }) =>

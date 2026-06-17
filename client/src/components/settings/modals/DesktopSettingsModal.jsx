@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Close, Eye, EyeOff, Pencil, Trash } from "../../../icons/lucide.js";
 import { hasPersian } from "../../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../../utils/avatarInitials.js";
-import { NICKNAME_MAX, USERNAME_MAX } from "../../../utils/nameLimits.js";
+import { NICKNAME_MAX, USERNAME_MAX, USERNAME_INPUT_PATTERN } from "../../../utils/nameLimits.js";
 import { InlineError } from "../common/InlineError.jsx";
 import { AboutSettingsPanel } from "../panels/AboutSettingsPanel.jsx";
 import { DataSettingsPanel } from "../panels/DataSettingsPanel.jsx";
@@ -183,7 +183,7 @@ export function DesktopSettingsModal({
                     }))
                   }
                   maxLength={USERNAME_MAX}
-                  pattern="[a-zA-Z0-9._]+"
+                  pattern={USERNAME_INPUT_PATTERN}
                   title="Use english letters, numbers, dot (.), and underscore (_)."
                   autoCapitalize="none"
                   lang={usernameHasPersian ? "fa" : "en"}

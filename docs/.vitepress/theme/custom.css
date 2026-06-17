@@ -1,0 +1,236 @@
+/**
+ * Songbird brand theming for VitePress.
+ * Overrides the default theme CSS variables.
+ * Brand green: #2ABA82
+ */
+
+/* ---------------------------------------------------------------------------
+ * Fonts — same as the Songbird app: DM Sans (Latin) + Vazirmatn (Persian).
+ * ------------------------------------------------------------------------- */
+@font-face {
+  font-family: 'DM Sans';
+  src: url('/fonts/dm-sans/dm-sans-v17-latin-regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'DM Sans';
+  src: url('/fonts/dm-sans/dm-sans-v17-latin-italic.woff2') format('woff2');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'DM Sans';
+  src: url('/fonts/dm-sans/dm-sans-v17-latin-700.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('/fonts/vazirmatn/vazirmatn-v16-arabic_latin-regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Vazirmatn';
+  src: url('/fonts/vazirmatn/vazirmatn-v16-arabic_latin-700.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --vp-font-family-base: 'DM Sans', system-ui, -apple-system, sans-serif;
+}
+
+/* Persian pages: use Vazirmatn for the readable Vazirmatn-supported glyphs. */
+:lang(fa),
+[lang^='fa'] {
+  --vp-font-family-base: 'Vazirmatn', 'DM Sans', system-ui, sans-serif;
+}
+
+/* ---------------------------------------------------------------------------
+ * Brand colors
+ * ------------------------------------------------------------------------- */
+:root {
+  --vp-c-brand-1: #1f9c6b; /* primary text/links on light bg */
+  --vp-c-brand-2: #24b47b;
+  --vp-c-brand-3: #2aba82; /* solid buttons / accents */
+  --vp-c-brand-soft: rgba(42, 186, 130, 0.14);
+
+  /* Backwards-compat aliases used by some components */
+  --vp-c-brand: var(--vp-c-brand-1);
+  --vp-c-brand-light: var(--vp-c-brand-2);
+  --vp-c-brand-lighter: #3ec792;
+  --vp-c-brand-dark: #1a845b;
+  --vp-c-brand-darker: #156d4b;
+}
+
+.dark {
+  --vp-c-brand-1: #3ec792;
+  --vp-c-brand-2: #2aba82;
+  --vp-c-brand-3: #24b47b;
+  --vp-c-brand-soft: rgba(42, 186, 130, 0.16);
+}
+
+/* Hero title gradient (home page) */
+:root {
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(120deg, #2aba82 30%, #41d29a);
+
+  --vp-home-hero-image-background-image: linear-gradient(
+    -45deg,
+    rgba(42, 186, 130, 0.35),
+    rgba(65, 210, 154, 0.25)
+  );
+  --vp-home-hero-image-filter: blur(44px);
+}
+
+/* Brand-tinted buttons */
+:root {
+  --vp-button-brand-bg: var(--vp-c-brand-3);
+  --vp-button-brand-hover-bg: var(--vp-c-brand-2);
+  --vp-button-brand-active-bg: var(--vp-c-brand-1);
+}
+
+/* ---------------------------------------------------------------------------
+ * Hero logo sizing — responsive and locale-independent.
+ * The default theme reserves a 320px square; we scale it down on small
+ * screens so it never overflows or looks oversized on mobile.
+ * ------------------------------------------------------------------------- */
+.VPHero .image-container .VPImage {
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+/* Small phones */
+.VPHero .image-container,
+.VPHero .image-bg {
+  width: 220px;
+  height: 220px;
+}
+
+/* Tablets */
+@media (min-width: 640px) {
+  .VPHero .image-container,
+  .VPHero .image-bg {
+    width: 280px;
+    height: 280px;
+  }
+}
+
+/* Desktop */
+@media (min-width: 960px) {
+  .VPHero .image-container,
+  .VPHero .image-bg {
+    width: 320px;
+    height: 320px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * RTL for Persian: flip reading direction of textual content without moving
+ * the layout chrome. Applies to doc content, the sidebar, the "on this page"
+ * outline, and the home hero/feature cards.
+ * ------------------------------------------------------------------------- */
+[lang^='fa'] .vp-doc {
+  direction: rtl;
+  text-align: right;
+}
+
+/* Sidebar (main navigation) */
+[lang^='fa'] .VPSidebar {
+  direction: rtl;
+  text-align: right;
+}
+
+/* "On this page" outline (right aside) */
+[lang^='fa'] .VPDocAside,
+[lang^='fa'] .VPDocAsideOutline {
+  direction: rtl;
+  text-align: right;
+}
+
+/* Home hero text + feature cards + action buttons.
+ * These elements are inside Vue SFC components with scoped styles, so we
+ * need !important to override the component-scoped direction/alignment. */
+[lang^='fa'] .VPHero .text,
+[lang^='fa'] .VPHero .tagline,
+[lang^='fa'] .VPHero .actions {
+  direction: rtl !important;
+  text-align: right !important;
+}
+
+[lang^='fa'] .VPFeatures .title,
+[lang^='fa'] .VPFeatures .details {
+  direction: rtl !important;
+  text-align: right !important;
+}
+
+/* VitePress built-in footer copyright (visible on home page) */
+[lang^='fa'] .VPFooter {
+  direction: rtl !important;
+}
+
+/* Keep code blocks, inline code, and command samples left-to-right. */
+[lang^='fa'] .vp-doc div[class*='language-'],
+[lang^='fa'] .vp-doc pre,
+[lang^='fa'] .vp-doc code {
+  direction: ltr;
+  text-align: left;
+}
+
+/* Inline code inside paragraphs: keep LTR but allow it to sit naturally
+ * in RTL flow by switching to inline-block with explicit LTR direction. */
+[lang^='fa'] .vp-doc p code,
+[lang^='fa'] .vp-doc li code,
+[lang^='fa'] .vp-doc td code,
+[lang^='fa'] .vp-doc th code {
+  direction: ltr;
+  unicode-bidi: embed;
+  display: inline;
+}
+
+/* Lists and blockquotes follow RTL flow. */
+[lang^='fa'] .vp-doc ul,
+[lang^='fa'] .vp-doc ol {
+  padding-right: 1.25rem;
+  padding-left: 0;
+}
+
+/* Tables: align cell text to the start of the RTL flow. */
+[lang^='fa'] .vp-doc th,
+[lang^='fa'] .vp-doc td {
+  text-align: right;
+}
+
+/* Doc footer: edit link + last updated timestamp */
+[lang^='fa'] .VPDocFooter .edit-info,
+[lang^='fa'] .VPDocFooter .edit-link,
+[lang^='fa'] .VPDocFooter .last-updated,
+[lang^='fa'] .VPDocFooter .VPLastUpdated {
+  direction: rtl;
+  text-align: right;
+}
+
+/* Prev/next pager buttons */
+[lang^='fa'] .VPDocFooter .pager-link .desc,
+[lang^='fa'] .VPDocFooter .pager-link .title {
+  direction: rtl;
+  text-align: right;
+}
+
+/* Reverse pager arrow direction for RTL reading order */
+[lang^='fa'] .VPDocFooter .pager-link.prev {
+  text-align: right;
+}
+
+[lang^='fa'] .VPDocFooter .pager-link.next {
+  text-align: left;
+}

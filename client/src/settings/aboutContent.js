@@ -31,10 +31,6 @@ export const ABOUT_CONTENT = {
       address: "TPf1bEhipKpGkjo5N2Scj9nufNNh5TNrwX",
     },
     {
-      label: "USDT (TRC20)",
-      address: "0x63313383611BbE11f4fEc139c14ad0b70281b822",
-    },
-    {
       label: "BTC",
       address: "bc1q9hupvcc39juhf0k7rgzn6phn8s8jez365kzmuj",
     },

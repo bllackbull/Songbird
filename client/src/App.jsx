@@ -331,15 +331,24 @@ export default function App() {
 
   useEffect(() => {
     const refreshTheme = () => applyTheme(isDark, route)
+    let resizeTimer = null
+    const refreshThemeOnResize = () => {
+      if (resizeTimer !== null) window.clearTimeout(resizeTimer)
+      resizeTimer = window.setTimeout(() => {
+        resizeTimer = null
+        refreshTheme()
+      }, 150)
+    }
     window.addEventListener('pageshow', refreshTheme)
     window.addEventListener('focus', refreshTheme)
-    window.addEventListener('resize', refreshTheme)
+    window.addEventListener('resize', refreshThemeOnResize)
     window.addEventListener('orientationchange', refreshTheme)
     document.addEventListener('visibilitychange', refreshTheme)
     return () => {
+      if (resizeTimer !== null) window.clearTimeout(resizeTimer)
       window.removeEventListener('pageshow', refreshTheme)
       window.removeEventListener('focus', refreshTheme)
-      window.removeEventListener('resize', refreshTheme)
+      window.removeEventListener('resize', refreshThemeOnResize)
       window.removeEventListener('orientationchange', refreshTheme)
       document.removeEventListener('visibilitychange', refreshTheme)
     }

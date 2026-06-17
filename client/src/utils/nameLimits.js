@@ -25,3 +25,10 @@ export const USERNAME_MAX = readEnvNumber(["USERNAME_MAX_CHARS", "USERNAME_MAX"]
   min: 3,
   max: 32,
 });
+
+// Username must contain only lowercase letters, numbers, dots, and underscores,
+export const USERNAME_REGEX = /^(?=.*[a-z0-9])[a-z0-9._]+$/;
+
+// HTML input pattern attribute derived from the same rule (case-insensitive for
+// browser-native validation, server enforces lowercase).
+export const USERNAME_INPUT_PATTERN = "(?=.*[a-zA-Z0-9])[a-zA-Z0-9._]+";

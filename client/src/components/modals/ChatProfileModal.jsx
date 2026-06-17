@@ -31,6 +31,22 @@ import Avatar from "../common/Avatar.jsx";
 import RemoteChannelQueueStatus from "./RemoteChannelQueueStatus.jsx";
 import { useFocusTrap } from "../../hooks/useFocusTrap.js";
 
+function SongbirdIcon({ size = 18 }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 512 512"
+      fill="currentColor"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+      style={{ overflow: "visible", flexShrink: 0 }}
+    >
+      <path d="M256 0C397.385 0 512 114.615 512 256C512 397.385 397.385 512 256 512C114.615 512 0 397.385 0 256C0 114.615 114.615 0 256 0ZM200.384 360.058C200.384 382.004 240.211 399.795 289.339 399.795C289.341 399.795 289.344 399.795 289.346 399.795V360.056H200.384V360.058ZM289.337 112.001C240.211 112.004 200.388 148.663 200.388 193.884C200.388 194.939 200.409 195.99 200.452 197.036L125.91 169.619C115.331 165.728 103.116 170.956 98.627 181.296C94.1384 191.636 99.0768 203.173 109.656 207.064L154.029 223.385C144.513 221.87 134.616 227.007 130.675 236.086C126.187 246.426 131.124 257.962 141.703 261.854L201.931 284.006C192.779 283.064 183.514 288.147 179.732 296.858C175.244 307.198 180.182 318.735 190.761 322.626L292.287 359.969C291.316 360.026 290.336 360.058 289.35 360.059V399.795C338.475 399.792 378.297 363.133 378.298 317.912C378.298 286.404 358.965 259.052 330.622 245.36C329.479 244.648 328.239 244.038 326.91 243.549L324.101 242.515C322.94 242.061 321.766 241.629 320.58 241.22L249.843 215.202C245.85 208.948 243.558 201.663 243.558 193.884C243.558 172.753 260.451 155.255 282.483 152.208C292.724 161.311 309.043 161.212 319.15 151.908L319.152 151.906L318.969 151.737H332.508V151.736H345.585V151.735C345.585 139.865 336.254 130.001 323.976 128.017C316.106 118.296 303.521 112 289.339 112H289.337V112.001Z" />
+    </svg>
+  );
+}
+
 const MEMBERS_BATCH_SIZE = 10;
 
 export default function ChatProfileModal({
@@ -40,6 +56,7 @@ export default function ChatProfileModal({
   currentUser,
   muted,
   inviteLink,
+  inviteLinkLoading = false,
   canViewInvite,
   onClose,
   onOpenChat,
@@ -56,10 +73,12 @@ export default function ChatProfileModal({
   readOnly = false,
   membersBatchSize = MEMBERS_BATCH_SIZE,
   remoteChannelAvailable = false,
+  initialRemoteChannelStatus = null,
+  onRemoteChannelStatusChange,
 }) {
   const [memberQuery, setMemberQuery] = useState("");
   const [memberLimit, setMemberLimit] = useState(membersBatchSize);
-  const [remoteChannelStatus, setRemoteChannelStatus] = useState(null);
+  const [remoteChannelStatus, setRemoteChannelStatus] = useState(initialRemoteChannelStatus);
   const [remoteActionLoading, setRemoteActionLoading] = useState(false);
   const [testConnectionLoading, setTestConnectionLoading] = useState(false);
   const [testConnectionResult, setTestConnectionResult] = useState(null); // 'success', 'error', or null
@@ -85,6 +104,12 @@ export default function ChatProfileModal({
     return () => observer.disconnect();
   });
 
+  // Sync initial status when the chat changes (e.g. opening modal for a different channel)
+  useEffect(() => {
+    setRemoteChannelStatus(initialRemoteChannelStatus ?? null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chat?.id]);
+
   // Fetch remote channel status for channels
   useEffect(() => {
     if (!open || chat?.type !== "channel" || !remoteChannelAvailable || !currentUser?.username) {
@@ -100,6 +125,7 @@ export default function ChatProfileModal({
         const data = await res.json();
         if (res.ok) {
           setRemoteChannelStatus(data);
+          onRemoteChannelStatusChange?.(data);
         }
       } catch (error) {
         console.error("Failed to fetch remote channel status:", error);
@@ -107,18 +133,12 @@ export default function ChatProfileModal({
     };
 
     fetchRemoteStatus();
-    const intervalId = setInterval(fetchRemoteStatus, 3000);
+    const intervalId = setInterval(fetchRemoteStatus, 10000);
 
     return () => clearInterval(intervalId);
-  }, [open, chat?.id, chat?.type, currentUser?.username, remoteChannelAvailable]);
+  }, [open, chat?.id, chat?.type, currentUser?.username, remoteChannelAvailable, onRemoteChannelStatusChange]);
 
-  // Auto-test connection on modal open (only if remote channel is enabled for this chat)
-  useEffect(() => {
-    if (!open || chat?.type !== "channel" || !remoteChannelAvailable || !chat?.id) return;
-    if (!Number(chat?.remote_channel_enabled || 0)) return;
-    handleTestConnection();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, chat?.id, chat?.type, remoteChannelAvailable, chat?.remote_channel_enabled]);
+  // (Connection test is triggered manually by clicking the Queue Status box)
 
   // Remote channel action handlers (owner only)
   const handlePauseRemoteChannel = async () => {
@@ -128,9 +148,11 @@ export default function ChatProfileModal({
       const res = await pauseRemoteChannel(chat.id);
       if (res.ok) {
         // Optimistically reflect the paused state; polling will sync the rest.
-        setRemoteChannelStatus((prev) =>
-          prev?.source ? { ...prev, source: { ...prev.source, paused: true } } : prev,
-        );
+        setRemoteChannelStatus((prev) => {
+          const next = prev?.source ? { ...prev, source: { ...prev.source, paused: true } } : prev;
+          onRemoteChannelStatusChange?.(next);
+          return next;
+        });
       }
     } catch (error) {
       console.error("Failed to pause remote channel:", error);
@@ -146,9 +168,11 @@ export default function ChatProfileModal({
       const res = await resumeRemoteChannel(chat.id);
       if (res.ok) {
         // Optimistically reflect the resumed state; polling will sync the rest.
-        setRemoteChannelStatus((prev) =>
-          prev?.source ? { ...prev, source: { ...prev.source, paused: false } } : prev,
-        );
+        setRemoteChannelStatus((prev) => {
+          const next = prev?.source ? { ...prev, source: { ...prev.source, paused: false } } : prev;
+          onRemoteChannelStatusChange?.(next);
+          return next;
+        });
       }
     } catch (error) {
       console.error("Failed to resume remote channel:", error);
@@ -162,11 +186,18 @@ export default function ChatProfileModal({
     setRemoteActionLoading(true);
     try {
       await skipRemoteChannelQueueItem(chat.id);
-      // Optimistically clear the queue display — the polling interval will
-      // refresh the real counts within 3 seconds.
-      setRemoteChannelStatus((prev) =>
-        prev ? { ...prev, queue: { ...(prev.queue || {}), pending: 0, processing: 0, retry: 0 } } : prev,
-      );
+      // Optimistically clear active queue counts; polling will refresh real counts.
+      setRemoteChannelStatus((prev) => {
+        if (!prev) return prev;
+        const next = {
+          ...prev,
+          source: prev.source
+            ? { ...prev.source, queue: { ...(prev.source.queue || {}), pending: 0, processing: 0, retry: 0 } }
+            : prev.source,
+        };
+        onRemoteChannelStatusChange?.(next);
+        return next;
+      });
     } catch (error) {
       console.error("Failed to skip queue item:", error);
     } finally {
@@ -179,11 +210,18 @@ export default function ChatProfileModal({
     setRemoteActionLoading(true);
     try {
       await skipAllRemoteChannelQueueItems(chat.id);
-      // Optimistically clear the queue display — the polling interval will
-      // refresh the real counts within 3 seconds.
-      setRemoteChannelStatus((prev) =>
-        prev ? { ...prev, queue: { ...(prev.queue || {}), pending: 0, processing: 0, retry: 0 } } : prev,
-      );
+      // Optimistically clear active queue counts; polling will refresh real counts.
+      setRemoteChannelStatus((prev) => {
+        if (!prev) return prev;
+        const next = {
+          ...prev,
+          source: prev.source
+            ? { ...prev.source, queue: { ...(prev.source.queue || {}), pending: 0, processing: 0, retry: 0 } }
+            : prev.source,
+        };
+        onRemoteChannelStatusChange?.(next);
+        return next;
+      });
     } catch (error) {
       console.error("Failed to skip all queue items:", error);
     } finally {
@@ -213,7 +251,6 @@ export default function ChatProfileModal({
   const handleClose = () => {
     setMemberQuery("");
     setMemberLimit(membersBatchSize);
-    setRemoteChannelStatus(null);
     setRemoteActionLoading(false);
     setTestConnectionLoading(false);
     setTestConnectionResult(null);
@@ -465,14 +502,21 @@ export default function ChatProfileModal({
             <button
               type="button"
               onClick={handleCopyInviteLink}
-              disabled={!inviteLink}
+              disabled={!inviteLink || inviteLinkLoading}
               className="mt-2 flex w-full items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-left text-xs text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-300/60 disabled:cursor-default disabled:opacity-70 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/15"
               aria-label="Copy invite link"
             >
               <span className="min-w-0 flex-1 break-all">
-                {inviteLink || "No invite link available."}
+                {inviteLinkLoading ? (
+                  <span className="inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+                    <LoaderCircle size={13} className="animate-spin text-emerald-500" />
+                    Loading...
+                  </span>
+                ) : (
+                  inviteLink || "No invite link available."
+                )}
               </span>
-              {inviteLink ? (
+              {inviteLink && !inviteLinkLoading ? (
                 <span className="ml-1 shrink-0 text-emerald-600 dark:text-emerald-400">
                   {inviteCopied ? <Check size={14} /> : <Copy size={14} />}
                 </span>
@@ -502,13 +546,17 @@ export default function ChatProfileModal({
                       <SatelliteDish size={18} />
                       Remote Channel
                     </span>
-                    <span className="text-xs text-slate-600 dark:text-slate-400">
+                    <span className="inline-flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
                       {remoteChannelStatus.source.provider === "telegram" ? (
-                        <FaTelegram size={18} className="inline-block align-middle" />
+                        <FaTelegram size={18} className="shrink-0" />
+                      ) : remoteChannelStatus.source.provider === "songbird" ? (
+                        <SongbirdIcon size={18} />
                       ) : (
                         <span>{remoteChannelStatus.source.provider}:</span>
-                      )}{" "}
-                      {remoteChannelStatus.source.sourceUsername || remoteChannelStatus.source.sourceChatId}
+                      )}
+                      <span className="truncate">
+                        {remoteChannelStatus.source.sourceUsername || remoteChannelStatus.source.sourceChatId || remoteChannelStatus.source.sourceUrl}
+                      </span>
                     </span>
                   </div>
                 </div>

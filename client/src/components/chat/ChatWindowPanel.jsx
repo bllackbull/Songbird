@@ -22,6 +22,7 @@ import {
 import { getAvatarStyle } from "../../utils/avatarColor.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
+import { formatCompactCount } from "../../utils/chatFormat.js";
 import Avatar from "../common/Avatar.jsx";
 import {
   FocusedMediaModal,
@@ -125,6 +126,7 @@ export default function ChatWindowPanel({
   onStartVoiceCall,
   onStartVideoCall,
   isDmChat = false,
+  showFloatingLabel = false,
 }) {
   const MEDIA_CACHE_VERSION = 1;
   const MEDIA_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -956,13 +958,21 @@ export default function ChatWindowPanel({
     });
   };
 
-  const chatScrollStyle = useMemo(
+  const chatScrollStaticStyle = useMemo(
     () => ({
       backgroundImage: isDark
         ? "radial-gradient(circle at top right, rgba(16,185,129,0.22), transparent 48%), radial-gradient(circle at bottom left, rgba(16,185,129,0.20), transparent 44%)"
         : "radial-gradient(circle at top right, rgba(16,185,129,0.10), transparent 45%), radial-gradient(circle at bottom left, rgba(16,185,129,0.09), transparent 40%)",
       backgroundColor: isDark ? "#0b1320" : "#dcfce7",
       scrollbarGutter: "stable both-edges",
+      overflowAnchor: "none",
+    }),
+    [isDark],
+  );
+
+  const chatScrollStyle = useMemo(
+    () => ({
+      ...chatScrollStaticStyle,
       overscrollBehaviorY:
         !isDesktop && composerFocused ? "none" : "contain",
       paddingTop:
@@ -976,13 +986,12 @@ export default function ChatWindowPanel({
           ? "0.75rem"
           : "0.5rem"
         : undefined,
-      overflowAnchor: "none",
     }),
     [
       activeChatId,
+      chatScrollStaticStyle,
       composerFocused,
       insecureConnection,
-      isDark,
       isDesktop,
       showComposer,
       showChannelMuteFooter,
@@ -1634,6 +1643,10 @@ export default function ChatWindowPanel({
                   ? Math.max(0, (permissionBannerHeight || 48) + 12)
                   : 0
               }px)`,
+              // Keep the chip in the DOM at all times so floatingChipRef always
+              // has a valid layout position for updateFloatingDayFromScroll.
+              visibility: showFloatingLabel ? "visible" : "hidden",
+              pointerEvents: showFloatingLabel ? "auto" : "none",
             }}
           >
             <button
@@ -1786,7 +1799,7 @@ export default function ChatWindowPanel({
           </span>
           {unreadInChat > 0 ? (
             <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-emerald-500 px-2 text-[10px] font-bold text-white">
-              {unreadInChat > 999 ? "+999" : unreadInChat}
+              {unreadInChat > 999 ? formatCompactCount(unreadInChat) : unreadInChat}
             </span>
           ) : null}
         </button>

@@ -65,7 +65,11 @@ export function createPushService({
     await Promise.all(
       targets.map(async (sub) => {
         const badge = badgeByUserId[sub.user_id] ?? 1;
-        const perUserBody = JSON.stringify({ ...payload, badge });
+        const showPreview = sub.message_preview !== 0;
+        const perUserPayload = showPreview
+          ? { ...payload, badge }
+          : { ...payload, body: "New message", badge };
+        const perUserBody = JSON.stringify(perUserPayload);
         try {
           const sendOptions = { urgency: "high", TTL: 86400 };
           if (proxyAgent) sendOptions.agent = proxyAgent;

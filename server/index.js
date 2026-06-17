@@ -23,6 +23,7 @@ import { storageEncryption } from "./lib/storageEncryption.js";
 import { createRemoteChannelManager } from "./lib/remoteChannels.js";
 import { buildTimestampSchedule } from "./lib/timeUtils.js";
 import { isLoopbackRequest, parseUploadFileMetadata } from "./lib/requestUtils.js";
+import { USERNAME_REGEX } from "./lib/validation.js";
 import { USER_COLORS, setUserColor } from "./settings/colors.js";
 import { readEnvBool, readEnvInt } from "./settings/env.js";
 import {
@@ -71,6 +72,7 @@ import {
   isMember,
   isGroupMemberRemoved,
   listChatMembers,
+  listChatMembersForChats,
   listChatsForUser,
   listUsers,
   searchUsers,
@@ -115,6 +117,7 @@ import {
   updateRemoteChannelSourcePaused,
   updateRemoteChannelSourceSeen,
   upsertRemoteChannelSource,
+  purgeOldRemoteChannelQueueItems,
 } from "./db.js";
 
 process.title = "songbird-server";
@@ -218,7 +221,6 @@ const staticLimiter = rateLimit({
 });
 
 const MB = 1024 * 1024;
-const USERNAME_REGEX = /^[a-z0-9._]+$/;
 const readEnvSizeMbAsBytes = (mbKeys, legacyByteKeys, fallbackMb, options = {}) => {
   const mbValue = readEnvInt(mbKeys, null, options);
   if (mbValue !== null) return mbValue * MB;
@@ -298,7 +300,12 @@ const REMOTE_CHANNEL_TELEGRAM_SESSION_STRING = String(
   process.env.REMOTE_CHANNEL_TELEGRAM_SESSION_STRING || "",
 ).trim();
 const REMOTE_CHANNEL_PROXY_URL = String(
-  process.env.REMOTE_CHANNEL_PROXY_URL || "",
+  process.env.REMOTE_CHANNEL_TELEGRAM_PROXY_URL ||
+  process.env.REMOTE_CHANNEL_PROXY_URL ||
+  "",
+).trim();
+const REMOTE_CHANNEL_SONGBIRD_PROXY_URL = String(
+  process.env.REMOTE_CHANNEL_SONGBIRD_PROXY_URL || "",
 ).trim();
 const REMOTE_CHANNEL_TELEGRAM_CONFIGURED = Boolean(
   REMOTE_CHANNEL_TELEGRAM_API_ID &&
@@ -311,6 +318,7 @@ const REMOTE_CHANNEL_CONFIG = {
   mediaStreamEnabled: REMOTE_CHANNEL_MEDIA_STREAM,
   telegramConfigured: REMOTE_CHANNEL_TELEGRAM_CONFIGURED,
   proxyConfigured: Boolean(REMOTE_CHANNEL_PROXY_URL),
+  songbirdProxyUrl: REMOTE_CHANNEL_SONGBIRD_PROXY_URL,
   telegramApiId: REMOTE_CHANNEL_TELEGRAM_API_ID,
   telegramApiHash: REMOTE_CHANNEL_TELEGRAM_API_HASH,
   telegramSessionString: REMOTE_CHANNEL_TELEGRAM_SESSION_STRING,
@@ -392,7 +400,7 @@ const {
   registerUploadRoutes,
 } = uploadTools;
 
-const { addSseClient, removeSseClient, emitSseEvent, emitChatEvent, getCachedMembers } = createSseHub({
+const { addSseClient, removeSseClient, emitSseEvent, emitChatEvent, getCachedMembers, isUserConnected } = createSseHub({
   listChatMembers,
 });
 
@@ -473,27 +481,47 @@ const {
 function backfillStorageEncryption() {
   if (!storageEncryption.isEnabled()) return;
 
-  try {
-    const pendingMessages = adminGetAll(
+  // Process messages in batches with async yields to avoid blocking the event
+  // loop for extended periods on large databases.
+  const BATCH_SIZE = 200;
+
+  function encryptMessageBatch(offset) {
+    const batch = adminGetAll(
       `SELECT id, body
        FROM chat_messages
-       WHERE body IS NOT NULL
-         AND body != ''`,
+       WHERE body IS NOT NULL AND body != ''
+       LIMIT ? OFFSET ?`,
+      [BATCH_SIZE, offset],
     );
-    let encryptedMessages = 0;
 
-    pendingMessages.forEach((row) => {
+    if (!batch.length) return 0;
+
+    let encryptedInBatch = 0;
+    batch.forEach((row) => {
       const body = String(row?.body || "");
       const nextBody = storageEncryption.encryptText(body);
       if (nextBody === body) return;
-
       adminRun("UPDATE chat_messages SET body = ? WHERE id = ?", [
         nextBody,
         Number(row.id),
       ]);
-      encryptedMessages += 1;
+      encryptedInBatch += 1;
     });
 
+    if (encryptedInBatch > 0) adminSave();
+
+    if (batch.length === BATCH_SIZE) {
+      // Schedule next batch without blocking the event loop.
+      setImmediate(() => encryptMessageBatch(offset + BATCH_SIZE));
+    }
+    return encryptedInBatch;
+  }
+
+  try {
+    // Start the message encryption batching.
+    encryptMessageBatch(0);
+
+    // Files and avatars are typically fewer in number; process them once.
     const fileRows = adminGetAll("SELECT stored_name FROM chat_message_files");
     let encryptedFiles = 0;
 
@@ -523,10 +551,10 @@ function backfillStorageEncryption() {
       );
     }
 
-    if (encryptedMessages > 0 || encryptedFiles > 0 || encryptedAvatars > 0) {
+    if (encryptedFiles > 0 || encryptedAvatars > 0) {
       adminSave();
       console.log(
-        `[storage-encryption] encrypted ${encryptedMessages} message(s), ${encryptedFiles} file(s), and ${encryptedAvatars} avatar file(s) at rest.`,
+        `[storage-encryption] encrypted ${encryptedFiles} file(s) and ${encryptedAvatars} avatar file(s) at rest.`,
       );
     }
   } catch (error) {
@@ -557,6 +585,7 @@ const apiDeps = {
     uiEnabled: REMOTE_CHANNEL_CONFIG.uiEnabled,
     mediaStreamEnabled: REMOTE_CHANNEL_CONFIG.mediaStreamEnabled,
     telegramConfigured: REMOTE_CHANNEL_CONFIG.telegramConfigured,
+    songbirdConfigured: REMOTE_CHANNEL_CONFIG.enabled,
     proxyConfigured: REMOTE_CHANNEL_CONFIG.proxyConfigured,
   },
   USERNAME_REGEX,
@@ -594,6 +623,7 @@ const apiDeps = {
   deleteUserById,
   emitChatEvent,
   emitSseEvent,
+  isUserConnected,
   enqueueRemoteChannelQueueItem,
   enqueueVideoTranscodeJob,
   ensureAvatarExists,
@@ -633,6 +663,7 @@ const apiDeps = {
   isVideoFileProcessing,
   listPushSubscriptionsByUserIds,
   listChatMembers,
+  listChatMembersForChats,
   listChatsForUser,
   listEnabledRemoteChannelSources,
   listMessageFilesByMessageIds,
@@ -733,6 +764,7 @@ const remoteChannelManager = createRemoteChannelManager({
   sanitizeDurationSeconds,
   sanitizePositiveInt,
   sendPushNotificationToUsers,
+  isUserConnected,
   setMessageExpiresAt,
   setMessageForwardOrigin,
   setRemoteChannelProviderState,
@@ -960,8 +992,38 @@ if (MESSAGE_TEXT_RETENTION_DAYS > 0) {
   }
 }
 
-backfillStorageEncryption();
+// Defer the storage encryption backfill so it doesn't block the event loop
+// before the server starts accepting requests.
+setImmediate(() => {
+  try {
+    backfillStorageEncryption();
+  } catch (err) {
+    console.error("[storage-encryption] deferred backfill failed:", String(err?.message || err));
+  }
+});
 remoteChannelManager.start();
+
+// Periodically purge old done/skipped/failed remote channel queue rows to
+// prevent the table growing without bound. Runs every 24 hours; keeps rows
+// that are less than 7 days old.
+if (REMOTE_CHANNEL) {
+  const QUEUE_PURGE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+  const QUEUE_PURGE_KEEP_DAYS = 7;
+  const runQueuePurge = () => {
+    try {
+      const cutoff = new Date(
+        Date.now() - QUEUE_PURGE_KEEP_DAYS * 24 * 60 * 60 * 1000,
+      ).toISOString();
+      purgeOldRemoteChannelQueueItems(cutoff);
+    } catch (_) {
+      // best effort — don't crash the server if purge fails
+    }
+  };
+  // Run once at startup to clean up any accumulated rows.
+  setImmediate(runQueuePurge);
+  const queuePurgeTimer = setInterval(runQueuePurge, QUEUE_PURGE_INTERVAL_MS);
+  if (typeof queuePurgeTimer.unref === "function") queuePurgeTimer.unref();
+}
 
 app.listen(port, () => {
   console.log(`Songbird server running on http://localhost:${port}`);

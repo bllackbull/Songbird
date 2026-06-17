@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# songbird-deploy-version: 0.10.2
+# songbird-deploy-version: 0.10.3
 
 set -uo pipefail
 
@@ -1783,7 +1783,8 @@ REMOTE_CHANNEL_MEDIA_STREAM=true
 REMOTE_CHANNEL_TELEGRAM_API_ID=0
 REMOTE_CHANNEL_TELEGRAM_API_HASH=""
 REMOTE_CHANNEL_TELEGRAM_SESSION_STRING=""
-REMOTE_CHANNEL_PROXY_URL=""
+REMOTE_CHANNEL_TELEGRAM_PROXY_URL=""
+REMOTE_CHANNEL_SONGBIRD_PROXY_URL=""
 REMOTE_CHANNEL_POLL_INTERVAL_MS=5000
 REMOTE_CHANNEL_TELEGRAM_POLL_LIMIT=50
 REMOTE_CHANNEL_QUEUE_INTERVAL_MS=1000
@@ -4114,7 +4115,7 @@ db_remote_configure() {
 
   current_api_id="$(strip_surrounding_quotes "$(get_existing_env_value "REMOTE_CHANNEL_TELEGRAM_API_ID" "")")"
   current_api_hash="$(strip_surrounding_quotes "$(get_existing_env_value "REMOTE_CHANNEL_TELEGRAM_API_HASH" "")")"
-  current_proxy_url="$(strip_surrounding_quotes "$(get_existing_env_value "REMOTE_CHANNEL_PROXY_URL" "")")"
+  current_proxy_url="$(strip_surrounding_quotes "$(get_existing_env_value "REMOTE_CHANNEL_TELEGRAM_PROXY_URL" "$(get_existing_env_value "REMOTE_CHANNEL_PROXY_URL" "")")")"
   [[ "$current_api_id" == "0" ]] && current_api_id=""
 
   while true; do
