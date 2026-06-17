@@ -16,6 +16,8 @@ import {
   Ghost,
   LoaderCircle,
   Mic,
+  Phone,
+  Video,
 } from "../../icons/lucide.js";
 import { getAvatarStyle } from "../../utils/avatarColor.js";
 import { hasPersian } from "../../utils/fontUtils.js";
@@ -121,6 +123,9 @@ export default function ChatWindowPanel({
   permissionsPrompt = null,
   copyToastVisible = false,
   registerMessageRef = null,
+  onStartVoiceCall,
+  onStartVideoCall,
+  isDmChat = false,
   showFloatingLabel = false,
 }) {
   const MEDIA_CACHE_VERSION = 1;
@@ -1374,6 +1379,27 @@ export default function ChatWindowPanel({
               </>
             </ContextMenuSurface>
             {headerAvatarIcon ? (
+              <div className="flex items-center gap-2">
+                {isDmChat && onStartVoiceCall ? (
+                  <button
+                    type="button"
+                    onClick={onStartVoiceCall}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white/80 text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                    aria-label="Voice call"
+                  >
+                    <Phone size={16} />
+                  </button>
+                ) : null}
+                {isDmChat && onStartVideoCall ? (
+                  <button
+                    type="button"
+                    onClick={onStartVideoCall}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white/80 text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                    aria-label="Video call"
+                  >
+                    <Video size={16} />
+                  </button>
+                ) : null}
               <ContextMenuSurface
                 as="div"
                 className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full"
@@ -1382,6 +1408,7 @@ export default function ChatWindowPanel({
               >
                 {headerAvatarIcon}
               </ContextMenuSurface>
+              </div>
             ) : activeHeaderPeer ? (
               activeHeaderPeer?.isDeleted ? (
                 <ContextMenuSurface
