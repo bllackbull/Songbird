@@ -20,7 +20,7 @@ function registerAdminPanelRoutes(app, deps) {
       res.status(401).json({ error: "Not authenticated" });
       return null;
     }
-    if (!isUserAdmin(session.user_id)) {
+    if (!isUserAdmin(session.id)) {
       res.status(403).json({ error: "Admin access required" });
       return null;
     }
@@ -81,7 +81,7 @@ function registerAdminPanelRoutes(app, deps) {
     if (!session) return;
     const userId = Number(req.params.id);
     if (!userId) return res.status(400).json({ error: "Invalid user ID" });
-    if (userId === session.user_id) {
+    if (userId === session.id) {
       return res.status(400).json({ error: "Cannot delete yourself" });
     }
     const user = findUserById(userId);
