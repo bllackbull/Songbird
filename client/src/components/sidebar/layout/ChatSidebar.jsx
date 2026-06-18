@@ -207,6 +207,7 @@ export default function ChatSidebar({
         onOpenNotifications={onOpenNotifications}
         onOpenSavedMessages={onOpenSavedMessages}
         onOpenWhatsNew={onOpenWhatsNew}
+        userRole={user?.role}
       />
 
       <div

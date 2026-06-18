@@ -137,6 +137,7 @@ export function MobileSettingsPanel({
               onOpenNotifications={openNotificationsPanel}
               onOpenSavedMessages={onOpenSavedMessages}
               onOpenWhatsNew={onOpenWhatsNew}
+              userRole={user?.role}
             />
           </div>
         </div>

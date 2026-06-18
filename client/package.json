@@ -23,7 +23,7 @@
   "dependencies": {
     "dompurify": "^3.2.7",
     "highlight.js": "^11.11.1",
-    "lucide-react": "^0.563.0",
+    "lucide-react": "^1.21.0",
     "marked": "^15.0.12",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

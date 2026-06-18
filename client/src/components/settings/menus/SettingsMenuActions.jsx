@@ -5,8 +5,8 @@ import {
   Info,
   LogOut,
   Rocket,
-  Settings,
   ShieldCheck,
+  ShieldCog,
   User,
 } from "../../../icons/lucide.js";
 import { ThemeButton } from "../common/ThemeButton.jsx";
@@ -99,13 +99,17 @@ export function SettingsMenuActions({
         About
       </button>
       {userRole === "admin" || userRole === "owner" ? (
-        <a
-          href="/admin"
-          className={`mt-1 ${buttonBase} text-purple-600 transition hover:border-purple-300 hover:bg-purple-100 hover:shadow-[0_0_18px_rgba(147,51,234,0.18)] dark:text-purple-300 dark:hover:border-purple-500/30 dark:hover:bg-purple-500/10`}
+        <button
+          type="button"
+          onClick={() => {
+            window.history.pushState({}, "", "/admin");
+            window.dispatchEvent(new PopStateEvent("popstate"));
+          }}
+          className={`mt-1 ${buttonBase} ${accentHover}`}
         >
-          <Settings size={18} className="icon-anim-sway" />
+          <ShieldCog size={18} className="icon-anim-sway" />
           Admin Panel
-        </a>
+        </button>
       ) : null}
       <button
         type="button"

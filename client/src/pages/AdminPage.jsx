@@ -1,14 +1,31 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../api/chatApi.js";
 import { ArrowLeft, Ban, Search, Trash } from "../icons/lucide.js";
 
 export default function AdminPage({ user, onBack }) {
+  const isAdmin = user?.role === "admin" || user?.role === "owner";
+
+  if (!isAdmin) {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-slate-50 dark:bg-slate-900">
+        <div className="text-center">
+          <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Access denied</p>
+        </div>
+      </div>
+    );
+  }
+
+  return <AdminPanelContent user={user} onBack={onBack} />;
+}
+
+function AdminPanelContent({ user, onBack }) {
   const [tab, setTab] = useState("dashboard");
   const [stats, setStats] = useState(null);
   const [users, setUsers] = useState([]);
   const [chats, setChats] = useState([]);
   const [userSearch, setUserSearch] = useState("");
   const [loading, setLoading] = useState(false);
+  const searchDebounceRef = useRef(null);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -47,7 +64,13 @@ export default function AdminPage({ user, onBack }) {
   }, [fetchStats]);
 
   useEffect(() => {
-    if (tab === "users") fetchUsers(userSearch);
+    if (tab === "users") {
+      clearTimeout(searchDebounceRef.current);
+      searchDebounceRef.current = setTimeout(() => {
+        fetchUsers(userSearch);
+      }, 300);
+      return () => clearTimeout(searchDebounceRef.current);
+    }
     if (tab === "chats") fetchChats();
   }, [tab, fetchUsers, fetchChats, userSearch]);
 
