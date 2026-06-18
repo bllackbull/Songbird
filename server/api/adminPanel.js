@@ -1,5 +1,6 @@
 import { normalizeHexColor, normalizeGroupUsername, normalizeVisibility, normalizeChatType } from "../lib/dbToolHelpers.js";
 import { createInviteToken } from "../lib/inviteTokens.js";
+import os from "node:os";
 
 function registerAdminPanelRoutes(app, deps) {
   const {
@@ -23,7 +24,6 @@ function registerAdminPanelRoutes(app, deps) {
     USERNAME_MAX,
     NICKNAME_MAX,
     adminGetRow,
-    adminGetAll,
     adminRun,
     adminSave,
     // chat creation / editing
@@ -33,7 +33,6 @@ function registerAdminPanelRoutes(app, deps) {
     removeChatMember,
     setChatMemberRole,
     listChatMembers,
-    regenerateGroupInviteToken,
     updateGroupChat,
     updateChannelChat,
     // emitting SSE on changes
@@ -60,6 +59,68 @@ function registerAdminPanelRoutes(app, deps) {
   app.get("/api/admin/stats", (req, res) => {
     if (!requireAdmin(req, res)) return;
     res.json(getAdminStats());
+  });
+
+  app.get("/api/admin/system", (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const mem = process.memoryUsage();
+    const totalMem  = os.totalmem();
+    const freeMem   = os.freemem();
+    const usedMem   = totalMem - freeMem;
+    const uptimeSec = Math.floor(process.uptime());
+    const loadAvg   = os.loadavg();
+    const cpuCount  = os.cpus().length;
+
+    const { projectRootDir, path: nodePath, fs } = deps;
+
+    // DB file size
+    let dbSizeBytes = 0;
+    try {
+      if (nodePath && projectRootDir && fs) {
+        const dbPath = nodePath.join(projectRootDir, "data", "songbird.db");
+        if (fs.existsSync(dbPath)) dbSizeBytes = fs.statSync(dbPath).size;
+      }
+    } catch {}
+
+    // Uploads folder size (recursive)
+    let uploadsSizeBytes = 0;
+    const getDirSize = (dirPath) => {
+      try {
+        if (!fs || !fs.existsSync(dirPath)) return 0;
+        let total = 0;
+        const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+        for (const entry of entries) {
+          const full = nodePath.join(dirPath, entry.name);
+          if (entry.isDirectory()) total += getDirSize(full);
+          else if (entry.isFile()) total += fs.statSync(full).size || 0;
+        }
+        return total;
+      } catch { return 0; }
+    };
+    try {
+      if (nodePath && projectRootDir) {
+        uploadsSizeBytes = getDirSize(nodePath.join(projectRootDir, "data", "uploads"));
+      }
+    } catch {}
+
+    res.json({
+      uptime: uptimeSec,
+      loadAvg,
+      cpuCount,
+      memory: {
+        heapUsed:    mem.heapUsed,
+        heapTotal:   mem.heapTotal,
+        rss:         mem.rss,
+        systemTotal: totalMem,
+        systemUsed:  usedMem,
+        systemFree:  freeMem,
+      },
+      storage: {
+        dbSizeBytes,
+        uploadsSizeBytes,
+        totalDataBytes: dbSizeBytes + uploadsSizeBytes,
+      },
+    });
   });
 
   // ─── Users — list ────────────────────────────────────────────────────────────
