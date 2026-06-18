@@ -1,7 +1,12 @@
+import { normalizeHexColor, normalizeGroupUsername, normalizeVisibility, normalizeChatType } from "../lib/dbToolHelpers.js";
+import { createInviteToken } from "../lib/inviteTokens.js";
+
 function registerAdminPanelRoutes(app, deps) {
   const {
     getSessionFromRequest,
     findUserById,
+    findUserByUsername,
+    findChatById,
     isUserAdmin,
     getAdminStats,
     adminListUsers,
@@ -11,9 +16,32 @@ function registerAdminPanelRoutes(app, deps) {
     adminDeleteChat,
     removeStoredFileNames,
     setUserRole,
+    // user creation / editing
+    bcrypt,
+    setUserColor,
+    USERNAME_REGEX,
+    USERNAME_MAX,
+    NICKNAME_MAX,
+    adminGetRow,
+    adminGetAll,
+    adminRun,
+    adminSave,
+    // chat creation / editing
+    crypto,
+    createChat,
+    addChatMember,
+    removeChatMember,
+    setChatMemberRole,
+    listChatMembers,
+    regenerateGroupInviteToken,
+    updateGroupChat,
+    updateChannelChat,
+    // emitting SSE on changes
+    emitChatEvent,
   } = deps;
 
-  // Admin auth middleware
+  // ─── Auth middleware ─────────────────────────────────────────────────────────
+
   const requireAdmin = (req, res) => {
     const session = getSessionFromRequest(req);
     if (!session) {
@@ -27,92 +55,360 @@ function registerAdminPanelRoutes(app, deps) {
     return session;
   };
 
-  // Dashboard stats
+  // ─── Dashboard ───────────────────────────────────────────────────────────────
+
   app.get("/api/admin/stats", (req, res) => {
-    const session = requireAdmin(req, res);
-    if (!session) return;
-    const stats = getAdminStats();
-    res.json(stats);
+    if (!requireAdmin(req, res)) return;
+    res.json(getAdminStats());
   });
 
-  // List users
+  // ─── Users — list ────────────────────────────────────────────────────────────
+
   app.get("/api/admin/users", (req, res) => {
-    const session = requireAdmin(req, res);
-    if (!session) return;
-    const limit = Number(req.query.limit || 50);
+    if (!requireAdmin(req, res)) return;
+    const limit  = Number(req.query.limit  || 200);
     const offset = Number(req.query.offset || 0);
     const search = String(req.query.search || "").trim();
-    const users = adminListUsers({ limit, offset, search });
+    const sortBy    = ["id", "username", "nickname", "created_at", "last_seen"].includes(req.query.sortBy)
+      ? req.query.sortBy : "id";
+    const sortDir   = req.query.sortDir === "asc" ? "ASC" : "DESC";
+    const roleFilter = ["user", "admin", "owner"].includes(req.query.role) ? req.query.role : null;
+    const statusFilter = ["online", "invisible", "banned"].includes(req.query.status) ? req.query.status : null;
+    const users = adminListUsers({ limit, offset, search, sortBy, sortDir, roleFilter, statusFilter });
     res.json({ users });
   });
 
-  // Ban/unban user
-  app.post("/api/admin/users/:id/ban", (req, res) => {
-    const session = requireAdmin(req, res);
-    if (!session) return;
+  // ─── Users — create ──────────────────────────────────────────────────────────
+
+  app.post("/api/admin/users", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const rawUsername = String(req.body?.username || "").trim().toLowerCase();
+    const nickname    = String(req.body?.nickname  || "").trim();
+    const password    = String(req.body?.password  || "");
+    const role        = ["user", "admin"].includes(req.body?.role) ? req.body.role : "user";
+
+    if (!rawUsername || !nickname || !password) {
+      return res.status(400).json({ error: "Username, nickname, and password are required." });
+    }
+    if (rawUsername.length < 3) {
+      return res.status(400).json({ error: "Username must be at least 3 characters." });
+    }
+    if (USERNAME_MAX && rawUsername.length > USERNAME_MAX) {
+      return res.status(400).json({ error: `Username must be at most ${USERNAME_MAX} characters.` });
+    }
+    if (NICKNAME_MAX && nickname.length > NICKNAME_MAX) {
+      return res.status(400).json({ error: `Nickname must be at most ${NICKNAME_MAX} characters.` });
+    }
+    if (USERNAME_REGEX && !USERNAME_REGEX.test(rawUsername)) {
+      return res.status(400).json({ error: "Invalid username. Use lowercase letters, numbers, . and _" });
+    }
+    if (adminGetRow("SELECT id FROM users WHERE username = ?", [rawUsername])?.id) {
+      return res.status(409).json({ error: "Username already exists." });
+    }
+    if (adminGetRow("SELECT id FROM chats WHERE type IN ('group','channel') AND group_username = ?", [rawUsername])?.id) {
+      return res.status(409).json({ error: "Username already exists." });
+    }
+
+    const passwordHash   = await bcrypt.hash(password, 10);
+    const assignedColor  = setUserColor();
+    adminRun(
+      `INSERT INTO users (username, nickname, avatar_url, color, status, password_hash, created_at, last_seen)
+       VALUES (?, ?, NULL, ?, 'online', ?, datetime('now'), datetime('now'))`,
+      [rawUsername, nickname, assignedColor, passwordHash],
+    );
+    if (role !== "user") {
+      const newUser = adminGetRow("SELECT id FROM users WHERE username = ?", [rawUsername]);
+      if (newUser?.id) adminRun("UPDATE users SET role = ? WHERE id = ?", [role, Number(newUser.id)]);
+    }
+    adminSave();
+    const row = adminGetRow("SELECT id, username, nickname, color, role FROM users WHERE username = ?", [rawUsername]);
+    res.status(201).json({ ok: true, user: row });
+  });
+
+  // ─── Users — edit ────────────────────────────────────────────────────────────
+
+  app.patch("/api/admin/users/:id", (req, res) => {
+    if (!requireAdmin(req, res)) return;
     const userId = Number(req.params.id);
-    const { banned } = req.body || {};
     if (!userId) return res.status(400).json({ error: "Invalid user ID" });
     const user = findUserById(userId);
     if (!user) return res.status(404).json({ error: "User not found" });
-    adminBanUser(userId, Boolean(banned));
-    res.json({ ok: true, banned: Boolean(banned) });
+
+    const b = req.body || {};
+    const nextUsername = b.username !== undefined
+      ? String(b.username || "").trim().toLowerCase()
+      : String(user.username || "");
+    const nextNickname = b.nickname !== undefined
+      ? (String(b.nickname || "").trim() || null)
+      : (user.nickname || null);
+    const nextStatus = b.status !== undefined
+      ? String(b.status || "").trim().toLowerCase()
+      : String(user.status || "online");
+    const nextColor = b.color !== undefined
+      ? (normalizeHexColor(String(b.color || "")) || String(user.color || ""))
+      : String(user.color || "");
+
+    if (nextUsername.length < 3) return res.status(400).json({ error: "Username must be at least 3 characters." });
+    if (USERNAME_MAX && nextUsername.length > USERNAME_MAX) return res.status(400).json({ error: `Username must be at most ${USERNAME_MAX} characters.` });
+    if (USERNAME_REGEX && !USERNAME_REGEX.test(nextUsername)) return res.status(400).json({ error: "Invalid username." });
+    if (nextNickname && NICKNAME_MAX && nextNickname.length > NICKNAME_MAX) return res.status(400).json({ error: `Nickname too long.` });
+    if (!["online", "invisible"].includes(nextStatus)) return res.status(400).json({ error: "Invalid status." });
+
+    if (nextUsername !== String(user.username || "")) {
+      if (adminGetRow("SELECT id FROM users WHERE username = ? AND id != ?", [nextUsername, userId])?.id) {
+        return res.status(409).json({ error: "Username already exists." });
+      }
+      if (adminGetRow("SELECT id FROM chats WHERE type IN ('group','channel') AND group_username IN (?,?)", [nextUsername, `@${nextUsername}`])?.id) {
+        return res.status(409).json({ error: "Username already exists." });
+      }
+    }
+
+    adminRun(
+      "UPDATE users SET username = ?, nickname = ?, status = ?, color = ? WHERE id = ?",
+      [nextUsername, nextNickname, nextStatus, nextColor, userId],
+    );
+    adminSave();
+    const updated = findUserById(userId);
+    res.json({ ok: true, user: updated });
   });
 
-  // Change user role
+  // ─── Users — ban/unban ───────────────────────────────────────────────────────
+
+  app.post("/api/admin/users/:id/ban", (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const userId = Number(req.params.id);
+    if (!userId) return res.status(400).json({ error: "Invalid user ID" });
+    const user = findUserById(userId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    const banned = Boolean(req.body?.banned);
+    adminBanUser(userId, banned);
+    if (banned) adminRun("DELETE FROM sessions WHERE user_id = ?", [userId]);
+    adminSave();
+    res.json({ ok: true, banned });
+  });
+
+  // ─── Users — change role ─────────────────────────────────────────────────────
+
   app.post("/api/admin/users/:id/role", (req, res) => {
-    const session = requireAdmin(req, res);
-    if (!session) return;
+    if (!requireAdmin(req, res)) return;
     const userId = Number(req.params.id);
     const { role } = req.body || {};
     if (!userId) return res.status(400).json({ error: "Invalid user ID" });
-    if (!["user", "admin"].includes(role)) {
-      return res.status(400).json({ error: "Invalid role" });
-    }
+    if (!["user", "admin"].includes(role)) return res.status(400).json({ error: "Invalid role" });
     const user = findUserById(userId);
     if (!user) return res.status(404).json({ error: "User not found" });
     setUserRole(userId, role);
+    adminSave();
     res.json({ ok: true, role });
   });
 
-  // Delete user
+  // ─── Users — reset password ──────────────────────────────────────────────────
+
+  app.post("/api/admin/users/:id/reset-password", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const userId = Number(req.params.id);
+    const newPassword = String(req.body?.password || "").trim();
+    if (!userId) return res.status(400).json({ error: "Invalid user ID" });
+    if (!newPassword || newPassword.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters." });
+    const user = findUserById(userId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    const hash = await bcrypt.hash(newPassword, 10);
+    adminRun("UPDATE users SET password_hash = ? WHERE id = ?", [hash, userId]);
+    adminRun("DELETE FROM sessions WHERE user_id = ?", [userId]);
+    adminSave();
+    res.json({ ok: true });
+  });
+
+  // ─── Users — delete ──────────────────────────────────────────────────────────
+
   app.delete("/api/admin/users/:id", (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
     const userId = Number(req.params.id);
     if (!userId) return res.status(400).json({ error: "Invalid user ID" });
-    if (userId === session.id) {
-      return res.status(400).json({ error: "Cannot delete yourself" });
-    }
+    if (userId === session.id) return res.status(400).json({ error: "Cannot delete yourself" });
     const user = findUserById(userId);
     if (!user) return res.status(404).json({ error: "User not found" });
     const { storedNames } = adminDeleteUser(userId) || {};
-    if (Array.isArray(storedNames) && storedNames.length > 0) {
-      removeStoredFileNames(storedNames);
-    }
+    if (Array.isArray(storedNames) && storedNames.length > 0) removeStoredFileNames(storedNames);
     res.json({ ok: true });
   });
 
-  // List chats
+  // ─── Chats — list ────────────────────────────────────────────────────────────
+
   app.get("/api/admin/chats", (req, res) => {
-    const session = requireAdmin(req, res);
-    if (!session) return;
-    const limit = Number(req.query.limit || 50);
-    const offset = Number(req.query.offset || 0);
-    const chats = adminListChats({ limit, offset });
+    if (!requireAdmin(req, res)) return;
+    const limit   = Number(req.query.limit  || 200);
+    const offset  = Number(req.query.offset || 0);
+    const search  = String(req.query.search || "").trim();
+    const sortBy  = ["id", "name", "type", "created_at", "member_count", "message_count"].includes(req.query.sortBy)
+      ? req.query.sortBy : "id";
+    const sortDir = req.query.sortDir === "asc" ? "ASC" : "DESC";
+    const typeFilter = ["dm", "group", "channel"].includes(req.query.type) ? req.query.type : null;
+    const chats = adminListChats({ limit, offset, search, sortBy, sortDir, typeFilter });
     res.json({ chats });
   });
 
-  // Delete chat
+  // ─── Chats — create ──────────────────────────────────────────────────────────
+
+  app.post("/api/admin/chats", (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const b = req.body || {};
+    const type       = normalizeChatType(b.type) || "group";
+    const name       = String(b.name || "").trim();
+    const username   = normalizeGroupUsername(b.username);
+    const visibility = normalizeVisibility(b.visibility) || "public";
+    const ownerIdOrUsername = String(b.owner || "").trim();
+
+    if (!name || !username || !ownerIdOrUsername) {
+      return res.status(400).json({ error: "Name, username, and owner are required." });
+    }
+
+    const owner = isNaN(Number(ownerIdOrUsername))
+      ? findUserByUsername(ownerIdOrUsername.toLowerCase())
+      : findUserById(Number(ownerIdOrUsername));
+    if (!owner?.id) return res.status(404).json({ error: "Owner user not found." });
+
+    if (adminGetRow("SELECT id FROM users WHERE username = ?", [username])?.id) {
+      return res.status(409).json({ error: "Username already exists." });
+    }
+    if (adminGetRow("SELECT id FROM chats WHERE type IN ('group','channel') AND group_username IN (?,?)", [username, `@${username}`])?.id) {
+      return res.status(409).json({ error: "Username already exists." });
+    }
+
+    const inviteToken  = createInviteToken(crypto);
+    const groupColor   = String(adminGetRow("SELECT color FROM users WHERE id = ?", [Number(owner.id)])?.color || "") || "#10b981";
+    const chatId       = createChat(name, type, {
+      groupUsername:     username,
+      groupVisibility:   visibility,
+      inviteToken,
+      createdByUserId:   Number(owner.id),
+      groupColor,
+    });
+
+    if (!chatId) return res.status(500).json({ error: "Failed to create chat." });
+
+    addChatMember(chatId, Number(owner.id), "owner");
+
+    const memberIds = Array.isArray(b.memberIds) ? b.memberIds.map(Number).filter(Boolean) : [];
+    memberIds.forEach((mid) => {
+      if (mid !== Number(owner.id)) addChatMember(chatId, mid, "member");
+    });
+
+    adminSave();
+    const created = findChatById(chatId);
+    res.status(201).json({ ok: true, chat: created });
+  });
+
+  // ─── Chats — edit ────────────────────────────────────────────────────────────
+
+  app.patch("/api/admin/chats/:id", (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const chatId = Number(req.params.id);
+    if (!chatId) return res.status(400).json({ error: "Invalid chat ID" });
+    const chat = findChatById(chatId);
+    if (!chat) return res.status(404).json({ error: "Chat not found" });
+    if (!["group", "channel"].includes(chat.type)) {
+      return res.status(400).json({ error: "Only groups and channels can be edited." });
+    }
+
+    const b = req.body || {};
+    const nextName       = b.name !== undefined ? String(b.name || "").trim() : (chat.name || "");
+    const nextUsername   = b.username !== undefined ? normalizeGroupUsername(b.username) : (chat.group_username || "");
+    const nextVisibility = b.visibility !== undefined ? normalizeVisibility(b.visibility) : (chat.group_visibility || "public");
+    const nextColor      = b.color !== undefined ? (normalizeHexColor(String(b.color || "")) || null) : (chat.group_color || null);
+
+    if (nextUsername && nextUsername !== (chat.group_username || "")) {
+      if (adminGetRow("SELECT id FROM users WHERE username = ?", [nextUsername])?.id) {
+        return res.status(409).json({ error: "Username already exists." });
+      }
+      if (adminGetRow("SELECT id FROM chats WHERE type IN ('group','channel') AND group_username IN (?,?) AND id != ?", [nextUsername, `@${nextUsername}`, chatId])?.id) {
+        return res.status(409).json({ error: "Username already exists." });
+      }
+    }
+
+    if (b.owner !== undefined) {
+      const newOwner = isNaN(Number(b.owner))
+        ? findUserByUsername(String(b.owner).toLowerCase())
+        : findUserById(Number(b.owner));
+      if (!newOwner?.id) return res.status(404).json({ error: "New owner not found." });
+      adminRun("UPDATE chat_members SET role = 'member' WHERE chat_id = ? AND role = 'owner'", [chatId]);
+      adminRun("INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, 'owner')", [chatId, Number(newOwner.id)]);
+      adminRun("UPDATE chat_members SET role = 'owner' WHERE chat_id = ? AND user_id = ?", [chatId, Number(newOwner.id)]);
+    }
+
+    if (chat.type === "group") {
+      updateGroupChat(chatId, { name: nextName, groupUsername: nextUsername, groupVisibility: nextVisibility });
+    } else {
+      updateChannelChat(chatId, { name: nextName, groupUsername: nextUsername, groupVisibility: nextVisibility });
+    }
+
+    if (nextColor) adminRun("UPDATE chats SET group_color = ? WHERE id = ?", [nextColor, chatId]);
+    adminSave();
+
+    emitChatEvent(chatId, { type: "chat_updated", chatId });
+    const updated = findChatById(chatId);
+    res.json({ ok: true, chat: updated });
+  });
+
+  // ─── Chats — members list ────────────────────────────────────────────────────
+
+  app.get("/api/admin/chats/:id/members", (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const chatId = Number(req.params.id);
+    if (!chatId) return res.status(400).json({ error: "Invalid chat ID" });
+    const members = listChatMembers(chatId);
+    res.json({ members });
+  });
+
+  // ─── Chats — add member ──────────────────────────────────────────────────────
+
+  app.post("/api/admin/chats/:id/members", (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const chatId = Number(req.params.id);
+    const userId = Number(req.body?.userId);
+    if (!chatId || !userId) return res.status(400).json({ error: "chatId and userId required" });
+    if (!findChatById(chatId)) return res.status(404).json({ error: "Chat not found" });
+    if (!findUserById(userId)) return res.status(404).json({ error: "User not found" });
+    addChatMember(chatId, userId, "member");
+    adminSave();
+    res.json({ ok: true });
+  });
+
+  // ─── Chats — remove member ───────────────────────────────────────────────────
+
+  app.delete("/api/admin/chats/:id/members/:userId", (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const chatId = Number(req.params.id);
+    const userId = Number(req.params.userId);
+    if (!chatId || !userId) return res.status(400).json({ error: "Invalid IDs" });
+    removeChatMember(chatId, userId);
+    adminSave();
+    res.json({ ok: true });
+  });
+
+  // ─── Chats — set member role ─────────────────────────────────────────────────
+
+  app.patch("/api/admin/chats/:id/members/:userId", (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const chatId = Number(req.params.id);
+    const userId = Number(req.params.userId);
+    const { role } = req.body || {};
+    if (!chatId || !userId) return res.status(400).json({ error: "Invalid IDs" });
+    if (!["owner", "admin", "member"].includes(role)) return res.status(400).json({ error: "Invalid role" });
+    setChatMemberRole(chatId, userId, role);
+    adminSave();
+    res.json({ ok: true, role });
+  });
+
+  // ─── Chats — delete ──────────────────────────────────────────────────────────
+
   app.delete("/api/admin/chats/:id", (req, res) => {
-    const session = requireAdmin(req, res);
-    if (!session) return;
+    if (!requireAdmin(req, res)) return;
     const chatId = Number(req.params.id);
     if (!chatId) return res.status(400).json({ error: "Invalid chat ID" });
     const { storedNames } = adminDeleteChat(chatId) || {};
-    if (Array.isArray(storedNames) && storedNames.length > 0) {
-      removeStoredFileNames(storedNames);
-    }
+    if (Array.isArray(storedNames) && storedNames.length > 0) removeStoredFileNames(storedNames);
     res.json({ ok: true });
   });
 }

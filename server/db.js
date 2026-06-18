@@ -2485,31 +2485,67 @@ function escapeLikePattern(value) {
   return String(value).replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
-export function adminListUsers({ limit = 50, offset = 0, search = "" }) {
-  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
+export function adminListUsers({ limit = 200, offset = 0, search = "", sortBy = "id", sortDir = "DESC", roleFilter = null, statusFilter = null }) {
+  const safeLimit  = Math.max(1, Math.min(500, Number(limit) || 200));
   const safeOffset = Math.max(0, Number(offset) || 0);
+  const safeSortBy  = ["id", "username", "nickname", "created_at", "last_seen"].includes(sortBy) ? sortBy : "id";
+  const safeSortDir = sortDir === "ASC" ? "ASC" : "DESC";
+
+  const conditions = [];
+  const params     = [];
+
   if (search) {
     const like = `%${escapeLikePattern(search)}%`;
-    return getAll(
-      "SELECT id, username, nickname, avatar_url, color, status, role, banned, created_at, last_seen FROM users WHERE username LIKE ? ESCAPE '\\' OR nickname LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ? OFFSET ?",
-      [like, like, safeLimit, safeOffset],
-    );
+    conditions.push("(username LIKE ? ESCAPE '\\' OR nickname LIKE ? ESCAPE '\\')");
+    params.push(like, like);
   }
+  if (roleFilter) {
+    conditions.push("role = ?");
+    params.push(roleFilter);
+  }
+  if (statusFilter === "banned") {
+    conditions.push("banned = 1");
+  } else if (statusFilter) {
+    conditions.push("banned = 0 AND status = ?");
+    params.push(statusFilter);
+  }
+
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  params.push(safeLimit, safeOffset);
   return getAll(
-    "SELECT id, username, nickname, avatar_url, color, status, role, banned, created_at, last_seen FROM users ORDER BY id DESC LIMIT ? OFFSET ?",
-    [safeLimit, safeOffset],
+    `SELECT id, username, nickname, avatar_url, color, status, role, banned, created_at, last_seen
+     FROM users ${where} ORDER BY ${safeSortBy} ${safeSortDir} LIMIT ? OFFSET ?`,
+    params,
   );
 }
 
-export function adminListChats({ limit = 50, offset = 0 }) {
-  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
+export function adminListChats({ limit = 200, offset = 0, search = "", sortBy = "id", sortDir = "DESC", typeFilter = null }) {
+  const safeLimit  = Math.max(1, Math.min(500, Number(limit) || 200));
   const safeOffset = Math.max(0, Number(offset) || 0);
+  const safeSortBy  = ["id", "name", "type", "created_at", "member_count", "message_count"].includes(sortBy) ? sortBy : "id";
+  const safeSortDir = sortDir === "ASC" ? "ASC" : "DESC";
+
+  const conditions = [];
+  const params     = [];
+
+  if (search) {
+    const like = `%${escapeLikePattern(search)}%`;
+    conditions.push("(c.name LIKE ? ESCAPE '\\' OR c.group_username LIKE ? ESCAPE '\\')");
+    params.push(like, like);
+  }
+  if (typeFilter) {
+    conditions.push("c.type = ?");
+    params.push(typeFilter);
+  }
+
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  params.push(safeLimit, safeOffset);
   return getAll(
-    `SELECT c.id, c.name, c.type, c.created_at,
+    `SELECT c.id, c.name, c.type, c.group_username, c.group_visibility, c.group_color, c.created_at,
             (SELECT COUNT(*) FROM chat_members WHERE chat_id = c.id) AS member_count,
             (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) AS message_count
-     FROM chats c ORDER BY c.id DESC LIMIT ? OFFSET ?`,
-    [safeLimit, safeOffset],
+     FROM chats c ${where} ORDER BY ${safeSortBy} ${safeSortDir} LIMIT ? OFFSET ?`,
+    params,
   );
 }
 
