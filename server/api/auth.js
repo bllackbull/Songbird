@@ -148,6 +148,7 @@ function registerAuthRoutes(app, deps) {
       avatarUrl: ensureAvatarExists(session.id, session.avatar_url) || null,
       color: session.color || USER_COLORS[0],
       status: session.status || "online",
+      role: session.role || "user",
     });
   });
 

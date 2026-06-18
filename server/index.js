@@ -118,6 +118,15 @@ import {
   updateRemoteChannelSourceSeen,
   upsertRemoteChannelSource,
   purgeOldRemoteChannelQueueItems,
+  setUserRole,
+  isUserAdmin,
+  bootstrapAdminUsers,
+  getAdminStats,
+  adminListUsers,
+  adminListChats,
+  adminBanUser,
+  adminDeleteUser,
+  adminDeleteChat,
 } from "./db.js";
 
 process.title = "songbird-server";
@@ -725,6 +734,14 @@ const apiDeps = {
   upsertPushSubscription,
   sendPushNotificationToUsers,
   storageEncryption,
+  setUserRole,
+  isUserAdmin,
+  getAdminStats,
+  adminListUsers,
+  adminListChats,
+  adminBanUser,
+  adminDeleteUser,
+  adminDeleteChat,
 };
 
 const remoteChannelManager = createRemoteChannelManager({
@@ -1002,6 +1019,15 @@ setImmediate(() => {
   }
 });
 remoteChannelManager.start();
+
+// Bootstrap admin users from environment
+const ADMIN_USERNAMES = (process.env.ADMIN_USERNAMES || "")
+  .split(",")
+  .map((u) => u.trim().toLowerCase())
+  .filter(Boolean);
+if (ADMIN_USERNAMES.length) {
+  bootstrapAdminUsers(ADMIN_USERNAMES);
+}
 
 // Periodically purge old done/skipped/failed remote channel queue rows to
 // prevent the table growing without bound. Runs every 24 hours; keeps rows

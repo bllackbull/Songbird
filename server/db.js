@@ -2408,7 +2408,7 @@ export function getSession(token) {
   return getRow(
     `
     SELECT sessions.id AS session_id, sessions.token, users.id, users.username, users.nickname,
-           users.avatar_url, users.color, users.status, users.banned
+           users.avatar_url, users.color, users.status, users.banned, users.role
     FROM sessions
     JOIN users ON users.id = sessions.user_id
     WHERE sessions.token = ?
@@ -2443,4 +2443,88 @@ export function adminRun(sql, params = []) {
 
 export function adminSave() {
   saveDatabase();
+}
+
+// ─── Admin Panel ─────────────────────────────────────────────────────────────
+
+export function setUserRole(userId, role) {
+  return run("UPDATE users SET role = ? WHERE id = ?", [role, userId]);
+}
+
+export function getUserRole(userId) {
+  const row = getRow("SELECT role FROM users WHERE id = ?", [userId]);
+  return row?.role || "user";
+}
+
+export function isUserAdmin(userId) {
+  const role = getUserRole(userId);
+  return role === "admin" || role === "owner";
+}
+
+export function bootstrapAdminUsers(adminUsernames) {
+  if (!adminUsernames || !adminUsernames.length) return;
+  for (const username of adminUsernames) {
+    const user = getRow("SELECT id, role FROM users WHERE username = ?", [username.toLowerCase()]);
+    if (user && user.role !== "admin" && user.role !== "owner") {
+      run("UPDATE users SET role = 'admin' WHERE id = ?", [user.id]);
+    }
+  }
+}
+
+export function getAdminStats() {
+  const totalUsers = getRow("SELECT COUNT(*) AS count FROM users")?.count || 0;
+  const totalChats = getRow("SELECT COUNT(*) AS count FROM chats")?.count || 0;
+  const totalMessages = getRow("SELECT COUNT(*) AS count FROM chat_messages")?.count || 0;
+  const totalSessions = getRow("SELECT COUNT(*) AS count FROM sessions")?.count || 0;
+  const bannedUsers = getRow("SELECT COUNT(*) AS count FROM users WHERE banned = 1")?.count || 0;
+  const onlineUsers = getRow("SELECT COUNT(*) AS count FROM users WHERE status = 'online'")?.count || 0;
+  return { totalUsers, totalChats, totalMessages, totalSessions, bannedUsers, onlineUsers };
+}
+
+function escapeLikePattern(value) {
+  return String(value).replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+export function adminListUsers({ limit = 50, offset = 0, search = "" }) {
+  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
+  const safeOffset = Math.max(0, Number(offset) || 0);
+  if (search) {
+    const like = `%${escapeLikePattern(search)}%`;
+    return getAll(
+      "SELECT id, username, nickname, avatar_url, color, status, role, banned, created_at, last_seen FROM users WHERE username LIKE ? ESCAPE '\\' OR nickname LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ? OFFSET ?",
+      [like, like, safeLimit, safeOffset],
+    );
+  }
+  return getAll(
+    "SELECT id, username, nickname, avatar_url, color, status, role, banned, created_at, last_seen FROM users ORDER BY id DESC LIMIT ? OFFSET ?",
+    [safeLimit, safeOffset],
+  );
+}
+
+export function adminListChats({ limit = 50, offset = 0 }) {
+  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
+  const safeOffset = Math.max(0, Number(offset) || 0);
+  return getAll(
+    `SELECT c.id, c.name, c.type, c.created_at,
+            (SELECT COUNT(*) FROM chat_members WHERE chat_id = c.id) AS member_count,
+            (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) AS message_count
+     FROM chats c ORDER BY c.id DESC LIMIT ? OFFSET ?`,
+    [safeLimit, safeOffset],
+  );
+}
+
+export function adminBanUser(userId, banned) {
+  return run("UPDATE users SET banned = ? WHERE id = ?", [banned ? 1 : 0, userId]);
+}
+
+// Delegate to the canonical deletion helpers so the admin panel performs the
+// same full cleanup (message files, reads, hidden chats, mutes, ownership
+// transfers, etc.) inside a transaction. Returns the storedNames of orphaned
+// upload files so the caller can remove them from disk.
+export function adminDeleteUser(userId) {
+  return deleteUserById(userId);
+}
+
+export function adminDeleteChat(chatId) {
+  return deleteChatById(chatId);
 }
