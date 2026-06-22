@@ -653,7 +653,12 @@ function registerAdminPanelRoutes(app, deps) {
     limits: { fileSize: 512 * 1024 * 1024 }, // 512 MB ceiling
   });
 
-  app.post("/api/admin/maintenance/restore", dbUpload.single("database"), (req, res) => {
+  app.post(
+    "/api/admin/maintenance/restore",
+    // Gate auth before multer buffers the upload
+    (req, res, next) => { if (!requireAdmin(req, res)) return; next(); },
+    dbUpload.single("database"),
+    (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
 
