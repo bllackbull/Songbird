@@ -1,5 +1,7 @@
 import { normalizeHexColor, normalizeGroupUsername, normalizeVisibility, normalizeChatType } from "../lib/dbToolHelpers.js";
 import { createInviteToken } from "../lib/inviteTokens.js";
+import { writeAdminLog, readAdminLog, clearAdminLog } from "../lib/adminLog.js";
+import { readInstallerLog, readNginxLog, readServiceLog } from "../lib/systemLogs.js";
 import os from "node:os";
 import { execFile } from "node:child_process";
 
@@ -38,11 +40,9 @@ function registerAdminPanelRoutes(app, deps) {
     updateChannelChat,
     // emitting SSE on changes
     emitChatEvent,
-    // logs + maintenance
-    addAdminLog,
-    adminListLogs,
-    adminClearLogs,
+    // maintenance
     vacuumDatabase,
+    reloadDatabase,
     projectRootDir,
     path: nodePath,
     fs,
@@ -63,19 +63,17 @@ function registerAdminPanelRoutes(app, deps) {
     return session;
   };
 
-  // Helper to write an audit log entry tied to the acting admin.
+  // Helper to write an audit log entry (to logs/admin.log) tied to the acting admin.
   const log = (session, action, opts = {}) => {
-    try {
-      addAdminLog({
-        actorUserId:   session?.id ?? null,
-        actorUsername: session?.username ?? null,
-        action,
-        targetType:    opts.targetType ?? null,
-        targetLabel:   opts.targetLabel ?? null,
-        details:       opts.details ?? null,
-        status:        opts.status ?? "success",
-      });
-    } catch {}
+    writeAdminLog({
+      actorUserId:   session?.id ?? null,
+      actorUsername: session?.username ?? null,
+      action,
+      targetType:    opts.targetType ?? null,
+      targetLabel:   opts.targetLabel ?? null,
+      details:       opts.details ?? null,
+      status:        opts.status ?? "success",
+    });
   };
 
   // ─── Dashboard ───────────────────────────────────────────────────────────────
@@ -545,22 +543,40 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Logs ──────────────────────────────────────────────────────────────────
 
+  // ─── Logs ──────────────────────────────────────────────────────────────────
+
+  // Admin panel audit log (from logs/admin.log)
   app.get("/api/admin/logs", (req, res) => {
     if (!requireAdmin(req, res)) return;
-    const limit  = Number(req.query.limit  || 100);
-    const offset = Number(req.query.offset || 0);
+    const limit  = Number(req.query.limit || 200);
     const search = String(req.query.search || "").trim();
-    const action = String(req.query.action || "").trim() || null;
-    const logs = adminListLogs({ limit, offset, search, action });
+    const logs = readAdminLog({ limit, search });
     res.json({ logs });
   });
 
   app.delete("/api/admin/logs", (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    adminClearLogs();
+    clearAdminLog();
     log(session, "logs.clear", { targetType: "system" });
     res.json({ ok: true });
+  });
+
+  // Installer / service / nginx logs
+  app.get("/api/admin/logs/installer", (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    res.json(readInstallerLog({ maxLines: 400 }));
+  });
+
+  app.get("/api/admin/logs/nginx", (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    res.json(readNginxLog({ maxLines: 400 }));
+  });
+
+  app.get("/api/admin/logs/service", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const result = await readServiceLog({ maxLines: 400 });
+    res.json(result);
   });
 
   // ─── Maintenance ─────────────────────────────────────────────────────────────
@@ -620,7 +636,6 @@ function registerAdminPanelRoutes(app, deps) {
     const backupName = `songbird-backup-${stamp}.zip`;
     const backupPath = nodePath.join(backupDir, backupName);
 
-    // Build relative include list from project root so paths stay clean inside the zip
     const includes = ["data/songbird.db", "data/uploads"];
     if (fs.existsSync(envPath)) includes.unshift(".env");
 
@@ -638,6 +653,89 @@ function registerAdminPanelRoutes(app, deps) {
         try { sizeBytes = fs.statSync(backupPath).size; } catch {}
         log(session, "db.backup", { targetType: "system", targetLabel: backupName, details: `${(sizeBytes / 1024 / 1024).toFixed(1)} MB` });
         res.json({ ok: true, backup: { name: backupName, sizeBytes, createdAt: new Date().toISOString() } });
+      },
+    );
+  });
+
+  // Restore from an existing backup in data/backups. Replaces the DB + uploads
+  // and hot-reloads the in-memory database (no service restart). The .env in
+  // the archive is intentionally NOT restored from the panel to avoid changing
+  // ports/secrets out from under the running process.
+  app.post("/api/admin/maintenance/restore", (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const name     = String(req.body?.name || "").trim();
+    const password = String(req.body?.password || "").trim();
+
+    // Strict filename validation — only allow our own backup files, no path traversal.
+    if (!/^songbird-backup-[A-Za-z0-9._-]+\.zip$/.test(name)) {
+      return res.status(400).json({ error: "Invalid backup name." });
+    }
+
+    const dataDir    = nodePath.join(projectRootDir, "data");
+    const backupDir  = nodePath.join(dataDir, "backups");
+    const backupPath = nodePath.join(backupDir, name);
+    if (!fs.existsSync(backupPath)) {
+      return res.status(404).json({ error: "Backup file not found." });
+    }
+
+    const tmpDir = nodePath.join(dataDir, `.restore-${Date.now()}`);
+    const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} };
+
+    fs.mkdirSync(tmpDir, { recursive: true });
+
+    // Extract using unzip (-P password works even for unencrypted archives).
+    execFile(
+      process.env.UNZIP_BIN || "unzip",
+      ["-q", "-P", password || "-", "-o", backupPath, "-d", tmpDir],
+      { timeout: 60000 },
+      (err) => {
+        if (err) {
+          cleanup();
+          const msg = err.code === "ENOENT"
+            ? "unzip command not found on server."
+            : "Failed to extract backup. The password may be incorrect.";
+          log(session, "db.restore", { targetType: "system", targetLabel: name, status: "error", details: msg });
+          return res.status(400).json({ error: msg });
+        }
+
+        try {
+          // Support both current (data/songbird.db) and legacy (songbird.db) layouts.
+          const candidates = [
+            { db: nodePath.join(tmpDir, "data", "songbird.db"), uploads: nodePath.join(tmpDir, "data", "uploads") },
+            { db: nodePath.join(tmpDir, "songbird.db"),         uploads: nodePath.join(tmpDir, "uploads") },
+          ];
+          const layout = candidates.find((c) => fs.existsSync(c.db));
+          if (!layout) {
+            cleanup();
+            log(session, "db.restore", { targetType: "system", targetLabel: name, status: "error", details: "Archive missing songbird.db" });
+            return res.status(400).json({ error: "Backup archive does not contain a database." });
+          }
+
+          const dbDest      = nodePath.join(dataDir, "songbird.db");
+          const uploadsDest = nodePath.join(dataDir, "uploads");
+
+          // Replace DB file.
+          fs.copyFileSync(layout.db, dbDest);
+
+          // Replace uploads directory if present in the archive.
+          if (fs.existsSync(layout.uploads)) {
+            fs.rmSync(uploadsDest, { recursive: true, force: true });
+            fs.cpSync(layout.uploads, uploadsDest, { recursive: true });
+          }
+
+          cleanup();
+
+          // Hot-reload the in-memory DB from the restored file.
+          reloadDatabase();
+
+          log(session, "db.restore", { targetType: "system", targetLabel: name });
+          res.json({ ok: true });
+        } catch (e) {
+          cleanup();
+          log(session, "db.restore", { targetType: "system", targetLabel: name, status: "error", details: String(e?.message || e) });
+          res.status(500).json({ error: "Restore failed while replacing data." });
+        }
       },
     );
   });

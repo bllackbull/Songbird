@@ -12,7 +12,9 @@ import {
   Gauge,
   Globe,
   HardDriveDownload,
+  HardDriveUpload,
   History,
+  KeyRound,
   Lock,
   Megaphone,
   MemoryStick,
@@ -21,6 +23,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  RotateCcw,
   ScrollText,
   Search,
   ShieldCog,
@@ -28,6 +31,7 @@ import {
   Sun,
   Trash,
   User,
+  UserMinus,
   UserPlus,
   Users,
   Wrench,
@@ -1056,6 +1060,7 @@ function ActionsTab() {
   const [loadingList,  setLoadingList]  = useState(true);
   const [vacuumBusy,   setVacuumBusy]   = useState(false);
   const [backupOpen,   setBackupOpen]   = useState(false);
+  const [restoreTarget,setRestoreTarget]= useState(null);
   const [toast,        setToast]        = useState("");
 
   const loadBackups = useCallback(async () => {
@@ -1066,7 +1071,7 @@ function ActionsTab() {
 
   useEffect(() => { loadBackups(); }, [loadBackups]);
 
-  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 3000); };
+  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 3500); };
 
   const runVacuum = async () => {
     if (!confirm("Run VACUUM now? This rewrites the database file to reclaim space.")) return;
@@ -1089,7 +1094,6 @@ function ActionsTab() {
       <div>
         <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">Database Maintenance</h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-
           {/* Vacuum */}
           <div className={cardCls + " flex items-start gap-3 p-4"}>
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
@@ -1132,20 +1136,66 @@ function ActionsTab() {
                 <HardDriveDownload size={14} className="shrink-0 text-emerald-500" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{b.name}</p>
-                  <p className="text-[11px] text-slate-400 dark:text-slate-500">{fmtDateTime(b.createdAt)}</p>
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500">{fmtDateTime(b.createdAt)} · {fmtBytes(b.sizeBytes)}</p>
                 </div>
-                <span className="shrink-0 text-[11px] font-medium text-slate-500 dark:text-slate-400">{fmtBytes(b.sizeBytes)}</span>
+                <button
+                  type="button"
+                  onClick={() => setRestoreTarget(b)}
+                  title="Restore this backup"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-orange-200 bg-orange-50 px-2.5 py-1.5 text-[11px] font-semibold text-orange-600 transition hover:bg-orange-100 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-400"
+                >
+                  <RotateCcw size={12} /> Restore
+                </button>
               </div>
             ))}
           </div>
         )}
-        <p className="mt-2 text-[11px] text-slate-400 dark:text-slate-500">
-          Restoring a backup is a destructive operation and must be done from the server CLI: <code className="rounded bg-slate-100 px-1 py-0.5 dark:bg-white/10">npm run db:restore</code>
+        <p className="mt-2 flex items-start gap-1.5 text-[11px] text-slate-400 dark:text-slate-500">
+          <Lock size={12} className="mt-0.5 shrink-0" />
+          Restoring replaces the current database and uploaded files. The app reloads the restored data immediately — no restart needed.
         </p>
       </div>
 
       {backupOpen && <BackupModal onClose={() => setBackupOpen(false)} onDone={(msg) => { flash(msg); loadBackups(); }} />}
+      {restoreTarget && <RestoreModal backup={restoreTarget} onClose={() => setRestoreTarget(null)} onDone={(msg) => { flash(msg); }} />}
     </div>
+  );
+}
+
+function RestoreModal({ backup, onClose, onDone }) {
+  const [password, setPassword] = useState("");
+  const [confirmText, setConfirmText] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault(); setError(""); setBusy(true);
+    try {
+      const r = await api.post("/api/admin/maintenance/restore", { name: backup.name, password });
+      if (!r.ok) { const d = await r.json(); setError(d.error || "Restore failed."); return; }
+      onDone("Backup restored successfully."); onClose();
+    } catch { setError("Restore failed."); } finally { setBusy(false); }
+  };
+
+  return (
+    <Modal title="Restore backup" onClose={onClose}>
+      <form onSubmit={submit} className="space-y-3">
+        <div className="rounded-xl border border-orange-200 bg-orange-50 px-3 py-2.5 text-[11px] text-orange-700 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-300">
+          This will <strong>permanently replace</strong> the current database and all uploaded files with the contents of <span className="font-semibold">{backup.name}</span>. This cannot be undone.
+        </div>
+        <Field label="Backup password" hint="The password used when this backup was created. Leave blank if it was unencrypted.">
+          <input type="password" className={inputCls} value={password} onChange={e => setPassword(e.target.value)} />
+        </Field>
+        <Field label='Type "restore" to confirm'>
+          <input className={inputCls} value={confirmText} onChange={e => setConfirmText(e.target.value)} placeholder="restore" />
+        </Field>
+        {error && <p className="text-xs text-rose-500">{error}</p>}
+        <button type="submit" disabled={busy || confirmText !== "restore"}
+          className={btnDanger + " w-full justify-center " + (confirmText !== "restore" ? "opacity-50" : "")}>
+          <RotateCcw size={13} /> {busy ? "Restoring…" : "Restore backup"}
+        </button>
+      </form>
+    </Modal>
   );
 }
 
@@ -1181,40 +1231,67 @@ function BackupModal({ onClose, onDone }) {
 // ─── Logs tab ──────────────────────────────────────────────────────────────────
 
 const LOG_ACTION_META = {
-  "user.create":         { label: "User created",      color: "emerald" },
-  "user.edit":           { label: "User edited",       color: "slate" },
-  "user.delete":         { label: "User deleted",      color: "rose" },
-  "user.ban":            { label: "User banned",       color: "orange" },
-  "user.unban":          { label: "User unbanned",     color: "emerald" },
-  "user.role":           { label: "Role changed",      color: "emerald" },
-  "user.reset_password": { label: "Password reset",    color: "orange" },
-  "chat.create":         { label: "Chat created",      color: "emerald" },
-  "chat.edit":           { label: "Chat edited",       color: "slate" },
-  "chat.delete":         { label: "Chat deleted",      color: "rose" },
-  "chat.member_add":     { label: "Member added",      color: "emerald" },
-  "chat.member_remove":  { label: "Member removed",    color: "orange" },
-  "chat.member_role":    { label: "Member role",       color: "slate" },
-  "db.vacuum":           { label: "DB vacuumed",       color: "emerald" },
-  "db.backup":           { label: "Backup created",    color: "emerald" },
-  "logs.clear":          { label: "Logs cleared",      color: "rose" },
+  "user.create":         { label: "User created",   color: "emerald", icon: UserPlus },
+  "user.edit":           { label: "User edited",    color: "slate",   icon: Pencil },
+  "user.delete":         { label: "User deleted",   color: "rose",    icon: Trash },
+  "user.ban":            { label: "User banned",    color: "orange",  icon: Ban },
+  "user.unban":          { label: "User unbanned",  color: "emerald", icon: Ban },
+  "user.role":           { label: "Role changed",   color: "emerald", icon: ShieldCog },
+  "user.reset_password": { label: "Password reset", color: "orange",  icon: KeyRound },
+  "chat.create":         { label: "Chat created",   color: "emerald", icon: Plus },
+  "chat.edit":           { label: "Chat edited",    color: "slate",   icon: Pencil },
+  "chat.delete":         { label: "Chat deleted",   color: "rose",    icon: Trash },
+  "chat.member_add":     { label: "Member added",   color: "emerald", icon: UserPlus },
+  "chat.member_remove":  { label: "Member removed", color: "orange",  icon: UserMinus },
+  "chat.member_role":    { label: "Member role",    color: "slate",   icon: ShieldCog },
+  "db.vacuum":           { label: "DB vacuumed",    color: "emerald", icon: Sparkles },
+  "db.backup":           { label: "Backup created", color: "emerald", icon: HardDriveDownload },
+  "db.restore":          { label: "DB restored",    color: "orange",  icon: HardDriveUpload },
+  "logs.clear":          { label: "Logs cleared",   color: "rose",    icon: Trash },
 };
 
-function LogActionBadge({ action }) {
-  const meta = LOG_ACTION_META[action] || { label: action, color: "slate" };
-  const colors = {
-    emerald: "border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-400",
-    rose:    "border-rose-200 bg-rose-50 text-rose-600 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-400",
-    orange:  "border-orange-200 bg-orange-50 text-orange-600 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-400",
-    slate:   "border-slate-200 bg-slate-50 text-slate-500 dark:border-white/10 dark:bg-white/5 dark:text-slate-400",
-  };
+const LOG_COLORS = {
+  emerald: { badge: "border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-400", icon: "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400" },
+  rose:    { badge: "border-rose-200 bg-rose-50 text-rose-600 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-400",                 icon: "bg-rose-50 text-rose-500 dark:bg-rose-500/10 dark:text-rose-400" },
+  orange:  { badge: "border-orange-200 bg-orange-50 text-orange-600 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-400",     icon: "bg-orange-50 text-orange-500 dark:bg-orange-500/10 dark:text-orange-400" },
+  slate:   { badge: "border-slate-200 bg-slate-50 text-slate-500 dark:border-white/10 dark:bg-white/5 dark:text-slate-400",                    icon: "bg-slate-100 text-slate-500 dark:bg-white/5 dark:text-slate-400" },
+};
+
+const LOG_SOURCES = [
+  { id: "admin",     label: "Admin Panel" },
+  { id: "installer", label: "Installer" },
+  { id: "service",   label: "Service" },
+  { id: "nginx",     label: "Nginx" },
+];
+
+function LogsTab() {
+  const [source, setSource] = useState("admin");
   return (
-    <span className={`inline-flex items-center rounded-full border px-2 py-px text-[10px] font-semibold ${colors[meta.color]}`}>
-      {meta.label}
-    </span>
+    <div className="space-y-3">
+      {/* Source tabs */}
+      <div className="flex flex-wrap gap-1.5">
+        {LOG_SOURCES.map(({ id, label }) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setSource(id)}
+            className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
+              source === id
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300"
+                : "border-transparent text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {source === "admin" ? <AdminLogView /> : <SystemLogView source={source} />}
+    </div>
   );
 }
 
-function LogsTab() {
+function AdminLogView() {
   const [logs,        setLogs]        = useState([]);
   const [initialized, setInitialized] = useState(false);
   const [search,      setSearch]      = useState("");
@@ -1223,7 +1300,7 @@ function LogsTab() {
   useEffect(() => { searchRef.current = search; });
 
   const load = useCallback(async () => {
-    const q = new URLSearchParams({ limit: 200, search: searchRef.current });
+    const q = new URLSearchParams({ limit: 300, search: searchRef.current });
     try { const d = await api.get(`/api/admin/logs?${q}`); setLogs(d.logs || []); } catch {}
     setInitialized(true);
   }, []);
@@ -1251,30 +1328,71 @@ function LogsTab() {
           <RefreshCw size={14} />
         </button>
         <button type="button" onClick={clearLogs} className={btnDanger}>
-          <Trash size={13} /> Clear logs
+          <Trash size={13} /> Clear
         </button>
       </div>
 
       {!initialized ? <LoadingRows /> : logs.length === 0 ? <EmptyState message="No log entries." /> : (
         <div className={"overflow-hidden " + cardCls}>
-          {logs.map((entry, i) => (
-            <div key={entry.id} className={`flex items-start gap-3 px-4 py-3 ${i < logs.length - 1 ? "border-b border-slate-100 dark:border-white/5" : ""}`}>
-              <History size={14} className={`mt-0.5 shrink-0 ${entry.status === "error" ? "text-rose-400" : "text-slate-300 dark:text-slate-600"}`} />
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <LogActionBadge action={entry.action} />
-                  {entry.target_label && <span className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{entry.target_label}</span>}
-                  {entry.status === "error" && <span className="text-[10px] font-semibold text-rose-500">failed</span>}
+          {logs.map((entry, i) => {
+            const meta = LOG_ACTION_META[entry.action] || { label: entry.action, color: "slate", icon: History };
+            const Icon = meta.icon || History;
+            const colors = LOG_COLORS[meta.color] || LOG_COLORS.slate;
+            return (
+              <div key={i} className={`flex items-start gap-3 px-4 py-3 ${i < logs.length - 1 ? "border-b border-slate-100 dark:border-white/5" : ""}`}>
+                <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${colors.icon}`}>
+                  <Icon size={13} />
                 </div>
-                {entry.details && <p className="mt-0.5 truncate text-[11px] text-slate-400 dark:text-slate-500">{entry.details}</p>}
-                <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
-                  {entry.actor_username ? `@${entry.actor_username}` : "system"} · {fmtDateTime(entry.created_at)}
-                </p>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className={`inline-flex items-center rounded-full border px-2 py-px text-[10px] font-semibold ${colors.badge}`}>{meta.label}</span>
+                    {entry.targetLabel && <span className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{entry.targetLabel}</span>}
+                    {entry.status === "error" && <span className="text-[10px] font-semibold text-rose-500">failed</span>}
+                  </div>
+                  {entry.details && <p className="mt-0.5 truncate text-[11px] text-slate-400 dark:text-slate-500">{entry.details}</p>}
+                  <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
+                    {entry.actorUsername ? `@${entry.actorUsername}` : "system"} · {fmtDateTime(entry.ts)}
+                  </p>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
+    </div>
+  );
+}
+
+function SystemLogView({ source }) {
+  const [data,        setData]        = useState(null);
+  const [initialized, setInitialized] = useState(false);
+
+  const load = useCallback(async () => {
+    try { const d = await api.get(`/api/admin/logs/${source}`); setData(d); } catch { setData({ available: false, lines: [], reason: "Failed to load." }); }
+    setInitialized(true);
+  }, [source]);
+
+  useEffect(() => { setInitialized(false); load(); }, [load]);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-end">
+        <button type="button" onClick={load} className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:bg-slate-100 dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5" title="Refresh">
+          <RefreshCw size={14} />
+        </button>
+      </div>
+      {!initialized ? <LoadingRows /> : !data?.available ? (
+        <EmptyState message={data?.reason || "Logs not available."} />
+      ) : data.lines.length === 0 ? (
+        <EmptyState message="Log is empty." />
+      ) : (
+        <div className={"overflow-hidden " + cardCls}>
+          <pre className="app-scroll max-h-[60vh] overflow-auto p-4 text-[11px] leading-relaxed text-slate-600 dark:text-slate-300">
+            {data.lines.join("\n")}
+          </pre>
+        </div>
+      )}
+      {data?.source && <p className="text-[11px] text-slate-400 dark:text-slate-500">Source: <code className="rounded bg-slate-100 px-1 py-0.5 dark:bg-white/10">{data.source}</code></p>}
     </div>
   );
 }
@@ -1282,7 +1400,6 @@ function LogsTab() {
 function fmtDateTime(iso) {
   if (!iso) return "—";
   try {
-    // SQLite datetime('now') returns UTC without timezone marker; treat as UTC
     const d = iso.includes("T") ? new Date(iso) : new Date(iso.replace(" ", "T") + "Z");
     return d.toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   } catch { return iso; }

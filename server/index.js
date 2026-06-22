@@ -126,10 +126,8 @@ import {
   adminBanUser,
   adminDeleteUser,
   adminDeleteChat,
-  addAdminLog,
-  adminListLogs,
-  adminClearLogs,
   vacuumDatabase,
+  reloadDatabase,
 } from "./db.js";
 
 process.title = "songbird-server";
@@ -745,10 +743,8 @@ const apiDeps = {
   adminBanUser,
   adminDeleteUser,
   adminDeleteChat,
-  addAdminLog,
-  adminListLogs,
-  adminClearLogs,
   vacuumDatabase,
+  reloadDatabase,
 };
 
 const remoteChannelManager = createRemoteChannelManager({

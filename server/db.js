@@ -39,7 +39,7 @@ const SQL = await initSqlJs({
 
 const fileExists = fs.existsSync(dbPath);
 const fileBuffer = fileExists ? fs.readFileSync(dbPath) : null;
-const db = fileBuffer ? new SQL.Database(fileBuffer) : new SQL.Database();
+let db = fileBuffer ? new SQL.Database(fileBuffer) : new SQL.Database();
 const DB_SAVE_DEBOUNCE_MS = Math.max(
   0,
   Number(process.env.DB_SAVE_DEBOUNCE_MS || 150),
@@ -51,6 +51,26 @@ function writeDatabaseToDisk() {
   const data = db.export();
   fs.writeFileSync(dbPath, Buffer.from(data));
   databaseDirty = false;
+}
+
+// Reload the in-memory database from the file on disk. Used after a restore
+// replaces songbird.db underneath the running process. Cancels any pending
+// debounced save first so we never overwrite the freshly restored file.
+function reloadDatabaseFromDisk() {
+  if (pendingSaveTimer) {
+    clearTimeout(pendingSaveTimer);
+    pendingSaveTimer = null;
+  }
+  databaseDirty = false;
+  if (!fs.existsSync(dbPath)) {
+    throw new Error("Database file not found on disk.");
+  }
+  const buffer = fs.readFileSync(dbPath);
+  const next = new SQL.Database(buffer);
+  try {
+    db.close();
+  } catch {}
+  db = next;
 }
 
 function createPreMigrationBackup(fromVersion, toVersion) {
@@ -2565,44 +2585,13 @@ export function adminDeleteChat(chatId) {
   return deleteChatById(chatId);
 }
 
-// ─── Admin Logs ──────────────────────────────────────────────────────────────
-
-export function addAdminLog({ actorUserId = null, actorUsername = null, action, targetType = null, targetLabel = null, details = null, status = "success" }) {
-  run(
-    `INSERT INTO admin_logs (actor_user_id, actor_username, action, target_type, target_label, details, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-    [actorUserId, actorUsername, String(action || ""), targetType, targetLabel, details, status],
-  );
-}
-
-export function adminListLogs({ limit = 100, offset = 0, search = "", action = null }) {
-  const safeLimit  = Math.max(1, Math.min(500, Number(limit) || 100));
-  const safeOffset = Math.max(0, Number(offset) || 0);
-  const conditions = [];
-  const params = [];
-  if (search) {
-    const like = `%${escapeLikePattern(search)}%`;
-    conditions.push("(actor_username LIKE ? ESCAPE '\\' OR target_label LIKE ? ESCAPE '\\' OR details LIKE ? ESCAPE '\\')");
-    params.push(like, like, like);
-  }
-  if (action) {
-    conditions.push("action = ?");
-    params.push(action);
-  }
-  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-  params.push(safeLimit, safeOffset);
-  return getAll(
-    `SELECT id, actor_user_id, actor_username, action, target_type, target_label, details, status, created_at
-     FROM admin_logs ${where} ORDER BY id DESC LIMIT ? OFFSET ?`,
-    params,
-  );
-}
-
-export function adminClearLogs() {
-  run("DELETE FROM admin_logs");
-}
+// ─── Admin Maintenance ─────────────────────────────────────────────────────────
 
 export function vacuumDatabase() {
   run("VACUUM");
   saveDatabase();
+}
+
+export function reloadDatabase() {
+  reloadDatabaseFromDisk();
 }
