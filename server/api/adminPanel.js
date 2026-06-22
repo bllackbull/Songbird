@@ -44,6 +44,8 @@ function registerAdminPanelRoutes(app, deps) {
     // maintenance
     vacuumDatabase,
     reloadDatabase,
+    adminClearAllMessages,
+    adminResetDatabase,
     projectRootDir,
     path: nodePath,
     fs,
@@ -592,6 +594,42 @@ function registerAdminPanelRoutes(app, deps) {
     } catch (err) {
       log(session, "db.vacuum", { targetType: "system", status: "error", details: String(err?.message || err) });
       res.status(500).json({ error: "Vacuum failed." });
+    }
+  });
+
+  // Danger zone — clear all messages & their files (keeps users and chats).
+  app.post("/api/admin/maintenance/clear-messages", (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    if (req.body?.confirm !== "clear messages") {
+      return res.status(400).json({ error: "Confirmation phrase required." });
+    }
+    try {
+      const { storedNames } = adminClearAllMessages() || {};
+      if (Array.isArray(storedNames) && storedNames.length > 0) removeStoredFileNames(storedNames);
+      log(session, "db.clear_messages", { targetType: "system", details: `${storedNames?.length || 0} files removed` });
+      res.json({ ok: true });
+    } catch (err) {
+      log(session, "db.clear_messages", { targetType: "system", status: "error", details: String(err?.message || err) });
+      res.status(500).json({ error: "Failed to clear messages." });
+    }
+  });
+
+  // Danger zone — full reset: wipes users, chats, messages, sessions.
+  app.post("/api/admin/maintenance/reset", (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    if (req.body?.confirm !== "reset everything") {
+      return res.status(400).json({ error: "Confirmation phrase required." });
+    }
+    try {
+      const { storedNames } = adminResetDatabase() || {};
+      if (Array.isArray(storedNames) && storedNames.length > 0) removeStoredFileNames(storedNames);
+      log(session, "db.reset", { targetType: "system", details: `${storedNames?.length || 0} files removed` });
+      res.json({ ok: true });
+    } catch (err) {
+      log(session, "db.reset", { targetType: "system", status: "error", details: String(err?.message || err) });
+      res.status(500).json({ error: "Reset failed." });
     }
   });
 

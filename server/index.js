@@ -128,6 +128,8 @@ import {
   adminDeleteChat,
   vacuumDatabase,
   reloadDatabase,
+  adminClearAllMessages,
+  adminResetDatabase,
 } from "./db.js";
 
 process.title = "songbird-server";
@@ -745,6 +747,8 @@ const apiDeps = {
   adminDeleteChat,
   vacuumDatabase,
   reloadDatabase,
+  adminClearAllMessages,
+  adminResetDatabase,
 };
 
 const remoteChannelManager = createRemoteChannelManager({

@@ -2595,3 +2595,47 @@ export function vacuumDatabase() {
 export function reloadDatabase() {
   reloadDatabaseFromDisk();
 }
+
+// Wipe all messages and their file records (keeps users, chats, memberships).
+// Returns the storedNames of files to remove from disk.
+export function adminClearAllMessages() {
+  const fileRows = getAll("SELECT stored_name FROM chat_message_files");
+  const storedNames = fileRows.map((r) => r.stored_name).filter(Boolean);
+  run("BEGIN");
+  try {
+    run("DELETE FROM chat_message_reads");
+    run("DELETE FROM chat_message_files");
+    run("DELETE FROM chat_messages");
+    run("COMMIT");
+  } catch (error) {
+    run("ROLLBACK");
+    throw error;
+  }
+  saveDatabase();
+  return { storedNames };
+}
+
+// Full reset: wipe all user-generated data (users, chats, messages, sessions).
+// Schema is preserved. Returns storedNames for disk cleanup.
+export function adminResetDatabase() {
+  const fileRows = getAll("SELECT stored_name FROM chat_message_files");
+  const storedNames = fileRows.map((r) => r.stored_name).filter(Boolean);
+  run("BEGIN");
+  try {
+    run("DELETE FROM chat_message_reads");
+    run("DELETE FROM chat_message_files");
+    run("DELETE FROM chat_messages");
+    run("DELETE FROM hidden_chats");
+    run("DELETE FROM chat_members");
+    run("DELETE FROM chats");
+    run("DELETE FROM sessions");
+    run("DELETE FROM users");
+    run("COMMIT");
+  } catch (error) {
+    run("ROLLBACK");
+    throw error;
+  }
+  run("VACUUM");
+  saveDatabase();
+  return { storedNames };
+}

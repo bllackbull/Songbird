@@ -24,11 +24,13 @@ import {
   Megaphone,
   MemoryStick,
   MessageCircleMore,
+  MessageCircleX,
   Moon,
   Pencil,
   Plus,
   Power,
   Refresh,
+  Rotate,
   ScrollText,
   Search,
   ShieldCog,
@@ -1069,6 +1071,8 @@ function ActionsTab() {
   const [appInfo,      setAppInfo]      = useState(null);
   const [serviceAction, setServiceAction] = useState(null); // "restart" | "stop" awaiting confirm
   const [servicePending, setServicePending] = useState(false);
+  const [danger,       setDanger]       = useState(null); // { kind, title, message, phrase, endpoint } awaiting confirm
+  const [dangerBusy,   setDangerBusy]   = useState(false);
   const fileRef = useRef(null);
 
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 4000); };
@@ -1122,6 +1126,17 @@ function ActionsTab() {
         : "Stopping the service… the app will become unavailable.");
     } catch { flash(`Failed to ${action} the service.`); }
     finally { setServicePending(false); setServiceAction(null); }
+  };
+
+  const confirmDanger = async () => {
+    if (!danger) return;
+    setDangerBusy(true);
+    try {
+      const r = await api.post(danger.endpoint, { confirm: danger.phrase });
+      const d = await r.json().catch(() => ({}));
+      flash(r.ok ? danger.success : (d.error || "Action failed."));
+    } catch { flash("Action failed."); }
+    finally { setDangerBusy(false); setDanger(null); }
   };
 
   return (
@@ -1189,6 +1204,60 @@ function ActionsTab() {
         />
       </div>
 
+      {/* ── Danger zone ── */}
+      <div>
+        <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-rose-400 dark:text-rose-400/80">Danger Zone</h2>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {/* Clear messages */}
+          <div className="flex items-start gap-3 rounded-2xl border border-rose-200/70 bg-rose-50/40 p-4 dark:border-rose-500/30 dark:bg-rose-500/[0.04]">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-500 dark:bg-rose-500/10 dark:text-rose-400">
+              <MessageCircleX size={16} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Clear all messages</p>
+              <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">Permanently delete every message and uploaded file. Users and chats are kept.</p>
+              <button
+                type="button"
+                onClick={() => setDanger({
+                  title: "Clear all messages",
+                  message: "This permanently deletes every message and uploaded file across all chats. Users and chats remain. This cannot be undone.",
+                  phrase: "clear messages",
+                  endpoint: "/api/admin/maintenance/clear-messages",
+                  success: "All messages and files cleared.",
+                })}
+                className={btnDanger + " mt-3"}
+              >
+                <Trash size={13} /> Clear messages
+              </button>
+            </div>
+          </div>
+
+          {/* Reset everything */}
+          <div className="flex items-start gap-3 rounded-2xl border border-rose-200/70 bg-rose-50/40 p-4 dark:border-rose-500/30 dark:bg-rose-500/[0.04]">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-500 dark:bg-rose-500/10 dark:text-rose-400">
+              <Rotate size={16} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Reset database</p>
+              <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">Wipe everything — all users, chats, messages, sessions, and files. The schema is kept.</p>
+              <button
+                type="button"
+                onClick={() => setDanger({
+                  title: "Reset database",
+                  message: "This permanently deletes ALL users, chats, messages, sessions, and files. The app will be empty afterwards. This cannot be undone.",
+                  phrase: "reset everything",
+                  endpoint: "/api/admin/maintenance/reset",
+                  success: "Database reset. The app is now empty.",
+                })}
+                className={btnDanger + " mt-3"}
+              >
+                <Trash size={13} /> Reset database
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <ConfirmModal
         open={Boolean(pendingFile)}
         title="Restore database"
@@ -1211,6 +1280,16 @@ function ActionsTab() {
         busy={servicePending}
         onConfirm={confirmServiceAction}
         onClose={() => { if (!servicePending) setServiceAction(null); }}
+      />
+
+      <TypedConfirmModal
+        open={Boolean(danger)}
+        title={danger?.title || ""}
+        message={danger?.message || ""}
+        phrase={danger?.phrase || ""}
+        busy={dangerBusy}
+        onConfirm={confirmDanger}
+        onClose={() => { if (!dangerBusy) setDanger(null); }}
       />
     </div>
   );
@@ -1310,6 +1389,50 @@ function ConfirmModal({ open, title, message, confirmLabel = "Confirm", busy = f
   );
 }
 
+// Confirmation modal that requires typing an exact phrase before enabling confirm.
+function TypedConfirmModal({ open, title, message, phrase, busy = false, onConfirm, onClose }) {
+  const [text, setText] = useState("");
+  useEffect(() => { if (open) setText(""); }, [open]);
+  if (!open) return null;
+  const matched = text.trim() === phrase;
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-6" onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
+      <div role="dialog" aria-modal="true" className="w-full max-w-sm rounded-2xl border border-rose-100/70 bg-white p-6 shadow-xl dark:border-rose-500/30 dark:bg-slate-950">
+        <h3 className="text-lg font-semibold text-rose-600 dark:text-rose-300">{title}</h3>
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{message}</p>
+        <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+          Type <span className="font-semibold text-rose-600 dark:text-rose-300">{phrase}</span> to confirm.
+        </p>
+        <input
+          autoFocus
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder={phrase}
+          className="mt-2 w-full rounded-xl border border-rose-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-rose-400 focus:ring-2 focus:ring-rose-300/40 dark:border-rose-500/30 dark:bg-slate-900 dark:text-slate-100"
+        />
+        <div className="mt-4 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            className="rounded-full border border-emerald-200 bg-white px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] disabled:opacity-50 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy || !matched}
+            className="rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:shadow-[0_0_14px_rgba(244,63,94,0.2)] disabled:opacity-40 dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200"
+          >
+            {busy ? "Working…" : "Confirm"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Logs tab ──────────────────────────────────────────────────────────────────
 
 const LOG_ACTION_META = {
@@ -1327,6 +1450,8 @@ const LOG_ACTION_META = {
   "chat.member_remove":  { label: "Member removed", color: "orange",  icon: UserMinus },
   "chat.member_role":    { label: "Member role",    color: "slate",   icon: ShieldCog },
   "db.vacuum":           { label: "DB vacuumed",    color: "emerald", icon: Sparkles },
+  "db.clear_messages":   { label: "Messages cleared", color: "rose",  icon: MessageCircleX },
+  "db.reset":            { label: "DB reset",       color: "rose",    icon: Rotate },
   "db.backup":           { label: "DB downloaded",  color: "emerald", icon: HardDriveDownload },
   "db.restore":          { label: "DB restored",    color: "slate",   icon: HardDriveUpload },
   "service.restart":     { label: "Service restarted", color: "emerald", icon: Refresh },
