@@ -1,0 +1,117 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { MessageCircleMore, Pencil, Plus, Search, Trash, Users } from "../../icons/lucide.js";
+import { api, cardCls, inputSmCls, btnPrimary, iconBtn, fmtDate } from "./adminShared.js";
+import { LoadingRows, EmptyState, FilterDropdown, SortTh, ChatTypeIcon, ChatTypeBadge } from "./AdminCommon.jsx";
+import { CreateChatModal, EditChatModal, MembersModal } from "./ChatModals.jsx";
+
+export default function ChatsTab({ onStatsChange }) {
+  const [chats, setChats]             = useState([]);
+  const [initialized, setInitialized] = useState(false);
+  const [search, setSearch]           = useState("");
+  const [typeFilter, setTypeFilter]   = useState("");
+  const [sortBy, setSortBy]           = useState("id");
+  const [sortDir, setSortDir]         = useState("DESC");
+  const [editChat, setEditChat]       = useState(null);
+  const [membersChat, setMembersChat] = useState(null);
+  const [createOpen, setCreateOpen]   = useState(false);
+  const debounceRef = useRef(null);
+  const paramsRef = useRef({ search, typeFilter, sortBy, sortDir });
+  useEffect(() => { paramsRef.current = { search, typeFilter, sortBy, sortDir }; });
+
+  const load = useCallback(async () => {
+    const { search: s, typeFilter: type, sortBy: sBy, sortDir: sDir } = paramsRef.current;
+    const q = new URLSearchParams({ limit: 200, search: s, sortBy: sBy, sortDir: sDir });
+    if (type) q.set("type", type);
+    try { const d = await api.get(`/api/admin/chats?${q}`); setChats(d.chats || []); } catch {}
+    setInitialized(true);
+  }, []);
+
+  useEffect(() => {
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(load, 250);
+    return () => clearTimeout(debounceRef.current);
+  }, [search, typeFilter, sortBy, sortDir, load]);
+
+  const toggleSort = (field) => {
+    setSortBy((prev) => {
+      if (prev === field) { setSortDir((d) => (d === "DESC" ? "ASC" : "DESC")); return field; }
+      setSortDir("DESC"); return field;
+    });
+  };
+
+  const handleDelete = async (c) => {
+    if (!confirm(`Delete "${c.name || `Chat #${c.id}`}"? This cannot be undone.`)) return;
+    await api.delete(`/api/admin/chats/${c.id}`);
+    load(); onStatsChange();
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-40 flex-1">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input type="text" placeholder="Search chats…" value={search} onChange={(e) => setSearch(e.target.value)} className={inputSmCls + " pl-8"} />
+        </div>
+        <FilterDropdown value={typeFilter} onChange={setTypeFilter} options={[["", "All types"], ["dm", "DMs"], ["group", "Groups"], ["channel", "Channels"]]} />
+        <button type="button" onClick={() => setCreateOpen(true)} className={btnPrimary}><Plus size={13} /> New chat</button>
+      </div>
+
+      {!initialized ? <LoadingRows /> : chats.length === 0 ? <EmptyState message="No chats found." /> : (
+        <div className={"overflow-hidden " + cardCls}>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-slate-100 dark:border-white/5">
+                <tr>
+                  <SortTh field="name" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Chat</SortTh>
+                  <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400">Type</th>
+                  <SortTh field="member_count" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}><Users size={10} className="mr-0.5 inline opacity-60" />Members</SortTh>
+                  <SortTh field="message_count" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}><MessageCircleMore size={10} className="mr-0.5 inline opacity-60" />Messages</SortTh>
+                  <SortTh field="created_at" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Created</SortTh>
+                  <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50 dark:divide-white/[0.04]">
+                {chats.map((c) => (
+                  <tr key={c.id} className="hover:bg-emerald-50/30 dark:hover:bg-emerald-500/5">
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <ChatTypeIcon type={c.type} size={14} />
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{c.name || `Chat #${c.id}`}</p>
+                          {c.group_username && <p className="text-[11px] text-slate-400">@{c.group_username}</p>}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5"><ChatTypeBadge type={c.type} visibility={c.group_visibility} /></td>
+                    <td className="px-4 py-2.5 text-xs text-slate-600 dark:text-slate-300">
+                      <span className="flex items-center gap-1"><Users size={11} className="text-slate-400" />{c.member_count}</span>
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-slate-600 dark:text-slate-300">
+                      <span className="flex items-center gap-1"><MessageCircleMore size={11} className="text-slate-400" />{c.message_count}</span>
+                    </td>
+                    <td className="px-4 py-2.5 text-[11px] text-slate-400 dark:text-slate-500">{fmtDate(c.created_at)}</td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-1">
+                        {c.type !== "dm" && (
+                          <>
+                            <button type="button" onClick={() => setEditChat(c)} className={iconBtn("slate")} title="Edit"><Pencil size={13} /></button>
+                            <button type="button" onClick={() => setMembersChat(c)} className={iconBtn("emerald")} title="Members"><Users size={13} /></button>
+                          </>
+                        )}
+                        <button type="button" onClick={() => handleDelete(c)} className={iconBtn("rose")} title="Delete"><Trash size={13} /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {createOpen && <CreateChatModal onClose={() => setCreateOpen(false)} onCreated={() => { load(); onStatsChange(); }} />}
+      {editChat && <EditChatModal chat={editChat} onClose={() => setEditChat(null)} onSaved={load} />}
+      {membersChat && <MembersModal chat={membersChat} onClose={() => setMembersChat(null)} />}
+    </div>
+  );
+}

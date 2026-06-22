@@ -1,0 +1,186 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Ban,
+  HardDriveDownload,
+  HardDriveUpload,
+  History,
+  KeyRound,
+  MessageCircleX,
+  Pencil,
+  Plus,
+  Power,
+  Refresh,
+  Rotate,
+  Search,
+  ShieldCog,
+  Sparkles,
+  Trash,
+  UserMinus,
+  UserPlus,
+} from "../../icons/lucide.js";
+import { api, cardCls, inputSmCls, btnDanger, fmtDateTime } from "./adminShared.js";
+import { LoadingRows, EmptyState } from "./AdminCommon.jsx";
+
+const LOG_ACTION_META = {
+  "user.create":         { label: "User created",      color: "emerald", icon: UserPlus },
+  "user.edit":           { label: "User edited",       color: "slate",   icon: Pencil },
+  "user.delete":         { label: "User deleted",      color: "rose",    icon: Trash },
+  "user.ban":            { label: "User banned",       color: "orange",  icon: Ban },
+  "user.unban":          { label: "User unbanned",     color: "emerald", icon: Ban },
+  "user.role":           { label: "Role changed",      color: "emerald", icon: ShieldCog },
+  "user.reset_password": { label: "Password reset",    color: "orange",  icon: KeyRound },
+  "chat.create":         { label: "Chat created",      color: "emerald", icon: Plus },
+  "chat.edit":           { label: "Chat edited",       color: "slate",   icon: Pencil },
+  "chat.delete":         { label: "Chat deleted",      color: "rose",    icon: Trash },
+  "chat.member_add":     { label: "Member added",      color: "emerald", icon: UserPlus },
+  "chat.member_remove":  { label: "Member removed",    color: "orange",  icon: UserMinus },
+  "chat.member_role":    { label: "Member role",       color: "slate",   icon: ShieldCog },
+  "db.vacuum":           { label: "DB vacuumed",       color: "emerald", icon: Sparkles },
+  "db.clear_messages":   { label: "Messages cleared",  color: "rose",    icon: MessageCircleX },
+  "db.reset":            { label: "DB reset",          color: "rose",    icon: Rotate },
+  "db.backup":           { label: "DB downloaded",     color: "emerald", icon: HardDriveDownload },
+  "db.restore":          { label: "DB restored",       color: "slate",   icon: HardDriveUpload },
+  "service.restart":     { label: "Service restarted", color: "emerald", icon: Refresh },
+  "service.stop":        { label: "Service stopped",   color: "rose",    icon: Power },
+  "logs.clear":          { label: "Logs cleared",      color: "rose",    icon: Trash },
+};
+
+const LOG_COLORS = {
+  emerald: { icon: "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400" },
+  rose:    { icon: "bg-rose-50 text-rose-500 dark:bg-rose-500/10 dark:text-rose-400" },
+  orange:  { icon: "bg-orange-50 text-orange-500 dark:bg-orange-500/10 dark:text-orange-400" },
+  slate:   { icon: "bg-slate-100 text-slate-500 dark:bg-white/5 dark:text-slate-400" },
+};
+
+const LOG_SOURCES = [
+  { id: "admin",     label: "Admin Panel" },
+  { id: "installer", label: "Installer" },
+  { id: "service",   label: "Service" },
+  { id: "nginx",     label: "Nginx" },
+];
+
+function AdminLogView() {
+  const [logs, setLogs]               = useState([]);
+  const [initialized, setInitialized] = useState(false);
+  const [search, setSearch]           = useState("");
+  const debounceRef = useRef(null);
+  const searchRef = useRef(search);
+  useEffect(() => { searchRef.current = search; });
+
+  const load = useCallback(async () => {
+    const q = new URLSearchParams({ limit: 300, search: searchRef.current });
+    try { const d = await api.get(`/api/admin/logs?${q}`); setLogs(d.logs || []); } catch {}
+    setInitialized(true);
+  }, []);
+
+  useEffect(() => {
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(load, 250);
+    return () => clearTimeout(debounceRef.current);
+  }, [search, load]);
+
+  const clearLogs = async () => {
+    if (!confirm("Clear all admin logs? This cannot be undone.")) return;
+    await api.delete("/api/admin/logs");
+    load();
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-40 flex-1">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input type="text" placeholder="Search logs…" value={search} onChange={(e) => setSearch(e.target.value)} className={inputSmCls + " pl-8"} />
+        </div>
+        <button type="button" onClick={load} className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:bg-slate-100 dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5" title="Refresh">
+          <Refresh size={14} />
+        </button>
+        <button type="button" onClick={clearLogs} className={btnDanger}><Trash size={13} /> Clear</button>
+      </div>
+
+      {!initialized ? <LoadingRows /> : logs.length === 0 ? <EmptyState message="No log entries." /> : (
+        <div className={"overflow-hidden " + cardCls}>
+          {logs.map((entry, i) => {
+            const meta = LOG_ACTION_META[entry.action] || { label: entry.action, color: "slate", icon: History };
+            const Icon = meta.icon || History;
+            const colors = LOG_COLORS[meta.color] || LOG_COLORS.slate;
+            return (
+              <div key={i} className={`flex items-start gap-3 px-4 py-3 ${i < logs.length - 1 ? "border-b border-slate-100 dark:border-white/5" : ""}`}>
+                <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${colors.icon}`}>
+                  <Icon size={13} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{meta.label}</span>
+                    {entry.status === "error" && <span className="text-[10px] font-semibold text-rose-500">failed</span>}
+                  </div>
+                  <p className="mt-0.5 truncate text-[11px] text-slate-400 dark:text-slate-500">
+                    {[entry.targetLabel, entry.details].filter(Boolean).join(" · ")}
+                    {(entry.targetLabel || entry.details) ? " · " : ""}
+                    {entry.actorUsername ? `@${entry.actorUsername}` : "system"} · {fmtDateTime(entry.ts)}
+                  </p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SystemLogView({ source }) {
+  const [data, setData]               = useState(null);
+  const [initialized, setInitialized] = useState(false);
+
+  const load = useCallback(async () => {
+    try { const d = await api.get(`/api/admin/logs/${source}`); setData(d); }
+    catch { setData({ available: false, lines: [], reason: "Failed to load." }); }
+    setInitialized(true);
+  }, [source]);
+
+  useEffect(() => { setInitialized(false); load(); }, [load]);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-end">
+        <button type="button" onClick={load} className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:bg-slate-100 dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5" title="Refresh">
+          <Refresh size={14} />
+        </button>
+      </div>
+      {!initialized ? <LoadingRows /> : !data?.available ? (
+        <EmptyState message={data?.reason || "Logs not available."} />
+      ) : data.lines.length === 0 ? (
+        <EmptyState message="Log is empty." />
+      ) : (
+        <div className={"overflow-hidden " + cardCls}>
+          <pre className="app-scroll max-h-[60vh] overflow-auto p-4 text-[11px] leading-relaxed text-slate-600 dark:text-slate-300">
+            {data.lines.join("\n")}
+          </pre>
+        </div>
+      )}
+      {data?.source && <p className="text-[11px] text-slate-400 dark:text-slate-500">Source: <code className="rounded bg-slate-100 px-1 py-0.5 dark:bg-white/10">{data.source}</code></p>}
+    </div>
+  );
+}
+
+export default function LogsTab() {
+  const [source, setSource] = useState("admin");
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-1.5">
+        {LOG_SOURCES.map(({ id, label }) => (
+          <button key={id} type="button" onClick={() => setSource(id)}
+            className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
+              source === id
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300"
+                : "border-transparent text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5"
+            }`}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {source === "admin" ? <AdminLogView /> : <SystemLogView source={source} />}
+    </div>
+  );
+}
