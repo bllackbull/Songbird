@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../api/chatApi.js";
 import {
+  Activity,
   ArrowLeft,
   ArrowLeftFromLine,
   ArrowUpDown,
@@ -12,6 +13,7 @@ import {
   Globe,
   Lock,
   Megaphone,
+  MemoryStick,
   MessageCircleMore,
   Moon,
   Pencil,
@@ -341,13 +343,13 @@ function DashboardTab({ stats, onStatsChange }) {
   const heapPct   = sys ? Math.round((sys.memory.heapUsed   / sys.memory.heapTotal)   * 100) : 0;
   const load1     = sys?.loadAvg?.[0] ?? null;
   const loadPct   = sys ? Math.round(Math.min(100, (load1 / (sys.cpuCount || 1)) * 100)) : 0;
-  // Storage gauge — total data used vs system memory as a proxy (we don't have disk total from OS easily)
-  // Show as absolute sizes rather than a % gauge
+  const diskTotal = sys?.storage?.diskTotalBytes ?? 0;
+  const diskUsed  = sys?.storage?.diskUsedBytes ?? 0;
+  const diskPct   = diskTotal > 0 ? Math.round((diskUsed / diskTotal) * 100) : 0;
+
   const totalData    = sys?.storage?.totalDataBytes ?? 0;
   const dbSize       = sys?.storage?.dbSizeBytes ?? 0;
   const uploadsSize  = sys?.storage?.uploadsSizeBytes ?? 0;
-  // Storage % relative to the larger of db+uploads (cap at 100 for display)
-  const storagePct   = totalData > 0 ? Math.min(100, Math.round((totalData / Math.max(totalData, 1)) * 100)) : 0;
 
   const gaugeColor = (pct) => pct > 85 ? "rose" : pct > 65 ? "orange" : "emerald";
 
@@ -361,14 +363,14 @@ function DashboardTab({ stats, onStatsChange }) {
     { label: "Active Sessions", value: stats?.totalSessions, icon: ShieldCog,         accent: "emerald" },
   ];
 
-  // Second-row info cards (individual cards, no gauge)
+  // Info cards
   const infoCards = [
-    { label: "Database",    value: sys ? fmtBytes(dbSize)      : "—", icon: Database },
-    { label: "Uploads",     value: sys ? fmtBytes(uploadsSize) : "—", icon: Database },
-    { label: "Total data",  value: sys ? fmtBytes(totalData)   : "—", icon: Database },
-    { label: "Uptime",      value: sys ? fmtUptime(sys.uptime) : "—", icon: Gauge, accent: true },
-    { label: "App memory",  value: sys ? fmtBytes(sys.memory.heapUsed) : "—", icon: Gauge },
-    { label: "Process RSS", value: sys ? fmtBytes(sys.memory.rss)      : "—", icon: Gauge },
+    { label: "Database",    value: sys ? fmtBytes(dbSize)         : "—", icon: Database },
+    { label: "Uploads",     value: sys ? fmtBytes(uploadsSize)    : "—", icon: Database },
+    { label: "Total data",  value: sys ? fmtBytes(totalData)      : "—", icon: Database },
+    { label: "Process RSS", value: sys ? fmtBytes(sys.memory.rss) : "—", icon: MemoryStick,
+      hint: "Total RAM used by the server process (Resident Set Size)" },
+    { label: "Uptime",      value: sys ? fmtUptime(sys.uptime)    : "—", icon: Activity, accent: true },
   ];
 
   return (
@@ -381,43 +383,46 @@ function DashboardTab({ stats, onStatsChange }) {
           {!sys ? (
             <p className="py-6 text-center text-xs text-slate-400 dark:text-slate-500">Loading…</p>
           ) : (
-            <div className="space-y-4">
-              {/* Gauges — CPU first, then mem, then sys mem */}
-              <div className="flex flex-wrap items-start justify-around gap-2">
-                <SemiCircleGauge
-                  pct={loadPct}
-                  color={gaugeColor(loadPct)}
-                  label="CPU Load"
-                  sublabel={`${load1?.toFixed(2)} avg · ${sys.cpuCount} core${sys.cpuCount !== 1 ? "s" : ""}`}
-                />
-                <SemiCircleGauge
-                  pct={heapPct}
-                  color={gaugeColor(heapPct)}
-                  label="App Memory"
-                  sublabel={`${fmtBytes(sys.memory.heapUsed)} / ${fmtBytes(sys.memory.heapTotal)}`}
-                />
-                <SemiCircleGauge
-                  pct={sysPct}
-                  color={gaugeColor(sysPct)}
-                  label="System Memory"
-                  sublabel={`${fmtBytes(sys.memory.systemUsed)} / ${fmtBytes(sys.memory.systemTotal)}`}
-                />
-              </div>
-
-              {/* Info cards row */}
-              <div className="grid grid-cols-2 gap-2 border-t border-slate-100 pt-4 dark:border-white/5 sm:grid-cols-3 md:grid-cols-6">
-                {infoCards.map(({ label, value, icon: Icon, accent }) => (
-                  <div key={label} className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2.5 dark:border-white/5 dark:bg-white/[0.03]">
-                    <div className="flex items-center gap-1 mb-1">
-                      <Icon size={10} className="shrink-0 text-slate-400" />
-                      <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 truncate">{label}</span>
-                    </div>
-                    <span className={`text-xs font-semibold ${accent ? "text-emerald-600 dark:text-emerald-400" : "text-slate-600 dark:text-slate-300"}`}>{value}</span>
-                  </div>
-                ))}
-              </div>
+            <div className="flex flex-wrap items-start justify-around gap-2">
+              <SemiCircleGauge
+                pct={loadPct}
+                color={gaugeColor(loadPct)}
+                label="CPU Load"
+                sublabel={`${load1?.toFixed(2)} avg · ${sys.cpuCount} core${sys.cpuCount !== 1 ? "s" : ""}`}
+              />
+              <SemiCircleGauge
+                pct={heapPct}
+                color={gaugeColor(heapPct)}
+                label="App Memory"
+                sublabel={`${fmtBytes(sys.memory.heapUsed)} / ${fmtBytes(sys.memory.heapTotal)}`}
+              />
+              <SemiCircleGauge
+                pct={sysPct}
+                color={gaugeColor(sysPct)}
+                label="System Memory"
+                sublabel={`${fmtBytes(sys.memory.systemUsed)} / ${fmtBytes(sys.memory.systemTotal)}`}
+              />
+              <SemiCircleGauge
+                pct={diskPct}
+                color={gaugeColor(diskPct)}
+                label="Disk Storage"
+                sublabel={diskTotal > 0 ? `${fmtBytes(diskUsed)} / ${fmtBytes(diskTotal)}` : "Unavailable"}
+              />
             </div>
           )}
+        </div>
+
+        {/* Separate info cards */}
+        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {infoCards.map(({ label, value, icon: Icon, accent, hint }) => (
+            <div key={label} className={cardCls + " px-4 py-3"} title={hint}>
+              <div className="mb-1 flex items-center gap-1.5">
+                <Icon size={11} className="shrink-0 text-emerald-500" />
+                <span className="truncate text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-400 dark:text-slate-500">{label}</span>
+              </div>
+              <span className={`text-base font-bold ${accent ? "text-emerald-600 dark:text-emerald-400" : "text-slate-700 dark:text-slate-200"}`}>{value}</span>
+            </div>
+          ))}
         </div>
       </div>
 

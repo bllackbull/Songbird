@@ -1,4 +1,5 @@
 import {
+  Activity,
   AlertCircle,
   ArrowDown,
   ArrowLeft,
@@ -39,6 +40,7 @@ import {
   Menu,
   Minus,
   Mic,
+  MemoryStick,
   Moon,
   MessageCircle as Chat,
   MessageCircleMore,
@@ -73,6 +75,7 @@ import {
 } from "lucide-react";
 
 export {
+  Activity,
   AlertCircle,
   ArrowDown,
   ArrowLeft,
@@ -114,6 +117,7 @@ export {
   Menu,
   Minus,
   Mic,
+  MemoryStick,
   Moon,
   MessageCircleMore,
   MessageCircleX,

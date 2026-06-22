@@ -103,6 +103,19 @@ function registerAdminPanelRoutes(app, deps) {
       }
     } catch {}
 
+    // Disk / filesystem stats for the data directory
+    let diskTotalBytes = 0;
+    let diskFreeBytes  = 0;
+    let diskUsedBytes  = 0;
+    try {
+      if (fs && typeof fs.statfsSync === "function" && projectRootDir) {
+        const stat = fs.statfsSync(projectRootDir);
+        diskTotalBytes = stat.blocks * stat.bsize;
+        diskFreeBytes  = stat.bavail * stat.bsize;
+        diskUsedBytes  = diskTotalBytes - diskFreeBytes;
+      }
+    } catch {}
+
     res.json({
       uptime: uptimeSec,
       loadAvg,
@@ -119,6 +132,9 @@ function registerAdminPanelRoutes(app, deps) {
         dbSizeBytes,
         uploadsSizeBytes,
         totalDataBytes: dbSizeBytes + uploadsSizeBytes,
+        diskTotalBytes,
+        diskUsedBytes,
+        diskFreeBytes,
       },
     });
   });
