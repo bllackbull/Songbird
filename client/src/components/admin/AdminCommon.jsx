@@ -79,12 +79,12 @@ function useDropdown() {
   const [open, setOpen] = useState(false);
   const btnRef = useRef(null);
   const menuRef = useRef(null);
-  const ignoreRef = useRef(false);
   useEffect(() => {
     if (!open) return undefined;
     const close = (e) => {
       if (menuRef.current?.contains(e.target)) return;
-      if (btnRef.current?.contains(e.target)) { ignoreRef.current = true; return; }
+      // Clicks on the trigger are handled by its own onClick (which toggles).
+      if (btnRef.current?.contains(e.target)) return;
       setOpen(false);
     };
     const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
@@ -92,7 +92,7 @@ function useDropdown() {
     document.addEventListener("keydown", onKey);
     return () => { document.removeEventListener("pointerdown", close, true); document.removeEventListener("keydown", onKey); };
   }, [open]);
-  const toggle = () => { if (ignoreRef.current) { ignoreRef.current = false; return; } setOpen((o) => !o); };
+  const toggle = () => setOpen((o) => !o);
   return { open, setOpen, toggle, btnRef, menuRef };
 }
 
@@ -114,6 +114,32 @@ export function CustomSelect({ value, onChange, options, placeholder = "Selectâ€
               className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200 ${v === value ? "text-emerald-700 dark:text-emerald-300" : ""}`}>
               <span className="truncate">{l}</span>
               {v === value && <span className="ml-2 h-2 w-2 shrink-0 rounded-full bg-emerald-500" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function CompactSelect({ value, onChange, options, placeholder = "Selectâ€¦" }) {
+  const { open, toggle, setOpen, btnRef, menuRef } = useDropdown();
+  const selected = options.find(([v]) => v === value);
+  const label = selected?.[1] ?? placeholder;
+  return (
+    <div className="relative">
+      <button ref={btnRef} type="button" onClick={toggle} aria-expanded={open}
+        className="relative flex w-full items-center rounded-xl border border-emerald-200/70 bg-white/90 py-1.5 pl-3 pr-7 text-left text-xs font-semibold text-slate-600 outline-none transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-emerald-500/5">
+        <span className="flex-1 truncate">{label}</span>
+        <ChevronDown size={12} className={`absolute right-2 top-1/2 -translate-y-1/2 text-emerald-500 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div ref={menuRef} className="absolute left-0 right-0 z-50 mt-1.5 overflow-hidden rounded-xl border border-emerald-200 bg-white p-1 text-xs font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100">
+          {options.map(([v, l]) => (
+            <button key={v} type="button" onClick={() => { onChange(v); setOpen(false); }}
+              className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200 ${v === value ? "text-emerald-700 dark:text-emerald-300" : ""}`}>
+              <span className="truncate">{l}</span>
+              {v === value && <span className="ml-2 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />}
             </button>
           ))}
         </div>

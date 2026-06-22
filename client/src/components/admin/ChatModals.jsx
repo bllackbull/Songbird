@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { UserPlus, Close } from "../../icons/lucide.js";
 import { api, inputCls, cardCls, btnPrimary, iconBtn } from "./adminShared.js";
-import { Modal, Field, CustomSelect, LoadingRows, EmptyState } from "./AdminCommon.jsx";
+import { Modal, Field, CustomSelect, CompactSelect, LoadingRows, EmptyState } from "./AdminCommon.jsx";
 
 export function CreateChatModal({ onClose, onCreated }) {
   const [form, setForm] = useState({ name: "", username: "", type: "group", visibility: "public", owner: "" });
@@ -59,7 +59,7 @@ export function EditChatModal({ chat, onClose, onSaved }) {
         <Field label="Visibility"><CustomSelect value={form.visibility} onChange={(v) => set("visibility", v)} options={[["public", "Public"], ["private", "Private"]]} /></Field>
         <Field label="Color">
           <div className="flex items-center gap-2">
-            <input type="color" value={form.color || "#10b981"} onChange={(e) => set("color", e.target.value)} className="h-12 w-14 cursor-pointer rounded-xl border border-emerald-200/70 p-1 dark:border-emerald-500/30" />
+            <input type="color" value={form.color || "#10b981"} onChange={(e) => set("color", e.target.value)} className="color-swatch h-11 w-11 shrink-0 cursor-pointer overflow-hidden rounded-xl border border-emerald-200/70 dark:border-emerald-500/30" />
             <input className={inputCls + " flex-1"} value={form.color} onChange={(e) => set("color", e.target.value)} placeholder="#10b981" />
           </div>
         </Field>
@@ -123,12 +123,10 @@ export function MembersModal({ chat, onClose }) {
                   <p className="text-[11px] text-slate-400">@{m.username}</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
-                  <select value={m.role} onChange={(e) => api.patch(`/api/admin/chats/${chat.id}/members/${m.id}`, { role: e.target.value }).then(loadMembers)}
-                    className="rounded-xl border border-emerald-200/70 bg-white/90 px-2 py-1 text-xs text-slate-700 outline-none dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200">
-                    <option value="member">member</option>
-                    <option value="admin">admin</option>
-                    <option value="owner">owner</option>
-                  </select>
+                  <div className="w-28">
+                    <CompactSelect value={m.role} onChange={(v) => api.patch(`/api/admin/chats/${chat.id}/members/${m.id}`, { role: v }).then(loadMembers)}
+                      options={[["member", "Member"], ["admin", "Admin"], ["owner", "Owner"]]} />
+                  </div>
                   <button type="button" onClick={() => api.delete(`/api/admin/chats/${chat.id}/members/${m.id}`).then(loadMembers)} className={iconBtn("rose")} title="Remove"><Close size={12} /></button>
                 </div>
               </div>

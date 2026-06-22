@@ -67,7 +67,7 @@ export function EditUserModal({ user, onClose, onSaved }) {
           </Field>
           <Field label="Color">
             <div className="flex items-center gap-2">
-              <input type="color" value={form.color || "#10b981"} onChange={(e) => set("color", e.target.value)} className="h-12 w-14 cursor-pointer rounded-xl border border-emerald-200/70 p-1 dark:border-emerald-500/30" />
+              <input type="color" value={form.color || "#10b981"} onChange={(e) => set("color", e.target.value)} className="color-swatch h-11 w-11 shrink-0 cursor-pointer overflow-hidden rounded-xl border border-emerald-200/70 dark:border-emerald-500/30" />
               <input className={inputCls + " flex-1"} value={form.color} onChange={(e) => set("color", e.target.value)} placeholder="#10b981" />
             </div>
           </Field>

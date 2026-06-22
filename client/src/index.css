@@ -88,6 +88,22 @@ body {
   .font-fa {
     font-family: 'Vazirmatn', 'DM Sans', system-ui, sans-serif;
   }
+
+  /* Make native color picker swatch fill the button with no padding */
+  .color-swatch {
+    padding: 0;
+  }
+  .color-swatch::-webkit-color-swatch-wrapper {
+    padding: 0;
+  }
+  .color-swatch::-webkit-color-swatch {
+    border: none;
+    border-radius: 0.6rem;
+  }
+  .color-swatch::-moz-color-swatch {
+    border: none;
+    border-radius: 0.6rem;
+  }
 }
 
 html {

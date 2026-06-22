@@ -3,7 +3,9 @@ import {
   ArrowLeft,
   ArrowLeftFromLine,
   ArrowRightFromLine,
+  Check,
   Gauge,
+  LoaderCircle,
   Moon,
   MessageCircleMore,
   Refresh,
@@ -34,12 +36,23 @@ export default function AdminPanel({ user, onBack, isDark, toggleTheme }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [themeAnim, setThemeAnim]     = useState(false);
   const themeAnimRef = useRef(null);
+  const [refreshState, setRefreshState] = useState(""); // "" | "loading" | "done"
+  const refreshResetRef = useRef(null);
 
   const refreshStats = useCallback(async () => {
     try { const d = await api.get("/api/admin/stats"); setStats(d); } catch {}
   }, []);
 
+  const handleManualRefresh = useCallback(async () => {
+    if (refreshResetRef.current) { clearTimeout(refreshResetRef.current); refreshResetRef.current = null; }
+    setRefreshState("loading");
+    await refreshStats();
+    setRefreshState("done");
+    refreshResetRef.current = setTimeout(() => setRefreshState(""), 1500);
+  }, [refreshStats]);
+
   useEffect(() => { refreshStats(); }, [refreshStats]);
+  useEffect(() => () => { if (refreshResetRef.current) clearTimeout(refreshResetRef.current); }, []);
 
   const handleToggleTheme = () => {
     setThemeAnim(true);
@@ -116,14 +129,18 @@ export default function AdminPanel({ user, onBack, isDark, toggleTheme }) {
           <ActiveIcon size={15} className="shrink-0 text-emerald-500" />
           <h1 className="flex-1 truncate text-sm font-semibold text-slate-700 dark:text-slate-200">{activeTab?.label}</h1>
           <button type="button" onClick={handleToggleTheme} title={isDark ? "Switch to light mode" : "Switch to dark mode"}
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-transparent text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-700 dark:text-slate-400 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300">
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-700 dark:text-slate-400 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300">
             {isDark
               ? <Sun size={15} className={`icon-anim-spin-dir ${themeAnim ? "icon-theme-enter-sun" : ""}`} />
               : <Moon size={15} className={`icon-anim-spin-left ${themeAnim ? "icon-theme-enter-moon" : ""}`} />}
           </button>
-          <button type="button" onClick={refreshStats} title="Refresh"
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-transparent text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-700 dark:text-slate-400 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300">
-            <Refresh size={14} />
+          <button type="button" onClick={handleManualRefresh} disabled={refreshState === "loading"} title="Refresh"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-700 disabled:cursor-wait dark:text-slate-400 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300">
+            {refreshState === "loading"
+              ? <LoaderCircle size={14} className="animate-spin text-emerald-600 dark:text-emerald-400" />
+              : refreshState === "done"
+                ? <Check size={14} className="text-emerald-600 dark:text-emerald-400" />
+                : <Refresh size={14} />}
           </button>
         </div>
 
