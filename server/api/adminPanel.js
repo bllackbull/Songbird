@@ -3,7 +3,7 @@ import { createInviteToken } from "../lib/inviteTokens.js";
 import { writeAdminLog, readAdminLog, clearAdminLog } from "../lib/adminLog.js";
 import { readInstallerLog, readNginxLog, readServiceLog } from "../lib/systemLogs.js";
 import os from "node:os";
-import { execFile } from "node:child_process";
+import multer from "multer";
 
 function registerAdminPanelRoutes(app, deps) {
   const {
@@ -594,150 +594,66 @@ function registerAdminPanelRoutes(app, deps) {
     }
   });
 
-  // List existing backups
-  app.get("/api/admin/maintenance/backups", (req, res) => {
-    if (!requireAdmin(req, res)) return;
-    try {
-      const backupDir = nodePath.join(projectRootDir, "data", "backups");
-      if (!fs.existsSync(backupDir)) return res.json({ backups: [] });
-      const backups = fs.readdirSync(backupDir, { withFileTypes: true })
-        .filter((e) => e.isFile() && /^songbird-backup-.*\.zip$/i.test(e.name))
-        .map((e) => {
-          const full = nodePath.join(backupDir, e.name);
-          const st = fs.statSync(full);
-          return { name: e.name, sizeBytes: st.size, createdAt: st.mtime.toISOString() };
-        })
-        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-      res.json({ backups });
-    } catch {
-      res.json({ backups: [] });
-    }
-  });
-
-  // Create an encrypted backup zip (.env + data) using the `zip` binary
-  app.post("/api/admin/maintenance/backup", (req, res) => {
+  // Download the live database file directly to the admin's device.
+  app.get("/api/admin/maintenance/download-db", (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const password = String(req.body?.password || "").trim();
-    if (!password) return res.status(400).json({ error: "A backup password is required." });
-
-    const dataDir   = nodePath.join(projectRootDir, "data");
-    const envPath   = nodePath.join(projectRootDir, ".env");
-    const dbPath    = nodePath.join(dataDir, "songbird.db");
-    const uploadsDir = nodePath.join(dataDir, "uploads");
-    const backupDir = nodePath.join(dataDir, "backups");
-
-    if (!fs.existsSync(dbPath) && !fs.existsSync(uploadsDir)) {
-      return res.status(400).json({ error: "No data found to back up." });
+    const dbPath = nodePath.join(projectRootDir, "data", "songbird.db");
+    if (!fs.existsSync(dbPath)) {
+      return res.status(404).json({ error: "Database file not found." });
     }
-    if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
-
+    // Flush any pending in-memory writes so the downloaded file is current.
+    try { vacuumDatabase(); } catch {}
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const backupName = `songbird-backup-${stamp}.zip`;
-    const backupPath = nodePath.join(backupDir, backupName);
-
-    const includes = ["data/songbird.db", "data/uploads"];
-    if (fs.existsSync(envPath)) includes.unshift(".env");
-
-    execFile(
-      process.env.ZIP_BIN || "zip",
-      ["-r", "-q", "-P", password, backupPath, ...includes, "-x", "data/backups/*"],
-      { cwd: projectRootDir },
-      (err) => {
-        if (err) {
-          const msg = err.code === "ENOENT" ? "zip command not found on server." : "Backup failed.";
-          log(session, "db.backup", { targetType: "system", status: "error", details: msg });
-          return res.status(500).json({ error: msg });
-        }
-        let sizeBytes = 0;
-        try { sizeBytes = fs.statSync(backupPath).size; } catch {}
-        log(session, "db.backup", { targetType: "system", targetLabel: backupName, details: `${(sizeBytes / 1024 / 1024).toFixed(1)} MB` });
-        res.json({ ok: true, backup: { name: backupName, sizeBytes, createdAt: new Date().toISOString() } });
-      },
-    );
+    const downloadName = `songbird-backup-${stamp}.db`;
+    log(session, "db.backup", { targetType: "system", targetLabel: downloadName });
+    res.download(dbPath, downloadName, (err) => {
+      if (err && !res.headersSent) res.status(500).end();
+    });
   });
 
-  // Restore from an existing backup in data/backups. Replaces the DB + uploads
-  // and hot-reloads the in-memory database (no service restart). The .env in
-  // the archive is intentionally NOT restored from the panel to avoid changing
-  // ports/secrets out from under the running process.
-  app.post("/api/admin/maintenance/restore", (req, res) => {
+  // Restore by uploading a .db file from the admin's device. Replaces the live
+  // database and hot-reloads it in memory — no service restart needed.
+  const dbUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 512 * 1024 * 1024 }, // 512 MB ceiling
+  });
+
+  app.post("/api/admin/maintenance/restore", dbUpload.single("database"), (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const name     = String(req.body?.name || "").trim();
-    const password = String(req.body?.password || "").trim();
 
-    // Strict filename validation — only allow our own backup files, no path traversal.
-    if (!/^songbird-backup-[A-Za-z0-9._-]+\.zip$/.test(name)) {
-      return res.status(400).json({ error: "Invalid backup name." });
+    const file = req.file;
+    if (!file || !file.buffer?.length) {
+      return res.status(400).json({ error: "No database file uploaded." });
     }
 
-    const dataDir    = nodePath.join(projectRootDir, "data");
-    const backupDir  = nodePath.join(dataDir, "backups");
-    const backupPath = nodePath.join(backupDir, name);
-    if (!fs.existsSync(backupPath)) {
-      return res.status(404).json({ error: "Backup file not found." });
+    // Validate it's a real SQLite database: header is "SQLite format 3\0".
+    const header = file.buffer.subarray(0, 16).toString("latin1");
+    if (header !== "SQLite format 3\0") {
+      log(session, "db.restore", { targetType: "system", status: "error", details: "Not a valid SQLite file" });
+      return res.status(400).json({ error: "The uploaded file is not a valid SQLite database." });
     }
 
-    const tmpDir = nodePath.join(dataDir, `.restore-${Date.now()}`);
-    const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} };
+    const dataDir = nodePath.join(projectRootDir, "data");
+    const dbPath  = nodePath.join(dataDir, "songbird.db");
 
-    fs.mkdirSync(tmpDir, { recursive: true });
+    try {
+      if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+      // Write atomically: temp file then rename over the live db.
+      const tmpPath = nodePath.join(dataDir, `.restore-${Date.now()}.db`);
+      fs.writeFileSync(tmpPath, file.buffer);
+      fs.renameSync(tmpPath, dbPath);
 
-    // Extract using unzip (-P password works even for unencrypted archives).
-    execFile(
-      process.env.UNZIP_BIN || "unzip",
-      ["-q", "-P", password || "-", "-o", backupPath, "-d", tmpDir],
-      { timeout: 60000 },
-      (err) => {
-        if (err) {
-          cleanup();
-          const msg = err.code === "ENOENT"
-            ? "unzip command not found on server."
-            : "Failed to extract backup. The password may be incorrect.";
-          log(session, "db.restore", { targetType: "system", targetLabel: name, status: "error", details: msg });
-          return res.status(400).json({ error: msg });
-        }
+      // Hot-reload the in-memory DB from the restored file.
+      reloadDatabase();
 
-        try {
-          // Support both current (data/songbird.db) and legacy (songbird.db) layouts.
-          const candidates = [
-            { db: nodePath.join(tmpDir, "data", "songbird.db"), uploads: nodePath.join(tmpDir, "data", "uploads") },
-            { db: nodePath.join(tmpDir, "songbird.db"),         uploads: nodePath.join(tmpDir, "uploads") },
-          ];
-          const layout = candidates.find((c) => fs.existsSync(c.db));
-          if (!layout) {
-            cleanup();
-            log(session, "db.restore", { targetType: "system", targetLabel: name, status: "error", details: "Archive missing songbird.db" });
-            return res.status(400).json({ error: "Backup archive does not contain a database." });
-          }
-
-          const dbDest      = nodePath.join(dataDir, "songbird.db");
-          const uploadsDest = nodePath.join(dataDir, "uploads");
-
-          // Replace DB file.
-          fs.copyFileSync(layout.db, dbDest);
-
-          // Replace uploads directory if present in the archive.
-          if (fs.existsSync(layout.uploads)) {
-            fs.rmSync(uploadsDest, { recursive: true, force: true });
-            fs.cpSync(layout.uploads, uploadsDest, { recursive: true });
-          }
-
-          cleanup();
-
-          // Hot-reload the in-memory DB from the restored file.
-          reloadDatabase();
-
-          log(session, "db.restore", { targetType: "system", targetLabel: name });
-          res.json({ ok: true });
-        } catch (e) {
-          cleanup();
-          log(session, "db.restore", { targetType: "system", targetLabel: name, status: "error", details: String(e?.message || e) });
-          res.status(500).json({ error: "Restore failed while replacing data." });
-        }
-      },
-    );
+      log(session, "db.restore", { targetType: "system", targetLabel: file.originalname || "uploaded.db" });
+      res.json({ ok: true });
+    } catch (e) {
+      log(session, "db.restore", { targetType: "system", status: "error", details: String(e?.message || e) });
+      res.status(500).json({ error: "Restore failed while replacing the database." });
+    }
   });
 }
 

@@ -23,7 +23,6 @@ import {
   Pencil,
   Plus,
   RefreshCw,
-  RotateCcw,
   ScrollText,
   Search,
   ShieldCog,
@@ -70,6 +69,7 @@ const inputCls   = "w-full rounded-2xl border border-emerald-200 bg-white px-4 p
 const inputSmCls = "w-full rounded-2xl border border-emerald-200/70 bg-white/90 py-2 px-3 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/40 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200 dark:placeholder-slate-500";
 const labelCls   = "block text-xs font-semibold text-slate-600 dark:text-slate-300";
 const btnPrimary = "inline-flex items-center gap-1.5 rounded-xl bg-emerald-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-400 hover:shadow-[0_0_14px_rgba(16,185,129,0.3)]";
+const btnSecondary = "inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 dark:border-white/10 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-white/5";
 const btnDanger  = "inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-100 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-400";
 const iconBtn = (color = "slate") => {
   const map = {
@@ -1056,20 +1056,11 @@ function EmptyState({ message }) {
 // ─── Actions tab (DB maintenance) ──────────────────────────────────────────────
 
 function ActionsTab() {
-  const [backups,      setBackups]      = useState([]);
-  const [loadingList,  setLoadingList]  = useState(true);
   const [vacuumBusy,   setVacuumBusy]   = useState(false);
-  const [backupOpen,   setBackupOpen]   = useState(false);
-  const [restoreTarget,setRestoreTarget]= useState(null);
+  const [pendingFile,  setPendingFile]  = useState(null);  // file awaiting confirmation
+  const [restoring,    setRestoring]    = useState(false);
   const [toast,        setToast]        = useState("");
-
-  const loadBackups = useCallback(async () => {
-    setLoadingList(true);
-    try { const d = await api.get("/api/admin/maintenance/backups"); setBackups(d.backups || []); }
-    catch {} finally { setLoadingList(false); }
-  }, []);
-
-  useEffect(() => { loadBackups(); }, [loadBackups]);
+  const fileRef = useRef(null);
 
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 3500); };
 
@@ -1082,6 +1073,30 @@ function ActionsTab() {
     } catch { flash("Vacuum failed."); } finally { setVacuumBusy(false); }
   };
 
+  const downloadDb = () => {
+    // Session cookie is sent automatically; a direct navigation triggers the download.
+    window.location.href = "/api/admin/maintenance/download-db";
+  };
+
+  const onFilePicked = (e) => {
+    const f = e.target.files?.[0] || null;
+    e.target.value = "";        // reset so the same file can be re-picked later
+    if (f) setPendingFile(f);   // open confirmation
+  };
+
+  const confirmRestore = async () => {
+    if (!pendingFile) return;
+    setRestoring(true);
+    try {
+      const form = new FormData();
+      form.append("database", pendingFile);
+      const r = await apiFetch("/api/admin/maintenance/restore", { method: "POST", body: form });
+      const d = await r.json().catch(() => ({}));
+      flash(r.ok ? "Database restored successfully." : (d.error || "Restore failed."));
+    } catch { flash("Restore failed."); }
+    finally { setRestoring(false); setPendingFile(null); }
+  };
+
   return (
     <div className="space-y-5">
       {toast && (
@@ -1090,10 +1105,36 @@ function ActionsTab() {
         </div>
       )}
 
-      {/* Maintenance actions */}
       <div>
         <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">Database Maintenance</h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+
+          {/* Backup & restore */}
+          <div className={cardCls + " flex items-start gap-3 p-4"}>
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
+              <Database size={16} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Backup &amp; restore</p>
+              <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">Download the database to your device, or restore by uploading a backup file.</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button type="button" onClick={downloadDb} className={btnPrimary}>
+                  <HardDriveDownload size={13} /> Backup
+                </button>
+                <button type="button" onClick={() => fileRef.current?.click()} className={btnSecondary}>
+                  <HardDriveUpload size={13} /> Restore
+                </button>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".db,application/x-sqlite3,application/vnd.sqlite3"
+                  onChange={onFilePicked}
+                  className="hidden"
+                />
+              </div>
+            </div>
+          </div>
+
           {/* Vacuum */}
           <div className={cardCls + " flex items-start gap-3 p-4"}>
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
@@ -1101,130 +1142,58 @@ function ActionsTab() {
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Vacuum database</p>
-              <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">Rewrites the DB file to reclaim unused space and defragment.</p>
+              <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">Reclaim unused space and defragment the DB file.</p>
               <button type="button" onClick={runVacuum} disabled={vacuumBusy} className={btnPrimary + " mt-3"}>
                 <Wrench size={13} /> {vacuumBusy ? "Running…" : "Run vacuum"}
               </button>
             </div>
           </div>
-
-          {/* Backup */}
-          <div className={cardCls + " flex items-start gap-3 p-4"}>
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
-              <HardDriveDownload size={16} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Create backup</p>
-              <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">Encrypted zip of the database, uploads, and .env into data/backups.</p>
-              <button type="button" onClick={() => setBackupOpen(true)} className={btnPrimary + " mt-3"}>
-                <HardDriveDownload size={13} /> New backup
-              </button>
-            </div>
-          </div>
         </div>
       </div>
 
-      {/* Existing backups */}
-      <div>
-        <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">Backups</h2>
-        {loadingList ? <LoadingRows /> : backups.length === 0 ? (
-          <EmptyState message="No backups yet." />
-        ) : (
-          <div className={"overflow-hidden " + cardCls}>
-            {backups.map((b, i) => (
-              <div key={b.name} className={`flex items-center gap-3 px-4 py-2.5 ${i < backups.length - 1 ? "border-b border-slate-100 dark:border-white/5" : ""}`}>
-                <HardDriveDownload size={14} className="shrink-0 text-emerald-500" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{b.name}</p>
-                  <p className="text-[11px] text-slate-400 dark:text-slate-500">{fmtDateTime(b.createdAt)} · {fmtBytes(b.sizeBytes)}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setRestoreTarget(b)}
-                  title="Restore this backup"
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-orange-200 bg-orange-50 px-2.5 py-1.5 text-[11px] font-semibold text-orange-600 transition hover:bg-orange-100 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-400"
-                >
-                  <RotateCcw size={12} /> Restore
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-        <p className="mt-2 flex items-start gap-1.5 text-[11px] text-slate-400 dark:text-slate-500">
-          <Lock size={12} className="mt-0.5 shrink-0" />
-          Restoring replaces the current database and uploaded files. The app reloads the restored data immediately — no restart needed.
-        </p>
-      </div>
-
-      {backupOpen && <BackupModal onClose={() => setBackupOpen(false)} onDone={(msg) => { flash(msg); loadBackups(); }} />}
-      {restoreTarget && <RestoreModal backup={restoreTarget} onClose={() => setRestoreTarget(null)} onDone={(msg) => { flash(msg); }} />}
+      <ConfirmModal
+        open={Boolean(pendingFile)}
+        title="Restore database"
+        message={pendingFile
+          ? `Replace the current database with "${pendingFile.name}"? This overwrites all existing data and cannot be undone.`
+          : ""}
+        confirmLabel={restoring ? "Restoring…" : "Restore"}
+        busy={restoring}
+        onConfirm={confirmRestore}
+        onClose={() => { if (!restoring) setPendingFile(null); }}
+      />
     </div>
   );
 }
 
-function RestoreModal({ backup, onClose, onDone }) {
-  const [password, setPassword] = useState("");
-  const [confirmText, setConfirmText] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  const submit = async (e) => {
-    e.preventDefault(); setError(""); setBusy(true);
-    try {
-      const r = await api.post("/api/admin/maintenance/restore", { name: backup.name, password });
-      if (!r.ok) { const d = await r.json(); setError(d.error || "Restore failed."); return; }
-      onDone("Backup restored successfully."); onClose();
-    } catch { setError("Restore failed."); } finally { setBusy(false); }
-  };
-
+// App-style confirmation modal (matches LeaveGroup / DeleteMessage dialogs).
+function ConfirmModal({ open, title, message, confirmLabel = "Confirm", busy = false, onConfirm, onClose }) {
+  if (!open) return null;
   return (
-    <Modal title="Restore backup" onClose={onClose}>
-      <form onSubmit={submit} className="space-y-3">
-        <div className="rounded-xl border border-orange-200 bg-orange-50 px-3 py-2.5 text-[11px] text-orange-700 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-300">
-          This will <strong>permanently replace</strong> the current database and all uploaded files with the contents of <span className="font-semibold">{backup.name}</span>. This cannot be undone.
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-6" onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
+      <div role="dialog" aria-modal="true" className="w-full max-w-sm rounded-2xl border border-rose-100/70 bg-white p-6 shadow-xl dark:border-rose-500/30 dark:bg-slate-950">
+        <h3 className="text-lg font-semibold text-rose-600 dark:text-rose-300">{title}</h3>
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{message}</p>
+        <div className="mt-4 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            className="rounded-full border border-emerald-200 bg-white px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] disabled:opacity-50 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy}
+            className="rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:shadow-[0_0_14px_rgba(244,63,94,0.2)] disabled:opacity-50 dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200"
+          >
+            {confirmLabel}
+          </button>
         </div>
-        <Field label="Backup password" hint="The password used when this backup was created. Leave blank if it was unencrypted.">
-          <input type="password" className={inputCls} value={password} onChange={e => setPassword(e.target.value)} />
-        </Field>
-        <Field label='Type "restore" to confirm'>
-          <input className={inputCls} value={confirmText} onChange={e => setConfirmText(e.target.value)} placeholder="restore" />
-        </Field>
-        {error && <p className="text-xs text-rose-500">{error}</p>}
-        <button type="submit" disabled={busy || confirmText !== "restore"}
-          className={btnDanger + " w-full justify-center " + (confirmText !== "restore" ? "opacity-50" : "")}>
-          <RotateCcw size={13} /> {busy ? "Restoring…" : "Restore backup"}
-        </button>
-      </form>
-    </Modal>
-  );
-}
-
-function BackupModal({ onClose, onDone }) {
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  const submit = async (e) => {
-    e.preventDefault(); setError(""); setBusy(true);
-    try {
-      const r = await api.post("/api/admin/maintenance/backup", { password });
-      if (!r.ok) { const d = await r.json(); setError(d.error || "Backup failed."); return; }
-      onDone("Backup created successfully."); onClose();
-    } catch { setError("Backup failed."); } finally { setBusy(false); }
-  };
-
-  return (
-    <Modal title="Create encrypted backup" onClose={onClose}>
-      <form onSubmit={submit} className="space-y-3">
-        <Field label="Backup password" hint="You'll need this password to restore the backup later. Store it safely.">
-          <input type="password" className={inputCls} value={password} onChange={e => setPassword(e.target.value)} required />
-        </Field>
-        {error && <p className="text-xs text-rose-500">{error}</p>}
-        <button type="submit" disabled={busy} className={btnPrimary + " w-full justify-center"}>
-          {busy ? "Creating backup…" : "Create backup"}
-        </button>
-      </form>
-    </Modal>
+      </div>
+    </div>
   );
 }
 
@@ -1245,8 +1214,8 @@ const LOG_ACTION_META = {
   "chat.member_remove":  { label: "Member removed", color: "orange",  icon: UserMinus },
   "chat.member_role":    { label: "Member role",    color: "slate",   icon: ShieldCog },
   "db.vacuum":           { label: "DB vacuumed",    color: "emerald", icon: Sparkles },
-  "db.backup":           { label: "Backup created", color: "emerald", icon: HardDriveDownload },
-  "db.restore":          { label: "DB restored",    color: "orange",  icon: HardDriveUpload },
+  "db.backup":           { label: "DB downloaded",  color: "emerald", icon: HardDriveDownload },
+  "db.restore":          { label: "DB restored",    color: "slate",   icon: HardDriveUpload },
   "logs.clear":          { label: "Logs cleared",   color: "rose",    icon: Trash },
 };
 
@@ -1345,12 +1314,12 @@ function AdminLogView() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <span className={`inline-flex items-center rounded-full border px-2 py-px text-[10px] font-semibold ${colors.badge}`}>{meta.label}</span>
-                    {entry.targetLabel && <span className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{entry.targetLabel}</span>}
+                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{meta.label}</span>
                     {entry.status === "error" && <span className="text-[10px] font-semibold text-rose-500">failed</span>}
                   </div>
-                  {entry.details && <p className="mt-0.5 truncate text-[11px] text-slate-400 dark:text-slate-500">{entry.details}</p>}
-                  <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
+                  <p className="mt-0.5 truncate text-[11px] text-slate-400 dark:text-slate-500">
+                    {[entry.targetLabel, entry.details].filter(Boolean).join(" · ")}
+                    {(entry.targetLabel || entry.details) ? " · " : ""}
                     {entry.actorUsername ? `@${entry.actorUsername}` : "system"} · {fmtDateTime(entry.ts)}
                   </p>
                 </div>
