@@ -4,6 +4,7 @@ import { writeAdminLog, readAdminLog, clearAdminLog } from "../lib/adminLog.js";
 import { readInstallerLog, readNginxLog, readServiceLog } from "../lib/systemLogs.js";
 import os from "node:os";
 import multer from "multer";
+import { execFile } from "node:child_process";
 
 function registerAdminPanelRoutes(app, deps) {
   const {
@@ -592,6 +593,39 @@ function registerAdminPanelRoutes(app, deps) {
       log(session, "db.vacuum", { targetType: "system", status: "error", details: String(err?.message || err) });
       res.status(500).json({ error: "Vacuum failed." });
     }
+  });
+
+  // ─── Service control ─────────────────────────────────────────────────────────
+
+  const SERVICE_NAME = process.env.SONGBIRD_SERVICE_NAME || "songbird.service";
+
+  // Runs `systemctl <action> <service>`, falling back to sudo -n if needed.
+  const runSystemctl = (action) => new Promise((resolve) => {
+    execFile("systemctl", [action, SERVICE_NAME], { timeout: 8000 }, (err) => {
+      if (!err) return resolve({ ok: true });
+      // Try non-interactive sudo as a fallback.
+      execFile("sudo", ["-n", "systemctl", action, SERVICE_NAME], { timeout: 8000 }, (err2) => {
+        if (!err2) return resolve({ ok: true });
+        resolve({ ok: false, error: err2.code === "ENOENT" ? "systemctl not available." : "Insufficient permissions to control the service." });
+      });
+    });
+  });
+
+  app.post("/api/admin/service/restart", async (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    log(session, "service.restart", { targetType: "system", targetLabel: SERVICE_NAME });
+    // Respond first — a successful restart kills this process before the command returns.
+    res.json({ ok: true, pending: true });
+    setTimeout(() => { runSystemctl("restart"); }, 250);
+  });
+
+  app.post("/api/admin/service/stop", async (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    log(session, "service.stop", { targetType: "system", targetLabel: SERVICE_NAME });
+    res.json({ ok: true, pending: true });
+    setTimeout(() => { runSystemctl("stop"); }, 250);
   });
 
   // Download the live database file directly to the admin's device.

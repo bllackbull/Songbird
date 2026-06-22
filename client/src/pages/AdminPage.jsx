@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../api/chatApi.js";
+import { fetchAppInfo, checkAppVersion } from "../api/appMetaApi.js";
 import {
   Activity,
+  AlertCircle,
+  AppWindow,
   ArrowLeft,
   ArrowLeftFromLine,
   ArrowUpDown,
   ArrowRightFromLine,
   Ban,
+  Check,
   ChevronDown,
   Database,
   Gauge,
@@ -15,6 +19,7 @@ import {
   HardDriveUpload,
   History,
   KeyRound,
+  LoaderCircle,
   Lock,
   Megaphone,
   MemoryStick,
@@ -22,7 +27,8 @@ import {
   Moon,
   Pencil,
   Plus,
-  RefreshCw,
+  Power,
+  Refresh,
   ScrollText,
   Search,
   ShieldCog,
@@ -224,7 +230,7 @@ function AdminPanelContent({ user, onBack, isDark, toggleTheme }) {
             title="Refresh"
             className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-transparent text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-700 dark:text-slate-400 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300"
           >
-            <RefreshCw size={14} />
+            <Refresh size={14} />
           </button>
         </div>
 
@@ -1060,9 +1066,18 @@ function ActionsTab() {
   const [pendingFile,  setPendingFile]  = useState(null);  // file awaiting confirmation
   const [restoring,    setRestoring]    = useState(false);
   const [toast,        setToast]        = useState("");
+  const [appInfo,      setAppInfo]      = useState(null);
+  const [serviceAction, setServiceAction] = useState(null); // "restart" | "stop" awaiting confirm
+  const [servicePending, setServicePending] = useState(false);
   const fileRef = useRef(null);
 
-  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 3500); };
+  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 4000); };
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchAppInfo().then(r => r.json()).then(d => { if (!cancelled) setAppInfo(d); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   const runVacuum = async () => {
     if (!confirm("Run VACUUM now? This rewrites the database file to reclaim space.")) return;
@@ -1074,14 +1089,13 @@ function ActionsTab() {
   };
 
   const downloadDb = () => {
-    // Session cookie is sent automatically; a direct navigation triggers the download.
     window.location.href = "/api/admin/maintenance/download-db";
   };
 
   const onFilePicked = (e) => {
     const f = e.target.files?.[0] || null;
-    e.target.value = "";        // reset so the same file can be re-picked later
-    if (f) setPendingFile(f);   // open confirmation
+    e.target.value = "";
+    if (f) setPendingFile(f);
   };
 
   const confirmRestore = async () => {
@@ -1097,6 +1111,19 @@ function ActionsTab() {
     finally { setRestoring(false); setPendingFile(null); }
   };
 
+  const confirmServiceAction = async () => {
+    const action = serviceAction;
+    if (!action) return;
+    setServicePending(true);
+    try {
+      await api.post(`/api/admin/service/${action}`, {});
+      flash(action === "restart"
+        ? "Restarting the service… the app may be briefly unavailable."
+        : "Stopping the service… the app will become unavailable.");
+    } catch { flash(`Failed to ${action} the service.`); }
+    finally { setServicePending(false); setServiceAction(null); }
+  };
+
   return (
     <div className="space-y-5">
       {toast && (
@@ -1105,6 +1132,7 @@ function ActionsTab() {
         </div>
       )}
 
+      {/* ── Database ── */}
       <div>
         <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">Database Maintenance</h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1151,6 +1179,16 @@ function ActionsTab() {
         </div>
       </div>
 
+      {/* ── System ── */}
+      <div>
+        <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">System</h2>
+        <SystemCard
+          appInfo={appInfo}
+          onRestart={() => setServiceAction("restart")}
+          onStop={() => setServiceAction("stop")}
+        />
+      </div>
+
       <ConfirmModal
         open={Boolean(pendingFile)}
         title="Restore database"
@@ -1162,6 +1200,81 @@ function ActionsTab() {
         onConfirm={confirmRestore}
         onClose={() => { if (!restoring) setPendingFile(null); }}
       />
+
+      <ConfirmModal
+        open={Boolean(serviceAction)}
+        title={serviceAction === "stop" ? "Stop service" : "Restart service"}
+        message={serviceAction === "stop"
+          ? "Stop the Songbird service? The app will go offline until it is started again from the server."
+          : "Restart the Songbird service? The app will be briefly unavailable while it restarts."}
+        confirmLabel={servicePending ? "Working…" : (serviceAction === "stop" ? "Stop" : "Restart")}
+        busy={servicePending}
+        onConfirm={confirmServiceAction}
+        onClose={() => { if (!servicePending) setServiceAction(null); }}
+      />
+    </div>
+  );
+}
+
+// Combined system card — app version (with check-for-update) + service controls,
+// styled like the Backup & restore card: one card, icon, title, buttons row.
+function SystemCard({ appInfo, onRestart, onStop }) {
+  const [state, setState] = useState({ status: "", latestVersion: "" });
+  const resetRef = useRef(null);
+  const versionLabel = String(appInfo?.version || "Unknown").trim() || "Unknown";
+
+  useEffect(() => () => { if (resetRef.current) clearTimeout(resetRef.current); }, []);
+
+  const scheduleReset = () => {
+    if (resetRef.current) clearTimeout(resetRef.current);
+    resetRef.current = setTimeout(() => setState({ status: "", latestVersion: "" }), 3500);
+  };
+
+  const check = async () => {
+    if (resetRef.current) { clearTimeout(resetRef.current); resetRef.current = null; }
+    setState({ status: "checking", latestVersion: "" });
+    try {
+      const payload = await checkAppVersion(appInfo);
+      setState({ status: payload?.status || "up-to-date", latestVersion: String(payload?.latestVersion || "") });
+    } catch {
+      setState({ status: "error", latestVersion: "" });
+    }
+    scheduleReset();
+  };
+
+  const versionBtn = (() => {
+    if (state.status === "checking")         return { cls: "border-emerald-200 bg-white text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 cursor-wait", label: "Checking", icon: <LoaderCircle size={13} className="animate-spin" /> };
+    if (state.status === "error")            return { cls: "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200", label: "Check failed", icon: <AlertCircle size={13} /> };
+    if (state.status === "update-available") return { cls: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200", label: "Update available", icon: <AlertCircle size={13} /> };
+    if (state.status === "up-to-date")       return { cls: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200", label: "Up to date", icon: <Check size={13} /> };
+    return { cls: "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-white/10 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-white/5", label: versionLabel, icon: <Refresh size={13} /> };
+  })();
+
+  return (
+    <div className={cardCls + " flex items-start gap-3 p-4"}>
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
+        <AppWindow size={16} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Service</p>
+        <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">Check for updates, or restart and stop the Songbird service.</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={check}
+            disabled={state.status === "checking"}
+            className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition ${versionBtn.cls}`}
+          >
+            {versionBtn.icon} {versionBtn.label}
+          </button>
+          <button type="button" onClick={onRestart} className={btnPrimary}>
+            <Refresh size={13} /> Restart
+          </button>
+          <button type="button" onClick={onStop} className={btnDanger}>
+            <Power size={13} /> Stop
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1216,6 +1329,8 @@ const LOG_ACTION_META = {
   "db.vacuum":           { label: "DB vacuumed",    color: "emerald", icon: Sparkles },
   "db.backup":           { label: "DB downloaded",  color: "emerald", icon: HardDriveDownload },
   "db.restore":          { label: "DB restored",    color: "slate",   icon: HardDriveUpload },
+  "service.restart":     { label: "Service restarted", color: "emerald", icon: Refresh },
+  "service.stop":        { label: "Service stopped",   color: "rose",    icon: Power },
   "logs.clear":          { label: "Logs cleared",   color: "rose",    icon: Trash },
 };
 
@@ -1294,7 +1409,7 @@ function AdminLogView() {
           <input type="text" placeholder="Search logs…" value={search} onChange={e => setSearch(e.target.value)} className={inputSmCls + " pl-8"} />
         </div>
         <button type="button" onClick={load} className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:bg-slate-100 dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5" title="Refresh">
-          <RefreshCw size={14} />
+          <Refresh size={14} />
         </button>
         <button type="button" onClick={clearLogs} className={btnDanger}>
           <Trash size={13} /> Clear
@@ -1347,7 +1462,7 @@ function SystemLogView({ source }) {
     <div className="space-y-3">
       <div className="flex items-center justify-end">
         <button type="button" onClick={load} className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:bg-slate-100 dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5" title="Refresh">
-          <RefreshCw size={14} />
+          <Refresh size={14} />
         </button>
       </div>
       {!initialized ? <LoadingRows /> : !data?.available ? (
