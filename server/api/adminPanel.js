@@ -1,6 +1,7 @@
 import { normalizeHexColor, normalizeGroupUsername, normalizeVisibility, normalizeChatType } from "../lib/dbToolHelpers.js";
 import { createInviteToken } from "../lib/inviteTokens.js";
 import os from "node:os";
+import { execFile } from "node:child_process";
 
 function registerAdminPanelRoutes(app, deps) {
   const {
@@ -37,6 +38,14 @@ function registerAdminPanelRoutes(app, deps) {
     updateChannelChat,
     // emitting SSE on changes
     emitChatEvent,
+    // logs + maintenance
+    addAdminLog,
+    adminListLogs,
+    adminClearLogs,
+    vacuumDatabase,
+    projectRootDir,
+    path: nodePath,
+    fs,
   } = deps;
 
   // ─── Auth middleware ─────────────────────────────────────────────────────────
@@ -52,6 +61,21 @@ function registerAdminPanelRoutes(app, deps) {
       return null;
     }
     return session;
+  };
+
+  // Helper to write an audit log entry tied to the acting admin.
+  const log = (session, action, opts = {}) => {
+    try {
+      addAdminLog({
+        actorUserId:   session?.id ?? null,
+        actorUsername: session?.username ?? null,
+        action,
+        targetType:    opts.targetType ?? null,
+        targetLabel:   opts.targetLabel ?? null,
+        details:       opts.details ?? null,
+        status:        opts.status ?? "success",
+      });
+    } catch {}
   };
 
   // ─── Dashboard ───────────────────────────────────────────────────────────────
@@ -199,13 +223,16 @@ function registerAdminPanelRoutes(app, deps) {
     }
     adminSave();
     const row = adminGetRow("SELECT id, username, nickname, color, role FROM users WHERE username = ?", [rawUsername]);
+    const session = getSessionFromRequest(req);
+    log(session, "user.create", { targetType: "user", targetLabel: `@${rawUsername}`, details: `role=${role}` });
     res.status(201).json({ ok: true, user: row });
   });
 
   // ─── Users — edit ────────────────────────────────────────────────────────────
 
   app.patch("/api/admin/users/:id", (req, res) => {
-    if (!requireAdmin(req, res)) return;
+    const session = requireAdmin(req, res);
+    if (!session) return;
     const userId = Number(req.params.id);
     if (!userId) return res.status(400).json({ error: "Invalid user ID" });
     const user = findUserById(userId);
@@ -246,13 +273,15 @@ function registerAdminPanelRoutes(app, deps) {
     );
     adminSave();
     const updated = findUserById(userId);
+    log(session, "user.edit", { targetType: "user", targetLabel: `@${updated.username}` });
     res.json({ ok: true, user: updated });
   });
 
   // ─── Users — ban/unban ───────────────────────────────────────────────────────
 
   app.post("/api/admin/users/:id/ban", (req, res) => {
-    if (!requireAdmin(req, res)) return;
+    const session = requireAdmin(req, res);
+    if (!session) return;
     const userId = Number(req.params.id);
     if (!userId) return res.status(400).json({ error: "Invalid user ID" });
     const user = findUserById(userId);
@@ -261,13 +290,15 @@ function registerAdminPanelRoutes(app, deps) {
     adminBanUser(userId, banned);
     if (banned) adminRun("DELETE FROM sessions WHERE user_id = ?", [userId]);
     adminSave();
+    log(session, banned ? "user.ban" : "user.unban", { targetType: "user", targetLabel: `@${user.username}` });
     res.json({ ok: true, banned });
   });
 
   // ─── Users — change role ─────────────────────────────────────────────────────
 
   app.post("/api/admin/users/:id/role", (req, res) => {
-    if (!requireAdmin(req, res)) return;
+    const session = requireAdmin(req, res);
+    if (!session) return;
     const userId = Number(req.params.id);
     const { role } = req.body || {};
     if (!userId) return res.status(400).json({ error: "Invalid user ID" });
@@ -276,13 +307,15 @@ function registerAdminPanelRoutes(app, deps) {
     if (!user) return res.status(404).json({ error: "User not found" });
     setUserRole(userId, role);
     adminSave();
+    log(session, "user.role", { targetType: "user", targetLabel: `@${user.username}`, details: `role=${role}` });
     res.json({ ok: true, role });
   });
 
   // ─── Users — reset password ──────────────────────────────────────────────────
 
   app.post("/api/admin/users/:id/reset-password", async (req, res) => {
-    if (!requireAdmin(req, res)) return;
+    const session = requireAdmin(req, res);
+    if (!session) return;
     const userId = Number(req.params.id);
     const newPassword = String(req.body?.password || "").trim();
     if (!userId) return res.status(400).json({ error: "Invalid user ID" });
@@ -293,6 +326,7 @@ function registerAdminPanelRoutes(app, deps) {
     adminRun("UPDATE users SET password_hash = ? WHERE id = ?", [hash, userId]);
     adminRun("DELETE FROM sessions WHERE user_id = ?", [userId]);
     adminSave();
+    log(session, "user.reset_password", { targetType: "user", targetLabel: `@${user.username}` });
     res.json({ ok: true });
   });
 
@@ -308,6 +342,7 @@ function registerAdminPanelRoutes(app, deps) {
     if (!user) return res.status(404).json({ error: "User not found" });
     const { storedNames } = adminDeleteUser(userId) || {};
     if (Array.isArray(storedNames) && storedNames.length > 0) removeStoredFileNames(storedNames);
+    log(session, "user.delete", { targetType: "user", targetLabel: `@${user.username}` });
     res.json({ ok: true });
   });
 
@@ -329,7 +364,8 @@ function registerAdminPanelRoutes(app, deps) {
   // ─── Chats — create ──────────────────────────────────────────────────────────
 
   app.post("/api/admin/chats", (req, res) => {
-    if (!requireAdmin(req, res)) return;
+    const session = requireAdmin(req, res);
+    if (!session) return;
     const b = req.body || {};
     const type       = normalizeChatType(b.type) || "group";
     const name       = String(b.name || "").trim();
@@ -374,13 +410,15 @@ function registerAdminPanelRoutes(app, deps) {
 
     adminSave();
     const created = findChatById(chatId);
+    log(session, "chat.create", { targetType: "chat", targetLabel: name, details: `type=${type}` });
     res.status(201).json({ ok: true, chat: created });
   });
 
   // ─── Chats — edit ────────────────────────────────────────────────────────────
 
   app.patch("/api/admin/chats/:id", (req, res) => {
-    if (!requireAdmin(req, res)) return;
+    const session = requireAdmin(req, res);
+    if (!session) return;
     const chatId = Number(req.params.id);
     if (!chatId) return res.status(400).json({ error: "Invalid chat ID" });
     const chat = findChatById(chatId);
@@ -425,6 +463,7 @@ function registerAdminPanelRoutes(app, deps) {
 
     emitChatEvent(chatId, { type: "chat_updated", chatId });
     const updated = findChatById(chatId);
+    log(session, "chat.edit", { targetType: "chat", targetLabel: updated.name || `Chat #${chatId}` });
     res.json({ ok: true, chat: updated });
   });
 
@@ -441,52 +480,166 @@ function registerAdminPanelRoutes(app, deps) {
   // ─── Chats — add member ──────────────────────────────────────────────────────
 
   app.post("/api/admin/chats/:id/members", (req, res) => {
-    if (!requireAdmin(req, res)) return;
+    const session = requireAdmin(req, res);
+    if (!session) return;
     const chatId = Number(req.params.id);
     const userId = Number(req.body?.userId);
     if (!chatId || !userId) return res.status(400).json({ error: "chatId and userId required" });
-    if (!findChatById(chatId)) return res.status(404).json({ error: "Chat not found" });
-    if (!findUserById(userId)) return res.status(404).json({ error: "User not found" });
+    const chat = findChatById(chatId);
+    const user = findUserById(userId);
+    if (!chat) return res.status(404).json({ error: "Chat not found" });
+    if (!user) return res.status(404).json({ error: "User not found" });
     addChatMember(chatId, userId, "member");
     adminSave();
+    log(session, "chat.member_add", { targetType: "chat", targetLabel: chat.name || `Chat #${chatId}`, details: `+@${user.username}` });
     res.json({ ok: true });
   });
 
   // ─── Chats — remove member ───────────────────────────────────────────────────
 
   app.delete("/api/admin/chats/:id/members/:userId", (req, res) => {
-    if (!requireAdmin(req, res)) return;
+    const session = requireAdmin(req, res);
+    if (!session) return;
     const chatId = Number(req.params.id);
     const userId = Number(req.params.userId);
     if (!chatId || !userId) return res.status(400).json({ error: "Invalid IDs" });
+    const chat = findChatById(chatId);
+    const user = findUserById(userId);
     removeChatMember(chatId, userId);
     adminSave();
+    log(session, "chat.member_remove", { targetType: "chat", targetLabel: chat?.name || `Chat #${chatId}`, details: user ? `-@${user.username}` : `-#${userId}` });
     res.json({ ok: true });
   });
 
   // ─── Chats — set member role ─────────────────────────────────────────────────
 
   app.patch("/api/admin/chats/:id/members/:userId", (req, res) => {
-    if (!requireAdmin(req, res)) return;
+    const session = requireAdmin(req, res);
+    if (!session) return;
     const chatId = Number(req.params.id);
     const userId = Number(req.params.userId);
     const { role } = req.body || {};
     if (!chatId || !userId) return res.status(400).json({ error: "Invalid IDs" });
     if (!["owner", "admin", "member"].includes(role)) return res.status(400).json({ error: "Invalid role" });
+    const chat = findChatById(chatId);
+    const user = findUserById(userId);
     setChatMemberRole(chatId, userId, role);
     adminSave();
+    log(session, "chat.member_role", { targetType: "chat", targetLabel: chat?.name || `Chat #${chatId}`, details: `@${user?.username || userId} → ${role}` });
     res.json({ ok: true, role });
   });
 
   // ─── Chats — delete ──────────────────────────────────────────────────────────
 
   app.delete("/api/admin/chats/:id", (req, res) => {
-    if (!requireAdmin(req, res)) return;
+    const session = requireAdmin(req, res);
+    if (!session) return;
     const chatId = Number(req.params.id);
     if (!chatId) return res.status(400).json({ error: "Invalid chat ID" });
+    const chat = findChatById(chatId);
     const { storedNames } = adminDeleteChat(chatId) || {};
     if (Array.isArray(storedNames) && storedNames.length > 0) removeStoredFileNames(storedNames);
+    log(session, "chat.delete", { targetType: "chat", targetLabel: chat?.name || `Chat #${chatId}` });
     res.json({ ok: true });
+  });
+
+  // ─── Logs ──────────────────────────────────────────────────────────────────
+
+  app.get("/api/admin/logs", (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const limit  = Number(req.query.limit  || 100);
+    const offset = Number(req.query.offset || 0);
+    const search = String(req.query.search || "").trim();
+    const action = String(req.query.action || "").trim() || null;
+    const logs = adminListLogs({ limit, offset, search, action });
+    res.json({ logs });
+  });
+
+  app.delete("/api/admin/logs", (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    adminClearLogs();
+    log(session, "logs.clear", { targetType: "system" });
+    res.json({ ok: true });
+  });
+
+  // ─── Maintenance ─────────────────────────────────────────────────────────────
+
+  app.post("/api/admin/maintenance/vacuum", (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    try {
+      vacuumDatabase();
+      log(session, "db.vacuum", { targetType: "system" });
+      res.json({ ok: true });
+    } catch (err) {
+      log(session, "db.vacuum", { targetType: "system", status: "error", details: String(err?.message || err) });
+      res.status(500).json({ error: "Vacuum failed." });
+    }
+  });
+
+  // List existing backups
+  app.get("/api/admin/maintenance/backups", (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const backupDir = nodePath.join(projectRootDir, "data", "backups");
+      if (!fs.existsSync(backupDir)) return res.json({ backups: [] });
+      const backups = fs.readdirSync(backupDir, { withFileTypes: true })
+        .filter((e) => e.isFile() && /^songbird-backup-.*\.zip$/i.test(e.name))
+        .map((e) => {
+          const full = nodePath.join(backupDir, e.name);
+          const st = fs.statSync(full);
+          return { name: e.name, sizeBytes: st.size, createdAt: st.mtime.toISOString() };
+        })
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      res.json({ backups });
+    } catch {
+      res.json({ backups: [] });
+    }
+  });
+
+  // Create an encrypted backup zip (.env + data) using the `zip` binary
+  app.post("/api/admin/maintenance/backup", (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const password = String(req.body?.password || "").trim();
+    if (!password) return res.status(400).json({ error: "A backup password is required." });
+
+    const dataDir   = nodePath.join(projectRootDir, "data");
+    const envPath   = nodePath.join(projectRootDir, ".env");
+    const dbPath    = nodePath.join(dataDir, "songbird.db");
+    const uploadsDir = nodePath.join(dataDir, "uploads");
+    const backupDir = nodePath.join(dataDir, "backups");
+
+    if (!fs.existsSync(dbPath) && !fs.existsSync(uploadsDir)) {
+      return res.status(400).json({ error: "No data found to back up." });
+    }
+    if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const backupName = `songbird-backup-${stamp}.zip`;
+    const backupPath = nodePath.join(backupDir, backupName);
+
+    // Build relative include list from project root so paths stay clean inside the zip
+    const includes = ["data/songbird.db", "data/uploads"];
+    if (fs.existsSync(envPath)) includes.unshift(".env");
+
+    execFile(
+      process.env.ZIP_BIN || "zip",
+      ["-r", "-q", "-P", password, backupPath, ...includes, "-x", "data/backups/*"],
+      { cwd: projectRootDir },
+      (err) => {
+        if (err) {
+          const msg = err.code === "ENOENT" ? "zip command not found on server." : "Backup failed.";
+          log(session, "db.backup", { targetType: "system", status: "error", details: msg });
+          return res.status(500).json({ error: msg });
+        }
+        let sizeBytes = 0;
+        try { sizeBytes = fs.statSync(backupPath).size; } catch {}
+        log(session, "db.backup", { targetType: "system", targetLabel: backupName, details: `${(sizeBytes / 1024 / 1024).toFixed(1)} MB` });
+        res.json({ ok: true, backup: { name: backupName, sizeBytes, createdAt: new Date().toISOString() } });
+      },
+    );
   });
 }
 

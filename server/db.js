@@ -2564,3 +2564,45 @@ export function adminDeleteUser(userId) {
 export function adminDeleteChat(chatId) {
   return deleteChatById(chatId);
 }
+
+// ─── Admin Logs ──────────────────────────────────────────────────────────────
+
+export function addAdminLog({ actorUserId = null, actorUsername = null, action, targetType = null, targetLabel = null, details = null, status = "success" }) {
+  run(
+    `INSERT INTO admin_logs (actor_user_id, actor_username, action, target_type, target_label, details, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+    [actorUserId, actorUsername, String(action || ""), targetType, targetLabel, details, status],
+  );
+}
+
+export function adminListLogs({ limit = 100, offset = 0, search = "", action = null }) {
+  const safeLimit  = Math.max(1, Math.min(500, Number(limit) || 100));
+  const safeOffset = Math.max(0, Number(offset) || 0);
+  const conditions = [];
+  const params = [];
+  if (search) {
+    const like = `%${escapeLikePattern(search)}%`;
+    conditions.push("(actor_username LIKE ? ESCAPE '\\' OR target_label LIKE ? ESCAPE '\\' OR details LIKE ? ESCAPE '\\')");
+    params.push(like, like, like);
+  }
+  if (action) {
+    conditions.push("action = ?");
+    params.push(action);
+  }
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  params.push(safeLimit, safeOffset);
+  return getAll(
+    `SELECT id, actor_user_id, actor_username, action, target_type, target_label, details, status, created_at
+     FROM admin_logs ${where} ORDER BY id DESC LIMIT ? OFFSET ?`,
+    params,
+  );
+}
+
+export function adminClearLogs() {
+  run("DELETE FROM admin_logs");
+}
+
+export function vacuumDatabase() {
+  run("VACUUM");
+  saveDatabase();
+}

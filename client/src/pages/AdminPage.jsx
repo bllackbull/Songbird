@@ -11,6 +11,8 @@ import {
   Database,
   Gauge,
   Globe,
+  HardDriveDownload,
+  History,
   Lock,
   Megaphone,
   MemoryStick,
@@ -19,13 +21,16 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  ScrollText,
   Search,
   ShieldCog,
+  Sparkles,
   Sun,
   Trash,
   User,
   UserPlus,
   Users,
+  Wrench,
   Close,
 } from "../icons/lucide.js";
 
@@ -50,6 +55,8 @@ const TABS = [
   { id: "dashboard", label: "Dashboard", icon: Gauge },
   { id: "users",     label: "Users",     icon: Users },
   { id: "chats",     label: "Chats",     icon: MessageCircleMore },
+  { id: "actions",   label: "Actions",   icon: Wrench },
+  { id: "logs",      label: "Logs",      icon: ScrollText },
 ];
 
 // ─── Shared style constants ────────────────────────────────────────────────────
@@ -222,6 +229,8 @@ function AdminPanelContent({ user, onBack, isDark, toggleTheme }) {
           {tab === "dashboard" && <DashboardTab stats={stats} onStatsChange={refreshStats} />}
           {tab === "users"     && <UsersTab currentUser={user} onStatsChange={refreshStats} />}
           {tab === "chats"     && <ChatsTab onStatsChange={refreshStats} />}
+          {tab === "actions"   && <ActionsTab />}
+          {tab === "logs"      && <LogsTab />}
         </div>
       </div>
     </div>
@@ -347,8 +356,6 @@ function DashboardTab({ stats, onStatsChange }) {
   const diskUsed  = sys?.storage?.diskUsedBytes ?? 0;
   const diskPct   = diskTotal > 0 ? Math.round((diskUsed / diskTotal) * 100) : 0;
 
-  const totalData    = sys?.storage?.totalDataBytes ?? 0;
-  const dbSize       = sys?.storage?.dbSizeBytes ?? 0;
   const uploadsSize  = sys?.storage?.uploadsSizeBytes ?? 0;
 
   const gaugeColor = (pct) => pct > 85 ? "rose" : pct > 65 ? "orange" : "emerald";
@@ -365,9 +372,8 @@ function DashboardTab({ stats, onStatsChange }) {
 
   // Info cards
   const infoCards = [
-    { label: "Database",    value: sys ? fmtBytes(dbSize)         : "—", icon: Database },
-    { label: "Uploads",     value: sys ? fmtBytes(uploadsSize)    : "—", icon: Database },
-    { label: "Total data",  value: sys ? fmtBytes(totalData)      : "—", icon: Database },
+    { label: "Uploads",     value: sys ? fmtBytes(uploadsSize)   : "—", icon: Database,
+      hint: "Total size of uploaded files on disk" },
     { label: "Process RSS", value: sys ? fmtBytes(sys.memory.rss) : "—", icon: MemoryStick,
       hint: "Total RAM used by the server process (Resident Set Size)" },
     { label: "Uptime",      value: sys ? fmtUptime(sys.uptime)    : "—", icon: Activity, accent: true },
@@ -413,7 +419,7 @@ function DashboardTab({ stats, onStatsChange }) {
         </div>
 
         {/* Separate info cards */}
-        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
           {infoCards.map(({ label, value, icon: Icon, accent, hint }) => (
             <div key={label} className={cardCls + " px-4 py-3"} title={hint}>
               <div className="mb-1 flex items-center gap-1.5">
@@ -1041,4 +1047,243 @@ function EmptyState({ message }) {
       <p className="text-sm text-slate-400 dark:text-slate-500">{message}</p>
     </div>
   );
+}
+
+// ─── Actions tab (DB maintenance) ──────────────────────────────────────────────
+
+function ActionsTab() {
+  const [backups,      setBackups]      = useState([]);
+  const [loadingList,  setLoadingList]  = useState(true);
+  const [vacuumBusy,   setVacuumBusy]   = useState(false);
+  const [backupOpen,   setBackupOpen]   = useState(false);
+  const [toast,        setToast]        = useState("");
+
+  const loadBackups = useCallback(async () => {
+    setLoadingList(true);
+    try { const d = await api.get("/api/admin/maintenance/backups"); setBackups(d.backups || []); }
+    catch {} finally { setLoadingList(false); }
+  }, []);
+
+  useEffect(() => { loadBackups(); }, [loadBackups]);
+
+  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 3000); };
+
+  const runVacuum = async () => {
+    if (!confirm("Run VACUUM now? This rewrites the database file to reclaim space.")) return;
+    setVacuumBusy(true);
+    try {
+      const r = await api.post("/api/admin/maintenance/vacuum", {});
+      flash(r.ok ? "Database vacuumed successfully." : "Vacuum failed.");
+    } catch { flash("Vacuum failed."); } finally { setVacuumBusy(false); }
+  };
+
+  return (
+    <div className="space-y-5">
+      {toast && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-medium text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+          {toast}
+        </div>
+      )}
+
+      {/* Maintenance actions */}
+      <div>
+        <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">Database Maintenance</h2>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+
+          {/* Vacuum */}
+          <div className={cardCls + " flex items-start gap-3 p-4"}>
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
+              <Sparkles size={16} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Vacuum database</p>
+              <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">Rewrites the DB file to reclaim unused space and defragment.</p>
+              <button type="button" onClick={runVacuum} disabled={vacuumBusy} className={btnPrimary + " mt-3"}>
+                <Wrench size={13} /> {vacuumBusy ? "Running…" : "Run vacuum"}
+              </button>
+            </div>
+          </div>
+
+          {/* Backup */}
+          <div className={cardCls + " flex items-start gap-3 p-4"}>
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
+              <HardDriveDownload size={16} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Create backup</p>
+              <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">Encrypted zip of the database, uploads, and .env into data/backups.</p>
+              <button type="button" onClick={() => setBackupOpen(true)} className={btnPrimary + " mt-3"}>
+                <HardDriveDownload size={13} /> New backup
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Existing backups */}
+      <div>
+        <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">Backups</h2>
+        {loadingList ? <LoadingRows /> : backups.length === 0 ? (
+          <EmptyState message="No backups yet." />
+        ) : (
+          <div className={"overflow-hidden " + cardCls}>
+            {backups.map((b, i) => (
+              <div key={b.name} className={`flex items-center gap-3 px-4 py-2.5 ${i < backups.length - 1 ? "border-b border-slate-100 dark:border-white/5" : ""}`}>
+                <HardDriveDownload size={14} className="shrink-0 text-emerald-500" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{b.name}</p>
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500">{fmtDateTime(b.createdAt)}</p>
+                </div>
+                <span className="shrink-0 text-[11px] font-medium text-slate-500 dark:text-slate-400">{fmtBytes(b.sizeBytes)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <p className="mt-2 text-[11px] text-slate-400 dark:text-slate-500">
+          Restoring a backup is a destructive operation and must be done from the server CLI: <code className="rounded bg-slate-100 px-1 py-0.5 dark:bg-white/10">npm run db:restore</code>
+        </p>
+      </div>
+
+      {backupOpen && <BackupModal onClose={() => setBackupOpen(false)} onDone={(msg) => { flash(msg); loadBackups(); }} />}
+    </div>
+  );
+}
+
+function BackupModal({ onClose, onDone }) {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault(); setError(""); setBusy(true);
+    try {
+      const r = await api.post("/api/admin/maintenance/backup", { password });
+      if (!r.ok) { const d = await r.json(); setError(d.error || "Backup failed."); return; }
+      onDone("Backup created successfully."); onClose();
+    } catch { setError("Backup failed."); } finally { setBusy(false); }
+  };
+
+  return (
+    <Modal title="Create encrypted backup" onClose={onClose}>
+      <form onSubmit={submit} className="space-y-3">
+        <Field label="Backup password" hint="You'll need this password to restore the backup later. Store it safely.">
+          <input type="password" className={inputCls} value={password} onChange={e => setPassword(e.target.value)} required />
+        </Field>
+        {error && <p className="text-xs text-rose-500">{error}</p>}
+        <button type="submit" disabled={busy} className={btnPrimary + " w-full justify-center"}>
+          {busy ? "Creating backup…" : "Create backup"}
+        </button>
+      </form>
+    </Modal>
+  );
+}
+
+// ─── Logs tab ──────────────────────────────────────────────────────────────────
+
+const LOG_ACTION_META = {
+  "user.create":         { label: "User created",      color: "emerald" },
+  "user.edit":           { label: "User edited",       color: "slate" },
+  "user.delete":         { label: "User deleted",      color: "rose" },
+  "user.ban":            { label: "User banned",       color: "orange" },
+  "user.unban":          { label: "User unbanned",     color: "emerald" },
+  "user.role":           { label: "Role changed",      color: "emerald" },
+  "user.reset_password": { label: "Password reset",    color: "orange" },
+  "chat.create":         { label: "Chat created",      color: "emerald" },
+  "chat.edit":           { label: "Chat edited",       color: "slate" },
+  "chat.delete":         { label: "Chat deleted",      color: "rose" },
+  "chat.member_add":     { label: "Member added",      color: "emerald" },
+  "chat.member_remove":  { label: "Member removed",    color: "orange" },
+  "chat.member_role":    { label: "Member role",       color: "slate" },
+  "db.vacuum":           { label: "DB vacuumed",       color: "emerald" },
+  "db.backup":           { label: "Backup created",    color: "emerald" },
+  "logs.clear":          { label: "Logs cleared",      color: "rose" },
+};
+
+function LogActionBadge({ action }) {
+  const meta = LOG_ACTION_META[action] || { label: action, color: "slate" };
+  const colors = {
+    emerald: "border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-400",
+    rose:    "border-rose-200 bg-rose-50 text-rose-600 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-400",
+    orange:  "border-orange-200 bg-orange-50 text-orange-600 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-400",
+    slate:   "border-slate-200 bg-slate-50 text-slate-500 dark:border-white/10 dark:bg-white/5 dark:text-slate-400",
+  };
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-px text-[10px] font-semibold ${colors[meta.color]}`}>
+      {meta.label}
+    </span>
+  );
+}
+
+function LogsTab() {
+  const [logs,        setLogs]        = useState([]);
+  const [initialized, setInitialized] = useState(false);
+  const [search,      setSearch]      = useState("");
+  const debounceRef = useRef(null);
+  const searchRef   = useRef(search);
+  useEffect(() => { searchRef.current = search; });
+
+  const load = useCallback(async () => {
+    const q = new URLSearchParams({ limit: 200, search: searchRef.current });
+    try { const d = await api.get(`/api/admin/logs?${q}`); setLogs(d.logs || []); } catch {}
+    setInitialized(true);
+  }, []);
+
+  useEffect(() => {
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(load, 250);
+    return () => clearTimeout(debounceRef.current);
+  }, [search, load]);
+
+  const clearLogs = async () => {
+    if (!confirm("Clear all admin logs? This cannot be undone.")) return;
+    await api.delete("/api/admin/logs");
+    load();
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-40 flex-1">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input type="text" placeholder="Search logs…" value={search} onChange={e => setSearch(e.target.value)} className={inputSmCls + " pl-8"} />
+        </div>
+        <button type="button" onClick={load} className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:bg-slate-100 dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5" title="Refresh">
+          <RefreshCw size={14} />
+        </button>
+        <button type="button" onClick={clearLogs} className={btnDanger}>
+          <Trash size={13} /> Clear logs
+        </button>
+      </div>
+
+      {!initialized ? <LoadingRows /> : logs.length === 0 ? <EmptyState message="No log entries." /> : (
+        <div className={"overflow-hidden " + cardCls}>
+          {logs.map((entry, i) => (
+            <div key={entry.id} className={`flex items-start gap-3 px-4 py-3 ${i < logs.length - 1 ? "border-b border-slate-100 dark:border-white/5" : ""}`}>
+              <History size={14} className={`mt-0.5 shrink-0 ${entry.status === "error" ? "text-rose-400" : "text-slate-300 dark:text-slate-600"}`} />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <LogActionBadge action={entry.action} />
+                  {entry.target_label && <span className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{entry.target_label}</span>}
+                  {entry.status === "error" && <span className="text-[10px] font-semibold text-rose-500">failed</span>}
+                </div>
+                {entry.details && <p className="mt-0.5 truncate text-[11px] text-slate-400 dark:text-slate-500">{entry.details}</p>}
+                <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
+                  {entry.actor_username ? `@${entry.actor_username}` : "system"} · {fmtDateTime(entry.created_at)}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function fmtDateTime(iso) {
+  if (!iso) return "—";
+  try {
+    // SQLite datetime('now') returns UTC without timezone marker; treat as UTC
+    const d = iso.includes("T") ? new Date(iso) : new Date(iso.replace(" ", "T") + "Z");
+    return d.toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  } catch { return iso; }
 }
