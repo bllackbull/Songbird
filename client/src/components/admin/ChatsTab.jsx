@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, Megaphone, MessageCircleMore, Pencil, Plus, Search, Trash, Users } from "../../icons/lucide.js";
+import { ChevronDown, Globe, Lock, Megaphone, MessageCircleMore, Pencil, Plus, Search, Trash, Users } from "../../icons/lucide.js";
 import { api, cardCls, inputSmCls, btnPrimary, iconBtn, fmtDate } from "./adminShared.js";
-import { LoadingRows, EmptyState, FilterDropdown, SortTh, ChatTypeIcon, ChatTypeBadge } from "./AdminCommon.jsx";
+import { LoadingRows, EmptyState, FilterDropdown, SortTh } from "./AdminCommon.jsx";
 import { MembersModal } from "./ChatModals.jsx";
 import AdminGroupModal from "./AdminGroupModal.jsx";
+import Avatar from "../common/Avatar.jsx";
 
 export default function ChatsTab({ currentUser, onStatsChange }) {
   const [chats, setChats]             = useState([]);
@@ -64,7 +65,7 @@ export default function ChatsTab({ currentUser, onStatsChange }) {
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input type="text" placeholder="Search chats…" value={search} onChange={(e) => setSearch(e.target.value)} className={inputSmCls + " pl-8"} />
         </div>
-        <FilterDropdown value={typeFilter} onChange={setTypeFilter} options={[["", "All types"], ["dm", "DMs"], ["group", "Groups"], ["channel", "Channels"]]} />
+        <FilterDropdown value={typeFilter} onChange={setTypeFilter} options={[["", "All types"], ["group", "Groups"], ["channel", "Channels"]]} />
         <div ref={createMenuRef} className="relative">
           <button type="button" onClick={() => setCreateMenuOpen((o) => !o)} aria-expanded={createMenuOpen} className={btnPrimary}>
             <Plus size={13} className="icon-anim-pop" /> New chat
@@ -92,7 +93,8 @@ export default function ChatsTab({ currentUser, onStatsChange }) {
               <thead className="border-b border-slate-100 dark:border-white/5">
                 <tr>
                   <SortTh field="name" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Chat</SortTh>
-                  <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400">Type</th>
+                  <SortTh field="type" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Type</SortTh>
+                  <SortTh field="group_visibility" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Privacy</SortTh>
                   <SortTh field="member_count" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}><Users size={10} className="mr-0.5 inline opacity-60" />Members</SortTh>
                   <SortTh field="message_count" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}><MessageCircleMore size={10} className="mr-0.5 inline opacity-60" />Messages</SortTh>
                   <SortTh field="created_at" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Created</SortTh>
@@ -103,15 +105,31 @@ export default function ChatsTab({ currentUser, onStatsChange }) {
                 {chats.map((c) => (
                   <tr key={c.id} className="hover:bg-emerald-50/30 dark:hover:bg-emerald-500/5">
                     <td className="px-4 py-2.5">
-                      <div className="flex items-center gap-2">
-                        <ChatTypeIcon type={c.type} size={14} />
+                      <div className="flex items-center gap-2.5">
+                        <Avatar
+                          src={c.group_avatar_url}
+                          name={c.name || "Chat"}
+                          color={c.group_color || "#10b981"}
+                          className="h-7 w-7 shrink-0 text-xs font-bold text-white"
+                        />
                         <div className="min-w-0">
                           <p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{c.name || `Chat #${c.id}`}</p>
                           {c.group_username && <p className="text-[11px] text-slate-400">@{c.group_username}</p>}
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-2.5"><ChatTypeBadge type={c.type} visibility={c.group_visibility} /></td>
+                    <td className="px-4 py-2.5 text-xs capitalize text-slate-600 dark:text-slate-300">
+                      <span className="flex items-center gap-1.5">
+                        {c.type === "channel" ? <Megaphone size={13} className="text-emerald-500" /> : <Users size={13} className="text-emerald-500" />}
+                        {c.type}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-xs capitalize text-slate-600 dark:text-slate-300">
+                      <span className="flex items-center gap-1.5">
+                        {(c.group_visibility || "public") === "private" ? <Lock size={13} className="text-emerald-500" /> : <Globe size={13} className="text-emerald-500" />}
+                        {c.group_visibility || "public"}
+                      </span>
+                    </td>
                     <td className="px-4 py-2.5 text-xs text-slate-600 dark:text-slate-300">
                       <span className="flex items-center gap-1"><Users size={11} className="text-slate-400" />{c.member_count}</span>
                     </td>
@@ -121,12 +139,8 @@ export default function ChatsTab({ currentUser, onStatsChange }) {
                     <td className="px-4 py-2.5 text-[11px] text-slate-400 dark:text-slate-500">{fmtDate(c.created_at)}</td>
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-1">
-                        {c.type !== "dm" && (
-                          <>
-                            <button type="button" onClick={() => setEditChat(c)} className={iconBtn("slate")} title="Edit"><Pencil size={13} className="icon-anim-sway" /></button>
-                            <button type="button" onClick={() => setMembersChat(c)} className={iconBtn("emerald")} title="Members"><Users size={13} className="icon-anim-pop" /></button>
-                          </>
-                        )}
+                        <button type="button" onClick={() => setEditChat(c)} className={iconBtn("slate")} title="Edit"><Pencil size={13} className="icon-anim-sway" /></button>
+                        <button type="button" onClick={() => setMembersChat(c)} className={iconBtn("emerald")} title="Members"><Users size={13} className="icon-anim-pop" /></button>
                         <button type="button" onClick={() => handleDelete(c)} className={iconBtn("rose")} title="Delete"><Trash size={13} className="icon-anim-slide" /></button>
                       </div>
                     </td>

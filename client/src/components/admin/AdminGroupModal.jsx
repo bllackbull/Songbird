@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, lazy, Suspense } from "react";
-import { searchUsers } from "../../api/chatApi.js";
+import { searchUsers, apiFetch } from "../../api/chatApi.js";
+import { CHAT_PAGE_CONFIG } from "../../settings/chatPageConfig.js";
 import { api, inputCls } from "./adminShared.js";
 import { Field } from "./AdminCommon.jsx";
 import Avatar from "../common/Avatar.jsx";
@@ -129,6 +130,41 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", cur
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
+  // Avatar state. In edit mode we upload immediately to the existing chat; in
+  // create mode we hold the picked file and upload after the chat is created.
+  const fileUploadEnabled = CHAT_PAGE_CONFIG.fileUploadEnabled;
+  const [avatarPreview, setAvatarPreview] = useState(editing ? (chat?.group_avatar_url || "") : "");
+  const [pendingAvatarFile, setPendingAvatarFile] = useState(null);
+  const [avatarRemoved, setAvatarRemoved] = useState(false);
+  const objectUrlRef = useRef(null);
+
+  useEffect(() => () => { if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current); }, []);
+
+  const uploadAvatarTo = useCallback(async (chatId, file) => {
+    const fd = new FormData();
+    fd.append("avatar", file);
+    await apiFetch(`/api/admin/chats/${chatId}/avatar`, { method: "POST", body: fd });
+  }, []);
+
+  const handleAvatarChange = useCallback((e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+    const url = URL.createObjectURL(file);
+    objectUrlRef.current = url;
+    setPendingAvatarFile(file);
+    setAvatarRemoved(false);
+    setAvatarPreview(url);
+  }, []);
+
+  const handleAvatarRemove = useCallback(() => {
+    if (objectUrlRef.current) { URL.revokeObjectURL(objectUrlRef.current); objectUrlRef.current = null; }
+    setPendingAvatarFile(null);
+    setAvatarRemoved(true);
+    setAvatarPreview("");
+  }, []);
+
   // Member search (create flow only). Mirrors useNewGroupModal behaviour.
   useEffect(() => {
     if (editing) return undefined;
@@ -164,6 +200,10 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", cur
         if (owner?.id) payload.owner = owner.id;
         const r = await api.patch(`/api/admin/chats/${chat.id}`, payload);
         if (!r.ok) { const d = await r.json(); setError(d.error || "Failed"); setBusy(false); return; }
+        if (fileUploadEnabled) {
+          if (pendingAvatarFile) await uploadAvatarTo(chat.id, pendingAvatarFile);
+          else if (avatarRemoved) await apiFetch(`/api/admin/chats/${chat.id}/avatar`, { method: "DELETE" });
+        }
       } else {
         if (!owner?.id) { setError("Please select an owner."); setBusy(false); return; }
         const payload = {
@@ -177,12 +217,17 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", cur
         };
         const r = await api.post("/api/admin/chats", payload);
         if (!r.ok) { const d = await r.json(); setError(d.error || "Failed"); setBusy(false); return; }
+        const d = await r.json().catch(() => ({}));
+        const newId = d?.chat?.id;
+        if (fileUploadEnabled && pendingAvatarFile && newId) {
+          await uploadAvatarTo(newId, pendingAvatarFile);
+        }
       }
       onSaved(); onClose();
     } catch {
       setError("Request failed."); setBusy(false);
     }
-  }, [editing, form, owner, type, members, chat, onSaved, onClose]);
+  }, [editing, form, owner, type, members, chat, onSaved, onClose, fileUploadEnabled, pendingAvatarFile, avatarRemoved, uploadAvatarTo]);
 
   const extraFields = (
     <div className="space-y-3">
@@ -221,8 +266,13 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", cur
         entityLabel={entityLabel}
         extraFields={extraFields}
         showMemberSearch={!editing}
-        showAvatarField={false}
-        fileUploadEnabled={false}
+        showAvatarField={fileUploadEnabled}
+        avatarPreview={avatarPreview}
+        avatarColor={form.groupColor || "#10b981"}
+        avatarName={form.nickname || form.username || entityLabel}
+        onAvatarChange={handleAvatarChange}
+        onAvatarRemove={handleAvatarRemove}
+        fileUploadEnabled={fileUploadEnabled}
         showInviteManagement={false}
         showRemoteChannelSettings={false}
       />

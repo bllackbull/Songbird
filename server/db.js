@@ -2566,13 +2566,16 @@ export function adminListUsers({ limit = 200, offset = 0, search = "", sortBy = 
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  // Case-insensitive ordering for text columns so names sort naturally.
+  const textSortCols = ["username", "nickname"];
+  const collate = textSortCols.includes(safeSortBy) ? " COLLATE NOCASE" : "";
   params.push(safeLimit, safeOffset);
   return getAll(
     `SELECT id, username, nickname, avatar_url, color, status, role, banned, created_at, last_seen,
             CASE WHEN status = 'online' AND last_seen IS NOT NULL
                       AND last_seen >= datetime('now', '-' || ? || ' seconds')
                  THEN 1 ELSE 0 END AS online
-     FROM users ${where} ORDER BY ${safeSortBy} ${safeSortDir} LIMIT ? OFFSET ?`,
+     FROM users ${where} ORDER BY ${safeSortBy}${collate} ${safeSortDir} LIMIT ? OFFSET ?`,
     params,
   );
 }
@@ -2580,29 +2583,37 @@ export function adminListUsers({ limit = 200, offset = 0, search = "", sortBy = 
 export function adminListChats({ limit = 200, offset = 0, search = "", sortBy = "id", sortDir = "DESC", typeFilter = null }) {
   const safeLimit  = Math.max(1, Math.min(500, Number(limit) || 200));
   const safeOffset = Math.max(0, Number(offset) || 0);
-  const safeSortBy  = ["id", "name", "type", "created_at", "member_count", "message_count"].includes(sortBy) ? sortBy : "id";
+  const safeSortBy  = ["id", "name", "type", "group_visibility", "created_at", "member_count", "message_count"].includes(sortBy) ? sortBy : "id";
   const safeSortDir = sortDir === "ASC" ? "ASC" : "DESC";
 
   const conditions = [];
   const params     = [];
+
+  // The admin chats table only manages groups and channels (never DMs or the
+  // per-user "saved messages" chats).
+  conditions.push("c.type IN ('group', 'channel')");
 
   if (search) {
     const like = `%${escapeLikePattern(search)}%`;
     conditions.push("(c.name LIKE ? ESCAPE '\\' OR c.group_username LIKE ? ESCAPE '\\')");
     params.push(like, like);
   }
-  if (typeFilter) {
+  if (typeFilter === "group" || typeFilter === "channel") {
     conditions.push("c.type = ?");
     params.push(typeFilter);
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  // Text columns get case-insensitive ordering so names sort naturally
+  // (otherwise SQLite's binary collation puts all uppercase before lowercase).
+  const textSortCols = ["name", "type", "group_visibility"];
+  const collate = textSortCols.includes(safeSortBy) ? " COLLATE NOCASE" : "";
   params.push(safeLimit, safeOffset);
   return getAll(
-    `SELECT c.id, c.name, c.type, c.group_username, c.group_visibility, c.group_color, c.created_at,
+    `SELECT c.id, c.name, c.type, c.group_username, c.group_visibility, c.group_color, c.group_avatar_url, c.created_at,
             (SELECT COUNT(*) FROM chat_members WHERE chat_id = c.id) AS member_count,
             (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) AS message_count
-     FROM chats c ${where} ORDER BY ${safeSortBy} ${safeSortDir} LIMIT ? OFFSET ?`,
+     FROM chats c ${where} ORDER BY ${safeSortBy}${collate} ${safeSortDir} LIMIT ? OFFSET ?`,
     params,
   );
 }

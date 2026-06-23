@@ -1,14 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  ArrowDown,
   ArrowUpDown,
   ChevronDown,
   Close,
-  Globe,
-  Lock,
-  Megaphone,
-  User,
-  Users,
 } from "../../icons/lucide.js";
 import { labelCls } from "./adminShared.js";
 
@@ -34,22 +30,6 @@ export function EmptyState({ message }) {
 
 // ─── Badges / icons ──────────────────────────────────────────────────────────
 
-export function ChatTypeIcon({ type, size = 16 }) {
-  if (type === "channel") return <Megaphone size={size} className="shrink-0 text-emerald-500" />;
-  if (type === "group")   return <Users     size={size} className="shrink-0 text-emerald-500" />;
-  return                         <User      size={size} className="shrink-0 text-slate-400" />;
-}
-
-export function ChatTypeBadge({ type, visibility }) {
-  const label = type === "dm" ? "DM" : type === "channel" ? "Channel" : "Group";
-  const VisIcon = type !== "dm" ? (visibility === "private" ? <Lock size={9} /> : <Globe size={9} />) : null;
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-px text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:border-white/10 dark:bg-white/5 dark:text-slate-400">
-      {VisIcon}{label}
-    </span>
-  );
-}
-
 export function RoleBadge({ role }) {
   const r = (role === 0 || role === "0" || !role) ? "user" : String(role);
   if (r === "user") return <span className="text-[11px] text-slate-400 dark:text-slate-500">user</span>;
@@ -66,8 +46,9 @@ export function SortTh({ field, sortBy, sortDir, onToggle, children }) {
     <th className="cursor-pointer select-none whitespace-nowrap px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400" onClick={() => onToggle(field)}>
       <span className="inline-flex items-center gap-1">
         {children}
-        <ArrowUpDown size={10} className={active ? "text-emerald-500" : "opacity-30"} />
-        {active && <span className="text-[10px] text-emerald-500">{sortDir === "DESC" ? "↓" : "↑"}</span>}
+        {active
+          ? <ArrowDown size={11} className={`text-emerald-500 transition-transform ${sortDir === "ASC" ? "rotate-180" : ""}`} />
+          : <ArrowUpDown size={10} className="opacity-30" />}
       </span>
     </th>
   );

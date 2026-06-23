@@ -41,6 +41,13 @@ function registerAdminPanelRoutes(app, deps) {
     updateChannelChat,
     // emitting SSE on changes
     emitChatEvent,
+    // avatar upload
+    uploadAvatar,
+    avatarUploadRootDir,
+    ALLOWED_AVATAR_MIME_TYPES,
+    storageEncryption,
+    removeUploadedFiles,
+    removeAvatarByUrl,
     // maintenance
     vacuumDatabase,
     reloadDatabase,
@@ -173,7 +180,7 @@ function registerAdminPanelRoutes(app, deps) {
     const search = String(req.query.search || "").trim();
     const sortBy    = ["id", "username", "nickname", "created_at", "last_seen"].includes(req.query.sortBy)
       ? req.query.sortBy : "id";
-    const sortDir   = req.query.sortDir === "asc" ? "ASC" : "DESC";
+    const sortDir   = String(req.query.sortDir || "").toLowerCase() === "asc" ? "ASC" : "DESC";
     const roleFilter = ["user", "admin", "owner", "banned"].includes(req.query.role) ? req.query.role : null;
     const statusFilter = ["online", "offline"].includes(req.query.status) ? req.query.status : null;
     const users = adminListUsers({ limit, offset, search, sortBy, sortDir, roleFilter, statusFilter });
@@ -356,10 +363,10 @@ function registerAdminPanelRoutes(app, deps) {
     const limit   = Number(req.query.limit  || 200);
     const offset  = Number(req.query.offset || 0);
     const search  = String(req.query.search || "").trim();
-    const sortBy  = ["id", "name", "type", "created_at", "member_count", "message_count"].includes(req.query.sortBy)
+    const sortBy  = ["id", "name", "type", "group_visibility", "created_at", "member_count", "message_count"].includes(req.query.sortBy)
       ? req.query.sortBy : "id";
-    const sortDir = req.query.sortDir === "asc" ? "ASC" : "DESC";
-    const typeFilter = ["dm", "group", "channel"].includes(req.query.type) ? req.query.type : null;
+    const sortDir = String(req.query.sortDir || "").toLowerCase() === "asc" ? "ASC" : "DESC";
+    const typeFilter = ["group", "channel"].includes(req.query.type) ? req.query.type : null;
     const chats = adminListChats({ limit, offset, search, sortBy, sortDir, typeFilter });
     res.json({ chats });
   });
@@ -469,6 +476,85 @@ function registerAdminPanelRoutes(app, deps) {
     const updated = findChatById(chatId);
     log(session, "chat.edit", { targetType: "chat", targetLabel: updated.name || `Chat #${chatId}` });
     res.json({ ok: true, chat: updated });
+  });
+
+  // ─── Chats — avatar upload (admin, bypasses owner check) ─────────────────────
+
+  app.post("/api/admin/chats/:id/avatar", uploadAvatar.single("avatar"), (req, res) => {
+    const session = getSessionFromRequest(req);
+    if (!session || !isUserAdmin(session.id)) {
+      removeUploadedFiles(req.file ? [req.file] : [], avatarUploadRootDir);
+      return res.status(session ? 403 : 401).json({ error: session ? "Admin access required" : "Not authenticated" });
+    }
+    const chatId = Number(req.params.id);
+    const file = req.file;
+    if (!chatId) {
+      removeUploadedFiles(file ? [file] : [], avatarUploadRootDir);
+      return res.status(400).json({ error: "Invalid chat ID" });
+    }
+    if (!file) return res.status(400).json({ error: "Avatar file is required." });
+
+    const mime = String(file.mimetype || "").toLowerCase();
+    if (!ALLOWED_AVATAR_MIME_TYPES.has(mime)) {
+      removeUploadedFiles([file], avatarUploadRootDir);
+      return res.status(400).json({ error: "Avatar must be a JPEG, PNG, GIF, WEBP, or BMP image." });
+    }
+
+    const chat = findChatById(chatId);
+    if (!chat || (chat.type !== "group" && chat.type !== "channel")) {
+      removeUploadedFiles([file], avatarUploadRootDir);
+      return res.status(404).json({ error: "Chat not found." });
+    }
+
+    const avatarUrl = `/api/uploads/avatars/${file.filename}`;
+    try {
+      storageEncryption.encryptFileInPlace(file.path);
+    } catch {
+      removeUploadedFiles([file], avatarUploadRootDir);
+      return res.status(500).json({ error: "Unable to store avatar securely." });
+    }
+
+    if (String(chat.group_avatar_url || "").trim() && chat.group_avatar_url !== avatarUrl) {
+      removeAvatarByUrl(chat.group_avatar_url);
+    }
+
+    const updateFn = chat.type === "channel" ? updateChannelChat : updateGroupChat;
+    updateFn(chatId, {
+      name: chat.name,
+      groupUsername: chat.group_username,
+      groupVisibility: chat.group_visibility,
+      allowMemberInvites: Boolean(Number(chat.allow_member_invites || 0)),
+      groupAvatarUrl: avatarUrl,
+    });
+    adminSave();
+    emitChatEvent(chatId, { type: "chat_updated", chatId });
+    log(session, "chat.edit", { targetType: "chat", targetLabel: chat.name || `Chat #${chatId}`, details: "avatar updated" });
+    res.json({ ok: true, avatarUrl });
+  });
+
+  app.delete("/api/admin/chats/:id/avatar", (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const chatId = Number(req.params.id);
+    if (!chatId) return res.status(400).json({ error: "Invalid chat ID" });
+    const chat = findChatById(chatId);
+    if (!chat || (chat.type !== "group" && chat.type !== "channel")) {
+      return res.status(404).json({ error: "Chat not found." });
+    }
+    if (String(chat.group_avatar_url || "").trim()) {
+      removeAvatarByUrl(chat.group_avatar_url);
+    }
+    const updateFn = chat.type === "channel" ? updateChannelChat : updateGroupChat;
+    updateFn(chatId, {
+      name: chat.name,
+      groupUsername: chat.group_username,
+      groupVisibility: chat.group_visibility,
+      allowMemberInvites: Boolean(Number(chat.allow_member_invites || 0)),
+      groupAvatarUrl: null,
+    });
+    adminSave();
+    emitChatEvent(chatId, { type: "chat_updated", chatId });
+    res.json({ ok: true, avatarUrl: null });
   });
 
   // ─── Chats — members list ────────────────────────────────────────────────────
