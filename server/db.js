@@ -2498,7 +2498,27 @@ export function getAdminStats() {
   const totalSessions = getRow("SELECT COUNT(*) AS count FROM sessions")?.count || 0;
   const bannedUsers = getRow("SELECT COUNT(*) AS count FROM users WHERE banned = 1")?.count || 0;
   const onlineUsers = getRow("SELECT COUNT(*) AS count FROM users WHERE status = 'online'")?.count || 0;
-  return { totalUsers, totalChats, totalMessages, totalSessions, bannedUsers, onlineUsers };
+
+  // Chat type breakdown
+  const dmChats      = getRow("SELECT COUNT(*) AS count FROM chats WHERE type = 'dm'")?.count || 0;
+  const groupChats   = getRow("SELECT COUNT(*) AS count FROM chats WHERE type = 'group'")?.count || 0;
+  const channelChats = getRow("SELECT COUNT(*) AS count FROM chats WHERE type = 'channel'")?.count || 0;
+
+  // Activity / growth signals
+  const messagesLast24h = getRow("SELECT COUNT(*) AS count FROM chat_messages WHERE created_at >= datetime('now', '-1 day')")?.count || 0;
+  const newUsers7d      = getRow("SELECT COUNT(*) AS count FROM users WHERE created_at >= datetime('now', '-7 days')")?.count || 0;
+
+  // Uploaded files + push subscriptions (tables may not exist on older schemas)
+  let totalFiles = 0;
+  try { totalFiles = getRow("SELECT COUNT(*) AS count FROM chat_message_files")?.count || 0; } catch { totalFiles = 0; }
+  let pushSubscriptions = 0;
+  try { pushSubscriptions = getRow("SELECT COUNT(*) AS count FROM push_subscriptions")?.count || 0; } catch { pushSubscriptions = 0; }
+
+  return {
+    totalUsers, totalChats, totalMessages, totalSessions, bannedUsers, onlineUsers,
+    dmChats, groupChats, channelChats,
+    messagesLast24h, newUsers7d, totalFiles, pushSubscriptions,
+  };
 }
 
 function escapeLikePattern(value) {

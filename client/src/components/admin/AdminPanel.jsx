@@ -5,12 +5,12 @@ import {
   ArrowRightFromLine,
   Check,
   Gauge,
+  LayoutDashboard,
   LoaderCircle,
   Moon,
   MessageCircleMore,
   Refresh,
   ScrollText,
-  ShieldCog,
   Sun,
   Users,
   Wrench,
@@ -84,7 +84,7 @@ export default function AdminPanel({ user, onBack, isDark, toggleTheme }) {
         <div className={`flex h-12 shrink-0 items-center border-b border-slate-100 dark:border-white/5 ${sidebarOpen ? "justify-between px-3" : "justify-center"}`}>
           {sidebarOpen && (
             <div className="flex items-center gap-2 overflow-hidden">
-              <ShieldCog size={14} className="shrink-0 text-emerald-500" />
+              <LayoutDashboard size={14} className="shrink-0 text-emerald-500" />
               <span className="truncate text-sm font-bold text-slate-700 dark:text-slate-200">Admin Panel</span>
             </div>
           )}

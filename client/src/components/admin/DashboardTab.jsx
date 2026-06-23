@@ -2,12 +2,17 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Activity,
   Ban,
+  Bell,
+  Chat,
   Database,
+  File,
+  Megaphone,
   MemoryStick,
   MessageCircleMore,
-  ShieldCog,
+  MonitorDot,
   User,
   Users,
+  UserPlus,
 } from "../../icons/lucide.js";
 import { api, cardCls, fmtBytes, fmtUptime } from "./adminShared.js";
 
@@ -65,13 +70,23 @@ export default function DashboardTab({ stats, onStatsChange }) {
 
   const gaugeColor = (pct) => (pct > 85 ? "rose" : pct > 65 ? "orange" : "emerald");
 
+  const chatBreakdown = stats
+    ? `${stats.dmChats ?? 0} DMs · ${stats.groupChats ?? 0} groups · ${stats.channelChats ?? 0} channels`
+    : undefined;
+
   const statCards = [
-    { label: "Total Users",     value: stats?.totalUsers,    icon: Users,             accent: "emerald" },
-    { label: "Show Online",     value: stats?.onlineUsers,   icon: User,              accent: "emerald", hint: "Users whose status preference is set to show online" },
-    { label: "Banned",          value: stats?.bannedUsers,   icon: Ban,               accent: "rose" },
-    { label: "Total Chats",     value: stats?.totalChats,    icon: MessageCircleMore, accent: "emerald" },
-    { label: "Total Messages",  value: stats?.totalMessages, icon: Database,          accent: "emerald" },
-    { label: "Active Sessions", value: stats?.totalSessions, icon: ShieldCog,         accent: "emerald" },
+    { label: "Total Users",     value: stats?.totalUsers,         icon: User,              accent: "emerald" },
+    { label: "Show Online",     value: stats?.onlineUsers,        icon: User,               accent: "emerald", hint: "Users whose status preference is set to show online" },
+    { label: "New Users (7d)",  value: stats?.newUsers7d,         icon: UserPlus,           accent: "emerald", hint: "Users registered in the last 7 days" },
+    { label: "Banned",          value: stats?.bannedUsers,        icon: Ban,                accent: "rose" },
+    { label: "Total Chats",     value: stats?.totalChats,         icon: Chat,               accent: "emerald", hint: chatBreakdown },
+    { label: "Total Groups",    value: stats?.groupChats,         icon: Users,              accent: "emerald", hint: "Group chats" },
+    { label: "Total Channels",  value: stats?.channelChats,       icon: Megaphone,          accent: "emerald", hint: "Channels" },
+    { label: "Total Messages",  value: stats?.totalMessages,      icon: Database,           accent: "emerald" },
+    { label: "Messages (24h)",  value: stats?.messagesLast24h,    icon: MessageCircleMore,  accent: "emerald", hint: "Messages sent in the last 24 hours" },
+    { label: "Uploaded Files",  value: stats?.totalFiles,         icon: File,               accent: "emerald", hint: "Total media/files attached to messages" },
+    { label: "Push Devices",    value: stats?.pushSubscriptions,  icon: Bell,               accent: "emerald", hint: "Registered web-push notification subscriptions" },
+    { label: "Active Sessions", value: stats?.totalSessions,      icon: MonitorDot,         accent: "emerald" },
   ];
 
   const infoCards = [

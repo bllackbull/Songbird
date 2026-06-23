@@ -3,10 +3,10 @@ import {
   Bookmark,
   Database,
   Info,
+  LayoutDashboard,
   LogOut,
   Rocket,
   ShieldCheck,
-  ShieldCog,
   User,
 } from "../../../icons/lucide.js";
 import { ThemeButton } from "../common/ThemeButton.jsx";
@@ -107,7 +107,7 @@ export function SettingsMenuActions({
           }}
           className={`mt-1 ${buttonBase} ${accentHover}`}
         >
-          <ShieldCog size={18} className="icon-anim-sway" />
+          <LayoutDashboard size={18} className="icon-anim-sway" />
           Admin Panel
         </button>
       ) : null}
