@@ -16,6 +16,8 @@ import {
   Wrench,
 } from "../../icons/lucide.js";
 import { api } from "./adminShared.js";
+import { pingPresence } from "../../api/chatApi.js";
+import { CHAT_PAGE_CONFIG } from "../../settings/chatPageConfig.js";
 import DashboardTab from "./DashboardTab.jsx";
 import UsersTab from "./UsersTab.jsx";
 import ChatsTab from "./ChatsTab.jsx";
@@ -29,6 +31,11 @@ const TABS = [
   { id: "actions",   label: "Actions",   icon: Wrench },
   { id: "logs",      label: "Logs",      icon: ScrollText },
 ];
+
+// Keep the admin's presence fresh while they're active in the panel.
+const PRESENCE_PING_INTERVAL_MS = CHAT_PAGE_CONFIG.presencePingIntervalMs;
+// Auto-exit the panel after this much inactivity (no mouse/keyboard/touch).
+const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 
 export default function AdminPanel({ user, onBack, isDark, toggleTheme }) {
   const [tab, setTab]                 = useState("dashboard");
@@ -53,6 +60,38 @@ export default function AdminPanel({ user, onBack, isDark, toggleTheme }) {
 
   useEffect(() => { refreshStats(); }, [refreshStats]);
   useEffect(() => () => { if (refreshResetRef.current) clearTimeout(refreshResetRef.current); }, []);
+
+  // Keep the admin marked online while they're in the panel: ping presence on
+  // mount, on a fixed interval, and whenever the tab regains focus.
+  useEffect(() => {
+    const username = user?.username;
+    if (!username) return undefined;
+    const ping = () => { pingPresence(username).catch(() => {}); };
+    ping();
+    const interval = setInterval(ping, PRESENCE_PING_INTERVAL_MS);
+    const onVisible = () => { if (document.visibilityState === "visible") ping(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { clearInterval(interval); document.removeEventListener("visibilitychange", onVisible); };
+  }, [user?.username]);
+
+  // Auto-exit the panel after a period of inactivity. Any user interaction
+  // resets the countdown; when it elapses we leave the panel via onBack.
+  const onBackRef = useRef(onBack);
+  useEffect(() => { onBackRef.current = onBack; }, [onBack]);
+  useEffect(() => {
+    let timer = null;
+    const reset = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => { onBackRef.current?.(); }, IDLE_TIMEOUT_MS);
+    };
+    const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "wheel"];
+    events.forEach((e) => window.addEventListener(e, reset, { passive: true }));
+    reset();
+    return () => {
+      if (timer) clearTimeout(timer);
+      events.forEach((e) => window.removeEventListener(e, reset));
+    };
+  }, []);
 
   const handleToggleTheme = () => {
     setThemeAnim(true);
