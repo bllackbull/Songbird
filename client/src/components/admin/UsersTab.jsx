@@ -61,8 +61,8 @@ export default function UsersTab({ currentUser, onStatsChange }) {
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input type="text" placeholder="Search users…" value={search} onChange={(e) => setSearch(e.target.value)} className={inputSmCls + " pl-8"} />
         </div>
-        <FilterDropdown value={roleFilter} onChange={setRoleFilter} options={[["", "All roles"], ["user", "User"], ["admin", "Admin"], ["owner", "Owner"]]} />
-        <FilterDropdown value={statusFilter} onChange={setStatusFilter} options={[["", "All"], ["online", "Show Online"], ["invisible", "Invisible"], ["banned", "Banned"]]} />
+        <FilterDropdown value={roleFilter} onChange={setRoleFilter} options={[["", "All roles"], ["user", "User"], ["admin", "Admin"], ["owner", "Owner"], ["banned", "Banned"]]} />
+        <FilterDropdown value={statusFilter} onChange={setStatusFilter} options={[["", "All"], ["online", "Online"], ["offline", "Offline"]]} />
         <button type="button" onClick={() => setCreateOpen(true)} className={btnPrimary}><UserPlus size={13} /> New user</button>
       </div>
 
@@ -74,7 +74,7 @@ export default function UsersTab({ currentUser, onStatsChange }) {
                 <tr>
                   <SortTh field="username" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>User</SortTh>
                   <SortTh field="role" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Role</SortTh>
-                  <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400">Status pref.</th>
+                  <SortTh field="last_seen" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Status</SortTh>
                   <SortTh field="created_at" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Joined</SortTh>
                   <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400">Actions</th>
                 </tr>
@@ -84,8 +84,11 @@ export default function UsersTab({ currentUser, onStatsChange }) {
                   <tr key={u.id} className="hover:bg-emerald-50/30 dark:hover:bg-emerald-500/5">
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-2.5">
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white" style={{ background: u.color || "#10b981" }}>
-                          {(u.nickname || u.username || "?")[0].toUpperCase()}
+                        <div className="relative shrink-0">
+                          <div className="flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold text-white" style={{ background: u.color || "#10b981" }}>
+                            {(u.nickname || u.username || "?")[0].toUpperCase()}
+                          </div>
+                          {u.online ? <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900" title="Online" /> : null}
                         </div>
                         <div className="min-w-0">
                           <p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{u.nickname || u.username}</p>
@@ -95,14 +98,15 @@ export default function UsersTab({ currentUser, onStatsChange }) {
                     </td>
                     <td className="px-4 py-2.5">
                       <div className="flex flex-wrap items-center gap-1">
-                        <RoleBadge role={u.role} />
-                        {u.banned && <span className="rounded-full bg-rose-100 px-1.5 py-px text-[10px] font-semibold text-rose-600 dark:bg-rose-500/10 dark:text-rose-400">banned</span>}
+                        {u.banned
+                          ? <span className="rounded-full bg-rose-100 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-rose-600 dark:bg-rose-500/10 dark:text-rose-400">banned</span>
+                          : <RoleBadge role={u.role} />}
                       </div>
                     </td>
-                    <td className="px-4 py-2.5">
-                      <span className={`text-[11px] font-medium ${u.banned ? "text-slate-300 line-through dark:text-slate-600" : u.status === "online" ? "text-emerald-500" : "text-slate-400 dark:text-slate-500"}`}>
-                        {u.status === "online" ? "Show online" : "Invisible"}
-                      </span>
+                    <td className="px-4 py-2.5 text-[11px]">
+                      {u.online
+                        ? <span className="inline-flex items-center gap-1 font-semibold text-emerald-500"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />Online</span>
+                        : <span className="text-slate-400 dark:text-slate-500">{u.last_seen ? fmtDate(u.last_seen) : "—"}</span>}
                     </td>
                     <td className="px-4 py-2.5 text-[11px] text-slate-400 dark:text-slate-500">{fmtDate(u.created_at)}</td>
                     <td className="px-4 py-2.5">
@@ -110,7 +114,7 @@ export default function UsersTab({ currentUser, onStatsChange }) {
                         <div className="flex items-center gap-1">
                           <button type="button" onClick={() => setEditUser(u)} className={iconBtn("slate")} title="Edit"><Pencil size={13} /></button>
                           <button type="button" onClick={() => handleRoleToggle(u)} className={iconBtn(u.role === "admin" ? "slate" : "emerald")} title={u.role === "admin" ? "Demote" : "Promote to admin"}><ShieldCog size={13} /></button>
-                          <button type="button" onClick={() => handleBan(u)} className={iconBtn(u.banned ? "emerald" : "orange")} title={u.banned ? "Unban" : "Ban"}><Ban size={13} /></button>
+                          <button type="button" onClick={() => handleBan(u)} className={iconBtn(u.banned ? "emerald" : "rose")} title={u.banned ? "Unban" : "Ban"}><Ban size={13} /></button>
                           <button type="button" onClick={() => handleDelete(u)} className={iconBtn("rose")} title="Delete"><Trash size={13} /></button>
                         </div>
                       ) : (

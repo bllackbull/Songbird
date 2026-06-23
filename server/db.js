@@ -2525,6 +2525,11 @@ function escapeLikePattern(value) {
   return String(value).replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
+// A user is considered "online" when active within this window (matches the
+// client-side PRESENCE_IDLE_THRESHOLD_MS of 12s, with a small buffer for poll lag).
+const ONLINE_THRESHOLD_SECONDS = 30;
+
+
 export function adminListUsers({ limit = 200, offset = 0, search = "", sortBy = "id", sortDir = "DESC", roleFilter = null, statusFilter = null }) {
   const safeLimit  = Math.max(1, Math.min(500, Number(limit) || 200));
   const safeOffset = Math.max(0, Number(offset) || 0);
@@ -2534,26 +2539,39 @@ export function adminListUsers({ limit = 200, offset = 0, search = "", sortBy = 
   const conditions = [];
   const params     = [];
 
+  // First positional param binds to the SELECT CASE that computes `online`.
+  params.push(ONLINE_THRESHOLD_SECONDS);
+
   if (search) {
     const like = `%${escapeLikePattern(search)}%`;
     conditions.push("(username LIKE ? ESCAPE '\\' OR nickname LIKE ? ESCAPE '\\')");
     params.push(like, like);
   }
-  if (roleFilter) {
-    conditions.push("role = ?");
+  if (roleFilter === "banned") {
+    conditions.push("banned = 1");
+  } else if (roleFilter) {
+    conditions.push("banned = 0 AND role = ?");
     params.push(roleFilter);
   }
-  if (statusFilter === "banned") {
-    conditions.push("banned = 1");
-  } else if (statusFilter) {
-    conditions.push("banned = 0 AND status = ?");
-    params.push(statusFilter);
+
+  // Presence: a user counts as "online" when their status preference allows it
+  // and they've pinged recently (mirrors the app's online/offline indicator).
+  const onlinePredicate = "status = 'online' AND last_seen IS NOT NULL AND last_seen >= datetime('now', '-' || ? || ' seconds')";
+  if (statusFilter === "online") {
+    conditions.push(onlinePredicate);
+    params.push(ONLINE_THRESHOLD_SECONDS);
+  } else if (statusFilter === "offline") {
+    conditions.push(`NOT (${onlinePredicate})`);
+    params.push(ONLINE_THRESHOLD_SECONDS);
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   params.push(safeLimit, safeOffset);
   return getAll(
-    `SELECT id, username, nickname, avatar_url, color, status, role, banned, created_at, last_seen
+    `SELECT id, username, nickname, avatar_url, color, status, role, banned, created_at, last_seen,
+            CASE WHEN status = 'online' AND last_seen IS NOT NULL
+                      AND last_seen >= datetime('now', '-' || ? || ' seconds')
+                 THEN 1 ELSE 0 END AS online
      FROM users ${where} ORDER BY ${safeSortBy} ${safeSortDir} LIMIT ? OFFSET ?`,
     params,
   );

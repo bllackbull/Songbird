@@ -25,7 +25,7 @@ const LOG_ACTION_META = {
   "user.create":         { label: "User created",      color: "emerald", icon: UserPlus },
   "user.edit":           { label: "User edited",       color: "slate",   icon: Pencil },
   "user.delete":         { label: "User deleted",      color: "rose",    icon: Trash },
-  "user.ban":            { label: "User banned",       color: "orange",  icon: Ban },
+  "user.ban":            { label: "User banned",       color: "rose",    icon: Ban },
   "user.unban":          { label: "User unbanned",     color: "emerald", icon: Ban },
   "user.role":           { label: "Role changed",      color: "emerald", icon: ShieldCog },
   "user.reset_password": { label: "Password reset",    color: "orange",  icon: KeyRound },

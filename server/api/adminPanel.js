@@ -174,8 +174,8 @@ function registerAdminPanelRoutes(app, deps) {
     const sortBy    = ["id", "username", "nickname", "created_at", "last_seen"].includes(req.query.sortBy)
       ? req.query.sortBy : "id";
     const sortDir   = req.query.sortDir === "asc" ? "ASC" : "DESC";
-    const roleFilter = ["user", "admin", "owner"].includes(req.query.role) ? req.query.role : null;
-    const statusFilter = ["online", "invisible", "banned"].includes(req.query.status) ? req.query.status : null;
+    const roleFilter = ["user", "admin", "owner", "banned"].includes(req.query.role) ? req.query.role : null;
+    const statusFilter = ["online", "offline"].includes(req.query.status) ? req.query.status : null;
     const users = adminListUsers({ limit, offset, search, sortBy, sortDir, roleFilter, statusFilter });
     res.json({ users });
   });
@@ -289,6 +289,8 @@ function registerAdminPanelRoutes(app, deps) {
     if (!user) return res.status(404).json({ error: "User not found" });
     const banned = Boolean(req.body?.banned);
     adminBanUser(userId, banned);
+    // Banning revokes any elevated role; unbanning restores the default user role.
+    setUserRole(userId, "user");
     if (banned) adminRun("DELETE FROM sessions WHERE user_id = ?", [userId]);
     adminSave();
     log(session, banned ? "user.ban" : "user.unban", { targetType: "user", targetLabel: `@${user.username}` });
