@@ -3,6 +3,7 @@ import { Ban, Pencil, Search, ShieldCog, Trash, UserPlus } from "../../icons/luc
 import { api, cardCls, inputSmCls, btnPrimary, iconBtn, fmtDate } from "./adminShared.js";
 import { LoadingRows, EmptyState, FilterDropdown, SortTh, RoleBadge } from "./AdminCommon.jsx";
 import { CreateUserModal, EditUserModal } from "./UserModals.jsx";
+import Avatar from "../common/Avatar.jsx";
 
 export default function UsersTab({ currentUser, onStatsChange }) {
   const [users, setUsers]             = useState([]);
@@ -85,9 +86,12 @@ export default function UsersTab({ currentUser, onStatsChange }) {
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-2.5">
                         <div className="relative shrink-0">
-                          <div className="flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold text-white" style={{ background: u.color || "#10b981" }}>
-                            {(u.nickname || u.username || "?")[0].toUpperCase()}
-                          </div>
+                          <Avatar
+                            src={u.avatar_url}
+                            name={u.nickname || u.username}
+                            color={u.color || "#10b981"}
+                            className="h-7 w-7 text-xs font-bold text-white"
+                          />
                           {u.online ? <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900" title="Online" /> : null}
                         </div>
                         <div className="min-w-0">
