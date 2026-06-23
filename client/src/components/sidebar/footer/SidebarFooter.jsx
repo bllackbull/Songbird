@@ -51,7 +51,7 @@ export default function SidebarFooter({
           aria-label="Open settings"
           ref={settingsButtonRef}
         >
-          <Settings size={18} className="icon-anim-spin-dir" />
+          <Settings size={20} className="icon-anim-spin-dir" />
         </button>
       </div>
     </div>

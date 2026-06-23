@@ -3,12 +3,12 @@ import {
   Bookmark,
   Database,
   Info,
-  LayoutDashboard,
   LogOut,
   Rocket,
   ShieldCheck,
   User,
 } from "../../../icons/lucide.js";
+import { LayoutDashboardIcon } from "../../../icons/AnimatedIcons.jsx";
 import { ThemeButton } from "../common/ThemeButton.jsx";
 
 export function SettingsMenuActions({
@@ -34,15 +34,18 @@ export function SettingsMenuActions({
   const accentHover =
     "text-slate-700 transition hover:bg-emerald-50 hover:text-emerald-700 dark:text-slate-100 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200";
   const iconCls = "shrink-0 text-emerald-500";
+  const isAdmin = userRole === "admin" || userRole === "owner";
+  const divider = <div className="my-1 h-px bg-slate-100 dark:bg-white/5" />;
 
   return (
     <>
+      {/* Account */}
       <button
         type="button"
         onClick={() => setSettingsPanel("profile")}
         className={`${buttonBase} ${accentHover}`}
       >
-        <User size={18} className={iconCls} />
+        <User size={18} className={`${iconCls} icon-anim-sway`} />
         Edit profile
       </button>
       <button
@@ -50,7 +53,7 @@ export function SettingsMenuActions({
         onClick={() => setSettingsPanel("security")}
         className={`${buttonBase} ${accentHover}`}
       >
-        <ShieldCheck size={18} className={iconCls} />
+        <ShieldCheck size={18} className={`${iconCls} icon-anim-beat`} />
         Security
       </button>
       <button
@@ -58,7 +61,7 @@ export function SettingsMenuActions({
         onClick={() => setSettingsPanel("data")}
         className={`${buttonBase} ${accentHover}`}
       >
-        <Database size={18} className={iconCls} />
+        <Database size={18} className={`${iconCls} icon-anim-bob`} />
         Data
       </button>
       <button
@@ -66,15 +69,36 @@ export function SettingsMenuActions({
         onClick={() => onOpenSavedMessages?.()}
         className={`${buttonBase} ${accentHover}`}
       >
-        <Bookmark size={18} className={iconCls} />
+        <Bookmark size={18} className={`${iconCls} icon-anim-drop`} />
         Saved messages
       </button>
+
+      {isAdmin ? (
+        <>
+          {divider}
+          <button
+            type="button"
+            onClick={() => {
+              window.history.pushState({}, "", "/admin");
+              window.dispatchEvent(new PopStateEvent("popstate"));
+            }}
+            className={`${buttonBase} ${accentHover}`}
+          >
+            <LayoutDashboardIcon size={18} className={`${iconCls}`} />
+            Admin Panel
+          </button>
+        </>
+      ) : null}
+
+      {divider}
+
+      {/* App */}
       <button
         type="button"
         onClick={onOpenNotifications}
         className={`${buttonBase} ${accentHover}`}
       >
-        <Bell size={18} className={iconCls} />
+        <Bell size={18} className={`${iconCls} icon-anim-swing`} />
         Notifications
       </button>
       <ThemeButton
@@ -88,7 +112,7 @@ export function SettingsMenuActions({
         onClick={() => onOpenWhatsNew?.()}
         className={`${buttonBase} ${accentHover}`}
       >
-        <Rocket size={18} className={iconCls} />
+        <Rocket size={18} className={`${iconCls} icon-anim-lift`} />
         What's new
       </button>
       <button
@@ -96,28 +120,18 @@ export function SettingsMenuActions({
         onClick={() => setSettingsPanel("about")}
         className={`${buttonBase} ${accentHover}`}
       >
-        <Info size={18} className={iconCls} />
+        <Info size={18} className={`${iconCls} icon-anim-pop`} />
         About
       </button>
-      {userRole === "admin" || userRole === "owner" ? (
-        <button
-          type="button"
-          onClick={() => {
-            window.history.pushState({}, "", "/admin");
-            window.dispatchEvent(new PopStateEvent("popstate"));
-          }}
-          className={`${buttonBase} ${accentHover}`}
-        >
-          <LayoutDashboard size={18} className={iconCls} />
-          Admin Panel
-        </button>
-      ) : null}
+
+      {divider}
+
       <button
         type="button"
         onClick={handleLogout}
         className={`${buttonBase} text-rose-600 transition hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10`}
       >
-        <LogOut size={18} className="shrink-0" />
+        <LogOut size={18} className="shrink-0 icon-anim-slide" />
         Log out
       </button>
     </>

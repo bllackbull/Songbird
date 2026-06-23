@@ -93,9 +93,9 @@ function AdminLogView() {
           <input type="text" placeholder="Search logs…" value={search} onChange={(e) => setSearch(e.target.value)} className={inputSmCls + " pl-8"} />
         </div>
         <button type="button" onClick={load} className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:bg-slate-100 dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5" title="Refresh">
-          <Refresh size={14} />
+          <Refresh size={14} className="icon-anim-spin-full" />
         </button>
-        <button type="button" onClick={clearLogs} className={btnDanger}><Trash size={13} /> Clear</button>
+        <button type="button" onClick={clearLogs} className={btnDanger}><Trash size={13} className="icon-anim-slide" /> Clear</button>
       </div>
 
       {!initialized ? <LoadingRows /> : logs.length === 0 ? <EmptyState message="No log entries." /> : (
@@ -145,7 +145,7 @@ function SystemLogView({ source }) {
     <div className="space-y-3">
       <div className="flex items-center justify-end">
         <button type="button" onClick={load} className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:bg-slate-100 dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5" title="Refresh">
-          <Refresh size={14} />
+          <Refresh size={14} className="icon-anim-spin-full" />
         </button>
       </div>
       {!initialized ? <LoadingRows /> : !data?.available ? (

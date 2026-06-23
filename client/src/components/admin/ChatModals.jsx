@@ -39,7 +39,7 @@ export function MembersModal({ chat, onClose }) {
             <CustomSelect value={addUserId} onChange={setAddUserId} placeholder="Add a member…"
               options={[["", "Add a member…"], ...available.map((u) => [String(u.id), `@${u.username}${u.nickname ? ` (${u.nickname})` : ""}`])]} />
           </div>
-          <button type="button" onClick={addMember} disabled={!addUserId} className={btnPrimary}><UserPlus size={13} /></button>
+          <button type="button" onClick={addMember} disabled={!addUserId} className={btnPrimary}><UserPlus size={13} className="icon-anim-pop" /></button>
         </div>
         {error && <p className="text-xs text-rose-500">{error}</p>}
         {loading ? <LoadingRows /> : members.length === 0 ? <EmptyState message="No members." /> : (
@@ -61,7 +61,7 @@ export function MembersModal({ chat, onClose }) {
                     <CompactSelect value={m.role} onChange={(v) => api.patch(`/api/admin/chats/${chat.id}/members/${m.id}`, { role: v }).then(loadMembers)}
                       options={[["member", "Member"], ["admin", "Admin"], ["owner", "Owner"]]} />
                   </div>
-                  <button type="button" onClick={() => api.delete(`/api/admin/chats/${chat.id}/members/${m.id}`).then(loadMembers)} className={iconBtn("rose")} title="Remove"><Close size={12} /></button>
+                  <button type="button" onClick={() => api.delete(`/api/admin/chats/${chat.id}/members/${m.id}`).then(loadMembers)} className={iconBtn("rose")} title="Remove"><Close size={12} className="icon-anim-pop" /></button>
                 </div>
               </div>
             ))}

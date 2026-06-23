@@ -65,8 +65,8 @@ function SystemCard({ appInfo, onRestart, onStop }) {
           <button type="button" onClick={check} disabled={state.status === "checking"} className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition ${versionBtn.cls}`}>
             {versionBtn.icon} {versionBtn.label}
           </button>
-          <button type="button" onClick={onRestart} className={btnPrimary}><Refresh size={13} /> Restart</button>
-          <button type="button" onClick={onStop} className={btnDanger}><Power size={13} /> Stop</button>
+          <button type="button" onClick={onRestart} className={btnPrimary}><Refresh size={13} className="icon-anim-spin-full" /> Restart</button>
+          <button type="button" onClick={onStop} className={btnDanger}><Power size={13} className="icon-anim-beat" /> Stop</button>
         </div>
       </div>
     </div>
@@ -167,8 +167,8 @@ export default function ActionsTab() {
               <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Backup &amp; restore</p>
               <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">Download the database to your device, or restore by uploading a backup file.</p>
               <div className="mt-3 flex flex-wrap gap-2">
-                <button type="button" onClick={downloadDb} className={btnPrimary}><HardDriveDownload size={13} /> Backup</button>
-                <button type="button" onClick={() => fileRef.current?.click()} className={btnSecondary}><HardDriveUpload size={13} /> Restore</button>
+                <button type="button" onClick={downloadDb} className={btnPrimary}><HardDriveDownload size={13} className="icon-anim-drop" /> Backup</button>
+                <button type="button" onClick={() => fileRef.current?.click()} className={btnSecondary}><HardDriveUpload size={13} className="icon-anim-lift" /> Restore</button>
                 <input ref={fileRef} type="file" accept=".db,application/x-sqlite3,application/vnd.sqlite3" onChange={onFilePicked} className="hidden" />
               </div>
             </div>
@@ -182,7 +182,7 @@ export default function ActionsTab() {
               <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Vacuum database</p>
               <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">Reclaim unused space and defragment the DB file.</p>
               <button type="button" onClick={runVacuum} disabled={vacuumBusy} className={btnPrimary + " mt-3"}>
-                <Wrench size={13} /> {vacuumBusy ? "Running…" : "Run vacuum"}
+                <Wrench size={13} className="icon-anim-wiggle" /> {vacuumBusy ? "Running…" : "Run vacuum"}
               </button>
             </div>
           </div>
@@ -215,7 +215,7 @@ export default function ActionsTab() {
                   success: "All messages and files cleared.",
                 })}
                 className={btnDanger + " mt-3"}>
-                <Trash size={13} /> Clear messages
+                <Trash size={13} className="icon-anim-slide" /> Clear messages
               </button>
             </div>
           </div>
@@ -236,7 +236,7 @@ export default function ActionsTab() {
                   success: "Database reset. The app is now empty.",
                 })}
                 className={btnDanger + " mt-3"}>
-                <Trash size={13} /> Reset database
+                <Trash size={13} className="icon-anim-slide" /> Reset database
               </button>
             </div>
           </div>

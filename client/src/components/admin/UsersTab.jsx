@@ -64,7 +64,7 @@ export default function UsersTab({ currentUser, onStatsChange }) {
         </div>
         <FilterDropdown value={roleFilter} onChange={setRoleFilter} options={[["", "All roles"], ["user", "User"], ["admin", "Admin"], ["owner", "Owner"], ["banned", "Banned"]]} />
         <FilterDropdown value={statusFilter} onChange={setStatusFilter} options={[["", "All"], ["online", "Online"], ["offline", "Offline"]]} />
-        <button type="button" onClick={() => setCreateOpen(true)} className={btnPrimary}><UserPlus size={13} /> New user</button>
+        <button type="button" onClick={() => setCreateOpen(true)} className={btnPrimary}><UserPlus size={13} className="icon-anim-pop" /> New user</button>
       </div>
 
       {!initialized ? <LoadingRows /> : users.length === 0 ? <EmptyState message="No users found." /> : (
@@ -116,10 +116,10 @@ export default function UsersTab({ currentUser, onStatsChange }) {
                     <td className="px-4 py-2.5">
                       {u.id !== currentUser.id ? (
                         <div className="flex items-center gap-1">
-                          <button type="button" onClick={() => setEditUser(u)} className={iconBtn("slate")} title="Edit"><Pencil size={13} /></button>
-                          <button type="button" onClick={() => handleRoleToggle(u)} className={iconBtn(u.role === "admin" ? "slate" : "emerald")} title={u.role === "admin" ? "Demote" : "Promote to admin"}><ShieldCog size={13} /></button>
-                          <button type="button" onClick={() => handleBan(u)} className={iconBtn(u.banned ? "emerald" : "rose")} title={u.banned ? "Unban" : "Ban"}><Ban size={13} /></button>
-                          <button type="button" onClick={() => handleDelete(u)} className={iconBtn("rose")} title="Delete"><Trash size={13} /></button>
+                          <button type="button" onClick={() => setEditUser(u)} className={iconBtn("slate")} title="Edit"><Pencil size={13} className="icon-anim-sway" /></button>
+                          <button type="button" onClick={() => handleRoleToggle(u)} className={iconBtn(u.role === "admin" ? "slate" : "emerald")} title={u.role === "admin" ? "Demote" : "Promote to admin"}><ShieldCog size={13} className="icon-anim-beat" /></button>
+                          <button type="button" onClick={() => handleBan(u)} className={iconBtn(u.banned ? "emerald" : "rose")} title={u.banned ? "Unban" : "Ban"}><Ban size={13} className="icon-anim-wiggle" /></button>
+                          <button type="button" onClick={() => handleDelete(u)} className={iconBtn("rose")} title="Delete"><Trash size={13} className="icon-anim-slide" /></button>
                         </div>
                       ) : (
                         <span className="text-[11px] text-slate-400">You</span>

@@ -67,18 +67,18 @@ export default function ChatsTab({ currentUser, onStatsChange }) {
         <FilterDropdown value={typeFilter} onChange={setTypeFilter} options={[["", "All types"], ["dm", "DMs"], ["group", "Groups"], ["channel", "Channels"]]} />
         <div ref={createMenuRef} className="relative">
           <button type="button" onClick={() => setCreateMenuOpen((o) => !o)} aria-expanded={createMenuOpen} className={btnPrimary}>
-            <Plus size={13} /> New chat
+            <Plus size={13} className="icon-anim-pop" /> New chat
             <ChevronDown size={12} className={`transition-transform ${createMenuOpen ? "rotate-180" : ""}`} />
           </button>
           {createMenuOpen ? (
             <div className="absolute right-0 z-50 mt-1.5 w-44 overflow-hidden rounded-2xl border border-emerald-200 bg-white p-1 text-sm font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100">
               <button type="button" onClick={() => { setCreateMenuOpen(false); setCreateType("group"); }}
                 className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200">
-                <Users size={15} className="text-emerald-500" /> New group
+                <Users size={15} className="text-emerald-500 icon-anim-sway" /> New group
               </button>
               <button type="button" onClick={() => { setCreateMenuOpen(false); setCreateType("channel"); }}
                 className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200">
-                <Megaphone size={15} className="text-emerald-500" /> New channel
+                <Megaphone size={15} className="text-emerald-500 icon-anim-swing" /> New channel
               </button>
             </div>
           ) : null}
@@ -123,11 +123,11 @@ export default function ChatsTab({ currentUser, onStatsChange }) {
                       <div className="flex items-center gap-1">
                         {c.type !== "dm" && (
                           <>
-                            <button type="button" onClick={() => setEditChat(c)} className={iconBtn("slate")} title="Edit"><Pencil size={13} /></button>
-                            <button type="button" onClick={() => setMembersChat(c)} className={iconBtn("emerald")} title="Members"><Users size={13} /></button>
+                            <button type="button" onClick={() => setEditChat(c)} className={iconBtn("slate")} title="Edit"><Pencil size={13} className="icon-anim-sway" /></button>
+                            <button type="button" onClick={() => setMembersChat(c)} className={iconBtn("emerald")} title="Members"><Users size={13} className="icon-anim-pop" /></button>
                           </>
                         )}
-                        <button type="button" onClick={() => handleDelete(c)} className={iconBtn("rose")} title="Delete"><Trash size={13} /></button>
+                        <button type="button" onClick={() => handleDelete(c)} className={iconBtn("rose")} title="Delete"><Trash size={13} className="icon-anim-slide" /></button>
                       </div>
                     </td>
                   </tr>

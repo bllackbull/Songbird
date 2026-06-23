@@ -4,7 +4,6 @@ import {
   ArrowLeftFromLine,
   ArrowRightFromLine,
   Check,
-  Gauge,
   LayoutDashboard,
   LoaderCircle,
   Moon,
@@ -17,6 +16,7 @@ import {
 } from "../../icons/lucide.js";
 import { api } from "./adminShared.js";
 import { pingPresence } from "../../api/chatApi.js";
+import { GaugeIcon } from "../../icons/AnimatedIcons.jsx";
 import { CHAT_PAGE_CONFIG } from "../../settings/chatPageConfig.js";
 import DashboardTab from "./DashboardTab.jsx";
 import UsersTab from "./UsersTab.jsx";
@@ -25,11 +25,11 @@ import ActionsTab from "./ActionsTab.jsx";
 import LogsTab from "./LogsTab.jsx";
 
 const TABS = [
-  { id: "dashboard", label: "Dashboard", icon: Gauge },
-  { id: "users",     label: "Users",     icon: Users },
-  { id: "chats",     label: "Chats",     icon: MessageCircleMore },
-  { id: "actions",   label: "Actions",   icon: Wrench },
-  { id: "logs",      label: "Logs",      icon: ScrollText },
+  { id: "dashboard", label: "Dashboard", icon: GaugeIcon,           anim: "" },
+  { id: "users",     label: "Users",     icon: Users,             anim: "icon-anim-pop" },
+  { id: "chats",     label: "Chats",     icon: MessageCircleMore, anim: "icon-anim-bob" },
+  { id: "actions",   label: "Actions",   icon: Wrench,            anim: "icon-anim-wiggle" },
+  { id: "logs",      label: "Logs",      icon: ScrollText,        anim: "icon-anim-sway" },
 ];
 
 // Keep the admin's presence fresh while they're active in the panel.
@@ -102,7 +102,7 @@ export default function AdminPanel({ user, onBack, isDark, toggleTheme }) {
   useEffect(() => () => clearTimeout(themeAnimRef.current), []);
 
   const activeTab = TABS.find((t) => t.id === tab);
-  const ActiveIcon = activeTab?.icon ?? Gauge;
+  const ActiveIcon = activeTab?.icon ?? GaugeIcon;
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-slate-50 dark:bg-slate-900">
@@ -129,12 +129,12 @@ export default function AdminPanel({ user, onBack, isDark, toggleTheme }) {
           )}
           <button type="button" onClick={() => setSidebarOpen((o) => !o)} title={sidebarOpen ? "Collapse" : "Expand"}
             className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-400 transition hover:border-emerald-200/60 hover:bg-emerald-50/50 hover:text-emerald-600 dark:text-slate-500 dark:hover:border-emerald-500/20 dark:hover:bg-emerald-500/5 dark:hover:text-emerald-400">
-            {sidebarOpen ? <ArrowLeftFromLine size={15} /> : <ArrowRightFromLine size={15} />}
+            {sidebarOpen ? <ArrowLeftFromLine size={15} className="icon-anim-nudge" /> : <ArrowRightFromLine size={15} className="icon-anim-nudge" />}
           </button>
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden p-2">
-          {TABS.map(({ id, label, icon: Icon }) => (
+          {TABS.map(({ id, label, icon: Icon, anim }) => (
             <button key={id} type="button"
               onClick={() => { setTab(id); if (window.innerWidth < 768) setSidebarOpen(false); }}
               title={!sidebarOpen ? label : undefined}
@@ -144,7 +144,7 @@ export default function AdminPanel({ user, onBack, isDark, toggleTheme }) {
                   ? "border-emerald-200 bg-emerald-50 text-emerald-700 shadow-[0_0_14px_rgba(16,185,129,0.12)] dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300"
                   : "border-transparent text-slate-500 hover:border-emerald-200/60 hover:bg-emerald-50/50 hover:text-emerald-700 dark:text-slate-400 dark:hover:border-emerald-500/20 dark:hover:bg-emerald-500/5 dark:hover:text-emerald-300"
                 }`}>
-              <Icon size={15} className="shrink-0" />
+              <Icon size={15} className={`shrink-0 ${anim}`} />
               {sidebarOpen && <span className="truncate">{label}</span>}
             </button>
           ))}
@@ -156,7 +156,7 @@ export default function AdminPanel({ user, onBack, isDark, toggleTheme }) {
               hover:border-rose-200 hover:bg-rose-50 hover:shadow-[0_0_14px_rgba(244,63,94,0.12)]
               dark:text-rose-400 dark:hover:border-rose-500/30 dark:hover:bg-rose-500/10
               ${sidebarOpen ? "gap-2 px-3 text-sm font-medium" : "justify-center"}`}>
-            <ArrowLeft size={15} className="shrink-0" />
+            <ArrowLeft size={15} className="shrink-0 icon-anim-slide" />
             {sidebarOpen && <span className="truncate">Exit</span>}
           </button>
         </div>
@@ -179,7 +179,7 @@ export default function AdminPanel({ user, onBack, isDark, toggleTheme }) {
               ? <LoaderCircle size={14} className="animate-spin text-emerald-600 dark:text-emerald-400" />
               : refreshState === "done"
                 ? <Check size={14} className="text-emerald-600 dark:text-emerald-400" />
-                : <Refresh size={14} />}
+                : <Refresh size={14} className="icon-anim-spin-full" />}
           </button>
         </div>
 

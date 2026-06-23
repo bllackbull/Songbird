@@ -160,7 +160,7 @@ export default function SidebarHeader({
                         }}
                         className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
                       >
-                        <Chat size={15} className="text-emerald-500" />
+                        <Chat size={15} className="text-emerald-500 icon-anim-bob" />
                         New DM
                       </button>
                       <button
@@ -171,7 +171,7 @@ export default function SidebarHeader({
                         }}
                         className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
                       >
-                        <Users size={15} className="text-emerald-500" />
+                        <Users size={15} className="text-emerald-500 icon-anim-sway" />
                         New group
                       </button>
                       <button
@@ -182,7 +182,7 @@ export default function SidebarHeader({
                         }}
                         className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
                       >
-                        <Megaphone size={15} className="text-emerald-500" />
+                        <Megaphone size={15} className="text-emerald-500 icon-anim-swing" />
                         New channel
                       </button>
                     </div>
