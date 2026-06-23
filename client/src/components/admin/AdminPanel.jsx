@@ -4,7 +4,6 @@ import {
   ArrowLeftFromLine,
   ArrowRightFromLine,
   Check,
-  LayoutDashboard,
   LoaderCircle,
   Moon,
   MessageCircleMore,
@@ -16,7 +15,7 @@ import {
 } from "../../icons/lucide.js";
 import { api } from "./adminShared.js";
 import { pingPresence } from "../../api/chatApi.js";
-import { GaugeIcon } from "../../icons/AnimatedIcons.jsx";
+import { GaugeIcon, LayoutDashboardIcon } from "../../icons/AnimatedIcons.jsx";
 import { CHAT_PAGE_CONFIG } from "../../settings/chatPageConfig.js";
 import DashboardTab from "./DashboardTab.jsx";
 import UsersTab from "./UsersTab.jsx";
@@ -122,10 +121,10 @@ export default function AdminPanel({ user, onBack, isDark, toggleTheme }) {
       `}>
         <div className={`flex h-12 shrink-0 items-center border-b border-slate-100 dark:border-white/5 ${sidebarOpen ? "justify-between px-3" : "justify-center"}`}>
           {sidebarOpen && (
-            <div className="flex items-center gap-2 overflow-hidden">
-              <LayoutDashboard size={14} className="shrink-0 text-emerald-500" />
+            <label className="flex cursor-default items-center gap-2 overflow-hidden">
+              <LayoutDashboardIcon size={14} className="shrink-0 text-emerald-500" />
               <span className="truncate text-sm font-bold text-slate-700 dark:text-slate-200">Admin Panel</span>
-            </div>
+            </label>
           )}
           <button type="button" onClick={() => setSidebarOpen((o) => !o)} title={sidebarOpen ? "Collapse" : "Expand"}
             className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-400 transition hover:border-emerald-200/60 hover:bg-emerald-50/50 hover:text-emerald-600 dark:text-slate-500 dark:hover:border-emerald-500/20 dark:hover:bg-emerald-500/5 dark:hover:text-emerald-400">
@@ -138,13 +137,13 @@ export default function AdminPanel({ user, onBack, isDark, toggleTheme }) {
             <button key={id} type="button"
               onClick={() => { setTab(id); if (window.innerWidth < 768) setSidebarOpen(false); }}
               title={!sidebarOpen ? label : undefined}
-              className={`flex h-9 w-full items-center rounded-xl border transition
-                ${sidebarOpen ? "gap-2.5 px-3 text-sm font-medium" : "justify-center"}
+              className={`flex h-9 w-full items-center rounded-xl transition
+                ${sidebarOpen ? "gap-2.5 px-3 text-sm font-semibold" : "justify-center"}
                 ${tab === id
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-700 shadow-[0_0_14px_rgba(16,185,129,0.12)] dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300"
-                  : "border-transparent text-slate-500 hover:border-emerald-200/60 hover:bg-emerald-50/50 hover:text-emerald-700 dark:text-slate-400 dark:hover:border-emerald-500/20 dark:hover:bg-emerald-500/5 dark:hover:text-emerald-300"
+                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
+                  : "text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 dark:text-slate-100 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
                 }`}>
-              <Icon size={15} className={`shrink-0 ${anim}`} />
+              <Icon size={15} className={`shrink-0 text-emerald-500 ${anim}`} />
               {sidebarOpen && <span className="truncate">{label}</span>}
             </button>
           ))}
@@ -152,10 +151,9 @@ export default function AdminPanel({ user, onBack, isDark, toggleTheme }) {
 
         <div className="shrink-0 border-t border-slate-100 p-2 dark:border-white/5">
           <button type="button" onClick={onBack} title={!sidebarOpen ? "Exit" : undefined}
-            className={`flex h-9 w-full items-center rounded-xl border border-transparent text-rose-500 transition
-              hover:border-rose-200 hover:bg-rose-50 hover:shadow-[0_0_14px_rgba(244,63,94,0.12)]
-              dark:text-rose-400 dark:hover:border-rose-500/30 dark:hover:bg-rose-500/10
-              ${sidebarOpen ? "gap-2 px-3 text-sm font-medium" : "justify-center"}`}>
+            className={`flex h-9 w-full items-center rounded-xl text-rose-600 transition
+              hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10
+              ${sidebarOpen ? "gap-2.5 px-3 text-sm font-semibold" : "justify-center"}`}>
             <ArrowLeft size={15} className="shrink-0 icon-anim-slide" />
             {sidebarOpen && <span className="truncate">Exit</span>}
           </button>
