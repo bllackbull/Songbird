@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Activity,
   Ban,
@@ -16,6 +16,47 @@ import {
 } from "../../icons/lucide.js";
 import { api, cardCls, fmtBytes, fmtUptime } from "./adminShared.js";
 
+const prefersReducedMotion = () =>
+  typeof window !== "undefined" &&
+  window.matchMedia &&
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// Eases a value toward `target`, starting from 0 on first mount and smoothly
+// tweening from the last shown value on subsequent updates (e.g. auto-refresh).
+function useCountUp(target, duration = 900) {
+  const [val, setVal] = useState(0);
+  const fromRef = useRef(0);
+  const rafRef = useRef(0);
+
+  useEffect(() => {
+    if (typeof target !== "number" || !Number.isFinite(target)) return undefined;
+    if (prefersReducedMotion()) { fromRef.current = target; setVal(target); return undefined; }
+    const from = fromRef.current;
+    const start = performance.now();
+    const ease = (t) => 1 - Math.pow(1 - t, 3);
+    const tick = (now) => {
+      const p = Math.min(1, (now - start) / duration);
+      const cur = from + (target - from) * ease(p);
+      fromRef.current = cur;
+      setVal(cur);
+      if (p < 1) rafRef.current = requestAnimationFrame(tick);
+      else fromRef.current = target;
+    };
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [target, duration]);
+
+  return val;
+}
+
+function CountUp({ value }) {
+  const numeric = typeof value === "number" && Number.isFinite(value);
+  const animated = useCountUp(numeric ? value : NaN);
+  if (!numeric) return value ?? "—";
+  return Math.round(animated).toLocaleString();
+}
+
 const GAUGE_COLORS = {
   emerald: { track: "#d1fae5", fill: "#10b981", dark_track: "#064e3b" },
   orange:  { track: "#fed7aa", fill: "#f97316", dark_track: "#431407" },
@@ -23,7 +64,8 @@ const GAUGE_COLORS = {
 };
 
 function SemiCircleGauge({ pct, color = "emerald", label, sublabel, size = 120 }) {
-  const safe = Math.max(0, Math.min(100, pct || 0));
+  const target = Math.max(0, Math.min(100, pct || 0));
+  const safe = useCountUp(target);
   const r = 44, cx = 60, cy = 60;
   const circ = Math.PI * r;
   const offset = circ - (safe / 100) * circ;
@@ -36,7 +78,7 @@ function SemiCircleGauge({ pct, color = "emerald", label, sublabel, size = 120 }
       <svg viewBox="0 0 120 68" width={size} height={size * 0.6} style={{ overflow: "visible" }} aria-hidden="true">
         <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`} fill="none" stroke={trackColor} strokeWidth="6" strokeLinecap="round" />
         <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`} fill="none" stroke={c.fill} strokeWidth="6" strokeLinecap="round"
-          strokeDasharray={`${circ}`} strokeDashoffset={`${offset}`} style={{ transition: "stroke-dashoffset 0.6s ease" }} />
+          strokeDasharray={`${circ}`} strokeDashoffset={`${offset}`} />
         <text x={cx} y={cy - 4} textAnchor="middle" fontSize="16" fontWeight="700" fill={c.fill} fontFamily="inherit">{safe.toFixed(0)}%</text>
       </svg>
       {label && <p className="mt-1 text-center text-xs font-semibold text-slate-600 dark:text-slate-300">{label}</p>}
@@ -136,7 +178,7 @@ export default function DashboardTab({ stats, onStatsChange }) {
                 <Icon size={12} className={accent === "rose" ? "text-rose-400" : "text-emerald-500"} />
                 <p className="truncate text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-400 dark:text-slate-500">{label}</p>
               </div>
-              <p className={`mt-1.5 text-2xl font-bold ${accent === "rose" ? "text-rose-500 dark:text-rose-400" : "text-emerald-700 dark:text-emerald-300"}`}>{value ?? "—"}</p>
+              <p className={`mt-1.5 text-2xl font-bold ${accent === "rose" ? "text-rose-500 dark:text-rose-400" : "text-emerald-700 dark:text-emerald-300"}`}><CountUp value={value} /></p>
             </div>
           ))}
         </div>
