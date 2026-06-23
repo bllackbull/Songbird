@@ -1,78 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { UserPlus, Close } from "../../icons/lucide.js";
-import { api, inputCls, cardCls, btnPrimary, iconBtn } from "./adminShared.js";
-import { Modal, Field, CustomSelect, CompactSelect, LoadingRows, EmptyState } from "./AdminCommon.jsx";
+import { api, cardCls, btnPrimary, iconBtn } from "./adminShared.js";
+import { Modal, CompactSelect, LoadingRows, EmptyState } from "./AdminCommon.jsx";
 import Avatar from "../common/Avatar.jsx";
-
-export function CreateChatModal({ onClose, onCreated }) {
-  const [form, setForm] = useState({ name: "", username: "", type: "group", visibility: "public", owner: "" });
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
-
-  const submit = async (e) => {
-    e.preventDefault(); setError(""); setBusy(true);
-    try {
-      const r = await api.post("/api/admin/chats", form);
-      if (!r.ok) { const d = await r.json(); setError(d.error || "Failed"); return; }
-      onCreated(); onClose();
-    } catch { setError("Request failed."); } finally { setBusy(false); }
-  };
-
-  return (
-    <Modal title="Create chat" onClose={onClose}>
-      <form onSubmit={submit} className="space-y-3">
-        <Field label="Type"><CustomSelect value={form.type} onChange={(v) => set("type", v)} options={[["group", "Group"], ["channel", "Channel"]]} /></Field>
-        <Field label="Name"><input className={inputCls} value={form.name} onChange={(e) => set("name", e.target.value)} required /></Field>
-        <Field label="Username"><input className={inputCls} value={form.username} onChange={(e) => set("username", e.target.value.toLowerCase())} required /></Field>
-        <Field label="Owner (username or user ID)"><input className={inputCls} value={form.owner} onChange={(e) => set("owner", e.target.value)} required /></Field>
-        <Field label="Visibility"><CustomSelect value={form.visibility} onChange={(v) => set("visibility", v)} options={[["public", "Public"], ["private", "Private"]]} /></Field>
-        {error && <p className="text-xs text-rose-500">{error}</p>}
-        <button type="submit" disabled={busy} className={btnPrimary + " w-full justify-center"}>{busy ? "Creating…" : "Create"}</button>
-      </form>
-    </Modal>
-  );
-}
-
-export function EditChatModal({ chat, onClose, onSaved }) {
-  const [form, setForm] = useState({ name: chat.name || "", username: chat.group_username || "", visibility: chat.group_visibility || "public", color: chat.group_color || "", owner: "" });
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
-
-  const submit = async (e) => {
-    e.preventDefault(); setError(""); setBusy(true);
-    const payload = { ...form };
-    if (!payload.owner.trim()) delete payload.owner;
-    if (!payload.color.trim()) delete payload.color;
-    try {
-      const r = await api.patch(`/api/admin/chats/${chat.id}`, payload);
-      if (!r.ok) { const d = await r.json(); setError(d.error || "Failed"); return; }
-      onSaved(); onClose();
-    } catch { setError("Request failed."); } finally { setBusy(false); }
-  };
-
-  return (
-    <Modal title={`Edit ${chat.name || `Chat #${chat.id}`}`} onClose={onClose}>
-      <form onSubmit={submit} className="space-y-3">
-        <Field label="Name"><input className={inputCls} value={form.name} onChange={(e) => set("name", e.target.value)} required /></Field>
-        <Field label="Username"><input className={inputCls} value={form.username} onChange={(e) => set("username", e.target.value.toLowerCase())} /></Field>
-        <Field label="Visibility"><CustomSelect value={form.visibility} onChange={(v) => set("visibility", v)} options={[["public", "Public"], ["private", "Private"]]} /></Field>
-        <Field label="Color">
-          <div className="flex items-center gap-2">
-            <input type="color" value={form.color || "#10b981"} onChange={(e) => set("color", e.target.value)} className="color-swatch h-11 w-11 shrink-0 cursor-pointer overflow-hidden rounded-xl border border-emerald-200/70 dark:border-emerald-500/30" />
-            <input className={inputCls + " flex-1"} value={form.color} onChange={(e) => set("color", e.target.value)} placeholder="#10b981" />
-          </div>
-        </Field>
-        <Field label="Transfer ownership" hint="Leave empty to keep current owner.">
-          <input className={inputCls} value={form.owner} onChange={(e) => set("owner", e.target.value)} placeholder="username or user ID" />
-        </Field>
-        {error && <p className="text-xs text-rose-500">{error}</p>}
-        <button type="submit" disabled={busy} className={btnPrimary + " w-full justify-center"}>{busy ? "Saving…" : "Save changes"}</button>
-      </form>
-    </Modal>
-  );
-}
 
 export function MembersModal({ chat, onClose }) {
   const [members, setMembers] = useState([]);

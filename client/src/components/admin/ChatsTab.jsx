@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MessageCircleMore, Pencil, Plus, Search, Trash, Users } from "../../icons/lucide.js";
+import { ChevronDown, Megaphone, MessageCircleMore, Pencil, Plus, Search, Trash, Users } from "../../icons/lucide.js";
 import { api, cardCls, inputSmCls, btnPrimary, iconBtn, fmtDate } from "./adminShared.js";
 import { LoadingRows, EmptyState, FilterDropdown, SortTh, ChatTypeIcon, ChatTypeBadge } from "./AdminCommon.jsx";
-import { CreateChatModal, EditChatModal, MembersModal } from "./ChatModals.jsx";
+import { MembersModal } from "./ChatModals.jsx";
+import AdminGroupModal from "./AdminGroupModal.jsx";
 
-export default function ChatsTab({ onStatsChange }) {
+export default function ChatsTab({ currentUser, onStatsChange }) {
   const [chats, setChats]             = useState([]);
   const [initialized, setInitialized] = useState(false);
   const [search, setSearch]           = useState("");
@@ -13,10 +14,21 @@ export default function ChatsTab({ onStatsChange }) {
   const [sortDir, setSortDir]         = useState("DESC");
   const [editChat, setEditChat]       = useState(null);
   const [membersChat, setMembersChat] = useState(null);
-  const [createOpen, setCreateOpen]   = useState(false);
+  const [createType, setCreateType]   = useState(null);
+  const [createMenuOpen, setCreateMenuOpen] = useState(false);
+  const createMenuRef = useRef(null);
   const debounceRef = useRef(null);
   const paramsRef = useRef({ search, typeFilter, sortBy, sortDir });
   useEffect(() => { paramsRef.current = { search, typeFilter, sortBy, sortDir }; });
+
+  useEffect(() => {
+    if (!createMenuOpen) return undefined;
+    const close = (e) => { if (!createMenuRef.current?.contains(e.target)) setCreateMenuOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setCreateMenuOpen(false); };
+    document.addEventListener("pointerdown", close, true);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("pointerdown", close, true); document.removeEventListener("keydown", onKey); };
+  }, [createMenuOpen]);
 
   const load = useCallback(async () => {
     const { search: s, typeFilter: type, sortBy: sBy, sortDir: sDir } = paramsRef.current;
@@ -53,7 +65,24 @@ export default function ChatsTab({ onStatsChange }) {
           <input type="text" placeholder="Search chats…" value={search} onChange={(e) => setSearch(e.target.value)} className={inputSmCls + " pl-8"} />
         </div>
         <FilterDropdown value={typeFilter} onChange={setTypeFilter} options={[["", "All types"], ["dm", "DMs"], ["group", "Groups"], ["channel", "Channels"]]} />
-        <button type="button" onClick={() => setCreateOpen(true)} className={btnPrimary}><Plus size={13} /> New chat</button>
+        <div ref={createMenuRef} className="relative">
+          <button type="button" onClick={() => setCreateMenuOpen((o) => !o)} aria-expanded={createMenuOpen} className={btnPrimary}>
+            <Plus size={13} /> New chat
+            <ChevronDown size={12} className={`transition-transform ${createMenuOpen ? "rotate-180" : ""}`} />
+          </button>
+          {createMenuOpen ? (
+            <div className="absolute right-0 z-50 mt-1.5 w-44 overflow-hidden rounded-2xl border border-emerald-200 bg-white p-1 text-sm font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100">
+              <button type="button" onClick={() => { setCreateMenuOpen(false); setCreateType("group"); }}
+                className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200">
+                <Users size={15} className="text-emerald-500" /> New group
+              </button>
+              <button type="button" onClick={() => { setCreateMenuOpen(false); setCreateType("channel"); }}
+                className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200">
+                <Megaphone size={15} className="text-emerald-500" /> New channel
+              </button>
+            </div>
+          ) : null}
+        </div>
       </div>
 
       {!initialized ? <LoadingRows /> : chats.length === 0 ? <EmptyState message="No chats found." /> : (
@@ -109,8 +138,8 @@ export default function ChatsTab({ onStatsChange }) {
         </div>
       )}
 
-      {createOpen && <CreateChatModal onClose={() => setCreateOpen(false)} onCreated={() => { load(); onStatsChange(); }} />}
-      {editChat && <EditChatModal chat={editChat} onClose={() => setEditChat(null)} onSaved={load} />}
+      {createType && <AdminGroupModal mode="create" initialType={createType} currentUser={currentUser} onClose={() => setCreateType(null)} onSaved={() => { load(); onStatsChange(); }} />}
+      {editChat && <AdminGroupModal mode="edit" chat={editChat} currentUser={currentUser} onClose={() => setEditChat(null)} onSaved={load} />}
       {membersChat && <MembersModal chat={membersChat} onClose={() => setMembersChat(null)} />}
     </div>
   );

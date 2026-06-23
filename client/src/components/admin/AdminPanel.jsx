@@ -186,7 +186,7 @@ export default function AdminPanel({ user, onBack, isDark, toggleTheme }) {
         <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-4 md:p-5">
           {tab === "dashboard" && <DashboardTab stats={stats} onStatsChange={refreshStats} />}
           {tab === "users"     && <UsersTab currentUser={user} onStatsChange={refreshStats} />}
-          {tab === "chats"     && <ChatsTab onStatsChange={refreshStats} />}
+          {tab === "chats"     && <ChatsTab currentUser={user} onStatsChange={refreshStats} />}
           {tab === "actions"   && <ActionsTab />}
           {tab === "logs"      && <LogsTab />}
         </div>

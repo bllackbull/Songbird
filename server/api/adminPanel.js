@@ -393,7 +393,8 @@ function registerAdminPanelRoutes(app, deps) {
     }
 
     const inviteToken  = createInviteToken(crypto);
-    const groupColor   = String(adminGetRow("SELECT color FROM users WHERE id = ?", [Number(owner.id)])?.color || "") || "#10b981";
+    const ownerColor   = String(adminGetRow("SELECT color FROM users WHERE id = ?", [Number(owner.id)])?.color || "") || "#10b981";
+    const groupColor   = normalizeHexColor(String(b.color || "")) || ownerColor;
     const chatId       = createChat(name, type, {
       groupUsername:     username,
       groupVisibility:   visibility,

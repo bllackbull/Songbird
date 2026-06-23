@@ -78,6 +78,8 @@ export default function NewGroupModal({
   onDeleteChat,
   chatId: _chatId = null,
   username: _username = "",
+  extraFields = null,
+  showMemberSearch = true,
 }) {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [remoteSourceMenuOpen, setRemoteSourceMenuOpen] = useState(false);
@@ -356,6 +358,8 @@ export default function NewGroupModal({
                 </span>
               </div>
             </div>
+
+            {extraFields}
 
             <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
               <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
@@ -702,6 +706,7 @@ export default function NewGroupModal({
               </div>
             ) : null}
 
+            {showMemberSearch ? (
             <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
@@ -848,6 +853,7 @@ export default function NewGroupModal({
                 </div>
               ) : null}
             </div>
+            ) : null}
           </div>
 
           {groupError ? (
