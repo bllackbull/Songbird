@@ -2,11 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, Globe, Lock, Megaphone, MessageCircleMore, Pencil, Plus, Search, Trash, Users } from "../../icons/lucide.js";
 import { api, cardCls, inputSmCls, btnPrimary, iconBtn, fmtDate } from "./adminShared.js";
 import { LoadingRows, EmptyState, FilterDropdown, SortTh } from "./AdminCommon.jsx";
-import { MembersModal } from "./ChatModals.jsx";
 import AdminGroupModal from "./AdminGroupModal.jsx";
 import Avatar from "../common/Avatar.jsx";
 
-export default function ChatsTab({ currentUser, onStatsChange }) {
+export default function ChatsTab({ onStatsChange }) {
   const [chats, setChats]             = useState([]);
   const [initialized, setInitialized] = useState(false);
   const [search, setSearch]           = useState("");
@@ -14,7 +13,6 @@ export default function ChatsTab({ currentUser, onStatsChange }) {
   const [sortBy, setSortBy]           = useState("id");
   const [sortDir, setSortDir]         = useState("DESC");
   const [editChat, setEditChat]       = useState(null);
-  const [membersChat, setMembersChat] = useState(null);
   const [createType, setCreateType]   = useState(null);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const createMenuRef = useRef(null);
@@ -95,8 +93,8 @@ export default function ChatsTab({ currentUser, onStatsChange }) {
                   <SortTh field="name" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Chat</SortTh>
                   <SortTh field="type" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Type</SortTh>
                   <SortTh field="group_visibility" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Privacy</SortTh>
-                  <SortTh field="member_count" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}><Users size={10} className="mr-0.5 inline opacity-60" />Members</SortTh>
-                  <SortTh field="message_count" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}><MessageCircleMore size={10} className="mr-0.5 inline opacity-60" />Messages</SortTh>
+                  <SortTh field="member_count" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Members</SortTh>
+                  <SortTh field="message_count" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Messages</SortTh>
                   <SortTh field="created_at" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Created</SortTh>
                   <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400">Actions</th>
                 </tr>
@@ -140,7 +138,6 @@ export default function ChatsTab({ currentUser, onStatsChange }) {
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-1">
                         <button type="button" onClick={() => setEditChat(c)} className={iconBtn("slate")} title="Edit"><Pencil size={13} className="icon-anim-sway" /></button>
-                        <button type="button" onClick={() => setMembersChat(c)} className={iconBtn("emerald")} title="Members"><Users size={13} className="icon-anim-pop" /></button>
                         <button type="button" onClick={() => handleDelete(c)} className={iconBtn("rose")} title="Delete"><Trash size={13} className="icon-anim-slide" /></button>
                       </div>
                     </td>
@@ -152,9 +149,8 @@ export default function ChatsTab({ currentUser, onStatsChange }) {
         </div>
       )}
 
-      {createType && <AdminGroupModal mode="create" initialType={createType} currentUser={currentUser} onClose={() => setCreateType(null)} onSaved={() => { load(); onStatsChange(); }} />}
-      {editChat && <AdminGroupModal mode="edit" chat={editChat} currentUser={currentUser} onClose={() => setEditChat(null)} onSaved={load} />}
-      {membersChat && <MembersModal chat={membersChat} onClose={() => setMembersChat(null)} />}
+      {createType && <AdminGroupModal mode="create" initialType={createType} onClose={() => setCreateType(null)} onSaved={() => { load(); onStatsChange(); }} />}
+      {editChat && <AdminGroupModal mode="edit" chat={editChat} onClose={() => setEditChat(null)} onSaved={load} />}
     </div>
   );
 }

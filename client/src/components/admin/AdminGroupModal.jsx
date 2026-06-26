@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState, lazy, Suspense } from "react";
+import { Close, Pencil } from "../../icons/lucide.js";
 import { searchUsers, apiFetch } from "../../api/chatApi.js";
 import { CHAT_PAGE_CONFIG } from "../../settings/chatPageConfig.js";
 import { api, inputCls } from "./adminShared.js";
 import { Field } from "./AdminCommon.jsx";
 import Avatar from "../common/Avatar.jsx";
+import { hasPersian } from "../../utils/fontUtils.js";
 
 const NewGroupModal = lazy(() => import("../modals/NewGroupModal.jsx"));
 
@@ -32,72 +34,93 @@ const emptyFormFor = (type) => ({
  * styling. Shows the currently selected owner and lets the admin search and
  * pick any user by username.
  */
-function OwnerPicker({ value, onChange, currentUser }) {
+function OwnerPicker({ value, onChange }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
-  const [open, setOpen] = useState(false);
-  const boxRef = useRef(null);
+  const [loading, setLoading] = useState(false);
+  const inputRef = useRef(null);
 
   useEffect(() => {
+    if (value) { setResults([]); return undefined; }
     if (!query.trim()) { setResults([]); return undefined; }
     const handle = setTimeout(async () => {
       try {
-        const res = await searchUsers({ exclude: currentUser?.username || "", query: query.trim().toLowerCase() });
+        setLoading(true);
+        const res = await searchUsers({ exclude: "", query: query.trim().toLowerCase() });
         const data = await res.json();
         setResults((data.users || []).slice(0, MAX_RESULTS));
-      } catch { setResults([]); }
+      } catch { setResults([]); } finally { setLoading(false); }
     }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(handle);
-  }, [query, currentUser?.username]);
+  }, [query, value]);
 
-  useEffect(() => {
-    const onDocClick = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); };
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, []);
+  // Once an owner is selected, show it as a highlighted card (mirrors a selected
+  // member) with a pencil button to change the selection.
+  if (value) {
+    const label = value.nickname || value.username;
+    return (
+      <div className="flex w-full items-center gap-3 rounded-2xl border-2 border-emerald-500 bg-emerald-50 px-3 py-3 text-left dark:border-emerald-400 dark:bg-emerald-500/20">
+        <Avatar src={value.avatar_url} alt={label} name={label} color={value.color || "#10b981"} className="h-8 w-8 text-xs font-bold text-white" />
+        <div className="min-w-0 flex-1">
+          <p className={`truncate text-sm font-semibold text-emerald-900 dark:text-emerald-100 ${hasPersian(label) ? "font-fa" : ""}`} dir="auto" title={label}>{label}</p>
+          <p className="truncate text-xs text-emerald-700/70 dark:text-emerald-200/70" dir="auto">@{value.username}</p>
+        </div>
+        <button type="button" onClick={() => { onChange(null); setQuery(""); }}
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-emerald-200 bg-white/70 text-emerald-600 transition hover:bg-white dark:border-emerald-500/40 dark:bg-slate-900/40 dark:text-emerald-300 dark:hover:bg-slate-900/70"
+          title="Change owner">
+          <Pencil size={13} className="icon-anim-sway" />
+        </button>
+      </div>
+    );
+  }
+
+  const queryHasPersian = hasPersian(query || "");
 
   return (
-    <div ref={boxRef} className="relative">
-      {value ? (
-        <div className="flex items-center gap-2 rounded-2xl border border-emerald-200 bg-white px-3 py-2 dark:border-emerald-500/30 dark:bg-slate-900">
-          <Avatar src={value.avatar_url} name={value.nickname || value.username} color={value.color || "#10b981"} className="h-7 w-7 text-xs font-bold text-white" />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{value.nickname || value.username}</p>
-            <p className="truncate text-[11px] text-slate-400">@{value.username}</p>
-          </div>
-          <button type="button" onClick={() => { onChange(null); setQuery(""); setOpen(true); }}
-            className="rounded-lg px-2 py-1 text-[11px] font-semibold text-emerald-600 transition hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-500/10">
-            Change
+    <div>
+      <div className="relative">
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={(e) => setQuery(e.target.value.toLowerCase())}
+          placeholder="username"
+          lang={queryHasPersian ? "fa" : "en"}
+          dir={queryHasPersian ? "rtl" : "ltr"}
+          className={`w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-14 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${queryHasPersian ? "font-fa text-right" : "text-left"}`}
+          style={{ unicodeBidi: "plaintext" }}
+        />
+        {query.trim() ? (
+          <button type="button" onClick={() => setQuery("")}
+            className="absolute right-1 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-rose-600 transition hover:bg-rose-100 dark:text-rose-200 dark:hover:bg-rose-500/10"
+            aria-label="Clear search">
+            <Close size={16} className="icon-anim-pop" />
           </button>
-        </div>
-      ) : (
-        <>
-          <input
-            value={query}
-            onChange={(e) => { setQuery(e.target.value.toLowerCase()); setOpen(true); }}
-            onFocus={() => setOpen(true)}
-            placeholder="Search a user by username…"
-            className={inputCls}
-          />
-          {open && (results.length > 0 || query.trim()) ? (
-            <div className="absolute left-0 right-0 z-50 mt-1.5 max-h-56 overflow-y-auto rounded-2xl border border-emerald-200 bg-white p-1 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900">
-              {results.length === 0 ? (
-                <p className="px-3 py-2 text-xs text-slate-400">No users found.</p>
-              ) : results.map((u) => (
+        ) : null}
+      </div>
+      <div className="mt-3 space-y-2">
+        {results.length ? (
+          <div className="app-scroll max-h-64 space-y-2 overflow-y-auto pr-1">
+            {results.map((u) => {
+              const label = u.nickname || u.username;
+              return (
                 <button key={u.id} type="button"
-                  onClick={() => { onChange(u); setOpen(false); setQuery(""); }}
-                  className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition hover:bg-emerald-50 dark:hover:bg-emerald-500/10">
-                  <Avatar src={u.avatar_url} name={u.nickname || u.username} color={u.color || "#10b981"} className="h-7 w-7 text-xs font-bold text-white" />
+                  onClick={() => { onChange(u); setQuery(""); }}
+                  className="flex w-full items-center gap-3 rounded-2xl border border-emerald-100/70 bg-white/80 px-3 py-3 text-left text-sm font-medium text-slate-700 transition hover:border-emerald-300 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900/50">
+                  <Avatar src={u.avatar_url} alt={label} name={label} color={u.color || "#10b981"} className="h-8 w-8 text-xs font-bold text-white" />
                   <div className="min-w-0">
-                    <p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{u.nickname || u.username}</p>
-                    <p className="truncate text-[11px] text-slate-400">@{u.username}</p>
+                    <p className={`truncate font-semibold ${hasPersian(label) ? "font-fa" : ""}`} dir="auto" title={label}>{label}</p>
+                    <p className="truncate text-xs text-slate-500 dark:text-slate-400" dir="auto">@{u.username}</p>
                   </div>
                 </button>
-              ))}
-            </div>
-          ) : null}
-        </>
-      )}
+              );
+            })}
+          </div>
+        ) : loading ? (
+          <p className="text-xs text-slate-500 dark:text-slate-400">Searching...</p>
+        ) : query.trim() ? (
+          <p className="text-xs text-slate-500 dark:text-slate-400">No users found.</p>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -107,7 +130,7 @@ function OwnerPicker({ value, onChange, currentUser }) {
  * admin-only controls (owner selection, color, and on create the chat type)
  * through its `extraFields` slot, then submits to the admin endpoints.
  */
-export default function AdminGroupModal({ mode, chat, initialType = "group", currentUser, onClose, onSaved }) {
+export default function AdminGroupModal({ mode, chat, initialType = "group", onClose, onSaved }) {
   const editing = mode === "edit";
   const type = editing ? (chat?.type || "group") : initialType;
   const [form, setForm] = useState(() => {
@@ -122,7 +145,20 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", cur
     }
     return emptyFormFor(initialType);
   });
-  const [owner, setOwner] = useState(null);
+  const [owner, setOwner] = useState(() => {
+    if (editing && chat?.owner_id) {
+      return {
+        id: chat.owner_id,
+        username: chat.owner_username,
+        nickname: chat.owner_nickname,
+        avatar_url: chat.owner_avatar_url,
+        color: chat.owner_color,
+      };
+    }
+    return null;
+  });
+  // Remember the original owner so edits only transfer ownership when changed.
+  const initialOwnerId = editing ? (chat?.owner_id ?? null) : null;
   const [search, setSearch] = useState("");
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -172,14 +208,14 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", cur
     const handle = setTimeout(async () => {
       try {
         setSearching(true);
-        const res = await searchUsers({ exclude: currentUser?.username || "", query: search.trim().toLowerCase() });
+        const res = await searchUsers({ exclude: "", query: search.trim().toLowerCase() });
         const data = await res.json();
         const chosen = new Set(members.map((m) => String(m.username || "")));
         setResults((data.users || []).filter((u) => !chosen.has(String(u.username || ""))).slice(0, MAX_RESULTS));
       } catch { setResults([]); } finally { setSearching(false); }
     }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(handle);
-  }, [search, members, editing, currentUser?.username]);
+  }, [search, members, editing]);
 
   const entityLabel = type === "channel" ? "Channel" : "Group";
 
@@ -197,7 +233,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", cur
           visibility: form.visibility,
           color: form.groupColor,
         };
-        if (owner?.id) payload.owner = owner.id;
+        if (owner?.id && owner.id !== initialOwnerId) payload.owner = owner.id;
         const r = await api.patch(`/api/admin/chats/${chat.id}`, payload);
         if (!r.ok) { const d = await r.json(); setError(d.error || "Failed"); setBusy(false); return; }
         if (fileUploadEnabled) {
@@ -227,12 +263,12 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", cur
     } catch {
       setError("Request failed."); setBusy(false);
     }
-  }, [editing, form, owner, type, members, chat, onSaved, onClose, fileUploadEnabled, pendingAvatarFile, avatarRemoved, uploadAvatarTo]);
+  }, [editing, form, owner, type, members, chat, onSaved, onClose, fileUploadEnabled, pendingAvatarFile, avatarRemoved, uploadAvatarTo, initialOwnerId]);
 
   const extraFields = (
     <div className="space-y-3">
-      <Field label={editing ? "Transfer ownership" : "Owner"} hint={editing ? "Leave unchanged to keep the current owner." : undefined}>
-        <OwnerPicker value={owner} onChange={setOwner} currentUser={currentUser} />
+      <Field label="Owner">
+        <OwnerPicker value={owner} onChange={setOwner} />
       </Field>
       <Field label="Color">
         <div className="flex items-center gap-2">

@@ -2608,12 +2608,23 @@ export function adminListChats({ limit = 200, offset = 0, search = "", sortBy = 
   // (otherwise SQLite's binary collation puts all uppercase before lowercase).
   const textSortCols = ["name", "type", "group_visibility"];
   const collate = textSortCols.includes(safeSortBy) ? " COLLATE NOCASE" : "";
+  // Qualify chat columns with the table alias so they aren't ambiguous against
+  // the joined owner table (e.g. both chats and users have an `id`). The
+  // computed count aliases live only in the SELECT list, so leave them bare.
+  const countCols = ["member_count", "message_count"];
+  const orderCol = countCols.includes(safeSortBy) ? safeSortBy : `c.${safeSortBy}`;
   params.push(safeLimit, safeOffset);
   return getAll(
     `SELECT c.id, c.name, c.type, c.group_username, c.group_visibility, c.group_color, c.group_avatar_url, c.created_at,
             (SELECT COUNT(*) FROM chat_members WHERE chat_id = c.id) AS member_count,
-            (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) AS message_count
-     FROM chats c ${where} ORDER BY ${safeSortBy}${collate} ${safeSortDir} LIMIT ? OFFSET ?`,
+            (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) AS message_count,
+            owner.id AS owner_id, owner.username AS owner_username, owner.nickname AS owner_nickname,
+            owner.avatar_url AS owner_avatar_url, owner.color AS owner_color
+     FROM chats c
+     LEFT JOIN users owner ON owner.id = (
+       SELECT user_id FROM chat_members WHERE chat_id = c.id AND role = 'owner' LIMIT 1
+     )
+     ${where} ORDER BY ${orderCol}${collate} ${safeSortDir} LIMIT ? OFFSET ?`,
     params,
   );
 }
