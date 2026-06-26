@@ -201,7 +201,8 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
     setAvatarPreview("");
   }, []);
 
-  // Member search (create flow only). Mirrors useNewGroupModal behaviour.
+  // Member search (create flow only). Mirrors useNewGroupModal behaviour, and
+  // also excludes whoever is currently selected as the owner.
   useEffect(() => {
     if (editing) return undefined;
     if (!search.trim()) { setResults([]); return undefined; }
@@ -211,11 +212,21 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
         const res = await searchUsers({ exclude: "", query: search.trim().toLowerCase() });
         const data = await res.json();
         const chosen = new Set(members.map((m) => String(m.username || "")));
+        if (owner?.username) chosen.add(String(owner.username));
         setResults((data.users || []).filter((u) => !chosen.has(String(u.username || ""))).slice(0, MAX_RESULTS));
       } catch { setResults([]); } finally { setSearching(false); }
     }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(handle);
-  }, [search, members, editing]);
+  }, [search, members, editing, owner?.username]);
+
+  // Selecting an owner removes that user from the member selection (the owner is
+  // added as owner on the backend, never as a plain member).
+  const handleOwnerChange = useCallback((next) => {
+    setOwner(next);
+    if (next?.id) {
+      setMembers((prev) => prev.filter((m) => Number(m.id) !== Number(next.id)));
+    }
+  }, []);
 
   const entityLabel = type === "channel" ? "Channel" : "Group";
 
@@ -225,6 +236,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
       const name = String(form.nickname || "").trim();
       const username = String(form.username || "").trim().toLowerCase();
       if (!name || !username) { setError("Name and username are required."); setBusy(false); return; }
+      if (!owner?.id) { setError("Please select an owner."); setBusy(false); return; }
 
       if (editing) {
         const payload = {
@@ -241,7 +253,6 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
           else if (avatarRemoved) await apiFetch(`/api/admin/chats/${chat.id}/avatar`, { method: "DELETE" });
         }
       } else {
-        if (!owner?.id) { setError("Please select an owner."); setBusy(false); return; }
         const payload = {
           type,
           name,
@@ -268,7 +279,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
   const extraFields = (
     <div className="space-y-3">
       <Field label="Owner">
-        <OwnerPicker value={owner} onChange={setOwner} />
+        <OwnerPicker value={owner} onChange={handleOwnerChange} />
       </Field>
       <Field label="Color">
         <div className="flex items-center gap-2">
