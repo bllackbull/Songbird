@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, lazy, Suspense } from "react";
-import { Close, Pencil } from "../../icons/lucide.js";
+import { Close } from "../../icons/lucide.js";
 import { searchUsers, apiFetch } from "../../api/chatApi.js";
 import { CHAT_PAGE_CONFIG } from "../../settings/chatPageConfig.js";
 import { api, inputCls } from "./adminShared.js";
@@ -58,16 +58,16 @@ function OwnerPicker({ value, onChange }) {
   if (value) {
     const label = value.nickname || value.username;
     return (
-      <div className="flex w-full items-center gap-3 rounded-2xl border-2 border-emerald-500 bg-emerald-50 px-3 py-3 text-left dark:border-emerald-400 dark:bg-emerald-500/20">
+      <div className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 bg-white/80 px-3 py-3 text-left dark:border-white/10 dark:bg-slate-950">
         <Avatar src={value.avatar_url} alt={label} name={label} color={value.color || "#10b981"} className="h-8 w-8 text-xs font-bold text-white" />
         <div className="min-w-0 flex-1">
-          <p className={`truncate text-sm font-semibold text-emerald-900 dark:text-emerald-100 ${hasPersian(label) ? "font-fa" : ""}`} dir="auto" title={label}>{label}</p>
-          <p className="truncate text-xs text-emerald-700/70 dark:text-emerald-200/70" dir="auto">@{value.username}</p>
+          <p className={`truncate text-sm font-semibold text-slate-700 dark:text-slate-200 ${hasPersian(label) ? "font-fa" : ""}`} dir="auto" title={label}>{label}</p>
+          <p className="truncate text-xs text-slate-500 dark:text-slate-400" dir="auto">@{value.username}</p>
         </div>
-        <button type="button" onClick={() => { onChange(null); setQuery(""); }}
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-emerald-200 bg-white/70 text-emerald-600 transition hover:bg-white dark:border-emerald-500/40 dark:bg-slate-900/40 dark:text-emerald-300 dark:hover:bg-slate-900/70"
-          title="Change owner">
-          <Pencil size={13} className="icon-anim-sway" />
+        <button type="button" onClick={() => { onChange(null); }}
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-rose-200 bg-transparent text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 dark:border-rose-500/30 dark:text-rose-200 dark:hover:bg-rose-500/10"
+          title="Remove owner">
+          <Close size={14} className="icon-anim-pop" />
         </button>
       </div>
     );
