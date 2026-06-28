@@ -3,7 +3,6 @@ import { Close, Pencil } from "../../icons/lucide.js";
 import { searchUsers, apiFetch } from "../../api/chatApi.js";
 import { CHAT_PAGE_CONFIG } from "../../settings/chatPageConfig.js";
 import { api, inputCls } from "./adminShared.js";
-import { Field } from "./AdminCommon.jsx";
 import Avatar from "../common/Avatar.jsx";
 import { hasPersian } from "../../utils/fontUtils.js";
 
@@ -278,16 +277,20 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
 
   const extraFields = (
     <div className="space-y-3">
-      <Field label="Owner">
-        <OwnerPicker value={owner} onChange={handleOwnerChange} />
-      </Field>
-      <Field label="Color">
-        <div className="flex items-center gap-2">
+      <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
+        <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Owner</p>
+        <div className="mt-2">
+          <OwnerPicker value={owner} onChange={handleOwnerChange} />
+        </div>
+      </div>
+      <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
+        <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Color</p>
+        <div className="mt-2 flex items-center gap-2">
           <input type="color" value={form.groupColor || "#10b981"} onChange={(e) => setForm((f) => ({ ...f, groupColor: e.target.value }))}
             className="color-swatch h-11 w-11 shrink-0 cursor-pointer overflow-hidden rounded-xl border border-emerald-200/70 dark:border-emerald-500/30" />
           <input className={inputCls + " flex-1"} value={form.groupColor} onChange={(e) => setForm((f) => ({ ...f, groupColor: e.target.value }))} placeholder="#10b981" />
         </div>
-      </Field>
+      </div>
     </div>
   );
 
