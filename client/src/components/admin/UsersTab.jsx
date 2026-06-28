@@ -12,7 +12,7 @@ export default function UsersTab({ currentUser, onStatsChange }) {
   const [roleFilter, setRoleFilter]   = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [sortBy, setSortBy]           = useState("id");
-  const [sortDir, setSortDir]         = useState("DESC");
+  const [sortDir, setSortDir]         = useState("ASC");
   const [editUser, setEditUser]       = useState(null);
   const [createOpen, setCreateOpen]   = useState(false);
   const debounceRef = useRef(null);
@@ -73,7 +73,7 @@ export default function UsersTab({ currentUser, onStatsChange }) {
             <table className="w-full text-left text-sm">
               <thead className="border-b border-slate-100 dark:border-white/5">
                 <tr>
-                  <SortTh field="username" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>User</SortTh>
+                  <SortTh field="nickname" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>User</SortTh>
                   <SortTh field="role" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Role</SortTh>
                   <SortTh field="last_seen" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Status</SortTh>
                   <SortTh field="created_at" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Joined</SortTh>

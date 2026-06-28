@@ -2525,6 +2525,22 @@ function escapeLikePattern(value) {
   return String(value).replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
+// Produces an ORDER BY clause fragment for a "natural sort" on a text column:
+// sorts by the text prefix first (everything before any trailing number),
+// then the trailing integer numerically (so "User 2" < "User 10"),
+// then falls back to `tiebreaker` for rows with identical values.
+// `dir` ("ASC"/"DESC") is applied to every term so reversing actually reverses.
+function naturalSortExpr(col, tiebreaker = null, dir = "ASC") {
+  const d = dir === "DESC" ? "DESC" : "ASC";
+  // RTRIM strips all trailing digit characters to give the text prefix.
+  const textPart = `RTRIM(${col},'0123456789') COLLATE NOCASE ${d}`;
+  // SUBSTR from the end of the text prefix onward, cast to integer.
+  const numPart  = `CAST(SUBSTR(${col}, length(RTRIM(${col},'0123456789'))+1) AS INTEGER) ${d}`;
+  const parts = [textPart, numPart];
+  if (tiebreaker) parts.push(`${tiebreaker} COLLATE NOCASE ${d}`);
+  return parts.join(", ");
+}
+
 // A user is considered "online" when active within this window (matches the
 // client-side PRESENCE_IDLE_THRESHOLD_MS of 12s, with a small buffer for poll lag).
 const ONLINE_THRESHOLD_SECONDS = 30;
@@ -2533,7 +2549,7 @@ const ONLINE_THRESHOLD_SECONDS = 30;
 export function adminListUsers({ limit = 200, offset = 0, search = "", sortBy = "id", sortDir = "DESC", roleFilter = null, statusFilter = null }) {
   const safeLimit  = Math.max(1, Math.min(500, Number(limit) || 200));
   const safeOffset = Math.max(0, Number(offset) || 0);
-  const safeSortBy  = ["id", "username", "nickname", "created_at", "last_seen"].includes(sortBy) ? sortBy : "id";
+  const safeSortBy  = ["id", "username", "nickname", "role", "created_at", "last_seen"].includes(sortBy) ? sortBy : "id";
   const safeSortDir = sortDir === "ASC" ? "ASC" : "DESC";
 
   const conditions = [];
@@ -2566,16 +2582,24 @@ export function adminListUsers({ limit = 200, offset = 0, search = "", sortBy = 
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-  // Case-insensitive ordering for text columns so names sort naturally.
-  const textSortCols = ["username", "nickname"];
-  const collate = textSortCols.includes(safeSortBy) ? " COLLATE NOCASE" : "";
+  // Natural sort: text prefix sorts alphabetically, trailing number sorts
+  // numerically, ties broken by the other name column. Direction is baked into
+  // each term so reversing actually reverses; plain columns get it appended.
+  let orderBy;
+  if (safeSortBy === "nickname") {
+    orderBy = naturalSortExpr("nickname", "username", safeSortDir);
+  } else if (safeSortBy === "username") {
+    orderBy = naturalSortExpr("username", "nickname", safeSortDir);
+  } else {
+    orderBy = `${safeSortBy} ${safeSortDir}`;
+  }
   params.push(safeLimit, safeOffset);
   return getAll(
     `SELECT id, username, nickname, avatar_url, color, status, role, banned, created_at, last_seen,
             CASE WHEN status = 'online' AND last_seen IS NOT NULL
                       AND last_seen >= datetime('now', '-' || ? || ' seconds')
                  THEN 1 ELSE 0 END AS online
-     FROM users ${where} ORDER BY ${safeSortBy}${collate} ${safeSortDir} LIMIT ? OFFSET ?`,
+     FROM users ${where} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
     params,
   );
 }
@@ -2604,15 +2628,20 @@ export function adminListChats({ limit = 200, offset = 0, search = "", sortBy = 
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-  // Text columns get case-insensitive ordering so names sort naturally
-  // (otherwise SQLite's binary collation puts all uppercase before lowercase).
-  const textSortCols = ["name", "type", "group_visibility"];
-  const collate = textSortCols.includes(safeSortBy) ? " COLLATE NOCASE" : "";
-  // Qualify chat columns with the table alias so they aren't ambiguous against
-  // the joined owner table (e.g. both chats and users have an `id`). The
-  // computed count aliases live only in the SELECT list, so leave them bare.
+  // Natural sort for text columns, qualified with the `c.` table alias to avoid
+  // ambiguity with the joined owner table. Count aliases don't need qualifying.
+  // Direction is baked into the natural-sort terms; plain columns get it appended.
   const countCols = ["member_count", "message_count"];
-  const orderCol = countCols.includes(safeSortBy) ? safeSortBy : `c.${safeSortBy}`;
+  let orderBy;
+  if (countCols.includes(safeSortBy)) {
+    orderBy = `${safeSortBy} ${safeSortDir}`;
+  } else if (safeSortBy === "name") {
+    orderBy = naturalSortExpr("c.name", "c.group_username", safeSortDir);
+  } else if (safeSortBy === "type" || safeSortBy === "group_visibility") {
+    orderBy = `c.${safeSortBy} COLLATE NOCASE ${safeSortDir}`;
+  } else {
+    orderBy = `c.${safeSortBy} ${safeSortDir}`;
+  }
   params.push(safeLimit, safeOffset);
   return getAll(
     `SELECT c.id, c.name, c.type, c.group_username, c.group_visibility, c.group_color, c.group_avatar_url, c.created_at,
@@ -2624,7 +2653,7 @@ export function adminListChats({ limit = 200, offset = 0, search = "", sortBy = 
      LEFT JOIN users owner ON owner.id = (
        SELECT user_id FROM chat_members WHERE chat_id = c.id AND role = 'owner' LIMIT 1
      )
-     ${where} ORDER BY ${orderCol}${collate} ${safeSortDir} LIMIT ? OFFSET ?`,
+     ${where} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
     params,
   );
 }

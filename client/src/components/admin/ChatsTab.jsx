@@ -11,7 +11,7 @@ export default function ChatsTab({ onStatsChange }) {
   const [search, setSearch]           = useState("");
   const [typeFilter, setTypeFilter]   = useState("");
   const [sortBy, setSortBy]           = useState("id");
-  const [sortDir, setSortDir]         = useState("DESC");
+  const [sortDir, setSortDir]         = useState("ASC");
   const [editChat, setEditChat]       = useState(null);
   const [createType, setCreateType]   = useState(null);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);

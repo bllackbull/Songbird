@@ -178,7 +178,7 @@ function registerAdminPanelRoutes(app, deps) {
     const limit  = Number(req.query.limit  || 200);
     const offset = Number(req.query.offset || 0);
     const search = String(req.query.search || "").trim();
-    const sortBy    = ["id", "username", "nickname", "created_at", "last_seen"].includes(req.query.sortBy)
+    const sortBy    = ["id", "username", "nickname", "role", "created_at", "last_seen"].includes(req.query.sortBy)
       ? req.query.sortBy : "id";
     const sortDir   = String(req.query.sortDir || "").toLowerCase() === "asc" ? "ASC" : "DESC";
     const roleFilter = ["user", "admin", "owner", "banned"].includes(req.query.role) ? req.query.role : null;
