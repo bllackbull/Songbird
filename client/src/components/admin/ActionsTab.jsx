@@ -24,7 +24,8 @@ import {
   btnSecondary,
   btnDanger,
 } from "./adminShared.js";
-import { ConfirmModal, TypedConfirmModal } from "./AdminCommon.jsx";
+import { TypedConfirmModal } from "./AdminCommon.jsx";
+import ConfirmModal from "../modals/ConfirmModal.jsx";
 
 // Combined system card — app version (with check-for-update) + service controls.
 function SystemCard({ appInfo, onRestart, onStop }) {

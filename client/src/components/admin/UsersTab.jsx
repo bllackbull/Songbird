@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Ban, Pencil, Search, ShieldCog, Trash, UserPlus } from "../../icons/lucide.js";
+import { Ban, Pencil, Search, ShieldCheck, ShieldOff, Trash, UserPlus } from "../../icons/lucide.js";
 import { api, cardCls, inputSmCls, btnPrimary, iconBtn, fmtDate } from "./adminShared.js";
 import { LoadingRows, EmptyState, FilterDropdown, SortTh, RoleBadge } from "./AdminCommon.jsx";
 import { CreateUserModal, EditUserModal } from "./UserModals.jsx";
+import ConfirmModal from "../modals/ConfirmModal.jsx";
 import Avatar from "../common/Avatar.jsx";
 
 export default function UsersTab({ currentUser, onStatsChange }) {
@@ -15,6 +16,8 @@ export default function UsersTab({ currentUser, onStatsChange }) {
   const [sortDir, setSortDir]         = useState("ASC");
   const [editUser, setEditUser]       = useState(null);
   const [createOpen, setCreateOpen]   = useState(false);
+  // Pending action for confirmation modals. Shape: { type, user } or null.
+  const [pending, setPending]         = useState(null);
   const debounceRef = useRef(null);
   const paramsRef = useRef({ search, roleFilter, statusFilter, sortBy, sortDir });
   useEffect(() => { paramsRef.current = { search, roleFilter, statusFilter, sortBy, sortDir }; });
@@ -46,7 +49,6 @@ export default function UsersTab({ currentUser, onStatsChange }) {
     load(); onStatsChange();
   };
   const handleDelete = async (u) => {
-    if (!confirm(`Delete @${u.username}? This cannot be undone.`)) return;
     await api.delete(`/api/admin/users/${u.id}`);
     load(); onStatsChange();
   };
@@ -117,9 +119,15 @@ export default function UsersTab({ currentUser, onStatsChange }) {
                       {u.id !== currentUser.id ? (
                         <div className="flex items-center gap-1">
                           <button type="button" onClick={() => setEditUser(u)} className={iconBtn("slate")} title="Edit"><Pencil size={13} className="icon-anim-sway" /></button>
-                          <button type="button" onClick={() => handleRoleToggle(u)} className={iconBtn(u.role === "admin" ? "slate" : "emerald")} title={u.role === "admin" ? "Demote" : "Promote to admin"}><ShieldCog size={13} className="icon-anim-beat" /></button>
-                          <button type="button" onClick={() => handleBan(u)} className={iconBtn(u.banned ? "emerald" : "rose")} title={u.banned ? "Unban" : "Ban"}><Ban size={13} className="icon-anim-wiggle" /></button>
-                          <button type="button" onClick={() => handleDelete(u)} className={iconBtn("rose")} title="Delete"><Trash size={13} className="icon-anim-slide" /></button>
+                          <button type="button" onClick={() => setPending({ type: "role", user: u })}
+                            className={iconBtn(u.role === "admin" ? "rose" : "emerald")}
+                            title={u.role === "admin" ? "Demote from admin" : "Promote to admin"}>
+                            {u.role === "admin"
+                              ? <ShieldOff size={13} className="icon-anim-beat" />
+                              : <ShieldCheck size={13} className="icon-anim-beat" />}
+                          </button>
+                          <button type="button" onClick={() => setPending({ type: "ban", user: u })} className={iconBtn(u.banned ? "emerald" : "rose")} title={u.banned ? "Unban" : "Ban"}><Ban size={13} className="icon-anim-wiggle" /></button>
+                          <button type="button" onClick={() => setPending({ type: "delete", user: u })} className={iconBtn("rose")} title="Delete"><Trash size={13} className="icon-anim-slide" /></button>
                         </div>
                       ) : (
                         <span className="text-[11px] text-slate-400">You</span>
@@ -135,6 +143,38 @@ export default function UsersTab({ currentUser, onStatsChange }) {
 
       {createOpen && <CreateUserModal onClose={() => setCreateOpen(false)} onCreated={() => { load(); onStatsChange(); }} />}
       {editUser && <EditUserModal user={editUser} onClose={() => setEditUser(null)} onSaved={load} />}
+
+      {/* Role toggle confirm */}
+      <ConfirmModal
+        open={pending?.type === "role"}
+        title={pending?.user?.role === "admin" ? "Demote from admin" : "Promote to admin"}
+        message={pending?.user?.role === "admin"
+          ? `Remove admin role from @${pending?.user?.username}? They will become a regular user.`
+          : `Grant admin access to @${pending?.user?.username}? They will be able to access the admin panel.`}
+        confirmLabel={pending?.user?.role === "admin" ? "Demote" : "Promote"}
+        onConfirm={async () => { await handleRoleToggle(pending.user); setPending(null); }}
+        onClose={() => setPending(null)}
+      />
+      {/* Ban/unban confirm */}
+      <ConfirmModal
+        open={pending?.type === "ban"}
+        title={pending?.user?.banned ? "Unban user" : "Ban user"}
+        message={pending?.user?.banned
+          ? `Unban @${pending?.user?.username}? They will regain access to the app.`
+          : `Ban @${pending?.user?.username}? They will be signed out and unable to log in.`}
+        confirmLabel={pending?.user?.banned ? "Unban" : "Ban"}
+        onConfirm={async () => { await handleBan(pending.user); setPending(null); }}
+        onClose={() => setPending(null)}
+      />
+      {/* Delete confirm */}
+      <ConfirmModal
+        open={pending?.type === "delete"}
+        title="Delete user"
+        message={`Permanently delete @${pending?.user?.username}? This cannot be undone.`}
+        confirmLabel="Delete"
+        onConfirm={async () => { await handleDelete(pending.user); setPending(null); }}
+        onClose={() => setPending(null)}
+      />
     </div>
   );
 }
