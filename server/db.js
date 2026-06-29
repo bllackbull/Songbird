@@ -2497,7 +2497,7 @@ const ONLINE_THRESHOLD_SECONDS = 30;
 
 export function getAdminStats() {
   const totalUsers = getRow("SELECT COUNT(*) AS count FROM users")?.count || 0;
-  const totalChats = getRow("SELECT COUNT(*) AS count FROM chats")?.count || 0;
+  const totalChats = getRow("SELECT COUNT(*) AS count FROM chats WHERE type IN ('group', 'channel')")?.count || 0;
   const totalMessages = getRow("SELECT COUNT(*) AS count FROM chat_messages")?.count || 0;
   const totalSessions = getRow("SELECT COUNT(*) AS count FROM sessions")?.count || 0;
   const bannedUsers = getRow("SELECT COUNT(*) AS count FROM users WHERE banned = 1")?.count || 0;
