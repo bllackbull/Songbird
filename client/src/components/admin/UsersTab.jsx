@@ -77,7 +77,7 @@ export default function UsersTab({ currentUser, onStatsChange }) {
                 <tr>
                   <SortTh field="nickname" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>User</SortTh>
                   <SortTh field="role" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Role</SortTh>
-                  <SortTh field="last_seen" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Status</SortTh>
+                  <SortTh field="last_seen" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Last seen</SortTh>
                   <SortTh field="created_at" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Joined</SortTh>
                   <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400">Actions</th>
                 </tr>
@@ -111,7 +111,7 @@ export default function UsersTab({ currentUser, onStatsChange }) {
                     </td>
                     <td className="px-4 py-2.5 text-[11px]">
                       {u.online
-                        ? <span className="inline-flex items-center gap-1 font-semibold text-emerald-500"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />Online</span>
+                        ? <span className="font-semibold text-emerald-500">Online</span>
                         : <span className="text-slate-400 dark:text-slate-500">{u.last_seen ? fmtDate(u.last_seen) : "—"}</span>}
                     </td>
                     <td className="px-4 py-2.5 text-[11px] text-slate-400 dark:text-slate-500">{fmtDate(u.created_at)}</td>

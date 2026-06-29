@@ -2491,13 +2491,20 @@ export function bootstrapAdminUsers(adminUsernames) {
   }
 }
 
+// A user is considered "online" when active within this window (matches the
+// client-side PRESENCE_IDLE_THRESHOLD_MS of 12s, with a small buffer for poll lag).
+const ONLINE_THRESHOLD_SECONDS = 30;
+
 export function getAdminStats() {
   const totalUsers = getRow("SELECT COUNT(*) AS count FROM users")?.count || 0;
   const totalChats = getRow("SELECT COUNT(*) AS count FROM chats")?.count || 0;
   const totalMessages = getRow("SELECT COUNT(*) AS count FROM chat_messages")?.count || 0;
   const totalSessions = getRow("SELECT COUNT(*) AS count FROM sessions")?.count || 0;
   const bannedUsers = getRow("SELECT COUNT(*) AS count FROM users WHERE banned = 1")?.count || 0;
-  const onlineUsers = getRow("SELECT COUNT(*) AS count FROM users WHERE status = 'online'")?.count || 0;
+  const onlineUsers = getRow(
+    `SELECT COUNT(*) AS count FROM users WHERE status = 'online' AND last_seen IS NOT NULL AND last_seen >= datetime('now', '-' || ? || ' seconds')`,
+    [ONLINE_THRESHOLD_SECONDS],
+  )?.count || 0;
 
   // Chat type breakdown
   const dmChats      = getRow("SELECT COUNT(*) AS count FROM chats WHERE type = 'dm'")?.count || 0;
@@ -2540,10 +2547,6 @@ function naturalSortExpr(col, tiebreaker = null, dir = "ASC") {
   if (tiebreaker) parts.push(`${tiebreaker} COLLATE NOCASE ${d}`);
   return parts.join(", ");
 }
-
-// A user is considered "online" when active within this window (matches the
-// client-side PRESENCE_IDLE_THRESHOLD_MS of 12s, with a small buffer for poll lag).
-const ONLINE_THRESHOLD_SECONDS = 30;
 
 
 export function adminListUsers({ limit = 200, offset = 0, search = "", sortBy = "id", sortDir = "DESC", roleFilter = null, statusFilter = null }) {

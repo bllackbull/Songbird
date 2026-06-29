@@ -118,7 +118,7 @@ export default function DashboardTab({ stats, onStatsChange }) {
 
   const statCards = [
     { label: "Total Users",     value: stats?.totalUsers,         icon: User,              accent: "emerald" },
-    { label: "Show Online",     value: stats?.onlineUsers,        icon: User,               accent: "emerald", hint: "Users whose status preference is set to show online" },
+    { label: "Online Users",    value: stats?.onlineUsers,        icon: User,              accent: "emerald", hint: "Users currently active (seen in the last 30 seconds)" },
     { label: "New Users (7d)",  value: stats?.newUsers7d,         icon: UserPlus,           accent: "emerald", hint: "Users registered in the last 7 days" },
     { label: "Banned",          value: stats?.bannedUsers,        icon: Ban,                accent: "rose" },
     { label: "Total Chats",     value: stats?.totalChats,         icon: Chat,               accent: "emerald", hint: chatBreakdown },
