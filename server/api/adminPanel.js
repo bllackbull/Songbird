@@ -199,6 +199,9 @@ function registerAdminPanelRoutes(app, deps) {
     if (!rawUsername || !nickname || !password) {
       return res.status(400).json({ error: "Username, nickname, and password are required." });
     }
+    if (password.length < 6) {
+      return res.status(400).json({ error: "Password must be at least 6 characters." });
+    }
     if (rawUsername.length < 3) {
       return res.status(400).json({ error: "Username must be at least 3 characters." });
     }
@@ -219,7 +222,8 @@ function registerAdminPanelRoutes(app, deps) {
     }
 
     const passwordHash   = await bcrypt.hash(password, 10);
-    const assignedColor  = setUserColor();
+    const suppliedColor  = normalizeHexColor(String(req.body?.color || ""));
+    const assignedColor  = suppliedColor || setUserColor();
     adminRun(
       `INSERT INTO users (username, nickname, avatar_url, color, status, password_hash, created_at, last_seen)
        VALUES (?, ?, NULL, ?, 'online', ?, datetime('now'), datetime('now'))`,

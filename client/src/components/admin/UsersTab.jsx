@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Ban, CirclePlus, Pencil, Search, ShieldCheck, ShieldOff, Trash, UserPlus } from "../../icons/lucide.js";
 import { api, cardCls, inputSmCls, btnPrimary, iconBtn, fmtDate } from "./adminShared.js";
 import { LoadingRows, EmptyState, FilterDropdown, SortTh, RoleBadge } from "./AdminCommon.jsx";
-import { CreateUserModal } from "./UserModals.jsx";
 import AdminUserModal from "./AdminUserModal.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 import Avatar from "../common/Avatar.jsx";
@@ -144,8 +143,8 @@ export default function UsersTab({ currentUser, onStatsChange }) {
         </div>
       )}
 
-      {createOpen && <CreateUserModal onClose={() => setCreateOpen(false)} onCreated={() => { load(); onStatsChange(); }} />}
-      {editUser && <AdminUserModal user={editUser} onClose={() => setEditUser(null)} onSaved={load} />}
+      {createOpen && <AdminUserModal mode="create" onClose={() => setCreateOpen(false)} onSaved={() => { load(); onStatsChange(); }} />}
+      {editUser && <AdminUserModal mode="edit" user={editUser} onClose={() => setEditUser(null)} onSaved={load} />}
 
       {/* Role toggle confirm */}
       <ConfirmModal
