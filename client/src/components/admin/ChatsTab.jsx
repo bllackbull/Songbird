@@ -3,6 +3,7 @@ import { ChevronDown, Globe, Lock, Megaphone, MessageCircleMore, Pencil, Plus, S
 import { api, cardCls, inputSmCls, btnPrimary, iconBtn, fmtDate } from "./adminShared.js";
 import { LoadingRows, EmptyState, FilterDropdown, SortTh } from "./AdminCommon.jsx";
 import AdminGroupModal from "./AdminGroupModal.jsx";
+import ConfirmModal from "../modals/ConfirmModal.jsx";
 import Avatar from "../common/Avatar.jsx";
 
 export default function ChatsTab({ onStatsChange }) {
@@ -15,6 +16,7 @@ export default function ChatsTab({ onStatsChange }) {
   const [editChat, setEditChat]       = useState(null);
   const [createType, setCreateType]   = useState(null);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState(null);
   const createMenuRef = useRef(null);
   const debounceRef = useRef(null);
   const paramsRef = useRef({ search, typeFilter, sortBy, sortDir });
@@ -51,7 +53,6 @@ export default function ChatsTab({ onStatsChange }) {
   };
 
   const handleDelete = async (c) => {
-    if (!confirm(`Delete "${c.name || `Chat #${c.id}`}"? This cannot be undone.`)) return;
     await api.delete(`/api/admin/chats/${c.id}`);
     load(); onStatsChange();
   };
@@ -138,7 +139,7 @@ export default function ChatsTab({ onStatsChange }) {
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-1">
                         <button type="button" onClick={() => setEditChat(c)} className={iconBtn("slate")} title="Edit"><Pencil size={13} className="icon-anim-sway" /></button>
-                        <button type="button" onClick={() => handleDelete(c)} className={iconBtn("rose")} title="Delete"><Trash size={13} className="icon-anim-slide" /></button>
+                        <button type="button" onClick={() => setPendingDelete(c)} className={iconBtn("rose")} title="Delete"><Trash size={13} className="icon-anim-slide" /></button>
                       </div>
                     </td>
                   </tr>
@@ -151,6 +152,14 @@ export default function ChatsTab({ onStatsChange }) {
 
       {createType && <AdminGroupModal mode="create" initialType={createType} onClose={() => setCreateType(null)} onSaved={() => { load(); onStatsChange(); }} />}
       {editChat && <AdminGroupModal mode="edit" chat={editChat} onClose={() => setEditChat(null)} onSaved={load} />}
+      <ConfirmModal
+        open={Boolean(pendingDelete)}
+        title="Delete chat"
+        message={`Permanently delete "${pendingDelete?.name || `Chat #${pendingDelete?.id}`}"? This cannot be undone.`}
+        confirmLabel="Delete"
+        onConfirm={async () => { await handleDelete(pendingDelete); setPendingDelete(null); }}
+        onClose={() => setPendingDelete(null)}
+      />
     </div>
   );
 }
