@@ -5,7 +5,7 @@ import {
   Bell,
   Chat,
   Database,
-  File,
+  Files,
   Megaphone,
   MemoryStick,
   MessageCircleMore,
@@ -13,6 +13,7 @@ import {
   User,
   Users,
   UserPlus,
+  Wifi,
 } from "../../icons/lucide.js";
 import { api, cardCls, fmtBytes, fmtUptime } from "./adminShared.js";
 
@@ -191,7 +192,7 @@ export default function DashboardTab({ stats, onStatsChange }) {
     {
       label: "Online Users",
       value: stats?.onlineUsers,
-      icon: User,
+      icon: Wifi,
       accent: "emerald",
       hint: "Users currently active (seen in the last 30 seconds)",
     },
@@ -240,7 +241,7 @@ export default function DashboardTab({ stats, onStatsChange }) {
     {
       label: "Uploaded Files",
       value: stats?.totalFiles,
-      icon: File,
+      icon: Files,
       accent: "emerald",
       hint: "Total media/files attached to messages",
     },

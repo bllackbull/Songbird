@@ -3,10 +3,10 @@ import {
   ArrowLeft,
   ArrowLeftFromLine,
   ArrowRightFromLine,
+  Chat,
   Check,
   LoaderCircle,
   Moon,
-  MessageCircleMore,
   Refresh,
   ScrollText,
   Sun,
@@ -24,9 +24,9 @@ import ActionsTab from "./ActionsTab.jsx";
 import LogsTab from "./LogsTab.jsx";
 
 const TABS = [
-  { id: "dashboard", label: "Dashboard", icon: GaugeIcon,           anim: "" },
+  { id: "dashboard", label: "Dashboard", icon: GaugeIcon,         anim: "" },
   { id: "users",     label: "Users",     icon: Users,             anim: "icon-anim-pop" },
-  { id: "chats",     label: "Chats",     icon: MessageCircleMore, anim: "icon-anim-bob" },
+  { id: "chats",     label: "Chats",     icon: Chat,              anim: "icon-anim-bob" },
   { id: "actions",   label: "Actions",   icon: Wrench,            anim: "icon-anim-wiggle" },
   { id: "logs",      label: "Logs",      icon: ScrollText,        anim: "icon-anim-sway" },
 ];
