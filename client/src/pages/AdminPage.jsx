@@ -1,4 +1,4 @@
-import { ShieldCog } from "../icons/lucide.js";
+import { LayoutDashboard } from "../icons/lucide.js";
 import { AdminPanel } from "../components/admin/index.js";
 
 export default function AdminPage({ user, onBack, isDark, toggleTheme }) {
@@ -7,7 +7,7 @@ export default function AdminPage({ user, onBack, isDark, toggleTheme }) {
   if (!isAdmin) {
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-slate-50 dark:bg-slate-900">
-        <ShieldCog size={36} className="text-slate-300 dark:text-slate-600" />
+        <LayoutDashboard size={36} className="text-slate-300 dark:text-slate-600" />
         <p className="text-sm font-medium text-slate-400 dark:text-slate-500">Access denied</p>
       </div>
     );

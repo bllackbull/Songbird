@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Ban, Pencil, Search, ShieldCheck, ShieldOff, Trash, UserPlus } from "../../icons/lucide.js";
+import { Ban, CirclePlus, Pencil, Search, ShieldCheck, ShieldOff, Trash, UserPlus } from "../../icons/lucide.js";
 import { api, cardCls, inputSmCls, btnPrimary, iconBtn, fmtDate } from "./adminShared.js";
 import { LoadingRows, EmptyState, FilterDropdown, SortTh, RoleBadge } from "./AdminCommon.jsx";
 import { CreateUserModal, EditUserModal } from "./UserModals.jsx";
@@ -126,7 +126,9 @@ export default function UsersTab({ currentUser, onStatsChange }) {
                               ? <ShieldOff size={13} className="icon-anim-beat" />
                               : <ShieldCheck size={13} className="icon-anim-beat" />}
                           </button>
-                          <button type="button" onClick={() => setPending({ type: "ban", user: u })} className={iconBtn(u.banned ? "emerald" : "rose")} title={u.banned ? "Unban" : "Ban"}><Ban size={13} className="icon-anim-wiggle" /></button>
+                          <button type="button" onClick={() => setPending({ type: "ban", user: u })} className={iconBtn(u.banned ? "emerald" : "rose")} title={u.banned ? "Unban" : "Ban"}>
+                            {u.banned ? <CirclePlus size={13} className="icon-anim-pop" /> : <Ban size={13} className="icon-anim-wiggle" />}
+                          </button>
                           <button type="button" onClick={() => setPending({ type: "delete", user: u })} className={iconBtn("rose")} title="Delete"><Trash size={13} className="icon-anim-slide" /></button>
                         </div>
                       ) : (
