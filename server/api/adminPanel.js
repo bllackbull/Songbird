@@ -340,6 +340,59 @@ function registerAdminPanelRoutes(app, deps) {
     res.json({ ok: true });
   });
 
+  // ─── Users — avatar upload (admin, bypasses ownership check) ─────────────────
+
+  app.post("/api/admin/users/:id/avatar", uploadAvatar.single("avatar"), (req, res) => {
+    const session = getSessionFromRequest(req);
+    if (!session || !isUserAdmin(session.id)) {
+      removeUploadedFiles(req.file ? [req.file] : [], avatarUploadRootDir);
+      return res.status(session ? 403 : 401).json({ error: session ? "Admin access required" : "Not authenticated" });
+    }
+    const userId = Number(req.params.id);
+    const file = req.file;
+    if (!userId) {
+      removeUploadedFiles(file ? [file] : [], avatarUploadRootDir);
+      return res.status(400).json({ error: "Invalid user ID" });
+    }
+    if (!file) return res.status(400).json({ error: "Avatar file is required." });
+    const mime = String(file.mimetype || "").toLowerCase();
+    if (!ALLOWED_AVATAR_MIME_TYPES.has(mime)) {
+      removeUploadedFiles([file], avatarUploadRootDir);
+      return res.status(400).json({ error: "Avatar must be a JPEG, PNG, GIF, WEBP, or BMP image." });
+    }
+    const user = findUserById(userId);
+    if (!user) {
+      removeUploadedFiles([file], avatarUploadRootDir);
+      return res.status(404).json({ error: "User not found." });
+    }
+    const avatarUrl = `/api/uploads/avatars/${file.filename}`;
+    try {
+      storageEncryption.encryptFileInPlace(file.path);
+    } catch {
+      removeUploadedFiles([file], avatarUploadRootDir);
+      return res.status(500).json({ error: "Unable to store avatar securely." });
+    }
+    if (String(user.avatar_url || "").trim() && user.avatar_url !== avatarUrl) {
+      removeAvatarByUrl(user.avatar_url);
+    }
+    adminRun("UPDATE users SET avatar_url = ? WHERE id = ?", [avatarUrl, userId]);
+    adminSave();
+    res.json({ ok: true, avatarUrl });
+  });
+
+  app.delete("/api/admin/users/:id/avatar", (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const userId = Number(req.params.id);
+    if (!userId) return res.status(400).json({ error: "Invalid user ID" });
+    const user = findUserById(userId);
+    if (!user) return res.status(404).json({ error: "User not found." });
+    if (String(user.avatar_url || "").trim()) removeAvatarByUrl(user.avatar_url);
+    adminRun("UPDATE users SET avatar_url = NULL WHERE id = ?", [userId]);
+    adminSave();
+    res.json({ ok: true, avatarUrl: null });
+  });
+
   // ─── Users — delete ──────────────────────────────────────────────────────────
 
   app.delete("/api/admin/users/:id", (req, res) => {
