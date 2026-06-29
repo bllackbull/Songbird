@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, Globe, Lock, Megaphone, MessageCircleMore, Pencil, Plus, Search, Trash, Users } from "../../icons/lucide.js";
-import { api, cardCls, inputSmCls, btnPrimary, iconBtn, fmtDate } from "./adminShared.js";
+import { api, cardCls, inputSmCls, btnPrimary, iconBtn, fmtDate, searchIconCls } from "./adminShared.js";
 import { LoadingRows, EmptyState, FilterDropdown, SortTh } from "./AdminCommon.jsx";
 import AdminGroupModal from "./AdminGroupModal.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
@@ -60,10 +60,12 @@ export default function ChatsTab({ onStatsChange }) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-40 flex-1">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        <label className="group relative block min-w-40 flex-1">
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
+            <Search size={13} className={searchIconCls} />
+          </span>
           <input type="text" placeholder="Search chats…" value={search} onChange={(e) => setSearch(e.target.value)} className={inputSmCls + " pl-8"} />
-        </div>
+        </label>
         <FilterDropdown value={typeFilter} onChange={setTypeFilter} options={[["", "All types"], ["group", "Groups"], ["channel", "Channels"]]} />
         <div ref={createMenuRef} className="relative">
           <button type="button" onClick={() => setCreateMenuOpen((o) => !o)} aria-expanded={createMenuOpen} className={btnPrimary}>

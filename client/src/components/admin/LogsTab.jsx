@@ -19,7 +19,7 @@ import {
   UserMinus,
   UserPlus,
 } from "../../icons/lucide.js";
-import { api, cardCls, inputSmCls, btnDanger, fmtDateTime } from "./adminShared.js";
+import { api, cardCls, inputSmCls, btnDanger, fmtDateTime, searchIconCls } from "./adminShared.js";
 import { LoadingRows, EmptyState } from "./AdminCommon.jsx";
 
 const LOG_ACTION_META = {
@@ -88,10 +88,12 @@ function AdminLogView() {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-40 flex-1">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        <label className="group relative block min-w-40 flex-1">
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
+            <Search size={13} className={searchIconCls} />
+          </span>
           <input type="text" placeholder="Search logs…" value={search} onChange={(e) => setSearch(e.target.value)} className={inputSmCls + " pl-8"} />
-        </div>
+        </label>
         <button type="button" onClick={load} className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:bg-slate-100 dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5" title="Refresh">
           <Refresh size={14} className="icon-anim-spin-full" />
         </button>

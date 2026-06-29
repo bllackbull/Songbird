@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Ban, CirclePlus, Pencil, Search, ShieldCheck, ShieldOff, Trash, UserPlus } from "../../icons/lucide.js";
-import { api, cardCls, inputSmCls, btnPrimary, iconBtn, fmtDate } from "./adminShared.js";
+import { api, cardCls, inputSmCls, btnPrimary, iconBtn, fmtDate, searchIconCls } from "./adminShared.js";
 import { LoadingRows, EmptyState, FilterDropdown, SortTh, RoleBadge } from "./AdminCommon.jsx";
 import AdminUserModal from "./AdminUserModal.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
@@ -60,10 +60,12 @@ export default function UsersTab({ currentUser, onStatsChange }) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-40 flex-1">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        <label className="group relative block min-w-40 flex-1">
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
+            <Search size={13} className={searchIconCls} />
+          </span>
           <input type="text" placeholder="Search users…" value={search} onChange={(e) => setSearch(e.target.value)} className={inputSmCls + " pl-8"} />
-        </div>
+        </label>
         <FilterDropdown value={roleFilter} onChange={setRoleFilter} options={[["", "All roles"], ["user", "User"], ["admin", "Admin"], ["owner", "Owner"], ["banned", "Banned"]]} />
         <FilterDropdown value={statusFilter} onChange={setStatusFilter} options={[["", "All"], ["online", "Online"], ["offline", "Offline"]]} />
         <button type="button" onClick={() => setCreateOpen(true)} className={btnPrimary}><UserPlus size={13} className="icon-anim-pop" /> New user</button>
