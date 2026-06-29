@@ -17,7 +17,7 @@ export const iconBtn = (color = "slate") => {
     orange:  "border-orange-200 text-orange-500 hover:bg-orange-50 dark:border-orange-500/30 dark:text-orange-400 dark:hover:bg-orange-500/10",
     rose:    "border-rose-200 text-rose-500 hover:bg-rose-50 dark:border-rose-500/30 dark:text-rose-400 dark:hover:bg-rose-500/10",
   };
-  return `inline-flex h-7 w-7 items-center justify-center rounded-full border transition ${map[color] || map.slate}`;
+  return `inline-flex h-7 w-7 items-center justify-center rounded-full border transition disabled:cursor-not-allowed disabled:opacity-40 ${map[color] || map.slate}`;
 };
 
 // ─── API helper ───────────────────────────────────────────────────────────────

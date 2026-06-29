@@ -118,10 +118,10 @@ export default function UsersTab({ currentUser, onStatsChange }) {
                     <td className="px-4 py-2.5">
                       {u.id !== currentUser.id ? (
                         <div className="flex items-center gap-1">
-                          <button type="button" onClick={() => setEditUser(u)} className={iconBtn("slate")} title="Edit"><Pencil size={13} className="icon-anim-sway" /></button>
-                          <button type="button" onClick={() => setPending({ type: "role", user: u })}
+                          <button type="button" onClick={() => setEditUser(u)} disabled={!!u.banned} className={iconBtn("slate")} title={u.banned ? "Cannot edit a banned user" : "Edit"}><Pencil size={13} className="icon-anim-sway" /></button>
+                          <button type="button" onClick={() => setPending({ type: "role", user: u })} disabled={!!u.banned}
                             className={iconBtn(u.role === "admin" ? "rose" : "emerald")}
-                            title={u.role === "admin" ? "Demote from admin" : "Promote to admin"}>
+                            title={u.banned ? "Cannot change role of a banned user" : u.role === "admin" ? "Demote from admin" : "Promote to admin"}>
                             {u.role === "admin"
                               ? <ShieldOff size={13} className="icon-anim-beat" />
                               : <ShieldCheck size={13} className="icon-anim-beat" />}
