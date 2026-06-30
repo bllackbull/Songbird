@@ -29,8 +29,8 @@ const TABS = [
   { id: "dashboard", label: "Dashboard", icon: GaugeIcon,         anim: "" },
   { id: "users",     label: "Users",     icon: Users,             anim: "icon-anim-pop" },
   { id: "chats",     label: "Chats",     icon: Chat,              anim: "icon-anim-bob" },
-  { id: "settings",  label: "Settings",  icon: Settings,          anim: "icon-anim-wiggle" },
   { id: "actions",   label: "Actions",   icon: Wrench,            anim: "icon-anim-wiggle" },
+  { id: "settings",  label: "Settings",  icon: Settings,          anim: "icon-anim-spin-dir" },
   { id: "logs",      label: "Logs",      icon: ScrollText,        anim: "icon-anim-sway" },
 ];
 

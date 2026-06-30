@@ -67,6 +67,35 @@ const SETTING_ICONS = {
   PUSH_PROXY_URL: Bell,
 };
 
+// Keys that act as the master enable/disable toggle for their whole group.
+// When the master is false, all other rows in the group are disabled.
+const GROUP_MASTER = {
+  uploads:        "FILE_UPLOAD",
+  remote_channel: "REMOTE_CHANNEL",
+};
+
+// Keys that should be rendered as sub-rows inside their master's card,
+// rather than as standalone cards. Order matters — they appear in this order.
+const GROUP_CHILDREN = {
+  uploads: [
+    "FILE_UPLOAD_MAX_SIZE_MB",
+    "FILE_UPLOAD_MAX_TOTAL_SIZE_MB",
+    "FILE_UPLOAD_MAX_FILES",
+    "FILE_UPLOAD_TRANSCODE_VIDEOS",
+  ],
+  remote_channel: [
+    "REMOTE_CHANNEL_UI",
+    "REMOTE_CHANNEL_MEDIA_STREAM",
+    "REMOTE_CHANNEL_POLL_INTERVAL_MS",
+    "REMOTE_CHANNEL_TELEGRAM_POLL_LIMIT",
+    "REMOTE_CHANNEL_QUEUE_INTERVAL_MS",
+    "REMOTE_CHANNEL_QUEUE_MAX_ATTEMPTS",
+    "REMOTE_CHANNEL_QUEUE_BATCH_SIZE",
+    "REMOTE_CHANNEL_QUEUE_CONCURRENCY",
+    "REMOTE_CHANNEL_QUEUE_STALE_LOCK_MS",
+  ],
+};
+
 // ─── iOS-style toggle — same pattern as NewGroupModal ────────────────────────
 
 function Toggle({ checked, onChange, disabled = false }) {
@@ -141,14 +170,72 @@ function NumberInput({ value, onChange, min, max, disabled = false }) {
   );
 }
 
+// ─── Sub-row inside a grouped card ───────────────────────────────────────────
+// Used for child settings rendered inside the master's card.
+
+function SubRow({ def, localVal, onChange, masterDisabled = false }) {
+  const Icon = SETTING_ICONS[def.key] ?? Info;
+  const envLocked = Boolean(def.envLocked);
+  // Only disable controls for masterDisabled — envLocked dims the whole
+  // sub-row via opacity already, so the control doesn't need a second layer.
+  const isDisabled = masterDisabled;
+
+  return (
+    <div className={`flex items-center gap-3 border-t px-4 py-3 border-emerald-100 dark:border-emerald-500/20 transition-opacity ${
+      isDisabled ? "opacity-40" : ""
+    }`}>
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-50 text-slate-400 dark:bg-slate-800/50 dark:text-slate-500">
+        <Icon size={15} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">
+            {def.label}
+          </p>
+          {envLocked && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-white/10 dark:text-slate-400">
+              <KeyRound size={9} /> set in .env
+            </span>
+          )}
+        </div>
+        {def.description && (
+          <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
+            {def.description}
+          </p>
+        )}
+      </div>
+      <div className="shrink-0">
+        {def.type === "bool" ? (
+          <Toggle
+            checked={localVal === "true"}
+            onChange={(on) => !isDisabled && onChange(on ? "true" : "false")}
+            disabled={isDisabled}
+          />
+        ) : def.type === "int" ? (
+          <NumberInput
+            value={localVal}
+            onChange={onChange}
+            min={def.min}
+            max={def.max}
+            disabled={isDisabled}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 // ─── Single setting row ───────────────────────────────────────────────────────
 
-function SettingRow({ def, localVal, onChange }) {
+function SettingRow({ def, localVal, onChange, groupDisabled = false, childDefs = [], childVals = {}, onChildChange, masterOff = false }) {
   const Icon = SETTING_ICONS[def.key] ?? Info;
   const isNullable = Boolean(def.nullable);
   const isNullableString = isNullable && def.type === "string";
   const nullIntVal = "0";
   const envLocked = Boolean(def.envLocked);
+  // Only disable controls for group-master-off, not for envLocked —
+  // the whole card is already pointer-events-none when envLocked.
+  const controlDisabled = groupDisabled;
 
   // For nullable strings, the "enabled" flag and the URL value are tracked
   // separately so that toggling off→on doesn't immediately re-disable the field.
@@ -193,7 +280,9 @@ function SettingRow({ def, localVal, onChange }) {
   };
 
   return (
-    <div className={cardCls}>
+    <div className={`${cardCls} transition-opacity ${
+      envLocked || groupDisabled ? "opacity-50 pointer-events-none" : ""
+    }`}>
       {/* ── Main row ──────────────────────────────────────────────────────── */}
       <div className="flex items-center gap-3 p-4">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
@@ -223,17 +312,17 @@ function SettingRow({ def, localVal, onChange }) {
             <Toggle
               checked={localVal === "true"}
               onChange={(on) => onChange(on ? "true" : "false")}
-              disabled={envLocked}
+              disabled={controlDisabled}
             />
           ) : isNullable ? (
-            <Toggle checked={isEnabled} onChange={handleToggleEnable} disabled={envLocked} />
+            <Toggle checked={isEnabled} onChange={handleToggleEnable} disabled={controlDisabled} />
           ) : def.type === "int" ? (
             <NumberInput
               value={localVal}
               onChange={onChange}
               min={def.min}
               max={def.max}
-              disabled={envLocked}
+              disabled={controlDisabled}
             />
           ) : null}
         </div>
@@ -263,13 +352,13 @@ function SettingRow({ def, localVal, onChange }) {
               onChange={onChange}
               min={def.min ?? 1}
               max={def.max}
-              disabled={!isEnabled}
+              disabled={!isEnabled || controlDisabled}
             />
           </div>
         </div>
       )}
 
-      {/* ── Sub-row for nullable string (proxy URL) ───────────────────────── */}
+      {/* ── Sub-rows for nullable string (proxy URL) ──────────────────────── */}
       {isNullable && def.type === "string" && (
         <div
           className={`flex items-start gap-3 border-t px-4 py-3 ${
@@ -289,7 +378,7 @@ function SettingRow({ def, localVal, onChange }) {
             <input
               type="text"
               value={isEnabled ? localVal : ""}
-              disabled={!isEnabled}
+              disabled={!isEnabled || controlDisabled}
               onChange={(e) => onChange(e.target.value)}
               placeholder="https://proxy.example.com:8080"
               className="mt-2 w-full rounded-xl border border-emerald-200/70 bg-white/90 px-3 py-2 text-sm text-slate-700 outline-none transition placeholder:text-slate-300 hover:border-emerald-300 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/40 disabled:cursor-not-allowed dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200 dark:placeholder-slate-600"
@@ -297,6 +386,17 @@ function SettingRow({ def, localVal, onChange }) {
           </div>
         </div>
       )}
+
+      {/* ── Grouped child settings ────────────────────────────────────────── */}
+      {childDefs.map((child) => (
+        <SubRow
+          key={child.key}
+          def={child}
+          localVal={childVals[child.key] ?? String(child.value ?? child.defaultVal ?? "")}
+          onChange={(val) => onChildChange?.(child.key, val)}
+          masterDisabled={masterOff}
+        />
+      ))}
     </div>
   );
 }
@@ -304,21 +404,48 @@ function SettingRow({ def, localVal, onChange }) {
 // ─── Group section ────────────────────────────────────────────────────────────
 
 function SettingGroup({ groupKey, defs, effectiveVals, onChange }) {
-  const meta = GROUP_META[groupKey] ?? { label: groupKey };
+  const meta       = GROUP_META[groupKey] ?? { label: groupKey };
+  const masterKey  = GROUP_MASTER[groupKey];
+  const childKeys  = new Set(GROUP_CHILDREN[groupKey] ?? []);
+  const childOrder = GROUP_CHILDREN[groupKey] ?? [];
+
+  // Master is off when its effective value is "false"
+  const masterOff = masterKey
+    ? effectiveVals[masterKey] === "false"
+    : false;
+
+  // Standalone rows = defs that are NOT child keys (includes the master itself)
+  const standaloneDefs = defs.filter((d) => !childKeys.has(d.key));
+  // Child defs in declared order
+  const childDefs = childOrder
+    .map((k) => defs.find((d) => d.key === k))
+    .filter(Boolean);
+
   return (
     <div>
       <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">
         {meta.label}
       </h2>
       <div className="space-y-2">
-        {defs.map((def) => (
-          <SettingRow
-            key={def.key}
-            def={def}
-            localVal={effectiveVals[def.key]}
-            onChange={(val) => onChange(def.key, val)}
-          />
-        ))}
+        {standaloneDefs.map((def) => {
+          const isMaster = def.key === masterKey;
+          return (
+            <div key={def.key}>
+              {/* Master card — may contain children as sub-rows */}
+              <SettingRow
+                def={def}
+                localVal={effectiveVals[def.key]}
+                onChange={(val) => onChange(def.key, val)}
+                groupDisabled={false}
+                // Pass children so the master card can render them inside itself
+                childDefs={isMaster ? childDefs : []}
+                childVals={isMaster ? effectiveVals : {}}
+                onChildChange={isMaster ? onChange : undefined}
+                masterOff={isMaster ? masterOff : false}
+              />
+            </div>
+          );
+        })}
       </div>
     </div>
   );
