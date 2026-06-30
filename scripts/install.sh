@@ -921,10 +921,10 @@ prompt_cert_mode() {
   done
 }
 
-prompt_backup_zip_path() {
+prompt_backup_db_path() {
   local backup_input=""
   while true; do
-    prompt_read "Enter the full path to the backup .zip file: " backup_input
+    prompt_read "Enter the full path to the backup .db file: " backup_input
     if [[ -z "$backup_input" ]]; then
       printf "Please provide a file path.\n"
       continue
@@ -935,8 +935,8 @@ prompt_backup_zip_path() {
       printf "File not found. Tried: %s\n" "$backup_input"
       continue
     fi
-    if [[ "${resolved,,}" != *.zip ]]; then
-      printf "Backup file must be a .zip archive.\n"
+    if [[ "${resolved,,}" != *.db ]]; then
+      printf "Backup file must be a .db file.\n"
       continue
     fi
     printf "%s" "$resolved"
@@ -944,30 +944,28 @@ prompt_backup_zip_path() {
   done
 }
 
-select_backup_zip_path() {
+select_backup_db_path() {
   local use_detected=""
   local detected=""
-  detected="$(find_restore_backup_zip)" || detected=""
+  detected="$(find_restore_backup_db)" || detected=""
   if [[ -n "$detected" ]]; then
-    use_detected="$(prompt_yes_no "Use detected backup zip ${detected}?" "yes")"
+    use_detected="$(prompt_yes_no "Use detected backup ${detected}?" "yes")"
     if [[ "$use_detected" == "yes" ]]; then
       printf "%s" "$detected"
       return 0
     fi
   fi
 
-  prompt_backup_zip_path
+  prompt_backup_db_path
 }
 
 prompt_install_backup_restore() {
   DB_BACKUP_PATH=""
-  DB_BACKUP_PASSWORD=""
-  if [[ "$(prompt_yes_no "Restore database from a backup zip during installation?" "no")" != "yes" ]]; then
+  if [[ "$(prompt_yes_no "Restore database from a backup .db file during installation?" "no")" != "yes" ]]; then
     return 0
   fi
 
-  DB_BACKUP_PATH="$(select_backup_zip_path)"
-  DB_BACKUP_PASSWORD="$(prompt_secret_optional "Backup password (leave blank if not encrypted)")"
+  DB_BACKUP_PATH="$(select_backup_db_path)"
   return 0
 }
 
@@ -1410,7 +1408,7 @@ find_offline_source_zip() {
   return 1
 }
 
-find_restore_backup_zip() {
+find_restore_backup_db() {
   local candidates=(
     "/opt/songbird/data/backups"
     "/root"
@@ -1418,7 +1416,7 @@ find_restore_backup_zip() {
   local dir=""
   for dir in "${candidates[@]}"; do
     local found=""
-    found="$(run_as_root_output bash -lc "find '$dir' -maxdepth 1 -type f -name 'songbird-backup-*.zip' -printf '%T@\t%p\n' 2>/dev/null | sort -nr | head -1 | cut -f2-" | tr -d '\r\n')" || found=""
+    found="$(run_as_root_output bash -lc "find '$dir' -maxdepth 1 -type f -name 'songbird-backup-*.db' -printf '%T@\t%p\n' 2>/dev/null | sort -nr | head -1 | cut -f2-" | tr -d '\r\n')" || found=""
     if [[ -n "$found" && -f "$found" ]]; then
       printf "%s" "$found"
       return 0
@@ -2651,20 +2649,13 @@ restore_backup_if_provided() {
     warn "Backup file not found: $DB_BACKUP_PATH"
     return 1
   fi
-  if ! have_cmd unzip; then
-    warn "unzip is required to restore backups. Install it first and retry."
-    return 1
-  fi
   if [[ ! -d "$INSTALL_DIR/server" ]]; then
     warn "Server directory not found at ${INSTALL_DIR}/server. Cannot restore backup."
     return 1
   fi
 
-  log "Restoring data from backup: $DB_BACKUP_PATH"
+  log "Restoring database from backup: $DB_BACKUP_PATH"
   local cmd=(npm --prefix server run db:restore -- -y --file "$DB_BACKUP_PATH")
-  if [[ -n "${DB_BACKUP_PASSWORD:-}" ]]; then
-    cmd+=(--password "$DB_BACKUP_PASSWORD")
-  fi
 
   if [[ "${RESTORE_BACKUP_QUIET:-no}" == "yes" ]]; then
     if ! run_db_command_logged_quiet "${cmd[@]}"; then
@@ -2695,9 +2686,9 @@ backup_database() {
 preserve_backup_and_restore_data() {
   log "Preserving data directory during update..."
   # Since /data/ is in .gitignore, it will remain untouched during git operations
-  # However, we locate the backup zip for recovery purposes if needed
+  # However, we locate the backup for recovery purposes if needed
   if [[ -d "$INSTALL_DIR/data/backups" ]]; then
-    local latest_backup="$(ls -t "$INSTALL_DIR/data/backups"/*.zip 2>/dev/null | head -1)"
+    local latest_backup="$(ls -t "$INSTALL_DIR/data/backups"/songbird-backup-*.db 2>/dev/null | head -1)"
     if [[ -n "$latest_backup" ]]; then
       # Copy backup to root directory for easy access and recovery
       local backup_filename="$(basename "$latest_backup")"
@@ -3568,12 +3559,12 @@ Inspect:
         Passes: --limit
 
 Backup & repair:
-  5     Backup database and uploads
-        Prompts: backup password
-        Passes: --password
+  5     Backup database
+        Prompts: none
+        Passes: (no arguments)
   6     Restore backup
-        Prompts: backup zip path, restore confirmation, optional password
-        Passes: -y --file [--password]
+        Prompts: backup .db path, restore confirmation
+        Passes: -y --file
   7     Vacuum database
         Prompts: confirmation
         Passes: -y
@@ -3631,15 +3622,14 @@ Notes:
   - "all" is explicit for chat/user/file delete actions.
   - "Ban/unban user" is a toggle and expires that user's sessions.
   - Public chats always allow member invites. Invite settings only apply to private chats.
-  - Backups are encrypted zip files containing .env and data/.
+  - Backups are plain .db copies saved to data/backups/ with a timestamp filename.
+  - Restore replaces the live database with the selected .db file.
 EOF
 }
 
 db_backup() {
-  local backup_password=""
-  backup_password="$(prompt_secret "Backup password")"
-  log "Creating backup (db + uploads)..."
-  run_db_command npm --prefix server run db:backup -- --password "$backup_password"
+  log "Creating database backup..."
+  run_db_command npm --prefix server run db:backup
   press_enter_to_continue
 }
 
@@ -3663,20 +3653,14 @@ db_vacuum() {
 
 db_restore() {
   local backup_path=""
-  local backup_password=""
 
-  backup_path="$(select_backup_zip_path)"
-  if [[ "$(prompt_yes_no "This will replace ${INSTALL_DIR}/data and update ${INSTALL_DIR}/.env when the backup includes it. Continue?" "yes")" != "yes" ]]; then
+  backup_path="$(select_backup_db_path)"
+  if [[ "$(prompt_yes_no "This will replace the current database with ${backup_path}. Continue?" "yes")" != "yes" ]]; then
     log "Restore canceled."
     press_enter_to_continue
     return 0
   fi
-  backup_password="$(prompt_secret_optional "Backup password (leave blank if not encrypted)")"
-  if [[ -n "$backup_password" ]]; then
-    run_db_command npm --prefix server run db:restore -- -y --file "$backup_path" --password "$backup_password"
-  else
-    run_db_command npm --prefix server run db:restore -- -y --file "$backup_path"
-  fi
+  run_db_command npm --prefix server run db:restore -- -y --file "$backup_path"
   press_enter_to_continue
 }
 
@@ -4214,9 +4198,9 @@ db_remote_configure() {
 
 db_restore_backup() {
   local resolved=""
-  resolved="$(select_backup_zip_path)"
+  resolved="$(select_backup_db_path)"
 
-  if [[ "$(prompt_yes_no "This will replace ${INSTALL_DIR}/data. Continue?" "no")" != "yes" ]]; then
+  if [[ "$(prompt_yes_no "This will replace the current database with ${resolved}. Continue?" "no")" != "yes" ]]; then
     log "Restore canceled."
     return 0
   fi
