@@ -3209,6 +3209,8 @@ install_songbird() {
   fi
   show_deployment_success_frame "install"
 
+  create_owner_user
+
   press_enter_to_continue
 }
 
@@ -3543,6 +3545,59 @@ resolve_chat_visibility_for_script() {
       }
     "
   '
+}
+
+# Check whether any user with role='owner' exists in the database.
+# Exits 0 if owner exists, 1 if not (or if check fails).
+check_owner_exists() {
+  local path_prefix=""
+  path_prefix="$(node_tools_path_prefix)"
+  run_as_root env INSTALL_DIR="$INSTALL_DIR" NODE_TOOLS_PATH_PREFIX="$path_prefix" bash -lc '
+    if [[ -n "$NODE_TOOLS_PATH_PREFIX" ]]; then
+      export PATH="$NODE_TOOLS_PATH_PREFIX:$PATH"
+    fi
+    cd "$INSTALL_DIR" || exit 1
+    node --input-type=module -e "
+      import { pathToFileURL } from \"node:url\";
+      const rootUrl = pathToFileURL(process.cwd() + \"/\");
+      const { openDatabase } = await import(new URL(\"./server/scripts/_db-admin.js\", rootUrl));
+      const dbApi = await openDatabase();
+      try {
+        const sql = \"SELECT id FROM users WHERE role = \" + \"'owner'\" + \" LIMIT 1\";
+        const row = dbApi.getRow(sql);
+        process.exit(row && row.id ? 0 : 1);
+      } finally {
+        dbApi.close();
+      }
+    "
+  ' 2>/dev/null
+}
+
+# After installation, offer to create an owner user if none exists.
+create_owner_user() {
+  if check_owner_exists; then
+    return 0
+  fi
+
+  printf "\n"
+  log "No owner user found in the database."
+  if [[ "$(prompt_yes_no "Would you like to create an owner user now?" "yes")" != "yes" ]]; then
+    return 0
+  fi
+
+  local nickname=""
+  local username=""
+  local password=""
+
+  nickname="$(prompt_non_empty "Nickname")"
+  username="$(prompt_non_empty "Username (lowercase letters, numbers, ., _)")"
+  password="$(prompt_secret "Password")"
+
+  run_db_command npm --prefix server run db:user:create -- \
+    --nickname "$nickname" \
+    --username "$username" \
+    --password "$password" \
+    --role owner
 }
 
 print_db_script_help() {
