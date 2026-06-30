@@ -2,16 +2,16 @@
  * appSettings.js
  *
  * Runtime application settings stored in the `app_settings` database table.
- * Env vars still work as **defaults** (and can override DB values at startup),
- * but once a value is written to the DB it takes precedence over the default.
  *
- * Architecture:
- *  - SETTING_DEFS   – the canonical registry of every managed setting
- *  - loadSettings() – reads all rows from `app_settings` and populates the cache
- *  - get(key)       – returns the current typed value (DB → env-default fallback)
- *  - set(key, raw)  – validates and persists a single setting
- *  - getAll()       – returns the full public snapshot (no secrets)
- *  - getAllIncludingSecrets() – returns everything (admin-only)
+ * Precedence (highest → lowest):
+ *   1. Env var explicitly set in the environment / .env file
+ *   2. Value saved in the `app_settings` DB table (via admin panel)
+ *   3. Hard-coded defaultVal in SETTING_DEFS
+ *
+ * This means:
+ *  - If you set a value in the admin panel and the env var is absent → DB wins.
+ *  - If you later set the env var → env wins, DB value is ignored until cleared.
+ *  - Editing .env always takes effect on the next restart, regardless of DB.
  */
 
 import { readEnvBool, readEnvInt } from "../settings/env.js";
@@ -308,7 +308,24 @@ const DEFS_BY_KEY = Object.fromEntries(SETTING_DEFS.map((d) => [d.key, d]));
 
 const _cache = {};
 
-// ─── Resolve the env-var default for a definition ─────────────────────────────
+// ─── Check whether an env var is explicitly present ──────────────────────────
+// Returns true if at least one of the def's envKey names exists in process.env
+// with a non-empty value. This is how we distinguish "env explicitly set" from
+// "env absent, falling back to hardcoded default".
+
+function isEnvExplicitlySet(def) {
+  const keys = Array.isArray(def.envKey)
+    ? def.envKey
+    : def.envKey
+      ? [def.envKey]
+      : [];
+  return keys.some((k) => {
+    const v = process.env[k];
+    return v !== undefined && v !== null && v !== "";
+  });
+}
+
+// ─── Resolve the env-var value for a definition ───────────────────────────────
 
 function resolveEnvDefault(def) {
   const keys = Array.isArray(def.envKey)
@@ -419,9 +436,11 @@ export function loadSettings(dbGetAll) {
   for (const row of rows) {
     const def = DEFS_BY_KEY[String(row.key || "")];
     if (!def) continue;
+    // Env var explicitly set → it always wins; skip the DB value.
+    if (isEnvExplicitlySet(def)) continue;
     _cache[def.key] = coerce(def, row.value);
   }
-  // For any key not yet in the DB, seed from env / hardcoded default
+  // For any key not yet cached, seed from env / hardcoded default.
   for (const def of SETTING_DEFS) {
     if (!(def.key in _cache)) {
       _cache[def.key] = resolveEnvDefault(def);
@@ -434,9 +453,11 @@ export function loadSettings(dbGetAll) {
  * @param {string} key
  */
 export function getSetting(key) {
-  if (key in _cache) return _cache[key];
   const def = DEFS_BY_KEY[key];
   if (!def) return undefined;
+  // Env var explicitly present → always wins over DB.
+  if (isEnvExplicitlySet(def)) return resolveEnvDefault(def);
+  if (key in _cache) return _cache[key];
   return resolveEnvDefault(def);
 }
 
@@ -504,18 +525,27 @@ export function setSettings(updates, dbRun, dbSave) {
  * defaultVal (env-resolved), restart, min, max.
  */
 export function getAllSettings() {
-  return SETTING_DEFS.map((def) => ({
-    key: def.key,
-    value: _cache[def.key] ?? resolveEnvDefault(def),
-    type: def.type,
-    label: def.label,
-    description: def.description,
-    group: def.group,
-    defaultVal: resolveEnvDefault(def),
-    restart: def.restart ?? false,
-    nullable: def.nullable ?? false,
-    ...(def.type === TYPE_INT ? { min: def.min, max: def.max } : {}),
-  }));
+  return SETTING_DEFS.map((def) => {
+    const envLocked = isEnvExplicitlySet(def);
+    const value = envLocked
+      ? resolveEnvDefault(def)
+      : (_cache[def.key] ?? resolveEnvDefault(def));
+    return {
+      key:         def.key,
+      value,
+      type:        def.type,
+      label:       def.label,
+      description: def.description,
+      group:       def.group,
+      defaultVal:  resolveEnvDefault(def),
+      restart:     def.restart ?? false,
+      nullable:    def.nullable ?? false,
+      // envLocked: true means this key is set in .env and the DB value is ignored.
+      // The admin panel should show the control as read-only.
+      envLocked,
+      ...(def.type === TYPE_INT ? { min: def.min, max: def.max } : {}),
+    };
+  });
 }
 
 /**

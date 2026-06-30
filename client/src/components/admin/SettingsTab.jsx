@@ -12,6 +12,7 @@ import {
   Files,
   ImageIcon,
   Info,
+  KeyRound,
   Link,
   LoaderCircle,
   Lock,
@@ -147,6 +148,7 @@ function SettingRow({ def, localVal, onChange }) {
   const isNullable = Boolean(def.nullable);
   const isNullableString = isNullable && def.type === "string";
   const nullIntVal = "0";
+  const envLocked = Boolean(def.envLocked);
 
   // For nullable strings, the "enabled" flag and the URL value are tracked
   // separately so that toggling off→on doesn't immediately re-disable the field.
@@ -199,9 +201,16 @@ function SettingRow({ def, localVal, onChange }) {
         </div>
 
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-            {def.label}
-          </p>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              {def.label}
+            </p>
+            {envLocked && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-white/10 dark:text-slate-400">
+                <KeyRound size={9} /> set in .env
+              </span>
+            )}
+          </div>
           {def.description && (
             <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
               {def.description}
@@ -214,15 +223,17 @@ function SettingRow({ def, localVal, onChange }) {
             <Toggle
               checked={localVal === "true"}
               onChange={(on) => onChange(on ? "true" : "false")}
+              disabled={envLocked}
             />
           ) : isNullable ? (
-            <Toggle checked={isEnabled} onChange={handleToggleEnable} />
+            <Toggle checked={isEnabled} onChange={handleToggleEnable} disabled={envLocked} />
           ) : def.type === "int" ? (
             <NumberInput
               value={localVal}
               onChange={onChange}
               min={def.min}
               max={def.max}
+              disabled={envLocked}
             />
           ) : null}
         </div>
@@ -374,6 +385,8 @@ export default function SettingsTab() {
   const hasDirty = dirtyKeys.length > 0;
 
   const handleChange = (key, val) => {
+    // Never track changes for env-locked keys — they can't be saved
+    if (defsByKey[key]?.envLocked) return;
     setLocalVals((prev) => ({ ...prev, [key]: val }));
   };
 
