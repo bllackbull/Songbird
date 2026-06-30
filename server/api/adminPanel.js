@@ -13,6 +13,8 @@ function registerAdminPanelRoutes(app, deps) {
     findUserByUsername,
     findChatById,
     isUserAdmin,
+    isUserOwner,
+    getOwnerUser,
     getAdminStats,
     adminListUsers,
     adminListChats,
@@ -72,6 +74,9 @@ function registerAdminPanelRoutes(app, deps) {
     }
     return session;
   };
+
+  // Returns true if the acting session belongs to the owner role.
+  const actorIsOwner = (session) => isUserOwner(session?.id);
 
   // Helper to write an audit log entry (to logs/admin.log) tied to the acting admin.
   const log = (session, action, opts = {}) => {
@@ -190,11 +195,15 @@ function registerAdminPanelRoutes(app, deps) {
   // ─── Users — create ──────────────────────────────────────────────────────────
 
   app.post("/api/admin/users", async (req, res) => {
-    if (!requireAdmin(req, res)) return;
+    const session = requireAdmin(req, res);
+    if (!session) return;
     const rawUsername = String(req.body?.username || "").trim().toLowerCase();
     const nickname    = String(req.body?.nickname  || "").trim();
     const password    = String(req.body?.password  || "");
-    const role        = ["user", "admin"].includes(req.body?.role) ? req.body.role : "user";
+    const requestedRole = String(req.body?.role || "user");
+    // Only owners can assign the owner role; admins can assign user/admin
+    const allowedRoles = actorIsOwner(session) ? ["user", "admin", "owner"] : ["user", "admin"];
+    const role = allowedRoles.includes(requestedRole) ? requestedRole : "user";
 
     if (!rawUsername || !nickname || !password) {
       return res.status(400).json({ error: "Username, nickname, and password are required." });
@@ -220,6 +229,10 @@ function registerAdminPanelRoutes(app, deps) {
     if (adminGetRow("SELECT id FROM chats WHERE type IN ('group','channel') AND group_username = ?", [rawUsername])?.id) {
       return res.status(409).json({ error: "Username already exists." });
     }
+    // Only one owner is allowed at a time
+    if (role === "owner" && getOwnerUser()) {
+      return res.status(409).json({ error: "An owner already exists. Reassign the owner role first." });
+    }
 
     const passwordHash   = await bcrypt.hash(password, 10);
     const suppliedColor  = normalizeHexColor(String(req.body?.color || ""));
@@ -235,7 +248,6 @@ function registerAdminPanelRoutes(app, deps) {
     }
     adminSave();
     const row = adminGetRow("SELECT id, username, nickname, color, role FROM users WHERE username = ?", [rawUsername]);
-    const session = getSessionFromRequest(req);
     log(session, "user.create", { targetType: "user", targetLabel: `@${rawUsername}`, details: `role=${role}` });
     res.status(201).json({ ok: true, user: row });
   });
@@ -249,6 +261,11 @@ function registerAdminPanelRoutes(app, deps) {
     if (!userId) return res.status(400).json({ error: "Invalid user ID" });
     const user = findUserById(userId);
     if (!user) return res.status(404).json({ error: "User not found" });
+
+    // Non-owners cannot edit the owner account
+    if (user.role === "owner" && !actorIsOwner(session)) {
+      return res.status(403).json({ error: "Cannot edit the owner account." });
+    }
 
     const b = req.body || {};
     const nextUsername = b.username !== undefined
@@ -298,6 +315,12 @@ function registerAdminPanelRoutes(app, deps) {
     if (!userId) return res.status(400).json({ error: "Invalid user ID" });
     const user = findUserById(userId);
     if (!user) return res.status(404).json({ error: "User not found" });
+
+    // The owner cannot be banned
+    if (user.role === "owner") {
+      return res.status(403).json({ error: "Cannot ban the owner account." });
+    }
+
     const banned = Boolean(req.body?.banned);
     adminBanUser(userId, banned);
     // Banning revokes any elevated role; unbanning restores the default user role.
@@ -316,9 +339,29 @@ function registerAdminPanelRoutes(app, deps) {
     const userId = Number(req.params.id);
     const { role } = req.body || {};
     if (!userId) return res.status(400).json({ error: "Invalid user ID" });
-    if (!["user", "admin"].includes(role)) return res.status(400).json({ error: "Invalid role" });
+
+    // Only the owner can assign/revoke the owner role; admins can only use user/admin
+    const allowedRoles = actorIsOwner(session) ? ["user", "admin", "owner"] : ["user", "admin"];
+    if (!allowedRoles.includes(role)) {
+      return res.status(400).json({ error: "Invalid role" });
+    }
+
     const user = findUserById(userId);
     if (!user) return res.status(404).json({ error: "User not found" });
+
+    // Non-owners cannot change the role of the owner
+    if (user.role === "owner" && !actorIsOwner(session)) {
+      return res.status(403).json({ error: "Cannot change the role of the owner." });
+    }
+
+    // Only one owner is allowed — block promoting if another owner already exists
+    if (role === "owner" && user.role !== "owner") {
+      const existing = getOwnerUser();
+      if (existing && existing.id !== userId) {
+        return res.status(409).json({ error: "An owner already exists. Demote them first." });
+      }
+    }
+
     setUserRole(userId, role);
     adminSave();
     log(session, "user.role", { targetType: "user", targetLabel: `@${user.username}`, details: `role=${role}` });
@@ -336,6 +379,12 @@ function registerAdminPanelRoutes(app, deps) {
     if (!newPassword || newPassword.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters." });
     const user = findUserById(userId);
     if (!user) return res.status(404).json({ error: "User not found" });
+
+    // Non-owners cannot reset the owner's password
+    if (user.role === "owner" && !actorIsOwner(session)) {
+      return res.status(403).json({ error: "Cannot reset the owner's password." });
+    }
+
     const hash = await bcrypt.hash(newPassword, 10);
     adminRun("UPDATE users SET password_hash = ? WHERE id = ?", [hash, userId]);
     adminRun("DELETE FROM sessions WHERE user_id = ?", [userId]);
@@ -407,6 +456,12 @@ function registerAdminPanelRoutes(app, deps) {
     if (userId === session.id) return res.status(400).json({ error: "Cannot delete yourself" });
     const user = findUserById(userId);
     if (!user) return res.status(404).json({ error: "User not found" });
+
+    // The owner cannot be deleted
+    if (user.role === "owner") {
+      return res.status(403).json({ error: "Cannot delete the owner account." });
+    }
+
     const { storedNames } = adminDeleteUser(userId) || {};
     if (Array.isArray(storedNames) && storedNames.length > 0) removeStoredFileNames(storedNames);
     log(session, "user.delete", { targetType: "user", targetLabel: `@${user.username}` });

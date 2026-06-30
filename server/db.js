@@ -302,14 +302,14 @@ export function getCurrentSchemaVersion() {
 
 export function findUserByUsername(username) {
   return getRow(
-    "SELECT id, username, nickname, avatar_url, color, status, password_hash, banned FROM users WHERE username = ?",
+    "SELECT id, username, nickname, avatar_url, color, status, password_hash, banned, role FROM users WHERE username = ?",
     [username],
   );
 }
 
 export function findUserById(id) {
   return getRow(
-    "SELECT id, username, nickname, avatar_url, color, status, password_hash, banned FROM users WHERE id = ?",
+    "SELECT id, username, nickname, avatar_url, color, status, password_hash, banned, role FROM users WHERE id = ?",
     [id],
   );
 }
@@ -2479,6 +2479,14 @@ export function getUserRole(userId) {
 export function isUserAdmin(userId) {
   const role = getUserRole(userId);
   return role === "admin" || role === "owner";
+}
+
+export function isUserOwner(userId) {
+  return getUserRole(userId) === "owner";
+}
+
+export function getOwnerUser() {
+  return getRow("SELECT id, username FROM users WHERE role = 'owner' LIMIT 1");
 }
 
 export function bootstrapAdminUsers(adminUsernames) {

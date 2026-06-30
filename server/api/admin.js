@@ -433,6 +433,8 @@ function registerAdminRoutes(app, deps) {
         const rawUsername = String(payload.username || "").trim().toLowerCase();
         const nickname = String(payload.nickname || "").trim();
         const password = String(payload.password || "");
+        const requestedRole = String(payload.role || "user");
+        const role = ["user", "admin", "owner"].includes(requestedRole) ? requestedRole : "user";
 
         if (!nickname || !rawUsername || !password) {
           return res.status(400).json({
@@ -473,6 +475,14 @@ function registerAdminRoutes(app, deps) {
           return res.status(409).json({ error: "Username already exists." });
         }
 
+        // Only one owner is allowed
+        if (role === "owner") {
+          const existingOwner = adminGetRow("SELECT id FROM users WHERE role = 'owner' LIMIT 1");
+          if (existingOwner?.id) {
+            return res.status(409).json({ error: "An owner already exists. Reassign the owner role first." });
+          }
+        }
+
         const passwordHash = await bcrypt.hash(password, 10);
         const assignedColor = setUserColor ? setUserColor() : null;
         adminRun(
@@ -480,6 +490,12 @@ function registerAdminRoutes(app, deps) {
            VALUES (?, ?, NULL, ?, ?, ?, datetime('now'), datetime('now'))`,
           [rawUsername, nickname, assignedColor, "online", passwordHash],
         );
+
+        if (role !== "user") {
+          const newRow = adminGetRow("SELECT id FROM users WHERE username = ?", [rawUsername]);
+          if (newRow?.id) adminRun("UPDATE users SET role = ? WHERE id = ?", [role, Number(newRow.id)]);
+        }
+
         adminSave();
 
         const row = adminGetRow(
@@ -960,6 +976,26 @@ function registerAdminRoutes(app, deps) {
             Number(user.id),
           ],
         );
+
+        // Role change support
+        if (payload.role !== undefined && payload.role !== null) {
+          const requestedRole = String(payload.role || "user");
+          if (!["user", "admin", "owner"].includes(requestedRole)) {
+            return res.status(400).json({ error: "Invalid role. Allowed: user, admin, owner." });
+          }
+          // Only one owner allowed — reject if another user already holds the role
+          if (requestedRole === "owner") {
+            const currentUser = adminGetRow("SELECT role FROM users WHERE id = ?", [Number(user.id)]);
+            if (currentUser?.role !== "owner") {
+              const existingOwner = adminGetRow("SELECT id FROM users WHERE role = 'owner' LIMIT 1");
+              if (existingOwner?.id) {
+                return res.status(409).json({ error: "An owner already exists. Demote them first." });
+              }
+            }
+          }
+          adminRun("UPDATE users SET role = ? WHERE id = ?", [requestedRole, Number(user.id)]);
+        }
+
         adminSave();
 
         const updated = resolveUserRow(

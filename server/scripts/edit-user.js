@@ -44,10 +44,11 @@ async function main() {
   const avatarUrlValue = getFlagValue(args, "--avatar-url");
   const statusValue = getFlagValue(args, "--status");
   const colorValue = getFlagValue(args, "--color");
+  const roleValue = getFlagValue(args, "--role");
 
   if (!userSelector) {
     console.error(
-      'Usage: npm run db:user:edit -- <user-id-or-username> [--username new_username] [--nickname "Display Name"] [--avatar-url /api/uploads/avatars/file.png] [--status online|invisible] [--color #10b981]',
+      'Usage: npm run db:user:edit -- <user-id-or-username> [--username new_username] [--nickname "Display Name"] [--avatar-url /api/uploads/avatars/file.png] [--status online|invisible] [--color #10b981] [--role user|admin|owner]',
     );
     process.exit(1);
   }
@@ -71,6 +72,14 @@ async function main() {
     process.exit(1);
   }
 
+  const normalizedRole = roleValue !== null && roleValue !== undefined
+    ? String(roleValue || "").trim().toLowerCase()
+    : undefined;
+  if (normalizedRole !== undefined && !["user", "admin", "owner"].includes(normalizedRole)) {
+    console.error("Invalid role. Allowed: user, admin, owner.");
+    process.exit(1);
+  }
+
   const remoteResult = await runAdminActionViaServer("edit_user", {
     userSelector,
     username: usernameValue === null ? undefined : usernameValue,
@@ -78,6 +87,7 @@ async function main() {
     avatarUrl: avatarUrlValue === null ? undefined : avatarUrlValue,
     status: nextStatus,
     color: normalizedColor,
+    role: normalizedRole,
   });
   if (remoteResult) {
     console.log(
@@ -153,6 +163,18 @@ async function main() {
       }
     }
 
+    // Owner uniqueness check
+    if (normalizedRole === "owner") {
+      const currentUserRow = dbApi.getRow("SELECT role FROM users WHERE id = ?", [Number(user.id)]);
+      if (currentUserRow?.role !== "owner") {
+        const existingOwner = dbApi.getRow("SELECT id FROM users WHERE role = 'owner' LIMIT 1");
+        if (existingOwner?.id) {
+          console.error("An owner already exists. Demote them first before assigning the owner role.");
+          process.exit(1);
+        }
+      }
+    }
+
     dbApi.run(
       "UPDATE users SET username = ?, nickname = ?, avatar_url = ?, color = ?, status = ? WHERE id = ?",
       [
@@ -164,12 +186,19 @@ async function main() {
         Number(user.id),
       ],
     );
+
+    if (normalizedRole !== undefined) {
+      dbApi.run("UPDATE users SET role = ? WHERE id = ?", [normalizedRole, Number(user.id)]);
+    }
+
     dbApi.save();
 
     const updated = resolveUserRow(dbApi, String(user.id));
+    const currentRole = dbApi.getRow("SELECT role FROM users WHERE id = ?", [Number(user.id)])?.role || "user";
     console.log(`User updated: id=${updated.id} username=${updated.username}`);
     console.log(`Nickname: ${updated.nickname || ""}`);
     console.log(`Color: ${updated.color || ""}`);
+    console.log(`Role: ${currentRole}`);
   } finally {
     dbApi.close();
   }

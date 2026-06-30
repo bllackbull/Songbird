@@ -3586,14 +3586,14 @@ Backup & repair:
 
 User and chat management:
   10    Create user
-        Prompts: nickname, username, password
-        Passes: --nickname --username --password
+        Prompts: nickname, username, password, role (user/admin/owner, default: user)
+        Passes: --nickname --username --password --role
   11    Generate users in bulk
         Prompts: count, password, nickname prefix, username prefix
         Passes: --count --password --nickname-prefix --username-prefix
   12    Edit user
-        Prompts: user selector and optional profile fields
-        Passes: selector plus any changed --username/--nickname/--avatar-url/--status/--color
+        Prompts: user selector and optional profile fields and role
+        Passes: selector plus any changed --username/--nickname/--avatar-url/--status/--color/--role
   13    Ban/unban user
         Prompts: user selector, confirmation
         Passes: -y selector
@@ -3790,15 +3790,28 @@ db_user_create() {
   local nickname=""
   local username=""
   local password=""
+  local role=""
 
   nickname="$(prompt_non_empty "Nickname")"
   username="$(prompt_non_empty "Username (lowercase letters, numbers, ., _)")"
   password="$(prompt_secret "Password")"
 
+  while true; do
+    prompt_read "Role (user/admin/owner, default: user): " role
+    role="${role#"${role%%[![:space:]]*}"}"
+    role="${role%"${role##*[![:space:]]}"}"
+    [[ -z "$role" ]] && role="user"
+    case "$role" in
+      user|admin|owner) break ;;
+      *) printf "Invalid role. Choose: user, admin, or owner.\n" ;;
+    esac
+  done
+
   run_db_command npm --prefix server run db:user:create -- \
     --nickname "$nickname" \
     --username "$username" \
-    --password "$password"
+    --password "$password" \
+    --role "$role"
   press_enter_to_continue
 }
 
@@ -4063,6 +4076,7 @@ db_user_edit() {
   local avatar_url=""
   local status=""
   local color=""
+  local role=""
   local args=()
 
   user="$(prompt_non_empty "User id or username")"
@@ -4072,12 +4086,26 @@ db_user_edit() {
   prompt_read "Status (online/invisible, optional): " status
   prompt_read "Color hex (optional, example: #10b981): " color
 
+  while true; do
+    prompt_read "Role (user/admin/owner, optional — leave blank to keep current): " role
+    role="${role#"${role%%[![:space:]]*}"}"
+    role="${role%"${role##*[![:space:]]}"}"
+    if [[ -z "$role" ]]; then
+      break
+    fi
+    case "$role" in
+      user|admin|owner) break ;;
+      *) printf "Invalid role. Choose: user, admin, owner, or leave blank.\n" ;;
+    esac
+  done
+
   args+=("$user")
   [[ -n "$username" ]] && args+=(--username "$username")
   [[ -n "$nickname" ]] && args+=(--nickname "$nickname")
   [[ -n "$avatar_url" ]] && args+=(--avatar-url "$avatar_url")
   [[ -n "$status" ]] && args+=(--status "$status")
   [[ -n "$color" ]] && args+=(--color "$color")
+  [[ -n "$role" ]] && args+=(--role "$role")
 
   run_db_command npm --prefix server run db:user:edit -- "${args[@]}"
   press_enter_to_continue

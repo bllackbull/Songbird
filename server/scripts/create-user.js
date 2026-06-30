@@ -39,14 +39,21 @@ async function main() {
   const nickname = getFlagValue(args, "--nickname") || positional[0] || "";
   const username = getFlagValue(args, "--username") || positional[1] || "";
   const password = getFlagValue(args, "--password") || positional[2] || "";
+  const roleValue = getFlagValue(args, "--role") || "";
 
   if (!nickname || !username || !password) {
     console.error(
-      'Usage: npm run db:user:create -- --nickname "Display Name" --username your_username --password your_password',
+      'Usage: npm run db:user:create -- --nickname "Display Name" --username your_username --password your_password [--role user|admin|owner]',
     );
     console.error(
       'Or positional: npm run db:user:create -- "Display Name" your_username your_password',
     );
+    process.exit(1);
+  }
+
+  const normalizedRole = String(roleValue || "user").trim().toLowerCase();
+  if (!["user", "admin", "owner"].includes(normalizedRole)) {
+    console.error("Invalid role. Allowed values: user, admin, owner.");
     process.exit(1);
   }
 
@@ -77,6 +84,7 @@ async function main() {
     nickname,
     username,
     password,
+    role: normalizedRole,
   });
   if (remoteResult) {
     console.log(
@@ -96,6 +104,15 @@ async function main() {
       process.exit(1);
     }
 
+    // Owner uniqueness check
+    if (normalizedRole === "owner") {
+      const existingOwner = dbApi.getRow("SELECT id FROM users WHERE role = 'owner' LIMIT 1");
+      if (existingOwner?.id) {
+        console.error("An owner already exists. Reassign the owner role before creating another.");
+        process.exit(1);
+      }
+    }
+
     const passwordHash = await bcrypt.hash(password, 10);
     const assignedColor = setUserColor();
     dbApi.run(
@@ -103,13 +120,18 @@ async function main() {
       [username, nickname, assignedColor, "online", passwordHash],
     );
 
+    if (normalizedRole !== "user") {
+      const newRow = dbApi.getRow("SELECT id FROM users WHERE username = ?", [username]);
+      if (newRow?.id) dbApi.run("UPDATE users SET role = ? WHERE id = ?", [normalizedRole, Number(newRow.id)]);
+    }
+
     const row = dbApi.getRow(
       "SELECT id, username, nickname FROM users WHERE username = ?",
       [username],
     );
     dbApi.save();
     console.log(
-      `User created: id=${row.id} username=${row.username} nickname=${row.nickname || ""}`,
+      `User created: id=${row.id} username=${row.username} nickname=${row.nickname || ""} role=${normalizedRole}`,
     );
   } finally {
     dbApi.close();
