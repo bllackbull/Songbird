@@ -29,6 +29,7 @@ import { migration as migration028PushMessagePreview } from "./028-push-message-
 import { migration029RemoteChannelQueueSummaryIndex } from "./029-remote-channel-queue-summary-index.js";
 import { migration030HiddenMessagesCompositeIndex } from "./030-hidden-messages-composite-index.js";
 import { migration031UserRoles } from "./031-user-roles.js";
+import { migration032AppSettings } from "./032-app-settings.js";
 
 export const migrations = [
   migration001InitialSchema,
@@ -62,4 +63,5 @@ export const migrations = [
   migration029RemoteChannelQueueSummaryIndex,
   migration030HiddenMessagesCompositeIndex,
   migration031UserRoles,
+  migration032AppSettings,
 ];

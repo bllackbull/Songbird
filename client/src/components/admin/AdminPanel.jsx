@@ -9,6 +9,7 @@ import {
   Moon,
   Refresh,
   ScrollText,
+  Settings,
   Sun,
   Users,
   Wrench,
@@ -22,11 +23,13 @@ import UsersTab from "./UsersTab.jsx";
 import ChatsTab from "./ChatsTab.jsx";
 import ActionsTab from "./ActionsTab.jsx";
 import LogsTab from "./LogsTab.jsx";
+import SettingsTab from "./SettingsTab.jsx";
 
 const TABS = [
   { id: "dashboard", label: "Dashboard", icon: GaugeIcon,         anim: "" },
   { id: "users",     label: "Users",     icon: Users,             anim: "icon-anim-pop" },
   { id: "chats",     label: "Chats",     icon: Chat,              anim: "icon-anim-bob" },
+  { id: "settings",  label: "Settings",  icon: Settings,          anim: "icon-anim-wiggle" },
   { id: "actions",   label: "Actions",   icon: Wrench,            anim: "icon-anim-wiggle" },
   { id: "logs",      label: "Logs",      icon: ScrollText,        anim: "icon-anim-sway" },
 ];
@@ -185,6 +188,7 @@ export default function AdminPanel({ user, onBack, isDark, toggleTheme }) {
           {tab === "dashboard" && <DashboardTab stats={stats} onStatsChange={refreshStats} />}
           {tab === "users"     && <UsersTab currentUser={user} onStatsChange={refreshStats} />}
           {tab === "chats"     && <ChatsTab onStatsChange={refreshStats} />}
+          {tab === "settings"  && <SettingsTab />}
           {tab === "actions"   && <ActionsTab />}
           {tab === "logs"      && <LogsTab />}
         </div>

@@ -132,7 +132,20 @@ import {
   reloadDatabase,
   adminClearAllMessages,
   adminResetDatabase,
+  dbGetAllSettings,
+  dbSetSetting,
+  dbDeleteSetting,
 } from "./db.js";
+import {
+  loadSettings,
+  getSetting,
+  getAllSettings,
+  setSetting,
+  setSettings,
+  resetSetting,
+  validateSetting,
+  SETTING_DEFS,
+} from "./lib/appSettings.js";
 
 process.title = "songbird-server";
 
@@ -141,6 +154,10 @@ const serverDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRootDir = path.resolve(serverDir, "..");
 dotenv.config({ path: path.join(projectRootDir, ".env"), override: true, quiet: true });
 dotenv.config({ path: path.join(serverDir, ".env"), override: true, quiet: true });
+
+// Load runtime settings from DB (env vars remain as fallback defaults).
+// Must run after dotenv and after the DB module (which runs migrations).
+loadSettings(dbGetAllSettings);
 
 const port = process.env.SERVER_PORT || process.env.PORT || 5174;
 const appEnv = process.env.APP_ENV || "production";
@@ -235,73 +252,31 @@ const staticLimiter = rateLimit({
 });
 
 const MB = 1024 * 1024;
-const readEnvSizeMbAsBytes = (mbKeys, legacyByteKeys, fallbackMb, options = {}) => {
-  const mbValue = readEnvInt(mbKeys, null, options);
-  if (mbValue !== null) return mbValue * MB;
-  return readEnvInt(legacyByteKeys, fallbackMb * MB, { min: 1024 });
-};
 
-const USERNAME_MAX = readEnvInt(["USERNAME_MAX_CHARS", "USERNAME_MAX"], 16, {
-  min: 3,
-  max: 32,
-});
-const NICKNAME_MAX = readEnvInt(["NICKNAME_MAX_CHARS", "NICKNAME_MAX"], 24, {
-  min: 3,
-  max: 64,
-});
-const MESSAGE_MAX_CHARS = readEnvInt(
-  ["MESSAGE_MAX_CHARS", "MESSAGE_MAX"],
-  4000,
-  { min: 1, max: 20000 },
-);
-const ACCOUNT_CREATION = readEnvBool(["SIGN_UP", "ACCOUNT_CREATION"], true);
+const USERNAME_MAX = getSetting("USERNAME_MAX_CHARS");
+const NICKNAME_MAX = getSetting("NICKNAME_MAX_CHARS");
+const MESSAGE_MAX_CHARS = getSetting("MESSAGE_MAX_CHARS");
+const ACCOUNT_CREATION = getSetting("SIGN_UP");
 const dataDir = path.resolve(serverDir, "..", "data");
 const vapid = ensureValidVapidKeys({ projectRootDir, dataDir, fs, path, webpush });
 const uploadRootDir = path.join(dataDir, "uploads", "messages");
 const avatarUploadRootDir = path.join(dataDir, "uploads", "avatars");
 
-const FILE_UPLOAD_MAX_SIZE = readEnvSizeMbAsBytes(
-  "FILE_UPLOAD_MAX_SIZE_MB",
-  "FILE_UPLOAD_MAX_SIZE",
-  25,
-  { min: 1 },
-);
+const FILE_UPLOAD_MAX_SIZE = getSetting("FILE_UPLOAD_MAX_SIZE_MB") * MB;
+const FILE_UPLOAD_MAX_FILES = getSetting("FILE_UPLOAD_MAX_FILES");
+const FILE_UPLOAD_MAX_TOTAL_SIZE = getSetting("FILE_UPLOAD_MAX_TOTAL_SIZE_MB") * MB;
 
-const FILE_UPLOAD_MAX_FILES = readEnvInt("FILE_UPLOAD_MAX_FILES", 10, {
-  min: 1,
-});
+const MESSAGE_FILE_RETENTION_DAYS = getSetting("MESSAGE_FILE_RETENTION");
+const MESSAGE_TEXT_RETENTION_DAYS = getSetting("MESSAGE_TEXT_RETENTION");
 
-const FILE_UPLOAD_MAX_TOTAL_SIZE = readEnvSizeMbAsBytes(
-  "FILE_UPLOAD_MAX_TOTAL_SIZE_MB",
-  "FILE_UPLOAD_MAX_TOTAL_SIZE",
-  75,
-  { min: 1 },
-);
+const TRANSCODE_VIDEOS_TO_H264 = getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS");
 
-const MESSAGE_FILE_RETENTION_DAYS = readEnvInt("MESSAGE_FILE_RETENTION", 7, {
-  min: 0,
-  max: 3650,
-});
-const MESSAGE_TEXT_RETENTION_DAYS = readEnvInt("MESSAGE_TEXT_RETENTION", 0, {
-  min: 0,
-  max: 3650,
-});
 
-const TRANSCODE_VIDEOS_TO_H264 = readEnvBool(
-  "FILE_UPLOAD_TRANSCODE_VIDEOS",
-  true,
-);
-
-const FILE_UPLOAD = readEnvBool("FILE_UPLOAD", true);
-const REMOTE_CHANNEL = readEnvBool("REMOTE_CHANNEL", false);
-const REMOTE_CHANNEL_UI = readEnvBool(
-  "REMOTE_CHANNEL_UI",
-  true,
-);
-const REMOTE_CHANNEL_MEDIA_STREAM = readEnvBool(
-  "REMOTE_CHANNEL_MEDIA_STREAM",
-  true,
-);
+const FILE_UPLOAD = getSetting("FILE_UPLOAD");
+const REMOTE_CHANNEL = getSetting("REMOTE_CHANNEL");
+const REMOTE_CHANNEL_UI = getSetting("REMOTE_CHANNEL_UI");
+const REMOTE_CHANNEL_MEDIA_STREAM = getSetting("REMOTE_CHANNEL_MEDIA_STREAM");
+// Telegram credentials remain in .env (secrets — never stored in DB)
 const REMOTE_CHANNEL_TELEGRAM_API_ID = readEnvInt(
   "REMOTE_CHANNEL_TELEGRAM_API_ID",
   0,
@@ -337,31 +312,13 @@ const REMOTE_CHANNEL_CONFIG = {
   telegramApiHash: REMOTE_CHANNEL_TELEGRAM_API_HASH,
   telegramSessionString: REMOTE_CHANNEL_TELEGRAM_SESSION_STRING,
   proxyUrl: REMOTE_CHANNEL_PROXY_URL,
-  pollIntervalMs: readEnvInt("REMOTE_CHANNEL_POLL_INTERVAL_MS", 5000, {
-    min: 1000,
-  }),
-  telegramPollLimit: readEnvInt("REMOTE_CHANNEL_TELEGRAM_POLL_LIMIT", 50, {
-    min: 1,
-    max: 100,
-  }),
-  queueIntervalMs: readEnvInt("REMOTE_CHANNEL_QUEUE_INTERVAL_MS", 1000, {
-    min: 100,
-  }),
-  queueMaxAttempts: readEnvInt("REMOTE_CHANNEL_QUEUE_MAX_ATTEMPTS", 10, {
-    min: 1,
-    max: 100,
-  }),
-  queueBatchSize: readEnvInt("REMOTE_CHANNEL_QUEUE_BATCH_SIZE", 10, {
-    min: 1,
-    max: 50,
-  }),
-  queueConcurrency: readEnvInt("REMOTE_CHANNEL_QUEUE_CONCURRENCY", 3, {
-    min: 1,
-    max: 50,
-  }),
-  queueStaleLockMs: readEnvInt("REMOTE_CHANNEL_QUEUE_STALE_LOCK_MS", 300000, {
-    min: 10000,
-  }),
+  pollIntervalMs: getSetting("REMOTE_CHANNEL_POLL_INTERVAL_MS"),
+  telegramPollLimit: getSetting("REMOTE_CHANNEL_TELEGRAM_POLL_LIMIT"),
+  queueIntervalMs: getSetting("REMOTE_CHANNEL_QUEUE_INTERVAL_MS"),
+  queueMaxAttempts: getSetting("REMOTE_CHANNEL_QUEUE_MAX_ATTEMPTS"),
+  queueBatchSize: getSetting("REMOTE_CHANNEL_QUEUE_BATCH_SIZE"),
+  queueConcurrency: getSetting("REMOTE_CHANNEL_QUEUE_CONCURRENCY"),
+  queueStaleLockMs: getSetting("REMOTE_CHANNEL_QUEUE_STALE_LOCK_MS"),
   messageTextRetentionDays: MESSAGE_TEXT_RETENTION_DAYS,
   messageFileRetentionDays: MESSAGE_FILE_RETENTION_DAYS,
   messageMaxChars: MESSAGE_MAX_CHARS,
@@ -424,7 +381,7 @@ const pushService = createPushService({
   deletePushSubscription,
   getTotalUnreadCount,
   vapid,
-  proxyUrl: process.env.PUSH_PROXY_URL || "",
+  proxyUrl: getSetting("PUSH_PROXY_URL"),
 });
 const { PUSH_ENABLED, VAPID_PUBLIC_KEY, sendPushNotificationToUsers } = pushService;
 
@@ -753,6 +710,16 @@ const apiDeps = {
   reloadDatabase,
   adminClearAllMessages,
   adminResetDatabase,
+  // Settings
+  getSetting,
+  getAllSettings,
+  setSetting,
+  setSettings,
+  resetSetting,
+  validateSetting,
+  SETTING_DEFS,
+  dbRun: adminRun,
+  dbSave: adminSave,
 };
 
 const remoteChannelManager = createRemoteChannelManager({

@@ -2739,3 +2739,20 @@ export function adminResetDatabase() {
   saveDatabase();
   return { storedNames };
 }
+
+// ─── App Settings ─────────────────────────────────────────────────────────────
+
+export function dbGetAllSettings() {
+  return getAll("SELECT key, value FROM app_settings");
+}
+
+export function dbSetSetting(key, value) {
+  run(
+    "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    [String(key), String(value)],
+  );
+}
+
+export function dbDeleteSetting(key) {
+  run("DELETE FROM app_settings WHERE key = ?", [String(key)]);
+}

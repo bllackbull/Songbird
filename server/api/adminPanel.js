@@ -933,6 +933,89 @@ function registerAdminPanelRoutes(app, deps) {
       res.status(500).json({ error: "Restore failed while replacing the database." });
     }
   });
+
+  // ─── Settings ─────────────────────────────────────────────────────────────────
+
+  const {
+    getSetting,
+    getAllSettings,
+    setSetting,
+    setSettings,
+    resetSetting,
+    SETTING_DEFS,
+    dbRun,
+    dbSave,
+  } = deps;
+
+  // GET /api/admin/settings — return all settings with metadata
+  app.get("/api/admin/settings", (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    res.json({ settings: getAllSettings() });
+  });
+
+  // PUT /api/admin/settings — bulk update one or more settings
+  app.put("/api/admin/settings", (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+
+    const updates = req.body?.settings;
+    if (!updates || typeof updates !== "object" || Array.isArray(updates)) {
+      return res.status(400).json({ error: "Expected { settings: { key: value, ... } }" });
+    }
+
+    const result = setSettings(updates, dbRun, dbSave);
+    if (result.saved?.length) {
+      log(session, "settings.update", {
+        targetType: "system",
+        targetLabel: "app_settings",
+        details: result.saved.join(", "),
+      });
+    }
+    if (!result.ok) {
+      return res.status(400).json({ errors: result.errors, saved: result.saved });
+    }
+    res.json({ ok: true, saved: result.saved, settings: getAllSettings() });
+  });
+
+  // PUT /api/admin/settings/:key — update a single setting
+  app.put("/api/admin/settings/:key", (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+
+    const key = String(req.params.key || "").trim();
+    const rawValue = req.body?.value;
+    if (rawValue === undefined || rawValue === null) {
+      return res.status(400).json({ error: "Missing 'value' in request body." });
+    }
+
+    const result = setSetting(key, String(rawValue), dbRun, dbSave);
+    if (!result.ok) return res.status(400).json({ error: result.error });
+
+    log(session, "settings.update", {
+      targetType: "system",
+      targetLabel: key,
+      details: String(rawValue),
+    });
+    res.json({ ok: true, key, value: result.value, settings: getAllSettings() });
+  });
+
+  // DELETE /api/admin/settings/:key — reset a setting to its default
+  app.delete("/api/admin/settings/:key", (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+
+    const key = String(req.params.key || "").trim();
+    const result = resetSetting(key, dbRun, dbSave);
+    if (!result.ok) return res.status(400).json({ error: result.error });
+
+    log(session, "settings.reset", {
+      targetType: "system",
+      targetLabel: key,
+      details: `reset to default: ${result.value}`,
+    });
+    res.json({ ok: true, key, value: result.value, settings: getAllSettings() });
+  });
 }
 
 export { registerAdminPanelRoutes };
