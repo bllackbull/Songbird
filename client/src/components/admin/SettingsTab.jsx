@@ -182,7 +182,7 @@ function SubRow({ def, localVal, onChange, masterDisabled = false }) {
 
   return (
     <div className={`flex items-center gap-3 border-t px-4 py-3 border-emerald-100 dark:border-emerald-500/20 transition-opacity ${
-      isDisabled ? "opacity-40" : ""
+      masterDisabled ? "opacity-40" : ""
     }`}>
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-50 text-slate-400 dark:bg-slate-800/50 dark:text-slate-500">
         <Icon size={15} />
@@ -409,8 +409,12 @@ function SettingGroup({ groupKey, defs, effectiveVals, onChange }) {
   const childKeys  = new Set(GROUP_CHILDREN[groupKey] ?? []);
   const childOrder = GROUP_CHILDREN[groupKey] ?? [];
 
-  // Master is off when its effective value is "false"
-  const masterOff = masterKey
+  // Master is off when its effective value is "false".
+  // But if the master is env-locked, the whole card is already opacity-50 —
+  // don't additionally dim the sub-rows (that would compound the opacity).
+  const masterDef = masterKey ? defs.find((d) => d.key === masterKey) : null;
+  const masterEnvLocked = Boolean(masterDef?.envLocked);
+  const masterOff = masterKey && !masterEnvLocked
     ? effectiveVals[masterKey] === "false"
     : false;
 
