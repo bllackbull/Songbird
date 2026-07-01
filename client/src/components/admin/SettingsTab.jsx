@@ -573,7 +573,9 @@ export default function SettingsTab() {
   const handleResetAll = async () => {
     setResetting(true);
     try {
+      // Only reset keys that are not env-locked — those can't be changed anyway
       for (const def of settings) {
+        if (def.envLocked) continue;
         await api.delete(`/api/admin/settings/${def.key}`);
       }
       const data = await api.get("/api/admin/settings");
@@ -700,7 +702,7 @@ export default function SettingsTab() {
       <ConfirmModal
         open={resetOpen}
         title="Restore defaults"
-        message="This will reset every setting back to its default value. Any customisations will be lost."
+        message="This will reset all customised settings back to their default values. Settings controlled by .env are not affected."
         confirmLabel={resetting ? "Restoring…" : "Restore defaults"}
         busy={resetting}
         onConfirm={handleResetAll}
