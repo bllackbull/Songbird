@@ -965,13 +965,14 @@ function registerAdminPanelRoutes(app, deps) {
     }
 
     const result = setSettings(updates, dbRun, dbSave);
-    if (result.saved?.length) {
+    // Log one entry per changed key so the log reads the same as single updates.
+    (result.saved || []).forEach((key) => {
       log(session, "settings.update", {
         targetType: "system",
-        targetLabel: "app_settings",
-        details: result.saved.join(", "),
+        targetLabel: key,
+        details: String(updates[key]),
       });
-    }
+    });
     if (!result.ok) {
       return res.status(400).json({ errors: result.errors, saved: result.saved });
     }

@@ -14,6 +14,7 @@ import {
   Refresh,
   Rotate,
   Search,
+  Settings,
   Tag,
   Trash,
   UserMinus,
@@ -44,6 +45,8 @@ const LOG_ACTION_META = {
   "service.restart":     { label: "Service restarted", color: "emerald", icon: Refresh },
   "service.stop":        { label: "Service stopped",   color: "rose",    icon: Power },
   "logs.clear":          { label: "Logs cleared",      color: "rose",    icon: Trash },
+  "settings.update":     { label: "Setting updated",   color: "emerald", icon: Settings },
+  "settings.reset":      { label: "Setting reset",     color: "slate",   icon: Rotate },
 };
 
 const LOG_COLORS = {
