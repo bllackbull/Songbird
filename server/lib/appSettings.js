@@ -319,8 +319,7 @@ export const SETTING_DEFS = [
     group: "remote_channel",
     envKey: "REMOTE_CHANNEL_SONGBIRD_PROXY_URL",
     defaultVal: "",
-    restart: true,
-    nullable: true,
+    nullable: true, // applied per-request; no restart needed
   },
 
   // ── Client tuning ──────────────────────────────────────────────────────────────

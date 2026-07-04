@@ -2,6 +2,34 @@ import net from "node:net";
 import tls from "node:tls";
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
+import { ProxyAgent } from "undici";
+import { getSetting } from "./appSettings.js";
+
+// ─── Songbird outbound proxy ──────────────────────────────────────────────────
+// Applied per-fetch-call (no persistent connection to bake it into), so this
+// reads the live setting on every call instead of a value captured at startup.
+
+let cachedProxyUrl = "";
+let cachedDispatcher;
+
+function getSongbirdProxyDispatcher() {
+  const proxyUrl = String(getSetting("REMOTE_CHANNEL_SONGBIRD_PROXY_URL") || "").trim();
+  if (!proxyUrl) return undefined;
+  if (proxyUrl !== cachedProxyUrl) {
+    cachedProxyUrl = proxyUrl;
+    try {
+      cachedDispatcher = new ProxyAgent(proxyUrl);
+    } catch {
+      cachedDispatcher = undefined;
+    }
+  }
+  return cachedDispatcher;
+}
+
+function songbirdFetch(url, options = {}) {
+  const dispatcher = getSongbirdProxyDispatcher();
+  return fetch(url, dispatcher ? { ...options, dispatcher } : options);
+}
 
 function normalizeTelegramSource(value) {
   const raw = String(value || "").trim();
@@ -190,7 +218,7 @@ async function resolveSongbirdSource(sourceUrl, inviteTarget) {
   const metaUrl = `${sourceUrl}/api/channels/${encodeURIComponent(candidateUsername)}/meta`;
   let metaRes;
   try {
-    metaRes = await fetch(metaUrl, {
+    metaRes = await songbirdFetch(metaUrl, {
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(15_000),
     });
@@ -233,7 +261,7 @@ async function resolveSongbirdSource(sourceUrl, inviteTarget) {
 }
 
 async function fetchSongbirdJson(url, timeoutMs = 15_000) {
-  const res = await fetch(url, {
+  const res = await songbirdFetch(url, {
     headers: { Accept: "application/json" },
     signal: AbortSignal.timeout(timeoutMs),
   });
@@ -1202,7 +1230,7 @@ function createRemoteChannelManager(deps = {}) {
     const metaUrl = `${sourceUrl}/api/channels/${encodeURIComponent(channelUsername)}/meta`;
     let data;
     try {
-      const res = await fetch(metaUrl, {
+      const res = await songbirdFetch(metaUrl, {
         method: "GET",
         headers: { Accept: "application/json" },
         signal: AbortSignal.timeout(15_000),
@@ -1233,7 +1261,7 @@ function createRemoteChannelManager(deps = {}) {
     let localAvatarUrl = source.source_avatar_url || "";
     if (fileUploadEnabled && remoteAvatarUrl && fs && path && avatarUploadRootDir) {
       try {
-        const avatarRes = await fetch(`${sourceUrl}${remoteAvatarUrl}`, {
+        const avatarRes = await songbirdFetch(`${sourceUrl}${remoteAvatarUrl}`, {
           signal: AbortSignal.timeout(15_000),
         });
         if (avatarRes.ok) {
@@ -2477,7 +2505,7 @@ function createRemoteChannelManager(deps = {}) {
       }
       // Verify the target server is reachable and the channel is still public.
       const metaUrl = `${sourceUrl}/api/channels/${encodeURIComponent(channelUsername)}/meta`;
-      const response = await fetch(metaUrl, {
+      const response = await songbirdFetch(metaUrl, {
         method: "GET",
         headers: { "Accept": "application/json" },
         signal: AbortSignal.timeout(10_000),
