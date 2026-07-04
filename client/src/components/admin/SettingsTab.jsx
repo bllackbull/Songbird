@@ -86,7 +86,7 @@ const SETTING_ICON_ANIM = {
   REMOTE_CHANNEL_POLL_INTERVAL_MS: "icon-anim-swing",
   REMOTE_CHANNEL_TELEGRAM_POLL_LIMIT: "icon-anim-drop",
   REMOTE_CHANNEL_QUEUE_INTERVAL_MS: "icon-anim-swing",
-  REMOTE_CHANNEL_QUEUE_MAX_ATTEMPTS: "icon-anim-wiggle",
+  REMOTE_CHANNEL_QUEUE_MAX_ATTEMPTS: "icon-anim-spin-full",
   REMOTE_CHANNEL_QUEUE_BATCH_SIZE: "icon-anim-bob",
   REMOTE_CHANNEL_QUEUE_CONCURRENCY: "icon-anim-lift",
   REMOTE_CHANNEL_QUEUE_STALE_LOCK_MS: "icon-anim-bob",
@@ -157,9 +157,17 @@ function NumberInput({ value, onChange, min, max, disabled = false }) {
     onChange(String(hi));
   };
 
+  // If the field is emptied and blurred, refill it with a sane minimum
+  // instead of leaving it blank.
+  const handleBlur = () => {
+    if (String(value ?? "").trim() !== "") return;
+    const fallback = min !== undefined ? min : 1;
+    onChange(String(fallback));
+  };
+
   return (
     <div
-      className={`inline-flex w-36 items-center rounded-xl border transition ${
+      className={`inline-flex w-36 items-center overflow-hidden rounded-xl border transition ${
         disabled
           ? "border-slate-200 bg-slate-100 opacity-40 dark:border-slate-700 dark:bg-slate-900/40"
           : "border-emerald-200 bg-white dark:border-emerald-500/30 dark:bg-slate-900/50"
@@ -181,6 +189,7 @@ function NumberInput({ value, onChange, min, max, disabled = false }) {
         max={max}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
+        onBlur={handleBlur}
         className="min-w-0 flex-1 border-0 bg-transparent px-0 py-1.5 text-center text-xs font-semibold text-slate-700 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none dark:text-slate-200"
       />
       <button
@@ -695,7 +704,7 @@ export default function SettingsTab() {
           onClick={() => setResetOpen(true)}
           className={btnSecondary}
         >
-          <Rotate size={13} className="icon-anim-wiggle" />
+          <Rotate size={13} className="icon-anim-spin-full" />
           Restore defaults
         </button>
         <button
