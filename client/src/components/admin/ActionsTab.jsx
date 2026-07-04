@@ -59,22 +59,25 @@ function ActionRow({
       type="button"
       onClick={onClick}
       disabled={disabled || busy}
-      className={`flex w-full items-center gap-3 rounded-2xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
+      className={`flex h-full w-full flex-col items-start gap-2 rounded-2xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
         danger
           ? "border-rose-200/70 bg-rose-50/40 hover:border-rose-300 hover:bg-rose-50 dark:border-rose-500/30 dark:bg-rose-500/[0.04] dark:hover:bg-rose-500/10"
           : "border-emerald-200/70 bg-white/90 hover:border-emerald-300 hover:bg-emerald-50/60 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:hover:bg-emerald-500/5"
       }`}
     >
-      <div
-        className={`flex h-9 w-9 shrink-0 items-center justify-center ${
-          danger
-            ? "text-rose-500 dark:text-rose-400"
-            : "text-emerald-600 dark:text-emerald-400"
-        }`}
-      >
-        <Icon size={22} className={iconAnim} />
+      <div className="flex w-full items-start justify-between gap-2">
+        <div
+          className={`flex h-9 w-9 shrink-0 items-center justify-center ${
+            danger
+              ? "text-rose-500 dark:text-rose-400"
+              : "text-emerald-600 dark:text-emerald-400"
+          }`}
+        >
+          <Icon size={22} className={iconAnim} />
+        </div>
+        {status && <div className="shrink-0 pt-1"><StatusBadge status={status} /></div>}
       </div>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0">
         <p
           className={`text-sm font-semibold ${
             danger
@@ -89,9 +92,6 @@ function ActionRow({
             {description}
           </p>
         )}
-      </div>
-      <div className="shrink-0">
-        <StatusBadge status={status} />
       </div>
     </button>
   );
@@ -278,7 +278,7 @@ const ActionsTab = forwardRef(function ActionsTab(_props, ref) {
         <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">
           System
         </h2>
-        <div className="space-y-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
           <CheckUpdateRow appInfo={appInfo} />
           <ActionRow
             icon={Rotate}
@@ -305,7 +305,7 @@ const ActionsTab = forwardRef(function ActionsTab(_props, ref) {
         <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">
           Database Maintenance
         </h2>
-        <div className="space-y-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
           <ActionRow
             icon={HardDriveDownload}
             iconAnim="icon-anim-drop"
@@ -345,7 +345,7 @@ const ActionsTab = forwardRef(function ActionsTab(_props, ref) {
         <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-rose-400 dark:text-rose-400/80">
           Danger Zone
         </h2>
-        <div className="space-y-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
           <ActionRow
             icon={MessageCircleX}
             iconAnim="icon-anim-sway"
