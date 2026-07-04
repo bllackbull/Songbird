@@ -278,7 +278,7 @@ const ActionsTab = forwardRef(function ActionsTab(_props, ref) {
         <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">
           System
         </h2>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <CheckUpdateRow appInfo={appInfo} />
           <ActionRow
             icon={Rotate}
@@ -305,7 +305,7 @@ const ActionsTab = forwardRef(function ActionsTab(_props, ref) {
         <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">
           Database Maintenance
         </h2>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <ActionRow
             icon={HardDriveDownload}
             iconAnim="icon-anim-drop"
@@ -345,7 +345,7 @@ const ActionsTab = forwardRef(function ActionsTab(_props, ref) {
         <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-rose-400 dark:text-rose-400/80">
           Danger Zone
         </h2>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <ActionRow
             icon={MessageCircleX}
             iconAnim="icon-anim-sway"
