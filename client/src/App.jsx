@@ -1,7 +1,9 @@
 import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import logo from './assets/songbird-logo.svg'
-import { APP_CONFIG } from './settings/appConfig.js'
+import { APP_CONFIG, setMessageMaxChars } from './settings/appConfig.js'
+import { fetchAppInfo } from './api/appMetaApi.js'
+import { setNameLimits } from './utils/nameLimits.js'
 import InstallBar from './components/pwa/InstallBar.jsx'
 import InstallGuideModal from './components/pwa/InstallGuideModal.jsx'
 
@@ -146,7 +148,13 @@ export default function App() {
   const [authStatus, setAuthStatus] = useState('')
   const [authChecked, setAuthChecked] = useState(false)
   const [authLoading, setAuthLoading] = useState(false)
-  const accountCreationEnabled = APP_CONFIG.accountCreationEnabled
+  // Seeded from the build-time default so there's no flash of the wrong UI
+  // before the live value loads; the effect below overwrites it with the
+  // server's current setting (which can change via the admin panel without
+  // a rebuild).
+  const [accountCreationEnabled, setAccountCreationEnabled] = useState(
+    APP_CONFIG.accountCreationEnabled,
+  )
   const isStandaloneDisplay =
     window.matchMedia?.('(display-mode: standalone)')?.matches ||
     window.navigator?.standalone
@@ -691,6 +699,32 @@ export default function App() {
       isMounted = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Pull live server settings that affect auth UI (e.g. sign-up on/off).
+  // This overrides the build-time APP_CONFIG default so changes made in the
+  // admin panel take effect without rebuilding the client.
+  useEffect(() => {
+    let isMounted = true
+    fetchAppInfo()
+      .then((res) => res.json())
+      .then((data) => {
+        if (!isMounted) return
+        if (typeof data?.accountCreationEnabled === 'boolean') {
+          setAccountCreationEnabled(data.accountCreationEnabled)
+        }
+        setNameLimits({
+          nicknameMax: data?.nicknameMaxChars,
+          usernameMax: data?.usernameMaxChars,
+        })
+        setMessageMaxChars(data?.messageMaxChars)
+      })
+      .catch(() => {
+        // Keep the build-time defaults on failure.
+      })
+    return () => {
+      isMounted = false
+    }
   }, [])
 
   useEffect(() => {

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Eye, EyeOff, LoaderCircle } from "../../icons/lucide.js";
 import { hasPersian } from "../../utils/fontUtils.js";
-import { NICKNAME_MAX, USERNAME_MAX, USERNAME_INPUT_PATTERN } from "../../utils/nameLimits.js";
+import { USERNAME_INPUT_PATTERN, useNameLimits } from "../../utils/nameLimits.js";
 
 export default function AuthFormFields({
   isLogin,
@@ -18,6 +18,7 @@ export default function AuthFormFields({
   onSubmit,
   onReset,
 }) {
+  const { nicknameMax: NICKNAME_MAX, usernameMax: USERNAME_MAX } = useNameLimits();
   const [nicknameHasPersian, setNicknameHasPersian] = useState(false);
   const [usernameHasPersian, setUsernameHasPersian] = useState(false);
   return (

@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Close, Eye, EyeOff, Pencil, Trash } from "../../icons/lucide.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
-import { NICKNAME_MAX, USERNAME_MAX, USERNAME_INPUT_PATTERN } from "../../utils/nameLimits.js";
+import { USERNAME_INPUT_PATTERN, useNameLimits } from "../../utils/nameLimits.js";
 import { apiFetch } from "../../api/chatApi.js";
 import { CHAT_PAGE_CONFIG } from "../../settings/chatPageConfig.js";
 import { api, inputCls } from "./adminShared.js";
@@ -41,6 +41,7 @@ function PwToggle({ show, onToggle }) {
 // ─── Admin User Modal (create + edit) ────────────────────────────────────────
 
 export default function AdminUserModal({ mode = "edit", user = null, onClose, onSaved }) {
+  const { nicknameMax: NICKNAME_MAX, usernameMax: USERNAME_MAX } = useNameLimits();
   const creating = mode === "create";
   const fileUploadEnabled = CHAT_PAGE_CONFIG.fileUploadEnabled;
 

@@ -20,7 +20,7 @@ import { copyTextToClipboard } from "../../utils/clipboard.js";
 import { getAvatarStyle } from "../../utils/avatarColor.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
-import { NICKNAME_MAX, USERNAME_MAX } from "../../utils/nameLimits.js";
+import { useNameLimits } from "../../utils/nameLimits.js";
 import ConfirmPasswordModal from "./ConfirmPasswordModal.jsx";
 import Avatar from "../common/Avatar.jsx";
 import { useFocusTrap } from "../../hooks/useFocusTrap.js";
@@ -88,6 +88,7 @@ export default function NewGroupModal({
   const groupSearchInputRef = useRef(null);
   const remoteSourceButtonRef = useRef(null);
   const remoteSourceMenuRef = useRef(null);
+  const { nicknameMax: NICKNAME_MAX, usernameMax: USERNAME_MAX } = useNameLimits();
   const ignoreRemoteSourceButtonClickRef = useRef(false);
   const dialogRef = useRef(null);
   useFocusTrap(dialogRef, open);
