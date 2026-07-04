@@ -3,10 +3,8 @@ import { apiFetch } from "../../api/chatApi.js";
 import { fetchAppInfo, checkAppVersion } from "../../api/appMetaApi.js";
 import {
   AlertCircle,
-  AppWindow,
   Brush,
   Check,
-  Database,
   HardDriveDownload,
   HardDriveUpload,
   LoaderCircle,
@@ -15,24 +13,96 @@ import {
   Refresh,
   Rotate,
   Trash,
-  Wrench,
 } from "../../icons/lucide.js";
-import {
-  api,
-  cardCls,
-  btnPrimary,
-  btnSecondary,
-  btnDanger,
-} from "./adminShared.js";
+import { api } from "./adminShared.js";
 import { TypedConfirmModal } from "./AdminCommon.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 
-// Combined system card — app version (with check-for-update) + service controls.
-function SystemCard({ appInfo, onRestart, onStop }) {
-  const [state, setState] = useState({ status: "", latestVersion: "" });
+// ─── Status badge — shown on the right side of an action row ────────────────
+
+function StatusBadge({ status }) {
+  if (!status) return null;
+  const { type, label } = status;
+  const cls =
+    type === "error"
+      ? "text-rose-600 dark:text-rose-300"
+      : "text-emerald-600 dark:text-emerald-300";
+  return (
+    <span className={`inline-flex items-center gap-1 text-[11px] font-semibold ${cls}`}>
+      {type === "busy" ? (
+        <LoaderCircle size={13} className="animate-spin" />
+      ) : type === "error" ? (
+        <AlertCircle size={13} />
+      ) : (
+        <Check size={13} />
+      )}
+      {label}
+    </span>
+  );
+}
+
+// ─── Action row — the row itself is the button ────────────────────────────────
+
+function ActionRow({
+  icon: Icon,
+  iconAnim = "icon-anim-sway",
+  label,
+  description,
+  onClick,
+  disabled = false,
+  status = null,
+  danger = false,
+}) {
+  const busy = status?.type === "busy";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled || busy}
+      className={`flex w-full items-center gap-3 rounded-2xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
+        danger
+          ? "border-rose-200/70 bg-rose-50/40 hover:border-rose-300 hover:bg-rose-50 dark:border-rose-500/30 dark:bg-rose-500/[0.04] dark:hover:bg-rose-500/10"
+          : "border-emerald-200/70 bg-white/90 hover:border-emerald-300 hover:bg-emerald-50/60 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:hover:bg-emerald-500/5"
+      }`}
+    >
+      <div
+        className={`flex h-9 w-9 shrink-0 items-center justify-center ${
+          danger
+            ? "text-rose-500 dark:text-rose-400"
+            : "text-emerald-600 dark:text-emerald-400"
+        }`}
+      >
+        <Icon size={22} className={iconAnim} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p
+          className={`text-sm font-semibold ${
+            danger
+              ? "text-rose-700 dark:text-rose-300"
+              : "text-slate-700 dark:text-slate-200"
+          }`}
+        >
+          {label}
+        </p>
+        {description && (
+          <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
+            {description}
+          </p>
+        )}
+      </div>
+      <div className="shrink-0">
+        <StatusBadge status={status} />
+      </div>
+    </button>
+  );
+}
+
+// ─── Check for updates row — has its own dynamic status trailing badge ───────
+
+function CheckUpdateRow({ appInfo }) {
+  const [status, setStatus] = useState(null);
   const resetRef = useRef(null);
-  const versionLabel =
-    String(appInfo?.version || "Unknown").trim() || "Unknown";
+  const versionLabel = String(appInfo?.version || "Unknown").trim() || "Unknown";
 
   useEffect(
     () => () => {
@@ -43,10 +113,7 @@ function SystemCard({ appInfo, onRestart, onStop }) {
 
   const scheduleReset = () => {
     if (resetRef.current) clearTimeout(resetRef.current);
-    resetRef.current = setTimeout(
-      () => setState({ status: "", latestVersion: "" }),
-      3500,
-    );
+    resetRef.current = setTimeout(() => setStatus(null), 3500);
   };
 
   const check = async () => {
@@ -54,99 +121,65 @@ function SystemCard({ appInfo, onRestart, onStop }) {
       clearTimeout(resetRef.current);
       resetRef.current = null;
     }
-    setState({ status: "checking", latestVersion: "" });
+    setStatus({ type: "busy", label: "Checking…" });
     try {
       const payload = await checkAppVersion(appInfo);
-      setState({
-        status: payload?.status || "up-to-date",
-        latestVersion: String(payload?.latestVersion || ""),
-      });
+      const s = payload?.status || "up-to-date";
+      setStatus(
+        s === "error"
+          ? { type: "error", label: "Check failed" }
+          : s === "update-available"
+            ? { type: "success", label: "Update available" }
+            : { type: "success", label: "Up to date" },
+      );
     } catch {
-      setState({ status: "error", latestVersion: "" });
+      setStatus({ type: "error", label: "Check failed" });
     }
     scheduleReset();
   };
 
-  const versionBtn = (() => {
-    if (state.status === "checking")
-      return {
-        cls: "border-emerald-200 bg-white text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 cursor-wait",
-        label: "Checking",
-        icon: <LoaderCircle size={13} className="animate-spin" />,
-      };
-    if (state.status === "error")
-      return {
-        cls: "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200",
-        label: "Check failed",
-        icon: <AlertCircle size={13} />,
-      };
-    if (state.status === "update-available")
-      return {
-        cls: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200",
-        label: "Update available",
-        icon: <AlertCircle size={13} />,
-      };
-    if (state.status === "up-to-date")
-      return {
-        cls: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200",
-        label: "Up to date",
-        icon: <Check size={13} />,
-      };
-    return {
-      cls: "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-white/10 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-white/5",
-      label: versionLabel,
-      icon: <Refresh size={13} />,
-    };
-  })();
-
   return (
-    <div className={cardCls + " settings-row flex items-start gap-3 p-4"}>
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center text-emerald-600 dark:text-emerald-400">
-        <AppWindow size={22} className="icon-anim-sway" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-          Service
-        </p>
-        <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
-          Check for updates, or restart and stop the Songbird service.
-        </p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={check}
-            disabled={state.status === "checking"}
-            className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition ${versionBtn.cls}`}
-          >
-            {versionBtn.icon} {versionBtn.label}
-          </button>
-          <button type="button" onClick={onRestart} className={btnPrimary}>
-            <Refresh size={13} className="icon-anim-spin-full" /> Restart
-          </button>
-          <button type="button" onClick={onStop} className={btnDanger}>
-            <Power size={13} className="icon-anim-beat" /> Stop
-          </button>
-        </div>
-      </div>
-    </div>
+    <ActionRow
+      icon={Refresh}
+      iconAnim="icon-anim-spin-full"
+      label="Check for updates"
+      description={`Current version: ${versionLabel}`}
+      onClick={check}
+      status={status}
+    />
   );
 }
 
 export default function ActionsTab() {
-  const [vacuumBusy, setVacuumBusy] = useState(false);
-  const [pendingFile, setPendingFile] = useState(null);
-  const [restoring, setRestoring] = useState(false);
-  const [toast, setToast] = useState("");
   const [appInfo, setAppInfo] = useState(null);
+  const [rowStatus, setRowStatus] = useState({});
+  const statusTimers = useRef({});
+
+  const [pendingFile, setPendingFile] = useState(null);
   const [serviceAction, setServiceAction] = useState(null);
-  const [servicePending, setServicePending] = useState(false);
   const [danger, setDanger] = useState(null);
-  const [dangerBusy, setDangerBusy] = useState(false);
   const fileRef = useRef(null);
 
-  const flash = (msg) => {
-    setToast(msg);
-    setTimeout(() => setToast(""), 4000);
+  useEffect(
+    () => () => {
+      Object.values(statusTimers.current).forEach((t) => clearTimeout(t));
+    },
+    [],
+  );
+
+  // Set a transient status badge on a row. Non-"busy" statuses auto-clear.
+  const flashStatus = (key, type, label, ms = 3000) => {
+    if (statusTimers.current[key]) clearTimeout(statusTimers.current[key]);
+    setRowStatus((prev) => ({ ...prev, [key]: { type, label } }));
+    if (type !== "busy") {
+      statusTimers.current[key] = setTimeout(() => {
+        setRowStatus((prev) => {
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+      }, ms);
+    }
   };
 
   useEffect(() => {
@@ -169,19 +202,21 @@ export default function ActionsTab() {
       )
     )
       return;
-    setVacuumBusy(true);
+    flashStatus("vacuum", "busy", "Vacuuming…");
     try {
       const r = await api.post("/api/admin/maintenance/vacuum", {});
-      flash(r.ok ? "Database vacuumed successfully." : "Vacuum failed.");
+      flashStatus("vacuum", r.ok ? "success" : "error", r.ok ? "Vacuumed" : "Failed");
     } catch {
-      flash("Vacuum failed.");
-    } finally {
-      setVacuumBusy(false);
+      flashStatus("vacuum", "error", "Failed");
     }
   };
 
   const downloadDb = () => {
+    flashStatus("backup", "busy", "Downloading…");
     window.location.href = "/api/admin/maintenance/download-db";
+    // The browser handles the actual download; there's no completion event
+    // to await, so flip to a success state shortly after triggering it.
+    setTimeout(() => flashStatus("backup", "success", "Saved"), 900);
   };
 
   const onFilePicked = (e) => {
@@ -192,7 +227,7 @@ export default function ActionsTab() {
 
   const confirmRestore = async () => {
     if (!pendingFile) return;
-    setRestoring(true);
+    flashStatus("restore", "busy", "Restoring…");
     try {
       const form = new FormData();
       form.append("database", pendingFile);
@@ -200,14 +235,10 @@ export default function ActionsTab() {
         method: "POST",
         body: form,
       });
-      const d = await r.json().catch(() => ({}));
-      flash(
-        r.ok ? "Database restored successfully." : d.error || "Restore failed.",
-      );
+      flashStatus("restore", r.ok ? "success" : "error", r.ok ? "Restored" : "Failed");
     } catch {
-      flash("Restore failed.");
+      flashStatus("restore", "error", "Failed");
     } finally {
-      setRestoring(false);
       setPendingFile(null);
     }
   };
@@ -215,55 +246,63 @@ export default function ActionsTab() {
   const confirmServiceAction = async () => {
     const action = serviceAction;
     if (!action) return;
-    setServicePending(true);
+    const key = action === "restart" ? "restart" : "stop";
+    flashStatus(key, "busy", action === "restart" ? "Restarting…" : "Stopping…");
     try {
       await api.post(`/api/admin/service/${action}`, {});
-      flash(
-        action === "restart"
-          ? "Restarting the service… the app may be briefly unavailable."
-          : "Stopping the service… the app will become unavailable.",
+      flashStatus(
+        key,
+        "success",
+        action === "restart" ? "Restarting" : "Stopped",
+        6000,
       );
     } catch {
-      flash(`Failed to ${action} the service.`);
+      flashStatus(key, "error", "Failed");
     } finally {
-      setServicePending(false);
       setServiceAction(null);
     }
   };
 
   const confirmDanger = async () => {
     if (!danger) return;
-    setDangerBusy(true);
+    flashStatus(danger.key, "busy", danger.busyLabel);
     try {
       const r = await api.post(danger.endpoint, { confirm: danger.phrase });
-      const d = await r.json().catch(() => ({}));
-      flash(r.ok ? danger.success : d.error || "Action failed.");
+      flashStatus(danger.key, r.ok ? "success" : "error", r.ok ? danger.doneLabel : "Failed");
     } catch {
-      flash("Action failed.");
+      flashStatus(danger.key, "error", "Failed");
     } finally {
-      setDangerBusy(false);
       setDanger(null);
     }
   };
 
   return (
     <div className="space-y-5">
-      {toast && (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-medium text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
-          {toast}
-        </div>
-      )}
-
       {/* System */}
       <div>
         <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">
           System
         </h2>
-        <SystemCard
-          appInfo={appInfo}
-          onRestart={() => setServiceAction("restart")}
-          onStop={() => setServiceAction("stop")}
-        />
+        <div className="space-y-2">
+          <CheckUpdateRow appInfo={appInfo} />
+          <ActionRow
+            icon={Rotate}
+            iconAnim="icon-anim-spin-full"
+            label="Restart service"
+            description="Briefly interrupts the app while the service restarts."
+            onClick={() => setServiceAction("restart")}
+            status={rowStatus.restart}
+          />
+          <ActionRow
+            icon={Power}
+            iconAnim="icon-anim-beat"
+            label="Stop service"
+            description="Takes the app offline until restarted from the server."
+            onClick={() => setServiceAction("stop")}
+            status={rowStatus.stop}
+            danger
+          />
+        </div>
       </div>
 
       {/* Database */}
@@ -271,69 +310,38 @@ export default function ActionsTab() {
         <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">
           Database Maintenance
         </h2>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className={cardCls + " settings-row flex items-start gap-3 p-4"}>
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center text-emerald-600 dark:text-emerald-400">
-              <Database size={22} className="icon-anim-bob" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                Backup &amp; restore
-              </p>
-              <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
-                Download the database to your device, or restore by uploading a
-                backup file.
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={downloadDb}
-                  className={btnPrimary}
-                >
-                  <HardDriveDownload size={13} className="icon-anim-drop" />{" "}
-                  Backup
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fileRef.current?.click()}
-                  className={btnSecondary}
-                >
-                  <HardDriveUpload size={13} className="icon-anim-lift" />{" "}
-                  Restore
-                </button>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept=".db,application/x-sqlite3,application/vnd.sqlite3"
-                  onChange={onFilePicked}
-                  className="hidden"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className={cardCls + " settings-row flex items-start gap-3 p-4"}>
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center text-emerald-600 dark:text-emerald-400">
-              <Brush size={22} className="icon-anim-wiggle" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                Vacuum database
-              </p>
-              <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
-                Reclaim unused space and defragment the DB file.
-              </p>
-              <button
-                type="button"
-                onClick={runVacuum}
-                disabled={vacuumBusy}
-                className={btnPrimary + " mt-3"}
-              >
-                <Wrench size={13} className="icon-anim-wiggle" />{" "}
-                {vacuumBusy ? "Running…" : "Run vacuum"}
-              </button>
-            </div>
-          </div>
+        <div className="space-y-2">
+          <ActionRow
+            icon={HardDriveDownload}
+            iconAnim="icon-anim-drop"
+            label="Backup database"
+            description="Download the database file to your device."
+            onClick={downloadDb}
+            status={rowStatus.backup}
+          />
+          <ActionRow
+            icon={HardDriveUpload}
+            iconAnim="icon-anim-lift"
+            label="Restore database"
+            description="Replace the current database by uploading a backup file."
+            onClick={() => fileRef.current?.click()}
+            status={rowStatus.restore}
+          />
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".db,application/x-sqlite3,application/vnd.sqlite3"
+            onChange={onFilePicked}
+            className="hidden"
+          />
+          <ActionRow
+            icon={Brush}
+            iconAnim="icon-anim-wiggle"
+            label="Vacuum database"
+            description="Reclaim unused space and defragment the DB file."
+            onClick={runVacuum}
+            status={rowStatus.vacuum}
+          />
         </div>
       </div>
 
@@ -342,68 +350,47 @@ export default function ActionsTab() {
         <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-rose-400 dark:text-rose-400/80">
           Danger Zone
         </h2>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="settings-row flex items-start gap-3 rounded-2xl border border-rose-200/70 bg-rose-50/40 p-4 dark:border-rose-500/30 dark:bg-rose-500/[0.04]">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center text-rose-500 dark:text-rose-400">
-              <MessageCircleX size={22} className="icon-anim-sway" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                Clear all messages
-              </p>
-              <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
-                Permanently delete every message and uploaded file. Users and
-                chats are kept.
-              </p>
-              <button
-                type="button"
-                onClick={() =>
-                  setDanger({
-                    title: "Clear all messages",
-                    message:
-                      "This permanently deletes every message and uploaded file across all chats. Users and chats remain. This cannot be undone.",
-                    phrase: "clear messages",
-                    endpoint: "/api/admin/maintenance/clear-messages",
-                    success: "All messages and files cleared.",
-                  })
-                }
-                className={btnDanger + " mt-3"}
-              >
-                <Trash size={13} className="icon-anim-slide" /> Clear messages
-              </button>
-            </div>
-          </div>
-
-          <div className="settings-row flex items-start gap-3 rounded-2xl border border-rose-200/70 bg-rose-50/40 p-4 dark:border-rose-500/30 dark:bg-rose-500/[0.04]">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center text-rose-500 dark:text-rose-400">
-              <Rotate size={22} className="icon-anim-wiggle" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                Reset database
-              </p>
-              <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
-                Wipe everything — all users, chats, messages, sessions, and
-                files. The schema is kept.
-              </p>
-              <button
-                type="button"
-                onClick={() =>
-                  setDanger({
-                    title: "Reset database",
-                    message:
-                      "This permanently deletes ALL users, chats, messages, sessions, and files. The app will be empty afterwards. This cannot be undone.",
-                    phrase: "reset everything",
-                    endpoint: "/api/admin/maintenance/reset",
-                    success: "Database reset. The app is now empty.",
-                  })
-                }
-                className={btnDanger + " mt-3"}
-              >
-                <Trash size={13} className="icon-anim-slide" /> Reset database
-              </button>
-            </div>
-          </div>
+        <div className="space-y-2">
+          <ActionRow
+            icon={MessageCircleX}
+            iconAnim="icon-anim-sway"
+            label="Clear all messages"
+            description="Permanently delete every message and uploaded file. Users and chats are kept."
+            onClick={() =>
+              setDanger({
+                key: "clearMessages",
+                title: "Clear all messages",
+                message:
+                  "This permanently deletes every message and uploaded file across all chats. Users and chats remain. This cannot be undone.",
+                phrase: "clear messages",
+                endpoint: "/api/admin/maintenance/clear-messages",
+                busyLabel: "Clearing…",
+                doneLabel: "Cleared",
+              })
+            }
+            status={rowStatus.clearMessages}
+            danger
+          />
+          <ActionRow
+            icon={Trash}
+            iconAnim="icon-anim-slide"
+            label="Reset database"
+            description="Wipe everything — all users, chats, messages, sessions, and files. The schema is kept."
+            onClick={() =>
+              setDanger({
+                key: "resetDb",
+                title: "Reset database",
+                message:
+                  "This permanently deletes ALL users, chats, messages, sessions, and files. The app will be empty afterwards. This cannot be undone.",
+                phrase: "reset everything",
+                endpoint: "/api/admin/maintenance/reset",
+                busyLabel: "Resetting…",
+                doneLabel: "Reset",
+              })
+            }
+            status={rowStatus.resetDb}
+            danger
+          />
         </div>
       </div>
 
@@ -415,11 +402,11 @@ export default function ActionsTab() {
             ? `Replace the current database with "${pendingFile.name}"? This overwrites all existing data and cannot be undone.`
             : ""
         }
-        confirmLabel={restoring ? "Restoring…" : "Restore"}
-        busy={restoring}
+        confirmLabel={rowStatus.restore?.type === "busy" ? "Restoring…" : "Restore"}
+        busy={rowStatus.restore?.type === "busy"}
         onConfirm={confirmRestore}
         onClose={() => {
-          if (!restoring) setPendingFile(null);
+          if (rowStatus.restore?.type !== "busy") setPendingFile(null);
         }}
       />
 
@@ -432,16 +419,16 @@ export default function ActionsTab() {
             : "Restart the Songbird service? The app will be briefly unavailable while it restarts."
         }
         confirmLabel={
-          servicePending
+          rowStatus[serviceAction]?.type === "busy"
             ? "Working…"
             : serviceAction === "stop"
               ? "Stop"
               : "Restart"
         }
-        busy={servicePending}
+        busy={rowStatus[serviceAction]?.type === "busy"}
         onConfirm={confirmServiceAction}
         onClose={() => {
-          if (!servicePending) setServiceAction(null);
+          if (rowStatus[serviceAction]?.type !== "busy") setServiceAction(null);
         }}
       />
 
@@ -450,10 +437,10 @@ export default function ActionsTab() {
         title={danger?.title || ""}
         message={danger?.message || ""}
         phrase={danger?.phrase || ""}
-        busy={dangerBusy}
+        busy={danger ? rowStatus[danger.key]?.type === "busy" : false}
         onConfirm={confirmDanger}
         onClose={() => {
-          if (!dangerBusy) setDanger(null);
+          if (!danger || rowStatus[danger.key]?.type !== "busy") setDanger(null);
         }}
       />
     </div>
