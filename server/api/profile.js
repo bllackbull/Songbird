@@ -5,13 +5,11 @@ function registerProfileRoutes(app, deps) {
     createMessage,
     emitChatEvent,
     emitSseEvent,
-    FILE_UPLOAD,
+    getSetting,
     getUserPresence,
     listChatMembers,
     listChatsForUser,
     USER_COLORS,
-    NICKNAME_MAX,
-    USERNAME_MAX,
     USERNAME_REGEX,
     bcrypt,
     ensureAvatarExists,
@@ -131,15 +129,17 @@ function registerProfileRoutes(app, deps) {
     if (!requireSessionUsernameMatch(res, session, currentUsername)) return;
 
     const trimmed = username.trim().toLowerCase();
+    const usernameMax = getSetting("USERNAME_MAX_CHARS");
+    const nicknameMax = getSetting("NICKNAME_MAX_CHARS");
 
     if (trimmed.length < 3) {
       return res
         .status(400)
         .json({ error: "Username must be at least 3 characters." });
     }
-    if (USERNAME_MAX && trimmed.length > USERNAME_MAX) {
+    if (usernameMax && trimmed.length > usernameMax) {
       return res.status(400).json({
-        error: `Username must be at most ${USERNAME_MAX} characters.`,
+        error: `Username must be at most ${usernameMax} characters.`,
       });
     }
 
@@ -149,9 +149,9 @@ function registerProfileRoutes(app, deps) {
           "Username can only include english letters, numbers, dot (.), and underscore (_).",
       });
     }
-    if (nickname && String(nickname).trim().length > (NICKNAME_MAX || 0)) {
+    if (nickname && String(nickname).trim().length > (nicknameMax || 0)) {
       return res.status(400).json({
-        error: `Nickname must be at most ${NICKNAME_MAX} characters.`,
+        error: `Nickname must be at most ${nicknameMax} characters.`,
       });
     }
 
@@ -205,7 +205,7 @@ function registerProfileRoutes(app, deps) {
       .toLowerCase();
     const file = req.file;
 
-    if (!FILE_UPLOAD) {
+    if (!getSetting("FILE_UPLOAD")) {
       removeUploadedFiles(file ? [file] : [], avatarUploadRootDir);
       return res
         .status(503)

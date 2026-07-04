@@ -55,9 +55,8 @@ function registerChatRoutes(app, deps) {
     unhideChat,
     uploadAvatar,
     setChatMemberRole,
-    FILE_UPLOAD,
+    getSetting,
     REMOTE_CHANNELS,
-    ACCOUNT_CREATION,
     getMessages,
     remoteChannelManager,
     upsertRemoteChannelSource,
@@ -134,7 +133,7 @@ function registerChatRoutes(app, deps) {
       remoteChannel.source || remoteChannel.sourceRaw || "",
     ).trim();
     const syncMetadata = enabled && Boolean(remoteChannel.syncMetadata);
-    const streamMedia = enabled && Boolean(FILE_UPLOAD && remoteChannel.streamMedia);
+    const streamMedia = enabled && Boolean(getSetting("FILE_UPLOAD") && remoteChannel.streamMedia);
     const shouldSave = Boolean(
       enabled || rawSource || syncMetadata || streamMedia,
     );
@@ -733,7 +732,7 @@ function registerChatRoutes(app, deps) {
   // to sync channel name and avatar when "Sync Channel Metadata" is enabled.
   // Only works for public channels on servers with SIGN_UP enabled.
   app.get("/api/channels/:username/meta", (req, res) => {
-    if (!ACCOUNT_CREATION) {
+    if (!getSetting("SIGN_UP")) {
       // Private server — refuse to expose channel metadata to remote servers.
       return res.status(403).json({ error: "This server is private." });
     }
@@ -765,7 +764,7 @@ function registerChatRoutes(app, deps) {
 
   // Public unauthenticated messages endpoint used by remote Songbird servers
   app.get("/api/channels/:username/messages", (req, res) => {
-    if (!ACCOUNT_CREATION) {
+    if (!getSetting("SIGN_UP")) {
       return res.status(403).json({ error: "This server is private." });
     }
 

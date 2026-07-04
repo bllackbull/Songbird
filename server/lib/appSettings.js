@@ -69,6 +69,7 @@ export const SETTING_DEFS = [
     defaultVal: 25,
     min: 1,
     max: 2048,
+    restart: true, // baked into a multer() instance at startup
   },
   {
     key: "FILE_UPLOAD_MAX_TOTAL_SIZE_MB",
@@ -80,6 +81,7 @@ export const SETTING_DEFS = [
     defaultVal: 75,
     min: 1,
     max: 8192,
+    restart: true, // enforced against a value captured at startup
   },
   {
     key: "FILE_UPLOAD_MAX_FILES",
@@ -92,6 +94,7 @@ export const SETTING_DEFS = [
     defaultVal: 10,
     min: 1,
     max: 50,
+    restart: true, // baked into a multer() instance at startup
   },
   {
     key: "FILE_UPLOAD_TRANSCODE_VIDEOS",

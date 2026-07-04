@@ -27,8 +27,7 @@ function registerAdminPanelRoutes(app, deps) {
     bcrypt,
     setUserColor,
     USERNAME_REGEX,
-    USERNAME_MAX,
-    NICKNAME_MAX,
+    getSetting,
     adminGetRow,
     adminRun,
     adminSave,
@@ -214,11 +213,11 @@ function registerAdminPanelRoutes(app, deps) {
     if (rawUsername.length < 3) {
       return res.status(400).json({ error: "Username must be at least 3 characters." });
     }
-    if (USERNAME_MAX && rawUsername.length > USERNAME_MAX) {
-      return res.status(400).json({ error: `Username must be at most ${USERNAME_MAX} characters.` });
+    if (getSetting("USERNAME_MAX_CHARS") && rawUsername.length > getSetting("USERNAME_MAX_CHARS")) {
+      return res.status(400).json({ error: `Username must be at most ${getSetting("USERNAME_MAX_CHARS")} characters.` });
     }
-    if (NICKNAME_MAX && nickname.length > NICKNAME_MAX) {
-      return res.status(400).json({ error: `Nickname must be at most ${NICKNAME_MAX} characters.` });
+    if (getSetting("NICKNAME_MAX_CHARS") && nickname.length > getSetting("NICKNAME_MAX_CHARS")) {
+      return res.status(400).json({ error: `Nickname must be at most ${getSetting("NICKNAME_MAX_CHARS")} characters.` });
     }
     if (USERNAME_REGEX && !USERNAME_REGEX.test(rawUsername)) {
       return res.status(400).json({ error: "Invalid username. Use lowercase letters, numbers, . and _" });
@@ -282,9 +281,9 @@ function registerAdminPanelRoutes(app, deps) {
       : String(user.color || "");
 
     if (nextUsername.length < 3) return res.status(400).json({ error: "Username must be at least 3 characters." });
-    if (USERNAME_MAX && nextUsername.length > USERNAME_MAX) return res.status(400).json({ error: `Username must be at most ${USERNAME_MAX} characters.` });
+    if (getSetting("USERNAME_MAX_CHARS") && nextUsername.length > getSetting("USERNAME_MAX_CHARS")) return res.status(400).json({ error: `Username must be at most ${getSetting("USERNAME_MAX_CHARS")} characters.` });
     if (USERNAME_REGEX && !USERNAME_REGEX.test(nextUsername)) return res.status(400).json({ error: "Invalid username." });
-    if (nextNickname && NICKNAME_MAX && nextNickname.length > NICKNAME_MAX) return res.status(400).json({ error: `Nickname too long.` });
+    if (nextNickname && getSetting("NICKNAME_MAX_CHARS") && nextNickname.length > getSetting("NICKNAME_MAX_CHARS")) return res.status(400).json({ error: `Nickname too long.` });
     if (!["online", "invisible"].includes(nextStatus)) return res.status(400).json({ error: "Invalid status." });
 
     if (nextUsername !== String(user.username || "")) {
@@ -937,7 +936,6 @@ function registerAdminPanelRoutes(app, deps) {
   // ─── Settings ─────────────────────────────────────────────────────────────────
 
   const {
-    getSetting,
     getAllSettings,
     setSetting,
     setSettings,

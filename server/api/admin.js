@@ -55,9 +55,7 @@ function registerAdminRoutes(app, deps) {
     chunkArray,
     bcrypt,
     setUserColor,
-    NICKNAME_MAX,
-    USERNAME_MAX,
-    MESSAGE_MAX_CHARS,
+    getSetting,
     USERNAME_REGEX,
     isLoopbackRequest,
     removeAllMessageUploads,
@@ -444,14 +442,14 @@ function registerAdminRoutes(app, deps) {
         if (rawUsername.length < 3) {
           return res.status(400).json({ error: "Username must be at least 3 characters." });
         }
-        if (USERNAME_MAX && rawUsername.length > USERNAME_MAX) {
+        if (getSetting("USERNAME_MAX_CHARS") && rawUsername.length > getSetting("USERNAME_MAX_CHARS")) {
           return res.status(400).json({
-            error: `Username must be at most ${USERNAME_MAX} characters.`,
+            error: `Username must be at most ${getSetting("USERNAME_MAX_CHARS")} characters.`,
           });
         }
-        if (nickname && nickname.length > (NICKNAME_MAX || 0)) {
+        if (nickname && nickname.length > (getSetting("NICKNAME_MAX_CHARS") || 0)) {
           return res.status(400).json({
-            error: `Nickname must be at most ${NICKNAME_MAX} characters.`,
+            error: `Nickname must be at most ${getSetting("NICKNAME_MAX_CHARS")} characters.`,
           });
         }
 
@@ -925,9 +923,9 @@ function registerAdminRoutes(app, deps) {
         if (nextUsername.length < 3) {
           return res.status(400).json({ error: "Username must be at least 3 characters." });
         }
-        if (USERNAME_MAX && nextUsername.length > USERNAME_MAX) {
+        if (getSetting("USERNAME_MAX_CHARS") && nextUsername.length > getSetting("USERNAME_MAX_CHARS")) {
           return res.status(400).json({
-            error: `Username must be at most ${USERNAME_MAX} characters.`,
+            error: `Username must be at most ${getSetting("USERNAME_MAX_CHARS")} characters.`,
           });
         }
         if (USERNAME_REGEX && !USERNAME_REGEX.test(nextUsername)) {
@@ -935,9 +933,9 @@ function registerAdminRoutes(app, deps) {
             error: "Invalid username. Allowed: lowercase english letters, numbers, ., _",
           });
         }
-        if (nextNickname && nextNickname.length > (NICKNAME_MAX || 0)) {
+        if (nextNickname && nextNickname.length > (getSetting("NICKNAME_MAX_CHARS") || 0)) {
           return res.status(400).json({
-            error: `Nickname must be at most ${NICKNAME_MAX} characters.`,
+            error: `Nickname must be at most ${getSetting("NICKNAME_MAX_CHARS")} characters.`,
           });
         }
         if (!["online", "invisible"].includes(nextStatus)) {
@@ -1078,8 +1076,8 @@ function registerAdminRoutes(app, deps) {
         const password = String(payload.password || "");
         const nicknamePrefix = String(payload.nicknamePrefix || "User");
         const usernamePrefix = String(payload.usernamePrefix || "user");
-        const maxUsername = Math.max(3, Number(USERNAME_MAX || 16));
-        const maxNickname = Math.max(3, Number(NICKNAME_MAX || 24));
+        const maxUsername = Math.max(3, Number(getSetting("USERNAME_MAX_CHARS") || 16));
+        const maxNickname = Math.max(3, Number(getSetting("NICKNAME_MAX_CHARS") || 24));
         const maxPrefixLen = Math.max(1, maxUsername - 2);
         const clampPrefix = (value, maxLen) => {
           const trimmed = String(value || "").trim();
@@ -1229,7 +1227,7 @@ function registerAdminRoutes(app, deps) {
           "Done",
           "Perfect",
         ];
-        const maxMessageChars = Math.max(1, Number(MESSAGE_MAX_CHARS || 4000));
+        const maxMessageChars = Math.max(1, Number(getSetting("MESSAGE_MAX_CHARS") || 4000));
         const pickRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
         const buildTimestampSchedule = (totalCount, days) => {
           // Clamp both parameters to prevent resource exhaustion

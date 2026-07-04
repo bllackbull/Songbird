@@ -421,7 +421,7 @@ const messageFileJobs = createMessageFileJobs({
   uploadRootDir,
   fs,
   path,
-  messageFileRetentionDays: MESSAGE_FILE_RETENTION_DAYS,
+  getSetting,
 });
 const {
   chunkArray,
@@ -541,16 +541,13 @@ const apiDeps = {
   ALLOWED_AVATAR_MIME_TYPES,
   APP_DEBUG,
   AVATAR_FILE_LIMITS,
-  FILE_UPLOAD,
+  // FILE_UPLOAD, MESSAGE_FILE_RETENTION_DAYS, MESSAGE_TEXT_RETENTION_DAYS,
+  // TRANSCODE_VIDEOS_TO_H264, NICKNAME_MAX, USERNAME_MAX, MESSAGE_MAX_CHARS,
+  // and ACCOUNT_CREATION are intentionally NOT passed here — route handlers
+  // must call getSetting("KEY") at request time so admin-panel changes take
+  // effect live, instead of reading a value captured once at server startup.
   MESSAGE_FILE_LIMITS,
-  MESSAGE_FILE_RETENTION_DAYS,
-  MESSAGE_TEXT_RETENTION_DAYS,
-  TRANSCODE_VIDEOS_TO_H264,
   USER_COLORS,
-  NICKNAME_MAX,
-  USERNAME_MAX,
-  MESSAGE_MAX_CHARS,
-  ACCOUNT_CREATION,
   REMOTE_CHANNELS: {
     enabled: REMOTE_CHANNEL_CONFIG.enabled,
     uiEnabled: REMOTE_CHANNEL_CONFIG.uiEnabled,
@@ -834,7 +831,7 @@ app.use((err, req, res, next) => {
 });
 
 function cleanupExpiredTextOnlyMessages() {
-  if (MESSAGE_TEXT_RETENTION_DAYS <= 0) {
+  if (getSetting("MESSAGE_TEXT_RETENTION") <= 0) {
     return { removedMessages: 0 };
   }
 
@@ -904,7 +901,8 @@ function cleanupExpiredTextOnlyMessages() {
 }
 
 function backfillTextMessageExpiry() {
-  if (MESSAGE_TEXT_RETENTION_DAYS <= 0) return 0;
+  const textRetentionDays = getSetting("MESSAGE_TEXT_RETENTION");
+  if (textRetentionDays <= 0) return 0;
 
   const row = adminGetRow(
     `SELECT COUNT(*) AS n
@@ -937,54 +935,61 @@ function backfillTextMessageExpiry() {
          FROM chat_message_files
          WHERE chat_message_files.message_id = chat_messages.id
        )`,
-    [MESSAGE_TEXT_RETENTION_DAYS],
+    [textRetentionDays],
   );
 
   adminSave();
   return pending;
 }
 
-if (MESSAGE_FILE_RETENTION_DAYS > 0) {
-  try {
+// Cleanup timers always run — each tick re-reads the live setting, so
+// enabling/disabling retention via the admin panel takes effect without a
+// server restart.
+try {
+  if (getSetting("MESSAGE_FILE_RETENTION") > 0) {
     backfillMessageFileExpiry();
     cleanupExpiredMessageFiles();
-  } catch (_) {
-    // best effort startup cleanup
   }
-
-  const expiryCleanupTimer = setInterval(() => {
-    try {
-      cleanupExpiredMessageFiles();
-    } catch (_) {
-      // keep server alive if cleanup fails
-    }
-  }, MESSAGE_FILE_CLEANUP_INTERVAL_MS);
-
-  if (typeof expiryCleanupTimer.unref === "function") {
-    expiryCleanupTimer.unref();
-  }
+} catch (_) {
+  // best effort startup cleanup
 }
 
-if (MESSAGE_TEXT_RETENTION_DAYS > 0) {
+const expiryCleanupTimer = setInterval(() => {
   try {
+    if (getSetting("MESSAGE_FILE_RETENTION") > 0) {
+      cleanupExpiredMessageFiles();
+    }
+  } catch (_) {
+    // keep server alive if cleanup fails
+  }
+}, MESSAGE_FILE_CLEANUP_INTERVAL_MS);
+
+if (typeof expiryCleanupTimer.unref === "function") {
+  expiryCleanupTimer.unref();
+}
+
+try {
+  if (getSetting("MESSAGE_TEXT_RETENTION") > 0) {
     backfillTextMessageExpiry();
     cleanupExpiredTextOnlyMessages();
-  } catch (_) {
-    // best effort startup cleanup
   }
+} catch (_) {
+  // best effort startup cleanup
+}
 
-  const textCleanupTimer = setInterval(() => {
-    try {
+const textCleanupTimer = setInterval(() => {
+  try {
+    if (getSetting("MESSAGE_TEXT_RETENTION") > 0) {
       backfillTextMessageExpiry();
       cleanupExpiredTextOnlyMessages();
-    } catch (_) {
-      // keep server alive if cleanup fails
     }
-  }, MESSAGE_FILE_CLEANUP_INTERVAL_MS);
-
-  if (typeof textCleanupTimer.unref === "function") {
-    textCleanupTimer.unref();
+  } catch (_) {
+    // keep server alive if cleanup fails
   }
+}, MESSAGE_FILE_CLEANUP_INTERVAL_MS);
+
+if (typeof textCleanupTimer.unref === "function") {
+  textCleanupTimer.unref();
 }
 
 // Defer the storage encryption backfill so it doesn't block the event loop
