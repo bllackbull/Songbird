@@ -119,9 +119,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, onStatsChange }, re
                       </td>
                       <td className="px-4 py-2.5">
                         <div className="flex flex-wrap items-center gap-1">
-                          {u.banned
-                            ? <span className="rounded-full bg-rose-100 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-rose-600 dark:bg-rose-500/10 dark:text-rose-400">banned</span>
-                            : <RoleBadge role={u.role} />}
+                          <RoleBadge role={u.role} banned={u.banned} />
                         </div>
                       </td>
                       <td className="px-4 py-2.5 text-[11px]">

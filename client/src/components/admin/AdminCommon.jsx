@@ -30,14 +30,19 @@ export function EmptyState({ message }) {
 
 // ─── Badges / icons ──────────────────────────────────────────────────────────
 
-export function RoleBadge({ role }) {
+const ROLE_CHIP_BASE = "inline-flex w-16 items-center justify-center rounded-full border px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide";
+
+export function RoleBadge({ role, banned = false }) {
+  if (banned) return (
+    <span className={`${ROLE_CHIP_BASE} border-rose-200 bg-rose-100 text-rose-600 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-400`}>banned</span>
+  );
   const r = (role === 0 || role === "0" || !role) ? "user" : String(role);
   if (r === "user") return <span className="text-[11px] text-slate-400 dark:text-slate-500">user</span>;
   if (r === "owner") return (
-    <span className="rounded-full border border-amber-300 bg-amber-50 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-400">{r}</span>
+    <span className={`${ROLE_CHIP_BASE} border-amber-300 bg-amber-50 text-amber-600 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-400`}>{r}</span>
   );
   return (
-    <span className="rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-400">{r}</span>
+    <span className={`${ROLE_CHIP_BASE} border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-400`}>{r}</span>
   );
 }
 
