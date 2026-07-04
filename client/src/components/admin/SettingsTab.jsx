@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import {
   AlertCircle,
   AtSign,
@@ -510,7 +510,7 @@ function SettingGroup({ groupKey, defs, effectiveVals, onChange }) {
 
 // ─── Main tab ─────────────────────────────────────────────────────────────────
 
-export default function SettingsTab() {
+const SettingsTab = forwardRef(function SettingsTab(_props, ref) {
   const [settings, setSettings] = useState([]);
   const [localVals, setLocalVals] = useState({});
   const [loading, setLoading] = useState(true);
@@ -553,6 +553,8 @@ export default function SettingsTab() {
       if (toastRef.current) clearTimeout(toastRef.current);
     };
   }, [fetchSettings]);
+
+  useImperativeHandle(ref, () => ({ refresh: fetchSettings }), [fetchSettings]);
 
   // Build a lookup map from key → def for quick access
   const defsByKey = Object.fromEntries(settings.map((d) => [d.key, d]));
@@ -781,4 +783,6 @@ export default function SettingsTab() {
       />
     </div>
   );
-}
+});
+
+export default SettingsTab;

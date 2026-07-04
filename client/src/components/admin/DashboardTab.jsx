@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import {
   Activity,
   Ban,
@@ -140,7 +140,7 @@ function SemiCircleGauge({
   );
 }
 
-export default function DashboardTab({ stats, onStatsChange }) {
+const DashboardTab = forwardRef(function DashboardTab({ stats, onStatsChange }, ref) {
   const [sys, setSys] = useState(null);
 
   const loadSys = useCallback(async () => {
@@ -159,6 +159,10 @@ export default function DashboardTab({ stats, onStatsChange }) {
     }, 10000);
     return () => clearInterval(timer);
   }, [loadSys, onStatsChange]);
+
+  useImperativeHandle(ref, () => ({
+    refresh: () => { loadSys(); onStatsChange(); },
+  }), [loadSys, onStatsChange]);
 
   const sysPct = sys
     ? Math.round((sys.memory.systemUsed / sys.memory.systemTotal) * 100)
@@ -228,7 +232,7 @@ export default function DashboardTab({ stats, onStatsChange }) {
     {
       label: "Total Messages",
       value: stats?.totalMessages,
-      icon: Database,
+      icon: MessageCircleMore,
       accent: "emerald",
     },
     {
@@ -262,7 +266,7 @@ export default function DashboardTab({ stats, onStatsChange }) {
 
   const infoCards = [
     {
-      label: "Uploads",
+      label: "Database Size",
       value: sys ? fmtBytes(uploadsSize) : "—",
       icon: Database,
       hint: "Total size of uploaded files on disk",
@@ -376,4 +380,6 @@ export default function DashboardTab({ stats, onStatsChange }) {
       </div>
     </div>
   );
-}
+});
+
+export default DashboardTab;

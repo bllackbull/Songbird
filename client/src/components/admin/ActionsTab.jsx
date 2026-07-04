@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { apiFetch } from "../../api/chatApi.js";
 import { fetchAppInfo, checkAppVersion } from "../../api/appMetaApi.js";
 import {
@@ -150,7 +150,7 @@ function CheckUpdateRow({ appInfo }) {
   );
 }
 
-export default function ActionsTab() {
+const ActionsTab = forwardRef(function ActionsTab(_props, ref) {
   const [appInfo, setAppInfo] = useState(null);
   const [rowStatus, setRowStatus] = useState({});
   const statusTimers = useRef({});
@@ -183,18 +183,16 @@ export default function ActionsTab() {
     }
   };
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadAppInfo = useCallback(() => {
     fetchAppInfo()
       .then((r) => r.json())
-      .then((d) => {
-        if (!cancelled) setAppInfo(d);
-      })
+      .then((d) => setAppInfo(d))
       .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
   }, []);
+
+  useEffect(() => { loadAppInfo(); }, [loadAppInfo]);
+
+  useImperativeHandle(ref, () => ({ refresh: loadAppInfo }), [loadAppInfo]);
 
   const confirmVacuum = async () => {
     flashStatus("vacuum", "busy", "Vacuuming…");
@@ -454,4 +452,6 @@ export default function ActionsTab() {
       />
     </div>
   );
-}
+});
+
+export default ActionsTab;

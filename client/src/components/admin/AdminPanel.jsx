@@ -47,18 +47,22 @@ export default function AdminPanel({ user, onBack, isDark, toggleTheme }) {
   const themeAnimRef = useRef(null);
   const [refreshState, setRefreshState] = useState(""); // "" | "loading" | "done"
   const refreshResetRef = useRef(null);
+  const tabRefs = useRef({});
 
   const refreshStats = useCallback(async () => {
     try { const d = await api.get("/api/admin/stats"); setStats(d); } catch {}
   }, []);
 
+  // The top bar refresh button refreshes the shared stats plus whatever data
+  // the currently active tab is showing, so tabs don't need their own
+  // separate refresh controls.
   const handleManualRefresh = useCallback(async () => {
     if (refreshResetRef.current) { clearTimeout(refreshResetRef.current); refreshResetRef.current = null; }
     setRefreshState("loading");
-    await refreshStats();
+    await Promise.all([refreshStats(), tabRefs.current[tab]?.refresh?.()]);
     setRefreshState("done");
     refreshResetRef.current = setTimeout(() => setRefreshState(""), 1500);
-  }, [refreshStats]);
+  }, [refreshStats, tab]);
 
   useEffect(() => { refreshStats(); }, [refreshStats]);
   useEffect(() => () => { if (refreshResetRef.current) clearTimeout(refreshResetRef.current); }, []);
@@ -185,12 +189,12 @@ export default function AdminPanel({ user, onBack, isDark, toggleTheme }) {
         </div>
 
         <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-4 md:p-5">
-          {tab === "dashboard" && <DashboardTab stats={stats} onStatsChange={refreshStats} />}
-          {tab === "users"     && <UsersTab currentUser={user} onStatsChange={refreshStats} />}
-          {tab === "chats"     && <ChatsTab onStatsChange={refreshStats} />}
-          {tab === "settings"  && <SettingsTab />}
-          {tab === "actions"   && <ActionsTab />}
-          {tab === "logs"      && <LogsTab />}
+          {tab === "dashboard" && <DashboardTab ref={(r) => { tabRefs.current.dashboard = r; }} stats={stats} onStatsChange={refreshStats} />}
+          {tab === "users"     && <UsersTab ref={(r) => { tabRefs.current.users = r; }} currentUser={user} onStatsChange={refreshStats} />}
+          {tab === "chats"     && <ChatsTab ref={(r) => { tabRefs.current.chats = r; }} onStatsChange={refreshStats} />}
+          {tab === "settings"  && <SettingsTab ref={(r) => { tabRefs.current.settings = r; }} />}
+          {tab === "actions"   && <ActionsTab ref={(r) => { tabRefs.current.actions = r; }} />}
+          {tab === "logs"      && <LogsTab ref={(r) => { tabRefs.current.logs = r; }} />}
         </div>
       </div>
     </div>

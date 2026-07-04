@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { ChevronDown, Globe, Lock, Megaphone, MessageCircleMore, Pencil, Plus, Search, Trash, Users } from "../../icons/lucide.js";
 import { api, cardCls, inputSmCls, btnPrimary, iconBtn, fmtDate, searchIconCls } from "./adminShared.js";
 import { LoadingRows, EmptyState, FilterDropdown, SortTh } from "./AdminCommon.jsx";
@@ -6,7 +6,7 @@ import AdminGroupModal from "./AdminGroupModal.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 import Avatar from "../common/Avatar.jsx";
 
-export default function ChatsTab({ onStatsChange }) {
+const ChatsTab = forwardRef(function ChatsTab({ onStatsChange }, ref) {
   const [chats, setChats]             = useState([]);
   const [initialized, setInitialized] = useState(false);
   const [search, setSearch]           = useState("");
@@ -44,6 +44,8 @@ export default function ChatsTab({ onStatsChange }) {
     debounceRef.current = setTimeout(load, 250);
     return () => clearTimeout(debounceRef.current);
   }, [search, typeFilter, sortBy, sortDir, load]);
+
+  useImperativeHandle(ref, () => ({ refresh: load }), [load]);
 
   const toggleSort = (field) => {
     setSortBy((prev) => {
@@ -164,4 +166,6 @@ export default function ChatsTab({ onStatsChange }) {
       />
     </div>
   );
-}
+});
+
+export default ChatsTab;

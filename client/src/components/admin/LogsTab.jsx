@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import {
   Ban,
   Brush,
@@ -62,7 +62,7 @@ const LOG_SOURCES = [
   { id: "nginx",     label: "Nginx" },
 ];
 
-function AdminLogView() {
+const AdminLogView = forwardRef(function AdminLogView(_props, ref) {
   const [logs, setLogs]               = useState([]);
   const [initialized, setInitialized] = useState(false);
   const [search, setSearch]           = useState("");
@@ -82,6 +82,8 @@ function AdminLogView() {
     return () => clearTimeout(debounceRef.current);
   }, [search, load]);
 
+  useImperativeHandle(ref, () => ({ refresh: load }), [load]);
+
   const clearLogs = async () => {
     if (!confirm("Clear all admin logs? This cannot be undone.")) return;
     await api.delete("/api/admin/logs");
@@ -97,9 +99,6 @@ function AdminLogView() {
           </span>
           <input type="text" placeholder="Search logs…" value={search} onChange={(e) => setSearch(e.target.value)} className={inputSmCls + " pl-8"} />
         </label>
-        <button type="button" onClick={load} className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:bg-slate-100 dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5" title="Refresh">
-          <Refresh size={14} className="icon-anim-spin-full" />
-        </button>
         <button type="button" onClick={clearLogs} className={btnDanger}><Trash size={13} className="icon-anim-slide" /> Clear</button>
       </div>
 
@@ -132,9 +131,9 @@ function AdminLogView() {
       )}
     </div>
   );
-}
+});
 
-function SystemLogView({ source }) {
+const SystemLogView = forwardRef(function SystemLogView({ source }, ref) {
   const [data, setData]               = useState(null);
   const [initialized, setInitialized] = useState(false);
 
@@ -146,13 +145,10 @@ function SystemLogView({ source }) {
 
   useEffect(() => { setInitialized(false); load(); }, [load]);
 
+  useImperativeHandle(ref, () => ({ refresh: load }), [load]);
+
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-end">
-        <button type="button" onClick={load} className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:bg-slate-100 dark:border-white/10 dark:text-slate-400 dark:hover:bg-white/5" title="Refresh">
-          <Refresh size={14} className="icon-anim-spin-full" />
-        </button>
-      </div>
       {!initialized ? <LoadingRows /> : !data?.available ? (
         <EmptyState message={data?.reason || "Logs not available."} />
       ) : data.lines.length === 0 ? (
@@ -167,10 +163,14 @@ function SystemLogView({ source }) {
       {data?.source && <p className="text-[11px] text-slate-400 dark:text-slate-500">Source: <code className="rounded bg-slate-100 px-1 py-0.5 dark:bg-white/10">{data.source}</code></p>}
     </div>
   );
-}
+});
 
-export default function LogsTab() {
+const LogsTab = forwardRef(function LogsTab(_props, ref) {
   const [source, setSource] = useState("admin");
+  const viewRef = useRef(null);
+
+  useImperativeHandle(ref, () => ({ refresh: () => viewRef.current?.refresh() }), []);
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-1.5">
@@ -185,7 +185,9 @@ export default function LogsTab() {
           </button>
         ))}
       </div>
-      {source === "admin" ? <AdminLogView /> : <SystemLogView source={source} />}
+      {source === "admin" ? <AdminLogView ref={viewRef} /> : <SystemLogView ref={viewRef} source={source} key={source} />}
     </div>
   );
-}
+});
+
+export default LogsTab;

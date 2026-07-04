@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { Ban, CirclePlus, Pencil, Search, ShieldCheck, ShieldOff, Trash, UserPlus } from "../../icons/lucide.js";
 import { api, cardCls, inputSmCls, btnPrimary, iconBtn, fmtDate, searchIconCls } from "./adminShared.js";
 import { LoadingRows, EmptyState, FilterDropdown, SortTh, RoleBadge } from "./AdminCommon.jsx";
@@ -6,7 +6,7 @@ import AdminUserModal from "./AdminUserModal.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 import Avatar from "../common/Avatar.jsx";
 
-export default function UsersTab({ currentUser, onStatsChange }) {
+const UsersTab = forwardRef(function UsersTab({ currentUser, onStatsChange }, ref) {
   const [users, setUsers]             = useState([]);
   const [initialized, setInitialized] = useState(false);
   const [search, setSearch]           = useState("");
@@ -36,6 +36,8 @@ export default function UsersTab({ currentUser, onStatsChange }) {
     debounceRef.current = setTimeout(load, 250);
     return () => clearTimeout(debounceRef.current);
   }, [search, roleFilter, statusFilter, sortBy, sortDir, load]);
+
+  useImperativeHandle(ref, () => ({ refresh: load }), [load]);
 
   const toggleSort = (field) => {
     setSortBy((prev) => {
@@ -212,4 +214,6 @@ export default function UsersTab({ currentUser, onStatsChange }) {
       />
     </div>
   );
-}
+});
+
+export default UsersTab;
