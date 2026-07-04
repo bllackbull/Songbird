@@ -158,6 +158,7 @@ export default function ActionsTab() {
   const [pendingFile, setPendingFile] = useState(null);
   const [serviceAction, setServiceAction] = useState(null);
   const [danger, setDanger] = useState(null);
+  const [vacuumConfirmOpen, setVacuumConfirmOpen] = useState(false);
   const fileRef = useRef(null);
 
   useEffect(
@@ -195,19 +196,15 @@ export default function ActionsTab() {
     };
   }, []);
 
-  const runVacuum = async () => {
-    if (
-      !confirm(
-        "Run VACUUM now? This rewrites the database file to reclaim space.",
-      )
-    )
-      return;
+  const confirmVacuum = async () => {
     flashStatus("vacuum", "busy", "Vacuuming…");
     try {
       const r = await api.post("/api/admin/maintenance/vacuum", {});
       flashStatus("vacuum", r.ok ? "success" : "error", r.ok ? "Vacuumed" : "Failed");
     } catch {
       flashStatus("vacuum", "error", "Failed");
+    } finally {
+      setVacuumConfirmOpen(false);
     }
   };
 
@@ -339,7 +336,7 @@ export default function ActionsTab() {
             iconAnim="icon-anim-wiggle"
             label="Vacuum database"
             description="Reclaim unused space and defragment the DB file."
-            onClick={runVacuum}
+            onClick={() => setVacuumConfirmOpen(true)}
             status={rowStatus.vacuum}
           />
         </div>
@@ -393,6 +390,18 @@ export default function ActionsTab() {
           />
         </div>
       </div>
+
+      <ConfirmModal
+        open={vacuumConfirmOpen}
+        title="Vacuum database"
+        message="Run VACUUM now? This rewrites the database file to reclaim space."
+        confirmLabel={rowStatus.vacuum?.type === "busy" ? "Vacuuming…" : "Vacuum"}
+        busy={rowStatus.vacuum?.type === "busy"}
+        onConfirm={confirmVacuum}
+        onClose={() => {
+          if (rowStatus.vacuum?.type !== "busy") setVacuumConfirmOpen(false);
+        }}
+      />
 
       <ConfirmModal
         open={Boolean(pendingFile)}
