@@ -25,7 +25,7 @@ import { buildTimestampSchedule } from "./lib/timeUtils.js";
 import { isLoopbackRequest, parseUploadFileMetadata } from "./lib/requestUtils.js";
 import { USERNAME_REGEX } from "./lib/validation.js";
 import { USER_COLORS, setUserColor } from "./settings/colors.js";
-import { readEnvBool, readEnvInt } from "./settings/env.js";
+import { readEnvInt } from "./settings/env.js";
 import {
   addChatMember,
   adminGetAll,
@@ -162,26 +162,27 @@ loadSettings(dbGetAllSettings);
 const port = process.env.SERVER_PORT || process.env.PORT || 5174;
 const appEnv = process.env.APP_ENV || "production";
 const isProduction = appEnv === "production";
-const APP_DEBUG = readEnvBool("APP_DEBUG", false);
 
 function debugLog(...args) {
-  if (!APP_DEBUG) return;
+  if (!getSetting("APP_DEBUG")) return;
   console.log("[app-debug]", ...args);
 }
 
 const debugRouteCounts = new Map();
 
-if (APP_DEBUG) {
-  setInterval(() => {
-    const entries = Array.from(debugRouteCounts.entries())
-      .sort((a, b) => b[1] - a[1])
-      .map(([route, count]) => ({ route, count }));
+// Always scheduled; the interval body checks the live setting on each tick
+// so toggling APP_DEBUG in the admin panel takes effect without a restart.
+const debugSummaryTimer = setInterval(() => {
+  if (!getSetting("APP_DEBUG")) return;
+  const entries = Array.from(debugRouteCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([route, count]) => ({ route, count }));
 
-    debugLog("api:requests-per-minute", { routes: entries });
+  debugLog("api:requests-per-minute", { routes: entries });
 
-    debugRouteCounts.clear();
-  }, 60 * 1000);
-}
+  debugRouteCounts.clear();
+}, 60 * 1000);
+if (typeof debugSummaryTimer.unref === "function") debugSummaryTimer.unref();
 
 app.set("trust proxy", 1);
 
@@ -205,41 +206,43 @@ app.use((req, res, next) => {
   next();
 });
 
-if (APP_DEBUG) {
-  app.use((req, res, next) => {
-    const startedAt = Date.now();
-    let responseBody = null;
-    const originalJson = res.json.bind(res);
+// Always registered; each request checks the live setting so toggling
+// APP_DEBUG in the admin panel takes effect without a restart.
+app.use((req, res, next) => {
+  if (!getSetting("APP_DEBUG")) return next();
 
-    res.json = (body) => {
-      responseBody = body;
-      return originalJson(body);
-    };
+  const startedAt = Date.now();
+  let responseBody = null;
+  const originalJson = res.json.bind(res);
 
-    res.on("finish", () => {
-      const routeKey = `${String(req.method || "GET").toUpperCase()} ${
-        String(req.path || req.originalUrl || req.url || "").split("?")[0]
-      }`;
+  res.json = (body) => {
+    responseBody = body;
+    return originalJson(body);
+  };
 
-      debugRouteCounts.set(
-        routeKey,
-        Number(debugRouteCounts.get(routeKey) || 0) + 1,
-      );
+  res.on("finish", () => {
+    const routeKey = `${String(req.method || "GET").toUpperCase()} ${
+      String(req.path || req.originalUrl || req.url || "").split("?")[0]
+    }`;
 
-      debugLog("api:request", {
-        method: req.method,
-        path: req.originalUrl || req.url || "",
-        query: req.query || {},
-        params: req.params || {},
-        body: req.body || {},
-        status: Number(res.statusCode || 0),
-        durationMs: Date.now() - startedAt,
-        response: responseBody,
-      });
+    debugRouteCounts.set(
+      routeKey,
+      Number(debugRouteCounts.get(routeKey) || 0) + 1,
+    );
+
+    debugLog("api:request", {
+      method: req.method,
+      path: req.originalUrl || req.url || "",
+      query: req.query || {},
+      params: req.params || {},
+      body: req.body || {},
+      status: Number(res.statusCode || 0),
+      durationMs: Date.now() - startedAt,
+      response: responseBody,
     });
-    next();
   });
-}
+  next();
+});
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -289,12 +292,10 @@ const REMOTE_CHANNEL_TELEGRAM_SESSION_STRING = String(
   process.env.REMOTE_CHANNEL_TELEGRAM_SESSION_STRING || "",
 ).trim();
 const REMOTE_CHANNEL_PROXY_URL = String(
-  process.env.REMOTE_CHANNEL_TELEGRAM_PROXY_URL ||
-  process.env.REMOTE_CHANNEL_PROXY_URL ||
-  "",
+  getSetting("REMOTE_CHANNEL_TELEGRAM_PROXY_URL") || "",
 ).trim();
 const REMOTE_CHANNEL_SONGBIRD_PROXY_URL = String(
-  process.env.REMOTE_CHANNEL_SONGBIRD_PROXY_URL || "",
+  getSetting("REMOTE_CHANNEL_SONGBIRD_PROXY_URL") || "",
 ).trim();
 const REMOTE_CHANNEL_TELEGRAM_CONFIGURED = Boolean(
   REMOTE_CHANNEL_TELEGRAM_API_ID &&
@@ -539,7 +540,8 @@ registerUploadRoutes(app, { adminGetRow });
 
 const apiDeps = {
   ALLOWED_AVATAR_MIME_TYPES,
-  APP_DEBUG,
+  // APP_DEBUG intentionally NOT passed here — messages.js must call
+  // getSetting("APP_DEBUG") at request time so admin-panel changes apply live.
   AVATAR_FILE_LIMITS,
   // FILE_UPLOAD, MESSAGE_FILE_RETENTION_DAYS, MESSAGE_TEXT_RETENTION_DAYS,
   // TRANSCODE_VIDEOS_TO_H264, NICKNAME_MAX, USERNAME_MAX, MESSAGE_MAX_CHARS,

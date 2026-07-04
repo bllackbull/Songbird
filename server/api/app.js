@@ -21,6 +21,9 @@ function registerAppRoutes(app, deps) {
       usernameMaxChars: Number(getSetting("USERNAME_MAX_CHARS")) || 16,
       nicknameMaxChars: Number(getSetting("NICKNAME_MAX_CHARS")) || 24,
       fileUploadEnabled: Boolean(getSetting("FILE_UPLOAD")),
+      chatMessageFetchLimit: Number(getSetting("CHAT_MESSAGE_FETCH_LIMIT")) || 60,
+      chatMessagePageSize: Number(getSetting("CHAT_MESSAGE_PAGE_SIZE")) || 60,
+      chatCacheTtlHours: Number(getSetting("CHAT_CACHE_TTL")) || 24,
       remoteChannels: {
         // enabled/telegramConfigured/proxyConfigured stay restart-scoped
         // (Telegram credentials + remoteChannelManager are wired once at

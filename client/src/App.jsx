@@ -4,6 +4,7 @@ import logo from './assets/songbird-logo.svg'
 import { APP_CONFIG, setMessageMaxChars } from './settings/appConfig.js'
 import { fetchAppInfo } from './api/appMetaApi.js'
 import { setNameLimits } from './utils/nameLimits.js'
+import { setChatPageConfig } from './settings/chatPageConfig.js'
 import InstallBar from './components/pwa/InstallBar.jsx'
 import InstallGuideModal from './components/pwa/InstallGuideModal.jsx'
 
@@ -718,6 +719,11 @@ export default function App() {
           usernameMax: data?.usernameMaxChars,
         })
         setMessageMaxChars(data?.messageMaxChars)
+        setChatPageConfig({
+          messageFetchLimit: data?.chatMessageFetchLimit,
+          messagePageSize: data?.chatMessagePageSize,
+          cacheTtlHours: data?.chatCacheTtlHours,
+        })
       })
       .catch(() => {
         // Keep the build-time defaults on failure.

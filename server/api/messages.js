@@ -2,7 +2,6 @@ import rateLimit from "express-rate-limit";
 
 function registerMessageRoutes(app, deps) {
   const {
-    APP_DEBUG,
     MESSAGE_FILE_LIMITS,
     getSetting,
     cleanupMissingMessageFiles,
@@ -336,7 +335,7 @@ function registerMessageRoutes(app, deps) {
         return !hasPendingVideo;
       });
 
-    if (APP_DEBUG) {
+    if (getSetting("APP_DEBUG")) {
       const processingRows = [];
 
       enriched.forEach((message) => {

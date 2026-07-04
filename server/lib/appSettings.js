@@ -38,6 +38,17 @@ const TYPE_STRING = "string";
 //   restart     – if true, hint to the admin panel that a server restart is needed
 
 export const SETTING_DEFS = [
+  // ── Diagnostics ────────────────────────────────────────────────────────────────
+  {
+    key: "APP_DEBUG",
+    type: TYPE_BOOL,
+    label: "Debug logging",
+    description: "Log detailed request/response info to the service logs.",
+    group: "diagnostics",
+    envKey: "APP_DEBUG",
+    defaultVal: false,
+  },
+
   // ── Registration ─────────────────────────────────────────────────────────────
   {
     key: "SIGN_UP",
@@ -286,6 +297,65 @@ export const SETTING_DEFS = [
     min: 10000,
     max: 3600000,
     restart: true,
+  },
+  {
+    key: "REMOTE_CHANNEL_TELEGRAM_PROXY_URL",
+    type: TYPE_STRING,
+    label: "Telegram proxy",
+    description:
+      "Proxy URL for the Telegram MTProto connection (http/https/socks4/socks5/mtproxy).",
+    group: "remote_channel",
+    envKey: ["REMOTE_CHANNEL_TELEGRAM_PROXY_URL", "REMOTE_CHANNEL_PROXY_URL"],
+    defaultVal: "",
+    restart: true, // baked into the TelegramClient connection at startup
+    nullable: true,
+  },
+  {
+    key: "REMOTE_CHANNEL_SONGBIRD_PROXY_URL",
+    type: TYPE_STRING,
+    label: "Songbird proxy",
+    description:
+      "Proxy URL for outbound server-to-server requests to remote Songbird instances.",
+    group: "remote_channel",
+    envKey: "REMOTE_CHANNEL_SONGBIRD_PROXY_URL",
+    defaultVal: "",
+    restart: true,
+    nullable: true,
+  },
+
+  // ── Client tuning ──────────────────────────────────────────────────────────────
+  {
+    key: "CHAT_MESSAGE_FETCH_LIMIT",
+    type: TYPE_INT,
+    label: "Message fetch limit",
+    description: "Maximum number of messages the client fetches from the server per request.",
+    group: "client",
+    envKey: "CHAT_MESSAGE_FETCH_LIMIT",
+    defaultVal: 60,
+    min: 1,
+    max: 500,
+  },
+  {
+    key: "CHAT_MESSAGE_PAGE_SIZE",
+    type: TYPE_INT,
+    label: "Message page size",
+    description: "Number of messages loaded per page when scrolling up in a chat.",
+    group: "client",
+    envKey: "CHAT_MESSAGE_PAGE_SIZE",
+    defaultVal: 60,
+    min: 10,
+    max: 500,
+  },
+  {
+    key: "CHAT_CACHE_TTL",
+    type: TYPE_INT,
+    label: "Client cache lifetime",
+    description: "Hours to keep chat data cached on the client before it's considered stale.",
+    group: "client",
+    envKey: "CHAT_CACHE_TTL",
+    defaultVal: 24,
+    min: 1,
+    max: 720,
   },
 
   // ── Push notifications ────────────────────────────────────────────────────────

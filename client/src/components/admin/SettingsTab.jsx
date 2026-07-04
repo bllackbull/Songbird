@@ -5,9 +5,11 @@ import {
   Bell,
   Box,
   Boxes,
+  Bug,
   Check,
   Clock12,
   ClockFading,
+  Database,
   Download,
   Files,
   ImageIcon,
@@ -33,16 +35,19 @@ import ConfirmModal from "../modals/ConfirmModal.jsx";
 // ─── Group metadata ───────────────────────────────────────────────────────────
 
 const GROUP_META = {
-  registration: { label: "Registration", order: 0 },
-  uploads: { label: "File Uploads", order: 1 },
-  retention: { label: "Message Retention", order: 2 },
-  limits: { label: "Limits", order: 3 },
-  push: { label: "Push Notifications", order: 4 },
-  remote_channel: { label: "Remote Channel", order: 5 },
+  diagnostics: { label: "Diagnostics", order: 0 },
+  registration: { label: "Registration", order: 1 },
+  uploads: { label: "File Uploads", order: 2 },
+  retention: { label: "Message Retention", order: 3 },
+  limits: { label: "Limits", order: 4 },
+  client: { label: "Client Behavior", order: 5 },
+  push: { label: "Push Notifications", order: 6 },
+  remote_channel: { label: "Remote Channel", order: 7 },
 };
 
 // Icon for each setting key
 const SETTING_ICONS = {
+  APP_DEBUG: Bug,
   SIGN_UP: UserPlus,
   FILE_UPLOAD: Paperclip,
   FILE_UPLOAD_MAX_SIZE_MB: Box,
@@ -54,6 +59,9 @@ const SETTING_ICONS = {
   MESSAGE_MAX_CHARS: MessageCircleMore,
   USERNAME_MAX_CHARS: AtSign,
   NICKNAME_MAX_CHARS: Pencil,
+  CHAT_MESSAGE_FETCH_LIMIT: Download,
+  CHAT_MESSAGE_PAGE_SIZE: SquareStack,
+  CHAT_CACHE_TTL: Database,
   REMOTE_CHANNEL: SatelliteDish,
   REMOTE_CHANNEL_UI: ToggleRight,
   REMOTE_CHANNEL_MEDIA_STREAM: ImageIcon,
@@ -64,11 +72,14 @@ const SETTING_ICONS = {
   REMOTE_CHANNEL_QUEUE_BATCH_SIZE: Box,
   REMOTE_CHANNEL_QUEUE_CONCURRENCY: SquareStack,
   REMOTE_CHANNEL_QUEUE_STALE_LOCK_MS: Lock,
+  REMOTE_CHANNEL_TELEGRAM_PROXY_URL: SatelliteDish,
+  REMOTE_CHANNEL_SONGBIRD_PROXY_URL: SatelliteDish,
   PUSH_PROXY_URL: Bell,
 };
 
 // Per-icon hover animation
 const SETTING_ICON_ANIM = {
+  APP_DEBUG: "icon-anim-sway",
   SIGN_UP: "icon-anim-pop",
   FILE_UPLOAD: "icon-anim-sway",
   FILE_UPLOAD_MAX_SIZE_MB: "icon-anim-bob",
@@ -80,6 +91,9 @@ const SETTING_ICON_ANIM = {
   MESSAGE_MAX_CHARS: "icon-anim-sway",
   USERNAME_MAX_CHARS: "icon-anim-pop",
   NICKNAME_MAX_CHARS: "icon-anim-sway",
+  CHAT_MESSAGE_FETCH_LIMIT: "icon-anim-drop",
+  CHAT_MESSAGE_PAGE_SIZE: "icon-anim-lift",
+  CHAT_CACHE_TTL: "icon-anim-lift",
   REMOTE_CHANNEL: "icon-anim-sway",
   REMOTE_CHANNEL_UI: "icon-anim-lift",
   REMOTE_CHANNEL_MEDIA_STREAM: "icon-anim-pop",
@@ -90,6 +104,8 @@ const SETTING_ICON_ANIM = {
   REMOTE_CHANNEL_QUEUE_BATCH_SIZE: "icon-anim-bob",
   REMOTE_CHANNEL_QUEUE_CONCURRENCY: "icon-anim-lift",
   REMOTE_CHANNEL_QUEUE_STALE_LOCK_MS: "icon-anim-bob",
+  REMOTE_CHANNEL_TELEGRAM_PROXY_URL: "icon-anim-swing",
+  REMOTE_CHANNEL_SONGBIRD_PROXY_URL: "icon-anim-swing",
   PUSH_PROXY_URL: "icon-anim-swing",
 };
 
