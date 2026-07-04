@@ -50,9 +50,9 @@ const LOG_ACTION_META = {
 };
 
 const LOG_COLORS = {
-  emerald: { icon: "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400" },
-  rose:    { icon: "bg-rose-50 text-rose-500 dark:bg-rose-500/10 dark:text-rose-400" },
-  slate:   { icon: "bg-slate-100 text-slate-500 dark:bg-white/5 dark:text-slate-400" },
+  emerald: { icon: "text-emerald-600 dark:text-emerald-400" },
+  rose:    { icon: "text-rose-500 dark:text-rose-400" },
+  slate:   { icon: "text-slate-500 dark:text-slate-400" },
 };
 
 const LOG_SOURCES = [
@@ -111,8 +111,8 @@ function AdminLogView() {
             const colors = LOG_COLORS[meta.color] || LOG_COLORS.slate;
             return (
               <div key={i} className={`flex items-start gap-3 px-4 py-3 ${i < logs.length - 1 ? "border-b border-slate-100 dark:border-white/5" : ""}`}>
-                <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${colors.icon}`}>
-                  <Icon size={13} />
+                <div className={`flex h-7 w-7 shrink-0 items-center justify-center ${colors.icon}`}>
+                  <Icon size={18} />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">

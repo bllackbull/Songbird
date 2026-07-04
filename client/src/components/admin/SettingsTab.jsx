@@ -67,6 +67,32 @@ const SETTING_ICONS = {
   PUSH_PROXY_URL: Bell,
 };
 
+// Per-icon hover animation
+const SETTING_ICON_ANIM = {
+  SIGN_UP: "icon-anim-pop",
+  FILE_UPLOAD: "icon-anim-sway",
+  FILE_UPLOAD_MAX_SIZE_MB: "icon-anim-bob",
+  FILE_UPLOAD_MAX_TOTAL_SIZE_MB: "icon-anim-bob",
+  FILE_UPLOAD_MAX_FILES: "icon-anim-lift",
+  FILE_UPLOAD_TRANSCODE_VIDEOS: "icon-anim-sway",
+  MESSAGE_FILE_RETENTION: "icon-anim-swing",
+  MESSAGE_TEXT_RETENTION: "icon-anim-swing",
+  MESSAGE_MAX_CHARS: "icon-anim-sway",
+  USERNAME_MAX_CHARS: "icon-anim-pop",
+  NICKNAME_MAX_CHARS: "icon-anim-sway",
+  REMOTE_CHANNEL: "icon-anim-sway",
+  REMOTE_CHANNEL_UI: "icon-anim-lift",
+  REMOTE_CHANNEL_MEDIA_STREAM: "icon-anim-pop",
+  REMOTE_CHANNEL_POLL_INTERVAL_MS: "icon-anim-swing",
+  REMOTE_CHANNEL_TELEGRAM_POLL_LIMIT: "icon-anim-drop",
+  REMOTE_CHANNEL_QUEUE_INTERVAL_MS: "icon-anim-swing",
+  REMOTE_CHANNEL_QUEUE_MAX_ATTEMPTS: "icon-anim-wiggle",
+  REMOTE_CHANNEL_QUEUE_BATCH_SIZE: "icon-anim-bob",
+  REMOTE_CHANNEL_QUEUE_CONCURRENCY: "icon-anim-lift",
+  REMOTE_CHANNEL_QUEUE_STALE_LOCK_MS: "icon-anim-bob",
+  PUSH_PROXY_URL: "icon-anim-swing",
+};
+
 // Keys that act as the master enable/disable toggle for their whole group.
 // When the master is false, all other rows in the group are disabled.
 const GROUP_MASTER = {
@@ -175,17 +201,18 @@ function NumberInput({ value, onChange, min, max, disabled = false }) {
 
 function SubRow({ def, localVal, onChange, masterDisabled = false }) {
   const Icon = SETTING_ICONS[def.key] ?? Info;
+  const iconAnim = SETTING_ICON_ANIM[def.key] ?? "icon-anim-sway";
   const envLocked = Boolean(def.envLocked);
   // Only disable controls for masterDisabled — envLocked dims the whole
   // sub-row via opacity already, so the control doesn't need a second layer.
   const isDisabled = masterDisabled;
 
   return (
-    <div className={`flex items-center gap-3 border-t px-4 py-3 border-emerald-100 dark:border-emerald-500/20 transition-opacity ${
+    <div className={`settings-row flex items-center gap-3 border-t px-4 py-3 border-emerald-100 dark:border-emerald-500/20 transition-opacity ${
       masterDisabled ? "opacity-40" : ""
     }`}>
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-50 text-slate-400 dark:bg-slate-800/50 dark:text-slate-500">
-        <Icon size={15} />
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center text-slate-400 dark:text-slate-500">
+        <Icon size={20} className={iconAnim} />
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-1.5">
@@ -229,6 +256,7 @@ function SubRow({ def, localVal, onChange, masterDisabled = false }) {
 
 function SettingRow({ def, localVal, onChange, groupDisabled = false, childDefs = [], childVals = {}, onChildChange, masterOff = false }) {
   const Icon = SETTING_ICONS[def.key] ?? Info;
+  const iconAnim = SETTING_ICON_ANIM[def.key] ?? "icon-anim-sway";
   const isNullable = Boolean(def.nullable);
   const isNullableString = isNullable && def.type === "string";
   const nullIntVal = "0";
@@ -284,9 +312,9 @@ function SettingRow({ def, localVal, onChange, groupDisabled = false, childDefs 
       envLocked || groupDisabled ? "opacity-50 pointer-events-none" : ""
     }`}>
       {/* ── Main row ──────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-3 p-4">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
-          <Icon size={16} />
+      <div className="settings-row flex items-center gap-3 p-4">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center text-emerald-600 dark:text-emerald-400">
+          <Icon size={22} className={iconAnim} />
         </div>
 
         <div className="min-w-0 flex-1">
@@ -331,12 +359,12 @@ function SettingRow({ def, localVal, onChange, groupDisabled = false, childDefs 
       {/* ── Sub-row for nullable int (retention period) ───────────────────── */}
       {isNullable && def.type === "int" && (
         <div
-          className={`flex items-center gap-3 border-t px-4 py-3 ${
+          className={`settings-row flex items-center gap-3 border-t px-4 py-3 ${
             isEnabled ? "" : "opacity-40"
           } border-emerald-100 dark:border-emerald-500/20`}
         >
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-50 text-slate-400 dark:bg-slate-800/50 dark:text-slate-500">
-            <Clock12 size={15} />
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center text-slate-400 dark:text-slate-500">
+            <Clock12 size={20} className="icon-anim-sway" />
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">
@@ -361,12 +389,12 @@ function SettingRow({ def, localVal, onChange, groupDisabled = false, childDefs 
       {/* ── Sub-rows for nullable string (proxy URL) ──────────────────────── */}
       {isNullable && def.type === "string" && (
         <div
-          className={`flex items-start gap-3 border-t px-4 py-3 ${
+          className={`settings-row flex items-start gap-3 border-t px-4 py-3 ${
             isEnabled ? "" : "opacity-40"
           } border-emerald-100 dark:border-emerald-500/20`}
         >
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-50 text-slate-400 dark:bg-slate-800/50 dark:text-slate-500">
-            <Link size={15} />
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center text-slate-400 dark:text-slate-500">
+            <Link size={20} className="icon-anim-swing" />
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">
@@ -667,7 +695,7 @@ export default function SettingsTab() {
           onClick={() => setResetOpen(true)}
           className={btnSecondary}
         >
-          <Rotate size={13} />
+          <Rotate size={13} className="icon-anim-wiggle" />
           Restore defaults
         </button>
         <button
@@ -681,7 +709,7 @@ export default function SettingsTab() {
           {saving ? (
             <LoaderCircle size={13} className="animate-spin" />
           ) : (
-            <Check size={13} />
+            <Check size={13} className="icon-anim-pop" />
           )}
           Save
         </button>

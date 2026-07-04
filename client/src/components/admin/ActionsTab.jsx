@@ -100,9 +100,9 @@ function SystemCard({ appInfo, onRestart, onStop }) {
   })();
 
   return (
-    <div className={cardCls + " flex items-start gap-3 p-4"}>
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
-        <AppWindow size={16} />
+    <div className={cardCls + " settings-row flex items-start gap-3 p-4"}>
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center text-emerald-600 dark:text-emerald-400">
+        <AppWindow size={22} className="icon-anim-sway" />
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
@@ -272,9 +272,9 @@ export default function ActionsTab() {
           Database Maintenance
         </h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className={cardCls + " flex items-start gap-3 p-4"}>
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
-              <Database size={16} />
+          <div className={cardCls + " settings-row flex items-start gap-3 p-4"}>
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center text-emerald-600 dark:text-emerald-400">
+              <Database size={22} className="icon-anim-bob" />
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
@@ -312,9 +312,9 @@ export default function ActionsTab() {
             </div>
           </div>
 
-          <div className={cardCls + " flex items-start gap-3 p-4"}>
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
-              <Brush size={16} />
+          <div className={cardCls + " settings-row flex items-start gap-3 p-4"}>
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center text-emerald-600 dark:text-emerald-400">
+              <Brush size={22} className="icon-anim-wiggle" />
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
@@ -343,9 +343,9 @@ export default function ActionsTab() {
           Danger Zone
         </h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="flex items-start gap-3 rounded-2xl border border-rose-200/70 bg-rose-50/40 p-4 dark:border-rose-500/30 dark:bg-rose-500/[0.04]">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-500 dark:bg-rose-500/10 dark:text-rose-400">
-              <MessageCircleX size={16} />
+          <div className="settings-row flex items-start gap-3 rounded-2xl border border-rose-200/70 bg-rose-50/40 p-4 dark:border-rose-500/30 dark:bg-rose-500/[0.04]">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center text-rose-500 dark:text-rose-400">
+              <MessageCircleX size={22} className="icon-anim-sway" />
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
@@ -374,9 +374,9 @@ export default function ActionsTab() {
             </div>
           </div>
 
-          <div className="flex items-start gap-3 rounded-2xl border border-rose-200/70 bg-rose-50/40 p-4 dark:border-rose-500/30 dark:bg-rose-500/[0.04]">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-500 dark:bg-rose-500/10 dark:text-rose-400">
-              <Rotate size={16} />
+          <div className="settings-row flex items-start gap-3 rounded-2xl border border-rose-200/70 bg-rose-50/40 p-4 dark:border-rose-500/30 dark:bg-rose-500/[0.04]">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center text-rose-500 dark:text-rose-400">
+              <Rotate size={22} className="icon-anim-wiggle" />
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
