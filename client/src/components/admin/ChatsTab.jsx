@@ -91,68 +91,112 @@ const ChatsTab = forwardRef(function ChatsTab({ onStatsChange }, ref) {
       </div>
 
       {!initialized ? <LoadingRows /> : chats.length === 0 ? <EmptyState message="No chats found." /> : (
-        <div className={"overflow-hidden " + cardCls}>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-100 dark:border-white/5">
-                <tr>
-                  <SortTh field="name" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Chat</SortTh>
-                  <SortTh field="type" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Type</SortTh>
-                  <SortTh field="group_visibility" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Privacy</SortTh>
-                  <SortTh field="member_count" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Members</SortTh>
-                  <SortTh field="message_count" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Messages</SortTh>
-                  <SortTh field="created_at" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Created</SortTh>
-                  <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50 dark:divide-white/[0.04]">
-                {chats.map((c) => (
-                  <tr key={c.id} className="hover:bg-emerald-50/30 dark:hover:bg-emerald-500/5">
-                    <td className="px-4 py-2.5">
-                      <div className="flex items-center gap-2.5">
-                        <Avatar
-                          src={c.group_avatar_url}
-                          name={c.name || "Chat"}
-                          color={c.group_color || "#10b981"}
-                          className="h-7 w-7 shrink-0 text-xs font-bold text-white"
-                        />
-                        <div className="min-w-0">
-                          <p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{c.name || `Chat #${c.id}`}</p>
-                          {c.group_username && <p className="text-[11px] text-slate-400">@{c.group_username}</p>}
-                        </div>
+        <>
+          {/* Mobile card list */}
+          <div className="space-y-2 sm:hidden">
+            {chats.map((c) => (
+              <div key={c.id} className={"p-3 " + cardCls}>
+                <div className="flex items-start gap-3">
+                  <Avatar
+                    src={c.group_avatar_url}
+                    name={c.name || "Chat"}
+                    color={c.group_color || "#10b981"}
+                    className="h-10 w-10 shrink-0 text-sm font-bold text-white"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-700 dark:text-slate-200">{c.name || `Chat #${c.id}`}</p>
+                        {c.group_username && <p className="truncate text-[11px] text-slate-400">@{c.group_username}</p>}
                       </div>
-                    </td>
-                    <td className="px-4 py-2.5 text-xs capitalize text-slate-600 dark:text-slate-300">
-                      <span className="flex items-center gap-1.5">
-                        {c.type === "channel" ? <Megaphone size={13} className="text-emerald-500" /> : <Users size={13} className="text-emerald-500" />}
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button type="button" onClick={() => setEditChat(c)} className={iconBtn("slate")} title="Edit"><Pencil size={16} /></button>
+                        <button type="button" onClick={() => setPendingDelete(c)} className={iconBtn("rose")} title="Delete"><Trash size={16} /></button>
+                      </div>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                      <span className="flex items-center gap-1 capitalize">
+                        {c.type === "channel" ? <Megaphone size={12} className="text-emerald-500" /> : <Users size={12} className="text-emerald-500" />}
                         {c.type}
                       </span>
-                    </td>
-                    <td className="px-4 py-2.5 text-xs capitalize text-slate-600 dark:text-slate-300">
-                      <span className="flex items-center gap-1.5">
-                        {(c.group_visibility || "public") === "private" ? <Lock size={13} className="text-emerald-500" /> : <Globe size={13} className="text-emerald-500" />}
+                      <span className="flex items-center gap-1 capitalize">
+                        {(c.group_visibility || "public") === "private" ? <Lock size={12} className="text-emerald-500" /> : <Globe size={12} className="text-emerald-500" />}
                         {c.group_visibility || "public"}
                       </span>
-                    </td>
-                    <td className="px-4 py-2.5 text-xs text-slate-600 dark:text-slate-300">
                       <span className="flex items-center gap-1"><Users size={11} className="text-slate-400" />{c.member_count}</span>
-                    </td>
-                    <td className="px-4 py-2.5 text-xs text-slate-600 dark:text-slate-300">
                       <span className="flex items-center gap-1"><MessageCircleMore size={11} className="text-slate-400" />{c.message_count}</span>
-                    </td>
-                    <td className="px-4 py-2.5 text-[11px] text-slate-400 dark:text-slate-500">{fmtDate(c.created_at)}</td>
-                    <td className="px-4 py-2.5">
-                      <div className="flex items-center gap-1">
-                        <button type="button" onClick={() => setEditChat(c)} className={iconBtn("slate")} title="Edit"><Pencil size={16} className="icon-anim-sway" /></button>
-                        <button type="button" onClick={() => setPendingDelete(c)} className={iconBtn("rose")} title="Delete"><Trash size={16} className="icon-anim-slide" /></button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      <span className="text-slate-400 dark:text-slate-500">{fmtDate(c.created_at)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
+
+          {/* Desktop table */}
+          <div className={"hidden overflow-hidden sm:block " + cardCls}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="border-b border-slate-100 dark:border-white/5">
+                  <tr>
+                    <SortTh field="name" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Chat</SortTh>
+                    <SortTh field="type" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Type</SortTh>
+                    <SortTh field="group_visibility" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Privacy</SortTh>
+                    <SortTh field="member_count" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Members</SortTh>
+                    <SortTh field="message_count" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Messages</SortTh>
+                    <SortTh field="created_at" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Created</SortTh>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50 dark:divide-white/[0.04]">
+                  {chats.map((c) => (
+                    <tr key={c.id} className="hover:bg-emerald-50/30 dark:hover:bg-emerald-500/5">
+                      <td className="px-4 py-2.5">
+                        <div className="flex items-center gap-2.5">
+                          <Avatar
+                            src={c.group_avatar_url}
+                            name={c.name || "Chat"}
+                            color={c.group_color || "#10b981"}
+                            className="h-7 w-7 shrink-0 text-xs font-bold text-white"
+                          />
+                          <div className="min-w-0">
+                            <p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{c.name || `Chat #${c.id}`}</p>
+                            {c.group_username && <p className="text-[11px] text-slate-400">@{c.group_username}</p>}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-2.5 text-xs capitalize text-slate-600 dark:text-slate-300">
+                        <span className="flex items-center gap-1.5">
+                          {c.type === "channel" ? <Megaphone size={13} className="text-emerald-500" /> : <Users size={13} className="text-emerald-500" />}
+                          {c.type}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-xs capitalize text-slate-600 dark:text-slate-300">
+                        <span className="flex items-center gap-1.5">
+                          {(c.group_visibility || "public") === "private" ? <Lock size={13} className="text-emerald-500" /> : <Globe size={13} className="text-emerald-500" />}
+                          {c.group_visibility || "public"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-xs text-slate-600 dark:text-slate-300">
+                        <span className="flex items-center gap-1"><Users size={11} className="text-slate-400" />{c.member_count}</span>
+                      </td>
+                      <td className="px-4 py-2.5 text-xs text-slate-600 dark:text-slate-300">
+                        <span className="flex items-center gap-1"><MessageCircleMore size={11} className="text-slate-400" />{c.message_count}</span>
+                      </td>
+                      <td className="px-4 py-2.5 text-[11px] text-slate-400 dark:text-slate-500">{fmtDate(c.created_at)}</td>
+                      <td className="px-4 py-2.5">
+                        <div className="flex items-center gap-1">
+                          <button type="button" onClick={() => setEditChat(c)} className={iconBtn("slate")} title="Edit"><Pencil size={16} className="icon-anim-sway" /></button>
+                          <button type="button" onClick={() => setPendingDelete(c)} className={iconBtn("rose")} title="Delete"><Trash size={16} className="icon-anim-slide" /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
       )}
 
       {createType && <AdminGroupModal mode="create" initialType={createType} onClose={() => setCreateType(null)} onSaved={() => { load(); onStatsChange(); }} />}
