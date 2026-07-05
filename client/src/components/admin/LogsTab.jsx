@@ -92,14 +92,17 @@ const AdminLogView = forwardRef(function AdminLogView(_props, ref) {
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <label className="group relative block min-w-40 flex-1">
+      <div className="flex flex-nowrap items-center gap-2 sm:flex-wrap">
+        <label className="group relative block min-w-0 flex-1 sm:min-w-40">
           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
-            <Search size={13} className={searchIconCls} />
+            <Search size={16} className={searchIconCls} />
           </span>
           <input type="text" placeholder="Search logs…" value={search} onChange={(e) => setSearch(e.target.value)} className={inputSmCls + " pl-8"} />
         </label>
-        <button type="button" onClick={clearLogs} className={btnDanger}><Trash size={13} className="icon-anim-slide" /> Clear</button>
+        <button type="button" onClick={clearLogs} title="Clear"
+          className={btnDanger + " w-9 shrink-0 justify-center px-0 sm:w-auto sm:justify-start sm:px-3"}>
+          <Trash size={16} className="icon-anim-slide shrink-0" /> <span className="hidden sm:inline">Clear</span>
+        </button>
       </div>
 
       {!initialized ? <LoadingRows /> : logs.length === 0 ? <EmptyState message="No log entries." /> : (

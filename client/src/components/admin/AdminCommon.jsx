@@ -5,6 +5,7 @@ import {
   ArrowUpDown,
   ChevronDown,
   Close,
+  Filter,
 } from "../../icons/lucide.js";
 import { labelCls } from "./adminShared.js";
 
@@ -137,19 +138,25 @@ export function CompactSelect({ value, onChange, options, placeholder = "Selectâ
   );
 }
 
-export function FilterDropdown({ value, onChange, options }) {
+export function FilterDropdown({ value, onChange, options, icon: Icon = Filter }) {
   const { open, toggle, setOpen, btnRef, menuRef } = useDropdown();
   const selected = options.find(([v]) => v === value);
   const label = selected?.[1] ?? options[0]?.[1] ?? "Filter";
+  // On mobile the label is hidden and the button collapses to an icon.
+  const isActive = Boolean(value);
   return (
     <div className="relative">
-      <button ref={btnRef} type="button" onClick={toggle} aria-expanded={open}
-        className="relative flex items-center gap-1.5 rounded-xl border border-emerald-200/70 bg-white/90 py-2 pl-3 pr-7 text-xs font-semibold text-slate-600 outline-none transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-emerald-500/5">
-        <span className="max-w-24 truncate">{label}</span>
-        <ChevronDown size={11} className={`absolute right-2 top-1/2 -translate-y-1/2 text-emerald-500 transition-transform ${open ? "rotate-180" : ""}`} />
+      <button ref={btnRef} type="button" onClick={toggle} aria-expanded={open} title={label}
+        className="relative flex h-9 w-9 items-center justify-center rounded-xl border border-emerald-200/70 bg-white/90 text-xs font-semibold text-slate-600 outline-none transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-emerald-500/5 sm:w-auto sm:gap-1.5 sm:pl-3 sm:pr-7">
+        <Icon size={16} className="text-emerald-500 sm:hidden" />
+        <span className="hidden max-w-24 truncate sm:inline">{label}</span>
+        {isActive && (
+          <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-emerald-500 sm:hidden" />
+        )}
+        <ChevronDown size={12} className={`absolute right-2 top-1/2 hidden -translate-y-1/2 text-emerald-500 transition-transform sm:inline-flex ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
-        <div ref={menuRef} className="absolute left-0 z-50 mt-1.5 min-w-max overflow-hidden rounded-2xl border border-emerald-200 bg-white p-1 text-xs font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100">
+        <div ref={menuRef} className="absolute right-0 z-50 mt-1.5 min-w-max overflow-hidden rounded-2xl border border-emerald-200 bg-white p-1 text-xs font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100">
           {options.map(([v, l]) => (
             <button key={v} type="button" onClick={() => { onChange(v); setOpen(false); }}
               className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200 ${v === value ? "text-emerald-700 dark:text-emerald-300" : ""}`}>

@@ -183,17 +183,18 @@ function NumberInput({ value, onChange, min, max, disabled = false }) {
 
   return (
     <div
-      className={`inline-flex w-36 items-center overflow-hidden rounded-xl border transition ${
+      className={`inline-flex shrink-0 items-center overflow-hidden rounded-xl border transition ${
         disabled
           ? "border-slate-200 bg-slate-100 opacity-40 dark:border-slate-700 dark:bg-slate-900/40"
           : "border-emerald-200 bg-white dark:border-emerald-500/30 dark:bg-slate-900/50"
       }`}
+      style={{ width: "clamp(3.25rem, 20vw + 0.5rem, 9rem)" }}
     >
       <button
         type="button"
         disabled={disabled || (min !== undefined && num <= min)}
         onClick={() => step(-1)}
-        className="flex h-8 w-7 shrink-0 items-center justify-center text-slate-400 transition hover:bg-emerald-50 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-slate-500 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-400"
+        className="flex h-8 w-4 shrink-0 items-center justify-center text-slate-400 transition hover:bg-emerald-50 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-slate-500 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-400 sm:w-7"
         aria-label="Decrease"
       >
         <span className="select-none text-sm font-bold leading-none">−</span>
@@ -206,13 +207,14 @@ function NumberInput({ value, onChange, min, max, disabled = false }) {
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
         onBlur={handleBlur}
-        className="min-w-0 flex-1 border-0 bg-transparent px-0 py-1.5 text-center text-xs font-semibold text-slate-700 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none dark:text-slate-200"
+        className="min-w-0 flex-1 border-0 bg-transparent px-0 py-1.5 text-center font-semibold text-slate-700 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none dark:text-slate-200"
+        style={{ fontSize: "clamp(0.625rem, 1.5vw + 0.2rem, 0.8125rem)" }}
       />
       <button
         type="button"
         disabled={disabled || (max !== undefined && num >= max)}
         onClick={() => step(1)}
-        className="flex h-8 w-7 shrink-0 items-center justify-center text-slate-400 transition hover:bg-emerald-50 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-slate-500 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-400"
+        className="flex h-8 w-4 shrink-0 items-center justify-center text-slate-400 transition hover:bg-emerald-50 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-slate-500 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-400 sm:w-7"
         aria-label="Increase"
       >
         <span className="select-none text-sm font-bold leading-none">+</span>

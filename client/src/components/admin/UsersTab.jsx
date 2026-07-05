@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { Ban, CirclePlus, Pencil, Search, ShieldCheck, ShieldOff, Trash, UserPlus } from "../../icons/lucide.js";
+import { Ban, CirclePlus, Filter, Pencil, Search, ShieldCheck, ShieldOff, Tag, Trash, UserPlus } from "../../icons/lucide.js";
 import { api, cardCls, inputSmCls, btnPrimary, iconBtn, fmtDate, searchIconCls } from "./adminShared.js";
 import { LoadingRows, EmptyState, FilterDropdown, SortTh, RoleBadge } from "./AdminCommon.jsx";
 import AdminUserModal from "./AdminUserModal.jsx";
@@ -64,16 +64,19 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, onStatsChange }, re
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <label className="group relative block min-w-40 flex-1">
+      <div className="flex flex-nowrap items-center gap-2 sm:flex-wrap">
+        <label className="group relative block min-w-0 flex-1 sm:min-w-40">
           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
-            <Search size={13} className={searchIconCls} />
+            <Search size={16} className={searchIconCls} />
           </span>
           <input type="text" placeholder="Search users…" value={search} onChange={(e) => setSearch(e.target.value)} className={inputSmCls + " pl-8"} />
         </label>
-        <FilterDropdown value={roleFilter} onChange={setRoleFilter} options={[["", "All roles"], ["user", "User"], ["admin", "Admin"], ["owner", "Owner"], ["banned", "Banned"]]} />
-        <FilterDropdown value={statusFilter} onChange={setStatusFilter} options={[["", "All"], ["online", "Online"], ["offline", "Offline"]]} />
-        <button type="button" onClick={() => setCreateOpen(true)} className={btnPrimary}><UserPlus size={13} className="icon-anim-pop" /> New user</button>
+        <FilterDropdown value={roleFilter} onChange={setRoleFilter} icon={Tag} options={[["", "All roles"], ["user", "User"], ["admin", "Admin"], ["owner", "Owner"], ["banned", "Banned"]]} />
+        <FilterDropdown value={statusFilter} onChange={setStatusFilter} icon={Filter} options={[["", "All"], ["online", "Online"], ["offline", "Offline"]]} />
+        <button type="button" onClick={() => setCreateOpen(true)} title="New user"
+          className={btnPrimary + " w-9 shrink-0 justify-center px-0 sm:w-auto sm:justify-start sm:px-3"}>
+          <UserPlus size={16} className="icon-anim-pop shrink-0" /> <span className="hidden sm:inline">New user</span>
+        </button>
       </div>
 
       {!initialized ? <LoadingRows /> : users.length === 0 ? <EmptyState message="No users found." /> : (
@@ -132,38 +135,38 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, onStatsChange }, re
                         {isSelf ? (
                           /* Self — show edit + role (functional), ban + delete disabled */
                           <div className="flex items-center gap-1">
-                            <button type="button" onClick={() => setEditUser(u)} className={iconBtn("slate")} title="Edit"><Pencil size={13} className="icon-anim-sway" /></button>
+                            <button type="button" onClick={() => setEditUser(u)} className={iconBtn("slate")} title="Edit"><Pencil size={16} className="icon-anim-sway" /></button>
                             <button type="button" disabled className={iconBtn(u.role === "admin" ? "rose" : "emerald")} title="Cannot change your own role">
-                              {u.role === "admin" ? <ShieldOff size={13} /> : <ShieldCheck size={13} />}
+                              {u.role === "admin" ? <ShieldOff size={16} /> : <ShieldCheck size={16} />}
                             </button>
-                            <button type="button" disabled className={iconBtn("rose")} title="Cannot ban yourself"><Ban size={13} /></button>
-                            <button type="button" disabled className={iconBtn("rose")} title="Cannot delete yourself"><Trash size={13} /></button>
+                            <button type="button" disabled className={iconBtn("rose")} title="Cannot ban yourself"><Ban size={16} /></button>
+                            <button type="button" disabled className={iconBtn("rose")} title="Cannot delete yourself"><Trash size={16} /></button>
                           </div>
                         ) : actionsBlocked ? (
                           /* Owner row (for non-owners) or admin row (for non-owners) — all buttons disabled */
                           <div className="flex items-center gap-1">
-                            <button type="button" disabled className={iconBtn("slate")} title={isOwnerRow ? "Cannot edit the owner" : "Cannot edit other admins"}><Pencil size={13} /></button>
+                            <button type="button" disabled className={iconBtn("slate")} title={isOwnerRow ? "Cannot edit the owner" : "Cannot edit other admins"}><Pencil size={16} /></button>
                             <button type="button" disabled className={iconBtn(isOwnerRow ? "emerald" : "slate")} title={isOwnerRow ? "Cannot change the owner's role" : "Cannot change another admin's role"}>
-                              <ShieldOff size={13} />
+                              <ShieldOff size={16} />
                             </button>
-                            <button type="button" disabled className={iconBtn("rose")} title={isOwnerRow ? "Cannot ban the owner" : "Cannot ban other admins"}><Ban size={13} /></button>
-                            <button type="button" disabled className={iconBtn("rose")} title={isOwnerRow ? "Cannot delete the owner" : "Cannot delete other admins"}><Trash size={13} /></button>
+                            <button type="button" disabled className={iconBtn("rose")} title={isOwnerRow ? "Cannot ban the owner" : "Cannot ban other admins"}><Ban size={16} /></button>
+                            <button type="button" disabled className={iconBtn("rose")} title={isOwnerRow ? "Cannot delete the owner" : "Cannot delete other admins"}><Trash size={16} /></button>
                           </div>
                         ) : (
                           /* Normal row — full controls */
                           <div className="flex items-center gap-1">
-                            <button type="button" onClick={() => setEditUser(u)} disabled={!!u.banned} className={iconBtn("slate")} title={u.banned ? "Cannot edit a banned user" : "Edit"}><Pencil size={13} className="icon-anim-sway" /></button>
+                            <button type="button" onClick={() => setEditUser(u)} disabled={!!u.banned} className={iconBtn("slate")} title={u.banned ? "Cannot edit a banned user" : "Edit"}><Pencil size={16} className="icon-anim-sway" /></button>
                             <button type="button" onClick={() => setPending({ type: "role", user: u })} disabled={!!u.banned || isOwnerRow}
                               className={iconBtn(u.role === "admin" ? "rose" : "emerald")}
                               title={u.banned ? "Cannot change role of a banned user" : isOwnerRow ? "Cannot demote the owner" : u.role === "admin" ? "Demote from admin" : "Promote to admin"}>
                               {u.role === "admin"
-                                ? <ShieldOff size={13} className="icon-anim-beat" />
-                                : <ShieldCheck size={13} className="icon-anim-beat" />}
+                                ? <ShieldOff size={16} className="icon-anim-beat" />
+                                : <ShieldCheck size={16} className="icon-anim-beat" />}
                             </button>
                             <button type="button" onClick={() => setPending({ type: "ban", user: u })} className={iconBtn(u.banned ? "emerald" : "rose")} title={u.banned ? "Unban" : "Ban"}>
-                              {u.banned ? <CirclePlus size={13} className="icon-anim-pop" /> : <Ban size={13} className="icon-anim-wiggle" />}
+                              {u.banned ? <CirclePlus size={16} className="icon-anim-pop" /> : <Ban size={16} className="icon-anim-wiggle" />}
                             </button>
-                            <button type="button" onClick={() => setPending({ type: "delete", user: u })} className={iconBtn("rose")} title="Delete"><Trash size={13} className="icon-anim-slide" /></button>
+                            <button type="button" onClick={() => setPending({ type: "delete", user: u })} className={iconBtn("rose")} title="Delete"><Trash size={16} className="icon-anim-slide" /></button>
                           </div>
                         )}
                       </td>

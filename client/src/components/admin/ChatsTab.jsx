@@ -61,18 +61,19 @@ const ChatsTab = forwardRef(function ChatsTab({ onStatsChange }, ref) {
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <label className="group relative block min-w-40 flex-1">
+      <div className="flex flex-nowrap items-center gap-2 sm:flex-wrap">
+        <label className="group relative block min-w-0 flex-1 sm:min-w-40">
           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
-            <Search size={13} className={searchIconCls} />
+            <Search size={16} className={searchIconCls} />
           </span>
           <input type="text" placeholder="Search chats…" value={search} onChange={(e) => setSearch(e.target.value)} className={inputSmCls + " pl-8"} />
         </label>
         <FilterDropdown value={typeFilter} onChange={setTypeFilter} options={[["", "All types"], ["group", "Groups"], ["channel", "Channels"]]} />
-        <div ref={createMenuRef} className="relative">
-          <button type="button" onClick={() => setCreateMenuOpen((o) => !o)} aria-expanded={createMenuOpen} className={btnPrimary}>
-            <Plus size={13} className="icon-anim-pop" /> New chat
-            <ChevronDown size={12} className={`transition-transform ${createMenuOpen ? "rotate-180" : ""}`} />
+        <div ref={createMenuRef} className="relative shrink-0">
+          <button type="button" onClick={() => setCreateMenuOpen((o) => !o)} aria-expanded={createMenuOpen} title="New chat"
+            className={btnPrimary + " w-9 shrink-0 justify-center px-0 sm:w-auto sm:justify-start sm:px-3"}>
+            <Plus size={16} className="icon-anim-pop shrink-0" /> <span className="hidden sm:inline">New chat</span>
+            <ChevronDown size={12} className={`hidden transition-transform sm:inline-flex ${createMenuOpen ? "rotate-180" : ""}`} />
           </button>
           {createMenuOpen ? (
             <div className="absolute right-0 z-50 mt-1.5 w-44 overflow-hidden rounded-2xl border border-emerald-200 bg-white p-1 text-sm font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100">
@@ -142,8 +143,8 @@ const ChatsTab = forwardRef(function ChatsTab({ onStatsChange }, ref) {
                     <td className="px-4 py-2.5 text-[11px] text-slate-400 dark:text-slate-500">{fmtDate(c.created_at)}</td>
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-1">
-                        <button type="button" onClick={() => setEditChat(c)} className={iconBtn("slate")} title="Edit"><Pencil size={13} className="icon-anim-sway" /></button>
-                        <button type="button" onClick={() => setPendingDelete(c)} className={iconBtn("rose")} title="Delete"><Trash size={13} className="icon-anim-slide" /></button>
+                        <button type="button" onClick={() => setEditChat(c)} className={iconBtn("slate")} title="Edit"><Pencil size={16} className="icon-anim-sway" /></button>
+                        <button type="button" onClick={() => setPendingDelete(c)} className={iconBtn("rose")} title="Delete"><Trash size={16} className="icon-anim-slide" /></button>
                       </div>
                     </td>
                   </tr>

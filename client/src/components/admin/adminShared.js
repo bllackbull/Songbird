@@ -4,12 +4,12 @@ import { apiFetch } from "../../api/chatApi.js";
 
 export const cardCls    = "rounded-2xl border border-emerald-200/70 bg-white/90 dark:border-emerald-500/30 dark:bg-slate-900/50";
 export const inputCls   = "w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100";
-export const inputSmCls = "w-full rounded-2xl border border-emerald-200/70 bg-white/90 py-2 px-3 text-sm text-slate-700 outline-none transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.18)] focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/40 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200 dark:placeholder-slate-500 dark:hover:border-emerald-500/50 dark:hover:shadow-[0_0_18px_rgba(16,185,129,0.12)]";
+export const inputSmCls = "h-9 w-full rounded-2xl border border-emerald-200/70 bg-white/90 px-3 text-sm text-slate-700 outline-none transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.18)] focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/40 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200 dark:placeholder-slate-500 dark:hover:border-emerald-500/50 dark:hover:shadow-[0_0_18px_rgba(16,185,129,0.12)]";
 export const searchIconCls = "text-emerald-500 transition-colors group-hover:text-emerald-600 dark:text-emerald-400 dark:group-hover:text-emerald-300 icon-anim-pop";
 export const labelCls   = "block text-sm font-semibold text-slate-700 dark:text-slate-200";
-export const btnPrimary = "inline-flex items-center gap-1.5 rounded-xl bg-emerald-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-400 hover:shadow-[0_0_14px_rgba(16,185,129,0.3)]";
-export const btnSecondary = "inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 dark:border-white/10 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-white/5";
-export const btnDanger  = "inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-600 transition hover:bg-rose-100 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-400";
+export const btnPrimary = "inline-flex h-9 items-center gap-1.5 rounded-xl bg-emerald-500 px-3 text-xs font-semibold text-white transition hover:bg-emerald-400 hover:shadow-[0_0_14px_rgba(16,185,129,0.3)]";
+export const btnSecondary = "inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 dark:border-white/10 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-white/5";
+export const btnDanger  = "inline-flex h-9 items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-semibold text-rose-600 transition hover:bg-rose-100 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-400";
 
 export const iconBtn = (color = "slate") => {
   const map = {
@@ -18,7 +18,7 @@ export const iconBtn = (color = "slate") => {
     orange:  "border-orange-200 text-orange-500 hover:bg-orange-50 dark:border-orange-500/30 dark:text-orange-400 dark:hover:bg-orange-500/10",
     rose:    "border-rose-200 text-rose-500 hover:bg-rose-50 dark:border-rose-500/30 dark:text-rose-400 dark:hover:bg-rose-500/10",
   };
-  return `inline-flex h-7 w-7 items-center justify-center rounded-full border transition disabled:cursor-not-allowed disabled:opacity-40 ${map[color] || map.slate}`;
+  return `inline-flex h-8 w-8 items-center justify-center rounded-full border transition disabled:cursor-not-allowed disabled:opacity-40 ${map[color] || map.slate}`;
 };
 
 // ─── API helper ───────────────────────────────────────────────────────────────
