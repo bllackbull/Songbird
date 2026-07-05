@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowLeftFromLine,
+  ArrowRight,
   ArrowRightFromLine,
   Chat,
   Check,
@@ -48,6 +49,65 @@ export default function AdminPanel({ user, onBack, isDark, toggleTheme }) {
   const [refreshState, setRefreshState] = useState(""); // "" | "loading" | "done"
   const refreshResetRef = useRef(null);
   const tabRefs = useRef({});
+
+  // On phone-sized screens the sidebar becomes a full-page menu.
+  const [isDesktopView, setIsDesktopView] = useState(
+    typeof window !== "undefined" ? window.matchMedia("(min-width: 768px)").matches : true,
+  );
+  const [mobileView, setMobileView] = useState("menu"); // "menu" | "detail"
+  const touchStartXRef = useRef(0);
+  const touchStartYRef = useRef(0);
+  const touchDxRef = useRef(0);
+  const touchDyRef = useRef(0);
+  const trackingSwipeRef = useRef(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const media = window.matchMedia("(min-width: 768px)");
+    const update = () => setIsDesktopView(media.matches);
+    update();
+    if (media.addEventListener) media.addEventListener("change", update);
+    else media.addListener(update);
+    return () => {
+      if (media.removeEventListener) media.removeEventListener("change", update);
+      else media.removeListener(update);
+    };
+  }, []);
+
+  const selectTab = useCallback((id) => {
+    setTab(id);
+    setMobileView("detail");
+  }, []);
+
+  const handleTouchStart = (event) => {
+    if (isDesktopView || mobileView !== "detail") return;
+    const touch = event.touches?.[0];
+    if (!touch) return;
+    // Start near left edge to avoid interfering with content scroll/swipes.
+    trackingSwipeRef.current = touch.clientX <= 40;
+    touchStartXRef.current = touch.clientX;
+    touchStartYRef.current = touch.clientY;
+    touchDxRef.current = 0;
+    touchDyRef.current = 0;
+  };
+
+  const handleTouchMove = (event) => {
+    if (!trackingSwipeRef.current) return;
+    const touch = event.touches?.[0];
+    if (!touch) return;
+    touchDxRef.current = touch.clientX - touchStartXRef.current;
+    touchDyRef.current = touch.clientY - touchStartYRef.current;
+  };
+
+  const handleTouchEnd = () => {
+    if (!trackingSwipeRef.current) return;
+    const dx = touchDxRef.current;
+    const dy = Math.abs(touchDyRef.current);
+    trackingSwipeRef.current = false;
+    if (dx > 80 && dy < 70) {
+      setMobileView("menu");
+    }
+  };
 
   const refreshStats = useCallback(async () => {
     try { const d = await api.get("/api/admin/stats"); setStats(d); } catch {}
@@ -109,25 +169,22 @@ export default function AdminPanel({ user, onBack, isDark, toggleTheme }) {
 
   const activeTab = TABS.find((t) => t.id === tab);
   const ActiveIcon = activeTab?.icon ?? GaugeIcon;
+  // The collapse/expand toggle only applies to the desktop sidebar.
+  const showLabels = sidebarOpen;
 
   return (
-    <div className="flex h-full w-full overflow-hidden bg-slate-50 dark:bg-slate-900">
-      {/* Mobile backdrop */}
-      {sidebarOpen && (
-        <div className="fixed inset-0 z-20 bg-black/30 md:hidden" onClick={() => setSidebarOpen(false)} />
-      )}
-
-      {/* Sidebar */}
+    <div className="relative flex h-full w-full overflow-hidden bg-slate-50 dark:bg-slate-900">
+      {/* Desktop sidebar */}
       <nav className={`
-        absolute inset-y-0 left-0 z-30 flex flex-col
+        relative z-auto hidden shrink-0 flex-col
         border-r border-slate-200/80 bg-white/95 backdrop-blur-sm
         transition-all duration-200
         dark:border-white/5 dark:bg-slate-900/95
-        md:relative md:z-auto md:translate-x-0
-        ${sidebarOpen ? "w-56 translate-x-0" : "w-0 -translate-x-full md:w-14 md:translate-x-0"}
+        md:flex
+        ${sidebarOpen ? "w-56" : "w-14"}
       `}>
-        <div className={`flex h-12 shrink-0 items-center border-b border-slate-100 dark:border-white/5 ${sidebarOpen ? "justify-between px-3" : "justify-center"}`}>
-          {sidebarOpen && (
+        <div className={`flex h-12 shrink-0 items-center border-b border-slate-100 dark:border-white/5 ${showLabels ? "justify-between px-3" : "justify-center"}`}>
+          {showLabels && (
             <label className="flex cursor-default items-center gap-2 overflow-hidden">
               <LayoutDashboardIcon size={14} className="shrink-0 text-emerald-500" />
               <span className="truncate text-sm font-bold text-slate-700 dark:text-slate-200">Admin Panel</span>
@@ -139,37 +196,85 @@ export default function AdminPanel({ user, onBack, isDark, toggleTheme }) {
           </button>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden p-2">
+        <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2">
           {TABS.map(({ id, label, icon: Icon, anim }) => (
             <button key={id} type="button"
-              onClick={() => { setTab(id); if (window.innerWidth < 768) setSidebarOpen(false); }}
-              title={!sidebarOpen ? label : undefined}
+              onClick={() => selectTab(id)}
+              title={!showLabels ? label : undefined}
               className={`flex h-9 w-full items-center rounded-xl transition
-                ${sidebarOpen ? "gap-2.5 px-3 text-sm font-semibold" : "justify-center"}
+                ${showLabels ? "gap-2.5 px-3 text-sm font-semibold" : "justify-center"}
                 ${tab === id
                   ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
                   : "text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 dark:text-slate-100 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
                 }`}>
               <Icon size={15} className={`shrink-0 text-emerald-500 ${anim}`} />
-              {sidebarOpen && <span className="truncate">{label}</span>}
+              {showLabels && <span className="truncate">{label}</span>}
             </button>
           ))}
         </div>
 
         <div className="shrink-0 border-t border-slate-100 p-2 dark:border-white/5">
-          <button type="button" onClick={onBack} title={!sidebarOpen ? "Exit" : undefined}
+          <button type="button" onClick={onBack} title={!showLabels ? "Exit" : undefined}
             className={`flex h-9 w-full items-center rounded-xl text-rose-600 transition
               hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10
-              ${sidebarOpen ? "gap-2.5 px-3 text-sm font-semibold" : "justify-center"}`}>
+              ${showLabels ? "gap-2.5 px-3 text-sm font-semibold" : "justify-center"}`}>
             <ArrowLeft size={15} className="shrink-0 icon-anim-slide" />
-            {sidebarOpen && <span className="truncate">Exit</span>}
+            {showLabels && <span className="truncate">Exit</span>}
           </button>
         </div>
       </nav>
 
-      {/* Main content */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      {/* Mobile full-page menu */}
+      <nav className={`
+        absolute inset-y-0 left-0 z-30 flex w-full flex-col
+        bg-slate-50 transition-transform duration-300 ease-out will-change-transform
+        dark:bg-slate-900
+        md:hidden
+        ${mobileView === "menu" ? "translate-x-0" : "-translate-x-full"}
+      `}>
         <div className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-200/80 bg-white/80 px-3 backdrop-blur-sm dark:border-white/5 dark:bg-slate-900/80">
+          <button type="button" onClick={onBack} aria-label="Exit admin panel"
+            className="-ml-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-transparent text-rose-600 transition hover:border-rose-200/60 hover:bg-rose-50/50 dark:text-rose-300 dark:hover:border-rose-500/20 dark:hover:bg-rose-500/5">
+            <ArrowLeft size={16} />
+          </button>
+          <LayoutDashboardIcon size={15} className="shrink-0 text-emerald-500" />
+          <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Admin Panel</span>
+        </div>
+
+        <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-4">
+          <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm dark:border-white/5 dark:bg-slate-900/60">
+            {TABS.map(({ id, label, icon: Icon, anim }, index) => (
+              <button key={id} type="button"
+                onClick={() => selectTab(id)}
+                className={`flex h-14 w-full items-center gap-3 px-4 text-left transition active:bg-emerald-50 dark:active:bg-emerald-500/10
+                  ${index > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}`}>
+                <Icon size={22} className={`shrink-0 text-emerald-500 ${anim}`} />
+                <span className="flex-1 truncate text-base font-semibold text-slate-700 dark:text-slate-100">{label}</span>
+                <ArrowRight size={16} className="shrink-0 text-slate-300 dark:text-slate-600" />
+              </button>
+            ))}
+          </div>
+        </div>
+      </nav>
+
+      {/* Main content / mobile detail page */}
+      <div
+        className={`
+          absolute inset-y-0 left-0 z-20 flex w-full min-w-0 flex-1 flex-col overflow-hidden
+          bg-slate-50 transition-transform duration-300 ease-out will-change-transform
+          dark:bg-slate-900
+          md:relative md:z-auto md:w-auto md:translate-x-0
+          ${mobileView === "detail" ? "translate-x-0" : "translate-x-full"}
+        `}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
+        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-200/80 bg-white/80 px-3 backdrop-blur-sm dark:border-white/5 dark:bg-slate-900/80">
+          <button type="button" onClick={() => setMobileView("menu")} aria-label="Back to menu"
+            className="-ml-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-500 transition hover:border-emerald-200/60 hover:bg-emerald-50/50 hover:text-emerald-600 dark:text-slate-400 dark:hover:border-emerald-500/20 dark:hover:bg-emerald-500/5 dark:hover:text-emerald-400 md:hidden">
+            <ArrowLeft size={16} />
+          </button>
           <ActiveIcon size={15} className="shrink-0 text-emerald-500" />
           <h1 className="flex-1 truncate text-sm font-semibold text-slate-700 dark:text-slate-200">{activeTab?.label}</h1>
           <button type="button" onClick={handleToggleTheme} title={isDark ? "Switch to light mode" : "Switch to dark mode"}
