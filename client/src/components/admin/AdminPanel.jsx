@@ -232,13 +232,15 @@ export default function AdminPanel({ user, onBack, isDark, toggleTheme }) {
         md:hidden
         ${mobileView === "menu" ? "translate-x-0" : "-translate-x-full"}
       `}>
-        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-200/80 bg-white/80 px-3 backdrop-blur-sm dark:border-white/5 dark:bg-slate-900/80">
+        <div className="flex h-[72px] shrink-0 items-center gap-3 border-b border-slate-300/80 bg-white px-4 py-4 dark:border-emerald-500/20 dark:bg-slate-900">
           <button type="button" onClick={onBack} aria-label="Exit admin panel"
-            className="-ml-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-transparent text-rose-600 transition hover:border-rose-200/60 hover:bg-rose-50/50 dark:text-rose-300 dark:hover:border-rose-500/20 dark:hover:bg-rose-500/5">
-            <ArrowLeft size={16} />
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-rose-200 bg-white/80 text-rose-600 transition hover:border-rose-300 hover:shadow-md dark:border-rose-500/30 dark:bg-slate-950 dark:text-rose-200">
+            <ArrowLeft size={18} />
           </button>
-          <LayoutDashboardIcon size={15} className="shrink-0 text-emerald-500" />
-          <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Admin Panel</span>
+          <span className="flex min-w-0 flex-1 items-center justify-center gap-2">
+            <span className="truncate text-base font-semibold text-slate-700 dark:text-slate-200">Admin Panel</span>
+          </span>
+          <span className="h-9 w-9 shrink-0" aria-hidden="true" />
         </div>
 
         <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-4">
@@ -270,27 +272,30 @@ export default function AdminPanel({ user, onBack, isDark, toggleTheme }) {
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
-        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-200/80 bg-white/80 px-3 backdrop-blur-sm dark:border-white/5 dark:bg-slate-900/80">
+        <div className="relative flex h-[72px] shrink-0 items-center gap-3 border-b border-slate-300/80 bg-white px-4 py-4 dark:border-emerald-500/20 dark:bg-slate-900 md:h-12 md:gap-2 md:border-slate-200/80 md:bg-white/80 md:px-3 md:py-0 md:backdrop-blur-sm md:dark:border-white/5 md:dark:bg-slate-900/80">
           <button type="button" onClick={() => setMobileView("menu")} aria-label="Back to menu"
-            className="-ml-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-500 transition hover:border-emerald-200/60 hover:bg-emerald-50/50 hover:text-emerald-600 dark:text-slate-400 dark:hover:border-emerald-500/20 dark:hover:bg-emerald-500/5 dark:hover:text-emerald-400 md:hidden">
-            <ArrowLeft size={16} />
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-emerald-200 bg-white/80 text-emerald-700 transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 md:hidden">
+            <ArrowLeft size={18} />
           </button>
-          <ActiveIcon size={15} className="shrink-0 text-emerald-500" />
-          <h1 className="flex-1 truncate text-sm font-semibold text-slate-700 dark:text-slate-200">{activeTab?.label}</h1>
-          <button type="button" onClick={handleToggleTheme} title={isDark ? "Switch to light mode" : "Switch to dark mode"}
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-700 dark:text-slate-400 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300">
-            {isDark
-              ? <Sun size={15} className={`icon-anim-spin-dir ${themeAnim ? "icon-theme-enter-sun" : ""}`} />
-              : <Moon size={15} className={`icon-anim-spin-left ${themeAnim ? "icon-theme-enter-moon" : ""}`} />}
-          </button>
-          <button type="button" onClick={handleManualRefresh} disabled={refreshState === "loading"} title="Refresh"
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-700 disabled:cursor-wait dark:text-slate-400 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300">
-            {refreshState === "loading"
-              ? <LoaderCircle size={14} className="animate-spin text-emerald-600 dark:text-emerald-400" />
-              : refreshState === "done"
-                ? <Check size={14} className="text-emerald-600 dark:text-emerald-400" />
-                : <Refresh size={14} className="icon-anim-spin-full" />}
-          </button>
+          <span className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 px-16 md:px-14">
+            <h1 className="truncate text-base font-semibold text-slate-700 dark:text-slate-200 md:text-sm">{activeTab?.label}</h1>
+          </span>
+          <div className="ml-auto flex items-center gap-2">
+            <button type="button" onClick={handleToggleTheme} title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-700 dark:text-slate-400 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300">
+              {isDark
+                ? <Sun size={15} className={`icon-anim-spin-dir ${themeAnim ? "icon-theme-enter-sun" : ""}`} />
+                : <Moon size={15} className={`icon-anim-spin-left ${themeAnim ? "icon-theme-enter-moon" : ""}`} />}
+            </button>
+            <button type="button" onClick={handleManualRefresh} disabled={refreshState === "loading"} title="Refresh"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-700 disabled:cursor-wait dark:text-slate-400 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300">
+              {refreshState === "loading"
+                ? <LoaderCircle size={14} className="animate-spin text-emerald-600 dark:text-emerald-400" />
+                : refreshState === "done"
+                  ? <Check size={14} className="text-emerald-600 dark:text-emerald-400" />
+                  : <Refresh size={14} className="icon-anim-spin-full" />}
+            </button>
+          </div>
         </div>
 
         <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-4 md:p-5">
