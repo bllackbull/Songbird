@@ -1,7 +1,7 @@
 import { TriangleAlert } from "../icons/lucide.js";
 import { AdminPanel } from "../components/admin/index.js";
 
-export default function AdminPage({ user, onBack, isDark, toggleTheme }) {
+export default function AdminPage({ user, onBack }) {
   const isAdmin = user?.role === "admin" || user?.role === "owner";
 
   if (!isAdmin) {
@@ -13,5 +13,5 @@ export default function AdminPage({ user, onBack, isDark, toggleTheme }) {
     );
   }
 
-  return <AdminPanel user={user} onBack={onBack} isDark={isDark} toggleTheme={toggleTheme} />;
+  return <AdminPanel user={user} onBack={onBack} />;
 }

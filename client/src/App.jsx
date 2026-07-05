@@ -1032,7 +1032,7 @@ export default function App() {
                 <ChatPage user={user} setUser={setUser} isDark={isDark} setIsDark={setIsDark} toggleTheme={toggleTheme} />
               ) : null}
               {route === 'admin' && user ? (
-                <AdminPage user={user} onBack={() => navigate('/chat', true)} isDark={isDark} toggleTheme={toggleTheme} />
+                <AdminPage user={user} onBack={() => navigate('/chat', true)} />
               ) : null}
               {route === 'invite' && user ? (
                 <InvitePage

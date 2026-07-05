@@ -7,11 +7,9 @@ import {
   Chat,
   Check,
   LoaderCircle,
-  Moon,
   Refresh,
   ScrollText,
   Settings,
-  Sun,
   Users,
   Wrench,
 } from "../../icons/lucide.js";
@@ -40,12 +38,10 @@ const PRESENCE_PING_INTERVAL_MS = CHAT_PAGE_CONFIG.presencePingIntervalMs;
 // Auto-exit the panel after this much inactivity (no mouse/keyboard/touch).
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 
-export default function AdminPanel({ user, onBack, isDark, toggleTheme }) {
+export default function AdminPanel({ user, onBack }) {
   const [tab, setTab]                 = useState("dashboard");
   const [stats, setStats]             = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [themeAnim, setThemeAnim]     = useState(false);
-  const themeAnimRef = useRef(null);
   const [refreshState, setRefreshState] = useState(""); // "" | "loading" | "done"
   const refreshResetRef = useRef(null);
   const tabRefs = useRef({});
@@ -159,16 +155,7 @@ export default function AdminPanel({ user, onBack, isDark, toggleTheme }) {
     };
   }, []);
 
-  const handleToggleTheme = () => {
-    setThemeAnim(true);
-    clearTimeout(themeAnimRef.current);
-    if (toggleTheme) toggleTheme();
-    themeAnimRef.current = setTimeout(() => setThemeAnim(false), 520);
-  };
-  useEffect(() => () => clearTimeout(themeAnimRef.current), []);
-
   const activeTab = TABS.find((t) => t.id === tab);
-  const ActiveIcon = activeTab?.icon ?? GaugeIcon;
   // The collapse/expand toggle only applies to the desktop sidebar.
   const showLabels = sidebarOpen;
 
@@ -280,22 +267,14 @@ export default function AdminPanel({ user, onBack, isDark, toggleTheme }) {
           <span className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 px-16 md:px-14">
             <h1 className="truncate text-base font-semibold text-slate-700 dark:text-slate-200 md:text-sm">{activeTab?.label}</h1>
           </span>
-          <div className="ml-auto flex items-center gap-2">
-            <button type="button" onClick={handleToggleTheme} title={isDark ? "Switch to light mode" : "Switch to dark mode"}
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-700 dark:text-slate-400 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300">
-              {isDark
-                ? <Sun size={15} className={`icon-anim-spin-dir ${themeAnim ? "icon-theme-enter-sun" : ""}`} />
-                : <Moon size={15} className={`icon-anim-spin-left ${themeAnim ? "icon-theme-enter-moon" : ""}`} />}
-            </button>
-            <button type="button" onClick={handleManualRefresh} disabled={refreshState === "loading"} title="Refresh"
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-700 disabled:cursor-wait dark:text-slate-400 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300">
-              {refreshState === "loading"
-                ? <LoaderCircle size={14} className="animate-spin text-emerald-600 dark:text-emerald-400" />
-                : refreshState === "done"
-                  ? <Check size={14} className="text-emerald-600 dark:text-emerald-400" />
-                  : <Refresh size={14} className="icon-anim-spin-full" />}
-            </button>
-          </div>
+          <button type="button" onClick={handleManualRefresh} disabled={refreshState === "loading"} title="Refresh"
+            className="ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-700 disabled:cursor-wait dark:text-slate-400 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300">
+            {refreshState === "loading"
+              ? <LoaderCircle size={14} className="animate-spin text-emerald-600 dark:text-emerald-400" />
+              : refreshState === "done"
+                ? <Check size={14} className="text-emerald-600 dark:text-emerald-400" />
+                : <Refresh size={14} className="icon-anim-spin-full" />}
+          </button>
         </div>
 
         <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-4 md:p-5">
