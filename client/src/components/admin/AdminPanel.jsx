@@ -231,7 +231,7 @@ export default function AdminPanel({ user, onBack }) {
         </div>
 
         <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-4">
-          <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm dark:border-white/5 dark:bg-slate-900/60">
+          <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm dark:border-white/5 dark:bg-slate-950/60">
             {TABS.map(({ id, label, icon: Icon, anim }, index) => (
               <button key={id} type="button"
                 onClick={() => selectTab(id)}

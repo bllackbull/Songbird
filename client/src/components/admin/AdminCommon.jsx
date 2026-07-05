@@ -15,7 +15,7 @@ export function LoadingRows() {
   return (
     <div className="space-y-2">
       {[1, 2, 3].map((n) => (
-        <div key={n} className="h-12 animate-pulse rounded-2xl border border-emerald-200/40 bg-white/60 dark:border-emerald-500/20 dark:bg-slate-900/40" />
+        <div key={n} className="h-12 animate-pulse rounded-2xl border border-emerald-200/40 bg-white/60 dark:border-emerald-500/20 dark:bg-slate-950/40" />
       ))}
     </div>
   );

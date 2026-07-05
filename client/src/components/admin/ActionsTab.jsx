@@ -62,7 +62,7 @@ function ActionRow({
       className={`flex h-full w-full flex-col items-start gap-2 rounded-2xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
         danger
           ? "border-rose-200/70 bg-rose-50/40 hover:border-rose-300 hover:bg-rose-50 dark:border-rose-500/30 dark:bg-rose-500/[0.04] dark:hover:bg-rose-500/10"
-          : "border-emerald-200/70 bg-white/90 hover:border-emerald-300 hover:bg-emerald-50/60 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:hover:bg-emerald-500/5"
+          : "border-emerald-200/70 bg-white/90 hover:border-emerald-300 hover:bg-emerald-50/60 dark:border-emerald-500/30 dark:bg-slate-950/50 dark:hover:bg-emerald-500/5"
       }`}
     >
       <div className="flex w-full items-start justify-between gap-2">
