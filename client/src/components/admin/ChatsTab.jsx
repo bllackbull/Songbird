@@ -5,6 +5,7 @@ import { LoadingRows, EmptyState, FilterDropdown, SortTh } from "./AdminCommon.j
 import AdminGroupModal from "./AdminGroupModal.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 import Avatar from "../common/Avatar.jsx";
+import { hasPersian } from "../../utils/fontUtils.js";
 
 const ChatsTab = forwardRef(function ChatsTab({ onStatsChange }, ref) {
   const [chats, setChats]             = useState([]);
@@ -59,6 +60,8 @@ const ChatsTab = forwardRef(function ChatsTab({ onStatsChange }, ref) {
     load(); onStatsChange();
   };
 
+  const searchHasPersian = hasPersian(search);
+
   return (
     <div className="space-y-3">
       <div className="flex flex-nowrap items-center gap-2 sm:flex-wrap">
@@ -66,7 +69,10 @@ const ChatsTab = forwardRef(function ChatsTab({ onStatsChange }, ref) {
           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
             <Search size={16} className={searchIconCls} />
           </span>
-          <input type="text" placeholder="Search chats…" value={search} onChange={(e) => setSearch(e.target.value)} className={inputSmCls + " pl-8"} />
+          <input type="text" placeholder="Search chats…" value={search} onChange={(e) => setSearch(e.target.value)}
+            lang={searchHasPersian ? "fa" : "en"} dir={searchHasPersian ? "rtl" : "ltr"}
+            className={inputSmCls + " pl-8" + (searchHasPersian ? " font-fa text-right" : "")}
+            style={{ unicodeBidi: "plaintext" }} />
         </label>
         <FilterDropdown value={typeFilter} onChange={setTypeFilter} options={[["", "All types"], ["group", "Groups"], ["channel", "Channels"]]} />
         <div ref={createMenuRef} className="relative shrink-0">
@@ -94,7 +100,10 @@ const ChatsTab = forwardRef(function ChatsTab({ onStatsChange }, ref) {
         <>
           {/* Mobile card list */}
           <div className="space-y-2 sm:hidden">
-            {chats.map((c) => (
+            {chats.map((c) => {
+              const chatName = c.name || `Chat #${c.id}`;
+              const nameHasPersian = hasPersian(chatName);
+              return (
               <div key={c.id} className={"p-3 " + cardCls}>
                 <div className="flex items-start gap-3">
                   <Avatar
@@ -106,7 +115,7 @@ const ChatsTab = forwardRef(function ChatsTab({ onStatsChange }, ref) {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-slate-700 dark:text-slate-200">{c.name || `Chat #${c.id}`}</p>
+                        <p className={`truncate text-sm font-semibold text-slate-700 dark:text-slate-200 ${nameHasPersian ? "font-fa" : ""}`} dir="auto">{chatName}</p>
                         {c.group_username && <p className="truncate text-[11px] text-slate-400">@{c.group_username}</p>}
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
@@ -130,7 +139,8 @@ const ChatsTab = forwardRef(function ChatsTab({ onStatsChange }, ref) {
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Desktop table */}
@@ -149,7 +159,10 @@ const ChatsTab = forwardRef(function ChatsTab({ onStatsChange }, ref) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50 dark:divide-white/[0.04]">
-                  {chats.map((c) => (
+                  {chats.map((c) => {
+                    const chatName = c.name || `Chat #${c.id}`;
+                    const nameHasPersian = hasPersian(chatName);
+                    return (
                     <tr key={c.id} className="hover:bg-emerald-50/30 dark:hover:bg-emerald-500/5">
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-2.5">
@@ -160,7 +173,7 @@ const ChatsTab = forwardRef(function ChatsTab({ onStatsChange }, ref) {
                             className="h-7 w-7 shrink-0 text-xs font-bold text-white"
                           />
                           <div className="min-w-0">
-                            <p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{c.name || `Chat #${c.id}`}</p>
+                            <p className={`truncate text-xs font-semibold text-slate-700 dark:text-slate-200 ${nameHasPersian ? "font-fa" : ""}`} dir="auto">{chatName}</p>
                             {c.group_username && <p className="text-[11px] text-slate-400">@{c.group_username}</p>}
                           </div>
                         </div>
@@ -191,7 +204,8 @@ const ChatsTab = forwardRef(function ChatsTab({ onStatsChange }, ref) {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

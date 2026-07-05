@@ -23,6 +23,7 @@ import {
 import { api, cardCls, inputSmCls, btnDanger, fmtDateTime, searchIconCls } from "./adminShared.js";
 import { LoadingRows, EmptyState } from "./AdminCommon.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
+import { hasPersian } from "../../utils/fontUtils.js";
 
 const LOG_ACTION_META = {
   "user.create":         { label: "User created",      color: "emerald", icon: UserPlus },
@@ -95,6 +96,8 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser }, ref) {
     finally { setClearing(false); setConfirmOpen(false); }
   };
 
+  const searchHasPersian = hasPersian(search);
+
   return (
     <div className="space-y-3">
       <div className="flex flex-nowrap items-center gap-2 sm:flex-wrap">
@@ -102,7 +105,10 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser }, ref) {
           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
             <Search size={16} className={searchIconCls} />
           </span>
-          <input type="text" placeholder="Search logs…" value={search} onChange={(e) => setSearch(e.target.value)} className={inputSmCls + " pl-8"} />
+          <input type="text" placeholder="Search logs…" value={search} onChange={(e) => setSearch(e.target.value)}
+            lang={searchHasPersian ? "fa" : "en"} dir={searchHasPersian ? "rtl" : "ltr"}
+            className={inputSmCls + " pl-8" + (searchHasPersian ? " font-fa text-right" : "")}
+            style={{ unicodeBidi: "plaintext" }} />
         </label>
         {isOwner && (
           <button type="button" onClick={() => setConfirmOpen(true)} title="Clear"
@@ -128,6 +134,8 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser }, ref) {
             const meta = LOG_ACTION_META[entry.action] || { label: entry.action, color: "slate", icon: History };
             const Icon = meta.icon || History;
             const colors = LOG_COLORS[meta.color] || LOG_COLORS.slate;
+            const detailText = [entry.targetLabel, entry.details].filter(Boolean).join(" · ");
+            const detailHasPersian = hasPersian(detailText);
             return (
               <div key={i} className={`flex items-start gap-3 px-4 py-3 ${i < logs.length - 1 ? "border-b border-slate-100 dark:border-white/5" : ""}`}>
                 <div className={`flex h-7 w-7 shrink-0 items-center justify-center ${colors.icon}`}>
@@ -138,9 +146,9 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser }, ref) {
                     <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{meta.label}</span>
                     {entry.status === "error" && <span className="text-[10px] font-semibold text-rose-500">failed</span>}
                   </div>
-                  <p className="mt-0.5 truncate text-[11px] text-slate-400 dark:text-slate-500">
-                    {[entry.targetLabel, entry.details].filter(Boolean).join(" · ")}
-                    {(entry.targetLabel || entry.details) ? " · " : ""}
+                  <p className={`mt-0.5 truncate text-[11px] text-slate-400 dark:text-slate-500 ${detailHasPersian ? "font-fa" : ""}`} dir="auto">
+                    {detailText}
+                    {detailText ? " · " : ""}
                     {entry.actorUsername ? `@${entry.actorUsername}` : "system"} · {fmtDateTime(entry.ts)}
                   </p>
                 </div>

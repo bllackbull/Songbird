@@ -5,6 +5,7 @@ import { LoadingRows, EmptyState, FilterDropdown, SortTh, RoleBadge } from "./Ad
 import AdminUserModal from "./AdminUserModal.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 import Avatar from "../common/Avatar.jsx";
+import { hasPersian } from "../../utils/fontUtils.js";
 
 const UsersTab = forwardRef(function UsersTab({ currentUser, onStatsChange }, ref) {
   const [users, setUsers]             = useState([]);
@@ -61,6 +62,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, onStatsChange }, re
 
   // Whether the currently logged-in admin is themselves the server owner.
   const iAmOwner = currentUser?.role === "owner";
+  const searchHasPersian = hasPersian(search);
 
   return (
     <div className="space-y-3">
@@ -69,7 +71,10 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, onStatsChange }, re
           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
             <Search size={16} className={searchIconCls} />
           </span>
-          <input type="text" placeholder="Search users…" value={search} onChange={(e) => setSearch(e.target.value)} className={inputSmCls + " pl-8"} />
+          <input type="text" placeholder="Search users…" value={search} onChange={(e) => setSearch(e.target.value)}
+            lang={searchHasPersian ? "fa" : "en"} dir={searchHasPersian ? "rtl" : "ltr"}
+            className={inputSmCls + " pl-8" + (searchHasPersian ? " font-fa text-right" : "")}
+            style={{ unicodeBidi: "plaintext" }} />
         </label>
         <FilterDropdown value={roleFilter} onChange={setRoleFilter} icon={Tag} options={[["", "All roles"], ["user", "User"], ["admin", "Admin"], ["owner", "Owner"], ["banned", "Banned"]]} />
         <FilterDropdown value={statusFilter} onChange={setStatusFilter} icon={Filter} options={[["", "All"], ["online", "Online"], ["offline", "Offline"]]} />
@@ -88,6 +93,8 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, onStatsChange }, re
               const isOwnerRow  = u.role === "owner";
               const isAdminRow  = u.role === "admin";
               const actionsBlocked = !isSelf && !iAmOwner && (isOwnerRow || isAdminRow);
+              const displayName = u.nickname || u.username;
+              const nameHasPersian = hasPersian(displayName);
 
               return (
                 <div key={u.id} className={"p-3 " + cardCls}>
@@ -105,7 +112,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, onStatsChange }, re
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5">
-                            <p className="truncate text-sm font-semibold text-slate-700 dark:text-slate-200">{u.nickname || u.username}</p>
+                            <p className={`truncate text-sm font-semibold text-slate-700 dark:text-slate-200 ${nameHasPersian ? "font-fa" : ""}`} dir="auto">{displayName}</p>
                             {(u.banned || u.role === "admin" || u.role === "owner") && <RoleBadge role={u.role} banned={u.banned} />}
                           </div>
                           <p className="truncate text-[11px] text-slate-400 dark:text-slate-500">@{u.username}</p>
@@ -179,6 +186,8 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, onStatsChange }, re
                     // An admin cannot act on the owner or on other admins.
                     // The owner can act on everyone (except themselves for ban/delete).
                     const actionsBlocked = !isSelf && !iAmOwner && (isOwnerRow || isAdminRow);
+                    const displayName = u.nickname || u.username;
+                    const nameHasPersian = hasPersian(displayName);
 
                     return (
                       <tr key={u.id} className="hover:bg-emerald-50/30 dark:hover:bg-emerald-500/5">
@@ -194,7 +203,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, onStatsChange }, re
                               {u.online ? <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900" title="Online" /> : null}
                             </div>
                             <div className="min-w-0">
-                              <p className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{u.nickname || u.username}</p>
+                              <p className={`truncate text-xs font-semibold text-slate-700 dark:text-slate-200 ${nameHasPersian ? "font-fa" : ""}`} dir="auto">{displayName}</p>
                               <p className="text-[11px] text-slate-400 dark:text-slate-500">@{u.username}</p>
                             </div>
                           </div>
