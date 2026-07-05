@@ -123,7 +123,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, onStatsChange }, re
                           ) : actionsBlocked ? (
                             <>
                               <button type="button" disabled className={iconBtn("slate")} title={isOwnerRow ? "Cannot edit the owner" : "Cannot edit other admins"}><Pencil size={16} /></button>
-                              <button type="button" disabled className={iconBtn(isOwnerRow ? "emerald" : "slate")} title={isOwnerRow ? "Cannot change the owner's role" : "Cannot change another admin's role"}>
+                              <button type="button" disabled className={iconBtn(isOwnerRow ? "rose" : "slate")} title={isOwnerRow ? "Cannot change the owner's role" : "Cannot change another admin's role"}>
                                 <ShieldOff size={16} />
                               </button>
                               <button type="button" disabled className={iconBtn("rose")} title={isOwnerRow ? "Cannot ban the owner" : "Cannot ban other admins"}><Ban size={16} /></button>
@@ -225,7 +225,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, onStatsChange }, re
                             /* Owner row (for non-owners) or admin row (for non-owners) — all buttons disabled */
                             <div className="flex items-center gap-1">
                               <button type="button" disabled className={iconBtn("slate")} title={isOwnerRow ? "Cannot edit the owner" : "Cannot edit other admins"}><Pencil size={16} /></button>
-                              <button type="button" disabled className={iconBtn(isOwnerRow ? "emerald" : "slate")} title={isOwnerRow ? "Cannot change the owner's role" : "Cannot change another admin's role"}>
+                              <button type="button" disabled className={iconBtn(isOwnerRow ? "rose" : "slate")} title={isOwnerRow ? "Cannot change the owner's role" : "Cannot change another admin's role"}>
                                 <ShieldOff size={16} />
                               </button>
                               <button type="button" disabled className={iconBtn("rose")} title={isOwnerRow ? "Cannot ban the owner" : "Cannot ban other admins"}><Ban size={16} /></button>

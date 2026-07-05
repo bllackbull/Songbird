@@ -22,6 +22,7 @@ import {
 } from "../../icons/lucide.js";
 import { api, cardCls, inputSmCls, btnDanger, fmtDateTime, searchIconCls } from "./adminShared.js";
 import { LoadingRows, EmptyState } from "./AdminCommon.jsx";
+import ConfirmModal from "../modals/ConfirmModal.jsx";
 
 const LOG_ACTION_META = {
   "user.create":         { label: "User created",      color: "emerald", icon: UserPlus },
@@ -62,13 +63,17 @@ const LOG_SOURCES = [
   { id: "nginx",     label: "Nginx" },
 ];
 
-const AdminLogView = forwardRef(function AdminLogView(_props, ref) {
+const AdminLogView = forwardRef(function AdminLogView({ currentUser }, ref) {
   const [logs, setLogs]               = useState([]);
   const [initialized, setInitialized] = useState(false);
   const [search, setSearch]           = useState("");
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [clearing, setClearing]       = useState(false);
   const debounceRef = useRef(null);
   const searchRef = useRef(search);
   useEffect(() => { searchRef.current = search; });
+
+  const isOwner = currentUser?.role === "owner";
 
   const load = useCallback(async () => {
     const q = new URLSearchParams({ limit: 300, search: searchRef.current });
@@ -85,9 +90,9 @@ const AdminLogView = forwardRef(function AdminLogView(_props, ref) {
   useImperativeHandle(ref, () => ({ refresh: load }), [load]);
 
   const clearLogs = async () => {
-    if (!confirm("Clear all admin logs? This cannot be undone.")) return;
-    await api.delete("/api/admin/logs");
-    load();
+    setClearing(true);
+    try { await api.delete("/api/admin/logs"); await load(); }
+    finally { setClearing(false); setConfirmOpen(false); }
   };
 
   return (
@@ -99,11 +104,23 @@ const AdminLogView = forwardRef(function AdminLogView(_props, ref) {
           </span>
           <input type="text" placeholder="Search logs…" value={search} onChange={(e) => setSearch(e.target.value)} className={inputSmCls + " pl-8"} />
         </label>
-        <button type="button" onClick={clearLogs} title="Clear"
-          className={btnDanger + " w-9 shrink-0 justify-center px-0 sm:w-auto sm:justify-start sm:px-3"}>
-          <Trash size={16} className="icon-anim-slide shrink-0" /> <span className="hidden sm:inline">Clear</span>
-        </button>
+        {isOwner && (
+          <button type="button" onClick={() => setConfirmOpen(true)} title="Clear"
+            className={btnDanger + " w-9 shrink-0 justify-center px-0 sm:w-auto sm:justify-start sm:px-3"}>
+            <Trash size={16} className="icon-anim-slide shrink-0" /> <span className="hidden sm:inline">Clear</span>
+          </button>
+        )}
       </div>
+
+      <ConfirmModal
+        open={confirmOpen}
+        title="Clear admin logs"
+        message="Clear all admin logs? This cannot be undone."
+        confirmLabel="Clear"
+        busy={clearing}
+        onConfirm={clearLogs}
+        onClose={() => setConfirmOpen(false)}
+      />
 
       {!initialized ? <LoadingRows /> : logs.length === 0 ? <EmptyState message="No log entries." /> : (
         <div className={"overflow-hidden " + cardCls}>
@@ -168,7 +185,7 @@ const SystemLogView = forwardRef(function SystemLogView({ source }, ref) {
   );
 });
 
-const LogsTab = forwardRef(function LogsTab(_props, ref) {
+const LogsTab = forwardRef(function LogsTab({ currentUser }, ref) {
   const [source, setSource] = useState("admin");
   const viewRef = useRef(null);
 
@@ -188,7 +205,7 @@ const LogsTab = forwardRef(function LogsTab(_props, ref) {
           </button>
         ))}
       </div>
-      {source === "admin" ? <AdminLogView ref={viewRef} /> : <SystemLogView ref={viewRef} source={source} key={source} />}
+      {source === "admin" ? <AdminLogView ref={viewRef} currentUser={currentUser} /> : <SystemLogView ref={viewRef} source={source} key={source} />}
     </div>
   );
 });

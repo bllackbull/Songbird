@@ -760,6 +760,9 @@ function registerAdminPanelRoutes(app, deps) {
   app.delete("/api/admin/logs", (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
+    if (!actorIsOwner(session)) {
+      return res.status(403).json({ error: "Owner access required" });
+    }
     clearAdminLog();
     log(session, "logs.clear", { targetType: "system" });
     res.json({ ok: true });

@@ -268,12 +268,12 @@ export default function AdminPanel({ user, onBack }) {
             <h1 className="truncate text-base font-semibold text-slate-700 dark:text-slate-200 md:text-sm">{activeTab?.label}</h1>
           </span>
           <button type="button" onClick={handleManualRefresh} disabled={refreshState === "loading"} title="Refresh"
-            className="ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-700 disabled:cursor-wait dark:text-slate-400 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300">
+            className={`ml-auto inline-flex shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-700 disabled:cursor-wait dark:text-slate-400 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300 ${isDesktopView ? "h-8 w-8" : "h-10 w-10"}`}>
             {refreshState === "loading"
-              ? <LoaderCircle size={14} className="animate-spin text-emerald-600 dark:text-emerald-400" />
+              ? <LoaderCircle size={isDesktopView ? 14 : 16} className="animate-spin text-emerald-600 dark:text-emerald-400" />
               : refreshState === "done"
-                ? <Check size={14} className="text-emerald-600 dark:text-emerald-400" />
-                : <Refresh size={14} className="icon-anim-spin-full" />}
+                ? <Check size={isDesktopView ? 14 : 16} className="text-emerald-600 dark:text-emerald-400" />
+                : <Refresh size={isDesktopView ? 14 : 16} className="icon-anim-spin-full" />}
           </button>
         </div>
 
@@ -283,7 +283,7 @@ export default function AdminPanel({ user, onBack }) {
           {tab === "chats"     && <ChatsTab ref={(r) => { tabRefs.current.chats = r; }} onStatsChange={refreshStats} />}
           {tab === "settings"  && <SettingsTab ref={(r) => { tabRefs.current.settings = r; }} />}
           {tab === "actions"   && <ActionsTab ref={(r) => { tabRefs.current.actions = r; }} />}
-          {tab === "logs"      && <LogsTab ref={(r) => { tabRefs.current.logs = r; }} />}
+          {tab === "logs"      && <LogsTab ref={(r) => { tabRefs.current.logs = r; }} currentUser={user} />}
         </div>
       </div>
     </div>
