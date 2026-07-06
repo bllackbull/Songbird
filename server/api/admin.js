@@ -74,14 +74,20 @@ function registerAdminRoutes(app, deps) {
       return res.status(403).json({ error: "Forbidden" });
     }
 
-    const expectedToken = process.env.ADMIN_API_TOKEN;
+    // ADMIN_API_TOKEN is auto-generated and persisted to .env on first boot
+    // (see lib/adminApiToken.js), so this should always be set. Still guard
+    // against a missing value rather than silently skipping the check.
+    const expectedToken = String(process.env.ADMIN_API_TOKEN || "");
+    const provided = String(req.headers["x-songbird-admin-token"] || "");
+    const expectedBuf = Buffer.from(expectedToken);
+    const providedBuf = Buffer.from(provided);
+    const tokenMatches =
+      expectedToken.length > 0 &&
+      expectedBuf.length === providedBuf.length &&
+      crypto.timingSafeEqual(expectedBuf, providedBuf);
 
-    if (expectedToken) {
-      const provided = String(req.headers["x-songbird-admin-token"] || "");
-
-      if (!provided || provided !== expectedToken) {
-        return res.status(401).json({ error: "Invalid admin token." });
-      }
+    if (!tokenMatches) {
+      return res.status(401).json({ error: "Invalid admin token." });
     }
 
     const action = String(req.body?.action || "")

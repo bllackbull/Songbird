@@ -10,12 +10,14 @@ import {
   ensureStorageEncryptionKey,
   storageEncryption,
 } from "./lib/storageEncryption.js";
+import { ensureAdminApiToken } from "./lib/adminApiToken.js";
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRootDir = path.resolve(serverDir, "..");
 dotenv.config({ path: path.join(projectRootDir, ".env"), override: true, quiet: true });
 dotenv.config({ path: path.join(serverDir, ".env"), override: true, quiet: true });
 ensureStorageEncryptionKey({ projectRootDir, fsImpl: fs, pathImpl: path, cryptoImpl: crypto });
+ensureAdminApiToken({ projectRootDir, fsImpl: fs, pathImpl: path, cryptoImpl: crypto });
 const dataDir = path.resolve(serverDir, "..", "data");
 const dbPath = path.join(dataDir, "songbird.db");
 const backupDir = path.join(dataDir, "backups");
