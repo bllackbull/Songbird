@@ -770,10 +770,13 @@ const remoteChannelManager = createRemoteChannelManager({
 
 apiDeps.remoteChannelManager = remoteChannelManager;
 
+if (isProduction) {
+  app.use("/api", apiLimiter);
+}
+
 registerApiRoutes(app, apiDeps);
 
 if (isProduction) {
-  app.use("/api", apiLimiter);
   app.use(staticLimiter);
 
   const clientDist = path.resolve(serverDir, "..", "client", "dist");
