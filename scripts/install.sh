@@ -686,36 +686,6 @@ prompt_client_port() {
   done
 }
 
-prompt_retention_days() {
-  local value=""
-  while true; do
-    prompt_read "Enter files auto deletion interval in days (0 disables, default: $DEFAULT_RETENTION_DAYS): " value
-    if [[ -z "$value" ]]; then
-      value="$DEFAULT_RETENTION_DAYS"
-    fi
-    if [[ "$value" =~ ^[0-9]+$ ]]; then
-      printf "%s" "$value"
-      return 0
-    fi
-    printf "Please enter a non-negative integer.\n"
-  done
-}
-
-prompt_text_retention_days() {
-  local value=""
-  while true; do
-    prompt_read "Enter text-only message auto deletion interval in days (0 disables, default: $DEFAULT_TEXT_RETENTION_DAYS): " value
-    if [[ -z "$value" ]]; then
-      value="$DEFAULT_TEXT_RETENTION_DAYS"
-    fi
-    if [[ "$value" =~ ^[0-9]+$ ]]; then
-      printf "%s" "$value"
-      return 0
-    fi
-    printf "Please enter a non-negative integer.\n"
-  done
-}
-
 normalize_path_input() {
   local value="$1"
   if [[ "$value" == "~"* ]]; then
@@ -1690,133 +1660,49 @@ replace_env_value() {
 
 write_env_from_example() {
   local env_file="${INSTALL_DIR}/.env"
-  local example_file="${INSTALL_DIR}/.env.example"
-  if [[ ! -f "$example_file" ]]; then
-    log "Missing ${example_file}. Falling back to minimal .env defaults."
-    write_env_fallback "$env_file" || return 1
-    CURRENT_ENV_FILE="$env_file"
-    return 0
-  fi
-  local existing_public_key
-  local existing_private_key
-  local existing_subject
-  local existing_server_port
-  local existing_client_port
-  local existing_sign_up
-  local existing_file_upload_max_size_mb
-  local existing_file_upload_max_total_size_mb
-  local existing_voice_waveform_max_decode_mb
-  local existing_voice_waveform_max_decode_seconds
-  local existing_nickname_max_chars
-  local existing_username_max_chars
-  local existing_storage_encryption_key
-  existing_public_key="$(get_existing_env_value "VAPID_PUBLIC_KEY" "")"
-  existing_private_key="$(get_existing_env_value "VAPID_PRIVATE_KEY" "")"
-  existing_subject="$(get_existing_env_value "VAPID_SUBJECT" "mailto:admin@example.com")"
-  existing_server_port="$(get_existing_env_value_with_fallback "SERVER_PORT" "PORT" "$DEFAULT_SERVER_PORT")"
-  existing_client_port="$(get_existing_env_value "CLIENT_PORT" "$DEFAULT_CLIENT_PORT")"
-  existing_sign_up="$(get_existing_env_value_with_fallback "SIGN_UP" "ACCOUNT_CREATION" "$DEFAULT_SIGN_UP")"
-  existing_file_upload_max_size_mb="$(get_existing_env_mb_value_with_fallback "FILE_UPLOAD_MAX_SIZE_MB" "FILE_UPLOAD_MAX_SIZE" "$DEFAULT_FILE_UPLOAD_MAX_SIZE_MB")"
-  existing_file_upload_max_total_size_mb="$(get_existing_env_mb_value_with_fallback "FILE_UPLOAD_MAX_TOTAL_SIZE_MB" "FILE_UPLOAD_MAX_TOTAL_SIZE" "$DEFAULT_MAX_UPLOAD_MB")"
-  existing_voice_waveform_max_decode_mb="$(get_existing_env_mb_value_with_fallback "CHAT_VOICE_WAVEFORM_MAX_DECODE_MB" "CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES" "$DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_MB")"
-  existing_voice_waveform_max_decode_seconds="$(get_existing_env_value "CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS" "$DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS")"
-  existing_nickname_max_chars="$(get_existing_env_value_with_fallback "NICKNAME_MAX_CHARS" "NICKNAME_MAX" "24")"
-  existing_username_max_chars="$(get_existing_env_value_with_fallback "USERNAME_MAX_CHARS" "USERNAME_MAX" "16")"
-  existing_storage_encryption_key="$(get_existing_env_value "STORAGE_ENCRYPTION_KEY" "")"
-
-  run_silent run_as_root cp "$example_file" "$env_file" || return 1
-  replace_env_value "$env_file" "SERVER_PORT" "$existing_server_port" || return 1
-  replace_env_value "$env_file" "CLIENT_PORT" "$existing_client_port" || return 1
-  replace_env_value "$env_file" "SERVER_PORT" "$SERVER_PORT" || return 1
-  replace_env_value "$env_file" "CLIENT_PORT" "$CLIENT_PORT" || return 1
-  replace_env_value "$env_file" "SIGN_UP" "$ACCOUNT_CREATION" || return 1
-  replace_env_value "$env_file" "FILE_UPLOAD" "$FILE_UPLOAD" || return 1
-  replace_env_value "$env_file" "FILE_UPLOAD_MAX_SIZE_MB" "$existing_file_upload_max_size_mb" || return 1
-  replace_env_value "$env_file" "FILE_UPLOAD_MAX_TOTAL_SIZE_MB" "$MAX_UPLOAD_MB" || return 1
-  replace_env_value "$env_file" "MESSAGE_FILE_RETENTION" "$RETENTION_DAYS" || return 1
-  replace_env_value "$env_file" "MESSAGE_TEXT_RETENTION" "$TEXT_RETENTION_DAYS" || return 1
-  replace_env_value "$env_file" "CHAT_VOICE_WAVEFORM_MAX_DECODE_MB" "$existing_voice_waveform_max_decode_mb" || return 1
-  replace_env_value "$env_file" "CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS" "$existing_voice_waveform_max_decode_seconds" || return 1
-  replace_env_value "$env_file" "NICKNAME_MAX_CHARS" "$existing_nickname_max_chars" || return 1
-  replace_env_value "$env_file" "USERNAME_MAX_CHARS" "$existing_username_max_chars" || return 1
-  replace_env_value "$env_file" "STORAGE_ENCRYPTION_KEY" "$existing_storage_encryption_key" || return 1
-  replace_env_value "$env_file" "VAPID_PUBLIC_KEY" "$existing_public_key" || return 1
-  replace_env_value "$env_file" "VAPID_PRIVATE_KEY" "$existing_private_key" || return 1
-  if [[ -n "$CERTBOT_EMAIL" ]]; then
-    replace_env_value "$env_file" "VAPID_SUBJECT" "mailto:${CERTBOT_EMAIL}" || return 1
-  else
-    replace_env_value "$env_file" "VAPID_SUBJECT" "$existing_subject" || return 1
-  fi
+  write_env_fallback "$env_file" || return 1
   CURRENT_ENV_FILE="$env_file"
-  log "Wrote environment config from ${example_file}."
 }
 
 write_env_fallback() {
   local env_file="$1"
   local existing_storage_encryption_key
+  local existing_admin_api_token
   local existing_public_key
   local existing_private_key
   local existing_subject
   existing_storage_encryption_key="$(get_existing_env_value "STORAGE_ENCRYPTION_KEY" "")"
+  existing_admin_api_token="$(get_existing_env_value "ADMIN_API_TOKEN" "")"
   existing_public_key="$(get_existing_env_value "VAPID_PUBLIC_KEY" "")"
   existing_private_key="$(get_existing_env_value "VAPID_PRIVATE_KEY" "")"
   existing_subject="$(get_existing_env_value "VAPID_SUBJECT" "mailto:admin@example.com")"
   run_silent run_as_root bash -lc "cat > '$env_file' <<'EOF'
+# Server Configuration
 SERVER_PORT=${SERVER_PORT}
 CLIENT_PORT=${CLIENT_PORT}
+
+# Application Settings
 APP_ENV=production
-APP_DEBUG=false
-SIGN_UP=${ACCOUNT_CREATION}
-FILE_UPLOAD=${FILE_UPLOAD}
-FILE_UPLOAD_MAX_SIZE_MB=${DEFAULT_FILE_UPLOAD_MAX_SIZE_MB}
-FILE_UPLOAD_MAX_TOTAL_SIZE_MB=${MAX_UPLOAD_MB}
-FILE_UPLOAD_MAX_FILES=10
-FILE_UPLOAD_TRANSCODE_VIDEOS=true
-MESSAGE_FILE_RETENTION=${RETENTION_DAYS}
-MESSAGE_TEXT_RETENTION=${TEXT_RETENTION_DAYS}
-MESSAGE_MAX_CHARS=4000
-REMOTE_CHANNEL=false
-REMOTE_CHANNEL_UI=true
-REMOTE_CHANNEL_MEDIA_STREAM=true
-REMOTE_CHANNEL_TELEGRAM_API_ID=0
-REMOTE_CHANNEL_TELEGRAM_API_HASH=""
-REMOTE_CHANNEL_TELEGRAM_SESSION_STRING=""
-REMOTE_CHANNEL_TELEGRAM_PROXY_URL=""
-REMOTE_CHANNEL_SONGBIRD_PROXY_URL=""
-REMOTE_CHANNEL_POLL_INTERVAL_MS=5000
-REMOTE_CHANNEL_TELEGRAM_POLL_LIMIT=50
-REMOTE_CHANNEL_QUEUE_INTERVAL_MS=1000
-REMOTE_CHANNEL_QUEUE_MAX_ATTEMPTS=10
-REMOTE_CHANNEL_QUEUE_BATCH_SIZE=10
-REMOTE_CHANNEL_QUEUE_CONCURRENCY=3
-REMOTE_CHANNEL_QUEUE_STALE_LOCK_MS=300000
-CHAT_PENDING_TEXT_TIMEOUT=300000
-CHAT_PENDING_FILE_TIMEOUT=1200000
-CHAT_PENDING_RETRY_INTERVAL=4000
-CHAT_PENDING_STATUS_CHECK_INTERVAL=1000
-CHAT_CACHE_TTL=24
-CHAT_MESSAGE_FETCH_LIMIT=60
-CHAT_MESSAGE_PAGE_SIZE=60
-CHAT_LIST_REFRESH_INTERVAL=20000
-CHAT_PRESENCE_PING_INTERVAL=5000
-CHAT_PEER_PRESENCE_POLL_INTERVAL=3000
-CHAT_HEALTH_CHECK_INTERVAL=10000
-CHAT_SSE_RECONNECT_DELAY=2000
-CHAT_SEARCH_MAX_RESULTS=5
-CHAT_VOICE_WAVEFORM_MAX_DECODE_MB=${DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_MB}
-CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS=${DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS}
-NICKNAME_MAX_CHARS=24
-USERNAME_MAX_CHARS=16
+
+# Security & Encryption
+# Auto-generated by the server on first boot if left empty.
 STORAGE_ENCRYPTION_KEY=${existing_storage_encryption_key}
+# Token gating the local-only admin endpoint. Auto-generated if left empty.
+ADMIN_API_TOKEN=${existing_admin_api_token}
+
+# Push Notifications
 VAPID_PUBLIC_KEY=${existing_public_key}
 VAPID_PRIVATE_KEY=${existing_private_key}
 VAPID_SUBJECT=${existing_subject}
-PUSH_PROXY_URL=""
+
+# NOTE: All other application settings (sign-up, file uploads, retention,
+# limits, remote channel, client tuning, push proxy, etc.) are configured from
+# the in-app Admin Panel after installation.
 EOF" || return 1
   if [[ -n "$CERTBOT_EMAIL" ]]; then
     replace_env_value "$env_file" "VAPID_SUBJECT" "mailto:${CERTBOT_EMAIL}" || return 1
   fi
-  log "Wrote fallback environment config to ${env_file}."
+  log "Wrote environment config to ${env_file}."
 }
 
 ensure_vapid_keys() {
@@ -2119,25 +2005,6 @@ collect_install_options() {
   if [[ "$CERT_MODE" != "http" ]]; then
     log "Using HTTP redirect on port 80 and HTTPS on port ${CLIENT_PORT}."
   fi
-
-  if [[ "$(prompt_yes_no "Allow account creation via website?" "yes")" == "yes" ]]; then
-    ACCOUNT_CREATION="true"
-  else
-    ACCOUNT_CREATION="false"
-  fi
-
-  if [[ "$(prompt_yes_no "Enable file uploads?" "yes")" == "yes" ]]; then
-    FILE_UPLOAD="true"
-  else
-    FILE_UPLOAD="false"
-  fi
-
-  if [[ "$FILE_UPLOAD" == "true" ]]; then
-    RETENTION_DAYS="$(prompt_retention_days)"
-  else
-    RETENTION_DAYS="0"
-  fi
-  TEXT_RETENTION_DAYS="$(prompt_text_retention_days)"
 
 }
 
