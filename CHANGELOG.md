@@ -1,3 +1,30 @@
+## 0.11.0
+
+### New Features
+
+- 🛡️ Admin Panel with full user and chat management
+- 👑 Owner role with elevated permissions
+- ⚙️ Runtime settings configurable from the admin panel (moved from `.env` to database)
+- 📋 File-based audit logs with multi-source logs page
+- 🔒 `ADMIN_PANEL` env flag to disable the admin panel entirely
+- 🔑 Auto-generated `ADMIN_API_TOKEN` on first boot
+- 🧑‍💼 Unified create/edit user modal with avatar and inline password reset
+- 💬 Danger zone — clear all messages and reset the database
+- 🔁 App version check and service restart/stop from Actions tab
+- 🖥️ Admin presence pings with idle auto-exit
+- 📝 Settings changes surfaced in the admin logs tab
+- 💡 Prompt to create an owner user after a fresh install
+
+**⏺️ If you encountered any problem, don't forget to submit an issue on Songbird github repository.**
+
+**⭐ Don't forget to give a star to Songbird github repository!**
+
+🕊️ [Songbird main server](https://chat.songbird.website/invite/songbird)
+
+📢 [Songbird Telegram channel](https://t.me/songbirdapp)
+
+🌐 [Songbird Github repository](https://github.com/bllackbull/Songbird)
+
 ## 0.10.3
 
 ### New Features
@@ -14,16 +41,6 @@
 - 🔒 Centralized and stricter username validation
 - 💨 Performance optimizations on hot paths
 - 🔧 Bug fixes
-
-**⏺️ If you encountered any problem, don't forget to submit an issue on Songbird github repository.**
-
-**⭐ Don't forget to give a star to Songbird github repository!**
-
-🕊️ [Songbird main server](https://chat.songbird.website/invite/songbird)
-
-📢 [Songbird Telegram channel](https://t.me/songbirdapp)
-
-🌐 [Songbird Github repository](https://github.com/bllackbull/Songbird)
 
 ## 0.10.2
 
