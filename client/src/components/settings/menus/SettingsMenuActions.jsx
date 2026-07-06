@@ -26,6 +26,7 @@ export function SettingsMenuActions({
   onOpenSavedMessages,
   onOpenWhatsNew,
   userRole,
+  adminPanelEnabled = true,
 }) {
   const isMobile = variant === "mobile";
   const buttonBase = isMobile
@@ -35,6 +36,7 @@ export function SettingsMenuActions({
     "text-slate-700 transition hover:bg-emerald-50 hover:text-emerald-700 dark:text-slate-100 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200";
   const iconCls = "shrink-0 text-emerald-500";
   const isAdmin = userRole === "admin" || userRole === "owner";
+  const showAdminPanel = isAdmin && adminPanelEnabled;
   const divider = <div className="my-1 h-px bg-slate-100 dark:bg-white/5" />;
 
   return (
@@ -73,7 +75,7 @@ export function SettingsMenuActions({
         Saved messages
       </button>
 
-      {isAdmin ? (
+      {showAdminPanel ? (
         <>
           {divider}
           <button

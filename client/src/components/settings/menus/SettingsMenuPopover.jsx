@@ -18,6 +18,7 @@ export function SettingsMenuPopover({
   onOpenSavedMessages,
   onOpenWhatsNew,
   userRole,
+  adminPanelEnabled = true,
 }) {
   if (!showSettings) return null;
   const notificationsOn =
@@ -45,6 +46,7 @@ export function SettingsMenuPopover({
         onOpenSavedMessages={onOpenSavedMessages}
         onOpenWhatsNew={onOpenWhatsNew}
         userRole={userRole}
+        adminPanelEnabled={adminPanelEnabled}
       />
     </div>
   );

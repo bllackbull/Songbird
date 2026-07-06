@@ -320,7 +320,7 @@ const buildInviteLinkForChat = (chat) => {
   return origin ? `${origin}${path}` : path;
 };
 
-export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme }) {
+export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme, adminPanelEnabled = true }) {
   /* eslint-disable react-hooks/exhaustive-deps */
   const messageMaxChars = useMessageMaxChars();
   const [profileError, setProfileError] = useState("");
@@ -6459,6 +6459,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         settingsButtonRef={settingsButtonRef}
         displayInitials={displayInitials}
         onOpenWhatsNew={handleOpenWhatsNew}
+        adminPanelEnabled={adminPanelEnabled}
       />
 
       <ChatWindowPanel

@@ -17,6 +17,9 @@ function registerAppRoutes(app, deps) {
       // changes take effect immediately, without a client rebuild or reload
       // being required beyond a normal page fetch.
       accountCreationEnabled: Boolean(getSetting("SIGN_UP")),
+      adminPanelEnabled: !["0", "false", "no", "n", "off"].includes(
+        String(process.env.ADMIN_PANEL ?? "true").trim().toLowerCase(),
+      ),
       messageMaxChars: Number(getSetting("MESSAGE_MAX_CHARS")) || 4000,
       usernameMaxChars: Number(getSetting("USERNAME_MAX_CHARS")) || 16,
       nicknameMaxChars: Number(getSetting("NICKNAME_MAX_CHARS")) || 24,

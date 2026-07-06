@@ -59,6 +59,20 @@ function registerAdminPanelRoutes(app, deps) {
     fs,
   } = deps;
 
+  // ─── Admin panel gate ────────────────────────────────────────────────────────
+  // When ADMIN_PANEL=false is set in the environment, all /api/admin/* requests
+  // get a 404. This is env-only — intentionally not in the admin settings UI so
+  // the panel cannot be re-enabled from within itself.
+
+  app.use("/api/admin", (req, res, next) => {
+    const raw = String(process.env.ADMIN_PANEL ?? "true").trim().toLowerCase();
+    const enabled = !["0", "false", "no", "n", "off"].includes(raw);
+    if (!enabled) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    next();
+  });
+
   // ─── Auth middleware ─────────────────────────────────────────────────────────
 
   const requireAdmin = (req, res) => {

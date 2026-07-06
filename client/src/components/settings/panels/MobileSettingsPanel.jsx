@@ -61,6 +61,7 @@ export function MobileSettingsPanel({
   appInfoLoading,
   appInfoError,
   onOpenWhatsNew,
+  adminPanelEnabled = true,
 }) {
   const { nicknameMax: NICKNAME_MAX, usernameMax: USERNAME_MAX } = useNameLimits();
   const handleClosePanel = useCallback(
@@ -139,6 +140,7 @@ export function MobileSettingsPanel({
               onOpenSavedMessages={onOpenSavedMessages}
               onOpenWhatsNew={onOpenWhatsNew}
               userRole={user?.role}
+              adminPanelEnabled={adminPanelEnabled}
             />
           </div>
         </div>

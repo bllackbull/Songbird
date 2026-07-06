@@ -156,6 +156,7 @@ export default function App() {
   const [accountCreationEnabled, setAccountCreationEnabled] = useState(
     APP_CONFIG.accountCreationEnabled,
   )
+  const [adminPanelEnabled, setAdminPanelEnabled] = useState(true)
   const isStandaloneDisplay =
     window.matchMedia?.('(display-mode: standalone)')?.matches ||
     window.navigator?.standalone
@@ -341,6 +342,12 @@ export default function App() {
       navigate('/login', true)
     }
   }, [route, accountCreationEnabled])
+
+  useEffect(() => {
+    if (route === 'admin' && !adminPanelEnabled) {
+      navigate('/chat', true)
+    }
+  }, [route, adminPanelEnabled])
 
   useEffect(() => {
     const refreshTheme = () => applyTheme(isDark, route)
@@ -714,6 +721,9 @@ export default function App() {
         if (typeof data?.accountCreationEnabled === 'boolean') {
           setAccountCreationEnabled(data.accountCreationEnabled)
         }
+        if (typeof data?.adminPanelEnabled === 'boolean') {
+          setAdminPanelEnabled(data.adminPanelEnabled)
+        }
         setNameLimits({
           nicknameMax: data?.nicknameMaxChars,
           usernameMax: data?.usernameMaxChars,
@@ -1029,9 +1039,9 @@ export default function App() {
                 />
               )}
               {route === 'chat' && user ? (
-                <ChatPage user={user} setUser={setUser} isDark={isDark} setIsDark={setIsDark} toggleTheme={toggleTheme} />
+                <ChatPage user={user} setUser={setUser} isDark={isDark} setIsDark={setIsDark} toggleTheme={toggleTheme} adminPanelEnabled={adminPanelEnabled} />
               ) : null}
-              {route === 'admin' && user ? (
+              {route === 'admin' && user && adminPanelEnabled ? (
                 <AdminPage user={user} onBack={() => navigate('/chat', true)} />
               ) : null}
               {route === 'invite' && user ? (
