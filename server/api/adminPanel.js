@@ -869,6 +869,121 @@ function registerAdminPanelRoutes(app, deps) {
     setTimeout(() => { runSystemctl("stop"); }, 250);
   });
 
+  // ─── Nginx config update + reload ───────────────────────────────────────────
+  //
+  // Updates client_max_body_size in the nginx site config file to match the
+  // current FILE_UPLOAD_MAX_TOTAL_SIZE_MB setting, then reloads nginx.
+  // Only works for systemd-based deployments where nginx writes a site config.
+  // Docker deployments must update nginx/nginx.conf and restart nginx manually.
+
+  const NGINX_CONFIG_CANDIDATES = [
+    "/etc/nginx/sites-available/songbird",
+    "/etc/nginx/sites-enabled/songbird",
+    "/etc/nginx/conf.d/songbird.conf",
+    "/etc/nginx/conf.d/default.conf",
+  ];
+
+  const runNginxReload = () => new Promise((resolve) => {
+    // Test config first, then reload.
+    execFile("nginx", ["-t"], { timeout: 8000 }, (testErr) => {
+      if (testErr) {
+        // Try with sudo.
+        execFile("sudo", ["-n", "nginx", "-t"], { timeout: 8000 }, (sudoTestErr) => {
+          if (sudoTestErr) {
+            return resolve({ ok: false, error: "nginx -t failed: " + (sudoTestErr.message || String(sudoTestErr)) });
+          }
+          execFile("sudo", ["-n", "systemctl", "reload", "nginx"], { timeout: 8000 }, (reloadErr) => {
+            if (reloadErr) return resolve({ ok: false, error: "nginx reload failed: " + (reloadErr.message || String(reloadErr)) });
+            resolve({ ok: true });
+          });
+        });
+        return;
+      }
+      execFile("systemctl", ["reload", "nginx"], { timeout: 8000 }, (reloadErr) => {
+        if (!reloadErr) return resolve({ ok: true });
+        execFile("sudo", ["-n", "systemctl", "reload", "nginx"], { timeout: 8000 }, (sudoReloadErr) => {
+          if (!sudoReloadErr) return resolve({ ok: true });
+          resolve({ ok: false, error: sudoReloadErr.code === "ENOENT" ? "systemctl not available." : "Insufficient permissions to reload nginx." });
+        });
+      });
+    });
+  });
+
+  app.post("/api/admin/nginx/reload", async (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+
+    const maxTotalMb = getSetting("FILE_UPLOAD_MAX_TOTAL_SIZE_MB");
+
+    // Find the first writable nginx config candidate.
+    let configPath = null;
+    for (const candidate of NGINX_CONFIG_CANDIDATES) {
+      if (fs.existsSync(candidate)) {
+        configPath = candidate;
+        break;
+      }
+    }
+
+    if (!configPath) {
+      // Docker / custom deployment — no system nginx config found.
+      return res.status(200).json({
+        ok: false,
+        dockerMode: true,
+        message: `No nginx site config found on this host. If you are using Docker, update client_max_body_size in nginx/nginx.conf to ${maxTotalMb}m and restart the nginx container.`,
+        currentValueMb: maxTotalMb,
+      });
+    }
+
+    // Read and patch the config.
+    let configContent;
+    try {
+      configContent = fs.readFileSync(configPath, "utf8");
+    } catch (e) {
+      return res.status(500).json({ ok: false, error: "Could not read nginx config: " + String(e.message || e) });
+    }
+
+    const updated = configContent.replace(
+      /client_max_body_size\s+\d+[mMkKgG]?;/g,
+      `client_max_body_size ${maxTotalMb}m;`,
+    );
+
+    if (updated === configContent) {
+      // No client_max_body_size found — append it.
+      // This is a best-effort patch for non-standard configs.
+    }
+
+    try {
+      fs.writeFileSync(configPath, updated, "utf8");
+    } catch {
+      // Try with sudo via a temp file approach.
+      const tmpPath = nodePath.join(os.tmpdir(), `nginx-patch-${Date.now()}.conf`);
+      try {
+        fs.writeFileSync(tmpPath, updated, "utf8");
+        await new Promise((resolve, reject) => {
+          execFile("sudo", ["-n", "cp", tmpPath, configPath], { timeout: 5000 }, (err) => {
+            if (err) reject(err); else resolve();
+          });
+        });
+        fs.unlinkSync(tmpPath);
+      } catch (e) {
+        try { fs.unlinkSync(tmpPath); } catch {}
+        return res.status(500).json({ ok: false, error: "Insufficient permissions to write nginx config." });
+      }
+    }
+
+    const reloadResult = await runNginxReload();
+    if (!reloadResult.ok) {
+      return res.status(500).json({ ok: false, error: reloadResult.error });
+    }
+
+    log(session, "nginx.reload", {
+      targetType: "system",
+      targetLabel: configPath,
+      details: `client_max_body_size set to ${maxTotalMb}m`,
+    });
+    res.json({ ok: true, configPath, updatedValueMb: maxTotalMb });
+  });
+
   // Download the live database file directly to the admin's device.
   app.get("/api/admin/maintenance/download-db", (req, res) => {
     const session = requireAdmin(req, res);

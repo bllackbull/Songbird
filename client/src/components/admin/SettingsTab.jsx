@@ -600,6 +600,19 @@ const SettingsTab = forwardRef(function SettingsTab(_props, ref) {
 
       // Check if any of the saved keys require a restart
       const needsRestart = dirtyKeys.some((key) => defsByKey[key]?.restart);
+      // Fire-and-forget nginx sync for keys that affect client_max_body_size.
+      if (dirtyKeys.some((key) => defsByKey[key]?.nginxReload)) {
+        api.post("/api/admin/nginx/reload", {})
+          .then((r) => r.json().catch(() => ({})))
+          .then((result) => {
+            if (!result.ok && !result.dockerMode) {
+              flash("Settings saved, but nginx config update failed — update client_max_body_size manually.", "error");
+            }
+          })
+          .catch(() => {
+            flash("Settings saved, but nginx config update failed — update client_max_body_size manually.", "error");
+          });
+      }
       setLocalVals({});
 
       if (needsRestart) {

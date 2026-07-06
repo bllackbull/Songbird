@@ -92,7 +92,8 @@ export const SETTING_DEFS = [
     defaultVal: 75,
     min: 1,
     max: 8192,
-    restart: true, // enforced against a value captured at startup
+    restart: true,      // enforced against a value captured at startup
+    nginxReload: true,  // nginx client_max_body_size must also be updated
   },
   {
     key: "FILE_UPLOAD_MAX_FILES",
@@ -611,6 +612,7 @@ export function getAllSettings() {
       group:       def.group,
       defaultVal:  resolveEnvDefault(def),
       restart:     def.restart ?? false,
+      nginxReload: def.nginxReload ?? false,
       nullable:    def.nullable ?? false,
       // envLocked: true means this key is set in .env and the DB value is ignored.
       // The admin panel should show the control as read-only.
