@@ -32,7 +32,7 @@ export default function SidebarFooter({
           />
           <div className="min-w-0">
             <p
-              className="inline-flex items-center gap-1 truncate text-sm font-semibold text-emerald-700 transition group-hover:text-emerald-600 dark:text-emerald-200 dark:group-hover:text-emerald-300"
+              className="flex items-center gap-1 truncate text-sm font-semibold text-emerald-700 transition group-hover:text-emerald-600 dark:text-emerald-200 dark:group-hover:text-emerald-300"
               dir="ltr"
               title={displayName}
             >

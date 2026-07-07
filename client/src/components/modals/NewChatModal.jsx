@@ -128,7 +128,7 @@ export default function NewChatModal({
                     />
                     <div className="min-w-0">
                       <p
-                        className="inline-flex items-center gap-1 truncate font-semibold"
+                        className="flex items-center gap-1 truncate font-semibold"
                         dir="ltr"
                         title={label}
                       >

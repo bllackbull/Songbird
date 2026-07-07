@@ -142,7 +142,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5">
-                            <p className="inline-flex items-center gap-1 truncate text-sm font-semibold text-slate-700 dark:text-slate-200" dir="ltr">
+                            <p className="flex items-center gap-1 truncate text-sm font-semibold text-slate-700 dark:text-slate-200" dir="ltr">
                               <span className={`truncate ${nameHasPersian ? "font-fa" : ""}`} dir="auto">{displayName}</span>
                               <UserRoleBadge role={u.role} size={12} />
                             </p>
@@ -236,7 +236,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
                               {u.online ? <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900" title="online" /> : null}
                             </div>
                             <div className="min-w-0">
-                              <p className="inline-flex items-center gap-1 truncate text-xs font-semibold text-slate-700 dark:text-slate-200" dir="ltr">
+                              <p className="flex items-center gap-1 truncate text-xs font-semibold text-slate-700 dark:text-slate-200" dir="ltr">
                                 <span className={`truncate ${nameHasPersian ? "font-fa" : ""}`} dir="auto">{displayName}</span>
                                 <UserRoleBadge role={u.role} size={12} />
                               </p>

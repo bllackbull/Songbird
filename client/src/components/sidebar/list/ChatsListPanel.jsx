@@ -247,7 +247,7 @@ export default function ChatsListPanel({
                     />
                     <div className="min-w-0">
                       <p
-                        className="inline-flex items-center gap-1 truncate text-sm font-semibold"
+                        className="flex items-center gap-1 truncate text-sm font-semibold"
                         dir="ltr"
                         title={label}
                       >
