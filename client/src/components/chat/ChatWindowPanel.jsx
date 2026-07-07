@@ -1180,12 +1180,7 @@ export default function ChatWindowPanel({
   return (
     <section
       ref={sectionRef}
-      className={
-        "fixed inset-0 top-0 md:relative md:inset-auto md:top-auto flex h-full flex-1 flex-col overflow-hidden border-x border-slate-300/80 bg-white shadow-xl shadow-emerald-500/10 dark:border-white/5 dark:bg-slate-900 md:border md:w-[65%] md:shadow-2xl md:shadow-emerald-500/15 transition-transform duration-300 ease-out will-change-transform " +
-        (mobileTab === "chat"
-          ? "transform-none"
-          : "translate-x-full md:transform-none")
-      }
+      className="fixed inset-0 top-0 md:relative md:inset-auto md:top-auto flex h-full flex-1 flex-col overflow-hidden border-x border-slate-300/80 bg-white shadow-xl shadow-emerald-500/10 dark:border-white/5 dark:bg-slate-900 md:border md:w-[65%] md:shadow-2xl md:shadow-emerald-500/15 transition-transform duration-300 ease-out will-change-transform"
       style={{
         top: "0px",
         height: isDesktop
@@ -1193,6 +1188,7 @@ export default function ChatWindowPanel({
           : "calc(100% - var(--mobile-bottom-offset, 0px))",
         zIndex: isDesktop ? "auto" : "var(--app-z, 20)",
         paddingTop: "max(0px, env(safe-area-inset-top))",
+        transform: isDesktop || mobileTab === "chat" ? "none" : "translateX(100%)",
       }}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
