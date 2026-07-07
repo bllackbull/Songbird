@@ -107,6 +107,7 @@ function registerProfileRoutes(app, deps) {
       avatarUrl: ensureAvatarExists(user.id, user.avatar_url) || null,
       color: user.color || USER_COLORS[0],
       status: user.status || "online",
+      role: user.role || "user",
     });
   });
 

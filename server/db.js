@@ -2055,6 +2055,7 @@ export function getMessages(chatId, options = {}) {
       COALESCE(users.username, 'deleted') AS username,
       COALESCE(users.nickname, 'Deleted user') AS nickname,
       users.avatar_url, users.color,
+      users.role AS user_role,
       reply.id AS reply_id,
       COALESCE(reply.edited_body, reply.body) AS reply_body,
       reply.created_at AS reply_created_at,

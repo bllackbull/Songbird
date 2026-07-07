@@ -23,6 +23,7 @@ import { summarizeFiles } from "../../../utils/messagePreview.js";
 import { isMessageAuthoredByUser } from "../../../utils/messageOwnership.js";
 import { formatCompactCount } from "../../../utils/chatFormat.js";
 import Avatar from "../../common/Avatar.jsx";
+import UserRoleBadge from "../../common/UserRoleBadge.jsx";
 
 export default function ChatsListPanel({
   loadingChats,
@@ -246,11 +247,12 @@ export default function ChatsListPanel({
                     />
                     <div className="min-w-0">
                       <p
-                        className={`truncate text-sm font-semibold ${hasPersian(label) ? "font-fa" : ""}`}
+                        className={`inline-flex items-center gap-1 truncate text-sm font-semibold ${hasPersian(label) ? "font-fa" : ""}`}
                         dir="auto"
                         title={label}
                       >
-                        {label}
+                        <span className="truncate">{label}</span>
+                        <UserRoleBadge role={member.role} size={12} />
                       </p>
                       <p
                         className="truncate text-xs text-slate-500 dark:text-slate-400"
@@ -574,6 +576,9 @@ export default function ChatsListPanel({
                     >
                       {name}
                     </span>
+                    {conv.type === "dm" && !isDeletedDm && other ? (
+                      <UserRoleBadge role={other.user_role} size={13} />
+                    ) : null}
                     {conv._muted ? (
                       <VolumeX
                         size={15}

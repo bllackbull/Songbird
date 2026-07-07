@@ -28,6 +28,7 @@ import {
   testRemoteChannelConnection,
 } from "../../api/chatApi.js";
 import Avatar from "../common/Avatar.jsx";
+import UserRoleBadge from "../common/UserRoleBadge.jsx";
 import RemoteChannelQueueStatus from "./RemoteChannelQueueStatus.jsx";
 import { useFocusTrap } from "../../hooks/useFocusTrap.js";
 
@@ -406,11 +407,22 @@ export default function ChatProfileModal({
             className="mx-auto h-20 w-20 text-2xl font-bold"
           />
           <p
-            className={`mt-3 text-lg font-semibold ${hasPersian(profileName) ? "font-fa" : ""}`}
+            className={`mt-3 inline-flex items-center justify-center gap-1.5 text-lg font-semibold ${hasPersian(profileName) ? "font-fa" : ""}`}
             dir="auto"
             style={{ unicodeBidi: "plaintext" }}
           >
-            {profileName}
+            <span>{profileName}</span>
+            {!isGroup && !isChannel && !isSaved && (
+              <UserRoleBadge
+                role={
+                  targetUser?.user_role ||
+                  (["owner", "admin", "user"].includes(String(targetUser?.role || "").toLowerCase())
+                    ? targetUser?.role
+                    : null)
+                }
+                size={16}
+              />
+            )}
           </p>
           {profileUsername ? (
             <p
@@ -663,11 +675,12 @@ export default function ChatProfileModal({
                       />
                       <div className="min-w-0">
                         <p
-                          className={`truncate text-sm font-semibold ${hasPersian(label) ? "font-fa" : ""}`}
+                          className={`inline-flex items-center gap-1 truncate text-sm font-semibold ${hasPersian(label) ? "font-fa" : ""}`}
                           dir="auto"
                           title={label}
                         >
-                          {label}
+                          <span className="truncate">{label}</span>
+                          <UserRoleBadge role={member.user_role} size={12} />
                         </p>
                         <p
                           className={`truncate text-xs ${

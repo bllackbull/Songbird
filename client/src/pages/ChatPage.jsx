@@ -2693,6 +2693,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           avatar_url: mentionProfile.avatarUrl || "",
           color: mentionProfile.color || "#10b981",
           status: "online",
+          role: mentionProfile.role || "user",
         }
       : null;
   const liveMentionProfileChat = mentionProfile
@@ -5580,7 +5581,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       avatar_url: user?.avatarUrl || "",
       color: user?.color || "#10b981",
       status: user?.status || "online",
-      role: "",
+      role: user?.role || "user",
     });
     setProfileInviteLink("");
     setProfileModalOpen(true);
@@ -5628,7 +5629,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       avatar_url: msg.avatar_url || "",
       color: msg.color || "#10b981",
       status: "online",
-      role: "",
+      role: msg.user_role || "user",
     };
     setProfileModalMember(selected);
     setProfileModalOpen(true);

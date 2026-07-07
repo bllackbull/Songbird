@@ -1546,6 +1546,7 @@ function registerChatRoutes(app, deps) {
           nickname: user.nickname || user.username,
           avatarUrl: ensureAvatarExists(user.id, user.avatar_url) || null,
           color: user.color || "#10b981",
+          role: user.role || "user",
         });
         return;
       }

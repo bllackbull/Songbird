@@ -48,6 +48,7 @@ import {
 import { resolveMention, getCachedMention } from "../../../utils/mentions.js";
 import { summarizeFiles } from "../../../utils/messagePreview.js";
 import Avatar from "../../common/Avatar.jsx";
+import UserRoleBadge from "../../common/UserRoleBadge.jsx";
 
 const MAX_MESSAGE_HTML_CACHE_ENTRIES = 800;
 const messageBodyHtmlCache = new Map();
@@ -1107,7 +1108,7 @@ export const MessageItem = memo(function MessageItem({
                       : undefined
                   }
                   disabled={!canOpenSenderProfile}
-                  className={`mb-1 block max-w-[60vw] truncate text-[11px] font-semibold transition ${
+                  className={`mb-1 inline-flex max-w-[60vw] items-center gap-1 text-[11px] font-semibold transition ${
                     canOpenSenderProfile ? "hover:underline" : ""
                   } sm:max-w-[40vw] md:max-w-[28vw] ${hasPersian(senderName) ? "font-fa" : ""}`}
                   dir="auto"
@@ -1115,7 +1116,10 @@ export const MessageItem = memo(function MessageItem({
                   title={senderName}
                   contextMenu={senderContextMenu}
                 >
-                  {senderName}
+                  <span className="truncate">{senderName}</span>
+                  {!isDeletedAuthor && (
+                    <UserRoleBadge role={msg.user_role} size={12} />
+                  )}
                 </ContextMenuSurface>
                 {renderForwardedHeader()}
                 {replyTarget ? (

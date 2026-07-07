@@ -23,6 +23,7 @@ import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import { useNameLimits } from "../../utils/nameLimits.js";
 import ConfirmPasswordModal from "./ConfirmPasswordModal.jsx";
 import Avatar from "../common/Avatar.jsx";
+import UserRoleBadge from "../common/UserRoleBadge.jsx";
 import { useFocusTrap } from "../../hooks/useFocusTrap.js";
 
 function SongbirdIcon({ size = 18 }) {
@@ -791,11 +792,12 @@ export default function NewGroupModal({
                           />
                           <div className="min-w-0">
                             <p
-                              className={`truncate font-semibold ${hasPersian(label) ? "font-fa" : ""}`}
+                              className={`inline-flex items-center gap-1 truncate font-semibold ${hasPersian(label) ? "font-fa" : ""}`}
                               dir="auto"
                               title={label}
                             >
-                              {label}
+                              <span className="truncate">{label}</span>
+                              <UserRoleBadge role={result.role} size={12} />
                             </p>
                             <p
                               className="truncate text-xs text-slate-500 dark:text-slate-400"
