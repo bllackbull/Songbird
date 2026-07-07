@@ -27,6 +27,17 @@ function getSongbirdProxyDispatcher() {
 }
 
 function songbirdFetch(url, options = {}) {
+  // SSRF guard: reject requests to private/internal hosts regardless of call site.
+  try {
+    const parsed = new URL(String(url));
+    if (isPrivateHost(parsed.hostname)) {
+      return Promise.reject(
+        new Error(`Request blocked: '${parsed.hostname}' is a private or internal address.`),
+      );
+    }
+  } catch {
+    return Promise.reject(new Error("Request blocked: URL is invalid."));
+  }
   const dispatcher = getSongbirdProxyDispatcher();
   return fetch(url, dispatcher ? { ...options, dispatcher } : options);
 }
