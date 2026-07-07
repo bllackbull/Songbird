@@ -28,6 +28,13 @@
   }
 }
 
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
 @utility font-fa {
   font-family: 'Vazirmatn', 'DM Sans', system-ui, sans-serif;
 }
