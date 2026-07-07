@@ -1110,13 +1110,13 @@ export const MessageItem = memo(function MessageItem({
                   disabled={!canOpenSenderProfile}
                   className={`mb-1 inline-flex max-w-[60vw] items-center gap-1 text-[11px] font-semibold transition ${
                     canOpenSenderProfile ? "hover:underline" : ""
-                  } sm:max-w-[40vw] md:max-w-[28vw] ${hasPersian(senderName) ? "font-fa" : ""}`}
-                  dir="auto"
-                  style={{ color: String(senderColor), unicodeBidi: "isolate" }}
+                  } sm:max-w-[40vw] md:max-w-[28vw]`}
+                  dir="ltr"
+                  style={{ color: String(senderColor) }}
                   title={senderName}
                   contextMenu={senderContextMenu}
                 >
-                  <span className="truncate">{senderName}</span>
+                  <span className={`truncate ${hasPersian(senderName) ? "font-fa" : ""}`} dir="auto">{senderName}</span>
                   {!isDeletedAuthor && (
                     <UserRoleBadge role={msg.user_role} size={12} />
                   )}

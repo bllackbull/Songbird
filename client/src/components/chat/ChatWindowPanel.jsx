@@ -1234,16 +1234,12 @@ export default function ChatWindowPanel({
                     type="button"
                     onClick={onOpenHeaderProfile}
                     className="inline-flex min-w-0 max-w-[60vw] items-center gap-1.5 text-center text-lg font-semibold transition hover:text-emerald-600 dark:hover:text-emerald-300 sm:max-w-[40vw] md:max-w-[28vw]"
-                    dir="auto"
-                    style={{ unicodeBidi: "plaintext" }}
+                    dir="ltr"
                     title={activeFallbackTitle}
                   >
                     <span
-                      className={`block min-w-0 truncate ${
-                        hasPersian(activeFallbackTitle) ? "font-fa" : ""
-                      }`}
+                      className={`block min-w-0 truncate ${hasPersian(activeFallbackTitle) ? "font-fa" : ""}`}
                       dir="auto"
-                      style={{ unicodeBidi: "plaintext" }}
                     >
                       {activeFallbackTitle}
                     </span>
@@ -1251,14 +1247,11 @@ export default function ChatWindowPanel({
                   </button>
                 ) : (
                   <span
-                    className={`inline-flex min-w-0 max-w-[60vw] items-center gap-1.5 truncate text-center text-lg font-semibold text-slate-700 dark:text-slate-100 sm:max-w-[40vw] md:max-w-[28vw] ${
-                      hasPersian(activeFallbackTitle) ? "font-fa" : ""
-                    }`}
-                    dir="auto"
-                    style={{ unicodeBidi: "plaintext" }}
+                    className="inline-flex min-w-0 max-w-[60vw] items-center gap-1.5 truncate text-center text-lg font-semibold text-slate-700 dark:text-slate-100 sm:max-w-[40vw] md:max-w-[28vw]"
+                    dir="ltr"
                     title={activeFallbackTitle}
                   >
-                    <span className="truncate">{activeFallbackTitle}</span>
+                    <span className={`truncate ${hasPersian(activeFallbackTitle) ? "font-fa" : ""}`} dir="auto">{activeFallbackTitle}</span>
                     <UserRoleBadge role={activeHeaderPeer?.user_role} size={15} />
                   </span>
                 )}

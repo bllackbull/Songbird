@@ -407,11 +407,10 @@ export default function ChatProfileModal({
             className="mx-auto h-20 w-20 text-2xl font-bold"
           />
           <p
-            className={`mt-3 inline-flex items-center justify-center gap-1.5 text-lg font-semibold ${hasPersian(profileName) ? "font-fa" : ""}`}
-            dir="auto"
-            style={{ unicodeBidi: "plaintext" }}
+            className="mt-3 inline-flex items-center justify-center gap-1.5 text-lg font-semibold"
+            dir="ltr"
           >
-            <span>{profileName}</span>
+            <span className={`${hasPersian(profileName) ? "font-fa" : ""}`} dir="auto">{profileName}</span>
             {!isGroup && !isChannel && !isSaved && (
               <UserRoleBadge
                 role={
@@ -675,11 +674,11 @@ export default function ChatProfileModal({
                       />
                       <div className="min-w-0">
                         <p
-                          className={`inline-flex items-center gap-1 truncate text-sm font-semibold ${hasPersian(label) ? "font-fa" : ""}`}
-                          dir="auto"
+                          className="inline-flex items-center gap-1 truncate text-sm font-semibold"
+                          dir="ltr"
                           title={label}
                         >
-                          <span className="truncate">{label}</span>
+                          <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
                           <UserRoleBadge role={member.user_role} size={12} />
                         </p>
                         <p

@@ -62,8 +62,8 @@ function OwnerPicker({ value, onChange }) {
       <div className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 bg-white/80 px-3 py-3 text-left dark:border-white/10 dark:bg-slate-950">
         <Avatar src={value.avatar_url} alt={label} name={label} color={value.color || "#10b981"} className="h-8 w-8 text-xs font-bold text-white" />
         <div className="min-w-0 flex-1">
-          <p className={`inline-flex items-center gap-1 truncate text-sm font-semibold text-slate-700 dark:text-slate-200 ${hasPersian(label) ? "font-fa" : ""}`} dir="auto" title={label}>
-            <span className="truncate">{label}</span>
+          <p className="inline-flex items-center gap-1 truncate text-sm font-semibold text-slate-700 dark:text-slate-200" dir="ltr" title={label}>
+            <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
             <UserRoleBadge role={value.role} size={12} />
           </p>
           <p className="truncate text-xs text-slate-500 dark:text-slate-400" dir="auto">@{value.username}</p>
@@ -111,8 +111,8 @@ function OwnerPicker({ value, onChange }) {
                   className="flex w-full items-center gap-3 rounded-2xl border border-emerald-100/70 bg-white/80 px-3 py-3 text-left text-sm font-medium text-slate-700 transition hover:border-emerald-300 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900/50">
                   <Avatar src={u.avatar_url} alt={label} name={label} color={u.color || "#10b981"} className="h-8 w-8 text-xs font-bold text-white" />
                   <div className="min-w-0">
-                    <p className={`inline-flex items-center gap-1 truncate font-semibold ${hasPersian(label) ? "font-fa" : ""}`} dir="auto" title={label}>
-                      <span className="truncate">{label}</span>
+                    <p className={`inline-flex items-center gap-1 truncate font-semibold ${hasPersian(label) ? "font-fa" : ""}`} dir="ltr" title={label}>
+                      <span className="truncate" dir="auto">{label}</span>
                       <UserRoleBadge role={u.role} size={12} />
                     </p>
                     <p className="truncate text-xs text-slate-500 dark:text-slate-400" dir="auto">@{u.username}</p>

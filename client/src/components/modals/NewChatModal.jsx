@@ -128,11 +128,11 @@ export default function NewChatModal({
                     />
                     <div className="min-w-0">
                       <p
-                        className={`inline-flex items-center gap-1 truncate font-semibold ${hasPersian(label) ? "font-fa" : ""}`}
-                        dir="auto"
+                        className="inline-flex items-center gap-1 truncate font-semibold"
+                        dir="ltr"
                         title={label}
                       >
-                        <span className="truncate">{label}</span>
+                        <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
                         <UserRoleBadge role={result.role} size={12} />
                       </p>
                       <p
