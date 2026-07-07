@@ -100,6 +100,7 @@ export default function ChatSidebar({
   settingsButtonRef,
   displayInitials,
   onOpenWhatsNew,
+  adminPanelEnabled = true,
 }) {
   const chatsScrollRef = useRef(null);
   const chatsContentRef = useRef(null);
@@ -207,6 +208,8 @@ export default function ChatSidebar({
         onOpenNotifications={onOpenNotifications}
         onOpenSavedMessages={onOpenSavedMessages}
         onOpenWhatsNew={onOpenWhatsNew}
+        userRole={user?.role}
+        adminPanelEnabled={adminPanelEnabled}
       />
 
       <div
@@ -269,6 +272,7 @@ export default function ChatSidebar({
               appInfoLoading={appInfoLoading}
               appInfoError={appInfoError}
               onOpenWhatsNew={onOpenWhatsNew}
+              adminPanelEnabled={adminPanelEnabled}
             />
           </div>
         ) : null}

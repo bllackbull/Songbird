@@ -10,12 +10,14 @@ import {
   ensureStorageEncryptionKey,
   storageEncryption,
 } from "./lib/storageEncryption.js";
+import { ensureAdminApiToken } from "./lib/adminApiToken.js";
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRootDir = path.resolve(serverDir, "..");
 dotenv.config({ path: path.join(projectRootDir, ".env"), override: true, quiet: true });
 dotenv.config({ path: path.join(serverDir, ".env"), override: true, quiet: true });
 ensureStorageEncryptionKey({ projectRootDir, fsImpl: fs, pathImpl: path, cryptoImpl: crypto });
+ensureAdminApiToken({ projectRootDir, fsImpl: fs, pathImpl: path, cryptoImpl: crypto });
 const dataDir = path.resolve(serverDir, "..", "data");
 const dbPath = path.join(dataDir, "songbird.db");
 const backupDir = path.join(dataDir, "backups");
@@ -39,7 +41,7 @@ const SQL = await initSqlJs({
 
 const fileExists = fs.existsSync(dbPath);
 const fileBuffer = fileExists ? fs.readFileSync(dbPath) : null;
-const db = fileBuffer ? new SQL.Database(fileBuffer) : new SQL.Database();
+let db = fileBuffer ? new SQL.Database(fileBuffer) : new SQL.Database();
 const DB_SAVE_DEBOUNCE_MS = Math.max(
   0,
   Number(process.env.DB_SAVE_DEBOUNCE_MS || 150),
@@ -51,6 +53,26 @@ function writeDatabaseToDisk() {
   const data = db.export();
   fs.writeFileSync(dbPath, Buffer.from(data));
   databaseDirty = false;
+}
+
+// Reload the in-memory database from the file on disk. Used after a restore
+// replaces songbird.db underneath the running process. Cancels any pending
+// debounced save first so we never overwrite the freshly restored file.
+function reloadDatabaseFromDisk() {
+  if (pendingSaveTimer) {
+    clearTimeout(pendingSaveTimer);
+    pendingSaveTimer = null;
+  }
+  databaseDirty = false;
+  if (!fs.existsSync(dbPath)) {
+    throw new Error("Database file not found on disk.");
+  }
+  const buffer = fs.readFileSync(dbPath);
+  const next = new SQL.Database(buffer);
+  try {
+    db.close();
+  } catch {}
+  db = next;
 }
 
 function createPreMigrationBackup(fromVersion, toVersion) {
@@ -282,14 +304,14 @@ export function getCurrentSchemaVersion() {
 
 export function findUserByUsername(username) {
   return getRow(
-    "SELECT id, username, nickname, avatar_url, color, status, password_hash, banned FROM users WHERE username = ?",
+    "SELECT id, username, nickname, avatar_url, color, status, password_hash, banned, role FROM users WHERE username = ?",
     [username],
   );
 }
 
 export function findUserById(id) {
   return getRow(
-    "SELECT id, username, nickname, avatar_url, color, status, password_hash, banned FROM users WHERE id = ?",
+    "SELECT id, username, nickname, avatar_url, color, status, password_hash, banned, role FROM users WHERE id = ?",
     [id],
   );
 }
@@ -2408,7 +2430,7 @@ export function getSession(token) {
   return getRow(
     `
     SELECT sessions.id AS session_id, sessions.token, users.id, users.username, users.nickname,
-           users.avatar_url, users.color, users.status, users.banned
+           users.avatar_url, users.color, users.status, users.banned, users.role
     FROM sessions
     JOIN users ON users.id = sessions.user_id
     WHERE sessions.token = ?
@@ -2443,4 +2465,296 @@ export function adminRun(sql, params = []) {
 
 export function adminSave() {
   saveDatabase();
+}
+
+// ─── Admin Panel ─────────────────────────────────────────────────────────────
+
+export function setUserRole(userId, role) {
+  return run("UPDATE users SET role = ? WHERE id = ?", [role, userId]);
+}
+
+export function getUserRole(userId) {
+  const row = getRow("SELECT role FROM users WHERE id = ?", [userId]);
+  return row?.role || "user";
+}
+
+export function isUserAdmin(userId) {
+  const role = getUserRole(userId);
+  return role === "admin" || role === "owner";
+}
+
+export function isUserOwner(userId) {
+  return getUserRole(userId) === "owner";
+}
+
+export function getOwnerUser() {
+  return getRow("SELECT id, username FROM users WHERE role = 'owner' LIMIT 1");
+}
+
+export function bootstrapAdminUsers(adminUsernames) {
+  if (!adminUsernames || !adminUsernames.length) return;
+  for (const username of adminUsernames) {
+    const user = getRow("SELECT id, role FROM users WHERE username = ?", [username.toLowerCase()]);
+    if (user && user.role !== "admin" && user.role !== "owner") {
+      run("UPDATE users SET role = 'admin' WHERE id = ?", [user.id]);
+    }
+  }
+}
+
+// A user is considered "online" when active within this window (matches the
+// client-side PRESENCE_IDLE_THRESHOLD_MS of 12s, with a small buffer for poll lag).
+const ONLINE_THRESHOLD_SECONDS = 30;
+
+export function getAdminStats() {
+  const totalUsers = getRow("SELECT COUNT(*) AS count FROM users")?.count || 0;
+  const totalChats = getRow("SELECT COUNT(*) AS count FROM chats WHERE type IN ('group', 'channel')")?.count || 0;
+  const totalMessages = getRow("SELECT COUNT(*) AS count FROM chat_messages")?.count || 0;
+  const totalSessions = getRow("SELECT COUNT(*) AS count FROM sessions")?.count || 0;
+  const bannedUsers = getRow("SELECT COUNT(*) AS count FROM users WHERE banned = 1")?.count || 0;
+  const onlineUsers = getRow(
+    `SELECT COUNT(*) AS count FROM users WHERE status = 'online' AND last_seen IS NOT NULL AND last_seen >= datetime('now', '-' || ? || ' seconds')`,
+    [ONLINE_THRESHOLD_SECONDS],
+  )?.count || 0;
+
+  // Chat type breakdown
+  const dmChats      = getRow("SELECT COUNT(*) AS count FROM chats WHERE type = 'dm'")?.count || 0;
+  const groupChats   = getRow("SELECT COUNT(*) AS count FROM chats WHERE type = 'group'")?.count || 0;
+  const channelChats = getRow("SELECT COUNT(*) AS count FROM chats WHERE type = 'channel'")?.count || 0;
+
+  // Activity / growth signals
+  const messagesLast24h = getRow("SELECT COUNT(*) AS count FROM chat_messages WHERE created_at >= datetime('now', '-1 day')")?.count || 0;
+  const newUsers7d      = getRow("SELECT COUNT(*) AS count FROM users WHERE created_at >= datetime('now', '-7 days')")?.count || 0;
+
+  // Uploaded files + push subscriptions (tables may not exist on older schemas)
+  let totalFiles = 0;
+  try { totalFiles = getRow("SELECT COUNT(*) AS count FROM chat_message_files")?.count || 0; } catch { totalFiles = 0; }
+  let pushSubscriptions = 0;
+  try { pushSubscriptions = getRow("SELECT COUNT(*) AS count FROM push_subscriptions")?.count || 0; } catch { pushSubscriptions = 0; }
+
+  return {
+    totalUsers, totalChats, totalMessages, totalSessions, bannedUsers, onlineUsers,
+    dmChats, groupChats, channelChats,
+    messagesLast24h, newUsers7d, totalFiles, pushSubscriptions,
+  };
+}
+
+function escapeLikePattern(value) {
+  return String(value).replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+// Produces an ORDER BY clause fragment for a "natural sort" on a text column:
+// sorts by the text prefix first (everything before any trailing number),
+// then the trailing integer numerically (so "User 2" < "User 10"),
+// then falls back to `tiebreaker` for rows with identical values.
+// `dir` ("ASC"/"DESC") is applied to every term so reversing actually reverses.
+function naturalSortExpr(col, tiebreaker = null, dir = "ASC") {
+  const d = dir === "DESC" ? "DESC" : "ASC";
+  // RTRIM strips all trailing digit characters to give the text prefix.
+  const textPart = `RTRIM(${col},'0123456789') COLLATE NOCASE ${d}`;
+  // SUBSTR from the end of the text prefix onward, cast to integer.
+  const numPart  = `CAST(SUBSTR(${col}, length(RTRIM(${col},'0123456789'))+1) AS INTEGER) ${d}`;
+  const parts = [textPart, numPart];
+  if (tiebreaker) parts.push(`${tiebreaker} COLLATE NOCASE ${d}`);
+  return parts.join(", ");
+}
+
+
+export function adminListUsers({ limit = 200, offset = 0, search = "", sortBy = "id", sortDir = "DESC", roleFilter = null, statusFilter = null }) {
+  const safeLimit  = Math.max(1, Math.min(500, Number(limit) || 200));
+  const safeOffset = Math.max(0, Number(offset) || 0);
+  const safeSortBy  = ["id", "username", "nickname", "role", "created_at", "last_seen"].includes(sortBy) ? sortBy : "id";
+  const safeSortDir = sortDir === "ASC" ? "ASC" : "DESC";
+
+  const conditions = [];
+  const params     = [];
+
+  // First positional param binds to the SELECT CASE that computes `online`.
+  params.push(ONLINE_THRESHOLD_SECONDS);
+
+  if (search) {
+    const like = `%${escapeLikePattern(search)}%`;
+    conditions.push("(username LIKE ? ESCAPE '\\' OR nickname LIKE ? ESCAPE '\\')");
+    params.push(like, like);
+  }
+  if (roleFilter === "banned") {
+    conditions.push("banned = 1");
+  } else if (roleFilter) {
+    conditions.push("banned = 0 AND role = ?");
+    params.push(roleFilter);
+  }
+
+  // Presence: a user counts as "online" when their status preference allows it
+  // and they've pinged recently (mirrors the app's online/offline indicator).
+  const onlinePredicate = "status = 'online' AND last_seen IS NOT NULL AND last_seen >= datetime('now', '-' || ? || ' seconds')";
+  if (statusFilter === "online") {
+    conditions.push(onlinePredicate);
+    params.push(ONLINE_THRESHOLD_SECONDS);
+  } else if (statusFilter === "offline") {
+    conditions.push(`NOT (${onlinePredicate})`);
+    params.push(ONLINE_THRESHOLD_SECONDS);
+  }
+
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  // Natural sort: text prefix sorts alphabetically, trailing number sorts
+  // numerically, ties broken by the other name column. Direction is baked into
+  // each term so reversing actually reverses; plain columns get it appended.
+  let orderBy;
+  if (safeSortBy === "nickname") {
+    orderBy = naturalSortExpr("nickname", "username", safeSortDir);
+  } else if (safeSortBy === "username") {
+    orderBy = naturalSortExpr("username", "nickname", safeSortDir);
+  } else {
+    orderBy = `${safeSortBy} ${safeSortDir}`;
+  }
+  params.push(safeLimit, safeOffset);
+  return getAll(
+    `SELECT id, username, nickname, avatar_url, color, status, role, banned, created_at, last_seen,
+            CASE WHEN status = 'online' AND last_seen IS NOT NULL
+                      AND last_seen >= datetime('now', '-' || ? || ' seconds')
+                 THEN 1 ELSE 0 END AS online
+     FROM users ${where} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
+    params,
+  );
+}
+
+export function adminListChats({ limit = 200, offset = 0, search = "", sortBy = "id", sortDir = "DESC", typeFilter = null }) {
+  const safeLimit  = Math.max(1, Math.min(500, Number(limit) || 200));
+  const safeOffset = Math.max(0, Number(offset) || 0);
+  const safeSortBy  = ["id", "name", "type", "group_visibility", "created_at", "member_count", "message_count"].includes(sortBy) ? sortBy : "id";
+  const safeSortDir = sortDir === "ASC" ? "ASC" : "DESC";
+
+  const conditions = [];
+  const params     = [];
+
+  // The admin chats table only manages groups and channels (never DMs or the
+  // per-user "saved messages" chats).
+  conditions.push("c.type IN ('group', 'channel')");
+
+  if (search) {
+    const like = `%${escapeLikePattern(search)}%`;
+    conditions.push("(c.name LIKE ? ESCAPE '\\' OR c.group_username LIKE ? ESCAPE '\\')");
+    params.push(like, like);
+  }
+  if (typeFilter === "group" || typeFilter === "channel") {
+    conditions.push("c.type = ?");
+    params.push(typeFilter);
+  }
+
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  // Natural sort for text columns, qualified with the `c.` table alias to avoid
+  // ambiguity with the joined owner table. Count aliases don't need qualifying.
+  // Direction is baked into the natural-sort terms; plain columns get it appended.
+  const countCols = ["member_count", "message_count"];
+  let orderBy;
+  if (countCols.includes(safeSortBy)) {
+    orderBy = `${safeSortBy} ${safeSortDir}`;
+  } else if (safeSortBy === "name") {
+    orderBy = naturalSortExpr("c.name", "c.group_username", safeSortDir);
+  } else if (safeSortBy === "type" || safeSortBy === "group_visibility") {
+    orderBy = `c.${safeSortBy} COLLATE NOCASE ${safeSortDir}`;
+  } else {
+    orderBy = `c.${safeSortBy} ${safeSortDir}`;
+  }
+  params.push(safeLimit, safeOffset);
+  return getAll(
+    `SELECT c.id, c.name, c.type, c.group_username, c.group_visibility, c.group_color, c.group_avatar_url, c.created_at,
+            (SELECT COUNT(*) FROM chat_members WHERE chat_id = c.id) AS member_count,
+            (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) AS message_count,
+            owner.id AS owner_id, owner.username AS owner_username, owner.nickname AS owner_nickname,
+            owner.avatar_url AS owner_avatar_url, owner.color AS owner_color
+     FROM chats c
+     LEFT JOIN users owner ON owner.id = (
+       SELECT user_id FROM chat_members WHERE chat_id = c.id AND role = 'owner' LIMIT 1
+     )
+     ${where} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
+    params,
+  );
+}
+
+export function adminBanUser(userId, banned) {
+  return run("UPDATE users SET banned = ? WHERE id = ?", [banned ? 1 : 0, userId]);
+}
+
+// Delegate to the canonical deletion helpers so the admin panel performs the
+// same full cleanup (message files, reads, hidden chats, mutes, ownership
+// transfers, etc.) inside a transaction. Returns the storedNames of orphaned
+// upload files so the caller can remove them from disk.
+export function adminDeleteUser(userId) {
+  return deleteUserById(userId);
+}
+
+export function adminDeleteChat(chatId) {
+  return deleteChatById(chatId);
+}
+
+// ─── Admin Maintenance ─────────────────────────────────────────────────────────
+
+export function vacuumDatabase() {
+  run("VACUUM");
+  saveDatabase();
+}
+
+export function reloadDatabase() {
+  reloadDatabaseFromDisk();
+}
+
+// Wipe all messages and their file records (keeps users, chats, memberships).
+// Returns the storedNames of files to remove from disk.
+export function adminClearAllMessages() {
+  const fileRows = getAll("SELECT stored_name FROM chat_message_files");
+  const storedNames = fileRows.map((r) => r.stored_name).filter(Boolean);
+  run("BEGIN");
+  try {
+    run("DELETE FROM chat_message_reads");
+    run("DELETE FROM chat_message_files");
+    run("DELETE FROM chat_messages");
+    run("COMMIT");
+  } catch (error) {
+    run("ROLLBACK");
+    throw error;
+  }
+  saveDatabase();
+  return { storedNames };
+}
+
+// Full reset: wipe all user-generated data (users, chats, messages, sessions).
+// Schema is preserved. Returns storedNames for disk cleanup.
+export function adminResetDatabase() {
+  const fileRows = getAll("SELECT stored_name FROM chat_message_files");
+  const storedNames = fileRows.map((r) => r.stored_name).filter(Boolean);
+  run("BEGIN");
+  try {
+    run("DELETE FROM chat_message_reads");
+    run("DELETE FROM chat_message_files");
+    run("DELETE FROM chat_messages");
+    run("DELETE FROM hidden_chats");
+    run("DELETE FROM chat_members");
+    run("DELETE FROM chats");
+    run("DELETE FROM sessions");
+    run("DELETE FROM users");
+    run("COMMIT");
+  } catch (error) {
+    run("ROLLBACK");
+    throw error;
+  }
+  run("VACUUM");
+  saveDatabase();
+  return { storedNames };
+}
+
+// ─── App Settings ─────────────────────────────────────────────────────────────
+
+export function dbGetAllSettings() {
+  return getAll("SELECT key, value FROM app_settings");
+}
+
+export function dbSetSetting(key, value) {
+  run(
+    "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    [String(key), String(value)],
+  );
+}
+
+export function dbDeleteSetting(key) {
+  run("DELETE FROM app_settings WHERE key = ?", [String(key)]);
 }

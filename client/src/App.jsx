@@ -1,7 +1,10 @@
 import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import logo from './assets/songbird-logo.svg'
-import { APP_CONFIG } from './settings/appConfig.js'
+import { APP_CONFIG, setMessageMaxChars } from './settings/appConfig.js'
+import { fetchAppInfo } from './api/appMetaApi.js'
+import { setNameLimits } from './utils/nameLimits.js'
+import { setChatPageConfig } from './settings/chatPageConfig.js'
 import InstallBar from './components/pwa/InstallBar.jsx'
 import InstallGuideModal from './components/pwa/InstallGuideModal.jsx'
 
@@ -15,9 +18,11 @@ const CHUNK_RECOVERY_ATTEMPT_KEY = 'songbird-chunk-recovery-attempted'
 const loadAuthPage = () => import('./pages/AuthPage.jsx')
 const loadChatPage = () => import('./pages/ChatPage.jsx')
 const loadInvitePage = () => import('./pages/InvitePage.jsx')
+const loadAdminPage = () => import('./pages/AdminPage.jsx')
 const AuthPage = lazy(loadAuthPage)
 const ChatPage = lazy(loadChatPage)
 const InvitePage = lazy(loadInvitePage)
+const AdminPage = lazy(loadAdminPage)
 
 function getPreloadMode() {
   if (typeof navigator === 'undefined') return 'eager'
@@ -62,6 +67,7 @@ function getRoute(pathname) {
   if (pathname === '/signup') return 'signup'
   if (pathname.startsWith('/invite/')) return 'invite'
   if (pathname === '/chat') return 'chat'
+  if (pathname === '/admin') return 'admin'
   return 'login'
 }
 
@@ -143,7 +149,14 @@ export default function App() {
   const [authStatus, setAuthStatus] = useState('')
   const [authChecked, setAuthChecked] = useState(false)
   const [authLoading, setAuthLoading] = useState(false)
-  const accountCreationEnabled = APP_CONFIG.accountCreationEnabled
+  // Seeded from the build-time default so there's no flash of the wrong UI
+  // before the live value loads; the effect below overwrites it with the
+  // server's current setting (which can change via the admin panel without
+  // a rebuild).
+  const [accountCreationEnabled, setAccountCreationEnabled] = useState(
+    APP_CONFIG.accountCreationEnabled,
+  )
+  const [adminPanelEnabled, setAdminPanelEnabled] = useState(true)
   const isStandaloneDisplay =
     window.matchMedia?.('(display-mode: standalone)')?.matches ||
     window.navigator?.standalone
@@ -187,6 +200,7 @@ export default function App() {
       avatarUrl: data.avatarUrl || null,
       color: data.color || null,
       status: data.status || 'online',
+      role: data.role || 'user',
     }
   }
 
@@ -328,6 +342,12 @@ export default function App() {
       navigate('/login', true)
     }
   }, [route, accountCreationEnabled])
+
+  useEffect(() => {
+    if (route === 'admin' && !adminPanelEnabled) {
+      navigate('/chat', true)
+    }
+  }, [route, adminPanelEnabled])
 
   useEffect(() => {
     const refreshTheme = () => applyTheme(isDark, route)
@@ -689,6 +709,40 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Pull live server settings that affect auth UI (e.g. sign-up on/off).
+  // This overrides the build-time APP_CONFIG default so changes made in the
+  // admin panel take effect without rebuilding the client.
+  useEffect(() => {
+    let isMounted = true
+    fetchAppInfo()
+      .then((res) => res.json())
+      .then((data) => {
+        if (!isMounted) return
+        if (typeof data?.accountCreationEnabled === 'boolean') {
+          setAccountCreationEnabled(data.accountCreationEnabled)
+        }
+        if (typeof data?.adminPanelEnabled === 'boolean') {
+          setAdminPanelEnabled(data.adminPanelEnabled)
+        }
+        setNameLimits({
+          nicknameMax: data?.nicknameMaxChars,
+          usernameMax: data?.usernameMaxChars,
+        })
+        setMessageMaxChars(data?.messageMaxChars)
+        setChatPageConfig({
+          messageFetchLimit: data?.chatMessageFetchLimit,
+          messagePageSize: data?.chatMessagePageSize,
+          cacheTtlHours: data?.chatCacheTtlHours,
+        })
+      })
+      .catch(() => {
+        // Keep the build-time defaults on failure.
+      })
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
   useEffect(() => {
     const onPopState = () => setRoute(getRoute(window.location.pathname))
     window.addEventListener('popstate', onPopState)
@@ -711,7 +765,7 @@ export default function App() {
       return
     }
 
-    if (!user && (route === 'chat' || route === 'invite')) {
+    if (!user && (route === 'chat' || route === 'invite' || route === 'admin')) {
       if (route === 'invite') {
         const nextPath = window.location.pathname
         if (nextPath.startsWith('/invite/')) {
@@ -985,7 +1039,10 @@ export default function App() {
                 />
               )}
               {route === 'chat' && user ? (
-                <ChatPage user={user} setUser={setUser} isDark={isDark} setIsDark={setIsDark} toggleTheme={toggleTheme} />
+                <ChatPage user={user} setUser={setUser} isDark={isDark} setIsDark={setIsDark} toggleTheme={toggleTheme} adminPanelEnabled={adminPanelEnabled} />
+              ) : null}
+              {route === 'admin' && user && adminPanelEnabled ? (
+                <AdminPage user={user} onBack={() => navigate('/chat', true)} />
               ) : null}
               {route === 'invite' && user ? (
                 <InvitePage

@@ -113,7 +113,7 @@ import {
   updateStatus as updateStatusRequest,
   uploadAvatar,
 } from "../api/chatApi.js";
-import { APP_CONFIG } from "../settings/appConfig.js";
+import { useMessageMaxChars } from "../settings/appConfig.js";
 import {
   MOBILE_CLOSE_ANIMATION_MS,
   NEW_CHAT_SEARCH_DEBOUNCE_MS,
@@ -320,8 +320,9 @@ const buildInviteLinkForChat = (chat) => {
   return origin ? `${origin}${path}` : path;
 };
 
-export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme }) {
+export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme, adminPanelEnabled = true }) {
   /* eslint-disable react-hooks/exhaustive-deps */
+  const messageMaxChars = useMessageMaxChars();
   const [profileError, setProfileError] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [loadingChats, setLoadingChats] = useState(true);
@@ -3862,7 +3863,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const isEditingExistingMessage = Number(pendingMessage?._editMessageId || 0) > 0;
     if (!clientId || sendingClientIdsRef.current.has(clientId)) return;
 
-    const maxMessageChars = APP_CONFIG.messageMaxChars;
+    const maxMessageChars = messageMaxChars;
     if (!hasFiles && String(pendingMessage.body || "").length > maxMessageChars) {
       setUploadError(`Message must be ${maxMessageChars} characters or less.`);
       setMessages((prev) =>
@@ -4882,7 +4883,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (
         uploadError &&
         String(uploadError).toLowerCase().includes("message must be") &&
-        trimmed.length <= APP_CONFIG.messageMaxChars
+        trimmed.length <= messageMaxChars
       ) {
         setUploadError("");
       }
@@ -4930,6 +4931,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       activeChatId,
       canSendInActiveChat,
       clearLocalTypingStopTimer,
+      messageMaxChars,
       sendTypingSignal,
       stopTypingIndicator,
       uploadError,
@@ -4965,7 +4967,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const hasPendingVoice = Boolean(pendingVoiceMessage);
     const hasAnyPendingFiles = hasPendingFiles || hasPendingVoice;
     if (!trimmedBody && !hasAnyPendingFiles) return;
-    const maxMessageChars = APP_CONFIG.messageMaxChars;
+    const maxMessageChars = messageMaxChars;
     if (String(body).length > maxMessageChars) {
       setUploadError(`Message must be ${maxMessageChars} characters or less.`);
       return;
@@ -6457,6 +6459,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         settingsButtonRef={settingsButtonRef}
         displayInitials={displayInitials}
         onOpenWhatsNew={handleOpenWhatsNew}
+        adminPanelEnabled={adminPanelEnabled}
       />
 
       <ChatWindowPanel
@@ -6501,7 +6504,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         pendingVoiceMessage={pendingVoiceMessage}
         uploadError={uploadError}
         activeUploadProgress={activeUploadProgress}
-        messageMaxChars={APP_CONFIG.messageMaxChars}
+        messageMaxChars={messageMaxChars}
         onMessageMediaLoaded={handleMessageMediaLoaded}
         onUploadFilesSelected={handleUploadFilesSelected}
         onRemovePendingUpload={removePendingUpload}

@@ -25,7 +25,7 @@ import { buildTimestampSchedule } from "./lib/timeUtils.js";
 import { isLoopbackRequest, parseUploadFileMetadata } from "./lib/requestUtils.js";
 import { USERNAME_REGEX } from "./lib/validation.js";
 import { USER_COLORS, setUserColor } from "./settings/colors.js";
-import { readEnvBool, readEnvInt } from "./settings/env.js";
+import { readEnvInt } from "./settings/env.js";
 import {
   addChatMember,
   adminGetAll,
@@ -118,7 +118,34 @@ import {
   updateRemoteChannelSourceSeen,
   upsertRemoteChannelSource,
   purgeOldRemoteChannelQueueItems,
+  setUserRole,
+  isUserAdmin,
+  isUserOwner,
+  getOwnerUser,
+  getAdminStats,
+  adminListUsers,
+  adminListChats,
+  adminBanUser,
+  adminDeleteUser,
+  adminDeleteChat,
+  vacuumDatabase,
+  reloadDatabase,
+  adminClearAllMessages,
+  adminResetDatabase,
+  dbGetAllSettings,
+  dbSetSetting,
+  dbDeleteSetting,
 } from "./db.js";
+import {
+  loadSettings,
+  getSetting,
+  getAllSettings,
+  setSetting,
+  setSettings,
+  resetSetting,
+  validateSetting,
+  SETTING_DEFS,
+} from "./lib/appSettings.js";
 
 process.title = "songbird-server";
 
@@ -128,29 +155,34 @@ const projectRootDir = path.resolve(serverDir, "..");
 dotenv.config({ path: path.join(projectRootDir, ".env"), override: true, quiet: true });
 dotenv.config({ path: path.join(serverDir, ".env"), override: true, quiet: true });
 
+// Load runtime settings from DB (env vars remain as fallback defaults).
+// Must run after dotenv and after the DB module (which runs migrations).
+loadSettings(dbGetAllSettings);
+
 const port = process.env.SERVER_PORT || process.env.PORT || 5174;
 const appEnv = process.env.APP_ENV || "production";
 const isProduction = appEnv === "production";
-const APP_DEBUG = readEnvBool("APP_DEBUG", false);
 
 function debugLog(...args) {
-  if (!APP_DEBUG) return;
+  if (!getSetting("APP_DEBUG")) return;
   console.log("[app-debug]", ...args);
 }
 
 const debugRouteCounts = new Map();
 
-if (APP_DEBUG) {
-  setInterval(() => {
-    const entries = Array.from(debugRouteCounts.entries())
-      .sort((a, b) => b[1] - a[1])
-      .map(([route, count]) => ({ route, count }));
+// Always scheduled; the interval body checks the live setting on each tick
+// so toggling APP_DEBUG in the admin panel takes effect without a restart.
+const debugSummaryTimer = setInterval(() => {
+  if (!getSetting("APP_DEBUG")) return;
+  const entries = Array.from(debugRouteCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([route, count]) => ({ route, count }));
 
-    debugLog("api:requests-per-minute", { routes: entries });
+  debugLog("api:requests-per-minute", { routes: entries });
 
-    debugRouteCounts.clear();
-  }, 60 * 1000);
-}
+  debugRouteCounts.clear();
+}, 60 * 1000);
+if (typeof debugSummaryTimer.unref === "function") debugSummaryTimer.unref();
 
 app.set("trust proxy", 1);
 
@@ -174,41 +206,43 @@ app.use((req, res, next) => {
   next();
 });
 
-if (APP_DEBUG) {
-  app.use((req, res, next) => {
-    const startedAt = Date.now();
-    let responseBody = null;
-    const originalJson = res.json.bind(res);
+// Always registered; each request checks the live setting so toggling
+// APP_DEBUG in the admin panel takes effect without a restart.
+app.use((req, res, next) => {
+  if (!getSetting("APP_DEBUG")) return next();
 
-    res.json = (body) => {
-      responseBody = body;
-      return originalJson(body);
-    };
+  const startedAt = Date.now();
+  let responseBody = null;
+  const originalJson = res.json.bind(res);
 
-    res.on("finish", () => {
-      const routeKey = `${String(req.method || "GET").toUpperCase()} ${
-        String(req.path || req.originalUrl || req.url || "").split("?")[0]
-      }`;
+  res.json = (body) => {
+    responseBody = body;
+    return originalJson(body);
+  };
 
-      debugRouteCounts.set(
-        routeKey,
-        Number(debugRouteCounts.get(routeKey) || 0) + 1,
-      );
+  res.on("finish", () => {
+    const routeKey = `${String(req.method || "GET").toUpperCase()} ${
+      String(req.path || req.originalUrl || req.url || "").split("?")[0]
+    }`;
 
-      debugLog("api:request", {
-        method: req.method,
-        path: req.originalUrl || req.url || "",
-        query: req.query || {},
-        params: req.params || {},
-        body: req.body || {},
-        status: Number(res.statusCode || 0),
-        durationMs: Date.now() - startedAt,
-        response: responseBody,
-      });
+    debugRouteCounts.set(
+      routeKey,
+      Number(debugRouteCounts.get(routeKey) || 0) + 1,
+    );
+
+    debugLog("api:request", {
+      method: req.method,
+      path: req.originalUrl || req.url || "",
+      query: req.query || {},
+      params: req.params || {},
+      body: req.body || {},
+      status: Number(res.statusCode || 0),
+      durationMs: Date.now() - startedAt,
+      response: responseBody,
     });
-    next();
   });
-}
+  next();
+});
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -221,73 +255,31 @@ const staticLimiter = rateLimit({
 });
 
 const MB = 1024 * 1024;
-const readEnvSizeMbAsBytes = (mbKeys, legacyByteKeys, fallbackMb, options = {}) => {
-  const mbValue = readEnvInt(mbKeys, null, options);
-  if (mbValue !== null) return mbValue * MB;
-  return readEnvInt(legacyByteKeys, fallbackMb * MB, { min: 1024 });
-};
 
-const USERNAME_MAX = readEnvInt(["USERNAME_MAX_CHARS", "USERNAME_MAX"], 16, {
-  min: 3,
-  max: 32,
-});
-const NICKNAME_MAX = readEnvInt(["NICKNAME_MAX_CHARS", "NICKNAME_MAX"], 24, {
-  min: 3,
-  max: 64,
-});
-const MESSAGE_MAX_CHARS = readEnvInt(
-  ["MESSAGE_MAX_CHARS", "MESSAGE_MAX"],
-  4000,
-  { min: 1, max: 20000 },
-);
-const ACCOUNT_CREATION = readEnvBool(["SIGN_UP", "ACCOUNT_CREATION"], true);
+const USERNAME_MAX = getSetting("USERNAME_MAX_CHARS");
+const NICKNAME_MAX = getSetting("NICKNAME_MAX_CHARS");
+const MESSAGE_MAX_CHARS = getSetting("MESSAGE_MAX_CHARS");
+const ACCOUNT_CREATION = getSetting("SIGN_UP");
 const dataDir = path.resolve(serverDir, "..", "data");
 const vapid = ensureValidVapidKeys({ projectRootDir, dataDir, fs, path, webpush });
 const uploadRootDir = path.join(dataDir, "uploads", "messages");
 const avatarUploadRootDir = path.join(dataDir, "uploads", "avatars");
 
-const FILE_UPLOAD_MAX_SIZE = readEnvSizeMbAsBytes(
-  "FILE_UPLOAD_MAX_SIZE_MB",
-  "FILE_UPLOAD_MAX_SIZE",
-  25,
-  { min: 1 },
-);
+const FILE_UPLOAD_MAX_SIZE = getSetting("FILE_UPLOAD_MAX_SIZE_MB") * MB;
+const FILE_UPLOAD_MAX_FILES = getSetting("FILE_UPLOAD_MAX_FILES");
+const FILE_UPLOAD_MAX_TOTAL_SIZE = getSetting("FILE_UPLOAD_MAX_TOTAL_SIZE_MB") * MB;
 
-const FILE_UPLOAD_MAX_FILES = readEnvInt("FILE_UPLOAD_MAX_FILES", 10, {
-  min: 1,
-});
+const MESSAGE_FILE_RETENTION_DAYS = getSetting("MESSAGE_FILE_RETENTION");
+const MESSAGE_TEXT_RETENTION_DAYS = getSetting("MESSAGE_TEXT_RETENTION");
 
-const FILE_UPLOAD_MAX_TOTAL_SIZE = readEnvSizeMbAsBytes(
-  "FILE_UPLOAD_MAX_TOTAL_SIZE_MB",
-  "FILE_UPLOAD_MAX_TOTAL_SIZE",
-  75,
-  { min: 1 },
-);
+const TRANSCODE_VIDEOS_TO_H264 = getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS");
 
-const MESSAGE_FILE_RETENTION_DAYS = readEnvInt("MESSAGE_FILE_RETENTION", 7, {
-  min: 0,
-  max: 3650,
-});
-const MESSAGE_TEXT_RETENTION_DAYS = readEnvInt("MESSAGE_TEXT_RETENTION", 0, {
-  min: 0,
-  max: 3650,
-});
 
-const TRANSCODE_VIDEOS_TO_H264 = readEnvBool(
-  "FILE_UPLOAD_TRANSCODE_VIDEOS",
-  true,
-);
-
-const FILE_UPLOAD = readEnvBool("FILE_UPLOAD", true);
-const REMOTE_CHANNEL = readEnvBool("REMOTE_CHANNEL", false);
-const REMOTE_CHANNEL_UI = readEnvBool(
-  "REMOTE_CHANNEL_UI",
-  true,
-);
-const REMOTE_CHANNEL_MEDIA_STREAM = readEnvBool(
-  "REMOTE_CHANNEL_MEDIA_STREAM",
-  true,
-);
+const FILE_UPLOAD = getSetting("FILE_UPLOAD");
+const REMOTE_CHANNEL = getSetting("REMOTE_CHANNEL");
+const REMOTE_CHANNEL_UI = getSetting("REMOTE_CHANNEL_UI");
+const REMOTE_CHANNEL_MEDIA_STREAM = getSetting("REMOTE_CHANNEL_MEDIA_STREAM");
+// Telegram credentials remain in .env (secrets — never stored in DB)
 const REMOTE_CHANNEL_TELEGRAM_API_ID = readEnvInt(
   "REMOTE_CHANNEL_TELEGRAM_API_ID",
   0,
@@ -300,12 +292,10 @@ const REMOTE_CHANNEL_TELEGRAM_SESSION_STRING = String(
   process.env.REMOTE_CHANNEL_TELEGRAM_SESSION_STRING || "",
 ).trim();
 const REMOTE_CHANNEL_PROXY_URL = String(
-  process.env.REMOTE_CHANNEL_TELEGRAM_PROXY_URL ||
-  process.env.REMOTE_CHANNEL_PROXY_URL ||
-  "",
+  getSetting("REMOTE_CHANNEL_TELEGRAM_PROXY_URL") || "",
 ).trim();
 const REMOTE_CHANNEL_SONGBIRD_PROXY_URL = String(
-  process.env.REMOTE_CHANNEL_SONGBIRD_PROXY_URL || "",
+  getSetting("REMOTE_CHANNEL_SONGBIRD_PROXY_URL") || "",
 ).trim();
 const REMOTE_CHANNEL_TELEGRAM_CONFIGURED = Boolean(
   REMOTE_CHANNEL_TELEGRAM_API_ID &&
@@ -323,31 +313,13 @@ const REMOTE_CHANNEL_CONFIG = {
   telegramApiHash: REMOTE_CHANNEL_TELEGRAM_API_HASH,
   telegramSessionString: REMOTE_CHANNEL_TELEGRAM_SESSION_STRING,
   proxyUrl: REMOTE_CHANNEL_PROXY_URL,
-  pollIntervalMs: readEnvInt("REMOTE_CHANNEL_POLL_INTERVAL_MS", 5000, {
-    min: 1000,
-  }),
-  telegramPollLimit: readEnvInt("REMOTE_CHANNEL_TELEGRAM_POLL_LIMIT", 50, {
-    min: 1,
-    max: 100,
-  }),
-  queueIntervalMs: readEnvInt("REMOTE_CHANNEL_QUEUE_INTERVAL_MS", 1000, {
-    min: 100,
-  }),
-  queueMaxAttempts: readEnvInt("REMOTE_CHANNEL_QUEUE_MAX_ATTEMPTS", 10, {
-    min: 1,
-    max: 100,
-  }),
-  queueBatchSize: readEnvInt("REMOTE_CHANNEL_QUEUE_BATCH_SIZE", 10, {
-    min: 1,
-    max: 50,
-  }),
-  queueConcurrency: readEnvInt("REMOTE_CHANNEL_QUEUE_CONCURRENCY", 3, {
-    min: 1,
-    max: 50,
-  }),
-  queueStaleLockMs: readEnvInt("REMOTE_CHANNEL_QUEUE_STALE_LOCK_MS", 300000, {
-    min: 10000,
-  }),
+  pollIntervalMs: getSetting("REMOTE_CHANNEL_POLL_INTERVAL_MS"),
+  telegramPollLimit: getSetting("REMOTE_CHANNEL_TELEGRAM_POLL_LIMIT"),
+  queueIntervalMs: getSetting("REMOTE_CHANNEL_QUEUE_INTERVAL_MS"),
+  queueMaxAttempts: getSetting("REMOTE_CHANNEL_QUEUE_MAX_ATTEMPTS"),
+  queueBatchSize: getSetting("REMOTE_CHANNEL_QUEUE_BATCH_SIZE"),
+  queueConcurrency: getSetting("REMOTE_CHANNEL_QUEUE_CONCURRENCY"),
+  queueStaleLockMs: getSetting("REMOTE_CHANNEL_QUEUE_STALE_LOCK_MS"),
   messageTextRetentionDays: MESSAGE_TEXT_RETENTION_DAYS,
   messageFileRetentionDays: MESSAGE_FILE_RETENTION_DAYS,
   messageMaxChars: MESSAGE_MAX_CHARS,
@@ -410,7 +382,7 @@ const pushService = createPushService({
   deletePushSubscription,
   getTotalUnreadCount,
   vapid,
-  proxyUrl: process.env.PUSH_PROXY_URL || "",
+  proxyUrl: getSetting("PUSH_PROXY_URL"),
 });
 const { PUSH_ENABLED, VAPID_PUBLIC_KEY, sendPushNotificationToUsers } = pushService;
 
@@ -450,7 +422,7 @@ const messageFileJobs = createMessageFileJobs({
   uploadRootDir,
   fs,
   path,
-  messageFileRetentionDays: MESSAGE_FILE_RETENTION_DAYS,
+  getSetting,
 });
 const {
   chunkArray,
@@ -568,18 +540,16 @@ registerUploadRoutes(app, { adminGetRow });
 
 const apiDeps = {
   ALLOWED_AVATAR_MIME_TYPES,
-  APP_DEBUG,
+  // APP_DEBUG intentionally NOT passed here — messages.js must call
+  // getSetting("APP_DEBUG") at request time so admin-panel changes apply live.
   AVATAR_FILE_LIMITS,
-  FILE_UPLOAD,
+  // FILE_UPLOAD, MESSAGE_FILE_RETENTION_DAYS, MESSAGE_TEXT_RETENTION_DAYS,
+  // TRANSCODE_VIDEOS_TO_H264, NICKNAME_MAX, USERNAME_MAX, MESSAGE_MAX_CHARS,
+  // and ACCOUNT_CREATION are intentionally NOT passed here — route handlers
+  // must call getSetting("KEY") at request time so admin-panel changes take
+  // effect live, instead of reading a value captured once at server startup.
   MESSAGE_FILE_LIMITS,
-  MESSAGE_FILE_RETENTION_DAYS,
-  MESSAGE_TEXT_RETENTION_DAYS,
-  TRANSCODE_VIDEOS_TO_H264,
   USER_COLORS,
-  NICKNAME_MAX,
-  USERNAME_MAX,
-  MESSAGE_MAX_CHARS,
-  ACCOUNT_CREATION,
   REMOTE_CHANNELS: {
     enabled: REMOTE_CHANNEL_CONFIG.enabled,
     uiEnabled: REMOTE_CHANNEL_CONFIG.uiEnabled,
@@ -725,6 +695,30 @@ const apiDeps = {
   upsertPushSubscription,
   sendPushNotificationToUsers,
   storageEncryption,
+  setUserRole,
+  isUserAdmin,
+  isUserOwner,
+  getOwnerUser,
+  getAdminStats,
+  adminListUsers,
+  adminListChats,
+  adminBanUser,
+  adminDeleteUser,
+  adminDeleteChat,
+  vacuumDatabase,
+  reloadDatabase,
+  adminClearAllMessages,
+  adminResetDatabase,
+  // Settings
+  getSetting,
+  getAllSettings,
+  setSetting,
+  setSettings,
+  resetSetting,
+  validateSetting,
+  SETTING_DEFS,
+  dbRun: adminRun,
+  dbSave: adminSave,
 };
 
 const remoteChannelManager = createRemoteChannelManager({
@@ -776,10 +770,13 @@ const remoteChannelManager = createRemoteChannelManager({
 
 apiDeps.remoteChannelManager = remoteChannelManager;
 
+if (isProduction) {
+  app.use("/api", apiLimiter);
+}
+
 registerApiRoutes(app, apiDeps);
 
 if (isProduction) {
-  app.use("/api", apiLimiter);
   app.use(staticLimiter);
 
   const clientDist = path.resolve(serverDir, "..", "client", "dist");
@@ -839,7 +836,7 @@ app.use((err, req, res, next) => {
 });
 
 function cleanupExpiredTextOnlyMessages() {
-  if (MESSAGE_TEXT_RETENTION_DAYS <= 0) {
+  if (getSetting("MESSAGE_TEXT_RETENTION") <= 0) {
     return { removedMessages: 0 };
   }
 
@@ -909,7 +906,8 @@ function cleanupExpiredTextOnlyMessages() {
 }
 
 function backfillTextMessageExpiry() {
-  if (MESSAGE_TEXT_RETENTION_DAYS <= 0) return 0;
+  const textRetentionDays = getSetting("MESSAGE_TEXT_RETENTION");
+  if (textRetentionDays <= 0) return 0;
 
   const row = adminGetRow(
     `SELECT COUNT(*) AS n
@@ -942,54 +940,61 @@ function backfillTextMessageExpiry() {
          FROM chat_message_files
          WHERE chat_message_files.message_id = chat_messages.id
        )`,
-    [MESSAGE_TEXT_RETENTION_DAYS],
+    [textRetentionDays],
   );
 
   adminSave();
   return pending;
 }
 
-if (MESSAGE_FILE_RETENTION_DAYS > 0) {
-  try {
+// Cleanup timers always run — each tick re-reads the live setting, so
+// enabling/disabling retention via the admin panel takes effect without a
+// server restart.
+try {
+  if (getSetting("MESSAGE_FILE_RETENTION") > 0) {
     backfillMessageFileExpiry();
     cleanupExpiredMessageFiles();
-  } catch (_) {
-    // best effort startup cleanup
   }
-
-  const expiryCleanupTimer = setInterval(() => {
-    try {
-      cleanupExpiredMessageFiles();
-    } catch (_) {
-      // keep server alive if cleanup fails
-    }
-  }, MESSAGE_FILE_CLEANUP_INTERVAL_MS);
-
-  if (typeof expiryCleanupTimer.unref === "function") {
-    expiryCleanupTimer.unref();
-  }
+} catch (_) {
+  // best effort startup cleanup
 }
 
-if (MESSAGE_TEXT_RETENTION_DAYS > 0) {
+const expiryCleanupTimer = setInterval(() => {
   try {
+    if (getSetting("MESSAGE_FILE_RETENTION") > 0) {
+      cleanupExpiredMessageFiles();
+    }
+  } catch (_) {
+    // keep server alive if cleanup fails
+  }
+}, MESSAGE_FILE_CLEANUP_INTERVAL_MS);
+
+if (typeof expiryCleanupTimer.unref === "function") {
+  expiryCleanupTimer.unref();
+}
+
+try {
+  if (getSetting("MESSAGE_TEXT_RETENTION") > 0) {
     backfillTextMessageExpiry();
     cleanupExpiredTextOnlyMessages();
-  } catch (_) {
-    // best effort startup cleanup
   }
+} catch (_) {
+  // best effort startup cleanup
+}
 
-  const textCleanupTimer = setInterval(() => {
-    try {
+const textCleanupTimer = setInterval(() => {
+  try {
+    if (getSetting("MESSAGE_TEXT_RETENTION") > 0) {
       backfillTextMessageExpiry();
       cleanupExpiredTextOnlyMessages();
-    } catch (_) {
-      // keep server alive if cleanup fails
     }
-  }, MESSAGE_FILE_CLEANUP_INTERVAL_MS);
-
-  if (typeof textCleanupTimer.unref === "function") {
-    textCleanupTimer.unref();
+  } catch (_) {
+    // keep server alive if cleanup fails
   }
+}, MESSAGE_FILE_CLEANUP_INTERVAL_MS);
+
+if (typeof textCleanupTimer.unref === "function") {
+  textCleanupTimer.unref();
 }
 
 // Defer the storage encryption backfill so it doesn't block the event loop

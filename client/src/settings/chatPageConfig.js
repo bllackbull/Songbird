@@ -129,3 +129,19 @@ export const CHAT_PAGE_CONFIG = {
     1000,
   fileUploadEnabled: readEnvBool("FILE_UPLOAD", true),
 };
+
+// ─── Live override for admin-panel-configurable client settings ─────────────
+//
+// messageFetchLimit, messagePageSize, and cacheTtlMs (hours) can be tuned
+// from the admin panel. App.jsx calls this once after fetching /api/app/info.
+export function setChatPageConfig({ messageFetchLimit, messagePageSize, cacheTtlHours } = {}) {
+  if (Number.isFinite(messageFetchLimit) && messageFetchLimit > 0) {
+    CHAT_PAGE_CONFIG.messageFetchLimit = Math.trunc(messageFetchLimit);
+  }
+  if (Number.isFinite(messagePageSize) && messagePageSize > 0) {
+    CHAT_PAGE_CONFIG.messagePageSize = Math.trunc(messagePageSize);
+  }
+  if (Number.isFinite(cacheTtlHours) && cacheTtlHours > 0) {
+    CHAT_PAGE_CONFIG.cacheTtlMs = Math.trunc(cacheTtlHours) * 60 * 60 * 1000;
+  }
+}

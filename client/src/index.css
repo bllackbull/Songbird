@@ -88,6 +88,22 @@ body {
   .font-fa {
     font-family: 'Vazirmatn', 'DM Sans', system-ui, sans-serif;
   }
+
+  /* Make native color picker swatch fill the button with no padding */
+  .color-swatch {
+    padding: 0;
+  }
+  .color-swatch::-webkit-color-swatch-wrapper {
+    padding: 0;
+  }
+  .color-swatch::-webkit-color-swatch {
+    border: none;
+    border-radius: 0.6rem;
+  }
+  .color-swatch::-moz-color-swatch {
+    border: none;
+    border-radius: 0.6rem;
+  }
 }
 
 html {
@@ -361,6 +377,87 @@ select,
   }
 }
 
+@keyframes icon-swing {
+  0% {
+    transform: rotate(0deg);
+  }
+  20% {
+    transform: rotate(16deg);
+  }
+  45% {
+    transform: rotate(-12deg);
+  }
+  70% {
+    transform: rotate(7deg);
+  }
+  88% {
+    transform: rotate(-3deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes icon-wiggle {
+  0% {
+    transform: rotate(0deg);
+  }
+  20% {
+    transform: rotate(-9deg);
+  }
+  40% {
+    transform: rotate(9deg);
+  }
+  60% {
+    transform: rotate(-6deg);
+  }
+  80% {
+    transform: rotate(4deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes icon-beat {
+  0% {
+    transform: scale(1);
+  }
+  25% {
+    transform: scale(1.18);
+  }
+  45% {
+    transform: scale(0.96);
+  }
+  65% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes icon-spin-full {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes icon-nudge {
+  0% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(3px);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
 .icon-anim-spin-lg,
 .icon-anim-spin-dir,
 .icon-anim-spin-left,
@@ -370,7 +467,12 @@ select,
 .icon-anim-pop,
 .icon-anim-peek,
 .icon-anim-lift,
-.icon-anim-drop {
+.icon-anim-drop,
+.icon-anim-swing,
+.icon-anim-wiggle,
+.icon-anim-beat,
+.icon-anim-spin-full,
+.icon-anim-nudge {
   transform-origin: center;
   transition: transform 220ms ease;
 }
@@ -385,7 +487,8 @@ select,
 
 button:hover .icon-anim-spin-dir,
 button:focus-visible .icon-anim-spin-dir,
-label:hover .icon-anim-spin-dir {
+label:hover .icon-anim-spin-dir,
+.settings-row:hover .icon-anim-spin-dir {
   transform: rotate(120deg);
 }
 
@@ -473,7 +576,8 @@ label:hover .icon-anim-spin-lg {
 
 button:hover .icon-anim-sway,
 button:focus-visible .icon-anim-sway,
-label:hover .icon-anim-sway {
+label:hover .icon-anim-sway,
+.settings-row:hover .icon-anim-sway {
   animation: icon-sway 340ms ease-out 1 both;
 }
 
@@ -483,13 +587,15 @@ label:hover .icon-anim-sway {
 
 button:hover .icon-anim-bob,
 button:focus-visible .icon-anim-bob,
-label:hover .icon-anim-bob {
+label:hover .icon-anim-bob,
+.settings-row:hover .icon-anim-bob {
   animation: icon-bob 320ms ease-out 1 both;
 }
 
 button:hover .icon-anim-slide,
 button:focus-visible .icon-anim-slide,
-label:hover .icon-anim-slide {
+label:hover .icon-anim-slide,
+.settings-row:hover .icon-anim-slide {
   animation: icon-slide 340ms ease-out 1 both;
 }
 
@@ -497,19 +603,22 @@ button:hover .icon-anim-pop,
 button:focus-visible .icon-anim-pop,
 a:hover .icon-anim-pop,
 a:focus-visible .icon-anim-pop,
-label:hover .icon-anim-pop {
+label:hover .icon-anim-pop,
+.settings-row:hover .icon-anim-pop {
   animation: icon-pop 300ms ease-out 1 both;
 }
 
 button:hover .icon-anim-peek,
 button:focus-visible .icon-anim-peek,
-label:hover .icon-anim-peek {
+label:hover .icon-anim-peek,
+.settings-row:hover .icon-anim-peek {
   animation: icon-peek 280ms ease-out 1 both;
 }
 
 button:hover .icon-anim-lift,
 button:focus-visible .icon-anim-lift,
-label:hover .icon-anim-lift {
+label:hover .icon-anim-lift,
+.settings-row:hover .icon-anim-lift {
   animation: icon-lift 300ms ease-out 1 both;
 }
 
@@ -517,8 +626,119 @@ button:hover .icon-anim-drop,
 button:focus-visible .icon-anim-drop,
 a:hover .icon-anim-drop,
 a:focus-visible .icon-anim-drop,
-label:hover .icon-anim-drop {
+label:hover .icon-anim-drop,
+.settings-row:hover .icon-anim-drop {
   animation: icon-drop 300ms ease-out 1 both;
+}
+
+button:hover .icon-anim-swing,
+button:focus-visible .icon-anim-swing,
+a:hover .icon-anim-swing,
+label:hover .icon-anim-swing,
+.settings-row:hover .icon-anim-swing {
+  animation: icon-swing 460ms ease-out 1 both;
+}
+
+button:hover .icon-anim-wiggle,
+button:focus-visible .icon-anim-wiggle,
+a:hover .icon-anim-wiggle,
+label:hover .icon-anim-wiggle,
+.settings-row:hover .icon-anim-wiggle {
+  animation: icon-wiggle 420ms ease-out 1 both;
+}
+
+button:hover .icon-anim-beat,
+button:focus-visible .icon-anim-beat,
+a:hover .icon-anim-beat,
+label:hover .icon-anim-beat,
+.settings-row:hover .icon-anim-beat {
+  animation: icon-beat 360ms ease-out 1 both;
+}
+
+button:hover .icon-anim-spin-full,
+button:focus-visible .icon-anim-spin-full,
+a:hover .icon-anim-spin-full,
+label:hover .icon-anim-spin-full,
+.settings-row:hover .icon-anim-spin-full {
+  animation: icon-spin-full 500ms cubic-bezier(0.22, 0.95, 0.24, 1) 1 both;
+}
+
+button:hover .icon-anim-nudge,
+button:focus-visible .icon-anim-nudge,
+a:hover .icon-anim-nudge,
+label:hover .icon-anim-nudge {
+  animation: icon-nudge 320ms ease-out 1 both;
+}
+
+/* Gauge — animate only the needle path around the dial pivot (12,14). */
+.sb-gauge-needle {
+  transform-origin: 12px 14px;
+  transition: transform 420ms cubic-bezier(0.22, 0.95, 0.24, 1);
+}
+
+button:hover .sb-gauge-needle,
+button:focus-visible .sb-gauge-needle,
+a:hover .sb-gauge-needle,
+label:hover .sb-gauge-needle {
+  animation: sb-gauge-sweep 620ms cubic-bezier(0.22, 0.95, 0.24, 1) 1 both;
+}
+
+@keyframes sb-gauge-sweep {
+  0% {
+    transform: rotate(0deg);
+  }
+  35% {
+    transform: rotate(-58deg);
+  }
+  70% {
+    transform: rotate(22deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+/* LayoutDashboard — swap tile heights on hover: tall tiles shrink, short tiles
+   grow. Top tiles stay anchored to the top, bottom tiles to the bottom, so the
+   inner gaps are preserved. Animates SVG geometry (y / height). */
+.sb-dash-tl,
+.sb-dash-tr,
+.sb-dash-br,
+.sb-dash-bl {
+  transition: y 360ms cubic-bezier(0.22, 0.95, 0.24, 1),
+    height 360ms cubic-bezier(0.22, 0.95, 0.24, 1);
+}
+
+button:hover .sb-dash-tl,
+button:focus-visible .sb-dash-tl,
+a:hover .sb-dash-tl,
+label:hover .sb-dash-tl {
+  y: 3px;
+  height: 5px;
+}
+
+button:hover .sb-dash-bl,
+button:focus-visible .sb-dash-bl,
+a:hover .sb-dash-bl,
+label:hover .sb-dash-bl {
+  y: 12px;
+  height: 9px;
+}
+
+button:hover .sb-dash-tr,
+button:focus-visible .sb-dash-tr,
+a:hover .sb-dash-tr,
+label:hover .sb-dash-tr {
+  y: 3px;
+  height: 9px;
+}
+
+button:hover .sb-dash-br,
+button:focus-visible .sb-dash-br,
+a:hover .sb-dash-br,
+label:hover .sb-dash-br {
+  y: 16px;
+  height: 5px;
 }
 
 @keyframes reply-flash {

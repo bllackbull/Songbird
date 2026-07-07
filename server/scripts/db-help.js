@@ -3,8 +3,8 @@ Songbird DB Commands
 
 Core:
   npm run db:help
-  npm run db:backup -- --password "backup-password"
-  npm run db:restore -- -y --file /path/to/songbird-backup.zip [--password "backup-password"]
+  npm run db:backup
+  npm run db:restore -- -y --file /path/to/songbird-backup-<timestamp>.db
   npm run db:migrate
   npm run db:vacuum -- -y
   npm run db:inspect -- --limit 25
@@ -27,9 +27,14 @@ Reset/Delete:
 
 Users:
   npm run db:user:create -- --nickname "Songbird Sage" --username songbird.sage --password "12345678"
+  npm run db:user:create -- --nickname "Songbird Sage" --username songbird.sage --password "12345678" --role admin
+  npm run db:user:create -- --nickname "Songbird Sage" --username songbird.sage --password "12345678" --role owner
   npm run db:user:create -- "Songbird Sage" songbird.sage "12345678"
   npm run db:user:generate -- --count 50 --password "12345678" --nickname-prefix User --username-prefix user
   npm run db:user:edit -- songbird.sage --nickname "Songbird Sage" --color "#ff6b6b"
+  npm run db:user:edit -- songbird.sage --role admin
+  npm run db:user:edit -- songbird.sage --role owner
+  npm run db:user:edit -- songbird.sage --role user
   npm run db:user:ban -- songbird.sage -y
 
 Chats:
@@ -49,8 +54,9 @@ Notes:
   - Delete-all actions use explicit --all.
   - Destructive/safety-sensitive commands support -y and --yes.
   - db:user:ban is a toggle: run it again to unban the user.
-  - db:backup creates an encrypted zip containing .env and data/.
-  - db:restore also accepts legacy backups with songbird.db and uploads/ at the zip root.
+  - db:user:create/edit accept --role user|admin|owner. Only one user can hold the owner role at a time. The owner cannot be demoted, banned, or deleted via the admin panel.
+  - db:backup copies songbird.db to data/backups/ with a timestamp filename.
+  - db:restore replaces the live database with a given .db file and restarts the service if running as root.
 `;
 
 console.log(helpText.trim());

@@ -46,7 +46,7 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "express-rate-limit": "^8.5.2",
-    "https-proxy-agent": "^9.0.0",
+    "https-proxy-agent": "^9.1.0",
     "multer": "^2.1.1",
     "sql.js": "^1.14.1",
     "telegram": "^2.26.22",

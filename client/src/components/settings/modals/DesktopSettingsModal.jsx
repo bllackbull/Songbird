@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Close, Eye, EyeOff, Pencil, Trash } from "../../../icons/lucide.js";
 import { hasPersian } from "../../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../../utils/avatarInitials.js";
-import { NICKNAME_MAX, USERNAME_MAX, USERNAME_INPUT_PATTERN } from "../../../utils/nameLimits.js";
+import { USERNAME_INPUT_PATTERN, useNameLimits } from "../../../utils/nameLimits.js";
 import { InlineError } from "../common/InlineError.jsx";
 import { AboutSettingsPanel } from "../panels/AboutSettingsPanel.jsx";
 import { DataSettingsPanel } from "../panels/DataSettingsPanel.jsx";
@@ -36,6 +36,7 @@ export function DesktopSettingsModal({
   appInfoLoading,
   appInfoError,
 }) {
+  const { nicknameMax: NICKNAME_MAX, usernameMax: USERNAME_MAX } = useNameLimits();
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
