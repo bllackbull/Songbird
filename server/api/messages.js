@@ -2,13 +2,8 @@ import rateLimit from "express-rate-limit";
 
 function registerMessageRoutes(app, deps) {
   const {
-    APP_DEBUG,
-    FILE_UPLOAD,
     MESSAGE_FILE_LIMITS,
-    MESSAGE_FILE_RETENTION_DAYS,
-    MESSAGE_TEXT_RETENTION_DAYS,
-    MESSAGE_MAX_CHARS,
-    TRANSCODE_VIDEOS_TO_H264,
+    getSetting,
     cleanupMissingMessageFiles,
     computeExpiryIso,
     crypto,
@@ -68,12 +63,13 @@ function registerMessageRoutes(app, deps) {
   } = deps;
 
   const computeTextExpiryIso = (createdAt) => {
-    if (Number(MESSAGE_TEXT_RETENTION_DAYS || 0) <= 0) return null;
+    const textRetentionDays = Number(getSetting("MESSAGE_TEXT_RETENTION") || 0);
+    if (textRetentionDays <= 0) return null;
     const base = new Date(createdAt || Date.now());
     const baseMs = base.getTime();
     if (!Number.isFinite(baseMs)) return null;
     return new Date(
-      baseMs + Number(MESSAGE_TEXT_RETENTION_DAYS) * 24 * 60 * 60 * 1000,
+      baseMs + textRetentionDays * 24 * 60 * 60 * 1000,
     ).toISOString();
   };
 
@@ -339,7 +335,7 @@ function registerMessageRoutes(app, deps) {
         return !hasPendingVideo;
       });
 
-    if (APP_DEBUG) {
+    if (getSetting("APP_DEBUG")) {
       const processingRows = [];
 
       enriched.forEach((message) => {
@@ -618,7 +614,7 @@ function registerMessageRoutes(app, deps) {
       const uploadedFiles = req.files;
 
       try {
-        if (!FILE_UPLOAD) {
+        if (!getSetting("FILE_UPLOAD")) {
           removeUploadedFiles(uploadedFiles);
           return res
             .status(503)
@@ -639,7 +635,7 @@ function registerMessageRoutes(app, deps) {
         const clientRequestId = clientRequestIdRaw
           ? clientRequestIdRaw.slice(0, 120)
           : null;
-        const maxMessageChars = Math.max(1, Number(MESSAGE_MAX_CHARS || 4000));
+        const maxMessageChars = Math.max(1, Number(getSetting("MESSAGE_MAX_CHARS") || 4000));
         if (body.length > maxMessageChars) {
           removeUploadedFiles(uploadedFiles);
           return res.status(400).json({
@@ -769,7 +765,7 @@ function registerMessageRoutes(app, deps) {
         const createdAtIso = new Date().toISOString();
         const expiresAtIso = computeExpiryIso(
           createdAtIso,
-          MESSAGE_FILE_RETENTION_DAYS,
+          getSetting("MESSAGE_FILE_RETENTION"),
         );
 
         const normalizedFiles = uploadedFiles.map((file, index) => {
@@ -815,7 +811,7 @@ function registerMessageRoutes(app, deps) {
             .startsWith("video/"),
         );
         const shouldTranscodeVideos =
-          TRANSCODE_VIDEOS_TO_H264 &&
+          getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS") &&
           String(uploadType || "").toLowerCase() === "media";
 
         debugLog("api:messages/upload:start", {
@@ -1092,7 +1088,7 @@ function registerMessageRoutes(app, deps) {
         error: "Invalid message body.",
       });
     }
-    const maxMessageChars = Math.max(1, Number(MESSAGE_MAX_CHARS || 4000));
+    const maxMessageChars = Math.max(1, Number(getSetting("MESSAGE_MAX_CHARS") || 4000));
     if (bodyText.length > maxMessageChars) {
       return res.status(400).json({
         error: `Message must be at most ${maxMessageChars} characters.`,
@@ -1237,7 +1233,7 @@ function registerMessageRoutes(app, deps) {
     if (!trimmedBody) {
       return res.status(400).json({ error: "Edited message cannot be empty." });
     }
-    const maxMessageChars = Math.max(1, Number(MESSAGE_MAX_CHARS || 4000));
+    const maxMessageChars = Math.max(1, Number(getSetting("MESSAGE_MAX_CHARS") || 4000));
     if (bodyText.length > maxMessageChars) {
       return res.status(400).json({
         error: `Message must be at most ${maxMessageChars} characters.`,

@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   User,
 } from "../../../icons/lucide.js";
+import { LayoutDashboardIcon } from "../../../icons/AnimatedIcons.jsx";
 import { ThemeButton } from "../common/ThemeButton.jsx";
 
 export function SettingsMenuActions({
@@ -24,54 +25,82 @@ export function SettingsMenuActions({
   onOpenNotifications,
   onOpenSavedMessages,
   onOpenWhatsNew,
+  userRole,
+  adminPanelEnabled = true,
 }) {
   const isMobile = variant === "mobile";
   const buttonBase = isMobile
-    ? "flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-3 text-left text-base font-medium"
-    : "flex w-full items-center gap-2 rounded-xl border border-transparent px-3 py-2 text-left text-sm";
+    ? "flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-base font-medium"
+    : "flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold";
   const accentHover =
-    "text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10";
+    "text-slate-700 transition hover:bg-emerald-50 hover:text-emerald-700 dark:text-slate-100 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200";
+  const iconCls = "shrink-0 text-emerald-500";
+  const isAdmin = userRole === "admin" || userRole === "owner";
+  const showAdminPanel = isAdmin && adminPanelEnabled;
+  const divider = <div className="my-1 h-px bg-slate-100 dark:bg-white/5" />;
 
   return (
     <>
+      {/* Account */}
       <button
         type="button"
         onClick={() => setSettingsPanel("profile")}
         className={`${buttonBase} ${accentHover}`}
       >
-        <User size={18} className="icon-anim-sway" />
+        <User size={18} className={`${iconCls} icon-anim-sway`} />
         Edit profile
       </button>
       <button
         type="button"
         onClick={() => setSettingsPanel("security")}
-        className={`mt-1 ${buttonBase} ${accentHover}`}
+        className={`${buttonBase} ${accentHover}`}
       >
-        <ShieldCheck size={18} className="icon-anim-sway" />
+        <ShieldCheck size={18} className={`${iconCls} icon-anim-beat`} />
         Security
       </button>
       <button
         type="button"
         onClick={() => setSettingsPanel("data")}
-        className={`mt-1 ${buttonBase} ${accentHover}`}
+        className={`${buttonBase} ${accentHover}`}
       >
-        <Database size={18} className="icon-anim-sway" />
+        <Database size={18} className={`${iconCls} icon-anim-bob`} />
         Data
       </button>
       <button
         type="button"
         onClick={() => onOpenSavedMessages?.()}
-        className={`mt-1 ${buttonBase} ${accentHover}`}
+        className={`${buttonBase} ${accentHover}`}
       >
-        <Bookmark size={18} className="icon-anim-sway" />
+        <Bookmark size={18} className={`${iconCls} icon-anim-drop`} />
         Saved messages
       </button>
+
+      {showAdminPanel ? (
+        <>
+          {divider}
+          <button
+            type="button"
+            onClick={() => {
+              window.history.pushState({}, "", "/admin");
+              window.dispatchEvent(new PopStateEvent("popstate"));
+            }}
+            className={`${buttonBase} ${accentHover}`}
+          >
+            <LayoutDashboardIcon size={18} className={`${iconCls}`} />
+            Admin Panel
+          </button>
+        </>
+      ) : null}
+
+      {divider}
+
+      {/* App */}
       <button
         type="button"
         onClick={onOpenNotifications}
-        className={`mt-1 ${buttonBase} ${accentHover}`}
+        className={`${buttonBase} ${accentHover}`}
       >
-        <Bell size={18} className="icon-anim-sway" />
+        <Bell size={18} className={`${iconCls} icon-anim-swing`} />
         Notifications
       </button>
       <ThemeButton
@@ -83,25 +112,28 @@ export function SettingsMenuActions({
       <button
         type="button"
         onClick={() => onOpenWhatsNew?.()}
-        className={`mt-1 ${buttonBase} ${accentHover}`}
+        className={`${buttonBase} ${accentHover}`}
       >
-        <Rocket size={18} className="icon-anim-sway" />
+        <Rocket size={18} className={`${iconCls} icon-anim-lift`} />
         What's new
       </button>
       <button
         type="button"
         onClick={() => setSettingsPanel("about")}
-        className={`mt-1 ${buttonBase} ${accentHover}`}
+        className={`${buttonBase} ${accentHover}`}
       >
-        <Info size={18} className="icon-anim-sway" />
+        <Info size={18} className={`${iconCls} icon-anim-pop`} />
         About
       </button>
+
+      {divider}
+
       <button
         type="button"
         onClick={handleLogout}
-        className={`mt-2 ${buttonBase} text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-[0_0_18px_rgba(244,63,94,0.18)] dark:text-rose-300 dark:hover:border-rose-500/30 dark:hover:bg-rose-500/10`}
+        className={`${buttonBase} text-rose-600 transition hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10`}
       >
-        <LogOut size={18} className="icon-anim-slide" />
+        <LogOut size={18} className="shrink-0 icon-anim-slide" />
         Log out
       </button>
     </>

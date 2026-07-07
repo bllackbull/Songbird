@@ -2,6 +2,52 @@ import net from "node:net";
 import tls from "node:tls";
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
+import { ProxyAgent } from "undici";
+import { getSetting } from "./appSettings.js";
+
+// ─── Songbird outbound proxy ──────────────────────────────────────────────────
+// Applied per-fetch-call (no persistent connection to bake it into), so this
+// reads the live setting on every call instead of a value captured at startup.
+
+let cachedProxyUrl = "";
+let cachedDispatcher;
+
+function getSongbirdProxyDispatcher() {
+  const proxyUrl = String(getSetting("REMOTE_CHANNEL_SONGBIRD_PROXY_URL") || "").trim();
+  if (!proxyUrl) return undefined;
+  if (proxyUrl !== cachedProxyUrl) {
+    cachedProxyUrl = proxyUrl;
+    try {
+      cachedDispatcher = new ProxyAgent(proxyUrl);
+    } catch {
+      cachedDispatcher = undefined;
+    }
+  }
+  return cachedDispatcher;
+}
+
+function songbirdFetch(url, options = {}) {
+  // SSRF guard: reject requests to private/internal hosts regardless of call site.
+  //
+  // A static allowlist is intentionally not used — the Remote Channel feature
+  // federates with any public Songbird server, so the hostname is open-ended by
+  // design. Instead, we block the entire private/internal address space (loopback,
+  // RFC-1918, link-local, cloud metadata endpoints, etc.) via isPrivateHost().
+  // codeql[js/ssrf] - hostname validated against private-address blocklist;
+  //                   allowlist not applicable for open server federation.
+  try {
+    const parsed = new URL(String(url));
+    if (isPrivateHost(parsed.hostname)) {
+      return Promise.reject(
+        new Error(`Request blocked: '${parsed.hostname}' is a private or internal address.`),
+      );
+    }
+  } catch {
+    return Promise.reject(new Error("Request blocked: URL is invalid."));
+  }
+  const dispatcher = getSongbirdProxyDispatcher();
+  return fetch(url, dispatcher ? { ...options, dispatcher } : options);
+}
 
 function normalizeTelegramSource(value) {
   const raw = String(value || "").trim();
@@ -190,7 +236,7 @@ async function resolveSongbirdSource(sourceUrl, inviteTarget) {
   const metaUrl = `${sourceUrl}/api/channels/${encodeURIComponent(candidateUsername)}/meta`;
   let metaRes;
   try {
-    metaRes = await fetch(metaUrl, {
+    metaRes = await songbirdFetch(metaUrl, {
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(15_000),
     });
@@ -233,7 +279,7 @@ async function resolveSongbirdSource(sourceUrl, inviteTarget) {
 }
 
 async function fetchSongbirdJson(url, timeoutMs = 15_000) {
-  const res = await fetch(url, {
+  const res = await songbirdFetch(url, {
     headers: { Accept: "application/json" },
     signal: AbortSignal.timeout(timeoutMs),
   });
@@ -1202,7 +1248,7 @@ function createRemoteChannelManager(deps = {}) {
     const metaUrl = `${sourceUrl}/api/channels/${encodeURIComponent(channelUsername)}/meta`;
     let data;
     try {
-      const res = await fetch(metaUrl, {
+      const res = await songbirdFetch(metaUrl, {
         method: "GET",
         headers: { Accept: "application/json" },
         signal: AbortSignal.timeout(15_000),
@@ -1233,7 +1279,24 @@ function createRemoteChannelManager(deps = {}) {
     let localAvatarUrl = source.source_avatar_url || "";
     if (fileUploadEnabled && remoteAvatarUrl && fs && path && avatarUploadRootDir) {
       try {
-        const avatarRes = await fetch(`${sourceUrl}${remoteAvatarUrl}`, {
+        // Validate the avatar URL stays on the same origin (same host as sourceUrl).
+        // remoteAvatarUrl comes from an untrusted remote server, so we must ensure
+        // it can't redirect the fetch to an internal/private host (SSRF).
+        let avatarFetchUrl;
+        try {
+          // Resolve relative to sourceUrl; this also catches path traversal.
+          const resolved = new URL(remoteAvatarUrl, sourceUrl);
+          const base = new URL(sourceUrl);
+          if (resolved.origin !== base.origin || isPrivateHost(resolved.hostname)) {
+            throw new Error("Avatar URL origin does not match source server.");
+          }
+          avatarFetchUrl = resolved.href;
+        } catch {
+          // If the URL is invalid or off-origin, skip the avatar download silently.
+          avatarFetchUrl = null;
+        }
+        if (!avatarFetchUrl) throw new Error("Avatar URL is invalid or off-origin.");
+        const avatarRes = await songbirdFetch(avatarFetchUrl, {
           signal: AbortSignal.timeout(15_000),
         });
         if (avatarRes.ok) {
@@ -2477,7 +2540,7 @@ function createRemoteChannelManager(deps = {}) {
       }
       // Verify the target server is reachable and the channel is still public.
       const metaUrl = `${sourceUrl}/api/channels/${encodeURIComponent(channelUsername)}/meta`;
-      const response = await fetch(metaUrl, {
+      const response = await songbirdFetch(metaUrl, {
         method: "GET",
         headers: { "Accept": "application/json" },
         signal: AbortSignal.timeout(10_000),

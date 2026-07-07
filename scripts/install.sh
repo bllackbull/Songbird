@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# songbird-deploy-version: 0.10.3
+# songbird-deploy-version: 0.11.0
 
 set -uo pipefail
 
@@ -686,36 +686,6 @@ prompt_client_port() {
   done
 }
 
-prompt_retention_days() {
-  local value=""
-  while true; do
-    prompt_read "Enter files auto deletion interval in days (0 disables, default: $DEFAULT_RETENTION_DAYS): " value
-    if [[ -z "$value" ]]; then
-      value="$DEFAULT_RETENTION_DAYS"
-    fi
-    if [[ "$value" =~ ^[0-9]+$ ]]; then
-      printf "%s" "$value"
-      return 0
-    fi
-    printf "Please enter a non-negative integer.\n"
-  done
-}
-
-prompt_text_retention_days() {
-  local value=""
-  while true; do
-    prompt_read "Enter text-only message auto deletion interval in days (0 disables, default: $DEFAULT_TEXT_RETENTION_DAYS): " value
-    if [[ -z "$value" ]]; then
-      value="$DEFAULT_TEXT_RETENTION_DAYS"
-    fi
-    if [[ "$value" =~ ^[0-9]+$ ]]; then
-      printf "%s" "$value"
-      return 0
-    fi
-    printf "Please enter a non-negative integer.\n"
-  done
-}
-
 normalize_path_input() {
   local value="$1"
   if [[ "$value" == "~"* ]]; then
@@ -921,10 +891,10 @@ prompt_cert_mode() {
   done
 }
 
-prompt_backup_zip_path() {
+prompt_backup_db_path() {
   local backup_input=""
   while true; do
-    prompt_read "Enter the full path to the backup .zip file: " backup_input
+    prompt_read "Enter the full path to the backup .db file: " backup_input
     if [[ -z "$backup_input" ]]; then
       printf "Please provide a file path.\n"
       continue
@@ -935,8 +905,8 @@ prompt_backup_zip_path() {
       printf "File not found. Tried: %s\n" "$backup_input"
       continue
     fi
-    if [[ "${resolved,,}" != *.zip ]]; then
-      printf "Backup file must be a .zip archive.\n"
+    if [[ "${resolved,,}" != *.db ]]; then
+      printf "Backup file must be a .db file.\n"
       continue
     fi
     printf "%s" "$resolved"
@@ -944,30 +914,28 @@ prompt_backup_zip_path() {
   done
 }
 
-select_backup_zip_path() {
+select_backup_db_path() {
   local use_detected=""
   local detected=""
-  detected="$(find_restore_backup_zip)" || detected=""
+  detected="$(find_restore_backup_db)" || detected=""
   if [[ -n "$detected" ]]; then
-    use_detected="$(prompt_yes_no "Use detected backup zip ${detected}?" "yes")"
+    use_detected="$(prompt_yes_no "Use detected backup ${detected}?" "yes")"
     if [[ "$use_detected" == "yes" ]]; then
       printf "%s" "$detected"
       return 0
     fi
   fi
 
-  prompt_backup_zip_path
+  prompt_backup_db_path
 }
 
 prompt_install_backup_restore() {
   DB_BACKUP_PATH=""
-  DB_BACKUP_PASSWORD=""
-  if [[ "$(prompt_yes_no "Restore database from a backup zip during installation?" "no")" != "yes" ]]; then
+  if [[ "$(prompt_yes_no "Restore database from a backup .db file during installation?" "no")" != "yes" ]]; then
     return 0
   fi
 
-  DB_BACKUP_PATH="$(select_backup_zip_path)"
-  DB_BACKUP_PASSWORD="$(prompt_secret_optional "Backup password (leave blank if not encrypted)")"
+  DB_BACKUP_PATH="$(select_backup_db_path)"
   return 0
 }
 
@@ -1410,7 +1378,7 @@ find_offline_source_zip() {
   return 1
 }
 
-find_restore_backup_zip() {
+find_restore_backup_db() {
   local candidates=(
     "/opt/songbird/data/backups"
     "/root"
@@ -1418,7 +1386,7 @@ find_restore_backup_zip() {
   local dir=""
   for dir in "${candidates[@]}"; do
     local found=""
-    found="$(run_as_root_output bash -lc "find '$dir' -maxdepth 1 -type f -name 'songbird-backup-*.zip' -printf '%T@\t%p\n' 2>/dev/null | sort -nr | head -1 | cut -f2-" | tr -d '\r\n')" || found=""
+    found="$(run_as_root_output bash -lc "find '$dir' -maxdepth 1 -type f -name 'songbird-backup-*.db' -printf '%T@\t%p\n' 2>/dev/null | sort -nr | head -1 | cut -f2-" | tr -d '\r\n')" || found=""
     if [[ -n "$found" && -f "$found" ]]; then
       printf "%s" "$found"
       return 0
@@ -1692,133 +1660,49 @@ replace_env_value() {
 
 write_env_from_example() {
   local env_file="${INSTALL_DIR}/.env"
-  local example_file="${INSTALL_DIR}/.env.example"
-  if [[ ! -f "$example_file" ]]; then
-    log "Missing ${example_file}. Falling back to minimal .env defaults."
-    write_env_fallback "$env_file" || return 1
-    CURRENT_ENV_FILE="$env_file"
-    return 0
-  fi
-  local existing_public_key
-  local existing_private_key
-  local existing_subject
-  local existing_server_port
-  local existing_client_port
-  local existing_sign_up
-  local existing_file_upload_max_size_mb
-  local existing_file_upload_max_total_size_mb
-  local existing_voice_waveform_max_decode_mb
-  local existing_voice_waveform_max_decode_seconds
-  local existing_nickname_max_chars
-  local existing_username_max_chars
-  local existing_storage_encryption_key
-  existing_public_key="$(get_existing_env_value "VAPID_PUBLIC_KEY" "")"
-  existing_private_key="$(get_existing_env_value "VAPID_PRIVATE_KEY" "")"
-  existing_subject="$(get_existing_env_value "VAPID_SUBJECT" "mailto:admin@example.com")"
-  existing_server_port="$(get_existing_env_value_with_fallback "SERVER_PORT" "PORT" "$DEFAULT_SERVER_PORT")"
-  existing_client_port="$(get_existing_env_value "CLIENT_PORT" "$DEFAULT_CLIENT_PORT")"
-  existing_sign_up="$(get_existing_env_value_with_fallback "SIGN_UP" "ACCOUNT_CREATION" "$DEFAULT_SIGN_UP")"
-  existing_file_upload_max_size_mb="$(get_existing_env_mb_value_with_fallback "FILE_UPLOAD_MAX_SIZE_MB" "FILE_UPLOAD_MAX_SIZE" "$DEFAULT_FILE_UPLOAD_MAX_SIZE_MB")"
-  existing_file_upload_max_total_size_mb="$(get_existing_env_mb_value_with_fallback "FILE_UPLOAD_MAX_TOTAL_SIZE_MB" "FILE_UPLOAD_MAX_TOTAL_SIZE" "$DEFAULT_MAX_UPLOAD_MB")"
-  existing_voice_waveform_max_decode_mb="$(get_existing_env_mb_value_with_fallback "CHAT_VOICE_WAVEFORM_MAX_DECODE_MB" "CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES" "$DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_MB")"
-  existing_voice_waveform_max_decode_seconds="$(get_existing_env_value "CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS" "$DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS")"
-  existing_nickname_max_chars="$(get_existing_env_value_with_fallback "NICKNAME_MAX_CHARS" "NICKNAME_MAX" "24")"
-  existing_username_max_chars="$(get_existing_env_value_with_fallback "USERNAME_MAX_CHARS" "USERNAME_MAX" "16")"
-  existing_storage_encryption_key="$(get_existing_env_value "STORAGE_ENCRYPTION_KEY" "")"
-
-  run_silent run_as_root cp "$example_file" "$env_file" || return 1
-  replace_env_value "$env_file" "SERVER_PORT" "$existing_server_port" || return 1
-  replace_env_value "$env_file" "CLIENT_PORT" "$existing_client_port" || return 1
-  replace_env_value "$env_file" "SERVER_PORT" "$SERVER_PORT" || return 1
-  replace_env_value "$env_file" "CLIENT_PORT" "$CLIENT_PORT" || return 1
-  replace_env_value "$env_file" "SIGN_UP" "$ACCOUNT_CREATION" || return 1
-  replace_env_value "$env_file" "FILE_UPLOAD" "$FILE_UPLOAD" || return 1
-  replace_env_value "$env_file" "FILE_UPLOAD_MAX_SIZE_MB" "$existing_file_upload_max_size_mb" || return 1
-  replace_env_value "$env_file" "FILE_UPLOAD_MAX_TOTAL_SIZE_MB" "$MAX_UPLOAD_MB" || return 1
-  replace_env_value "$env_file" "MESSAGE_FILE_RETENTION" "$RETENTION_DAYS" || return 1
-  replace_env_value "$env_file" "MESSAGE_TEXT_RETENTION" "$TEXT_RETENTION_DAYS" || return 1
-  replace_env_value "$env_file" "CHAT_VOICE_WAVEFORM_MAX_DECODE_MB" "$existing_voice_waveform_max_decode_mb" || return 1
-  replace_env_value "$env_file" "CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS" "$existing_voice_waveform_max_decode_seconds" || return 1
-  replace_env_value "$env_file" "NICKNAME_MAX_CHARS" "$existing_nickname_max_chars" || return 1
-  replace_env_value "$env_file" "USERNAME_MAX_CHARS" "$existing_username_max_chars" || return 1
-  replace_env_value "$env_file" "STORAGE_ENCRYPTION_KEY" "$existing_storage_encryption_key" || return 1
-  replace_env_value "$env_file" "VAPID_PUBLIC_KEY" "$existing_public_key" || return 1
-  replace_env_value "$env_file" "VAPID_PRIVATE_KEY" "$existing_private_key" || return 1
-  if [[ -n "$CERTBOT_EMAIL" ]]; then
-    replace_env_value "$env_file" "VAPID_SUBJECT" "mailto:${CERTBOT_EMAIL}" || return 1
-  else
-    replace_env_value "$env_file" "VAPID_SUBJECT" "$existing_subject" || return 1
-  fi
+  write_env_fallback "$env_file" || return 1
   CURRENT_ENV_FILE="$env_file"
-  log "Wrote environment config from ${example_file}."
 }
 
 write_env_fallback() {
   local env_file="$1"
   local existing_storage_encryption_key
+  local existing_admin_api_token
   local existing_public_key
   local existing_private_key
   local existing_subject
   existing_storage_encryption_key="$(get_existing_env_value "STORAGE_ENCRYPTION_KEY" "")"
+  existing_admin_api_token="$(get_existing_env_value "ADMIN_API_TOKEN" "")"
   existing_public_key="$(get_existing_env_value "VAPID_PUBLIC_KEY" "")"
   existing_private_key="$(get_existing_env_value "VAPID_PRIVATE_KEY" "")"
   existing_subject="$(get_existing_env_value "VAPID_SUBJECT" "mailto:admin@example.com")"
   run_silent run_as_root bash -lc "cat > '$env_file' <<'EOF'
+# Server Configuration
 SERVER_PORT=${SERVER_PORT}
 CLIENT_PORT=${CLIENT_PORT}
+
+# Application Settings
 APP_ENV=production
-APP_DEBUG=false
-SIGN_UP=${ACCOUNT_CREATION}
-FILE_UPLOAD=${FILE_UPLOAD}
-FILE_UPLOAD_MAX_SIZE_MB=${DEFAULT_FILE_UPLOAD_MAX_SIZE_MB}
-FILE_UPLOAD_MAX_TOTAL_SIZE_MB=${MAX_UPLOAD_MB}
-FILE_UPLOAD_MAX_FILES=10
-FILE_UPLOAD_TRANSCODE_VIDEOS=true
-MESSAGE_FILE_RETENTION=${RETENTION_DAYS}
-MESSAGE_TEXT_RETENTION=${TEXT_RETENTION_DAYS}
-MESSAGE_MAX_CHARS=4000
-REMOTE_CHANNEL=false
-REMOTE_CHANNEL_UI=true
-REMOTE_CHANNEL_MEDIA_STREAM=true
-REMOTE_CHANNEL_TELEGRAM_API_ID=0
-REMOTE_CHANNEL_TELEGRAM_API_HASH=""
-REMOTE_CHANNEL_TELEGRAM_SESSION_STRING=""
-REMOTE_CHANNEL_TELEGRAM_PROXY_URL=""
-REMOTE_CHANNEL_SONGBIRD_PROXY_URL=""
-REMOTE_CHANNEL_POLL_INTERVAL_MS=5000
-REMOTE_CHANNEL_TELEGRAM_POLL_LIMIT=50
-REMOTE_CHANNEL_QUEUE_INTERVAL_MS=1000
-REMOTE_CHANNEL_QUEUE_MAX_ATTEMPTS=10
-REMOTE_CHANNEL_QUEUE_BATCH_SIZE=10
-REMOTE_CHANNEL_QUEUE_CONCURRENCY=3
-REMOTE_CHANNEL_QUEUE_STALE_LOCK_MS=300000
-CHAT_PENDING_TEXT_TIMEOUT=300000
-CHAT_PENDING_FILE_TIMEOUT=1200000
-CHAT_PENDING_RETRY_INTERVAL=4000
-CHAT_PENDING_STATUS_CHECK_INTERVAL=1000
-CHAT_CACHE_TTL=24
-CHAT_MESSAGE_FETCH_LIMIT=60
-CHAT_MESSAGE_PAGE_SIZE=60
-CHAT_LIST_REFRESH_INTERVAL=20000
-CHAT_PRESENCE_PING_INTERVAL=5000
-CHAT_PEER_PRESENCE_POLL_INTERVAL=3000
-CHAT_HEALTH_CHECK_INTERVAL=10000
-CHAT_SSE_RECONNECT_DELAY=2000
-CHAT_SEARCH_MAX_RESULTS=5
-CHAT_VOICE_WAVEFORM_MAX_DECODE_MB=${DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_MB}
-CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS=${DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS}
-NICKNAME_MAX_CHARS=24
-USERNAME_MAX_CHARS=16
+
+# Security & Encryption
+# Auto-generated by the server on first boot if left empty.
 STORAGE_ENCRYPTION_KEY=${existing_storage_encryption_key}
+# Token gating the local-only admin endpoint. Auto-generated if left empty.
+ADMIN_API_TOKEN=${existing_admin_api_token}
+
+# Push Notifications
 VAPID_PUBLIC_KEY=${existing_public_key}
 VAPID_PRIVATE_KEY=${existing_private_key}
 VAPID_SUBJECT=${existing_subject}
-PUSH_PROXY_URL=""
+
+# NOTE: All other application settings (sign-up, file uploads, retention,
+# limits, remote channel, client tuning, push proxy, etc.) are configured from
+# the in-app Admin Panel after installation.
 EOF" || return 1
   if [[ -n "$CERTBOT_EMAIL" ]]; then
     replace_env_value "$env_file" "VAPID_SUBJECT" "mailto:${CERTBOT_EMAIL}" || return 1
   fi
-  log "Wrote fallback environment config to ${env_file}."
+  log "Wrote environment config to ${env_file}."
 }
 
 ensure_vapid_keys() {
@@ -2121,25 +2005,6 @@ collect_install_options() {
   if [[ "$CERT_MODE" != "http" ]]; then
     log "Using HTTP redirect on port 80 and HTTPS on port ${CLIENT_PORT}."
   fi
-
-  if [[ "$(prompt_yes_no "Allow account creation via website?" "yes")" == "yes" ]]; then
-    ACCOUNT_CREATION="true"
-  else
-    ACCOUNT_CREATION="false"
-  fi
-
-  if [[ "$(prompt_yes_no "Enable file uploads?" "yes")" == "yes" ]]; then
-    FILE_UPLOAD="true"
-  else
-    FILE_UPLOAD="false"
-  fi
-
-  if [[ "$FILE_UPLOAD" == "true" ]]; then
-    RETENTION_DAYS="$(prompt_retention_days)"
-  else
-    RETENTION_DAYS="0"
-  fi
-  TEXT_RETENTION_DAYS="$(prompt_text_retention_days)"
 
 }
 
@@ -2651,20 +2516,13 @@ restore_backup_if_provided() {
     warn "Backup file not found: $DB_BACKUP_PATH"
     return 1
   fi
-  if ! have_cmd unzip; then
-    warn "unzip is required to restore backups. Install it first and retry."
-    return 1
-  fi
   if [[ ! -d "$INSTALL_DIR/server" ]]; then
     warn "Server directory not found at ${INSTALL_DIR}/server. Cannot restore backup."
     return 1
   fi
 
-  log "Restoring data from backup: $DB_BACKUP_PATH"
+  log "Restoring database from backup: $DB_BACKUP_PATH"
   local cmd=(npm --prefix server run db:restore -- -y --file "$DB_BACKUP_PATH")
-  if [[ -n "${DB_BACKUP_PASSWORD:-}" ]]; then
-    cmd+=(--password "$DB_BACKUP_PASSWORD")
-  fi
 
   if [[ "${RESTORE_BACKUP_QUIET:-no}" == "yes" ]]; then
     if ! run_db_command_logged_quiet "${cmd[@]}"; then
@@ -2695,9 +2553,9 @@ backup_database() {
 preserve_backup_and_restore_data() {
   log "Preserving data directory during update..."
   # Since /data/ is in .gitignore, it will remain untouched during git operations
-  # However, we locate the backup zip for recovery purposes if needed
+  # However, we locate the backup for recovery purposes if needed
   if [[ -d "$INSTALL_DIR/data/backups" ]]; then
-    local latest_backup="$(ls -t "$INSTALL_DIR/data/backups"/*.zip 2>/dev/null | head -1)"
+    local latest_backup="$(ls -t "$INSTALL_DIR/data/backups"/songbird-backup-*.db 2>/dev/null | head -1)"
     if [[ -n "$latest_backup" ]]; then
       # Copy backup to root directory for easy access and recovery
       local backup_filename="$(basename "$latest_backup")"
@@ -3218,6 +3076,8 @@ install_songbird() {
   fi
   show_deployment_success_frame "install"
 
+  create_owner_user
+
   press_enter_to_continue
 }
 
@@ -3554,6 +3414,59 @@ resolve_chat_visibility_for_script() {
   '
 }
 
+# Check whether any user with role='owner' exists in the database.
+# Exits 0 if owner exists, 1 if not (or if check fails).
+check_owner_exists() {
+  local path_prefix=""
+  path_prefix="$(node_tools_path_prefix)"
+  run_as_root env INSTALL_DIR="$INSTALL_DIR" NODE_TOOLS_PATH_PREFIX="$path_prefix" bash -lc '
+    if [[ -n "$NODE_TOOLS_PATH_PREFIX" ]]; then
+      export PATH="$NODE_TOOLS_PATH_PREFIX:$PATH"
+    fi
+    cd "$INSTALL_DIR" || exit 1
+    node --input-type=module -e "
+      import { pathToFileURL } from \"node:url\";
+      const rootUrl = pathToFileURL(process.cwd() + \"/\");
+      const { openDatabase } = await import(new URL(\"./server/scripts/_db-admin.js\", rootUrl));
+      const dbApi = await openDatabase();
+      try {
+        const sql = \"SELECT id FROM users WHERE role = \" + \"'owner'\" + \" LIMIT 1\";
+        const row = dbApi.getRow(sql);
+        process.exit(row && row.id ? 0 : 1);
+      } finally {
+        dbApi.close();
+      }
+    "
+  ' 2>/dev/null
+}
+
+# After installation, offer to create an owner user if none exists.
+create_owner_user() {
+  if check_owner_exists; then
+    return 0
+  fi
+
+  printf "\n"
+  log "No owner user found in the database."
+  if [[ "$(prompt_yes_no "Would you like to create an owner user now?" "yes")" != "yes" ]]; then
+    return 0
+  fi
+
+  local nickname=""
+  local username=""
+  local password=""
+
+  nickname="$(prompt_non_empty "Nickname")"
+  username="$(prompt_non_empty "Username (lowercase letters, numbers, ., _)")"
+  password="$(prompt_secret "Password")"
+
+  run_db_command npm --prefix server run db:user:create -- \
+    --nickname "$nickname" \
+    --username "$username" \
+    --password "$password" \
+    --role owner
+}
+
 print_db_script_help() {
   cat <<'EOF'
 Songbird Script Database Menu
@@ -3568,12 +3481,12 @@ Inspect:
         Passes: --limit
 
 Backup & repair:
-  5     Backup database and uploads
-        Prompts: backup password
-        Passes: --password
+  5     Backup database
+        Prompts: none
+        Passes: (no arguments)
   6     Restore backup
-        Prompts: backup zip path, restore confirmation, optional password
-        Passes: -y --file [--password]
+        Prompts: backup .db path, restore confirmation
+        Passes: -y --file
   7     Vacuum database
         Prompts: confirmation
         Passes: -y
@@ -3586,14 +3499,14 @@ Backup & repair:
 
 User and chat management:
   10    Create user
-        Prompts: nickname, username, password
-        Passes: --nickname --username --password
+        Prompts: nickname, username, password, role (user/admin/owner, default: user)
+        Passes: --nickname --username --password --role
   11    Generate users in bulk
         Prompts: count, password, nickname prefix, username prefix
         Passes: --count --password --nickname-prefix --username-prefix
   12    Edit user
-        Prompts: user selector and optional profile fields
-        Passes: selector plus any changed --username/--nickname/--avatar-url/--status/--color
+        Prompts: user selector and optional profile fields and role
+        Passes: selector plus any changed --username/--nickname/--avatar-url/--status/--color/--role
   13    Ban/unban user
         Prompts: user selector, confirmation
         Passes: -y selector
@@ -3631,15 +3544,14 @@ Notes:
   - "all" is explicit for chat/user/file delete actions.
   - "Ban/unban user" is a toggle and expires that user's sessions.
   - Public chats always allow member invites. Invite settings only apply to private chats.
-  - Backups are encrypted zip files containing .env and data/.
+  - Backups are plain .db copies saved to data/backups/ with a timestamp filename.
+  - Restore replaces the live database with the selected .db file.
 EOF
 }
 
 db_backup() {
-  local backup_password=""
-  backup_password="$(prompt_secret "Backup password")"
-  log "Creating backup (db + uploads)..."
-  run_db_command npm --prefix server run db:backup -- --password "$backup_password"
+  log "Creating database backup..."
+  run_db_command npm --prefix server run db:backup
   press_enter_to_continue
 }
 
@@ -3663,20 +3575,14 @@ db_vacuum() {
 
 db_restore() {
   local backup_path=""
-  local backup_password=""
 
-  backup_path="$(select_backup_zip_path)"
-  if [[ "$(prompt_yes_no "This will replace ${INSTALL_DIR}/data and update ${INSTALL_DIR}/.env when the backup includes it. Continue?" "yes")" != "yes" ]]; then
+  backup_path="$(select_backup_db_path)"
+  if [[ "$(prompt_yes_no "This will replace the current database with ${backup_path}. Continue?" "yes")" != "yes" ]]; then
     log "Restore canceled."
     press_enter_to_continue
     return 0
   fi
-  backup_password="$(prompt_secret_optional "Backup password (leave blank if not encrypted)")"
-  if [[ -n "$backup_password" ]]; then
-    run_db_command npm --prefix server run db:restore -- -y --file "$backup_path" --password "$backup_password"
-  else
-    run_db_command npm --prefix server run db:restore -- -y --file "$backup_path"
-  fi
+  run_db_command npm --prefix server run db:restore -- -y --file "$backup_path"
   press_enter_to_continue
 }
 
@@ -3790,15 +3696,28 @@ db_user_create() {
   local nickname=""
   local username=""
   local password=""
+  local role=""
 
   nickname="$(prompt_non_empty "Nickname")"
   username="$(prompt_non_empty "Username (lowercase letters, numbers, ., _)")"
   password="$(prompt_secret "Password")"
 
+  while true; do
+    prompt_read "Role (user/admin/owner, default: user): " role
+    role="${role#"${role%%[![:space:]]*}"}"
+    role="${role%"${role##*[![:space:]]}"}"
+    [[ -z "$role" ]] && role="user"
+    case "$role" in
+      user|admin|owner) break ;;
+      *) printf "Invalid role. Choose: user, admin, or owner.\n" ;;
+    esac
+  done
+
   run_db_command npm --prefix server run db:user:create -- \
     --nickname "$nickname" \
     --username "$username" \
-    --password "$password"
+    --password "$password" \
+    --role "$role"
   press_enter_to_continue
 }
 
@@ -4063,6 +3982,7 @@ db_user_edit() {
   local avatar_url=""
   local status=""
   local color=""
+  local role=""
   local args=()
 
   user="$(prompt_non_empty "User id or username")"
@@ -4072,12 +3992,26 @@ db_user_edit() {
   prompt_read "Status (online/invisible, optional): " status
   prompt_read "Color hex (optional, example: #10b981): " color
 
+  while true; do
+    prompt_read "Role (user/admin/owner, optional — leave blank to keep current): " role
+    role="${role#"${role%%[![:space:]]*}"}"
+    role="${role%"${role##*[![:space:]]}"}"
+    if [[ -z "$role" ]]; then
+      break
+    fi
+    case "$role" in
+      user|admin|owner) break ;;
+      *) printf "Invalid role. Choose: user, admin, owner, or leave blank.\n" ;;
+    esac
+  done
+
   args+=("$user")
   [[ -n "$username" ]] && args+=(--username "$username")
   [[ -n "$nickname" ]] && args+=(--nickname "$nickname")
   [[ -n "$avatar_url" ]] && args+=(--avatar-url "$avatar_url")
   [[ -n "$status" ]] && args+=(--status "$status")
   [[ -n "$color" ]] && args+=(--color "$color")
+  [[ -n "$role" ]] && args+=(--role "$role")
 
   run_db_command npm --prefix server run db:user:edit -- "${args[@]}"
   press_enter_to_continue
@@ -4186,9 +4120,9 @@ db_remote_configure() {
 
 db_restore_backup() {
   local resolved=""
-  resolved="$(select_backup_zip_path)"
+  resolved="$(select_backup_db_path)"
 
-  if [[ "$(prompt_yes_no "This will replace ${INSTALL_DIR}/data. Continue?" "no")" != "yes" ]]; then
+  if [[ "$(prompt_yes_no "This will replace the current database with ${resolved}. Continue?" "no")" != "yes" ]]; then
     log "Restore canceled."
     return 0
   fi

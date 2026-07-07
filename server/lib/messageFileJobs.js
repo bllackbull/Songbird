@@ -8,8 +8,12 @@ export function createMessageFileJobs({
   uploadRootDir,
   fs,
   path,
-  messageFileRetentionDays,
+  getSetting,
 }) {
+  // Always read the live setting instead of a value captured once at startup,
+  // so admin-panel changes to retention take effect without a restart.
+  const getMessageFileRetentionDays = () =>
+    Number(getSetting("MESSAGE_FILE_RETENTION")) || 0;
   const chunkArray = (items = [], size = 500) => {
     const chunks = [];
     for (let index = 0; index < items.length; index += size) {
@@ -140,7 +144,7 @@ export function createMessageFileJobs({
   };
 
   const cleanupExpiredMessageFiles = () => {
-    if (messageFileRetentionDays <= 0) {
+    if (getMessageFileRetentionDays() <= 0) {
       return { removedMessages: 0, removedFiles: 0 };
     }
 
@@ -199,9 +203,8 @@ export function createMessageFileJobs({
   };
 
   const backfillMessageFileExpiry = () => {
-    if (messageFileRetentionDays <= 0) return 0;
-
-    const nowDays = Number(messageFileRetentionDays);
+    const nowDays = getMessageFileRetentionDays();
+    if (nowDays <= 0) return 0;
 
     const row = adminGetRow(
       `SELECT COUNT(*) AS n
@@ -238,7 +241,7 @@ export function createMessageFileJobs({
 
   const computeExpiryIso = (
     createdAt = new Date(),
-    days = messageFileRetentionDays,
+    days = getMessageFileRetentionDays(),
   ) => {
     const safeDays = Number(days || 0);
     if (!Number.isFinite(safeDays) || safeDays <= 0) return null;

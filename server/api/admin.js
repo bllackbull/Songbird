@@ -55,9 +55,7 @@ function registerAdminRoutes(app, deps) {
     chunkArray,
     bcrypt,
     setUserColor,
-    NICKNAME_MAX,
-    USERNAME_MAX,
-    MESSAGE_MAX_CHARS,
+    getSetting,
     USERNAME_REGEX,
     isLoopbackRequest,
     removeAllMessageUploads,
@@ -76,14 +74,20 @@ function registerAdminRoutes(app, deps) {
       return res.status(403).json({ error: "Forbidden" });
     }
 
-    const expectedToken = process.env.ADMIN_API_TOKEN;
+    // ADMIN_API_TOKEN is auto-generated and persisted to .env on first boot
+    // (see lib/adminApiToken.js), so this should always be set. Still guard
+    // against a missing value rather than silently skipping the check.
+    const expectedToken = String(process.env.ADMIN_API_TOKEN || "");
+    const provided = String(req.headers["x-songbird-admin-token"] || "");
+    const expectedBuf = Buffer.from(expectedToken);
+    const providedBuf = Buffer.from(provided);
+    const tokenMatches =
+      expectedToken.length > 0 &&
+      expectedBuf.length === providedBuf.length &&
+      crypto.timingSafeEqual(expectedBuf, providedBuf);
 
-    if (expectedToken) {
-      const provided = String(req.headers["x-songbird-admin-token"] || "");
-
-      if (!provided || provided !== expectedToken) {
-        return res.status(401).json({ error: "Invalid admin token." });
-      }
+    if (!tokenMatches) {
+      return res.status(401).json({ error: "Invalid admin token." });
     }
 
     const action = String(req.body?.action || "")
@@ -433,6 +437,8 @@ function registerAdminRoutes(app, deps) {
         const rawUsername = String(payload.username || "").trim().toLowerCase();
         const nickname = String(payload.nickname || "").trim();
         const password = String(payload.password || "");
+        const requestedRole = String(payload.role || "user");
+        const role = ["user", "admin", "owner"].includes(requestedRole) ? requestedRole : "user";
 
         if (!nickname || !rawUsername || !password) {
           return res.status(400).json({
@@ -442,14 +448,14 @@ function registerAdminRoutes(app, deps) {
         if (rawUsername.length < 3) {
           return res.status(400).json({ error: "Username must be at least 3 characters." });
         }
-        if (USERNAME_MAX && rawUsername.length > USERNAME_MAX) {
+        if (getSetting("USERNAME_MAX_CHARS") && rawUsername.length > getSetting("USERNAME_MAX_CHARS")) {
           return res.status(400).json({
-            error: `Username must be at most ${USERNAME_MAX} characters.`,
+            error: `Username must be at most ${getSetting("USERNAME_MAX_CHARS")} characters.`,
           });
         }
-        if (nickname && nickname.length > (NICKNAME_MAX || 0)) {
+        if (nickname && nickname.length > (getSetting("NICKNAME_MAX_CHARS") || 0)) {
           return res.status(400).json({
-            error: `Nickname must be at most ${NICKNAME_MAX} characters.`,
+            error: `Nickname must be at most ${getSetting("NICKNAME_MAX_CHARS")} characters.`,
           });
         }
 
@@ -473,6 +479,14 @@ function registerAdminRoutes(app, deps) {
           return res.status(409).json({ error: "Username already exists." });
         }
 
+        // Only one owner is allowed
+        if (role === "owner") {
+          const existingOwner = adminGetRow("SELECT id FROM users WHERE role = 'owner' LIMIT 1");
+          if (existingOwner?.id) {
+            return res.status(409).json({ error: "An owner already exists. Reassign the owner role first." });
+          }
+        }
+
         const passwordHash = await bcrypt.hash(password, 10);
         const assignedColor = setUserColor ? setUserColor() : null;
         adminRun(
@@ -480,6 +494,12 @@ function registerAdminRoutes(app, deps) {
            VALUES (?, ?, NULL, ?, ?, ?, datetime('now'), datetime('now'))`,
           [rawUsername, nickname, assignedColor, "online", passwordHash],
         );
+
+        if (role !== "user") {
+          const newRow = adminGetRow("SELECT id FROM users WHERE username = ?", [rawUsername]);
+          if (newRow?.id) adminRun("UPDATE users SET role = ? WHERE id = ?", [role, Number(newRow.id)]);
+        }
+
         adminSave();
 
         const row = adminGetRow(
@@ -909,9 +929,9 @@ function registerAdminRoutes(app, deps) {
         if (nextUsername.length < 3) {
           return res.status(400).json({ error: "Username must be at least 3 characters." });
         }
-        if (USERNAME_MAX && nextUsername.length > USERNAME_MAX) {
+        if (getSetting("USERNAME_MAX_CHARS") && nextUsername.length > getSetting("USERNAME_MAX_CHARS")) {
           return res.status(400).json({
-            error: `Username must be at most ${USERNAME_MAX} characters.`,
+            error: `Username must be at most ${getSetting("USERNAME_MAX_CHARS")} characters.`,
           });
         }
         if (USERNAME_REGEX && !USERNAME_REGEX.test(nextUsername)) {
@@ -919,9 +939,9 @@ function registerAdminRoutes(app, deps) {
             error: "Invalid username. Allowed: lowercase english letters, numbers, ., _",
           });
         }
-        if (nextNickname && nextNickname.length > (NICKNAME_MAX || 0)) {
+        if (nextNickname && nextNickname.length > (getSetting("NICKNAME_MAX_CHARS") || 0)) {
           return res.status(400).json({
-            error: `Nickname must be at most ${NICKNAME_MAX} characters.`,
+            error: `Nickname must be at most ${getSetting("NICKNAME_MAX_CHARS")} characters.`,
           });
         }
         if (!["online", "invisible"].includes(nextStatus)) {
@@ -960,6 +980,26 @@ function registerAdminRoutes(app, deps) {
             Number(user.id),
           ],
         );
+
+        // Role change support
+        if (payload.role !== undefined && payload.role !== null) {
+          const requestedRole = String(payload.role || "user");
+          if (!["user", "admin", "owner"].includes(requestedRole)) {
+            return res.status(400).json({ error: "Invalid role. Allowed: user, admin, owner." });
+          }
+          // Only one owner allowed — reject if another user already holds the role
+          if (requestedRole === "owner") {
+            const currentUser = adminGetRow("SELECT role FROM users WHERE id = ?", [Number(user.id)]);
+            if (currentUser?.role !== "owner") {
+              const existingOwner = adminGetRow("SELECT id FROM users WHERE role = 'owner' LIMIT 1");
+              if (existingOwner?.id) {
+                return res.status(409).json({ error: "An owner already exists. Demote them first." });
+              }
+            }
+          }
+          adminRun("UPDATE users SET role = ? WHERE id = ?", [requestedRole, Number(user.id)]);
+        }
+
         adminSave();
 
         const updated = resolveUserRow(
@@ -1042,8 +1082,8 @@ function registerAdminRoutes(app, deps) {
         const password = String(payload.password || "");
         const nicknamePrefix = String(payload.nicknamePrefix || "User");
         const usernamePrefix = String(payload.usernamePrefix || "user");
-        const maxUsername = Math.max(3, Number(USERNAME_MAX || 16));
-        const maxNickname = Math.max(3, Number(NICKNAME_MAX || 24));
+        const maxUsername = Math.max(3, Number(getSetting("USERNAME_MAX_CHARS") || 16));
+        const maxNickname = Math.max(3, Number(getSetting("NICKNAME_MAX_CHARS") || 24));
         const maxPrefixLen = Math.max(1, maxUsername - 2);
         const clampPrefix = (value, maxLen) => {
           const trimmed = String(value || "").trim();
@@ -1193,7 +1233,7 @@ function registerAdminRoutes(app, deps) {
           "Done",
           "Perfect",
         ];
-        const maxMessageChars = Math.max(1, Number(MESSAGE_MAX_CHARS || 4000));
+        const maxMessageChars = Math.max(1, Number(getSetting("MESSAGE_MAX_CHARS") || 4000));
         const pickRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
         const buildTimestampSchedule = (totalCount, days) => {
           // Clamp both parameters to prevent resource exhaustion

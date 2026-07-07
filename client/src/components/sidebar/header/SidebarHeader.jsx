@@ -151,16 +151,16 @@ export default function SidebarHeader({
                     <Plus size={18} className="icon-anim-pop" />
                   </button>
                   {showCreateMenu ? (
-                    <div className="absolute right-0 top-12 z-20 w-44 rounded-xl border border-emerald-200/80 bg-white p-1.5 shadow-lg dark:border-emerald-500/30 dark:bg-slate-950">
+                    <div className="absolute right-0 top-12 z-20 w-44 overflow-hidden rounded-2xl border border-emerald-200 bg-white p-1 text-sm font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100">
                       <button
                         type="button"
                         onClick={() => {
                           setShowCreateMenu(false);
                           onNewChat?.();
                         }}
-                        className="flex w-full items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-left text-xs text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
                       >
-                        <Chat size={15} className="icon-anim-bob" />
+                        <Chat size={15} className="text-emerald-500 icon-anim-bob" />
                         New DM
                       </button>
                       <button
@@ -169,9 +169,9 @@ export default function SidebarHeader({
                           setShowCreateMenu(false);
                           onNewGroup?.();
                         }}
-                        className="mt-1 flex w-full items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-left text-xs text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
                       >
-                        <Users size={15} className="icon-anim-sway" />
+                        <Users size={15} className="text-emerald-500 icon-anim-sway" />
                         New group
                       </button>
                       <button
@@ -180,9 +180,9 @@ export default function SidebarHeader({
                           setShowCreateMenu(false);
                           onNewChannel?.();
                         }}
-                        className="mt-1 flex w-full items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-left text-xs text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
                       >
-                        <Megaphone size={15} className="icon-anim-sway" />
+                        <Megaphone size={15} className="text-emerald-500 icon-anim-swing" />
                         New channel
                       </button>
                     </div>

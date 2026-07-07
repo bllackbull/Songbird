@@ -20,7 +20,7 @@ import { copyTextToClipboard } from "../../utils/clipboard.js";
 import { getAvatarStyle } from "../../utils/avatarColor.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
-import { NICKNAME_MAX, USERNAME_MAX } from "../../utils/nameLimits.js";
+import { useNameLimits } from "../../utils/nameLimits.js";
 import ConfirmPasswordModal from "./ConfirmPasswordModal.jsx";
 import Avatar from "../common/Avatar.jsx";
 import { useFocusTrap } from "../../hooks/useFocusTrap.js";
@@ -78,6 +78,8 @@ export default function NewGroupModal({
   onDeleteChat,
   chatId: _chatId = null,
   username: _username = "",
+  extraFields = null,
+  showMemberSearch = true,
 }) {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [remoteSourceMenuOpen, setRemoteSourceMenuOpen] = useState(false);
@@ -86,6 +88,7 @@ export default function NewGroupModal({
   const groupSearchInputRef = useRef(null);
   const remoteSourceButtonRef = useRef(null);
   const remoteSourceMenuRef = useRef(null);
+  const { nicknameMax: NICKNAME_MAX, usernameMax: USERNAME_MAX } = useNameLimits();
   const ignoreRemoteSourceButtonClickRef = useRef(false);
   const dialogRef = useRef(null);
   useFocusTrap(dialogRef, open);
@@ -356,6 +359,8 @@ export default function NewGroupModal({
                 </span>
               </div>
             </div>
+
+            {extraFields}
 
             <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
               <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
@@ -702,6 +707,7 @@ export default function NewGroupModal({
               </div>
             ) : null}
 
+            {showMemberSearch ? (
             <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
@@ -848,6 +854,7 @@ export default function NewGroupModal({
                 </div>
               ) : null}
             </div>
+            ) : null}
           </div>
 
           {groupError ? (

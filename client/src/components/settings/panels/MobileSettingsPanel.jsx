@@ -8,7 +8,7 @@ import {
 } from "../../../icons/lucide.js";
 import { hasPersian } from "../../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../../utils/avatarInitials.js";
-import { NICKNAME_MAX, USERNAME_MAX, USERNAME_INPUT_PATTERN } from "../../../utils/nameLimits.js";
+import { USERNAME_INPUT_PATTERN, useNameLimits } from "../../../utils/nameLimits.js";
 import { InlineError } from "../common/InlineError.jsx";
 import { SettingsMenuActions } from "../menus/SettingsMenuActions.jsx";
 import { AboutSettingsPanel } from "./AboutSettingsPanel.jsx";
@@ -61,7 +61,9 @@ export function MobileSettingsPanel({
   appInfoLoading,
   appInfoError,
   onOpenWhatsNew,
+  adminPanelEnabled = true,
 }) {
+  const { nicknameMax: NICKNAME_MAX, usernameMax: USERNAME_MAX } = useNameLimits();
   const handleClosePanel = useCallback(
     () => setSettingsPanel(null),
     [setSettingsPanel],
@@ -137,6 +139,8 @@ export function MobileSettingsPanel({
               onOpenNotifications={openNotificationsPanel}
               onOpenSavedMessages={onOpenSavedMessages}
               onOpenWhatsNew={onOpenWhatsNew}
+              userRole={user?.role}
+              adminPanelEnabled={adminPanelEnabled}
             />
           </div>
         </div>

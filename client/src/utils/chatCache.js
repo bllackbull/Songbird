@@ -16,10 +16,9 @@ export const MEDIA_THUMB_CACHE_KEY = "chat-media-thumbs-v2";
 export const MEDIA_POSTER_CACHE_KEY = "chat-video-posters-v3";
 export const VOICE_WAVEFORM_CACHE_KEY = "voice-waveform-cache-v1";
 export const CHANNEL_SEEN_CACHE_KEY = "songbird-channel-seen";
-export const MESSAGE_CACHE_MAX = Math.max(
-  50,
-  Math.min(200, CHAT_PAGE_CONFIG.messageFetchLimit),
-);
+// Reflects live changes to messageFetchLimit made via the admin panel.
+export const getMessageCacheMax = () =>
+  Math.max(50, Math.min(200, CHAT_PAGE_CONFIG.messageFetchLimit));
 
 export const safeParseJson = (raw) => {
   if (!raw) return null;
@@ -453,7 +452,7 @@ export const sanitizeMessagesForCache = (messages) =>
   (Array.isArray(messages) ? messages : [])
     .filter(isCacheableMessage)
     .map(sanitizeMessageForCache)
-    .slice(-MESSAGE_CACHE_MAX);
+    .slice(-getMessageCacheMax());
 
 export const normalizeMessageForRender = (message) => {
   if (!message || typeof message !== "object") return message;

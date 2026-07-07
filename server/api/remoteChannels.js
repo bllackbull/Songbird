@@ -2,7 +2,7 @@ import { normalizeSongbirdSource, normalizeTelegramSource, resolveSongbirdSource
 
 function registerRemoteChannelRoutes(app, deps) {
   const {
-    FILE_UPLOAD,
+    getSetting,
     REMOTE_CHANNELS,
     findChatById,
     findUserByUsername,
@@ -91,7 +91,7 @@ function registerRemoteChannelRoutes(app, deps) {
       sourceAvatarUrl: source.source_avatar_url || "",
       lastRemoteMessageId: Number(source.last_remote_message_id || 0) || null,
       syncMetadata: Boolean(Number(source.sync_metadata || 0)),
-      streamMedia: Boolean(FILE_UPLOAD && Number(source.stream_media || 0)),
+      streamMedia: Boolean(getSetting("FILE_UPLOAD") && Number(source.stream_media || 0)),
       lastError: source.last_error || "",
       lastSeenAt: source.last_seen_at || null,
       queue: getRemoteChannelQueueSummary(source.id),
@@ -160,7 +160,7 @@ function registerRemoteChannelRoutes(app, deps) {
 
     const enabled = Boolean(req.body?.enabled);
     const syncMetadata = Boolean(req.body?.syncMetadata);
-    const streamMedia = Boolean(FILE_UPLOAD && req.body?.streamMedia);
+    const streamMedia = Boolean(getSetting("FILE_UPLOAD") && req.body?.streamMedia);
     const provider = String(req.body?.provider || "telegram").toLowerCase();
 
     if (provider !== "telegram" && provider !== "songbird") {
