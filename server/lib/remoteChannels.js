@@ -28,6 +28,13 @@ function getSongbirdProxyDispatcher() {
 
 function songbirdFetch(url, options = {}) {
   // SSRF guard: reject requests to private/internal hosts regardless of call site.
+  //
+  // A static allowlist is intentionally not used — the Remote Channel feature
+  // federates with any public Songbird server, so the hostname is open-ended by
+  // design. Instead, we block the entire private/internal address space (loopback,
+  // RFC-1918, link-local, cloud metadata endpoints, etc.) via isPrivateHost().
+  // codeql[js/ssrf] - hostname validated against private-address blocklist;
+  //                   allowlist not applicable for open server federation.
   try {
     const parsed = new URL(String(url));
     if (isPrivateHost(parsed.hostname)) {
