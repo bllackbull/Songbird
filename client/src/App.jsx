@@ -50,7 +50,7 @@ function RouteLoadingFallback({ themeColor, onVisibleChange = null }) {
 
   const content = (
     <div
-      className="fixed inset-0 z-[1200] flex min-h-screen w-full items-center justify-center"
+      className="fixed inset-0 z-1200 flex min-h-screen w-full items-center justify-center"
       style={{ backgroundColor: themeColor }}
     >
       <div className="flex flex-col items-center gap-3 text-center text-emerald-700 dark:text-emerald-300">
@@ -895,8 +895,8 @@ export default function App() {
   const safeAreaKey = `${route}-${isDark ? 'dark' : 'light'}`
   const safeAreaThemeColor = getThemeColor(isDark, route)
   const appShellClass = isAuthRoute
-    ? 'min-h-screen bg-gradient-to-b from-white via-emerald-50/70 to-white text-slate-900 transition-colors duration-300 dark:bg-gradient-to-b dark:from-emerald-950 dark:via-slate-950 dark:to-slate-900 dark:text-slate-100'
-    : 'h-[100dvh] bg-white text-slate-900 transition-colors duration-300 dark:bg-slate-950 dark:text-slate-100'
+    ? 'min-h-screen bg-linear-to-b from-white via-emerald-50/70 to-white text-slate-900 transition-colors duration-300 dark:bg-linear-to-b dark:from-emerald-950 dark:via-slate-950 dark:to-slate-900 dark:text-slate-100'
+    : 'h-dvh bg-white text-slate-900 transition-colors duration-300 dark:bg-slate-950 dark:text-slate-100'
 
   const appContainerStyle = {
     paddingTop: 'var(--install-bar-height, 0px)',

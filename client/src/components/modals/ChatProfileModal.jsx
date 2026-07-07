@@ -354,7 +354,7 @@ export default function ChatProfileModal({
   if (typeof document === "undefined") return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/45 px-5">
+    <div className="fixed inset-0 z-140 flex items-center justify-center bg-black/45 px-5">
       <div
         ref={dialogRef}
         role="dialog"
@@ -503,7 +503,7 @@ export default function ChatProfileModal({
               type="button"
               onClick={handleCopyInviteLink}
               disabled={!inviteLink || inviteLinkLoading}
-              className="mt-2 flex w-full items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-left text-xs text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-300/60 disabled:cursor-default disabled:opacity-70 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/15"
+              className="mt-2 flex w-full items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-left text-xs text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-hidden focus:ring-2 focus:ring-emerald-300/60 disabled:cursor-default disabled:opacity-70 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/15"
               aria-label="Copy invite link"
             >
               <span className="min-w-0 flex-1 break-all">
@@ -597,7 +597,7 @@ export default function ChatProfileModal({
                 placeholder="Search members"
                 lang={memberQueryHasPersian ? "fa" : "en"}
                 dir={memberQueryHasPersian ? "rtl" : "ltr"}
-                className={`w-full rounded-2xl border border-emerald-200 bg-white px-4 py-2.5 pr-14 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
+                className={`w-full rounded-2xl border border-emerald-200 bg-white px-4 py-2.5 pr-14 text-sm text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
                   memberQueryHasPersian ? "font-fa text-right" : "text-left"
                 }`}
                 style={{ unicodeBidi: "plaintext" }}

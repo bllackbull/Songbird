@@ -802,7 +802,7 @@ const VoiceMessageChip = memo(
           {hasActivePlayback ? (
             <Pause size={14} />
           ) : (
-            <Play size={14} className="translate-x-[1px]" />
+            <Play size={14} className="translate-x-px" />
           )}
         </button>
         <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -1315,7 +1315,7 @@ export function MessageFiles({
               </div>
               <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
                 <span className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/40 bg-black/45 text-white">
-                  <Play size={18} className="translate-x-[1px]" />
+                  <Play size={18} className="translate-x-px" />
                 </span>
               </span>
             </button>

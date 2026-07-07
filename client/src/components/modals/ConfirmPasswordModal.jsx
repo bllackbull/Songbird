@@ -39,7 +39,7 @@ export default function ConfirmPasswordModal({
   if (typeof document === "undefined") return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[320] flex items-center justify-center bg-black/40 px-6">
+    <div className="fixed inset-0 z-320 flex items-center justify-center bg-black/40 px-6">
       <div
         ref={dialogRef}
         role="dialog"
@@ -98,7 +98,7 @@ export default function ConfirmPasswordModal({
                   onChange={(event) => setPassword(event.target.value)}
                   placeholder={showPassword ? "12345678" : "********"}
                   autoComplete="current-password"
-                  className="w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-20 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
+                  className="w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-20 text-sm text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
                 />
                 <button
                   type="button"

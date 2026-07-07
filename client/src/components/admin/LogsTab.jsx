@@ -188,7 +188,7 @@ const SystemLogView = forwardRef(function SystemLogView({ source }, ref) {
           </pre>
         </div>
       )}
-      {data?.source && <p className="text-[11px] text-slate-400 dark:text-slate-500">Source: <code className="rounded bg-slate-100 px-1 py-0.5 dark:bg-white/10">{data.source}</code></p>}
+      {data?.source && <p className="text-[11px] text-slate-400 dark:text-slate-500">Source: <code className="rounded-sm bg-slate-100 px-1 py-0.5 dark:bg-white/10">{data.source}</code></p>}
     </div>
   );
 });

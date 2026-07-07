@@ -347,7 +347,7 @@ export function MessageTimeline({
                       type="button"
                       onClick={() => handleGroupChipClick(row.dayKey)}
                       aria-label={`Jump to messages from ${row.dayLabel || row.dayKey}`}
-                      className="inline-flex w-max items-center justify-center rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+                      className="inline-flex w-max items-center justify-center rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 shadow-xs transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
                     >
                       <span
                         data-day-chip={row.dayLabel || ""}

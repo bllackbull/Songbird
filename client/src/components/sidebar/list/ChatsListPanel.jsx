@@ -230,7 +230,7 @@ export default function ChatsListPanel({
                     className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left text-sm transition ${
                       isActive
                         ? "border-emerald-400 bg-emerald-100 text-emerald-900 dark:border-emerald-400/60 dark:bg-emerald-500/20 dark:text-emerald-100"
-                        : "border-slate-300/80 bg-white/90 text-slate-700 hover:border-emerald-300 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:border-emerald-300 focus-visible:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:outline-none dark:border-emerald-500/20 dark:bg-slate-950/60 dark:text-slate-200"
+                        : "border-slate-300/80 bg-white/90 text-slate-700 hover:border-emerald-300 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:border-emerald-300 focus-visible:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:outline-hidden dark:border-emerald-500/20 dark:bg-slate-950/60 dark:text-slate-200"
                     }`}
                   >
                     <Avatar
@@ -282,7 +282,7 @@ export default function ChatsListPanel({
                     className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left text-sm transition ${
                       isActive
                         ? "border-emerald-400 bg-emerald-100 text-emerald-900 dark:border-emerald-400/60 dark:bg-emerald-500/20 dark:text-emerald-100"
-                        : "border-slate-300/80 bg-white/90 text-slate-700 hover:border-emerald-300 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:border-emerald-300 focus-visible:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:outline-none dark:border-emerald-500/20 dark:bg-slate-950/60 dark:text-slate-200"
+                        : "border-slate-300/80 bg-white/90 text-slate-700 hover:border-emerald-300 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:border-emerald-300 focus-visible:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:outline-hidden dark:border-emerald-500/20 dark:bg-slate-950/60 dark:text-slate-200"
                     }`}
                   >
                     {group.avatarUrl ? (
@@ -349,7 +349,7 @@ export default function ChatsListPanel({
                     className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left text-sm transition ${
                       isActive
                         ? "border-emerald-400 bg-emerald-100 text-emerald-900 dark:border-emerald-400/60 dark:bg-emerald-500/20 dark:text-emerald-100"
-                        : "border-slate-300/80 bg-white/90 text-slate-700 hover:border-emerald-300 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:border-emerald-300 focus-visible:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:outline-none dark:border-emerald-500/20 dark:bg-slate-950/60 dark:text-slate-200"
+                        : "border-slate-300/80 bg-white/90 text-slate-700 hover:border-emerald-300 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:border-emerald-300 focus-visible:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:outline-hidden dark:border-emerald-500/20 dark:bg-slate-950/60 dark:text-slate-200"
                     }`}
                   >
                     {channel.avatarUrl ? (
@@ -412,7 +412,7 @@ export default function ChatsListPanel({
                 className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left text-sm transition ${
                   isSavedChatActive
                     ? "border-emerald-400 bg-emerald-100 text-emerald-900 dark:border-emerald-400/60 dark:bg-emerald-500/20 dark:text-emerald-100"
-                    : "border-slate-300/80 bg-white/90 text-slate-700 hover:border-emerald-300 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:border-emerald-300 focus-visible:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:outline-none dark:border-emerald-500/20 dark:bg-slate-950/60 dark:text-slate-200"
+                    : "border-slate-300/80 bg-white/90 text-slate-700 hover:border-emerald-300 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:border-emerald-300 focus-visible:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:outline-hidden dark:border-emerald-500/20 dark:bg-slate-950/60 dark:text-slate-200"
                 }`}
               >
                 <div
@@ -451,8 +451,8 @@ export default function ChatsListPanel({
             <div className="flex items-center gap-3">
               <div className="h-9 w-9 rounded-full bg-emerald-100 dark:bg-emerald-900/40" />
               <div className="flex-1 space-y-2">
-                <div className="h-3 w-1/2 rounded bg-emerald-100 dark:bg-emerald-900/40" />
-                <div className="h-2 w-3/4 rounded bg-emerald-100/80 dark:bg-emerald-900/30" />
+                <div className="h-3 w-1/2 rounded-sm bg-emerald-100 dark:bg-emerald-900/40" />
+                <div className="h-2 w-3/4 rounded-sm bg-emerald-100/80 dark:bg-emerald-900/30" />
               </div>
             </div>
           </div>
@@ -547,7 +547,7 @@ export default function ChatsListPanel({
                       avatarInitials
                     )
                   }
-                  className="h-9 w-9 flex-shrink-0"
+                  className="h-9 w-9 shrink-0"
                 />
                 <div className="min-w-0 flex-1">
                   <p className="flex min-w-0 items-center gap-1.5 font-semibold">
@@ -690,7 +690,7 @@ export default function ChatsListPanel({
                     ) : null}
                   </p>
                 </div>
-                <div className="ml-auto flex min-w-[58px] flex-shrink-0 flex-col items-end gap-1 self-start">
+                <div className="ml-auto flex min-w-[58px] shrink-0 flex-col items-end gap-1 self-start">
                   <div className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
                     {isOwnLastMessage && !isChannelOwner ? (
                       <span
@@ -700,7 +700,7 @@ export default function ChatsListPanel({
                             : isOwnLastMessageSeen
                               ? "text-sky-400"
                               : "text-slate-500 dark:text-slate-400"
-                        } -translate-y-[1px]`}
+                        } -translate-y-px`}
                       >
                         {isOwnLastMessagePending ? (
                           <Clock12

@@ -158,7 +158,7 @@ const ChatsTab = forwardRef(function ChatsTab({ onStatsChange }, ref) {
                     <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50 dark:divide-white/[0.04]">
+                <tbody className="divide-y divide-slate-50 dark:divide-white/4">
                   {chats.map((c) => {
                     const chatName = c.name || `Chat #${c.id}`;
                     const nameHasPersian = hasPersian(chatName);

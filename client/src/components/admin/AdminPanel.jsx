@@ -164,7 +164,7 @@ export default function AdminPanel({ user, onBack }) {
       {/* Desktop sidebar */}
       <nav className={`
         relative z-auto hidden shrink-0 flex-col
-        border-r border-slate-200/80 bg-white/95 backdrop-blur-sm
+        border-r border-slate-200/80 bg-white/95 backdrop-blur-xs
         transition-all duration-200
         dark:border-white/5 dark:bg-slate-900/95
         md:flex
@@ -231,7 +231,7 @@ export default function AdminPanel({ user, onBack }) {
         </div>
 
         <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-4">
-          <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm dark:border-white/5 dark:bg-slate-950/60">
+          <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-xs dark:border-white/5 dark:bg-slate-950/60">
             {TABS.map(({ id, label, icon: Icon, anim }, index) => (
               <button key={id} type="button"
                 onClick={() => selectTab(id)}
@@ -259,7 +259,7 @@ export default function AdminPanel({ user, onBack }) {
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
-        <div className="relative flex h-[72px] shrink-0 items-center gap-3 border-b border-slate-300/80 bg-white px-4 py-4 dark:border-emerald-500/20 dark:bg-slate-900 md:h-12 md:gap-2 md:border-slate-200/80 md:bg-white/80 md:px-3 md:py-0 md:backdrop-blur-sm md:dark:border-white/5 md:dark:bg-slate-900/80">
+        <div className="relative flex h-[72px] shrink-0 items-center gap-3 border-b border-slate-300/80 bg-white px-4 py-4 dark:border-emerald-500/20 dark:bg-slate-900 md:h-12 md:gap-2 md:border-slate-200/80 md:bg-white/80 md:px-3 md:py-0 md:backdrop-blur-xs md:dark:border-white/5 md:dark:bg-slate-900/80">
           <button type="button" onClick={() => setMobileView("menu")} aria-label="Back to menu"
             className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-emerald-200 bg-white/80 text-emerald-700 transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 md:hidden">
             <ArrowLeft size={18} />

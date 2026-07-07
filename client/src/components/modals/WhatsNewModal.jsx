@@ -229,14 +229,14 @@ export default function WhatsNewModal({
   if (!open || typeof document === "undefined") return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[160] flex items-center justify-center bg-slate-950/60 px-4 py-6">
+    <div className="fixed inset-0 z-160 flex items-center justify-center bg-slate-950/60 px-4 py-6">
       <div
         ref={panelRef}
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="whats-new-modal-title"
-        className="flex h-[min(68vh,44rem)] w-full max-w-2xl flex-col overflow-hidden rounded-[2rem] border border-emerald-100/70 bg-white shadow-2xl outline-none dark:border-emerald-500/30 dark:bg-slate-950"
+        className="flex h-[min(68vh,44rem)] w-full max-w-2xl flex-col overflow-hidden rounded-4xl border border-emerald-100/70 bg-white shadow-2xl outline-hidden dark:border-emerald-500/30 dark:bg-slate-950"
       >
         <div className="flex items-start justify-between gap-4 border-b border-emerald-100/70 px-6 py-5 dark:border-emerald-500/20">
           <div>
@@ -263,7 +263,7 @@ export default function WhatsNewModal({
         >
           {activeSection?.body ? (
             <div
-              className="sb-markdown break-words text-left text-sm text-slate-700 [overflow-wrap:anywhere] dark:text-slate-100"
+              className="sb-markdown wrap-break-word text-left text-sm text-slate-700 wrap-anywhere dark:text-slate-100"
               dangerouslySetInnerHTML={{ __html: String(markdownHtml || "") }}
             />
           ) : (
@@ -285,7 +285,7 @@ export default function WhatsNewModal({
               >
                 <ArrowLeft size={18} />
               </button>
-              <span className="min-w-[5.5rem] text-center text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-300">
+              <span className="min-w-22 text-center text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-300">
                 {pageIndex + 1} / {sections.length}
               </span>
               <button

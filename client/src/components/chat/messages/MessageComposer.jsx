@@ -926,7 +926,7 @@ export function MessageComposer({
                       />
                       <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
                         <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/40 bg-black/45 text-white">
-                          <Play size={14} className="translate-x-[1px]" />
+                          <Play size={14} className="translate-x-px" />
                         </span>
                       </span>
                     </div>
@@ -1104,7 +1104,7 @@ export function MessageComposer({
                 event.preventDefault();
                 event.currentTarget.form?.requestSubmit();
               }}
-              className={`chat-scroll min-w-0 flex-1 resize-none rounded-2xl border border-emerald-200 bg-white px-4 py-2 text-base text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
+              className={`chat-scroll min-w-0 flex-1 resize-none rounded-2xl border border-emerald-200 bg-white px-4 py-2 text-base text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
                 composerHasPersian ? "font-fa" : ""
               }`}
               style={{

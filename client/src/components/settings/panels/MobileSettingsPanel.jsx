@@ -124,7 +124,7 @@ export function MobileSettingsPanel({
               </div>
             </button>
           </div>
-          <div className="rounded-2xl border border-slate-300/80 bg-white/90 p-2 text-sm shadow-sm dark:border-emerald-500/20 dark:bg-slate-950/60">
+          <div className="rounded-2xl border border-slate-300/80 bg-white/90 p-2 text-sm shadow-xs dark:border-emerald-500/20 dark:bg-slate-950/60">
             <SettingsMenuActions
               variant="mobile"
               setSettingsPanel={setSettingsPanel}
@@ -175,7 +175,7 @@ export function MobileSettingsPanel({
                       profilePhotoInputRef.current?.click();
                     }}
                     disabled={!fileUploadEnabled}
-                    className={`group relative h-12 w-12 overflow-hidden rounded-full border-2 transition focus:outline-none focus:ring-2 focus:ring-emerald-300/70 ${
+                    className={`group relative h-12 w-12 overflow-hidden rounded-full border-2 transition focus:outline-hidden focus:ring-2 focus:ring-emerald-300/70 ${
                       fileUploadEnabled
                         ? "cursor-pointer border-emerald-200 hover:border-emerald-300 hover:shadow-lg dark:border-emerald-500/30 dark:hover:border-emerald-400/60"
                         : "cursor-not-allowed border-slate-300 opacity-70 dark:border-slate-700"
@@ -214,7 +214,7 @@ export function MobileSettingsPanel({
                         event.stopPropagation();
                         handleAvatarRemove();
                       }}
-                      className="absolute -right-2 -top-2 z-10 inline-flex h-6 min-h-[1.5rem] w-6 min-w-[1.5rem] flex-none items-center justify-center rounded-full border border-rose-200 bg-rose-50 p-0 text-rose-600 shadow-md transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-lg dark:border-rose-500/30 dark:bg-rose-900 dark:text-rose-200 dark:hover:bg-rose-800"
+                      className="absolute -right-2 -top-2 z-10 inline-flex h-6 min-h-6 w-6 min-w-6 flex-none items-center justify-center rounded-full border border-rose-200 bg-rose-50 p-0 text-rose-600 shadow-md transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-lg dark:border-rose-500/30 dark:bg-rose-900 dark:text-rose-200 dark:hover:bg-rose-800"
                       aria-label="Remove photo"
                     >
                       <Trash size={12} className="icon-anim-sway" />
@@ -240,7 +240,7 @@ export function MobileSettingsPanel({
                   maxLength={NICKNAME_MAX}
                   lang={nicknameHasPersian ? "fa" : "en"}
                   dir={nicknameHasPersian ? "rtl" : "ltr"}
-                  className={`w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 pr-14 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
+                  className={`w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 pr-14 text-xs text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
                     nicknameHasPersian ? "font-fa text-right" : "text-left"
                   }`}
                   style={{ unicodeBidi: "plaintext" }}
@@ -269,7 +269,7 @@ export function MobileSettingsPanel({
                   autoCapitalize="none"
                   lang={usernameHasPersian ? "fa" : "en"}
                   dir={usernameHasPersian ? "rtl" : "ltr"}
-                  className={`w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 pr-14 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
+                  className={`w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 pr-14 text-xs text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
                     usernameHasPersian ? "font-fa text-right" : "text-left"
                   }`}
                   style={{ unicodeBidi: "plaintext" }}
@@ -360,7 +360,7 @@ export function MobileSettingsPanel({
                     }))
                   }
                   placeholder={showCurrentPassword ? "12345678" : "********"}
-                  className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 pr-16 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
+                  className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 pr-16 text-xs text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
                 />
                 <button
                   type="button"
@@ -395,7 +395,7 @@ export function MobileSettingsPanel({
                     }))
                   }
                   placeholder={showNewPassword ? "12345678" : "********"}
-                  className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 pr-16 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
+                  className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 pr-16 text-xs text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
                 />
                 <button
                   type="button"
@@ -428,7 +428,7 @@ export function MobileSettingsPanel({
                     }))
                   }
                   placeholder={showConfirmPassword ? "12345678" : "********"}
-                  className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 pr-16 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
+                  className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 pr-16 text-xs text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
                 />
                 <button
                   type="button"

@@ -104,7 +104,7 @@ export default function AppContextMenu({ menu, onClose }) {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[200]"
+      className="fixed inset-0 z-200"
       onContextMenu={(event) => event.preventDefault()}
     >
       <button

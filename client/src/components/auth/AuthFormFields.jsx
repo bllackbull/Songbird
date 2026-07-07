@@ -50,7 +50,7 @@ export default function AuthFormFields({
               }}
               lang={nicknameHasPersian ? "fa" : "en"}
               dir={nicknameHasPersian ? "rtl" : "ltr"}
-              className={`w-full rounded-2xl border border-emerald-200 bg-white py-2 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-100 sm:py-3 sm:text-sm ${
+              className={`w-full rounded-2xl border border-emerald-200 bg-white py-2 text-xs text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-100 sm:py-3 sm:text-sm ${
                 nicknameHasPersian
                   ? "pl-3 pr-14 sm:pl-4 sm:pr-16"
                   : "pl-3 pr-14 sm:pl-4 sm:pr-16"
@@ -89,7 +89,7 @@ export default function AuthFormFields({
             }}
             lang={usernameHasPersian ? "fa" : "en"}
             dir={usernameHasPersian ? "rtl" : "ltr"}
-            className={`w-full rounded-2xl border border-emerald-200 bg-white py-2 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-100 sm:py-3 sm:text-sm ${
+            className={`w-full rounded-2xl border border-emerald-200 bg-white py-2 text-xs text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-100 sm:py-3 sm:text-sm ${
               usernameHasPersian
                 ? "pl-3 pr-14 sm:pl-4 sm:pr-16"
                 : "pl-3 pr-14 sm:pl-4 sm:pr-16"
@@ -119,7 +119,7 @@ export default function AuthFormFields({
             required
             minLength={isLogin ? undefined : 6}
             placeholder={showPassword ? "12345678" : "********"}
-            className="w-full rounded-2xl border border-emerald-200 bg-white px-3 py-2 pr-16 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-100 sm:px-4 sm:py-3 sm:pr-20 sm:text-sm"
+            className="w-full rounded-2xl border border-emerald-200 bg-white px-3 py-2 pr-16 text-xs text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-100 sm:px-4 sm:py-3 sm:pr-20 sm:text-sm"
           />
           <button
             type="button"
@@ -148,7 +148,7 @@ export default function AuthFormFields({
               required
               minLength={6}
               placeholder={showConfirmPassword ? "12345678" : "********"}
-              className="w-full rounded-2xl border border-emerald-200 bg-white px-3 py-2 pr-16 text-xs text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-100 sm:px-4 sm:py-3 sm:pr-20 sm:text-sm"
+              className="w-full rounded-2xl border border-emerald-200 bg-white px-3 py-2 pr-16 text-xs text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-100 sm:px-4 sm:py-3 sm:pr-20 sm:text-sm"
             />
             <button
               type="button"

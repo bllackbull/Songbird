@@ -64,7 +64,7 @@ export default function SidebarHeader({
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-[1fr,auto,1fr] items-center">
+          <div className="grid grid-cols-[1fr_auto_1fr] items-center">
             <div className="flex items-center gap-2">
               {chatsSearchFocused ? (
                 <button
@@ -195,7 +195,7 @@ export default function SidebarHeader({
             <label className="group relative block">
               {!hasSearchText && !chatsSearchFocused ? (
                 <span className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 text-sm leading-none text-slate-500 transition-colors group-hover:text-slate-600 dark:text-slate-400 dark:group-hover:text-slate-300">
-                  <span className="inline-flex -translate-y-[1px] md:translate-y-0">
+                  <span className="inline-flex -translate-y-px md:translate-y-0">
                     <Search
                       size={14}
                       className="icon-anim-pop block text-emerald-600 dark:text-emerald-300"
@@ -206,7 +206,7 @@ export default function SidebarHeader({
               ) : null}
               {chatsSearchFocused || hasSearchText ? (
                 <span className="pointer-events-none absolute left-3 top-1/2 flex -translate-y-1/2 items-center gap-2 leading-none text-slate-500 dark:text-slate-400">
-                  <span className="inline-flex -translate-y-[1px] md:translate-y-0">
+                  <span className="inline-flex -translate-y-px md:translate-y-0">
                     <Search
                       size={14}
                       className="icon-anim-pop block text-emerald-600 dark:text-emerald-300"
@@ -223,7 +223,7 @@ export default function SidebarHeader({
                 placeholder="Search"
                 lang={searchIsRtl ? "fa" : "en"}
                 dir={searchIsRtl ? "rtl" : "ltr"}
-                className={`w-full rounded-2xl border border-emerald-200 bg-white py-2 pr-10 text-sm text-slate-700 outline-none transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.18)] focus:border-emerald-400 focus:bg-white/80 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 dark:hover:border-emerald-500/50 dark:hover:shadow-[0_0_18px_rgba(16,185,129,0.12)] dark:focus:bg-slate-950 ${
+                className={`w-full rounded-2xl border border-emerald-200 bg-white py-2 pr-10 text-sm text-slate-700 outline-hidden transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.18)] focus:border-emerald-400 focus:bg-white/80 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 dark:hover:border-emerald-500/50 dark:hover:shadow-[0_0_18px_rgba(16,185,129,0.12)] dark:focus:bg-slate-950 ${
                   chatsSearchFocused || hasSearchText
                     ? searchIsRtl
                       ? "pl-9 text-right font-fa placeholder-slate-500 dark:placeholder-slate-400"

@@ -1076,12 +1076,12 @@ export const MessageItem = memo(function MessageItem({
               <ContextMenuSurface
                 as="div"
                 data-message-bubble
-                className={`relative rounded-2xl px-4 py-3 text-sm shadow-sm overflow-visible max-w-[calc(100vw-5.5rem)] sm:max-w-[86%] md:max-w-[min(84%,calc(100%-2rem))] ${
-                  hasMarkdownCodeBlock ? "min-w-[9rem]" : "min-w-0"
+                className={`relative rounded-2xl px-4 py-3 text-sm shadow-xs overflow-visible max-w-[calc(100vw-5.5rem)] sm:max-w-[86%] md:max-w-[min(84%,calc(100%-2rem))] ${
+                  hasMarkdownCodeBlock ? "min-w-36" : "min-w-0"
                 } ${
                   hasFiles
                     ? hasMediaFiles
-                      ? "w-[min(52vw,18rem)] md:w-[min(44vw,22rem)] md:min-w-[12rem]"
+                      ? "w-[min(52vw,18rem)] md:w-[min(44vw,22rem)] md:min-w-48"
                       : "w-fit max-w-full"
                     : "w-fit max-w-full"
                 } bg-white/90 text-slate-800 rounded-bl-md dark:bg-slate-800/75 dark:text-slate-100`}
@@ -1185,7 +1185,7 @@ export const MessageItem = memo(function MessageItem({
                   <div
                     ref={messageBodyRef}
                     dir="auto"
-                    className={`sb-markdown mt-1 break-words [overflow-wrap:anywhere] ${
+                    className={`sb-markdown mt-1 wrap-break-word wrap-anywhere ${
                       hasPersian(bodyText) ? "font-fa" : ""
                     }`}
                     style={{ unicodeBidi: "plaintext", textAlign: "start" }}
@@ -1209,12 +1209,12 @@ export const MessageItem = memo(function MessageItem({
             <ContextMenuSurface
               as="div"
               data-message-bubble
-              className={`relative rounded-2xl px-4 py-3 text-sm shadow-sm overflow-visible max-w-[78%] sm:max-w-[82%] md:max-w-[75%] ${
-                hasMarkdownCodeBlock ? "min-w-[9rem]" : "min-w-0"
+              className={`relative rounded-2xl px-4 py-3 text-sm shadow-xs overflow-visible max-w-[78%] sm:max-w-[82%] md:max-w-[75%] ${
+                hasMarkdownCodeBlock ? "min-w-36" : "min-w-0"
               } ${
                 hasFiles
                   ? hasMediaFiles
-                    ? "w-[min(52vw,18rem)] max-w-[72%] md:w-[min(44vw,22rem)] md:max-w-[68%] md:min-w-[12rem]"
+                    ? "w-[min(52vw,18rem)] max-w-[72%] md:w-[min(44vw,22rem)] md:max-w-[68%] md:min-w-48"
                     : "w-fit max-w-[82%] sm:max-w-[86%] md:max-w-[80%]"
                   : "max-w-[82%] sm:max-w-[86%] md:max-w-[80%]"
               } ${
@@ -1313,7 +1313,7 @@ export const MessageItem = memo(function MessageItem({
                 <div
                   ref={messageBodyRef}
                   dir="auto"
-                  className={`sb-markdown mt-1 break-words [overflow-wrap:anywhere] ${
+                  className={`sb-markdown mt-1 wrap-break-word wrap-anywhere ${
                     hasPersian(bodyText) ? "font-fa" : ""
                   }`}
                   style={{ unicodeBidi: "plaintext", textAlign: "start" }}
@@ -1414,7 +1414,7 @@ export const MessageItem = memo(function MessageItem({
                 <button
                   type="button"
                   onClick={() => onForwardMessage(msg)}
-                  className="absolute bottom-2 -right-12 inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                  className="absolute bottom-2 -right-12 inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white text-emerald-700 shadow-xs transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
                   aria-label="Forward message"
                 >
                   <Forward size={15} className="icon-anim-pop" />

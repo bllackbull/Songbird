@@ -84,7 +84,7 @@ export default function ForwardMessageModal({
           </button>
         </div>
 
-        <div className="chat-scroll mt-4 grid max-h-[15rem] grid-cols-4 gap-1.5 overflow-y-auto">
+        <div className="chat-scroll mt-4 grid max-h-60 grid-cols-4 gap-1.5 overflow-y-auto">
           {availableChats.map((chat) => {
             const display = getForwardChatDisplay(chat, currentUser?.username);
             const selected = selectedChatIds.includes(Number(chat.id));

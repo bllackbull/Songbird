@@ -1,108 +1,142 @@
-@font-face {
-  font-family: 'DM Sans';
-  src: url('../src/assets/fonts/dm-sans/dm-sans-v17-latin-regular.woff2') format('woff2');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
+@import 'tailwindcss';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --font-display: 'Fraunces', serif;
+  --font-body: 'DM Sans', system-ui, sans-serif;
+  --font-fa: 'Vazirmatn', 'DM Sans', system-ui, sans-serif;
+
+  --shadow-glow: 0 20px 60px -30px rgba(16, 185, 129, 0.8);
 }
 
-@font-face {
-  font-family: 'DM Sans';
-  src: url('../src/assets/fonts/dm-sans/dm-sans-v17-latin-italic.woff2') format('woff2');
-  font-weight: 400;
-  font-style: italic;
-  font-display: swap;
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
 }
 
-@font-face {
-  font-family: 'DM Sans';
-  src: url('../src/assets/fonts/dm-sans/dm-sans-v17-latin-700.woff2') format('woff2');
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
+@utility font-fa {
+  font-family: 'Vazirmatn', 'DM Sans', system-ui, sans-serif;
 }
 
-@font-face {
-  font-family: 'Vazirmatn';
-  src: url('../src/assets/fonts/vazirmatn/vazirmatn-v16-arabic_latin-regular.woff2') format('woff2');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
+@utility color-swatch {
+  /* Make native color picker swatch fill the button with no padding */
+  padding: 0;
+  &::-webkit-color-swatch-wrapper {
+    padding: 0;
+  }
+  &::-webkit-color-swatch {
+    border: none;
+    border-radius: 0.6rem;
+  }
+  &::-moz-color-swatch {
+    border: none;
+    border-radius: 0.6rem;
+  }
 }
 
-@font-face {
-  font-family: 'Vazirmatn';
-  src: url('../src/assets/fonts/vazirmatn/vazirmatn-v16-arabic_latin-700.woff2') format('woff2');
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
+@layer base {
+  @font-face {
+    font-family: 'DM Sans';
+    src: url('../src/assets/fonts/dm-sans/dm-sans-v17-latin-regular.woff2')
+      format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  @font-face {
+    font-family: 'DM Sans';
+    src: url('../src/assets/fonts/dm-sans/dm-sans-v17-latin-italic.woff2')
+      format('woff2');
+    font-weight: 400;
+    font-style: italic;
+    font-display: swap;
+  }
+
+  @font-face {
+    font-family: 'DM Sans';
+    src: url('../src/assets/fonts/dm-sans/dm-sans-v17-latin-700.woff2')
+      format('woff2');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  @font-face {
+    font-family: 'Vazirmatn';
+    src: url('../src/assets/fonts/vazirmatn/vazirmatn-v16-arabic_latin-regular.woff2')
+      format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  @font-face {
+    font-family: 'Vazirmatn';
+    src: url('../src/assets/fonts/vazirmatn/vazirmatn-v16-arabic_latin-700.woff2')
+      format('woff2');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+  }
 }
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@layer utilities {
+  :root {
+    --vv-bottom-offset: 0px;
+    --mobile-bottom-offset: 0px;
+    --vv-top-offset: 0px;
+  }
 
-:root {
-  --vv-bottom-offset: 0px;
-  --mobile-bottom-offset: 0px;
-  --vv-top-offset: 0px;
-}
+  * {
+    box-sizing: border-box;
+  }
 
-* {
-  box-sizing: border-box;
-}
+  html,
+  body,
+  #root {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+  }
 
-html, body, #root {
-  height: 100%;
-  width: 100%;
-  overflow: hidden;
-}
+  html,
+  body {
+    touch-action: pan-y;
+    -ms-touch-action: pan-y;
+  }
 
-html,
-body {
-  touch-action: pan-y;
-  -ms-touch-action: pan-y;
-}
-
-
-body {
-  margin: 0;
-  font-family: 'DM Sans', system-ui, sans-serif;
-  background-color: #ffffff;
-  overscroll-behavior: none;
-  user-select: none;
-  /* Prevent Safari zoom on input focus */
-  -webkit-font-smoothing: antialiased;
-  -webkit-touch-callout: none;
-  font-synthesis: weight;
+  body {
+    margin: 0;
+    font-family: 'DM Sans', system-ui, sans-serif;
+    background-color: #ffffff;
+    overscroll-behavior: none;
+    user-select: none;
+    /* Prevent Safari zoom on input focus */
+    -webkit-font-smoothing: antialiased;
+    -webkit-touch-callout: none;
+    font-synthesis: weight;
+  }
 }
 
 @layer base {
   :lang(fa),
   [lang="fa"] {
     font-family: 'Vazirmatn', 'DM Sans', system-ui, sans-serif;
-  }
-}
-
-@layer utilities {
-  .font-fa {
-    font-family: 'Vazirmatn', 'DM Sans', system-ui, sans-serif;
-  }
-
-  /* Make native color picker swatch fill the button with no padding */
-  .color-swatch {
-    padding: 0;
-  }
-  .color-swatch::-webkit-color-swatch-wrapper {
-    padding: 0;
-  }
-  .color-swatch::-webkit-color-swatch {
-    border: none;
-    border-radius: 0.6rem;
-  }
-  .color-swatch::-moz-color-swatch {
-    border: none;
-    border-radius: 0.6rem;
   }
 }
 

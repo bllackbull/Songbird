@@ -343,7 +343,7 @@ export function FocusedMediaModal({
 
   return (
     <div
-      className={`fixed inset-0 z-[200] transition-opacity duration-200 ${
+      className={`fixed inset-0 z-200 transition-opacity duration-200 ${
         isDesktop ? "bg-black/80" : "bg-black"
       } ${focusVisible ? "opacity-100" : "opacity-0"}`}
       style={{
@@ -496,7 +496,7 @@ export function FocusedMediaModal({
                     onLoadedData={handleFocusedVideoLoadedData}
                     onCanPlay={handleFocusedVideoCanPlay}
                     onError={handleFocusedVideoError}
-                    className="mx-auto block max-h-[72vh] w-auto max-w-full cursor-pointer rounded-2xl bg-transparent object-contain md:max-h-[78vh] md:[transform:translateZ(0)] md:[backface-visibility:hidden]"
+                    className="mx-auto block max-h-[72vh] w-auto max-w-full cursor-pointer rounded-2xl bg-transparent object-contain md:max-h-[78vh] md:transform-[translateZ(0)] md:backface-hidden"
                     style={{ backfaceVisibility: "hidden" }}
                   />
                   {!focusedMediaLoaded ? (
@@ -508,7 +508,7 @@ export function FocusedMediaModal({
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                   <span className="inline-flex h-14 w-14 items-center justify-center rounded-full border border-white/40 bg-black/45 text-white">
                     {focusedVideoHint === "play" ? (
-                      <Play size={24} className="translate-x-[1px]" />
+                      <Play size={24} className="translate-x-px" />
                     ) : (
                       <Pause size={24} />
                     )}

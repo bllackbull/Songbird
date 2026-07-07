@@ -204,13 +204,13 @@ export default function NewGroupModal({
       }`}
       aria-hidden="true"
     >
-      <span className="inline-block h-5 w-5 rounded-full bg-white shadow transition" />
+      <span className="inline-block h-5 w-5 rounded-full bg-white shadow-sm transition" />
     </span>
   );
 
   return createPortal(
     <>
-      <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/40 px-6">
+      <div className="fixed inset-0 z-140 flex items-center justify-center bg-black/40 px-6">
         <div
           ref={dialogRef}
           role="dialog"
@@ -246,7 +246,7 @@ export default function NewGroupModal({
                         groupPhotoInputRef.current?.click();
                       }}
                       disabled={!fileUploadEnabled}
-                      className={`group relative h-14 w-14 overflow-hidden rounded-full border-2 transition focus:outline-none focus:ring-2 focus:ring-emerald-300/70 ${
+                      className={`group relative h-14 w-14 overflow-hidden rounded-full border-2 transition focus:outline-hidden focus:ring-2 focus:ring-emerald-300/70 ${
                         fileUploadEnabled
                           ? "cursor-pointer border-emerald-200 hover:border-emerald-300 hover:shadow-lg dark:border-emerald-500/30 dark:hover:border-emerald-400/60"
                           : "cursor-not-allowed border-slate-300 opacity-70 dark:border-slate-700"
@@ -291,7 +291,7 @@ export default function NewGroupModal({
                           event.stopPropagation();
                           onAvatarRemove?.();
                         }}
-                        className="absolute -right-2 -top-2 z-10 inline-flex h-6 min-h-[1.5rem] w-6 min-w-[1.5rem] flex-none items-center justify-center rounded-full border border-rose-200 bg-rose-50 p-0 text-rose-600 shadow-md transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-lg dark:border-rose-500/30 dark:bg-rose-900 dark:text-rose-200 dark:hover:bg-rose-800"
+                        className="absolute -right-2 -top-2 z-10 inline-flex h-6 min-h-6 w-6 min-w-6 flex-none items-center justify-center rounded-full border border-rose-200 bg-rose-50 p-0 text-rose-600 shadow-md transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-lg dark:border-rose-500/30 dark:bg-rose-900 dark:text-rose-200 dark:hover:bg-rose-800"
                         aria-label={`Remove ${entityLabel.toLowerCase()} photo`}
                       >
                         <Trash size={12} className="icon-anim-sway" />
@@ -320,7 +320,7 @@ export default function NewGroupModal({
                   placeholder={`My ${entityLabel.toLowerCase()}`}
                   lang={nicknameHasPersian ? "fa" : "en"}
                   dir={nicknameHasPersian ? "rtl" : "ltr"}
-                  className={`w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-16 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
+                  className={`w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-16 text-sm text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
                     nicknameHasPersian ? "font-fa text-right" : "text-left"
                   }`}
                   style={{ unicodeBidi: "plaintext" }}
@@ -349,7 +349,7 @@ export default function NewGroupModal({
                   placeholder={`my${entityLabel.toLowerCase()}`}
                   lang={usernameHasPersian ? "fa" : "en"}
                   dir={usernameHasPersian ? "rtl" : "ltr"}
-                  className={`w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-16 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
+                  className={`w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-16 text-sm text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
                     usernameHasPersian ? "font-fa text-right" : "text-left"
                   }`}
                   style={{ unicodeBidi: "plaintext" }}
@@ -434,7 +434,7 @@ export default function NewGroupModal({
                     setTimeout(() => setInviteLinkCopied(false), 1500);
                   }}
                   disabled={!currentInviteLink}
-                  className="mt-2 flex w-full items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-left text-xs text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-300/60 disabled:cursor-default disabled:opacity-70 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/15"
+                  className="mt-2 flex w-full items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-left text-xs text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-hidden focus:ring-2 focus:ring-emerald-300/60 disabled:cursor-default disabled:opacity-70 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/15"
                   aria-label="Copy invite link"
                 >
                   <span className="min-w-0 flex-1 break-all">
@@ -488,7 +488,7 @@ export default function NewGroupModal({
                   ) : null}
                 </div>
                 {!groupForm.remoteChannelLoading && remoteLastError ? (
-                  <p className="mt-2 break-words text-xs text-rose-600 dark:text-rose-200">
+                  <p className="mt-2 wrap-break-word text-xs text-rose-600 dark:text-rose-200">
                     {remoteLastError}
                   </p>
                 ) : null}
@@ -524,7 +524,7 @@ export default function NewGroupModal({
                           : "justify-start bg-slate-300 dark:bg-slate-700"
                       }`}
                     >
-                      <span className="inline-block h-5 w-5 rounded-full bg-white shadow transition" />
+                      <span className="inline-block h-5 w-5 rounded-full bg-white shadow-sm transition" />
                     </span>
                   </button>
                 </div>
@@ -545,7 +545,7 @@ export default function NewGroupModal({
                           }
                           setRemoteSourceMenuOpen((current) => !current);
                         }}
-                        className="relative mt-2 flex w-full items-center rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-12 text-left text-sm font-semibold text-slate-700 outline-none transition hover:border-emerald-300 hover:bg-emerald-50 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-emerald-500/10"
+                        className="relative mt-2 flex w-full items-center rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-12 text-left text-sm font-semibold text-slate-700 outline-hidden transition hover:border-emerald-300 hover:bg-emerald-50 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-emerald-500/10"
                         aria-expanded={remoteSourceMenuOpen}
                         aria-haspopup="listbox"
                       >
@@ -634,7 +634,7 @@ export default function NewGroupModal({
                         placeholder={remoteSourcePlaceholder}
                         lang={remoteSourceHasPersian ? "fa" : "en"}
                         dir={remoteSourceHasPersian ? "rtl" : "ltr"}
-                        className={`mt-2 w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
+                        className={`mt-2 w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
                           remoteSourceHasPersian
                             ? "font-fa text-right"
                             : "text-left"
@@ -666,7 +666,7 @@ export default function NewGroupModal({
                             : "justify-start bg-slate-300 dark:bg-slate-700"
                         }`}
                       >
-                        <span className="inline-block h-5 w-5 rounded-full bg-white shadow transition" />
+                        <span className="inline-block h-5 w-5 rounded-full bg-white shadow-sm transition" />
                       </span>
                     </button>
                     <button
@@ -699,7 +699,7 @@ export default function NewGroupModal({
                             : "justify-start bg-slate-300 dark:bg-slate-700"
                         }`}
                       >
-                        <span className="inline-block h-5 w-5 rounded-full bg-white shadow transition" />
+                        <span className="inline-block h-5 w-5 rounded-full bg-white shadow-sm transition" />
                       </span>
                     </button>
                   </div>
@@ -725,7 +725,7 @@ export default function NewGroupModal({
                   placeholder="username"
                   lang={groupSearchHasPersian ? "fa" : "en"}
                   dir={groupSearchHasPersian ? "rtl" : "ltr"}
-                  className={`w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-14 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
+                  className={`w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-14 text-sm text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
                     groupSearchHasPersian ? "font-fa text-right" : "text-left"
                   }`}
                   style={{ unicodeBidi: "plaintext" }}

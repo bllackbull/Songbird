@@ -24,8 +24,8 @@ async function deleteUserAvatar(userId) {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const INPUT    = "w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-16 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100";
-const PW_INPUT = "w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-12 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100";
+const INPUT    = "w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-16 text-sm text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100";
+const PW_INPUT = "w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-12 text-sm text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100";
 const EYE_BTN  = "absolute right-1 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-emerald-700 transition hover:bg-emerald-100 dark:text-emerald-200 dark:hover:bg-emerald-500/10";
 
 // ─── Password visibility toggle ───────────────────────────────────────────────
@@ -160,7 +160,7 @@ export default function AdminUserModal({ mode = "edit", user = null, onClose, on
 
   return createPortal(
     <>
-      <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/40 px-6">
+      <div className="fixed inset-0 z-140 flex items-center justify-center bg-black/40 px-6">
         <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-emerald-100/70 bg-white shadow-xl dark:border-emerald-500/30 dark:bg-slate-950">
 
           {/* Header */}
@@ -188,7 +188,7 @@ export default function AdminUserModal({ mode = "edit", user = null, onClose, on
                     <button type="button"
                       onClick={() => { if (fileUploadEnabled) fileInputRef.current?.click(); }}
                       disabled={!fileUploadEnabled}
-                      className={`group relative h-14 w-14 overflow-hidden rounded-full border-2 transition focus:outline-none focus:ring-2 focus:ring-emerald-300/70 ${fileUploadEnabled ? "cursor-pointer border-emerald-200 hover:border-emerald-300 hover:shadow-lg dark:border-emerald-500/30 dark:hover:border-emerald-400/60" : "cursor-not-allowed border-slate-300 opacity-70 dark:border-slate-700"}`}
+                      className={`group relative h-14 w-14 overflow-hidden rounded-full border-2 transition focus:outline-hidden focus:ring-2 focus:ring-emerald-300/70 ${fileUploadEnabled ? "cursor-pointer border-emerald-200 hover:border-emerald-300 hover:shadow-lg dark:border-emerald-500/30 dark:hover:border-emerald-400/60" : "cursor-not-allowed border-slate-300 opacity-70 dark:border-slate-700"}`}
                       aria-label="Change profile photo">
                       <Avatar src={avatarPreview} name={profileIdentity} color={color || "#10b981"}
                         initials={getAvatarInitials(profileIdentity)} className="h-full w-full text-lg font-bold" />

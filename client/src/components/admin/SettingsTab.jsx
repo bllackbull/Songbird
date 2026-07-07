@@ -156,7 +156,7 @@ function Toggle({ checked, onChange, disabled = false }) {
           : "justify-start bg-slate-300 dark:bg-slate-700"
       }`}
     >
-      <span className="inline-block h-5 w-5 rounded-full bg-white shadow transition" />
+      <span className="inline-block h-5 w-5 rounded-full bg-white shadow-sm transition" />
     </button>
   );
 }
@@ -207,7 +207,7 @@ function NumberInput({ value, onChange, min, max, disabled = false }) {
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
         onBlur={handleBlur}
-        className="min-w-0 flex-1 border-0 bg-transparent px-0 py-1.5 text-center font-semibold text-slate-700 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none dark:text-slate-200"
+        className="min-w-0 flex-1 border-0 bg-transparent px-0 py-1.5 text-center font-semibold text-slate-700 outline-hidden [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none dark:text-slate-200"
         style={{ fontSize: "clamp(0.625rem, 1.5vw + 0.2rem, 0.8125rem)" }}
       />
       <button
@@ -436,7 +436,7 @@ function SettingRow({ def, localVal, onChange, groupDisabled = false, childDefs 
               disabled={!isEnabled || controlDisabled}
               onChange={(e) => onChange(e.target.value)}
               placeholder="https://proxy.example.com:8080"
-              className="mt-2 w-full rounded-xl border border-emerald-200/70 bg-white/90 px-3 py-2 text-sm text-slate-700 outline-none transition placeholder:text-slate-300 hover:border-emerald-300 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/40 disabled:cursor-not-allowed dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200 dark:placeholder-slate-600"
+              className="mt-2 w-full rounded-xl border border-emerald-200/70 bg-white/90 px-3 py-2 text-sm text-slate-700 outline-hidden transition placeholder:text-slate-300 hover:border-emerald-300 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/40 disabled:cursor-not-allowed dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200 dark:placeholder-slate-600"
             />
           </div>
         </div>
@@ -706,7 +706,7 @@ const SettingsTab = forwardRef(function SettingsTab(_props, ref) {
   return (
     <div className="space-y-5">
       {/* ── Top bar: toast + action buttons on one line ───────────────────── */}
-      <div className="flex min-h-[2.25rem] items-center gap-3">
+      <div className="flex min-h-9 items-center gap-3">
         <div className="min-w-0 flex-1">
           {toast.msg && (
             <div

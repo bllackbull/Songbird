@@ -19,7 +19,7 @@ export default function DeleteChatsModal({
     : selectedChats.length;
 
   return createPortal(
-    <div className="fixed inset-0 z-[320] flex items-center justify-center bg-black/40 px-6">
+    <div className="fixed inset-0 z-320 flex items-center justify-center bg-black/40 px-6">
       <div
         ref={dialogRef}
         role="dialog"

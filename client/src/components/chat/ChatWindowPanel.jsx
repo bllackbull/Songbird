@@ -1376,7 +1376,7 @@ export default function ChatWindowPanel({
             {headerAvatarIcon ? (
               <ContextMenuSurface
                 as="div"
-                className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
                 style={getAvatarStyle(activePeerColor)}
                 contextMenu={headerPrimaryContextMenu}
               >
@@ -1386,7 +1386,7 @@ export default function ChatWindowPanel({
               activeHeaderPeer?.isDeleted ? (
                 <ContextMenuSurface
                   as="div"
-                  className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
                   style={getAvatarStyle(activePeerColor)}
                   contextMenu={headerPrimaryContextMenu}
                 >
@@ -1407,7 +1407,7 @@ export default function ChatWindowPanel({
                       name={activeFallbackTitle}
                       color={activePeerColor}
                       initials={activePeerInitials}
-                      className="h-9 w-9 flex-shrink-0 transition group-hover:ring-2 group-hover:ring-emerald-300"
+                      className="h-9 w-9 shrink-0 transition group-hover:ring-2 group-hover:ring-emerald-300"
                     />
                   </ContextMenuSurface>
                 ) : (
@@ -1421,7 +1421,7 @@ export default function ChatWindowPanel({
                       name={activeFallbackTitle}
                       color={activePeerColor}
                       initials={activePeerInitials}
-                      className="h-9 w-9 flex-shrink-0"
+                      className="h-9 w-9 shrink-0"
                     />
                   </ContextMenuSurface>
                 )
@@ -1430,7 +1430,7 @@ export default function ChatWindowPanel({
                   as="button"
                   type="button"
                   onClick={onOpenHeaderProfile}
-                  className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full transition hover:ring-2 hover:ring-emerald-300 ${hasPersian(activePeerInitials) ? "font-fa" : ""}`}
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition hover:ring-2 hover:ring-emerald-300 ${hasPersian(activePeerInitials) ? "font-fa" : ""}`}
                   style={getAvatarStyle(activePeerColor)}
                   contextMenu={headerPrimaryContextMenu}
                 >
@@ -1439,7 +1439,7 @@ export default function ChatWindowPanel({
               ) : (
                 <ContextMenuSurface
                   as="div"
-                  className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ${hasPersian(activePeerInitials) ? "font-fa" : ""}`}
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${hasPersian(activePeerInitials) ? "font-fa" : ""}`}
                   style={getAvatarStyle(activePeerColor)}
                   contextMenu={headerPrimaryContextMenu}
                 >
@@ -1458,7 +1458,7 @@ export default function ChatWindowPanel({
                   <img
                     src={groupAvatarUrl}
                     alt={activeFallbackTitle}
-                    className="h-9 w-9 flex-shrink-0 rounded-full object-cover transition group-hover:ring-2 group-hover:ring-emerald-300"
+                    className="h-9 w-9 shrink-0 rounded-full object-cover transition group-hover:ring-2 group-hover:ring-emerald-300"
                   />
                 </ContextMenuSurface>
               ) : (
@@ -1469,7 +1469,7 @@ export default function ChatWindowPanel({
                   <img
                     src={groupAvatarUrl}
                     alt={activeFallbackTitle}
-                    className="h-9 w-9 flex-shrink-0 rounded-full object-cover"
+                    className="h-9 w-9 shrink-0 rounded-full object-cover"
                   />
                 </ContextMenuSurface>
               )
@@ -1478,7 +1478,7 @@ export default function ChatWindowPanel({
                   as="button"
                   type="button"
                   onClick={onOpenHeaderProfile}
-                  className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full transition hover:ring-2 hover:ring-emerald-300 ${hasPersian(activePeerInitials) ? "font-fa" : ""}`}
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition hover:ring-2 hover:ring-emerald-300 ${hasPersian(activePeerInitials) ? "font-fa" : ""}`}
                   style={getAvatarStyle(activePeerColor)}
                   contextMenu={headerPrimaryContextMenu}
                 >
@@ -1487,7 +1487,7 @@ export default function ChatWindowPanel({
               ) : (
               <ContextMenuSurface
                 as="div"
-                className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ${hasPersian(activePeerInitials) ? "font-fa" : ""}`}
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${hasPersian(activePeerInitials) ? "font-fa" : ""}`}
                 style={getAvatarStyle(activePeerColor)}
                 contextMenu={headerPrimaryContextMenu}
               >
@@ -1506,7 +1506,7 @@ export default function ChatWindowPanel({
         <div className="w-full">
           <div
             ref={insecureTooltipRef}
-            className="flex w-full items-center justify-between border-y border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700 shadow-sm dark:border-rose-500/40 dark:bg-rose-900/40 dark:text-rose-100"
+            className="flex w-full items-center justify-between border-y border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700 shadow-xs dark:border-rose-500/40 dark:bg-rose-900/40 dark:text-rose-100"
           >
             <span className="flex items-center gap-2">
               <AlertCircle className="h-4 w-4 shrink-0" />
@@ -1528,7 +1528,7 @@ export default function ChatWindowPanel({
             >
               <Close
                 size={14}
-                className="icon-anim-pop relative -left-[0.5px]"
+                className="icon-anim-pop relative left-[-0.5px]"
               />
             </button>
           </div>
@@ -1539,7 +1539,7 @@ export default function ChatWindowPanel({
         <div className="w-full">
           <div
             ref={permissionBannerRef}
-            className="flex w-full flex-col gap-2 border-y border-emerald-200/70 bg-emerald-50/70 px-4 py-3 text-xs font-semibold text-emerald-700 shadow-sm dark:border-emerald-500/30 dark:bg-slate-900/70 dark:text-emerald-200"
+            className="flex w-full flex-col gap-2 border-y border-emerald-200/70 bg-emerald-50/70 px-4 py-3 text-xs font-semibold text-emerald-700 shadow-xs dark:border-emerald-500/30 dark:bg-slate-900/70 dark:text-emerald-200"
           >
             {permissionsPrompt?.notification?.show &&
             permissionsPrompt?.mode === "notification" ? (
@@ -1602,7 +1602,7 @@ export default function ChatWindowPanel({
       <div className="flex-1 min-h-0">
         {activeChatId && floatingDay.key && isTimelineScrollable ? (
           <div
-            className="absolute left-1/2 z-[3] -translate-x-1/2"
+            className="absolute left-1/2 z-3 -translate-x-1/2"
             style={{
               top: `calc(84px + ${
                 insecureConnection &&
@@ -1633,7 +1633,7 @@ export default function ChatWindowPanel({
                   floatingDay,
                 });
               }}
-              className="inline-flex items-center justify-center rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+              className="inline-flex items-center justify-center rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 shadow-xs transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
             >
               <span className="leading-none">{floatingDay.label}</span>
             </button>

@@ -93,7 +93,7 @@ export function CustomSelect({ value, onChange, options, placeholder = "Selectâ€
   return (
     <div className="relative">
       <button ref={btnRef} type="button" onClick={toggle} aria-expanded={open}
-        className="relative flex w-full items-center rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-10 text-left text-sm font-semibold text-slate-700 outline-none transition hover:border-emerald-300 hover:bg-emerald-50 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-emerald-500/10">
+        className="relative flex w-full items-center rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-10 text-left text-sm font-semibold text-slate-700 outline-hidden transition hover:border-emerald-300 hover:bg-emerald-50 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-emerald-500/10">
         <span className="flex-1 truncate">{label}</span>
         <ChevronDown size={15} className={`absolute right-3 top-1/2 -translate-y-1/2 text-emerald-500 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
@@ -119,7 +119,7 @@ export function CompactSelect({ value, onChange, options, placeholder = "Selectâ
   return (
     <div className="relative">
       <button ref={btnRef} type="button" onClick={toggle} aria-expanded={open}
-        className="relative flex w-full items-center rounded-xl border border-emerald-200/70 bg-white/90 py-1.5 pl-3 pr-7 text-left text-xs font-semibold text-slate-600 outline-none transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-emerald-500/5">
+        className="relative flex w-full items-center rounded-xl border border-emerald-200/70 bg-white/90 py-1.5 pl-3 pr-7 text-left text-xs font-semibold text-slate-600 outline-hidden transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-emerald-500/5">
         <span className="flex-1 truncate">{label}</span>
         <ChevronDown size={12} className={`absolute right-2 top-1/2 -translate-y-1/2 text-emerald-500 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
@@ -147,7 +147,7 @@ export function FilterDropdown({ value, onChange, options, icon: Icon = Filter }
   return (
     <div className="relative">
       <button ref={btnRef} type="button" onClick={toggle} aria-expanded={open} title={label}
-        className="relative flex h-9 w-9 items-center justify-center rounded-xl border border-emerald-200/70 bg-white/90 text-xs font-semibold text-slate-600 outline-none transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-emerald-500/5 sm:w-auto sm:gap-1.5 sm:pl-3 sm:pr-7">
+        className="relative flex h-9 w-9 items-center justify-center rounded-xl border border-emerald-200/70 bg-white/90 text-xs font-semibold text-slate-600 outline-hidden transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-emerald-500/5 sm:w-auto sm:gap-1.5 sm:pl-3 sm:pr-7">
         <Icon size={16} className="text-emerald-500 sm:hidden" />
         <span className="hidden max-w-24 truncate sm:inline">{label}</span>
         {isActive && (
@@ -175,7 +175,7 @@ export function FilterDropdown({ value, onChange, options, icon: Icon = Filter }
 export function Modal({ title, onClose, children, wide = false }) {
   if (typeof document === "undefined") return null;
   return createPortal(
-    <div className="fixed inset-0 z-[200] flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4"
+    <div className="fixed inset-0 z-200 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className={`app-scroll relative w-full ${wide ? "sm:max-w-lg" : "sm:max-w-sm"} max-h-[90dvh] overflow-y-auto rounded-t-2xl sm:rounded-2xl border border-emerald-100/70 bg-white shadow-xl dark:border-emerald-500/30 dark:bg-slate-950`}>
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-white/5">
@@ -210,7 +210,7 @@ export function TypedConfirmModal({ open, title, message, phrase, busy = false, 
   const matched = text.trim() === phrase;
   if (typeof document === "undefined") return null;
   return createPortal(
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 px-6" onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
+    <div className="fixed inset-0 z-200 flex items-center justify-center bg-black/40 px-6" onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
       <div role="dialog" aria-modal="true" className="w-full max-w-sm rounded-2xl border border-rose-100/70 bg-white p-6 shadow-xl dark:border-rose-500/30 dark:bg-slate-950">
         <h3 className="text-lg font-semibold text-rose-600 dark:text-rose-300">{title}</h3>
         <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{message}</p>
@@ -218,7 +218,7 @@ export function TypedConfirmModal({ open, title, message, phrase, busy = false, 
           Type <span className="font-semibold text-rose-600 dark:text-rose-300">{phrase}</span> to confirm.
         </p>
         <input autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder={phrase}
-          className="mt-2 w-full rounded-xl border border-rose-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-rose-400 focus:ring-2 focus:ring-rose-300/40 dark:border-rose-500/30 dark:bg-slate-900 dark:text-slate-100" />
+          className="mt-2 w-full rounded-xl border border-rose-200 bg-white px-3 py-2 text-sm text-slate-700 outline-hidden transition focus:border-rose-400 focus:ring-2 focus:ring-rose-300/40 dark:border-rose-500/30 dark:bg-slate-900 dark:text-slate-100" />
         <div className="mt-4 flex items-center justify-end gap-2">
           <button type="button" onClick={onClose} disabled={busy}
             className="rounded-full border border-emerald-200 bg-white px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] disabled:opacity-50 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200">

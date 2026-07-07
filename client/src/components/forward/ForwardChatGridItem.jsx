@@ -37,7 +37,7 @@ export default function ForwardChatGridItem({
       className="flex min-w-0 flex-col items-center gap-1.5 rounded-2xl border border-transparent px-1.5 py-2.5 text-center transition hover:bg-black/5 dark:hover:bg-white/5"
     >
       <span
-        className={`relative flex h-[4.15rem] w-[4.15rem] items-center justify-center rounded-full border-[4px] transition ${
+        className={`relative flex h-[4.15rem] w-[4.15rem] items-center justify-center rounded-full border-4 transition ${
           selected
             ? "border-emerald-500 bg-emerald-500/8"
             : "border-transparent bg-transparent p-0"
