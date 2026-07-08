@@ -203,8 +203,7 @@ export default function ChatsListPanel({
                 const isActive =
                   dmChatId && Number(activeChatId) === Number(dmChatId);
                 const showOnlineBadge =
-                  String(member.status || "").toLowerCase() === "online" &&
-                  !isActive;
+                  String(member.status || "").toLowerCase() === "online";
                 return (
                   <ContextMenuSurface
                     key={`discover-user-${member.id}-${member.username}`}
@@ -472,7 +471,6 @@ export default function ChatsListPanel({
           const showOnlineBadge =
             conv.type === "dm" &&
             !isDeletedDm &&
-            activeChatId !== conv.id &&
             String(other?.status || "").toLowerCase() === "online";
           const isChannel = conv.type === "channel";
           const isGroup = conv.type === "group";

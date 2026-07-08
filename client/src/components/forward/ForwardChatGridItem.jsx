@@ -57,6 +57,7 @@ export default function ForwardChatGridItem({
               kind === "saved" ? <ForwardChatGlyph kind={kind} /> : initials
             }
             showOnlineBadge={showOnlineBadge && !selected}
+            onlineBadgeClassName="h-4 w-4 border-[3px]"
             className="h-full w-full text-[1.05rem] font-semibold"
             style={{ unicodeBidi: "plaintext" }}
           />
