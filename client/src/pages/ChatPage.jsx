@@ -2355,7 +2355,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         return {
           type: "group_single",
           name,
-          label: name,
+          label: `${name} typing`,
           fullLabel: activeTypingUsers[0].displayName,
         };
       }
@@ -2366,7 +2366,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           type: "group_pair",
           firstName: first,
           secondName: second,
-          label: `${first} and ${second}`,
+          label: `${first} and ${second} typing`,
           fullLabel: `${activeTypingUsers[0].displayName} and ${activeTypingUsers[1].displayName}`,
         };
       }
@@ -2374,7 +2374,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       const othersCount = activeTypingUsers.length - 1;
       return {
         type: "group_multi",
-        label: `${first} and ${othersCount.toLocaleString("en-US")} others`,
+        label: `${first} and ${othersCount.toLocaleString("en-US")} others typing`,
         fullLabel: `${activeTypingUsers[0].displayName} and ${othersCount.toLocaleString("en-US")} others`,
       };
     }
