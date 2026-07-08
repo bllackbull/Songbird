@@ -622,6 +622,8 @@ export default function ChatProfileModal({
                 const memberInitials = getAvatarInitials(label);
                 const memberIsOwner =
                   String(member.role || "").toLowerCase() === "owner";
+                const memberIsOnline =
+                  String(member.status || "").toLowerCase() === "online";
                 return (
                   <ContextMenuSurface
                     as="div"
@@ -667,19 +669,14 @@ export default function ChatProfileModal({
                         >
                           {label}
                         </p>
-                        <p className="inline-flex items-center gap-1 truncate text-xs text-slate-500 dark:text-slate-400">
-                          <span
-                            className={`h-1.5 w-1.5 rounded-full ${
-                              String(member.status || "").toLowerCase() ===
-                              "online"
-                                ? "bg-emerald-400"
-                                : "bg-slate-400"
-                            }`}
-                          />
-                          {String(member.status || "").toLowerCase() ===
-                          "online"
-                            ? "online"
-                            : "offline"}
+                        <p
+                          className={`truncate text-xs ${
+                            memberIsOnline
+                              ? "font-semibold text-emerald-500 dark:text-emerald-300"
+                              : "text-slate-500 dark:text-slate-400"
+                          }`}
+                        >
+                          {memberIsOnline ? "online" : "offline"}
                         </p>
                       </div>
                     </button>

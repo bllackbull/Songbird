@@ -57,6 +57,7 @@ export function getForwardChatDisplay(chat, currentUsername) {
     initials:
       String(peer?.nickname || peer?.username || "Deleted account").trim() ||
       "Deleted account",
+    isOnline: String(peer?.status || "").toLowerCase() === "online",
   };
 }
 

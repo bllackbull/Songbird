@@ -1345,25 +1345,20 @@ export default function ChatWindowPanel({
                         {peerStatusLabel}
                       </span>
                     ) : (
-                      <>
-                        <span
-                          className={`h-2 w-2 rounded-full ${
-                            peerStatusLabel === "online"
-                              ? "bg-emerald-400"
-                              : "bg-slate-400"
-                          }`}
-                        />
-                        <span
-                          className={`block min-w-0 truncate leading-[1.2] ${
-                            hasPersian(peerStatusLabel) ? "font-fa sb-fa-baseline-fix" : ""
-                          }`}
-                          dir="auto"
-                          style={{ unicodeBidi: "plaintext" }}
-                          title={peerStatusLabel}
-                        >
-                          {peerStatusLabel}
-                        </span>
-                      </>
+                      <span
+                        className={`block min-w-0 truncate leading-[1.2] ${
+                          peerStatusLabel === "online"
+                            ? "font-semibold text-emerald-500 dark:text-emerald-300"
+                            : ""
+                        } ${
+                          hasPersian(peerStatusLabel) ? "font-fa sb-fa-baseline-fix" : ""
+                        }`}
+                        dir="auto"
+                        style={{ unicodeBidi: "plaintext" }}
+                        title={peerStatusLabel}
+                      >
+                        {peerStatusLabel}
+                      </span>
                     )}
                   </p>
                 ) : null}

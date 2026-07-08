@@ -10,6 +10,8 @@ export default function Avatar({
   color = "#10b981",
   initials = null,
   placeholderContent = null,
+  showOnlineBadge = false,
+  onlineBadgeClassName = "",
   className = "",
   imgClassName = "",
   placeholderClassName = "",
@@ -40,7 +42,7 @@ export default function Avatar({
 
   return (
     <div
-      className={`relative overflow-hidden rounded-full ${className}`}
+      className={`relative rounded-full ${showOnlineBadge ? "overflow-visible" : "overflow-hidden"} ${className}`}
       style={{ ...getAvatarStyle(color), ...style }}
     >
       <div
@@ -61,6 +63,12 @@ export default function Avatar({
           } ${imgClassName}`}
           onLoad={() => setIsLoaded(true)}
           onError={() => setHasError(true)}
+        />
+      ) : null}
+      {showOnlineBadge ? (
+        <span
+          className={`pointer-events-none absolute -bottom-0.5 -right-0.5 z-10 h-3 w-3 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900 ${onlineBadgeClassName}`}
+          title="Online"
         />
       ) : null}
     </div>

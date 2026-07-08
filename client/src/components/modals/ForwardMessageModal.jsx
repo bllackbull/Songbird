@@ -96,6 +96,7 @@ export default function ForwardMessageModal({
                 color={display.color}
                 kind={display.kind}
                 initialsSource={display.initials}
+                showOnlineBadge={display.kind === "dm" && display.isOnline}
                 selected={selected}
                 onClick={() => {
                   if (submitting) return;

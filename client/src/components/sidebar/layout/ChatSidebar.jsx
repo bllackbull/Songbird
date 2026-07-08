@@ -59,7 +59,7 @@ export default function ChatSidebar({
   handleLogout,
   settingsPanel,
   displayName,
-  statusDotClass,
+  statusTextClass,
   statusValue,
   handleProfileSave,
   avatarPreview,
@@ -235,7 +235,7 @@ export default function ChatSidebar({
               settingsPanel={settingsPanel}
               user={user}
               displayName={displayName}
-              statusDotClass={statusDotClass}
+              statusTextClass={statusTextClass}
               statusValue={statusValue}
               setSettingsPanel={setSettingsPanel}
               toggleTheme={toggleTheme}
@@ -341,7 +341,7 @@ export default function ChatSidebar({
         user={user}
         displayName={displayName}
         displayInitials={displayInitials}
-        statusDotClass={statusDotClass}
+        statusTextClass={statusTextClass}
         statusValue={statusValue}
         userColor={userColor}
         onOpenSettings={onOpenSettings}

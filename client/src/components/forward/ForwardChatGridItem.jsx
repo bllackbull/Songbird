@@ -24,6 +24,7 @@ export default function ForwardChatGridItem({
   color,
   kind,
   initialsSource,
+  showOnlineBadge = false,
   selected,
   onClick,
 }) {
@@ -55,6 +56,7 @@ export default function ForwardChatGridItem({
             placeholderContent={
               kind === "saved" ? <ForwardChatGlyph kind={kind} /> : initials
             }
+            showOnlineBadge={showOnlineBadge && !selected}
             className="h-full w-full text-[1.05rem] font-semibold"
             style={{ unicodeBidi: "plaintext" }}
           />

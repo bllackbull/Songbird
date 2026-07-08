@@ -2025,12 +2025,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const displayName = user.nickname || user.username;
   const displayInitials = getAvatarInitials(displayName);
   const statusValue = user.status || "online";
-  const statusDotClass =
-    statusValue === "invisible"
-      ? "bg-slate-400"
-      : statusValue === "online"
-        ? "bg-emerald-400"
-        : "";
+  const statusTextClass =
+    statusValue === "online"
+      ? "font-semibold text-emerald-500 dark:text-emerald-300"
+      : "";
 
   const parsePresenceDate = (value) => {
     if (!value) return null;
@@ -6422,7 +6420,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         handleLogout={handleLogout}
         settingsPanel={settingsPanel}
         displayName={displayName}
-        statusDotClass={statusDotClass}
+        statusTextClass={statusTextClass}
         statusValue={statusValue}
         handleProfileSave={handleProfileSave}
         avatarPreview={avatarPreview}

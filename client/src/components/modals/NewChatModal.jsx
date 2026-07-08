@@ -120,6 +120,9 @@ export default function NewChatModal({
                       name={label}
                       color={result.color || "#10b981"}
                       initials={avatarInitials}
+                      showOnlineBadge={
+                        String(result.status || "").toLowerCase() === "online"
+                      }
                       className="h-8 w-8"
                     />
                     <div className="min-w-0">
