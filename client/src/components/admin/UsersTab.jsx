@@ -77,7 +77,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, onStatsChange }, re
             style={{ unicodeBidi: "plaintext" }} />
         </label>
         <FilterDropdown value={roleFilter} onChange={setRoleFilter} icon={Tag} options={[["", "All roles"], ["user", "User"], ["admin", "Admin"], ["owner", "Owner"], ["banned", "Banned"]]} />
-        <FilterDropdown value={statusFilter} onChange={setStatusFilter} icon={Filter} options={[["", "All"], ["online", "Online"], ["offline", "Offline"]]} />
+        <FilterDropdown value={statusFilter} onChange={setStatusFilter} icon={Filter} options={[["", "All"], ["online", "online"], ["offline", "offline"]]} />
         <button type="button" onClick={() => setCreateOpen(true)} title="New user"
           className={btnPrimary + " w-9 shrink-0 justify-center px-0 sm:w-auto sm:justify-start sm:px-3"}>
           <UserPlus size={16} className="icon-anim-pop shrink-0" /> <span className="hidden sm:inline">New user</span>
@@ -106,7 +106,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, onStatsChange }, re
                         color={u.color || "#10b981"}
                         className="h-10 w-10 text-sm font-bold text-white"
                       />
-                      {u.online ? <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900" title="Online" /> : null}
+                      {u.online ? <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900" title="online" /> : null}
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
@@ -154,7 +154,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, onStatsChange }, re
                       </div>
                       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
                         {u.online
-                          ? <span className="font-semibold text-emerald-500">Online</span>
+                          ? <span className="font-semibold text-emerald-500">online</span>
                           : <span className="text-slate-400 dark:text-slate-500">Last seen {u.last_seen ? fmtDate(u.last_seen) : "—"}</span>}
                         <span className="text-slate-400 dark:text-slate-500">Joined {fmtDate(u.created_at)}</span>
                       </div>
@@ -200,7 +200,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, onStatsChange }, re
                                 color={u.color || "#10b981"}
                                 className="h-7 w-7 text-xs font-bold text-white"
                               />
-                              {u.online ? <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900" title="Online" /> : null}
+                              {u.online ? <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900" title="online" /> : null}
                             </div>
                             <div className="min-w-0">
                               <p className={`truncate text-xs font-semibold text-slate-700 dark:text-slate-200 ${nameHasPersian ? "font-fa" : ""}`} dir="auto">{displayName}</p>
@@ -215,7 +215,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, onStatsChange }, re
                         </td>
                         <td className="px-4 py-2.5 text-[11px]">
                           {u.online
-                            ? <span className="font-semibold text-emerald-500">Online</span>
+                            ? <span className="font-semibold text-emerald-500">online</span>
                             : <span className="text-slate-400 dark:text-slate-500">{u.last_seen ? fmtDate(u.last_seen) : "—"}</span>}
                         </td>
                         <td className="px-4 py-2.5 text-[11px] text-slate-400 dark:text-slate-500">{fmtDate(u.created_at)}</td>

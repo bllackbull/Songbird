@@ -67,8 +67,8 @@ export default function Avatar({
       ) : null}
       {showOnlineBadge ? (
         <span
-          className={`pointer-events-none absolute -bottom-0.5 -right-0.5 z-10 h-3 w-3 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900 ${onlineBadgeClassName}`}
-          title="Online"
+          className={`pointer-events-none absolute bottom-0 right-0 z-10 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900 ${onlineBadgeClassName}`}
+          title="online"
         />
       ) : null}
     </div>
