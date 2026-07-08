@@ -790,6 +790,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [activePeer, setActivePeer] = useState(null);
   const [peerPresence, setPeerPresence] = useState({
     status: "offline",
+    rawStatus: "offline",
     lastSeen: null,
   });
   const [typingByChat, setTypingByChat] = useState({});
@@ -2048,6 +2049,30 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (!Number.isFinite(seenAt) || seenAt <= 0) return "offline";
     return Date.now() - seenAt <= PRESENCE_IDLE_THRESHOLD_MS ? "online" : "offline";
   };
+  const formatLastSeenLabel = (lastSeenInput) => {
+    const parsed = parsePresenceDate(lastSeenInput);
+    const seenAt = parsed?.getTime?.() || 0;
+    if (!Number.isFinite(seenAt) || seenAt <= 0) return "last seen recently";
+    const elapsedMs = Math.max(0, Date.now() - seenAt);
+    const minuteMs = 60 * 1000;
+    const hourMs = 60 * minuteMs;
+    const dayMs = 24 * hourMs;
+    const weekMs = 7 * dayMs;
+    if (elapsedMs < 10 * minuteMs) return "last seen recently";
+    if (elapsedMs < 90 * minuteMs) return "last seen an hour ago";
+    if (elapsedMs < dayMs) {
+      const hours = Math.max(2, Math.round(elapsedMs / hourMs));
+      return `last seen ${hours.toLocaleString("en-US")} hours ago`;
+    }
+    if (elapsedMs < 2 * dayMs) return "last seen yesterday";
+    if (elapsedMs < 7 * dayMs) {
+      return `last seen ${parsed.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase()}`;
+    }
+    if (elapsedMs < 2 * weekMs) return "last seen a week ago";
+    if (elapsedMs < 4 * weekMs) return "last seen two weeks ago";
+    if (elapsedMs < 8 * weekMs) return "last seen a month ago";
+    return "last seen a long time ago";
+  };
   const applyPresenceUpdate = (payload = {}) => {
     const targetUsername = String(payload?.username || "").toLowerCase();
     if (!targetUsername) return;
@@ -2092,6 +2117,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (String(activeHeaderPeer?.username || "").toLowerCase() === targetUsername) {
       setPeerPresence({
         status: onlineStatus,
+        rawStatus: status,
         lastSeen: normalizedLastSeen,
       });
     }
@@ -2277,6 +2303,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       const existingPresence = presenceStateRef.current.get(nextUsername || previousUsername);
       setPeerPresence((prev) => ({
         status: nextStatus || prev?.status || "online",
+        rawStatus: nextStatus || prev?.rawStatus || prev?.status || "online",
         lastSeen: existingPresence?.lastSeen || prev?.lastSeen || null,
       }));
     }
@@ -2288,14 +2315,18 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const isIdle =
     lastSeenAt !== null && Date.now() - lastSeenAt > effectivePeerIdleThreshold;
   const peerStatusLabel = !activeHeaderPeer || activeHeaderPeer?.isDeleted
-    ? "offline"
+    ? "last seen recently"
     : isIdle
-      ? "offline"
+      ? String(peerPresence.rawStatus || peerPresence.status || "").toLowerCase() === "invisible"
+        ? "last seen recently"
+        : formatLastSeenLabel(peerPresence.lastSeen)
       : peerPresence.status === "invisible" || peerPresence.status === "offline"
-        ? "offline"
+        ? String(peerPresence.rawStatus || peerPresence.status || "").toLowerCase() === "invisible"
+          ? "last seen recently"
+          : formatLastSeenLabel(peerPresence.lastSeen)
         : peerPresence.status === "online"
           ? "online"
-          : "offline";
+          : formatLastSeenLabel(peerPresence.lastSeen);
   const activeTypingUsers = useMemo(() => {
     const chatId = Number(activeChatId || 0);
     if (!chatId) return [];
@@ -2934,7 +2965,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   useEffect(() => {
     if (!activeHeaderPeer?.username) return;
     let isMounted = true;
-    setPeerPresence({ status: "offline", lastSeen: null });
+    setPeerPresence({ status: "offline", rawStatus: "offline", lastSeen: null });
     const fetchPeerPresence = async () => {
       try {
         const res = await fetchPresence(activeHeaderPeer.username);
@@ -2951,14 +2982,16 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             lastSeen: normalizedLastSeen,
           });
           const status = resolveOnlineOffline(data?.status, normalizedLastSeen);
+          const rawStatus = String(data?.status || "online").toLowerCase();
           setPeerPresence({
             status,
+            rawStatus,
             lastSeen: normalizedLastSeen,
           });
         }
       } catch {
         if (isMounted) {
-          setPeerPresence({ status: "offline", lastSeen: null });
+          setPeerPresence({ status: "offline", rawStatus: "offline", lastSeen: null });
         }
       }
     };
@@ -3063,11 +3096,17 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           setPeerPresence((prev) => {
             if (
               String(prev?.status || "").toLowerCase() === nextStatus &&
+              String(prev?.rawStatus || "").toLowerCase() ===
+                String(snapshot.status || "").toLowerCase() &&
               String(prev?.lastSeen || "") === String(snapshot.lastSeen || "")
             ) {
               return prev;
             }
-            return { status: nextStatus, lastSeen: snapshot.lastSeen || null };
+            return {
+              status: nextStatus,
+              rawStatus: String(snapshot.status || nextStatus).toLowerCase(),
+              lastSeen: snapshot.lastSeen || null,
+            };
           });
         }
       }

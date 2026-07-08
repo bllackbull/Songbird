@@ -676,7 +676,7 @@ export default function ChatProfileModal({
                               : "text-slate-500 dark:text-slate-400"
                           }`}
                         >
-                          {memberIsOnline ? "online" : "offline"}
+                          {memberIsOnline ? "online" : "last seen recently"}
                         </p>
                       </div>
                     </button>
