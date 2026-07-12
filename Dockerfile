@@ -3,7 +3,7 @@
 FROM node:24-bookworm-slim AS client-build
 WORKDIR /app/client
 COPY client/package*.json ./
-RUN --mount=type=cache,target=/root/.npm \
+RUN --mount=type=cache,target=/root/.npm,id=npm-cache \
   npm config set registry https://registry.npmjs.org/ \
   && npm config set fetch-retries 5 \
   && npm config set fetch-retry-mintimeout 20000 \
@@ -16,7 +16,7 @@ RUN npm run build
 FROM node:24-bookworm-slim AS server-deps
 WORKDIR /app/server
 COPY server/package*.json ./
-RUN --mount=type=cache,target=/root/.npm \
+RUN --mount=type=cache,target=/root/.npm,id=npm-cache \
   npm config set registry https://registry.npmjs.org/ \
   && npm config set fetch-retries 5 \
   && npm config set fetch-retry-mintimeout 20000 \
@@ -40,6 +40,11 @@ RUN mkdir -p /app/data /app/data/uploads /app/data/backups
 
 ENV APP_ENV=production
 ENV SERVER_PORT=5174
+ENV BIND_ADDRESS=0.0.0.0
 EXPOSE 5174
+
+# Health check for container orchestrators
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:5174/api/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
 
 CMD ["node", "server/index.js"]
