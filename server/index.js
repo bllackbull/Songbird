@@ -162,6 +162,9 @@ loadSettings(dbGetAllSettings);
 const port = process.env.SERVER_PORT || process.env.PORT || 5174;
 const appEnv = process.env.APP_ENV || "production";
 const isProduction = appEnv === "production";
+// For Docker/container deployments, set BIND_ADDRESS=0.0.0.0
+// For VPS with firewall, can use localhost (nginx proxies from same machine)
+const bindAddress = process.env.BIND_ADDRESS || "localhost";
 
 function debugLog(...args) {
   if (!getSetting("APP_DEBUG")) return;
@@ -1033,6 +1036,28 @@ if (REMOTE_CHANNEL) {
   if (typeof queuePurgeTimer.unref === "function") queuePurgeTimer.unref();
 }
 
-app.listen(port, () => {
-  console.log(`Songbird server running on http://localhost:${port}`);
+const server = app.listen(port, bindAddress, () => {
+  console.log(`Songbird server running on http://${bindAddress}:${port}`);
+});
+
+// Graceful shutdown for container orchestrators
+process.on("SIGTERM", () => {
+  console.log("SIGTERM received, shutting down gracefully...");
+  server.close(() => {
+    console.log("Server closed");
+    process.exit(0);
+  });
+  // Force exit after 10 seconds if still running
+  setTimeout(() => {
+    console.error("Forced shutdown after timeout");
+    process.exit(1);
+  }, 10000);
+});
+
+process.on("SIGINT", () => {
+  console.log("SIGINT received, shutting down gracefully...");
+  server.close(() => {
+    console.log("Server closed");
+    process.exit(0);
+  });
 });
