@@ -3,8 +3,7 @@
 FROM node:24-bookworm-slim AS client-build
 WORKDIR /app/client
 COPY client/package*.json ./
-RUN --mount=type=cache,target=/root/.npm,id=npm-cache,sharing=locked \
-  npm config set registry https://registry.npmjs.org/ \
+RUN npm config set registry https://registry.npmjs.org/ \
   && npm config set fetch-retries 5 \
   && npm config set fetch-retry-mintimeout 20000 \
   && npm config set fetch-retry-maxtimeout 120000 \
@@ -16,8 +15,7 @@ RUN npm run build
 FROM node:24-bookworm-slim AS server-deps
 WORKDIR /app/server
 COPY server/package*.json ./
-RUN --mount=type=cache,target=/root/.npm,id=npm-cache,sharing=locked \
-  npm config set registry https://registry.npmjs.org/ \
+RUN npm config set registry https://registry.npmjs.org/ \
   && npm config set fetch-retries 5 \
   && npm config set fetch-retry-mintimeout 20000 \
   && npm config set fetch-retry-maxtimeout 120000 \
