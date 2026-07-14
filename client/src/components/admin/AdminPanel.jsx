@@ -39,7 +39,8 @@ const PRESENCE_PING_INTERVAL_MS = CHAT_PAGE_CONFIG.presencePingIntervalMs;
 // Auto-exit the panel after this much inactivity (no mouse/keyboard/touch).
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 
-// Auto-refresh interval — keep in sync with DashboardTab's own interval.
+// Auto-refresh interval for shared admin cache (stats / active tab).
+// DashboardTab polls /api/admin/system on its own matching cadence.
 const AUTO_REFRESH_MS = 10_000;
 
 export default function AdminPanel({ user, onBack }) {
@@ -132,13 +133,25 @@ export default function AdminPanel({ user, onBack }) {
 
   // ── Background auto-refresh (10 s) ───────────────────────────────────────
   // Refresh stats always; also refresh the current tab's data if it has a
-  // dedicated cache entry so the active view stays live.
+  // dedicated cache entry so the active view stays live. Skip while the
+  // document is hidden to avoid burning the shared API rate limit.
   useEffect(() => {
-    const timer = setInterval(() => {
+    const tick = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
+      }
       refreshKey("stats");
       if (cache[tab] !== undefined) refreshKey(tab);
-    }, AUTO_REFRESH_MS);
-    return () => clearInterval(timer);
+    };
+    const timer = setInterval(tick, AUTO_REFRESH_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") tick();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, refreshKey]);
 
@@ -160,6 +173,9 @@ export default function AdminPanel({ user, onBack }) {
 
   // Called by tabs after a mutation so sibling caches stay in sync.
   const invalidateStats = useCallback(() => invalidate("stats"), [invalidate]);
+  // Stable callback for DashboardTab manual refresh (via tabRefs); auto-poll
+  // of stats stays in this panel so DashboardTab does not re-trigger it.
+  const refreshStats = useCallback(() => refreshKey("stats"), [refreshKey]);
 
   // Keep the admin marked online while they're in the panel: ping presence on
   // mount, on a fixed interval, and whenever the tab regains focus.
@@ -316,7 +332,7 @@ export default function AdminPanel({ user, onBack }) {
         </div>
 
         <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-4 md:p-5">
-          {tab === "dashboard" && <DashboardTab ref={(r) => { tabRefs.current.dashboard = r; }} stats={stats} onStatsChange={() => refreshKey("stats")} />}
+          {tab === "dashboard" && <DashboardTab ref={(r) => { tabRefs.current.dashboard = r; }} stats={stats} onStatsChange={refreshStats} />}
           {tab === "users" && (
             <UsersTab
               ref={(r) => { tabRefs.current.users = r; }}

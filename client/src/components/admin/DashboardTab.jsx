@@ -140,8 +140,16 @@ function SemiCircleGauge({
   );
 }
 
+const SYSTEM_REFRESH_MS = 10_000;
+
 const DashboardTab = forwardRef(function DashboardTab({ stats, onStatsChange }, ref) {
   const [sys, setSys] = useState(null);
+  // Parent owns `/api/admin/stats` polling; keep a stable ref so manual refresh
+  // can still bump stats without putting an unstable callback in effect deps.
+  const onStatsChangeRef = useRef(onStatsChange);
+  useEffect(() => {
+    onStatsChangeRef.current = onStatsChange;
+  }, [onStatsChange]);
 
   const loadSys = useCallback(async () => {
     try {
@@ -150,19 +158,37 @@ const DashboardTab = forwardRef(function DashboardTab({ stats, onStatsChange }, 
     } catch {}
   }, []);
 
+  // Poll system gauges only. Stats are refreshed by AdminPanel's interval —
+  // calling onStatsChange here previously created a fetch/render loop whenever
+  // the parent passed a new inline callback.
   useEffect(() => {
-    loadSys();
-    onStatsChange();
-    const timer = setInterval(() => {
+    let cancelled = false;
+    const tick = () => {
+      if (cancelled) return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
+      }
       loadSys();
-      onStatsChange();
-    }, 10000);
-    return () => clearInterval(timer);
-  }, [loadSys, onStatsChange]);
+    };
+    tick();
+    const timer = setInterval(tick, SYSTEM_REFRESH_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") tick();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [loadSys]);
 
   useImperativeHandle(ref, () => ({
-    refresh: () => { loadSys(); onStatsChange(); },
-  }), [loadSys, onStatsChange]);
+    refresh: () => {
+      loadSys();
+      onStatsChangeRef.current?.();
+    },
+  }), [loadSys]);
 
   const sysPct = sys
     ? Math.round((sys.memory.systemUsed / sys.memory.systemTotal) * 100)
