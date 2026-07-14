@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 
+// Survive ChatPage remounts (e.g. any path that still tears the page down) so
+// the UI does not flash "Connecting..." after a recently successful check.
+let lastKnownConnected = false;
+
 export function useHealthCheck({ fetchHealth, intervalMs }) {
-  const [isConnected, setIsConnected] = useState(false);
+  const [isConnected, setIsConnected] = useState(lastKnownConnected);
 
   useEffect(() => {
     let isMounted = true;
@@ -10,10 +14,13 @@ export function useHealthCheck({ fetchHealth, intervalMs }) {
         const res = await fetchHealth();
         if (!res.ok) throw new Error("Not connected");
         const data = await res.json();
+        const next = Boolean(data?.ok);
+        lastKnownConnected = next;
         if (isMounted) {
-          setIsConnected(Boolean(data?.ok));
+          setIsConnected(next);
         }
       } catch {
+        lastKnownConnected = false;
         if (isMounted) {
           setIsConnected(false);
         }
