@@ -292,7 +292,7 @@ function registerChatRoutes(app, deps) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    let chats = (() => {
+    const chats = (() => {
       const convs = listChatsForUser(user.id);
       const membersMap = listChatMembersForChats(convs.map((c) => c.id));
       return convs.map((conv) => {
@@ -304,40 +304,43 @@ function registerChatRoutes(app, deps) {
       });
     })();
 
-    const initialLastMessageIds = chats
-      .map((chat) => Number(chat.last_message_id || 0))
-      .filter(Boolean);
-    const cleanup = cleanupMissingMessageFiles(initialLastMessageIds);
-
-    if (cleanup.changed) {
-      if (cleanup.deletedByChat && cleanup.deletedByChat.size) {
-        cleanup.deletedByChat.forEach((messageIds, chatId) => {
-          emitChatEvent(Number(chatId), {
-            type: "chat_message_deleted",
-            chatId: Number(chatId),
-            messageIds,
-          });
-        });
-      }
-      chats = (() => {
-        const convs = listChatsForUser(user.id);
-        const membersMap = listChatMembersForChats(convs.map((c) => c.id));
-        return convs.map((conv) => {
-          const members = (membersMap.get(Number(conv.id)) || []).map((member) => ({
-            ...member,
-            avatar_url: ensureAvatarExists(member.id, member.avatar_url),
-          }));
-          return { ...conv, members };
-        });
-      })();
-    }
-
     const lastMessageIds = chats
       .map((chat) => Number(chat.last_message_id || 0))
       .filter(Boolean);
-    const lastFiles = await hydrateMissingVideoMetadata(
-      listMessageFilesByMessageIds(lastMessageIds),
-    );
+
+    // Missing-file cleanup + ffprobe hydration used to run inline (and could
+    // re-run listChatsForUser). Defer them like GET /api/messages so the list
+    // response is not blocked on disk walks / ffprobe. SSE chat_message_deleted
+    // and the next list fetch pick up cleanup results.
+    if (lastMessageIds.length) {
+      setImmediate(() => {
+        try {
+          const cleanup = cleanupMissingMessageFiles(lastMessageIds);
+          if (cleanup.changed && cleanup.deletedByChat?.size) {
+            cleanup.deletedByChat.forEach((messageIds, chatId) => {
+              emitChatEvent(Number(chatId), {
+                type: "chat_message_deleted",
+                chatId: Number(chatId),
+                messageIds,
+              });
+            });
+          }
+        } catch {
+          // best-effort background cleanup — never crash the server
+        }
+
+        // Re-read file rows after cleanup so we do not probe deleted messages.
+        try {
+          const rows = listMessageFilesByMessageIds(lastMessageIds);
+          void hydrateMissingVideoMetadata(rows);
+        } catch {
+          // best-effort background hydrate
+        }
+      });
+    }
+
+    // Serve stored metadata only — do not await ffprobe on the request path.
+    const lastFiles = listMessageFilesByMessageIds(lastMessageIds);
 
     const filesByMessageId = lastFiles.reduce((acc, file) => {
       const messageId = Number(file.message_id);
