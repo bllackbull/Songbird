@@ -6,6 +6,41 @@ import os from "node:os";
 import multer from "multer";
 import { execFile } from "node:child_process";
 
+// Recursive uploads sizing is expensive; serve a short-lived cache so dashboard
+// gauges (and bursty admin traffic) do not walk the tree on every request.
+const UPLOADS_SIZE_CACHE_TTL_MS = 60_000;
+let uploadsSizeCache = { bytes: 0, fetchedAt: 0 };
+
+function getCachedUploadsSizeBytes(fs, nodePath, uploadsRoot) {
+  const now = Date.now();
+  if (now - uploadsSizeCache.fetchedAt < UPLOADS_SIZE_CACHE_TTL_MS) {
+    return uploadsSizeCache.bytes;
+  }
+  const getDirSize = (dirPath) => {
+    try {
+      if (!fs || !fs.existsSync(dirPath)) return 0;
+      let total = 0;
+      const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+      for (const entry of entries) {
+        const full = nodePath.join(dirPath, entry.name);
+        if (entry.isDirectory()) total += getDirSize(full);
+        else if (entry.isFile()) total += fs.statSync(full).size || 0;
+      }
+      return total;
+    } catch {
+      return 0;
+    }
+  };
+  let bytes = 0;
+  try {
+    bytes = getDirSize(uploadsRoot);
+  } catch {
+    bytes = uploadsSizeCache.bytes;
+  }
+  uploadsSizeCache = { bytes, fetchedAt: now };
+  return bytes;
+}
+
 function registerAdminPanelRoutes(app, deps) {
   const {
     getSessionFromRequest,
@@ -132,24 +167,15 @@ function registerAdminPanelRoutes(app, deps) {
       }
     } catch {}
 
-    // Uploads folder size (recursive)
+    // Uploads folder size (recursive, TTL-cached — see getCachedUploadsSizeBytes)
     let uploadsSizeBytes = 0;
-    const getDirSize = (dirPath) => {
-      try {
-        if (!fs || !fs.existsSync(dirPath)) return 0;
-        let total = 0;
-        const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-        for (const entry of entries) {
-          const full = nodePath.join(dirPath, entry.name);
-          if (entry.isDirectory()) total += getDirSize(full);
-          else if (entry.isFile()) total += fs.statSync(full).size || 0;
-        }
-        return total;
-      } catch { return 0; }
-    };
     try {
-      if (nodePath && projectRootDir) {
-        uploadsSizeBytes = getDirSize(nodePath.join(projectRootDir, "data", "uploads"));
+      if (nodePath && projectRootDir && fs) {
+        uploadsSizeBytes = getCachedUploadsSizeBytes(
+          fs,
+          nodePath,
+          nodePath.join(projectRootDir, "data", "uploads"),
+        );
       }
     } catch {}
 
