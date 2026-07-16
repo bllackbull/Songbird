@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, Activity } from "react";
 import {
   ArrowLeft,
   ArrowLeftFromLine,
@@ -332,48 +332,52 @@ export default function AdminPanel({ user, onBack }) {
         </div>
 
         <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-4 md:p-5">
-          {tab === "dashboard" && <DashboardTab ref={(r) => { tabRefs.current.dashboard = r; }} stats={stats} onStatsChange={refreshStats} />}
-          {tab === "users" && (
-            <UsersTab
-              ref={(r) => { tabRefs.current.users = r; }}
-              currentUser={user}
-              cachedData={cache.users?.data ?? null}
-              isLoading={cache.users?.loading ?? false}
-              hasData={Boolean(cache.users?.data)}
-              onMutated={() => { invalidate("users"); invalidateStats(); }}
-              onStatsChange={invalidateStats}
-            />
-          )}
-          {tab === "chats" && (
-            <ChatsTab
-              ref={(r) => { tabRefs.current.chats = r; }}
-              cachedData={cache.chats?.data ?? null}
-              isLoading={cache.chats?.loading ?? false}
-              hasData={Boolean(cache.chats?.data)}
-              onMutated={() => { invalidate("chats"); invalidateStats(); }}
-              onStatsChange={invalidateStats}
-            />
-          )}
-          {tab === "settings" && (
-            <SettingsTab
-              ref={(r) => { tabRefs.current.settings = r; }}
-              cachedData={cache.settings?.data ?? null}
-              isLoading={cache.settings?.loading ?? false}
-              hasData={Boolean(cache.settings?.data)}
-              onMutated={() => invalidate("settings")}
-            />
-          )}
-          {tab === "actions" && <ActionsTab ref={(r) => { tabRefs.current.actions = r; }} />}
-          {tab === "logs" && (
-            <LogsTab
-              ref={(r) => { tabRefs.current.logs = r; }}
-              currentUser={user}
-              cachedData={cache.logs?.data ?? null}
-              isLoading={cache.logs?.loading ?? false}
-              hasData={Boolean(cache.logs?.data)}
-              onMutated={() => invalidate("logs")}
-            />
-          )}
+            <Activity mode={tab === "dashboard" ? "visible" : "hidden"}>
+              <DashboardTab ref={(r) => { tabRefs.current.dashboard = r; }} stats={stats} onStatsChange={refreshStats} />
+            </Activity>
+            <Activity mode={tab === "users" ? "visible" : "hidden"}>
+              <UsersTab
+                ref={(r) => { tabRefs.current.users = r; }}
+                currentUser={user}
+                cachedData={cache.users?.data ?? null}
+                isLoading={cache.users?.loading ?? false}
+                hasData={Boolean(cache.users?.data)}
+                onMutated={() => { invalidate("users"); invalidateStats(); }}
+                onStatsChange={invalidateStats}
+              />
+            </Activity>
+            <Activity mode={tab === "chats" ? "visible" : "hidden"}>
+              <ChatsTab
+                ref={(r) => { tabRefs.current.chats = r; }}
+                cachedData={cache.chats?.data ?? null}
+                isLoading={cache.chats?.loading ?? false}
+                hasData={Boolean(cache.chats?.data)}
+                onMutated={() => { invalidate("chats"); invalidateStats(); }}
+                onStatsChange={invalidateStats}
+              />
+            </Activity>
+            <Activity mode={tab === "settings" ? "visible" : "hidden"}>
+              <SettingsTab
+                ref={(r) => { tabRefs.current.settings = r; }}
+                cachedData={cache.settings?.data ?? null}
+                isLoading={cache.settings?.loading ?? false}
+                hasData={Boolean(cache.settings?.data)}
+                onMutated={() => invalidate("settings")}
+              />
+            </Activity>
+            <Activity mode={tab === "actions" ? "visible" : "hidden"}>
+              <ActionsTab ref={(r) => { tabRefs.current.actions = r; }} />
+            </Activity>
+            <Activity mode={tab === "logs" ? "visible" : "hidden"}>
+              <LogsTab
+                ref={(r) => { tabRefs.current.logs = r; }}
+                currentUser={user}
+                cachedData={cache.logs?.data ?? null}
+                isLoading={cache.logs?.loading ?? false}
+                hasData={Boolean(cache.logs?.data)}
+                onMutated={() => invalidate("logs")}
+              />
+            </Activity>
         </div>
       </div>
     </div>
