@@ -28,6 +28,7 @@ logs/
 .todo
 .vscode/
 .kiro/
+.continue/
 .idea/
 
 # TLS certs
