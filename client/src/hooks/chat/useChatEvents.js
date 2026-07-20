@@ -356,12 +356,21 @@ export function useChatEvents({
             });
             return;
           }
+          if (payload.type === "chat_read") {
+            // Read receipts are already applied to messages/chat state above
+            // (and channel seen-counts refresh via onChatRead). No message
+            // content changed, so skip the full-window refetch entirely.
+            return;
+          }
           if (isUpdateEvent) {
             scheduleLoadChats();
           }
           scheduleMessageRefreshRef.current?.(currentActiveId, {
             preserveHistory: true,
             pruneMissing: isUpdateEvent,
+            // Plain new-message appends only need a bounded tail delta; edits
+            // change existing content and must reconcile the current window.
+            tailDelta: !isUpdateEvent,
           });
         }
       };

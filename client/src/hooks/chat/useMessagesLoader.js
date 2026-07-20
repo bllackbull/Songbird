@@ -207,14 +207,21 @@ export function useMessagesLoader({
       // When loading with afterId (unread anchor), hasMore means there are newer
       // messages beyond the window — not older ones. Since we anchored mid-history,
       // there are always older messages to load via pagination.
+      //
+      // Tail-delta refreshes (options.tailDelta) also use afterId, but they
+      // anchor on the newest loaded message to pull only brand-new messages.
+      // They must not touch the older-history flag, which reflects state at the
+      // top of the already-loaded window.
       setHasOlderMessages((prev) =>
-        options.afterId
-          ? true
-          : options.prepend
-            ? Boolean(data?.hasMore)
-            : options.preserveHistory
-              ? prev || Boolean(data?.hasMore)
-              : Boolean(data?.hasMore),
+        options.tailDelta
+          ? prev
+          : options.afterId
+            ? true
+            : options.prepend
+              ? Boolean(data?.hasMore)
+              : options.preserveHistory
+                ? prev || Boolean(data?.hasMore)
+                : Boolean(data?.hasMore),
       );
       const chatType =
         chats.find((chat) => Number(chat.id) === Number(requestChatId))?.type ||

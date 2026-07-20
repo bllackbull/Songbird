@@ -1275,13 +1275,54 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (messageRefreshTimerRef.current) {
       window.clearTimeout(messageRefreshTimerRef.current);
     }
-    const { delayMs, ...loadOptions } = options;
+    const { delayMs, tailDelta, ...loadOptions } = options;
     const refreshDelayMs = Number.isFinite(Number(delayMs))
       ? Math.max(0, Number(delayMs))
       : 280;
+    // For plain appends (new messages) on the active chat we don't need to
+    // re-pull the whole window. Anchor a bounded tail fetch on the newest
+    // loaded message so only brand-new rows come down. We still fall back to a
+    // full window fetch when we have no usable anchor (e.g. empty chat) or when
+    // the caller needs a full reconcile (pruneMissing / prepend / afterId).
+    let deltaOptions = null;
+    if (
+      tailDelta &&
+      !loadOptions.prepend &&
+      !loadOptions.pruneMissing &&
+      !loadOptions.afterId
+    ) {
+      const current = messagesRef.current || [];
+      let anchor = null;
+      for (let i = current.length - 1; i >= 0; i -= 1) {
+        const candidate = current[i];
+        const serverId = Number(candidate?._serverId || candidate?.id || 0);
+        if (
+          Number.isFinite(serverId) &&
+          serverId > 0 &&
+          candidate?.created_at &&
+          Number(candidate?._chatId || chatId) === Number(chatId)
+        ) {
+          anchor = candidate;
+          break;
+        }
+      }
+      if (anchor) {
+        deltaOptions = {
+          afterId: Number(anchor._serverId || anchor.id),
+          afterCreatedAt: anchor.created_at,
+          tailDelta: true,
+          limit: CHAT_PAGE_CONFIG.messageFetchLimit,
+        };
+      }
+    }
     messageRefreshTimerRef.current = window.setTimeout(() => {
       messageRefreshTimerRef.current = null;
-      void loadMessages(chatId, { silent: true, preserveHistory: true, ...loadOptions });
+      void loadMessages(chatId, {
+        silent: true,
+        preserveHistory: true,
+        ...loadOptions,
+        ...(deltaOptions || {}),
+      });
     }, refreshDelayMs);
   };
 
