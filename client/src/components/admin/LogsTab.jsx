@@ -20,7 +20,7 @@ import {
   UserMinus,
   UserPlus,
 } from "../../icons/lucide.js";
-import { api, cardCls, inputSmCls, btnDanger, fmtDateTime, searchIconCls } from "./adminShared.js";
+import { api, cardCls, inputSmCls, btnDanger, fmtDateTime, searchIconCls, DEFAULT_PAGE_SIZE } from "./adminShared.js";
 import { LoadingRows, EmptyState, Pagination } from "./AdminCommon.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 import { hasPersian } from "../../utils/fontUtils.js";
@@ -64,12 +64,11 @@ const LOG_SOURCES = [
   { id: "nginx",     label: "Nginx" },
 ];
 
-const PAGE_SIZE = 50;
-
 const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = true }, ref) {
   const [logs, setLogs]               = useState([]);
   const [total, setTotal]             = useState(0);
   const [page, setPage]               = useState(1);
+  const [pageSize, setPageSize]       = useState(DEFAULT_PAGE_SIZE);
   const [initialized, setInitialized] = useState(false);
   const [loading, setLoading]         = useState(false);
   const [search, setSearch]           = useState("");
@@ -86,9 +85,9 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = tr
   const fetchPage = useCallback(async (targetPage) => {
     const requestId = ++requestIdRef.current;
     setLoading(true);
-    const offset = (Math.max(1, targetPage) - 1) * PAGE_SIZE;
+    const offset = (Math.max(1, targetPage) - 1) * pageSize;
     const params = new URLSearchParams({
-      limit: String(PAGE_SIZE),
+      limit: String(pageSize),
       offset: String(offset),
     });
     if (trimmedSearch) params.set("search", trimmedSearch);
@@ -104,7 +103,7 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = tr
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
     }
-  }, [trimmedSearch]);
+  }, [trimmedSearch, pageSize]);
 
   // Refetch (debounced) whenever the search or page changes while the tab is visible.
   useEffect(() => {
@@ -120,6 +119,7 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = tr
   // Reset to page 1 in the handler (not an effect) so re-revealing the tab via
   // <Activity> keeps the page the admin was already on.
   const changeSearch = (value) => { setSearch(value); setPage(1); };
+  const changePageSize = (value) => { setPageSize(value); setPage(1); };
 
   const clearLogs = async () => {
     setClearing(true);
@@ -188,7 +188,8 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = tr
             );
           })}
         </div>
-        <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} busy={loading} />
+        <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage}
+          onPageSizeChange={changePageSize} busy={loading} />
         </>
       )}
     </div>

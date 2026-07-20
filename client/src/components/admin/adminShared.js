@@ -21,6 +21,15 @@ export const iconBtn = (color = "slate") => {
   return `inline-flex h-8 w-8 items-center justify-center rounded-full border transition disabled:cursor-not-allowed disabled:opacity-40 ${map[color] || map.slate}`;
 };
 
+// ─── Pagination ───────────────────────────────────────────────────────────────
+
+// `PAGE_LOCK_THRESHOLD` is the smallest option: when a list has this
+// many items or fewer, everything fits on one page at any size, so the
+// pagination controls render but stay locked.
+export const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+export const DEFAULT_PAGE_SIZE = 25;
+export const PAGE_LOCK_THRESHOLD = Math.min(...PAGE_SIZE_OPTIONS);
+
 // ─── API helper ───────────────────────────────────────────────────────────────
 
 export const api = {

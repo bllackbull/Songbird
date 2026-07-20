@@ -1,18 +1,17 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { ChevronDown, Globe, Lock, Megaphone, MessageCircleMore, Pencil, Plus, Search, Trash, Users } from "../../icons/lucide.js";
-import { api, cardCls, inputSmCls, btnPrimary, iconBtn, fmtDate, searchIconCls } from "./adminShared.js";
+import { api, cardCls, inputSmCls, btnPrimary, iconBtn, fmtDate, searchIconCls, DEFAULT_PAGE_SIZE } from "./adminShared.js";
 import { LoadingRows, EmptyState, FilterDropdown, SortTh, Pagination } from "./AdminCommon.jsx";
 import AdminGroupModal from "./AdminGroupModal.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 import Avatar from "../common/Avatar.jsx";
 import { hasPersian } from "../../utils/fontUtils.js";
 
-const PAGE_SIZE = 50;
-
 const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStatsChange }, ref) {
   const [chats, setChats]             = useState([]);
   const [total, setTotal]             = useState(0);
   const [page, setPage]               = useState(1);
+  const [pageSize, setPageSize]       = useState(DEFAULT_PAGE_SIZE);
   const [initialized, setInitialized] = useState(false);
   const [loading, setLoading]         = useState(false);
   const [search, setSearch]           = useState("");
@@ -42,9 +41,9 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
   const fetchPage = useCallback(async (targetPage) => {
     const requestId = ++requestIdRef.current;
     setLoading(true);
-    const offset = (Math.max(1, targetPage) - 1) * PAGE_SIZE;
+    const offset = (Math.max(1, targetPage) - 1) * pageSize;
     const params = new URLSearchParams({
-      limit: String(PAGE_SIZE),
+      limit: String(pageSize),
       offset: String(offset),
       sortBy,
       sortDir,
@@ -63,7 +62,7 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
     }
-  }, [trimmedSearch, typeFilter, sortBy, sortDir]);
+  }, [trimmedSearch, typeFilter, sortBy, sortDir, pageSize]);
 
   // Refetch (debounced) whenever the query or page changes while the tab is visible.
   useEffect(() => {
@@ -81,6 +80,7 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
   // keeps state — never resets the page the admin was already on.
   const changeSearch = (value) => { setSearch(value); setPage(1); };
   const changeTypeFilter = (value) => { setTypeFilter(value); setPage(1); };
+  const changePageSize = (value) => { setPageSize(value); setPage(1); };
   const toggleSort = (field) => {
     setPage(1);
     setSortBy((prev) => {
@@ -245,7 +245,8 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
             </div>
           </div>
 
-          <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} busy={loading} />
+          <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage}
+            onPageSizeChange={changePageSize} busy={loading} />
         </>
       )}
 

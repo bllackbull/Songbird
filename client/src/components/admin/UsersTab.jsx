@@ -1,18 +1,17 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { Ban, CirclePlus, Filter, Pencil, Search, ShieldCheck, ShieldOff, Tag, Trash, UserPlus } from "../../icons/lucide.js";
-import { api, cardCls, inputSmCls, btnPrimary, iconBtn, fmtDate, searchIconCls } from "./adminShared.js";
+import { api, cardCls, inputSmCls, btnPrimary, iconBtn, fmtDate, searchIconCls, DEFAULT_PAGE_SIZE } from "./adminShared.js";
 import { LoadingRows, EmptyState, FilterDropdown, SortTh, RoleBadge, Pagination } from "./AdminCommon.jsx";
 import AdminUserModal from "./AdminUserModal.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 import Avatar from "../common/Avatar.jsx";
 import { hasPersian } from "../../utils/fontUtils.js";
 
-const PAGE_SIZE = 50;
-
 const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMutated, onStatsChange }, ref) {
   const [users, setUsers]             = useState([]);
   const [total, setTotal]             = useState(0);
   const [page, setPage]               = useState(1);
+  const [pageSize, setPageSize]       = useState(DEFAULT_PAGE_SIZE);
   const [initialized, setInitialized] = useState(false);
   const [loading, setLoading]         = useState(false);
   const [search, setSearch]           = useState("");
@@ -36,9 +35,9 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
   const fetchPage = useCallback(async (targetPage) => {
     const requestId = ++requestIdRef.current;
     setLoading(true);
-    const offset = (Math.max(1, targetPage) - 1) * PAGE_SIZE;
+    const offset = (Math.max(1, targetPage) - 1) * pageSize;
     const params = new URLSearchParams({
-      limit: String(PAGE_SIZE),
+      limit: String(pageSize),
       offset: String(offset),
       sortBy,
       sortDir,
@@ -58,7 +57,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
     }
-  }, [trimmedSearch, roleFilter, statusFilter, sortBy, sortDir]);
+  }, [trimmedSearch, roleFilter, statusFilter, sortBy, sortDir, pageSize]);
 
   // Refetch (debounced) whenever the query or page changes while the tab is visible.
   useEffect(() => {
@@ -77,6 +76,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
   const changeSearch = (value) => { setSearch(value); setPage(1); };
   const changeRoleFilter = (value) => { setRoleFilter(value); setPage(1); };
   const changeStatusFilter = (value) => { setStatusFilter(value); setPage(1); };
+  const changePageSize = (value) => { setPageSize(value); setPage(1); };
   const toggleSort = (field) => {
     setPage(1);
     setSortBy((prev) => {
@@ -304,7 +304,8 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
             </div>
           </div>
 
-          <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} busy={loading} />
+          <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage}
+            onPageSizeChange={changePageSize} busy={loading} />
         </>
       )}
 
