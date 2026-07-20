@@ -1576,6 +1576,8 @@ export function deleteUserById(userId) {
 }
 
 export function listChatsForUser(userId) {
+  const uid = Number(userId);
+
   return getAll(
     `
     WITH member_chats AS (
@@ -1598,50 +1600,6 @@ export function listChatsForUser(userId) {
       LEFT JOIN hidden_chats h ON h.chat_id = c.id AND h.user_id = m.user_id
       WHERE m.user_id = ?
         AND h.chat_id IS NULL
-    ),
-    visible_messages AS (
-      SELECT
-        cm.id,
-        cm.chat_id,
-        cm.user_id,
-        cm.client_request_id,
-        COALESCE(cm.edited_body, cm.body) AS body,
-        cm.created_at,
-        cm.read_at,
-        cm.read_by_user_id
-      FROM member_chats mc
-      JOIN chat_messages cm ON cm.chat_id = mc.id
-      LEFT JOIN hidden_chat_messages hcm
-        ON hcm.message_id = cm.id
-       AND hcm.user_id = ?
-      WHERE cm.body NOT LIKE '[[system:%]]'
-        AND cm.hidden_everyone_at IS NULL
-        AND hcm.message_id IS NULL
-    ),
-    last_visible_message_ids AS (
-      SELECT chat_id, MAX(id) AS last_message_id
-      FROM visible_messages
-      GROUP BY chat_id
-    ),
-    last_outgoing_message_ids AS (
-      SELECT chat_id, MAX(id) AS last_outgoing_message_id
-      FROM visible_messages
-      WHERE user_id = ?
-        AND NOT (${REMOTE_MESSAGE_CLIENT_REQUEST_SQL})
-      GROUP BY chat_id
-    ),
-    unread_counts AS (
-      SELECT vm.chat_id, COUNT(*) AS unread_count
-      FROM visible_messages vm
-      LEFT JOIN chat_message_reads cmr
-        ON cmr.message_id = vm.id
-       AND cmr.user_id = ?
-      WHERE (
-          vm.user_id != ?
-          OR LOWER(COALESCE(vm.client_request_id, '')) LIKE 'remote:%'
-        )
-        AND cmr.message_id IS NULL
-      GROUP BY vm.chat_id
     )
     SELECT
       mc.id,
@@ -1656,8 +1614,8 @@ export function listChatsForUser(userId) {
       mc.created_by_user_id,
       mc.muted,
       COALESCE(rcs.enabled, 0) AS remote_channel_enabled,
-      lvm.last_message_id,
-      last_vm.body AS last_message,
+      last_vm.id AS last_message_id,
+      COALESCE(last_vm.edited_body, last_vm.body) AS last_message,
       last_vm.created_at AS last_time,
       last_vm.user_id AS last_sender_id,
       last_vm.client_request_id AS last_message_client_request_id,
@@ -1673,23 +1631,74 @@ export function listChatsForUser(userId) {
       last_vm.read_at AS last_message_read_at,
       last_vm.read_by_user_id AS last_message_read_by_user_id,
       outgoing_vm.created_at AS last_outgoing_time,
-      COALESCE(uc.unread_count, 0) AS unread_count
+      COALESCE((
+        SELECT COUNT(*)
+        FROM chat_messages unread_cm
+        WHERE unread_cm.chat_id = mc.id
+          AND unread_cm.body NOT LIKE '[[system:%]]'
+          AND unread_cm.hidden_everyone_at IS NULL
+          AND (
+            unread_cm.user_id != ?
+            OR LOWER(COALESCE(unread_cm.client_request_id, '')) LIKE 'remote:%'
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM chat_message_reads cmr
+            WHERE cmr.user_id = ?
+              AND cmr.message_id = unread_cm.id
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM hidden_chat_messages unread_hcm
+            WHERE unread_hcm.user_id = ?
+              AND unread_hcm.message_id = unread_cm.id
+          )
+      ), 0) AS unread_count
     FROM member_chats mc
-    LEFT JOIN last_visible_message_ids lvm ON lvm.chat_id = mc.id
-    LEFT JOIN visible_messages last_vm ON last_vm.id = lvm.last_message_id
+    LEFT JOIN chat_messages last_vm ON last_vm.id = (
+      SELECT last_cm.id
+      FROM chat_messages last_cm
+      WHERE last_cm.chat_id = mc.id
+        AND last_cm.body NOT LIKE '[[system:%]]'
+        AND last_cm.hidden_everyone_at IS NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM hidden_chat_messages last_hcm
+          WHERE last_hcm.user_id = ?
+            AND last_hcm.message_id = last_cm.id
+        )
+      ORDER BY last_cm.id DESC
+      LIMIT 1
+    )
     LEFT JOIN users last_user ON last_user.id = last_vm.user_id
-    LEFT JOIN last_outgoing_message_ids lom ON lom.chat_id = mc.id
-    LEFT JOIN visible_messages outgoing_vm ON outgoing_vm.id = lom.last_outgoing_message_id
-    LEFT JOIN unread_counts uc ON uc.chat_id = mc.id
+    LEFT JOIN chat_messages outgoing_vm ON outgoing_vm.id = (
+      SELECT outgoing_cm.id
+      FROM chat_messages outgoing_cm
+      WHERE outgoing_cm.chat_id = mc.id
+        AND outgoing_cm.user_id = ?
+        AND NOT (LOWER(COALESCE(outgoing_cm.client_request_id, '')) LIKE 'remote:%')
+        AND outgoing_cm.body NOT LIKE '[[system:%]]'
+        AND outgoing_cm.hidden_everyone_at IS NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM hidden_chat_messages outgoing_hcm
+          WHERE outgoing_hcm.user_id = ?
+            AND outgoing_hcm.message_id = outgoing_cm.id
+        )
+      ORDER BY outgoing_cm.id DESC
+      LIMIT 1
+    )
     LEFT JOIN remote_channel_sources rcs ON rcs.chat_id = mc.id AND rcs.enabled = 1
-    ORDER BY lvm.last_message_id DESC, mc.created_at DESC
+    ORDER BY last_vm.id DESC, mc.created_at DESC
   `,
     [
-      Number(userId),
-      Number(userId),
-      Number(userId),
-      Number(userId),
-      Number(userId),
+      uid,
+      uid,
+      uid,
+      uid,
+      uid,
+      uid,
+      uid,
     ],
   ).map(decryptMessageRow);
 }
