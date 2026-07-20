@@ -38,6 +38,7 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
 
   // Fetch one page from the server. Sorting/filtering/search span the whole
   // groups+channels table server-side; `total` drives the pagination footer.
+  const trimmedSearch = search.trim();
   const fetchPage = useCallback(async (targetPage) => {
     const requestId = ++requestIdRef.current;
     setLoading(true);
@@ -48,7 +49,7 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
       sortBy,
       sortDir,
     });
-    if (search.trim()) params.set("search", search.trim());
+    if (trimmedSearch) params.set("search", trimmedSearch);
     if (typeFilter) params.set("type", typeFilter);
     try {
       const data = await api.get(`/api/admin/chats?${params.toString()}`);
@@ -62,28 +63,26 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
     }
-  }, [search, typeFilter, sortBy, sortDir]);
+  }, [trimmedSearch, typeFilter, sortBy, sortDir]);
 
-  // Reset to page 1 whenever the query changes (debounced), then fetch.
+  // Refetch (debounced) whenever the query or page changes while the tab is visible.
   useEffect(() => {
     if (!active) return undefined;
     clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      setPage(1);
-      fetchPage(1);
-    }, 250);
+    debounceRef.current = setTimeout(() => fetchPage(page), 250);
     return () => clearTimeout(debounceRef.current);
-  }, [active, fetchPage]);
+  }, [active, page, fetchPage]);
 
-  const goToPage = useCallback((next) => {
-    setPage(next);
-    fetchPage(next);
-  }, [fetchPage]);
-
-  const refresh = useCallback(() => { fetchPage(page); }, [fetchPage, page]);
+  const refresh = useCallback(() => fetchPage(page), [fetchPage, page]);
   useImperativeHandle(ref, () => ({ refresh }), [refresh]);
 
+  // Changing the query resets to page 1. This lives in the handlers (not an
+  // effect) so re-revealing the tab via <Activity> — which re-runs effects but
+  // keeps state — never resets the page the admin was already on.
+  const changeSearch = (value) => { setSearch(value); setPage(1); };
+  const changeTypeFilter = (value) => { setTypeFilter(value); setPage(1); };
   const toggleSort = (field) => {
+    setPage(1);
     setSortBy((prev) => {
       if (prev === field) { setSortDir((d) => (d === "DESC" ? "ASC" : "DESC")); return field; }
       setSortDir("DESC"); return field;
@@ -104,12 +103,12 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
             <Search size={16} className={searchIconCls} />
           </span>
-          <input type="text" placeholder="Search chats…" value={search} onChange={(e) => setSearch(e.target.value)}
+          <input type="text" placeholder="Search chats…" value={search} onChange={(e) => changeSearch(e.target.value)}
             lang={searchHasPersian ? "fa" : "en"} dir={searchHasPersian ? "rtl" : "ltr"}
             className={inputSmCls + " pl-8" + (searchHasPersian ? " font-fa text-right" : "")}
             style={{ unicodeBidi: "plaintext" }} />
         </label>
-        <FilterDropdown value={typeFilter} onChange={setTypeFilter} options={[["", "All types"], ["group", "Groups"], ["channel", "Channels"]]} />
+        <FilterDropdown value={typeFilter} onChange={changeTypeFilter} options={[["", "All types"], ["group", "Groups"], ["channel", "Channels"]]} />
         <div ref={createMenuRef} className="relative shrink-0">
           <button type="button" onClick={() => setCreateMenuOpen((o) => !o)} aria-expanded={createMenuOpen} title="New chat"
             className={btnPrimary + " w-9 shrink-0 justify-center px-0 sm:w-auto sm:justify-start sm:px-3"}>
@@ -246,7 +245,7 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
             </div>
           </div>
 
-          <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={goToPage} busy={loading} />
+          <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} busy={loading} />
         </>
       )}
 

@@ -30,8 +30,9 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
 
   // Fetch one page from the server. Sorting/filtering/search are applied
   // server-side across the entire users table, so the returned page reflects
-  // the whole dataset — not just locally cached rows. `total` drives the
+  // the whole dataset — not just locally held rows. `total` drives the
   // pagination footer.
+  const trimmedSearch = search.trim();
   const fetchPage = useCallback(async (targetPage) => {
     const requestId = ++requestIdRef.current;
     setLoading(true);
@@ -42,7 +43,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
       sortBy,
       sortDir,
     });
-    if (search.trim()) params.set("search", search.trim());
+    if (trimmedSearch) params.set("search", trimmedSearch);
     if (roleFilter) params.set("role", roleFilter);
     if (statusFilter) params.set("status", statusFilter);
     try {
@@ -57,29 +58,27 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
     }
-  }, [search, roleFilter, statusFilter, sortBy, sortDir]);
+  }, [trimmedSearch, roleFilter, statusFilter, sortBy, sortDir]);
 
-  // Reset to page 1 whenever the query changes (debounced), then fetch.
+  // Refetch (debounced) whenever the query or page changes while the tab is visible.
   useEffect(() => {
     if (!active) return undefined;
     clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      setPage(1);
-      fetchPage(1);
-    }, 250);
+    debounceRef.current = setTimeout(() => fetchPage(page), 250);
     return () => clearTimeout(debounceRef.current);
-  }, [active, fetchPage]);
+  }, [active, page, fetchPage]);
 
-  const goToPage = useCallback((next) => {
-    setPage(next);
-    fetchPage(next);
-  }, [fetchPage]);
-
-  // Refresh the current page (used by auto-refresh, manual refresh, mutations).
-  const refresh = useCallback(() => { fetchPage(page); }, [fetchPage, page]);
+  const refresh = useCallback(() => fetchPage(page), [fetchPage, page]);
   useImperativeHandle(ref, () => ({ refresh }), [refresh]);
 
+  // Changing the query resets to page 1. This lives in the handlers (not an
+  // effect) so re-revealing the tab via <Activity> — which re-runs effects but
+  // keeps state — never resets the page the admin was already on.
+  const changeSearch = (value) => { setSearch(value); setPage(1); };
+  const changeRoleFilter = (value) => { setRoleFilter(value); setPage(1); };
+  const changeStatusFilter = (value) => { setStatusFilter(value); setPage(1); };
   const toggleSort = (field) => {
+    setPage(1);
     setSortBy((prev) => {
       if (prev === field) { setSortDir((d) => (d === "DESC" ? "ASC" : "DESC")); return field; }
       setSortDir("DESC"); return field;
@@ -110,13 +109,13 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
             <Search size={16} className={searchIconCls} />
           </span>
-          <input type="text" placeholder="Search users…" value={search} onChange={(e) => setSearch(e.target.value)}
+          <input type="text" placeholder="Search users…" value={search} onChange={(e) => changeSearch(e.target.value)}
             lang={searchHasPersian ? "fa" : "en"} dir={searchHasPersian ? "rtl" : "ltr"}
             className={inputSmCls + " pl-8" + (searchHasPersian ? " font-fa text-right" : "")}
             style={{ unicodeBidi: "plaintext" }} />
         </label>
-        <FilterDropdown value={roleFilter} onChange={setRoleFilter} icon={Tag} options={[["", "All roles"], ["user", "User"], ["admin", "Admin"], ["owner", "Owner"], ["banned", "Banned"]]} />
-        <FilterDropdown value={statusFilter} onChange={setStatusFilter} icon={Filter} options={[["", "All"], ["online", "online"], ["offline", "offline"]]} />
+        <FilterDropdown value={roleFilter} onChange={changeRoleFilter} icon={Tag} options={[["", "All roles"], ["user", "User"], ["admin", "Admin"], ["owner", "Owner"], ["banned", "Banned"]]} />
+        <FilterDropdown value={statusFilter} onChange={changeStatusFilter} icon={Filter} options={[["", "All"], ["online", "online"], ["offline", "offline"]]} />
         <button type="button" onClick={() => setCreateOpen(true)} title="New user"
           className={btnPrimary + " w-9 shrink-0 justify-center px-0 sm:w-auto sm:justify-start sm:px-3"}>
           <UserPlus size={16} className="icon-anim-pop shrink-0" /> <span className="hidden sm:inline">New user</span>
@@ -305,7 +304,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
             </div>
           </div>
 
-          <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={goToPage} busy={loading} />
+          <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} busy={loading} />
         </>
       )}
 

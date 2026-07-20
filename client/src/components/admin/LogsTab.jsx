@@ -82,6 +82,7 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = tr
 
   // Fetch one page from the server. Search spans the whole admin log file
   // server-side; `total` drives the pagination footer.
+  const trimmedSearch = search.trim();
   const fetchPage = useCallback(async (targetPage) => {
     const requestId = ++requestIdRef.current;
     setLoading(true);
@@ -90,7 +91,7 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = tr
       limit: String(PAGE_SIZE),
       offset: String(offset),
     });
-    if (search.trim()) params.set("search", search.trim());
+    if (trimmedSearch) params.set("search", trimmedSearch);
     try {
       const data = await api.get(`/api/admin/logs?${params.toString()}`);
       if (requestId !== requestIdRef.current) return;
@@ -103,30 +104,26 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = tr
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
     }
-  }, [search]);
+  }, [trimmedSearch]);
 
-  // Reset to page 1 whenever the search changes (debounced), then fetch.
+  // Refetch (debounced) whenever the search or page changes while the tab is visible.
   useEffect(() => {
     if (!active) return undefined;
     clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      setPage(1);
-      fetchPage(1);
-    }, 250);
+    debounceRef.current = setTimeout(() => fetchPage(page), 250);
     return () => clearTimeout(debounceRef.current);
-  }, [active, fetchPage]);
+  }, [active, page, fetchPage]);
 
-  const goToPage = useCallback((next) => {
-    setPage(next);
-    fetchPage(next);
-  }, [fetchPage]);
-
-  const refresh = useCallback(() => { fetchPage(page); }, [fetchPage, page]);
+  const refresh = useCallback(() => fetchPage(page), [fetchPage, page]);
   useImperativeHandle(ref, () => ({ refresh }), [refresh]);
+
+  // Reset to page 1 in the handler (not an effect) so re-revealing the tab via
+  // <Activity> keeps the page the admin was already on.
+  const changeSearch = (value) => { setSearch(value); setPage(1); };
 
   const clearLogs = async () => {
     setClearing(true);
-    try { await api.delete("/api/admin/logs"); setPage(1); fetchPage(1); }
+    try { await api.delete("/api/admin/logs"); setPage(1); refresh(); }
     finally { setClearing(false); setConfirmOpen(false); }
   };
 
@@ -139,7 +136,7 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = tr
           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
             <Search size={16} className={searchIconCls} />
           </span>
-          <input type="text" placeholder="Search logs…" value={search} onChange={(e) => setSearch(e.target.value)}
+          <input type="text" placeholder="Search logs…" value={search} onChange={(e) => changeSearch(e.target.value)}
             lang={searchHasPersian ? "fa" : "en"} dir={searchHasPersian ? "rtl" : "ltr"}
             className={inputSmCls + " pl-8" + (searchHasPersian ? " font-fa text-right" : "")}
             style={{ unicodeBidi: "plaintext" }} />
@@ -191,7 +188,7 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = tr
             );
           })}
         </div>
-        <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={goToPage} busy={loading} />
+        <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} busy={loading} />
         </>
       )}
     </div>
