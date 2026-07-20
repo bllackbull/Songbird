@@ -1,15 +1,20 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { ChevronDown, Globe, Lock, Megaphone, MessageCircleMore, Pencil, Plus, Search, Trash, Users } from "../../icons/lucide.js";
 import { api, cardCls, inputSmCls, btnPrimary, iconBtn, fmtDate, searchIconCls } from "./adminShared.js";
-import { LoadingRows, EmptyState, FilterDropdown, SortTh } from "./AdminCommon.jsx";
+import { LoadingRows, EmptyState, FilterDropdown, SortTh, Pagination } from "./AdminCommon.jsx";
 import AdminGroupModal from "./AdminGroupModal.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 import Avatar from "../common/Avatar.jsx";
 import { hasPersian } from "../../utils/fontUtils.js";
 
-const ChatsTab = forwardRef(function ChatsTab({ cachedData, isLoading, hasData, onMutated, onStatsChange }, ref) {
+const PAGE_SIZE = 50;
+
+const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStatsChange }, ref) {
   const [chats, setChats]             = useState([]);
+  const [total, setTotal]             = useState(0);
+  const [page, setPage]               = useState(1);
   const [initialized, setInitialized] = useState(false);
+  const [loading, setLoading]         = useState(false);
   const [search, setSearch]           = useState("");
   const [typeFilter, setTypeFilter]   = useState("");
   const [sortBy, setSortBy]           = useState("id");
@@ -20,8 +25,7 @@ const ChatsTab = forwardRef(function ChatsTab({ cachedData, isLoading, hasData, 
   const [pendingDelete, setPendingDelete] = useState(null);
   const createMenuRef = useRef(null);
   const debounceRef = useRef(null);
-  const paramsRef = useRef({ search, typeFilter, sortBy, sortDir });
-  useEffect(() => { paramsRef.current = { search, typeFilter, sortBy, sortDir }; });
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
     if (!createMenuOpen) return undefined;
@@ -32,53 +36,52 @@ const ChatsTab = forwardRef(function ChatsTab({ cachedData, isLoading, hasData, 
     return () => { document.removeEventListener("pointerdown", close, true); document.removeEventListener("keydown", onKey); };
   }, [createMenuOpen]);
 
-  // Load data with client-side filtering/sorting from the cached full list.
-  const load = useCallback(() => {
-    // Don't process data until we have it
-    if (!cachedData) {
-      setInitialized(false);
-      return;
-    }
-    
-    const { search: s, typeFilter: type, sortBy: sBy, sortDir: sDir } = paramsRef.current;
-    let filtered = cachedData.chats ?? [];
-    
-    // Search filter
-    if (s) {
-      const needle = s.toLowerCase();
-      filtered = filtered.filter((c) =>
-        (c.name ?? "").toLowerCase().includes(needle) ||
-        (c.group_username ?? "").toLowerCase().includes(needle)
-      );
-    }
-    
-    // Type filter
-    if (type) {
-      filtered = filtered.filter((c) => c.type === type);
-    }
-    
-    // Sort
-    filtered.sort((a, b) => {
-      let aVal = a[sBy];
-      let bVal = b[sBy];
-      if (typeof aVal === "string") {
-        const cmp = (aVal || "").localeCompare(bVal || "");
-        return sDir === "ASC" ? cmp : -cmp;
-      }
-      return sDir === "ASC" ? aVal - bVal : bVal - aVal;
+  // Fetch one page from the server. Sorting/filtering/search span the whole
+  // groups+channels table server-side; `total` drives the pagination footer.
+  const fetchPage = useCallback(async (targetPage) => {
+    const requestId = ++requestIdRef.current;
+    setLoading(true);
+    const offset = (Math.max(1, targetPage) - 1) * PAGE_SIZE;
+    const params = new URLSearchParams({
+      limit: String(PAGE_SIZE),
+      offset: String(offset),
+      sortBy,
+      sortDir,
     });
-    
-    setChats(filtered);
-    setInitialized(true);
-  }, [cachedData]);
+    if (search.trim()) params.set("search", search.trim());
+    if (typeFilter) params.set("type", typeFilter);
+    try {
+      const data = await api.get(`/api/admin/chats?${params.toString()}`);
+      if (requestId !== requestIdRef.current) return;
+      setChats(data.chats ?? []);
+      setTotal(Number(data.total || 0));
+      setInitialized(true);
+    } catch {
+      if (requestId !== requestIdRef.current) return;
+      setInitialized(true);
+    } finally {
+      if (requestId === requestIdRef.current) setLoading(false);
+    }
+  }, [search, typeFilter, sortBy, sortDir]);
 
+  // Reset to page 1 whenever the query changes (debounced), then fetch.
   useEffect(() => {
+    if (!active) return undefined;
     clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(load, 250);
+    debounceRef.current = setTimeout(() => {
+      setPage(1);
+      fetchPage(1);
+    }, 250);
     return () => clearTimeout(debounceRef.current);
-  }, [search, typeFilter, sortBy, sortDir, load]);
+  }, [active, fetchPage]);
 
-  useImperativeHandle(ref, () => ({ refresh: load }), [load]);
+  const goToPage = useCallback((next) => {
+    setPage(next);
+    fetchPage(next);
+  }, [fetchPage]);
+
+  const refresh = useCallback(() => { fetchPage(page); }, [fetchPage, page]);
+  useImperativeHandle(ref, () => ({ refresh }), [refresh]);
 
   const toggleSort = (field) => {
     setSortBy((prev) => {
@@ -89,7 +92,7 @@ const ChatsTab = forwardRef(function ChatsTab({ cachedData, isLoading, hasData, 
 
   const handleDelete = async (c) => {
     await api.delete(`/api/admin/chats/${c.id}`);
-    onMutated(); onStatsChange();
+    refresh(); onMutated(); onStatsChange();
   };
 
   const searchHasPersian = hasPersian(search);
@@ -128,7 +131,7 @@ const ChatsTab = forwardRef(function ChatsTab({ cachedData, isLoading, hasData, 
         </div>
       </div>
 
-      {isLoading && !hasData ? <LoadingRows /> : !initialized ? <LoadingRows /> : chats.length === 0 ? <EmptyState message="No chats found." /> : (
+      {!initialized ? <LoadingRows /> : chats.length === 0 ? <EmptyState message="No chats found." /> : (
         <>
           {/* Mobile card list */}
           <div className="space-y-2 sm:hidden">
@@ -242,11 +245,13 @@ const ChatsTab = forwardRef(function ChatsTab({ cachedData, isLoading, hasData, 
               </table>
             </div>
           </div>
+
+          <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={goToPage} busy={loading} />
         </>
       )}
 
-      {createType && <AdminGroupModal mode="create" initialType={createType} onClose={() => setCreateType(null)} onSaved={() => { onMutated(); onStatsChange(); }} />}
-      {editChat && <AdminGroupModal mode="edit" chat={editChat} onClose={() => setEditChat(null)} onSaved={onMutated} />}
+      {createType && <AdminGroupModal mode="create" initialType={createType} onClose={() => setCreateType(null)} onSaved={() => { refresh(); onMutated(); onStatsChange(); }} />}
+      {editChat && <AdminGroupModal mode="edit" chat={editChat} onClose={() => setEditChat(null)} onSaved={() => { refresh(); onMutated(); }} />}
       <ConfirmModal
         open={Boolean(pendingDelete)}
         title="Delete chat"

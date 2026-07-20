@@ -1,15 +1,20 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { Ban, CirclePlus, Filter, Pencil, Search, ShieldCheck, ShieldOff, Tag, Trash, UserPlus } from "../../icons/lucide.js";
 import { api, cardCls, inputSmCls, btnPrimary, iconBtn, fmtDate, searchIconCls } from "./adminShared.js";
-import { LoadingRows, EmptyState, FilterDropdown, SortTh, RoleBadge } from "./AdminCommon.jsx";
+import { LoadingRows, EmptyState, FilterDropdown, SortTh, RoleBadge, Pagination } from "./AdminCommon.jsx";
 import AdminUserModal from "./AdminUserModal.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 import Avatar from "../common/Avatar.jsx";
 import { hasPersian } from "../../utils/fontUtils.js";
 
-const UsersTab = forwardRef(function UsersTab({ currentUser, cachedData, isLoading, hasData, onMutated, onStatsChange }, ref) {
+const PAGE_SIZE = 50;
+
+const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMutated, onStatsChange }, ref) {
   const [users, setUsers]             = useState([]);
+  const [total, setTotal]             = useState(0);
+  const [page, setPage]               = useState(1);
   const [initialized, setInitialized] = useState(false);
+  const [loading, setLoading]         = useState(false);
   const [search, setSearch]           = useState("");
   const [roleFilter, setRoleFilter]   = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -20,65 +25,59 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, cachedData, isLoadi
   // Pending action for confirmation modals. Shape: { type, user } or null.
   const [pending, setPending]         = useState(null);
   const debounceRef = useRef(null);
-  const paramsRef = useRef({ search, roleFilter, statusFilter, sortBy, sortDir });
-  useEffect(() => { paramsRef.current = { search, roleFilter, statusFilter, sortBy, sortDir }; });
+  // Guards against out-of-order responses clobbering newer results.
+  const requestIdRef = useRef(0);
 
-  // Load data with client-side filtering/sorting from the cached full list.
-  const load = useCallback(() => {
-    // Don't process data until we have it
-    if (!cachedData) {
-      setInitialized(false);
-      return;
-    }
-    
-    const { search: s, roleFilter: role, statusFilter: status, sortBy: sBy, sortDir: sDir } = paramsRef.current;
-    let filtered = cachedData.users ?? [];
-    
-    // Search filter
-    if (s) {
-      const needle = s.toLowerCase();
-      filtered = filtered.filter((u) =>
-        (u.username ?? "").toLowerCase().includes(needle) ||
-        (u.nickname ?? "").toLowerCase().includes(needle)
-      );
-    }
-    
-    // Role filter
-    if (role) {
-      if (role === "banned") filtered = filtered.filter((u) => u.banned);
-      else filtered = filtered.filter((u) => u.role === role);
-    }
-    
-    // Status filter
-    if (status === "online") filtered = filtered.filter((u) => u.online);
-    else if (status === "offline") filtered = filtered.filter((u) => !u.online);
-    
-    // Sort
-    filtered.sort((a, b) => {
-      let aVal = a[sBy];
-      let bVal = b[sBy];
-      if (sBy === "nickname") {
-        aVal = aVal || a.username;
-        bVal = bVal || b.username;
-      }
-      if (typeof aVal === "string") {
-        const cmp = aVal.localeCompare(bVal);
-        return sDir === "ASC" ? cmp : -cmp;
-      }
-      return sDir === "ASC" ? aVal - bVal : bVal - aVal;
+  // Fetch one page from the server. Sorting/filtering/search are applied
+  // server-side across the entire users table, so the returned page reflects
+  // the whole dataset — not just locally cached rows. `total` drives the
+  // pagination footer.
+  const fetchPage = useCallback(async (targetPage) => {
+    const requestId = ++requestIdRef.current;
+    setLoading(true);
+    const offset = (Math.max(1, targetPage) - 1) * PAGE_SIZE;
+    const params = new URLSearchParams({
+      limit: String(PAGE_SIZE),
+      offset: String(offset),
+      sortBy,
+      sortDir,
     });
-    
-    setUsers(filtered);
-    setInitialized(true);
-  }, [cachedData]);
+    if (search.trim()) params.set("search", search.trim());
+    if (roleFilter) params.set("role", roleFilter);
+    if (statusFilter) params.set("status", statusFilter);
+    try {
+      const data = await api.get(`/api/admin/users?${params.toString()}`);
+      if (requestId !== requestIdRef.current) return;
+      setUsers(data.users ?? []);
+      setTotal(Number(data.total || 0));
+      setInitialized(true);
+    } catch {
+      if (requestId !== requestIdRef.current) return;
+      setInitialized(true);
+    } finally {
+      if (requestId === requestIdRef.current) setLoading(false);
+    }
+  }, [search, roleFilter, statusFilter, sortBy, sortDir]);
 
+  // Reset to page 1 whenever the query changes (debounced), then fetch.
   useEffect(() => {
+    if (!active) return undefined;
     clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(load, 250);
+    debounceRef.current = setTimeout(() => {
+      setPage(1);
+      fetchPage(1);
+    }, 250);
     return () => clearTimeout(debounceRef.current);
-  }, [search, roleFilter, statusFilter, sortBy, sortDir, load]);
+  }, [active, fetchPage]);
 
-  useImperativeHandle(ref, () => ({ refresh: load }), [load]);
+  const goToPage = useCallback((next) => {
+    setPage(next);
+    fetchPage(next);
+  }, [fetchPage]);
+
+  // Refresh the current page (used by auto-refresh, manual refresh, mutations).
+  const refresh = useCallback(() => { fetchPage(page); }, [fetchPage, page]);
+  useImperativeHandle(ref, () => ({ refresh }), [refresh]);
 
   const toggleSort = (field) => {
     setSortBy((prev) => {
@@ -89,15 +88,15 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, cachedData, isLoadi
 
   const handleBan = async (u) => {
     await api.post(`/api/admin/users/${u.id}/ban`, { banned: !u.banned });
-    onMutated(); onStatsChange();
+    refresh(); onMutated(); onStatsChange();
   };
   const handleDelete = async (u) => {
     await api.delete(`/api/admin/users/${u.id}`);
-    onMutated(); onStatsChange();
+    refresh(); onMutated(); onStatsChange();
   };
   const handleRoleToggle = async (u) => {
     await api.post(`/api/admin/users/${u.id}/role`, { role: u.role === "admin" ? "user" : "admin" });
-    onMutated();
+    refresh(); onMutated();
   };
 
   // Whether the currently logged-in admin is themselves the server owner.
@@ -124,7 +123,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, cachedData, isLoadi
         </button>
       </div>
 
-      {isLoading && !hasData ? <LoadingRows /> : !initialized ? <LoadingRows /> : users.length === 0 ? <EmptyState message="No users found." /> : (
+      {!initialized ? <LoadingRows /> : users.length === 0 ? <EmptyState message="No users found." /> : (
         <>
           {/* Mobile card list */}
           <div className="space-y-2 sm:hidden">
@@ -305,11 +304,13 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, cachedData, isLoadi
               </table>
             </div>
           </div>
+
+          <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={goToPage} busy={loading} />
         </>
       )}
 
-      {createOpen && <AdminUserModal mode="create" onClose={() => setCreateOpen(false)} onSaved={() => { onMutated(); onStatsChange(); }} />}
-      {editUser && <AdminUserModal mode="edit" user={editUser} onClose={() => setEditUser(null)} onSaved={onMutated} />}
+      {createOpen && <AdminUserModal mode="create" onClose={() => setCreateOpen(false)} onSaved={() => { refresh(); onMutated(); onStatsChange(); }} />}
+      {editUser && <AdminUserModal mode="edit" user={editUser} onClose={() => setEditUser(null)} onSaved={() => { refresh(); onMutated(); }} />}
 
       {/* Role toggle confirm */}
       <ConfirmModal

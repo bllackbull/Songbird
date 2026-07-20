@@ -4,6 +4,8 @@ import {
   ArrowDown,
   ArrowUpDown,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Close,
   Filter,
 } from "../../icons/lucide.js";
@@ -60,6 +62,50 @@ export function SortTh({ field, sortBy, sortDir, onToggle, children }) {
           : <ArrowUpDown size={10} className="opacity-30" />}
       </span>
     </th>
+  );
+}
+
+// ─── Pagination ─────────────────────────────────────────────────────────────
+
+// Server-side pagination footer. `total` is the count across the whole filtered
+// dataset (not just the current page), so sorting/filtering always span every
+// item. Renders nothing when everything fits on a single page.
+export function Pagination({ page, pageSize, total, onPageChange, busy = false }) {
+  const safeTotal    = Math.max(0, Number(total) || 0);
+  const safePageSize = Math.max(1, Number(pageSize) || 1);
+  const pageCount    = Math.max(1, Math.ceil(safeTotal / safePageSize));
+  const current      = Math.min(Math.max(1, Number(page) || 1), pageCount);
+
+  if (safeTotal === 0 || pageCount <= 1) return null;
+
+  const first = (current - 1) * safePageSize + 1;
+  const last  = Math.min(current * safePageSize, safeTotal);
+  const go = (next) => {
+    const target = Math.min(Math.max(1, next), pageCount);
+    if (target !== current && !busy) onPageChange(target);
+  };
+
+  const navBtn =
+    "inline-flex h-8 w-8 items-center justify-center rounded-xl border border-emerald-200/70 bg-white/90 text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-emerald-500/10";
+
+  return (
+    <div className="flex items-center justify-between gap-2 px-1 pt-1">
+      <p className="text-[11px] text-slate-400 dark:text-slate-500">
+        <span className="font-semibold text-slate-600 dark:text-slate-300">{first}–{last}</span> of{" "}
+        <span className="font-semibold text-slate-600 dark:text-slate-300">{safeTotal}</span>
+      </p>
+      <div className="flex items-center gap-1.5">
+        <button type="button" onClick={() => go(current - 1)} disabled={busy || current <= 1} title="Previous page" className={navBtn}>
+          <ChevronLeft size={15} />
+        </button>
+        <span className="px-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
+          {current} / {pageCount}
+        </span>
+        <button type="button" onClick={() => go(current + 1)} disabled={busy || current >= pageCount} title="Next page" className={navBtn}>
+          <ChevronRight size={15} />
+        </button>
+      </div>
+    </div>
   );
 }
 

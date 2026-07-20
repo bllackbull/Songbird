@@ -53,6 +53,8 @@ function registerAdminPanelRoutes(app, deps) {
     getAdminStats,
     adminListUsers,
     adminListChats,
+    adminCountUsers,
+    adminCountChats,
     adminBanUser,
     adminDeleteUser,
     adminDeleteChat,
@@ -228,7 +230,8 @@ function registerAdminPanelRoutes(app, deps) {
     const roleFilter = ["user", "admin", "owner", "banned"].includes(req.query.role) ? req.query.role : null;
     const statusFilter = ["online", "offline"].includes(req.query.status) ? req.query.status : null;
     const users = adminListUsers({ limit, offset, search, sortBy, sortDir, roleFilter, statusFilter });
-    res.json({ users });
+    const total = adminCountUsers({ search, roleFilter, statusFilter });
+    res.json({ users, total, limit, offset });
   });
 
   // ─── Users — create ──────────────────────────────────────────────────────────
@@ -519,7 +522,8 @@ function registerAdminPanelRoutes(app, deps) {
     const sortDir = String(req.query.sortDir || "").toLowerCase() === "asc" ? "ASC" : "DESC";
     const typeFilter = ["group", "channel"].includes(req.query.type) ? req.query.type : null;
     const chats = adminListChats({ limit, offset, search, sortBy, sortDir, typeFilter });
-    res.json({ chats });
+    const total = adminCountChats({ search, typeFilter });
+    res.json({ chats, total, limit, offset });
   });
 
   // ─── Chats — create ──────────────────────────────────────────────────────────
@@ -792,9 +796,10 @@ function registerAdminPanelRoutes(app, deps) {
   app.get("/api/admin/logs", (req, res) => {
     if (!requireAdmin(req, res)) return;
     const limit  = Number(req.query.limit || 200);
+    const offset = Number(req.query.offset || 0);
     const search = String(req.query.search || "").trim();
-    const logs = readAdminLog({ limit, search });
-    res.json({ logs });
+    const { entries, total } = readAdminLog({ limit, offset, search });
+    res.json({ logs: entries, total, limit, offset });
   });
 
   app.delete("/api/admin/logs", (req, res) => {

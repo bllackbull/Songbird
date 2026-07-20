@@ -2722,6 +2722,57 @@ export function adminListChats({ limit = 200, offset = 0, search = "", sortBy = 
   );
 }
 
+// Count users matching the same filters as adminListUsers (ignoring
+// limit/offset). Used to drive server-side pagination controls so sorting and
+// filtering always apply across the whole table, not just the current page.
+export function adminCountUsers({ search = "", roleFilter = null, statusFilter = null } = {}) {
+  const conditions = [];
+  const params     = [];
+
+  if (search) {
+    const like = `%${escapeLikePattern(search)}%`;
+    conditions.push("(username LIKE ? ESCAPE '\\' OR nickname LIKE ? ESCAPE '\\')");
+    params.push(like, like);
+  }
+  if (roleFilter === "banned") {
+    conditions.push("banned = 1");
+  } else if (roleFilter) {
+    conditions.push("banned = 0 AND role = ?");
+    params.push(roleFilter);
+  }
+
+  const onlinePredicate = "status = 'online' AND last_seen IS NOT NULL AND last_seen >= datetime('now', '-' || ? || ' seconds')";
+  if (statusFilter === "online") {
+    conditions.push(onlinePredicate);
+    params.push(ONLINE_THRESHOLD_SECONDS);
+  } else if (statusFilter === "offline") {
+    conditions.push(`NOT (${onlinePredicate})`);
+    params.push(ONLINE_THRESHOLD_SECONDS);
+  }
+
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  return Number(getRow(`SELECT COUNT(*) AS count FROM users ${where}`, params)?.count || 0);
+}
+
+// Count groups/channels matching the same filters as adminListChats.
+export function adminCountChats({ search = "", typeFilter = null } = {}) {
+  const conditions = ["c.type IN ('group', 'channel')"];
+  const params     = [];
+
+  if (search) {
+    const like = `%${escapeLikePattern(search)}%`;
+    conditions.push("(c.name LIKE ? ESCAPE '\\' OR c.group_username LIKE ? ESCAPE '\\')");
+    params.push(like, like);
+  }
+  if (typeFilter === "group" || typeFilter === "channel") {
+    conditions.push("c.type = ?");
+    params.push(typeFilter);
+  }
+
+  const where = `WHERE ${conditions.join(" AND ")}`;
+  return Number(getRow(`SELECT COUNT(*) AS count FROM chats c ${where}`, params)?.count || 0);
+}
+
 export function adminBanUser(userId, banned) {
   return run("UPDATE users SET banned = ? WHERE id = ?", [banned ? 1 : 0, userId]);
 }

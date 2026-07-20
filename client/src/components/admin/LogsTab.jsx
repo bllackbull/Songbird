@@ -21,7 +21,7 @@ import {
   UserPlus,
 } from "../../icons/lucide.js";
 import { api, cardCls, inputSmCls, btnDanger, fmtDateTime, searchIconCls } from "./adminShared.js";
-import { LoadingRows, EmptyState } from "./AdminCommon.jsx";
+import { LoadingRows, EmptyState, Pagination } from "./AdminCommon.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 import { hasPersian } from "../../utils/fontUtils.js";
 
@@ -64,54 +64,69 @@ const LOG_SOURCES = [
   { id: "nginx",     label: "Nginx" },
 ];
 
-const AdminLogView = forwardRef(function AdminLogView({ currentUser, cachedData, isLoading, hasData, onMutated }, ref) {
+const PAGE_SIZE = 50;
+
+const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = true }, ref) {
   const [logs, setLogs]               = useState([]);
+  const [total, setTotal]             = useState(0);
+  const [page, setPage]               = useState(1);
   const [initialized, setInitialized] = useState(false);
+  const [loading, setLoading]         = useState(false);
   const [search, setSearch]           = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [clearing, setClearing]       = useState(false);
   const debounceRef = useRef(null);
-  const searchRef = useRef(search);
-  useEffect(() => { searchRef.current = search; });
+  const requestIdRef = useRef(0);
 
   const isOwner = currentUser?.role === "owner";
 
-  // Load data with client-side filtering from the cached full list.
-  const load = useCallback(() => {
-    // Don't process data until we have it
-    if (!cachedData) {
-      setInitialized(false);
-      return;
+  // Fetch one page from the server. Search spans the whole admin log file
+  // server-side; `total` drives the pagination footer.
+  const fetchPage = useCallback(async (targetPage) => {
+    const requestId = ++requestIdRef.current;
+    setLoading(true);
+    const offset = (Math.max(1, targetPage) - 1) * PAGE_SIZE;
+    const params = new URLSearchParams({
+      limit: String(PAGE_SIZE),
+      offset: String(offset),
+    });
+    if (search.trim()) params.set("search", search.trim());
+    try {
+      const data = await api.get(`/api/admin/logs?${params.toString()}`);
+      if (requestId !== requestIdRef.current) return;
+      setLogs(data.logs ?? []);
+      setTotal(Number(data.total || 0));
+      setInitialized(true);
+    } catch {
+      if (requestId !== requestIdRef.current) return;
+      setInitialized(true);
+    } finally {
+      if (requestId === requestIdRef.current) setLoading(false);
     }
-    
-    const s = searchRef.current;
-    let filtered = cachedData.logs ?? [];
-    
-    if (s) {
-      const needle = s.toLowerCase();
-      filtered = filtered.filter((entry) =>
-        (entry.action ?? "").toLowerCase().includes(needle) ||
-        (entry.targetLabel ?? "").toLowerCase().includes(needle) ||
-        (entry.details ?? "").toLowerCase().includes(needle) ||
-        (entry.actorUsername ?? "").toLowerCase().includes(needle)
-      );
-    }
-    
-    setLogs(filtered);
-    setInitialized(true);
-  }, [cachedData]);
+  }, [search]);
 
+  // Reset to page 1 whenever the search changes (debounced), then fetch.
   useEffect(() => {
+    if (!active) return undefined;
     clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(load, 250);
+    debounceRef.current = setTimeout(() => {
+      setPage(1);
+      fetchPage(1);
+    }, 250);
     return () => clearTimeout(debounceRef.current);
-  }, [search, load]);
+  }, [active, fetchPage]);
 
-  useImperativeHandle(ref, () => ({ refresh: load }), [load]);
+  const goToPage = useCallback((next) => {
+    setPage(next);
+    fetchPage(next);
+  }, [fetchPage]);
+
+  const refresh = useCallback(() => { fetchPage(page); }, [fetchPage, page]);
+  useImperativeHandle(ref, () => ({ refresh }), [refresh]);
 
   const clearLogs = async () => {
     setClearing(true);
-    try { await api.delete("/api/admin/logs"); onMutated(); }
+    try { await api.delete("/api/admin/logs"); setPage(1); fetchPage(1); }
     finally { setClearing(false); setConfirmOpen(false); }
   };
 
@@ -147,7 +162,8 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser, cachedData,
         onClose={() => setConfirmOpen(false)}
       />
 
-      {isLoading && !hasData ? <LoadingRows /> : !initialized ? <LoadingRows /> : logs.length === 0 ? <EmptyState message="No log entries." /> : (
+      {!initialized ? <LoadingRows /> : logs.length === 0 ? <EmptyState message="No log entries." /> : (
+        <>
         <div className={"overflow-hidden " + cardCls}>
           {logs.map((entry, i) => {
             const meta = LOG_ACTION_META[entry.action] || { label: entry.action, color: "slate", icon: History };
@@ -175,6 +191,8 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser, cachedData,
             );
           })}
         </div>
+        <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={goToPage} busy={loading} />
+        </>
       )}
     </div>
   );
@@ -220,7 +238,7 @@ const SystemLogView = forwardRef(function SystemLogView({ source }, ref) {
   );
 });
 
-const LogsTab = forwardRef(function LogsTab({ currentUser, cachedData, isLoading, hasData, onMutated }, ref) {
+const LogsTab = forwardRef(function LogsTab({ currentUser, active = true }, ref) {
   const [source, setSource] = useState("admin");
   const viewRef = useRef(null);
 
@@ -240,7 +258,7 @@ const LogsTab = forwardRef(function LogsTab({ currentUser, cachedData, isLoading
           </button>
         ))}
       </div>
-      {source === "admin" ? <AdminLogView ref={viewRef} currentUser={currentUser} cachedData={cachedData} isLoading={isLoading} hasData={hasData} onMutated={onMutated} /> : <SystemLogView ref={viewRef} source={source} key={source} />}
+      {source === "admin" ? <AdminLogView ref={viewRef} currentUser={currentUser} active={active && source === "admin"} /> : <SystemLogView ref={viewRef} source={source} key={source} />}
     </div>
   );
 });

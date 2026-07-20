@@ -53,13 +53,16 @@ export default function AdminPanel({ user, onBack }) {
   // ── Centralised cache ────────────────────────────────────────────────────
   // Each fetcher returns raw data that gets stored in the cache and passed
   // down to the corresponding tab as a prop.  Tabs no longer fetch on mount.
+  // Users, chats, and logs are paginated server-side and own their own data
+  // fetching (see the individual tabs), so they are intentionally NOT in this
+  // shared cache. Only the small, single-shot payloads live here.
   const { cache, ensureFresh, invalidate, refresh: refreshKey, refreshAll } = useAdminCache({
     stats:    () => api.get("/api/admin/stats"),
-    users:    () => api.get("/api/admin/users?limit=1000&sortBy=id&sortDir=ASC"),
-    chats:    () => api.get("/api/admin/chats?limit=1000&sortBy=id&sortDir=ASC"),
     settings: () => api.get("/api/admin/settings"),
-    logs:     () => api.get("/api/admin/logs?limit=1000"),
   }, { ttlMs: AUTO_REFRESH_MS });
+
+  // Tabs that manage their own paginated data and expose a `refresh()` via ref.
+  const SELF_PAGINATED_TABS = ["users", "chats", "logs"];
 
   // Convenience aliases so downstream JSX stays readable.
   const stats = cache.stats?.data ?? null;
@@ -128,8 +131,10 @@ export default function AdminPanel({ user, onBack }) {
   // The dashboard also needs `stats`, so always keep that fresh.
   useEffect(() => {
     ensureFresh("stats");
-    if (tab !== "dashboard") ensureFresh(tab);
-  }, [tab, ensureFresh]);
+    // Only shared-cache tabs (e.g. settings) refetch here; self-paginated tabs
+    // load their own data on mount/param change.
+    if (tab !== "dashboard" && cache[tab] !== undefined) ensureFresh(tab);
+  }, [tab, ensureFresh, cache]);
 
   // ── Background auto-refresh (10 s) ───────────────────────────────────────
   // Refresh stats always; also refresh the current tab's data if it has a
@@ -142,6 +147,8 @@ export default function AdminPanel({ user, onBack }) {
       }
       refreshKey("stats");
       if (cache[tab] !== undefined) refreshKey(tab);
+      // Self-paginated tabs refresh their current page via their own ref.
+      else if (SELF_PAGINATED_TABS.includes(tab)) tabRefs.current[tab]?.refresh?.();
     };
     const timer = setInterval(tick, AUTO_REFRESH_MS);
     const onVisible = () => {
@@ -162,6 +169,8 @@ export default function AdminPanel({ user, onBack }) {
     const keys = ["stats"];
     if (cache[tab] !== undefined) keys.push(tab);
     await refreshAll(...keys);
+    // Self-paginated tabs aren't in the shared cache; refresh via their ref
+    // below (handled by the tabRefs.current[tab]?.refresh?.() call).
     // Also give the active tab ref a chance to refresh its own local state
     // (e.g. DashboardTab's system metrics which aren't in the shared cache).
     tabRefs.current[tab]?.refresh?.();
@@ -339,20 +348,16 @@ export default function AdminPanel({ user, onBack }) {
               <UsersTab
                 ref={(r) => { tabRefs.current.users = r; }}
                 currentUser={user}
-                cachedData={cache.users?.data ?? null}
-                isLoading={cache.users?.loading ?? false}
-                hasData={Boolean(cache.users?.data)}
-                onMutated={() => { invalidate("users"); invalidateStats(); }}
+                active={tab === "users"}
+                onMutated={invalidateStats}
                 onStatsChange={invalidateStats}
               />
             </Activity>
             <Activity mode={tab === "chats" ? "visible" : "hidden"}>
               <ChatsTab
                 ref={(r) => { tabRefs.current.chats = r; }}
-                cachedData={cache.chats?.data ?? null}
-                isLoading={cache.chats?.loading ?? false}
-                hasData={Boolean(cache.chats?.data)}
-                onMutated={() => { invalidate("chats"); invalidateStats(); }}
+                active={tab === "chats"}
+                onMutated={invalidateStats}
                 onStatsChange={invalidateStats}
               />
             </Activity>
@@ -372,10 +377,7 @@ export default function AdminPanel({ user, onBack }) {
               <LogsTab
                 ref={(r) => { tabRefs.current.logs = r; }}
                 currentUser={user}
-                cachedData={cache.logs?.data ?? null}
-                isLoading={cache.logs?.loading ?? false}
-                hasData={Boolean(cache.logs?.data)}
-                onMutated={() => invalidate("logs")}
+                active={tab === "logs"}
               />
             </Activity>
         </div>
