@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { Ban, CirclePlus, Filter, Pencil, Search, ShieldCheck, ShieldOff, Tag, Trash, UserPlus } from "../../icons/lucide.js";
-import { api, cardCls, inputSmCls, btnPrimary, iconBtn, fmtDate, searchIconCls, DEFAULT_PAGE_SIZE } from "./adminShared.js";
-import { LoadingRows, EmptyState, FilterDropdown, SortTh, RoleBadge, Pagination } from "./AdminCommon.jsx";
+import { Ban, CirclePlus, Filter, Pencil, ShieldCheck, ShieldOff, Tag, Trash, UserPlus } from "../../icons/lucide.js";
+import { api, cardCls, btnPrimary, iconBtn, fmtDate, DEFAULT_PAGE_SIZE } from "./adminShared.js";
+import { LoadingRows, EmptyState, FilterDropdown, SortTh, RoleBadge, Pagination, TabToolbar, TabSearchInput } from "./AdminCommon.jsx";
 import AdminUserModal from "./AdminUserModal.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 import Avatar from "../common/Avatar.jsx";
@@ -100,27 +100,18 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
 
   // Whether the currently logged-in admin is themselves the server owner.
   const iAmOwner = currentUser?.role === "owner";
-  const searchHasPersian = hasPersian(search);
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-nowrap items-center gap-2 sm:flex-wrap">
-        <label className="group relative block min-w-0 flex-1 sm:min-w-40">
-          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
-            <Search size={16} className={searchIconCls} />
-          </span>
-          <input type="text" placeholder="Search users…" value={search} onChange={(e) => changeSearch(e.target.value)}
-            lang={searchHasPersian ? "fa" : "en"} dir={searchHasPersian ? "rtl" : "ltr"}
-            className={inputSmCls + " pl-8" + (searchHasPersian ? " font-fa text-right" : "")}
-            style={{ unicodeBidi: "plaintext" }} />
-        </label>
+      <TabToolbar>
+        <TabSearchInput value={search} onChange={changeSearch} placeholder="Search users…" />
         <FilterDropdown value={roleFilter} onChange={changeRoleFilter} icon={Tag} options={[["", "All roles"], ["user", "User"], ["admin", "Admin"], ["owner", "Owner"], ["banned", "Banned"]]} />
         <FilterDropdown value={statusFilter} onChange={changeStatusFilter} icon={Filter} options={[["", "All"], ["online", "online"], ["offline", "offline"]]} />
         <button type="button" onClick={() => setCreateOpen(true)} title="New user"
           className={btnPrimary + " w-9 shrink-0 justify-center px-0 sm:w-auto sm:justify-start sm:px-3"}>
           <UserPlus size={16} className="icon-anim-pop shrink-0" /> <span className="hidden sm:inline">New user</span>
         </button>
-      </div>
+      </TabToolbar>
 
       {!initialized ? <LoadingRows /> : users.length === 0 ? <EmptyState message="No users found." /> : (
         <>

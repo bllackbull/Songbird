@@ -8,8 +8,10 @@ import {
   ChevronRight,
   Close,
   Filter,
+  Search,
 } from "../../icons/lucide.js";
-import { labelCls, PAGE_SIZE_OPTIONS, PAGE_LOCK_THRESHOLD } from "./adminShared.js";
+import { labelCls, PAGE_SIZE_OPTIONS, PAGE_LOCK_THRESHOLD, inputSmCls, searchIconCls } from "./adminShared.js";
+import { hasPersian } from "../../utils/fontUtils.js";
 
 // ─── Loading / empty states ─────────────────────────────────────────────────
 
@@ -28,6 +30,58 @@ export function EmptyState({ message }) {
     <div className="flex h-32 items-center justify-center rounded-2xl border border-dashed border-slate-200 dark:border-white/10">
       <p className="text-sm text-slate-400 dark:text-slate-500">{message}</p>
     </div>
+  );
+}
+
+// ─── Tab toolbar ─────────────────────────────────────────────────────────────
+
+// Consistent flex row for the search + filter + action controls at the top of
+// every paginated tab. Wraps on sm screens so buttons don't get squeezed.
+export function TabToolbar({ children }) {
+  return (
+    <div className="flex flex-nowrap items-center gap-2 sm:flex-wrap">
+      {children}
+    </div>
+  );
+}
+
+// ─── Tab search input ─────────────────────────────────────────────────────────
+
+// Shared search field used by UsersTab, ChatsTab, and LogsTab.
+export function TabSearchInput({ value, onChange, placeholder = "Search…" }) {
+  const isPersian = hasPersian(value);
+  return (
+    <label className="group relative block min-w-0 flex-1 sm:min-w-40">
+      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
+        <Search size={16} className={searchIconCls} />
+      </span>
+      <input
+        type="text"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        lang={isPersian ? "fa" : "en"}
+        dir={isPersian ? "rtl" : "ltr"}
+        className={inputSmCls + " pl-8" + (isPersian ? " font-fa text-right" : "")}
+        style={{ unicodeBidi: "plaintext" }}
+      />
+    </label>
+  );
+}
+
+// ─── Section heading ──────────────────────────────────────────────────────────
+
+// Small all-caps overline label used above content sections in DashboardTab,
+// ActionsTab, and SettingsTab. `danger` switches the colour to rose.
+export function SectionHeading({ children, danger = false }) {
+  return (
+    <h2 className={`mb-3 text-[10px] font-semibold uppercase tracking-widest ${
+      danger
+        ? "text-rose-400 dark:text-rose-400/80"
+        : "text-slate-400 dark:text-slate-500"
+    }`}>
+      {children}
+    </h2>
   );
 }
 

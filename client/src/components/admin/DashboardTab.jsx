@@ -16,6 +16,7 @@ import {
   Wifi,
 } from "../../icons/lucide.js";
 import { api, cardCls, fmtBytes, fmtUptime } from "./adminShared.js";
+import { SectionHeading } from "./AdminCommon.jsx";
 
 const prefersReducedMotion = () =>
   typeof window !== "undefined" &&
@@ -315,9 +316,7 @@ const DashboardTab = forwardRef(function DashboardTab({ stats, onStatsChange }, 
     <div className="space-y-5">
       {/* Resource gauges */}
       <div>
-        <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">
-          Resources
-        </h2>
+        <SectionHeading>Resources</SectionHeading>
         <div className={cardCls + " p-4"}>
           {!sys ? (
             <p className="py-6 text-center text-xs text-slate-400 dark:text-slate-500">
@@ -378,9 +377,7 @@ const DashboardTab = forwardRef(function DashboardTab({ stats, onStatsChange }, 
 
       {/* Overview stat cards */}
       <div>
-        <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">
-          Overview
-        </h2>
+        <SectionHeading>Overview</SectionHeading>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {statCards.map(({ label, value, icon: Icon, accent, hint }) => (
             <div key={label} className={cardCls + " px-4 py-3"} title={hint}>

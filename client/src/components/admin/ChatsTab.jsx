@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { ChevronDown, Globe, Lock, Megaphone, MessageCircleMore, Pencil, Plus, Search, Trash, Users } from "../../icons/lucide.js";
-import { api, cardCls, inputSmCls, btnPrimary, iconBtn, fmtDate, searchIconCls, DEFAULT_PAGE_SIZE } from "./adminShared.js";
-import { LoadingRows, EmptyState, FilterDropdown, SortTh, Pagination } from "./AdminCommon.jsx";
+import { ChevronDown, Globe, Lock, Megaphone, MessageCircleMore, Pencil, Plus, Trash, Users } from "../../icons/lucide.js";
+import { api, cardCls, btnPrimary, iconBtn, fmtDate, DEFAULT_PAGE_SIZE } from "./adminShared.js";
+import { LoadingRows, EmptyState, FilterDropdown, SortTh, Pagination, TabToolbar, TabSearchInput } from "./AdminCommon.jsx";
 import AdminGroupModal from "./AdminGroupModal.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 import Avatar from "../common/Avatar.jsx";
@@ -94,20 +94,10 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
     refresh(); onMutated(); onStatsChange();
   };
 
-  const searchHasPersian = hasPersian(search);
-
   return (
     <div className="space-y-3">
-      <div className="flex flex-nowrap items-center gap-2 sm:flex-wrap">
-        <label className="group relative block min-w-0 flex-1 sm:min-w-40">
-          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
-            <Search size={16} className={searchIconCls} />
-          </span>
-          <input type="text" placeholder="Search chats…" value={search} onChange={(e) => changeSearch(e.target.value)}
-            lang={searchHasPersian ? "fa" : "en"} dir={searchHasPersian ? "rtl" : "ltr"}
-            className={inputSmCls + " pl-8" + (searchHasPersian ? " font-fa text-right" : "")}
-            style={{ unicodeBidi: "plaintext" }} />
-        </label>
+      <TabToolbar>
+        <TabSearchInput value={search} onChange={changeSearch} placeholder="Search chats…" />
         <FilterDropdown value={typeFilter} onChange={changeTypeFilter} options={[["", "All types"], ["group", "Groups"], ["channel", "Channels"]]} />
         <div ref={createMenuRef} className="relative shrink-0">
           <button type="button" onClick={() => setCreateMenuOpen((o) => !o)} aria-expanded={createMenuOpen} title="New chat"
@@ -128,7 +118,7 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
             </div>
           ) : null}
         </div>
-      </div>
+      </TabToolbar>
 
       {!initialized ? <LoadingRows /> : chats.length === 0 ? <EmptyState message="No chats found." /> : (
         <>

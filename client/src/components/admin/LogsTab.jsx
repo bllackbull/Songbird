@@ -13,15 +13,14 @@ import {
   Power,
   Refresh,
   Rotate,
-  Search,
   Settings,
   Tag,
   Trash,
   UserMinus,
   UserPlus,
 } from "../../icons/lucide.js";
-import { api, cardCls, inputSmCls, btnDanger, fmtDateTime, searchIconCls, DEFAULT_PAGE_SIZE } from "./adminShared.js";
-import { LoadingRows, EmptyState, Pagination } from "./AdminCommon.jsx";
+import { api, cardCls, btnDanger, fmtDateTime, DEFAULT_PAGE_SIZE } from "./adminShared.js";
+import { LoadingRows, EmptyState, Pagination, TabToolbar, TabSearchInput } from "./AdminCommon.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 import { hasPersian } from "../../utils/fontUtils.js";
 
@@ -127,27 +126,17 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = tr
     finally { setClearing(false); setConfirmOpen(false); }
   };
 
-  const searchHasPersian = hasPersian(search);
-
   return (
     <div className="space-y-3">
-      <div className="flex flex-nowrap items-center gap-2 sm:flex-wrap">
-        <label className="group relative block min-w-0 flex-1 sm:min-w-40">
-          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
-            <Search size={16} className={searchIconCls} />
-          </span>
-          <input type="text" placeholder="Search logs…" value={search} onChange={(e) => changeSearch(e.target.value)}
-            lang={searchHasPersian ? "fa" : "en"} dir={searchHasPersian ? "rtl" : "ltr"}
-            className={inputSmCls + " pl-8" + (searchHasPersian ? " font-fa text-right" : "")}
-            style={{ unicodeBidi: "plaintext" }} />
-        </label>
+      <TabToolbar>
+        <TabSearchInput value={search} onChange={changeSearch} placeholder="Search logs…" />
         {isOwner && (
           <button type="button" onClick={() => setConfirmOpen(true)} title="Clear"
             className={btnDanger + " w-9 shrink-0 justify-center px-0 sm:w-auto sm:justify-start sm:px-3"}>
             <Trash size={16} className="icon-anim-slide shrink-0" /> <span className="hidden sm:inline">Clear</span>
           </button>
         )}
-      </div>
+      </TabToolbar>
 
       <ConfirmModal
         open={confirmOpen}
