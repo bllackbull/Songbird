@@ -138,6 +138,25 @@ sudo chown -R songbird:songbird /opt/songbird
 git config --global --add safe.directory /opt/songbird
 ```
 
+4. به کاربر سرویس اجازه دهید واحد خودش را کنترل کرده و لاگ‌های سیستم را بخواند (لازم است برای دکمه‌های راه‌اندازی مجدد/توقف سرویس و تب Logs در پنل ادمین):
+
+```bash
+sudo tee /etc/sudoers.d/songbird > /dev/null <<'EOF'
+# Songbird — allow the service user to control its own unit
+# and read privileged logs without a password.
+songbird ALL=(root) NOPASSWD: /usr/bin/systemctl restart songbird.service
+songbird ALL=(root) NOPASSWD: /usr/bin/systemctl stop songbird.service
+songbird ALL=(root) NOPASSWD: /usr/bin/journalctl -u songbird *
+songbird ALL=(root) NOPASSWD: /usr/bin/cat /var/log/nginx/error.log
+songbird ALL=(root) NOPASSWD: /usr/bin/cat /var/log/nginx/access.log
+songbird ALL=(root) NOPASSWD: /usr/bin/nginx -t
+songbird ALL=(root) NOPASSWD: /usr/bin/systemctl reload nginx
+EOF
+sudo chmod 0440 /etc/sudoers.d/songbird
+```
+
+بدون این مرحله، دکمه‌های **راه‌اندازی مجدد سرویس** و **توقف سرویس** در پنل ادمین با خطای دسترسی مواجه می‌شوند و لاگ‌های سیستم (journal سرویس، nginx) در تب Logs نمایش داده نمی‌شوند.
+
 **فعال‌سازی و راه‌اندازی سرویس:**
 
 ```bash
