@@ -94,6 +94,7 @@ function registerAdminPanelRoutes(app, deps) {
     updateChannelChat,
     // emitting SSE on changes
     emitChatEvent,
+    emitSseEvent,
     broadcastAll,
     // avatar upload
     uploadAvatar,
@@ -590,6 +591,14 @@ function registerAdminPanelRoutes(app, deps) {
 
     adminSave();
     const created = findChatById(chatId);
+    // Notify the owner so the new chat appears in their sidebar immediately.
+    emitSseEvent(String(owner.username || ""), { type: "chat_list_changed" });
+    // Also notify any additional members.
+    memberIds.forEach((mid) => {
+      if (mid === Number(owner.id)) return;
+      const member = findUserById(mid);
+      if (member?.username) emitSseEvent(String(member.username), { type: "chat_list_changed" });
+    });
     log(session, "chat.create", { targetType: "chat", targetLabel: name, details: `type=${type}` });
     res.status(201).json({ ok: true, chat: created });
   });
@@ -622,6 +631,7 @@ function registerAdminPanelRoutes(app, deps) {
       }
     }
 
+    let newOwnerUsername = null;
     if (b.owner !== undefined) {
       const newOwner = isNaN(Number(b.owner))
         ? findUserByUsername(String(b.owner).toLowerCase())
@@ -630,6 +640,7 @@ function registerAdminPanelRoutes(app, deps) {
       adminRun("UPDATE chat_members SET role = 'member' WHERE chat_id = ? AND role = 'owner'", [chatId]);
       adminRun("INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, 'owner')", [chatId, Number(newOwner.id)]);
       adminRun("UPDATE chat_members SET role = 'owner' WHERE chat_id = ? AND user_id = ?", [chatId, Number(newOwner.id)]);
+      newOwnerUsername = String(newOwner.username || "");
     }
 
     if (chat.type === "group") {
@@ -642,6 +653,12 @@ function registerAdminPanelRoutes(app, deps) {
     adminSave();
 
     emitChatEvent(chatId, { type: "chat_updated", chatId });
+    // If ownership was transferred, the new owner may not have been in the
+    // member list before (INSERT OR IGNORE just added them). emitChatEvent only
+    // reaches existing members cached before this request, so emit directly.
+    if (newOwnerUsername) {
+      emitSseEvent(newOwnerUsername, { type: "chat_list_changed" });
+    }
     const updated = findChatById(chatId);
     log(session, "chat.edit", { targetType: "chat", targetLabel: updated.name || `Chat #${chatId}` });
     res.json({ ok: true, chat: updated });
@@ -750,6 +767,10 @@ function registerAdminPanelRoutes(app, deps) {
     if (!user) return res.status(404).json({ error: "User not found" });
     addChatMember(chatId, userId, "member");
     adminSave();
+    // Notify the added user so the chat appears in their sidebar immediately.
+    emitSseEvent(String(user.username), { type: "chat_list_changed" });
+    // Notify existing members that the member list changed.
+    emitChatEvent(chatId, { type: "chat_updated", chatId });
     log(session, "chat.member_add", { targetType: "chat", targetLabel: chat.name || `Chat #${chatId}`, details: `+@${user.username}` });
     res.json({ ok: true });
   });
@@ -766,6 +787,10 @@ function registerAdminPanelRoutes(app, deps) {
     const user = findUserById(userId);
     removeChatMember(chatId, userId);
     adminSave();
+    // Notify the removed user so the chat disappears from their sidebar.
+    if (user?.username) emitSseEvent(String(user.username), { type: "chat_list_changed" });
+    // Notify remaining members that the member list changed.
+    emitChatEvent(chatId, { type: "chat_updated", chatId });
     log(session, "chat.member_remove", { targetType: "chat", targetLabel: chat?.name || `Chat #${chatId}`, details: user ? `-@${user.username}` : `-#${userId}` });
     res.json({ ok: true });
   });
@@ -784,6 +809,8 @@ function registerAdminPanelRoutes(app, deps) {
     const user = findUserById(userId);
     setChatMemberRole(chatId, userId, role);
     adminSave();
+    // Notify the affected user and all other members of the role change.
+    emitChatEvent(chatId, { type: "chat_updated", chatId });
     log(session, "chat.member_role", { targetType: "chat", targetLabel: chat?.name || `Chat #${chatId}`, details: `@${user?.username || userId} → ${role}` });
     res.json({ ok: true, role });
   });
