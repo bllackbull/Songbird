@@ -899,6 +899,36 @@ function registerAdminPanelRoutes(app, deps) {
 
   const SERVICE_NAME = process.env.SONGBIRD_SERVICE_NAME || "songbird.service";
 
+  // Detects whether the server is running inside a Docker container by checking
+  // for the presence of /.dockerenv (set by the Docker runtime on every container).
+  const isDocker = () => {
+    try { return deps.fs.existsSync("/.dockerenv"); } catch { return false; }
+  };
+
+  // Sends a POST request to the Docker Engine API via the Unix socket to
+  // restart or stop this container. The container name / ID is read from the
+  // HOSTNAME env var, which Docker sets to the container ID by default, and
+  // can be overridden with SONGBIRD_CONTAINER_NAME for named containers.
+  const runDockerAction = (action) => new Promise((resolve) => {
+    const container = process.env.SONGBIRD_CONTAINER_NAME || process.env.HOSTNAME || "songbird";
+    const socketPath = "/var/run/docker.sock";
+    // action is "restart" or "stop" — both are POST endpoints in the Docker API.
+    const path = `/containers/${container}/${action}`;
+    // Use the built-in http module to talk to the socket directly, avoiding any
+    // extra dependency. t=5 gives the container 5 s to stop gracefully.
+    const http = deps.http;
+    if (!http) return resolve({ ok: false, error: "http module not available." });
+    const req = http.request({ socketPath, path: `${path}?t=5`, method: "POST" }, (res) => {
+      // 204 = success for both restart and stop; 304 = already stopped (not an error).
+      resolve(res.statusCode === 204 || res.statusCode === 304
+        ? { ok: true }
+        : { ok: false, error: `Docker API returned HTTP ${res.statusCode}` });
+      res.resume(); // drain response body
+    });
+    req.on("error", (err) => resolve({ ok: false, error: `Docker socket error: ${err.message}` }));
+    req.end();
+  });
+
   // Runs `systemctl <action> <service>`, falling back to sudo -n if needed.
   const runSystemctl = (action) => new Promise((resolve) => {
     execFile("systemctl", [action, SERVICE_NAME], { timeout: 8000 }, (err) => {
@@ -911,13 +941,17 @@ function registerAdminPanelRoutes(app, deps) {
     });
   });
 
+  // Dispatches to the right mechanism based on the deployment environment.
+  const runServiceAction = (action) =>
+    isDocker() ? runDockerAction(action) : runSystemctl(action);
+
   app.post("/api/admin/service/restart", async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
     log(session, "service.restart", { targetType: "system", targetLabel: SERVICE_NAME });
     // Respond first — a successful restart kills this process before the command returns.
     res.json({ ok: true, pending: true });
-    setTimeout(() => { runSystemctl("restart"); }, 250);
+    setTimeout(() => { runServiceAction("restart"); }, 250);
   });
 
   app.post("/api/admin/service/stop", async (req, res) => {
@@ -925,7 +959,7 @@ function registerAdminPanelRoutes(app, deps) {
     if (!session) return;
     log(session, "service.stop", { targetType: "system", targetLabel: SERVICE_NAME });
     res.json({ ok: true, pending: true });
-    setTimeout(() => { runSystemctl("stop"); }, 250);
+    setTimeout(() => { runServiceAction("stop"); }, 250);
   });
 
   // ─── Nginx config update + reload ───────────────────────────────────────────

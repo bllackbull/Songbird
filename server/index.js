@@ -1,6 +1,7 @@
 import express from "express";
 import path from "node:path";
 import fs from "node:fs";
+import http from "node:http";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -679,6 +680,7 @@ const apiDeps = {
   parseUploadFileMetadata,
   path,
   projectRootDir,
+  http,
   skipAllRemoteChannelQueueItems,
   skipCurrentRemoteChannelQueueItem,
   updateRemoteChannelSourcePaused,
