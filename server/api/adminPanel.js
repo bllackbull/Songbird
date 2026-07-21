@@ -94,6 +94,7 @@ function registerAdminPanelRoutes(app, deps) {
     updateChannelChat,
     // emitting SSE on changes
     emitChatEvent,
+    broadcastAll,
     // avatar upload
     uploadAvatar,
     avatarUploadRootDir,
@@ -870,6 +871,8 @@ function registerAdminPanelRoutes(app, deps) {
       const { storedNames } = adminClearAllMessages() || {};
       if (Array.isArray(storedNames) && storedNames.length > 0) removeStoredFileNames(storedNames);
       log(session, "db.clear_messages", { targetType: "system", details: `${storedNames?.length || 0} files removed` });
+      // Notify all connected clients so chat windows refresh their message list.
+      broadcastAll({ type: "chat_list_changed" });
       res.json({ ok: true });
     } catch (err) {
       log(session, "db.clear_messages", { targetType: "system", status: "error", details: String(err?.message || err) });
@@ -888,6 +891,8 @@ function registerAdminPanelRoutes(app, deps) {
       const { storedNames } = adminResetDatabase() || {};
       if (Array.isArray(storedNames) && storedNames.length > 0) removeStoredFileNames(storedNames);
       log(session, "db.reset", { targetType: "system", details: `${storedNames?.length || 0} files removed` });
+      // Force every connected client to log out immediately.
+      broadcastAll({ type: "session_revoked" });
       res.json({ ok: true });
     } catch (err) {
       log(session, "db.reset", { targetType: "system", status: "error", details: String(err?.message || err) });
@@ -1135,6 +1140,9 @@ function registerAdminPanelRoutes(app, deps) {
 
       // Hot-reload the in-memory DB from the restored file.
       reloadDatabase();
+
+      // Force every connected client to log out and re-authenticate against the restored database.
+      broadcastAll({ type: "session_revoked" });
 
       log(session, "db.restore", { targetType: "system", targetLabel: file.originalname || "uploaded.db" });
       res.json({ ok: true });

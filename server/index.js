@@ -398,7 +398,7 @@ const {
   registerUploadRoutes,
 } = uploadTools;
 
-const { addSseClient, removeSseClient, emitSseEvent, emitChatEvent, getCachedMembers, isUserConnected } = createSseHub({
+const { addSseClient, removeSseClient, emitSseEvent, emitChatEvent, broadcastAll, getCachedMembers, isUserConnected } = createSseHub({
   listChatMembers,
 });
 
@@ -619,6 +619,7 @@ const apiDeps = {
   deleteUserById,
   emitChatEvent,
   emitSseEvent,
+  broadcastAll,
   isUserConnected,
   enqueueRemoteChannelQueueItem,
   enqueueVideoTranscodeJob,

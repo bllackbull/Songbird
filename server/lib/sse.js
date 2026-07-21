@@ -71,11 +71,22 @@ export function createSseHub({ listChatMembers }) {
     });
   }
 
+  // Broadcasts a payload to every currently connected SSE client.
+  function broadcastAll(payload) {
+    const message = `data: ${JSON.stringify(payload)}\n\n`;
+    sseClientsByUsername.forEach((clients) => {
+      clients.forEach((client) => {
+        try { client.write(message); } catch (_) {}
+      });
+    });
+  }
+
   return {
     addSseClient,
     removeSseClient,
     emitSseEvent,
     emitChatEvent,
+    broadcastAll,
     getCachedMembers,
     isUserConnected(username) {
       const key = String(username || "").toLowerCase();
