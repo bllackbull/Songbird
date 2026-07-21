@@ -251,11 +251,11 @@ export default function AdminPanel({ user, onBack }) {
             <button key={id} type="button"
               onClick={() => selectTab(id)}
               title={!showLabels ? label : undefined}
-              className={`flex h-9 w-full items-center rounded-xl transition
+              className={`flex h-9 w-full items-center rounded-xl border transition
                 ${showLabels ? "gap-2.5 px-3 text-sm font-semibold" : "justify-center"}
                 ${tab === id
-                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
-                  : "text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 dark:text-slate-100 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
+                  ? "border-emerald-400 bg-emerald-50 text-emerald-700 dark:border-emerald-400/60 dark:bg-emerald-500/10 dark:text-emerald-300"
+                  : "border-transparent text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 dark:text-slate-100 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
                 }`}>
               <Icon size={15} className={`shrink-0 text-emerald-500 ${anim}`} />
               {showLabels && <span className="truncate">{label}</span>}
