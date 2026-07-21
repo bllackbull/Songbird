@@ -11,6 +11,21 @@ import { execFile } from "node:child_process";
 const UPLOADS_SIZE_CACHE_TTL_MS = 60_000;
 let uploadsSizeCache = { bytes: 0, fetchedAt: 0 };
 
+// A short TTL cache to collapse concurrent hits on getAdminStats into 
+// a single query burst, bounded to once per interval.
+const STATS_CACHE_TTL_MS = 10_000;
+let statsCache = { data: null, fetchedAt: 0 };
+
+function getCachedAdminStats(getAdminStats) {
+  const now = Date.now();
+  if (statsCache.data && now - statsCache.fetchedAt < STATS_CACHE_TTL_MS) {
+    return statsCache.data;
+  }
+  const data = getAdminStats();
+  statsCache = { data, fetchedAt: now };
+  return data;
+}
+
 function getCachedUploadsSizeBytes(fs, nodePath, uploadsRoot) {
   const now = Date.now();
   if (now - uploadsSizeCache.fetchedAt < UPLOADS_SIZE_CACHE_TTL_MS) {
@@ -145,7 +160,7 @@ function registerAdminPanelRoutes(app, deps) {
 
   app.get("/api/admin/stats", (req, res) => {
     if (!requireAdmin(req, res)) return;
-    res.json(getAdminStats());
+    res.json(getCachedAdminStats(getAdminStats));
   });
 
   app.get("/api/admin/system", (req, res) => {
