@@ -244,8 +244,7 @@ function registerAdminPanelRoutes(app, deps) {
     const sortDir   = String(req.query.sortDir || "").toLowerCase() === "asc" ? "ASC" : "DESC";
     const roleFilter = ["user", "admin", "owner", "banned"].includes(req.query.role) ? req.query.role : null;
     const statusFilter = ["online", "offline"].includes(req.query.status) ? req.query.status : null;
-    const users = adminListUsers({ limit, offset, search, sortBy, sortDir, roleFilter, statusFilter });
-    const total = adminCountUsers({ search, roleFilter, statusFilter });
+    const { users, total } = adminListUsers({ limit, offset, search, sortBy, sortDir, roleFilter, statusFilter });
     res.json({ users, total, limit, offset });
   });
 
@@ -536,8 +535,7 @@ function registerAdminPanelRoutes(app, deps) {
       ? req.query.sortBy : "id";
     const sortDir = String(req.query.sortDir || "").toLowerCase() === "asc" ? "ASC" : "DESC";
     const typeFilter = ["group", "channel"].includes(req.query.type) ? req.query.type : null;
-    const chats = adminListChats({ limit, offset, search, sortBy, sortDir, typeFilter });
-    const total = adminCountChats({ search, typeFilter });
+    const { chats, total } = adminListChats({ limit, offset, search, sortBy, sortDir, typeFilter });
     res.json({ chats, total, limit, offset });
   });
 
