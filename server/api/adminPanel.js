@@ -897,7 +897,7 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Service control ─────────────────────────────────────────────────────────
 
-  const SERVICE_NAME = process.env.SONGBIRD_SERVICE_NAME || "songbird.service";
+  const SERVICE_NAME = process.env.SONGBIRD_SERVICE_NAME || "songbird";
 
   // Detects whether the server is running inside a Docker container by checking
   // for the presence of /.dockerenv (set by the Docker runtime on every container).
