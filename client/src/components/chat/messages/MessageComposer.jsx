@@ -989,7 +989,7 @@ export function MessageComposer({
                 <Paperclip size={18} className="icon-anim-sway" />
               </button>
               {showUploadMenu && !uploadBusy ? (
-                <div className="absolute bottom-12 left-0 z-40 w-44 rounded-xl border border-emerald-200/80 bg-white p-1.5 shadow-lg dark:border-emerald-500/30 dark:bg-slate-950">
+                <div className="absolute bottom-12 left-0 z-40 w-44 overflow-hidden rounded-2xl border border-emerald-200 bg-white p-1 text-sm font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100">
                   <button
                     type="button"
                     onPointerDown={(event) => {
@@ -1000,9 +1000,9 @@ export function MessageComposer({
                       openFilePicker(mediaInputRef);
                       setShowUploadMenu(false);
                     }}
-                    className="flex w-full items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-left text-xs text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
                   >
-                    <ImageIcon size={15} className="icon-anim-sway" />
+                    <ImageIcon size={18} className="shrink-0 text-emerald-500 icon-anim-sway" />
                     Photo or Video
                   </button>
                   <button
@@ -1015,9 +1015,9 @@ export function MessageComposer({
                       openFilePicker(documentInputRef);
                       setShowUploadMenu(false);
                     }}
-                    className="mt-1 flex w-full items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-left text-xs text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
                   >
-                    <File size={15} className="icon-anim-lift" />
+                    <File size={18} className="shrink-0 text-emerald-500 icon-anim-lift" />
                     Document
                   </button>
                 </div>
