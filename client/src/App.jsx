@@ -1038,8 +1038,19 @@ export default function App() {
                   allowSignup={accountCreationEnabled}
                 />
               )}
-              {route === 'chat' && user ? (
-                <ChatPage user={user} setUser={setUser} isDark={isDark} setIsDark={setIsDark} toggleTheme={toggleTheme} adminPanelEnabled={adminPanelEnabled} />
+              {user && (route === 'chat' || route === 'admin') ? (
+                // Keep ChatPage mounted while visiting /admin so health, SSE,
+                // and in-memory caches survive. Hide it instead of unmounting.
+                <div
+                  className={
+                    route === 'admin'
+                      ? 'hidden'
+                      : 'flex min-h-0 h-full w-full flex-1'
+                  }
+                  aria-hidden={route === 'admin' ? true : undefined}
+                >
+                  <ChatPage user={user} setUser={setUser} isDark={isDark} setIsDark={setIsDark} toggleTheme={toggleTheme} adminPanelEnabled={adminPanelEnabled} />
+                </div>
               ) : null}
               {route === 'admin' && user && adminPanelEnabled ? (
                 <AdminPage user={user} onBack={() => navigate('/chat', true)} />

@@ -72,7 +72,7 @@ export function useChatEvents({
   const onSessionRevokedRef = useRef(onSessionRevoked);
   const canMarkReadInCurrentViewRef = useRef(canMarkReadInCurrentView);
   const loadChatsTimerRef = useRef(null);
-  const loadChatsScheduledRef = useRef(false);
+  const loadChatsFirstScheduledAtRef = useRef(0);
 
   useEffect(() => {
     onIncomingMessageRef.current = onIncomingMessage;
@@ -116,14 +116,32 @@ export function useChatEvents({
     let isMounted = true;
     let reconnectAttempts = 0;
 
+    // Trailing debounce for chat-list reloads. Each event pushes the flush out
+    // by LOAD_CHATS_DEBOUNCE_MS so a burst (e.g. bulk deletes, rapid list
+    // changes) collapses into a single listChatsForUser reload. A max-wait
+    // ceiling guarantees a continuous stream still reloads within a bounded
+    // time instead of being starved forever.
+    const LOAD_CHATS_DEBOUNCE_MS = 250;
+    const LOAD_CHATS_MAX_WAIT_MS = 1000;
+
+    const flushLoadChats = () => {
+      loadChatsTimerRef.current = null;
+      loadChatsFirstScheduledAtRef.current = 0;
+      void loadChatsRef.current?.({ silent: true });
+    };
+
     const scheduleLoadChats = () => {
-      if (loadChatsScheduledRef.current) return;
-      loadChatsScheduledRef.current = true;
-      loadChatsTimerRef.current = window.setTimeout(() => {
-        loadChatsScheduledRef.current = false;
-        loadChatsTimerRef.current = null;
-        void loadChatsRef.current?.({ silent: true });
-      }, 180);
+      const now = Date.now();
+      if (!loadChatsFirstScheduledAtRef.current) {
+        loadChatsFirstScheduledAtRef.current = now;
+      }
+      if (loadChatsTimerRef.current) {
+        window.clearTimeout(loadChatsTimerRef.current);
+      }
+      const elapsed = now - loadChatsFirstScheduledAtRef.current;
+      const remainingMaxWait = Math.max(0, LOAD_CHATS_MAX_WAIT_MS - elapsed);
+      const delay = Math.min(LOAD_CHATS_DEBOUNCE_MS, remainingMaxWait);
+      loadChatsTimerRef.current = window.setTimeout(flushLoadChats, delay);
     };
 
     const connect = () => {
@@ -356,12 +374,21 @@ export function useChatEvents({
             });
             return;
           }
+          if (payload.type === "chat_read") {
+            // Read receipts are already applied to messages/chat state above
+            // (and channel seen-counts refresh via onChatRead). No message
+            // content changed, so skip the full-window refetch entirely.
+            return;
+          }
           if (isUpdateEvent) {
             scheduleLoadChats();
           }
           scheduleMessageRefreshRef.current?.(currentActiveId, {
             preserveHistory: true,
             pruneMissing: isUpdateEvent,
+            // Plain new-message appends only need a bounded tail delta; edits
+            // change existing content and must reconcile the current window.
+            tailDelta: !isUpdateEvent,
           });
         }
       };
@@ -398,7 +425,7 @@ export function useChatEvents({
         clearTimeout(loadChatsTimerRef.current);
         loadChatsTimerRef.current = null;
       }
-      loadChatsScheduledRef.current = false;
+      loadChatsFirstScheduledAtRef.current = 0;
     };
   }, [
     activeChatIdRef,

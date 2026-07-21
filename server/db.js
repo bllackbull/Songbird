@@ -1576,6 +1576,8 @@ export function deleteUserById(userId) {
 }
 
 export function listChatsForUser(userId) {
+  const uid = Number(userId);
+
   return getAll(
     `
     WITH member_chats AS (
@@ -1598,50 +1600,6 @@ export function listChatsForUser(userId) {
       LEFT JOIN hidden_chats h ON h.chat_id = c.id AND h.user_id = m.user_id
       WHERE m.user_id = ?
         AND h.chat_id IS NULL
-    ),
-    visible_messages AS (
-      SELECT
-        cm.id,
-        cm.chat_id,
-        cm.user_id,
-        cm.client_request_id,
-        COALESCE(cm.edited_body, cm.body) AS body,
-        cm.created_at,
-        cm.read_at,
-        cm.read_by_user_id
-      FROM member_chats mc
-      JOIN chat_messages cm ON cm.chat_id = mc.id
-      LEFT JOIN hidden_chat_messages hcm
-        ON hcm.message_id = cm.id
-       AND hcm.user_id = ?
-      WHERE cm.body NOT LIKE '[[system:%]]'
-        AND cm.hidden_everyone_at IS NULL
-        AND hcm.message_id IS NULL
-    ),
-    last_visible_message_ids AS (
-      SELECT chat_id, MAX(id) AS last_message_id
-      FROM visible_messages
-      GROUP BY chat_id
-    ),
-    last_outgoing_message_ids AS (
-      SELECT chat_id, MAX(id) AS last_outgoing_message_id
-      FROM visible_messages
-      WHERE user_id = ?
-        AND NOT (${REMOTE_MESSAGE_CLIENT_REQUEST_SQL})
-      GROUP BY chat_id
-    ),
-    unread_counts AS (
-      SELECT vm.chat_id, COUNT(*) AS unread_count
-      FROM visible_messages vm
-      LEFT JOIN chat_message_reads cmr
-        ON cmr.message_id = vm.id
-       AND cmr.user_id = ?
-      WHERE (
-          vm.user_id != ?
-          OR LOWER(COALESCE(vm.client_request_id, '')) LIKE 'remote:%'
-        )
-        AND cmr.message_id IS NULL
-      GROUP BY vm.chat_id
     )
     SELECT
       mc.id,
@@ -1656,8 +1614,8 @@ export function listChatsForUser(userId) {
       mc.created_by_user_id,
       mc.muted,
       COALESCE(rcs.enabled, 0) AS remote_channel_enabled,
-      lvm.last_message_id,
-      last_vm.body AS last_message,
+      last_vm.id AS last_message_id,
+      COALESCE(last_vm.edited_body, last_vm.body) AS last_message,
       last_vm.created_at AS last_time,
       last_vm.user_id AS last_sender_id,
       last_vm.client_request_id AS last_message_client_request_id,
@@ -1673,23 +1631,74 @@ export function listChatsForUser(userId) {
       last_vm.read_at AS last_message_read_at,
       last_vm.read_by_user_id AS last_message_read_by_user_id,
       outgoing_vm.created_at AS last_outgoing_time,
-      COALESCE(uc.unread_count, 0) AS unread_count
+      COALESCE((
+        SELECT COUNT(*)
+        FROM chat_messages unread_cm
+        WHERE unread_cm.chat_id = mc.id
+          AND unread_cm.body NOT LIKE '[[system:%]]'
+          AND unread_cm.hidden_everyone_at IS NULL
+          AND (
+            unread_cm.user_id != ?
+            OR LOWER(COALESCE(unread_cm.client_request_id, '')) LIKE 'remote:%'
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM chat_message_reads cmr
+            WHERE cmr.user_id = ?
+              AND cmr.message_id = unread_cm.id
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM hidden_chat_messages unread_hcm
+            WHERE unread_hcm.user_id = ?
+              AND unread_hcm.message_id = unread_cm.id
+          )
+      ), 0) AS unread_count
     FROM member_chats mc
-    LEFT JOIN last_visible_message_ids lvm ON lvm.chat_id = mc.id
-    LEFT JOIN visible_messages last_vm ON last_vm.id = lvm.last_message_id
+    LEFT JOIN chat_messages last_vm ON last_vm.id = (
+      SELECT last_cm.id
+      FROM chat_messages last_cm
+      WHERE last_cm.chat_id = mc.id
+        AND last_cm.body NOT LIKE '[[system:%]]'
+        AND last_cm.hidden_everyone_at IS NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM hidden_chat_messages last_hcm
+          WHERE last_hcm.user_id = ?
+            AND last_hcm.message_id = last_cm.id
+        )
+      ORDER BY last_cm.id DESC
+      LIMIT 1
+    )
     LEFT JOIN users last_user ON last_user.id = last_vm.user_id
-    LEFT JOIN last_outgoing_message_ids lom ON lom.chat_id = mc.id
-    LEFT JOIN visible_messages outgoing_vm ON outgoing_vm.id = lom.last_outgoing_message_id
-    LEFT JOIN unread_counts uc ON uc.chat_id = mc.id
+    LEFT JOIN chat_messages outgoing_vm ON outgoing_vm.id = (
+      SELECT outgoing_cm.id
+      FROM chat_messages outgoing_cm
+      WHERE outgoing_cm.chat_id = mc.id
+        AND outgoing_cm.user_id = ?
+        AND NOT (LOWER(COALESCE(outgoing_cm.client_request_id, '')) LIKE 'remote:%')
+        AND outgoing_cm.body NOT LIKE '[[system:%]]'
+        AND outgoing_cm.hidden_everyone_at IS NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM hidden_chat_messages outgoing_hcm
+          WHERE outgoing_hcm.user_id = ?
+            AND outgoing_hcm.message_id = outgoing_cm.id
+        )
+      ORDER BY outgoing_cm.id DESC
+      LIMIT 1
+    )
     LEFT JOIN remote_channel_sources rcs ON rcs.chat_id = mc.id AND rcs.enabled = 1
-    ORDER BY lvm.last_message_id DESC, mc.created_at DESC
+    ORDER BY last_vm.id DESC, mc.created_at DESC
   `,
     [
-      Number(userId),
-      Number(userId),
-      Number(userId),
-      Number(userId),
-      Number(userId),
+      uid,
+      uid,
+      uid,
+      uid,
+      uid,
+      uid,
+      uid,
     ],
   ).map(decryptMessageRow);
 }
@@ -2548,35 +2557,62 @@ export function bootstrapAdminUsers(adminUsernames) {
 const ONLINE_THRESHOLD_SECONDS = 30;
 
 export function getAdminStats() {
-  const totalUsers = getRow("SELECT COUNT(*) AS count FROM users")?.count || 0;
-  const totalChats = getRow("SELECT COUNT(*) AS count FROM chats WHERE type IN ('group', 'channel')")?.count || 0;
-  const totalMessages = getRow("SELECT COUNT(*) AS count FROM chat_messages")?.count || 0;
-  const totalSessions = getRow("SELECT COUNT(*) AS count FROM sessions")?.count || 0;
-  const bannedUsers = getRow("SELECT COUNT(*) AS count FROM users WHERE banned = 1")?.count || 0;
-  const onlineUsers = getRow(
-    `SELECT COUNT(*) AS count FROM users WHERE status = 'online' AND last_seen IS NOT NULL AND last_seen >= datetime('now', '-' || ? || ' seconds')`,
+  // Batch user counts: one pass over the users table instead of four separate queries.
+  const userStats = getRow(
+    `SELECT
+       COUNT(*)                                                                   AS totalUsers,
+       COUNT(*) FILTER (WHERE banned = 1)                                        AS bannedUsers,
+       COUNT(*) FILTER (WHERE created_at >= datetime('now', '-7 days'))          AS newUsers7d,
+       COUNT(*) FILTER (
+         WHERE status = 'online'
+           AND last_seen IS NOT NULL
+           AND last_seen >= datetime('now', '-' || ? || ' seconds')
+       )                                                                          AS onlineUsers
+     FROM users`,
     [ONLINE_THRESHOLD_SECONDS],
-  )?.count || 0;
+  ) || {};
 
-  // Chat type breakdown
-  const dmChats      = getRow("SELECT COUNT(*) AS count FROM chats WHERE type = 'dm'")?.count || 0;
-  const groupChats   = getRow("SELECT COUNT(*) AS count FROM chats WHERE type = 'group'")?.count || 0;
-  const channelChats = getRow("SELECT COUNT(*) AS count FROM chats WHERE type = 'channel'")?.count || 0;
+  // Batch chat counts: one pass over the chats table instead of five queries.
+  const chatStats = getRow(
+    `SELECT
+       COUNT(*) FILTER (WHERE type IN ('group', 'channel')) AS totalChats,
+       COUNT(*) FILTER (WHERE type = 'dm')                  AS dmChats,
+       COUNT(*) FILTER (WHERE type = 'group')               AS groupChats,
+       COUNT(*) FILTER (WHERE type = 'channel')             AS channelChats
+     FROM chats`,
+  ) || {};
 
-  // Activity / growth signals
-  const messagesLast24h = getRow("SELECT COUNT(*) AS count FROM chat_messages WHERE created_at >= datetime('now', '-1 day')")?.count || 0;
-  const newUsers7d      = getRow("SELECT COUNT(*) AS count FROM users WHERE created_at >= datetime('now', '-7 days')")?.count || 0;
+  // Batch message counts: one pass over chat_messages instead of two queries.
+  const messageStats = getRow(
+    `SELECT
+       COUNT(*)                                                          AS totalMessages,
+       COUNT(*) FILTER (WHERE created_at >= datetime('now', '-1 day'))  AS messagesLast24h
+     FROM chat_messages`,
+  ) || {};
 
-  // Uploaded files + push subscriptions (tables may not exist on older schemas)
+  const totalSessions = getRow("SELECT COUNT(*) AS count FROM sessions")?.count || 0;
+
+  // Optional tables that may not exist on older schemas — keep as individual
+  // try/catch singletons so a missing table never aborts the whole stats call.
   let totalFiles = 0;
   try { totalFiles = getRow("SELECT COUNT(*) AS count FROM chat_message_files")?.count || 0; } catch { totalFiles = 0; }
   let pushSubscriptions = 0;
   try { pushSubscriptions = getRow("SELECT COUNT(*) AS count FROM push_subscriptions")?.count || 0; } catch { pushSubscriptions = 0; }
 
   return {
-    totalUsers, totalChats, totalMessages, totalSessions, bannedUsers, onlineUsers,
-    dmChats, groupChats, channelChats,
-    messagesLast24h, newUsers7d, totalFiles, pushSubscriptions,
+    totalUsers:     Number(userStats.totalUsers    || 0),
+    bannedUsers:    Number(userStats.bannedUsers   || 0),
+    newUsers7d:     Number(userStats.newUsers7d    || 0),
+    onlineUsers:    Number(userStats.onlineUsers   || 0),
+    totalChats:     Number(chatStats.totalChats    || 0),
+    dmChats:        Number(chatStats.dmChats       || 0),
+    groupChats:     Number(chatStats.groupChats    || 0),
+    channelChats:   Number(chatStats.channelChats  || 0),
+    totalMessages:  Number(messageStats.totalMessages  || 0),
+    messagesLast24h:Number(messageStats.messagesLast24h || 0),
+    totalSessions,
+    totalFiles,
+    pushSubscriptions,
   };
 }
 
@@ -2649,14 +2685,52 @@ export function adminListUsers({ limit = 200, offset = 0, search = "", sortBy = 
     orderBy = `${safeSortBy} ${safeSortDir}`;
   }
   params.push(safeLimit, safeOffset);
-  return getAll(
+  // COUNT(*) OVER() computes the filtered total in the same pass as the page
+  // rows, eliminating the separate adminCountUsers query.
+  const rows = getAll(
     `SELECT id, username, nickname, avatar_url, color, status, role, banned, created_at, last_seen,
             CASE WHEN status = 'online' AND last_seen IS NOT NULL
                       AND last_seen >= datetime('now', '-' || ? || ' seconds')
-                 THEN 1 ELSE 0 END AS online
+                 THEN 1 ELSE 0 END AS online,
+            COUNT(*) OVER() AS _total
      FROM users ${where} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
     params,
   );
+  const total = rows.length > 0 ? Number(rows[0]._total || 0) : 0;
+  // Strip the internal _total column before returning to callers.
+  const users = rows.map(({ _total, ...u }) => u);
+  return { users, total };
+}
+
+// adminCountUsers is kept for any future callers that only need the count,
+// but the list endpoint now uses adminListUsers which returns both together.
+export function adminCountUsers({ search = "", roleFilter = null, statusFilter = null } = {}) {
+  const conditions = [];
+  const params     = [];
+
+  if (search) {
+    const like = `%${escapeLikePattern(search)}%`;
+    conditions.push("(username LIKE ? ESCAPE '\\' OR nickname LIKE ? ESCAPE '\\')");
+    params.push(like, like);
+  }
+  if (roleFilter === "banned") {
+    conditions.push("banned = 1");
+  } else if (roleFilter) {
+    conditions.push("banned = 0 AND role = ?");
+    params.push(roleFilter);
+  }
+
+  const onlinePredicate = "status = 'online' AND last_seen IS NOT NULL AND last_seen >= datetime('now', '-' || ? || ' seconds')";
+  if (statusFilter === "online") {
+    conditions.push(onlinePredicate);
+    params.push(ONLINE_THRESHOLD_SECONDS);
+  } else if (statusFilter === "offline") {
+    conditions.push(`NOT (${onlinePredicate})`);
+    params.push(ONLINE_THRESHOLD_SECONDS);
+  }
+
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  return Number(getRow(`SELECT COUNT(*) AS count FROM users ${where}`, params)?.count || 0);
 }
 
 export function adminListChats({ limit = 200, offset = 0, search = "", sortBy = "id", sortDir = "DESC", typeFilter = null }) {
@@ -2698,12 +2772,15 @@ export function adminListChats({ limit = 200, offset = 0, search = "", sortBy = 
     orderBy = `c.${safeSortBy} ${safeSortDir}`;
   }
   params.push(safeLimit, safeOffset);
-  return getAll(
+  // COUNT(*) OVER() computes the filtered total in the same pass as the page
+  // rows, eliminating the separate adminCountChats query.
+  const rows = getAll(
     `SELECT c.id, c.name, c.type, c.group_username, c.group_visibility, c.group_color, c.group_avatar_url, c.created_at,
             (SELECT COUNT(*) FROM chat_members WHERE chat_id = c.id) AS member_count,
             (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) AS message_count,
             owner.id AS owner_id, owner.username AS owner_username, owner.nickname AS owner_nickname,
-            owner.avatar_url AS owner_avatar_url, owner.color AS owner_color
+            owner.avatar_url AS owner_avatar_url, owner.color AS owner_color,
+            COUNT(*) OVER() AS _total
      FROM chats c
      LEFT JOIN users owner ON owner.id = (
        SELECT user_id FROM chat_members WHERE chat_id = c.id AND role = 'owner' LIMIT 1
@@ -2711,6 +2788,30 @@ export function adminListChats({ limit = 200, offset = 0, search = "", sortBy = 
      ${where} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
     params,
   );
+  const total = rows.length > 0 ? Number(rows[0]._total || 0) : 0;
+  // Strip the internal _total column before returning to callers.
+  const chats = rows.map(({ _total, ...c }) => c);
+  return { chats, total };
+}
+
+// adminCountChats is kept for any future callers that only need the count,
+// but the list endpoint now uses adminListChats which returns both together.
+export function adminCountChats({ search = "", typeFilter = null } = {}) {
+  const conditions = ["c.type IN ('group', 'channel')"];
+  const params     = [];
+
+  if (search) {
+    const like = `%${escapeLikePattern(search)}%`;
+    conditions.push("(c.name LIKE ? ESCAPE '\\' OR c.group_username LIKE ? ESCAPE '\\')");
+    params.push(like, like);
+  }
+  if (typeFilter === "group" || typeFilter === "channel") {
+    conditions.push("c.type = ?");
+    params.push(typeFilter);
+  }
+
+  const where = `WHERE ${conditions.join(" AND ")}`;
+  return Number(getRow(`SELECT COUNT(*) AS count FROM chats c ${where}`, params)?.count || 0);
 }
 
 export function adminBanUser(userId, banned) {

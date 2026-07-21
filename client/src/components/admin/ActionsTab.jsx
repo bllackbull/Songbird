@@ -15,7 +15,7 @@ import {
   Trash,
 } from "../../icons/lucide.js";
 import { api } from "./adminShared.js";
-import { TypedConfirmModal } from "./AdminCommon.jsx";
+import { TypedConfirmModal, SectionHeading } from "./AdminCommon.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 
 // ─── Status badge — shown on the right side of an action row ────────────────
@@ -275,9 +275,7 @@ const ActionsTab = forwardRef(function ActionsTab(_props, ref) {
     <div className="space-y-5">
       {/* System */}
       <div>
-        <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">
-          System
-        </h2>
+        <SectionHeading>System</SectionHeading>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <CheckUpdateRow appInfo={appInfo} />
           <ActionRow
@@ -302,9 +300,7 @@ const ActionsTab = forwardRef(function ActionsTab(_props, ref) {
 
       {/* Database */}
       <div>
-        <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">
-          Database Maintenance
-        </h2>
+        <SectionHeading>Database Maintenance</SectionHeading>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <ActionRow
             icon={HardDriveDownload}
@@ -342,9 +338,7 @@ const ActionsTab = forwardRef(function ActionsTab(_props, ref) {
 
       {/* Danger zone */}
       <div>
-        <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-rose-400 dark:text-rose-400/80">
-          Danger Zone
-        </h2>
+        <SectionHeading danger>Danger Zone</SectionHeading>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <ActionRow
             icon={MessageCircleX}

@@ -13,15 +13,14 @@ import {
   Power,
   Refresh,
   Rotate,
-  Search,
   Settings,
   Tag,
   Trash,
   UserMinus,
   UserPlus,
 } from "../../icons/lucide.js";
-import { api, cardCls, inputSmCls, btnDanger, fmtDateTime, searchIconCls } from "./adminShared.js";
-import { LoadingRows, EmptyState } from "./AdminCommon.jsx";
+import { api, cardCls, btnDanger, fmtDateTime, DEFAULT_PAGE_SIZE } from "./adminShared.js";
+import { LoadingRows, EmptyState, Pagination, TabToolbar, TabSearchInput } from "./AdminCommon.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 import { hasPersian } from "../../utils/fontUtils.js";
 
@@ -64,78 +63,80 @@ const LOG_SOURCES = [
   { id: "nginx",     label: "Nginx" },
 ];
 
-const AdminLogView = forwardRef(function AdminLogView({ currentUser, cachedData, isLoading, hasData, onMutated }, ref) {
+const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = true }, ref) {
   const [logs, setLogs]               = useState([]);
+  const [total, setTotal]             = useState(0);
+  const [page, setPage]               = useState(1);
+  const [pageSize, setPageSize]       = useState(DEFAULT_PAGE_SIZE);
   const [initialized, setInitialized] = useState(false);
+  const [loading, setLoading]         = useState(false);
   const [search, setSearch]           = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [clearing, setClearing]       = useState(false);
   const debounceRef = useRef(null);
-  const searchRef = useRef(search);
-  useEffect(() => { searchRef.current = search; });
+  const requestIdRef = useRef(0);
 
   const isOwner = currentUser?.role === "owner";
 
-  // Load data with client-side filtering from the cached full list.
-  const load = useCallback(() => {
-    // Don't process data until we have it
-    if (!cachedData) {
-      setInitialized(false);
-      return;
+  // Fetch one page from the server. Search spans the whole admin log file
+  // server-side; `total` drives the pagination footer.
+  const trimmedSearch = search.trim();
+  const fetchPage = useCallback(async (targetPage) => {
+    const requestId = ++requestIdRef.current;
+    setLoading(true);
+    const offset = (Math.max(1, targetPage) - 1) * pageSize;
+    const params = new URLSearchParams({
+      limit: String(pageSize),
+      offset: String(offset),
+    });
+    if (trimmedSearch) params.set("search", trimmedSearch);
+    try {
+      const data = await api.get(`/api/admin/logs?${params.toString()}`);
+      if (requestId !== requestIdRef.current) return;
+      setLogs(data.logs ?? []);
+      setTotal(Number(data.total || 0));
+      setInitialized(true);
+    } catch {
+      if (requestId !== requestIdRef.current) return;
+      setInitialized(true);
+    } finally {
+      if (requestId === requestIdRef.current) setLoading(false);
     }
-    
-    const s = searchRef.current;
-    let filtered = cachedData.logs ?? [];
-    
-    if (s) {
-      const needle = s.toLowerCase();
-      filtered = filtered.filter((entry) =>
-        (entry.action ?? "").toLowerCase().includes(needle) ||
-        (entry.targetLabel ?? "").toLowerCase().includes(needle) ||
-        (entry.details ?? "").toLowerCase().includes(needle) ||
-        (entry.actorUsername ?? "").toLowerCase().includes(needle)
-      );
-    }
-    
-    setLogs(filtered);
-    setInitialized(true);
-  }, [cachedData]);
+  }, [trimmedSearch, pageSize]);
 
+  // Refetch (debounced) whenever the search or page changes while the tab is visible.
   useEffect(() => {
+    if (!active) return undefined;
     clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(load, 250);
+    debounceRef.current = setTimeout(() => fetchPage(page), 250);
     return () => clearTimeout(debounceRef.current);
-  }, [search, load]);
+  }, [active, page, fetchPage]);
 
-  useImperativeHandle(ref, () => ({ refresh: load }), [load]);
+  const refresh = useCallback(() => fetchPage(page), [fetchPage, page]);
+  useImperativeHandle(ref, () => ({ refresh }), [refresh]);
+
+  // Reset to page 1 in the handler (not an effect) so re-revealing the tab via
+  // <Activity> keeps the page the admin was already on.
+  const changeSearch = (value) => { setSearch(value); setPage(1); };
+  const changePageSize = (value) => { setPageSize(value); setPage(1); };
 
   const clearLogs = async () => {
     setClearing(true);
-    try { await api.delete("/api/admin/logs"); onMutated(); }
+    try { await api.delete("/api/admin/logs"); setPage(1); refresh(); }
     finally { setClearing(false); setConfirmOpen(false); }
   };
 
-  const searchHasPersian = hasPersian(search);
-
   return (
     <div className="space-y-3">
-      <div className="flex flex-nowrap items-center gap-2 sm:flex-wrap">
-        <label className="group relative block min-w-0 flex-1 sm:min-w-40">
-          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
-            <Search size={16} className={searchIconCls} />
-          </span>
-          <input type="text" placeholder="Search logs…" value={search} onChange={(e) => setSearch(e.target.value)}
-            lang={searchHasPersian ? "fa" : "en"} dir={searchHasPersian ? "rtl" : "ltr"}
-            className={inputSmCls + " pl-8" + (searchHasPersian ? " font-fa text-right" : "")}
-            style={{ unicodeBidi: "plaintext" }} />
-        </label>
+      <TabToolbar>
+        <TabSearchInput value={search} onChange={changeSearch} placeholder="Search logs…" />
         {isOwner && (
           <button type="button" onClick={() => setConfirmOpen(true)} title="Clear"
             className={btnDanger + " w-9 shrink-0 justify-center px-0 sm:w-auto sm:justify-start sm:px-3"}>
             <Trash size={16} className="icon-anim-slide shrink-0" /> <span className="hidden sm:inline">Clear</span>
           </button>
         )}
-      </div>
+      </TabToolbar>
 
       <ConfirmModal
         open={confirmOpen}
@@ -147,7 +148,8 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser, cachedData,
         onClose={() => setConfirmOpen(false)}
       />
 
-      {isLoading && !hasData ? <LoadingRows /> : !initialized ? <LoadingRows /> : logs.length === 0 ? <EmptyState message="No log entries." /> : (
+      {!initialized ? <LoadingRows /> : logs.length === 0 ? <EmptyState message="No log entries." /> : (
+        <>
         <div className={"overflow-hidden " + cardCls}>
           {logs.map((entry, i) => {
             const meta = LOG_ACTION_META[entry.action] || { label: entry.action, color: "slate", icon: History };
@@ -175,6 +177,9 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser, cachedData,
             );
           })}
         </div>
+        <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage}
+          onPageSizeChange={changePageSize} busy={loading} />
+        </>
       )}
     </div>
   );
@@ -220,7 +225,7 @@ const SystemLogView = forwardRef(function SystemLogView({ source }, ref) {
   );
 });
 
-const LogsTab = forwardRef(function LogsTab({ currentUser, cachedData, isLoading, hasData, onMutated }, ref) {
+const LogsTab = forwardRef(function LogsTab({ currentUser, active = true }, ref) {
   const [source, setSource] = useState("admin");
   const viewRef = useRef(null);
 
@@ -240,7 +245,7 @@ const LogsTab = forwardRef(function LogsTab({ currentUser, cachedData, isLoading
           </button>
         ))}
       </div>
-      {source === "admin" ? <AdminLogView ref={viewRef} currentUser={currentUser} cachedData={cachedData} isLoading={isLoading} hasData={hasData} onMutated={onMutated} /> : <SystemLogView ref={viewRef} source={source} key={source} />}
+      {source === "admin" ? <AdminLogView ref={viewRef} currentUser={currentUser} active={active && source === "admin"} /> : <SystemLogView ref={viewRef} source={source} key={source} />}
     </div>
   );
 });

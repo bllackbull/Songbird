@@ -46,18 +46,26 @@ export function writeAdminLog({
 }
 
 /**
- * Read the most recent admin log entries (newest first).
- * Parses JSON lines, tolerating malformed lines.
+ * Read admin log entries (newest first) with search + pagination.
+ *
+ * Returns `{ entries, total }` where `total` is the count of all entries
+ * matching `search` (ignoring limit/offset), so the caller can drive
+ * pagination controls that operate over the whole filtered log rather than a
+ * single page. `offset` skips that many matching entries from the newest end.
  */
-export function readAdminLog({ limit = 200, search = "" } = {}) {
+export function readAdminLog({ limit = 200, offset = 0, search = "" } = {}) {
   try {
-    if (!fs.existsSync(adminLogPath)) return [];
+    if (!fs.existsSync(adminLogPath)) return { entries: [], total: 0 };
     const raw = fs.readFileSync(adminLogPath, "utf8");
     const lines = raw.split("\n").filter((l) => l.trim());
     const needle = String(search || "").toLowerCase();
+    const safeLimit  = Math.max(1, Number(limit) || 200);
+    const safeOffset = Math.max(0, Number(offset) || 0);
+
     const entries = [];
+    let total = 0;
     // Iterate from the end (newest) backwards.
-    for (let i = lines.length - 1; i >= 0 && entries.length < limit; i--) {
+    for (let i = lines.length - 1; i >= 0; i--) {
       let parsed;
       try { parsed = JSON.parse(lines[i]); } catch { continue; }
       if (needle) {
@@ -66,11 +74,15 @@ export function readAdminLog({ limit = 200, search = "" } = {}) {
         ].filter(Boolean).join(" ").toLowerCase();
         if (!haystack.includes(needle)) continue;
       }
-      entries.push(parsed);
+      // `total` counts every match; only collect the requested page window.
+      if (total >= safeOffset && entries.length < safeLimit) {
+        entries.push(parsed);
+      }
+      total += 1;
     }
-    return entries;
+    return { entries, total };
   } catch {
-    return [];
+    return { entries: [], total: 0 };
   }
 }
 

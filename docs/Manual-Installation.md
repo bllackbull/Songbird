@@ -138,6 +138,25 @@ sudo chown -R songbird:songbird /opt/songbird
 git config --global --add safe.directory /opt/songbird
 ```
 
+4. Grant the service user permission to control its own unit and read system logs (required for service restart/stop and the Logs tab in the admin panel):
+
+```bash
+sudo tee /etc/sudoers.d/songbird > /dev/null <<'EOF'
+# Songbird — allow the service user to control its own unit
+# and read privileged logs without a password.
+songbird ALL=(root) NOPASSWD: /usr/bin/systemctl restart songbird.service
+songbird ALL=(root) NOPASSWD: /usr/bin/systemctl stop songbird.service
+songbird ALL=(root) NOPASSWD: /usr/bin/journalctl -u songbird *
+songbird ALL=(root) NOPASSWD: /usr/bin/cat /var/log/nginx/error.log
+songbird ALL=(root) NOPASSWD: /usr/bin/cat /var/log/nginx/access.log
+songbird ALL=(root) NOPASSWD: /usr/bin/nginx -t
+songbird ALL=(root) NOPASSWD: /usr/bin/systemctl reload nginx
+EOF
+sudo chmod 0440 /etc/sudoers.d/songbird
+```
+
+Without this step the **Restart service** and **Stop service** buttons in the admin panel will fail with a permissions error, and system logs (service journal, nginx) will not be visible in the Logs tab.
+
 **Enable and start the service:**
 
 ```bash

@@ -30,6 +30,7 @@ import {
   Video,
 } from "../../icons/lucide.js";
 import { api, cardCls, btnPrimary, btnSecondary } from "./adminShared.js";
+import { SectionHeading } from "./AdminCommon.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 
 // ─── Group metadata ───────────────────────────────────────────────────────────
@@ -482,9 +483,7 @@ function SettingGroup({ groupKey, defs, effectiveVals, onChange }) {
 
   return (
     <div>
-      <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">
-        {meta.label}
-      </h2>
+      <SectionHeading>{meta.label}</SectionHeading>
       <div className="space-y-2">
         {standaloneDefs.map((def) => {
           const isMaster = def.key === masterKey;

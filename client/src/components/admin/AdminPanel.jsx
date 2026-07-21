@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, Activity } from "react";
 import {
   ArrowLeft,
   ArrowLeftFromLine,
@@ -39,7 +39,8 @@ const PRESENCE_PING_INTERVAL_MS = CHAT_PAGE_CONFIG.presencePingIntervalMs;
 // Auto-exit the panel after this much inactivity (no mouse/keyboard/touch).
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 
-// Auto-refresh interval — keep in sync with DashboardTab's own interval.
+// Auto-refresh interval for shared admin cache (stats / active tab).
+// DashboardTab polls /api/admin/system on its own matching cadence.
 const AUTO_REFRESH_MS = 10_000;
 
 export default function AdminPanel({ user, onBack }) {
@@ -52,13 +53,16 @@ export default function AdminPanel({ user, onBack }) {
   // ── Centralised cache ────────────────────────────────────────────────────
   // Each fetcher returns raw data that gets stored in the cache and passed
   // down to the corresponding tab as a prop.  Tabs no longer fetch on mount.
+  // Users, chats, and logs are paginated server-side and own their own data
+  // fetching (see the individual tabs), so they are intentionally NOT in this
+  // shared cache. Only the small, single-shot payloads live here.
   const { cache, ensureFresh, invalidate, refresh: refreshKey, refreshAll } = useAdminCache({
     stats:    () => api.get("/api/admin/stats"),
-    users:    () => api.get("/api/admin/users?limit=1000&sortBy=id&sortDir=ASC"),
-    chats:    () => api.get("/api/admin/chats?limit=1000&sortBy=id&sortDir=ASC"),
     settings: () => api.get("/api/admin/settings"),
-    logs:     () => api.get("/api/admin/logs?limit=1000"),
   }, { ttlMs: AUTO_REFRESH_MS });
+
+  // Tabs that manage their own paginated data and expose a `refresh()` via ref.
+  const SELF_PAGINATED_TABS = ["users", "chats", "logs"];
 
   // Convenience aliases so downstream JSX stays readable.
   const stats = cache.stats?.data ?? null;
@@ -127,18 +131,34 @@ export default function AdminPanel({ user, onBack }) {
   // The dashboard also needs `stats`, so always keep that fresh.
   useEffect(() => {
     ensureFresh("stats");
-    if (tab !== "dashboard") ensureFresh(tab);
-  }, [tab, ensureFresh]);
+    // Only shared-cache tabs (e.g. settings) refetch here; self-paginated tabs
+    // load their own data on mount/param change.
+    if (tab !== "dashboard" && cache[tab] !== undefined) ensureFresh(tab);
+  }, [tab, ensureFresh, cache]);
 
   // ── Background auto-refresh (10 s) ───────────────────────────────────────
   // Refresh stats always; also refresh the current tab's data if it has a
-  // dedicated cache entry so the active view stays live.
+  // dedicated cache entry so the active view stays live. Skip while the
+  // document is hidden to avoid burning the shared API rate limit.
   useEffect(() => {
-    const timer = setInterval(() => {
+    const tick = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
+      }
       refreshKey("stats");
       if (cache[tab] !== undefined) refreshKey(tab);
-    }, AUTO_REFRESH_MS);
-    return () => clearInterval(timer);
+      // Self-paginated tabs refresh their current page via their own ref.
+      else if (SELF_PAGINATED_TABS.includes(tab)) tabRefs.current[tab]?.refresh?.();
+    };
+    const timer = setInterval(tick, AUTO_REFRESH_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") tick();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, refreshKey]);
 
@@ -149,6 +169,8 @@ export default function AdminPanel({ user, onBack }) {
     const keys = ["stats"];
     if (cache[tab] !== undefined) keys.push(tab);
     await refreshAll(...keys);
+    // Self-paginated tabs aren't in the shared cache; refresh via their ref
+    // below (handled by the tabRefs.current[tab]?.refresh?.() call).
     // Also give the active tab ref a chance to refresh its own local state
     // (e.g. DashboardTab's system metrics which aren't in the shared cache).
     tabRefs.current[tab]?.refresh?.();
@@ -160,6 +182,9 @@ export default function AdminPanel({ user, onBack }) {
 
   // Called by tabs after a mutation so sibling caches stay in sync.
   const invalidateStats = useCallback(() => invalidate("stats"), [invalidate]);
+  // Stable callback for DashboardTab manual refresh (via tabRefs); auto-poll
+  // of stats stays in this panel so DashboardTab does not re-trigger it.
+  const refreshStats = useCallback(() => refreshKey("stats"), [refreshKey]);
 
   // Keep the admin marked online while they're in the panel: ping presence on
   // mount, on a fixed interval, and whenever the tab regains focus.
@@ -226,11 +251,11 @@ export default function AdminPanel({ user, onBack }) {
             <button key={id} type="button"
               onClick={() => selectTab(id)}
               title={!showLabels ? label : undefined}
-              className={`flex h-9 w-full items-center rounded-xl transition
+              className={`flex h-9 w-full items-center rounded-xl border transition
                 ${showLabels ? "gap-2.5 px-3 text-sm font-semibold" : "justify-center"}
                 ${tab === id
-                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
-                  : "text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 dark:text-slate-100 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
+                  ? "border-emerald-400 bg-emerald-50 text-emerald-700 dark:border-emerald-400/60 dark:bg-emerald-500/10 dark:text-emerald-300"
+                  : "border-transparent text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 dark:text-slate-100 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
                 }`}>
               <Icon size={15} className={`shrink-0 text-emerald-500 ${anim}`} />
               {showLabels && <span className="truncate">{label}</span>}
@@ -316,48 +341,45 @@ export default function AdminPanel({ user, onBack }) {
         </div>
 
         <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-4 md:p-5">
-          {tab === "dashboard" && <DashboardTab ref={(r) => { tabRefs.current.dashboard = r; }} stats={stats} onStatsChange={() => refreshKey("stats")} />}
-          {tab === "users" && (
-            <UsersTab
-              ref={(r) => { tabRefs.current.users = r; }}
-              currentUser={user}
-              cachedData={cache.users?.data ?? null}
-              isLoading={cache.users?.loading ?? false}
-              hasData={Boolean(cache.users?.data)}
-              onMutated={() => { invalidate("users"); invalidateStats(); }}
-              onStatsChange={invalidateStats}
-            />
-          )}
-          {tab === "chats" && (
-            <ChatsTab
-              ref={(r) => { tabRefs.current.chats = r; }}
-              cachedData={cache.chats?.data ?? null}
-              isLoading={cache.chats?.loading ?? false}
-              hasData={Boolean(cache.chats?.data)}
-              onMutated={() => { invalidate("chats"); invalidateStats(); }}
-              onStatsChange={invalidateStats}
-            />
-          )}
-          {tab === "settings" && (
-            <SettingsTab
-              ref={(r) => { tabRefs.current.settings = r; }}
-              cachedData={cache.settings?.data ?? null}
-              isLoading={cache.settings?.loading ?? false}
-              hasData={Boolean(cache.settings?.data)}
-              onMutated={() => invalidate("settings")}
-            />
-          )}
-          {tab === "actions" && <ActionsTab ref={(r) => { tabRefs.current.actions = r; }} />}
-          {tab === "logs" && (
-            <LogsTab
-              ref={(r) => { tabRefs.current.logs = r; }}
-              currentUser={user}
-              cachedData={cache.logs?.data ?? null}
-              isLoading={cache.logs?.loading ?? false}
-              hasData={Boolean(cache.logs?.data)}
-              onMutated={() => invalidate("logs")}
-            />
-          )}
+            <Activity mode={tab === "dashboard" ? "visible" : "hidden"}>
+              <DashboardTab ref={(r) => { tabRefs.current.dashboard = r; }} stats={stats} onStatsChange={refreshStats} />
+            </Activity>
+            <Activity mode={tab === "users" ? "visible" : "hidden"}>
+              <UsersTab
+                ref={(r) => { tabRefs.current.users = r; }}
+                currentUser={user}
+                active={tab === "users"}
+                onMutated={invalidateStats}
+                onStatsChange={invalidateStats}
+              />
+            </Activity>
+            <Activity mode={tab === "chats" ? "visible" : "hidden"}>
+              <ChatsTab
+                ref={(r) => { tabRefs.current.chats = r; }}
+                active={tab === "chats"}
+                onMutated={invalidateStats}
+                onStatsChange={invalidateStats}
+              />
+            </Activity>
+            <Activity mode={tab === "settings" ? "visible" : "hidden"}>
+              <SettingsTab
+                ref={(r) => { tabRefs.current.settings = r; }}
+                cachedData={cache.settings?.data ?? null}
+                isLoading={cache.settings?.loading ?? false}
+                hasData={Boolean(cache.settings?.data)}
+                onMutated={() => invalidate("settings")}
+              />
+            </Activity>
+            <Activity mode={tab === "actions" ? "visible" : "hidden"}>
+              <ActionsTab ref={(r) => { tabRefs.current.actions = r; }} />
+            </Activity>
+            <Activity mode={tab === "logs" ? "visible" : "hidden"}>
+              <LogsTab
+                ref={(r) => { tabRefs.current.logs = r; }}
+                currentUser={user}
+                active={tab === "logs"}
+              />
+            </Activity>
         </div>
       </div>
     </div>

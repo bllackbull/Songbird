@@ -6,6 +6,56 @@ import os from "node:os";
 import multer from "multer";
 import { execFile } from "node:child_process";
 
+// Recursive uploads sizing is expensive; serve a short-lived cache so dashboard
+// gauges (and bursty admin traffic) do not walk the tree on every request.
+const UPLOADS_SIZE_CACHE_TTL_MS = 60_000;
+let uploadsSizeCache = { bytes: 0, fetchedAt: 0 };
+
+// A short TTL cache to collapse concurrent hits on getAdminStats into 
+// a single query burst, bounded to once per interval.
+const STATS_CACHE_TTL_MS = 10_000;
+let statsCache = { data: null, fetchedAt: 0 };
+
+function getCachedAdminStats(getAdminStats) {
+  const now = Date.now();
+  if (statsCache.data && now - statsCache.fetchedAt < STATS_CACHE_TTL_MS) {
+    return statsCache.data;
+  }
+  const data = getAdminStats();
+  statsCache = { data, fetchedAt: now };
+  return data;
+}
+
+function getCachedUploadsSizeBytes(fs, nodePath, uploadsRoot) {
+  const now = Date.now();
+  if (now - uploadsSizeCache.fetchedAt < UPLOADS_SIZE_CACHE_TTL_MS) {
+    return uploadsSizeCache.bytes;
+  }
+  const getDirSize = (dirPath) => {
+    try {
+      if (!fs || !fs.existsSync(dirPath)) return 0;
+      let total = 0;
+      const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+      for (const entry of entries) {
+        const full = nodePath.join(dirPath, entry.name);
+        if (entry.isDirectory()) total += getDirSize(full);
+        else if (entry.isFile()) total += fs.statSync(full).size || 0;
+      }
+      return total;
+    } catch {
+      return 0;
+    }
+  };
+  let bytes = 0;
+  try {
+    bytes = getDirSize(uploadsRoot);
+  } catch {
+    bytes = uploadsSizeCache.bytes;
+  }
+  uploadsSizeCache = { bytes, fetchedAt: now };
+  return bytes;
+}
+
 function registerAdminPanelRoutes(app, deps) {
   const {
     getSessionFromRequest,
@@ -18,6 +68,8 @@ function registerAdminPanelRoutes(app, deps) {
     getAdminStats,
     adminListUsers,
     adminListChats,
+    adminCountUsers,
+    adminCountChats,
     adminBanUser,
     adminDeleteUser,
     adminDeleteChat,
@@ -108,7 +160,7 @@ function registerAdminPanelRoutes(app, deps) {
 
   app.get("/api/admin/stats", (req, res) => {
     if (!requireAdmin(req, res)) return;
-    res.json(getAdminStats());
+    res.json(getCachedAdminStats(getAdminStats));
   });
 
   app.get("/api/admin/system", (req, res) => {
@@ -132,24 +184,15 @@ function registerAdminPanelRoutes(app, deps) {
       }
     } catch {}
 
-    // Uploads folder size (recursive)
+    // Uploads folder size (recursive, TTL-cached — see getCachedUploadsSizeBytes)
     let uploadsSizeBytes = 0;
-    const getDirSize = (dirPath) => {
-      try {
-        if (!fs || !fs.existsSync(dirPath)) return 0;
-        let total = 0;
-        const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-        for (const entry of entries) {
-          const full = nodePath.join(dirPath, entry.name);
-          if (entry.isDirectory()) total += getDirSize(full);
-          else if (entry.isFile()) total += fs.statSync(full).size || 0;
-        }
-        return total;
-      } catch { return 0; }
-    };
     try {
-      if (nodePath && projectRootDir) {
-        uploadsSizeBytes = getDirSize(nodePath.join(projectRootDir, "data", "uploads"));
+      if (nodePath && projectRootDir && fs) {
+        uploadsSizeBytes = getCachedUploadsSizeBytes(
+          fs,
+          nodePath,
+          nodePath.join(projectRootDir, "data", "uploads"),
+        );
       }
     } catch {}
 
@@ -201,8 +244,8 @@ function registerAdminPanelRoutes(app, deps) {
     const sortDir   = String(req.query.sortDir || "").toLowerCase() === "asc" ? "ASC" : "DESC";
     const roleFilter = ["user", "admin", "owner", "banned"].includes(req.query.role) ? req.query.role : null;
     const statusFilter = ["online", "offline"].includes(req.query.status) ? req.query.status : null;
-    const users = adminListUsers({ limit, offset, search, sortBy, sortDir, roleFilter, statusFilter });
-    res.json({ users });
+    const { users, total } = adminListUsers({ limit, offset, search, sortBy, sortDir, roleFilter, statusFilter });
+    res.json({ users, total, limit, offset });
   });
 
   // ─── Users — create ──────────────────────────────────────────────────────────
@@ -492,8 +535,8 @@ function registerAdminPanelRoutes(app, deps) {
       ? req.query.sortBy : "id";
     const sortDir = String(req.query.sortDir || "").toLowerCase() === "asc" ? "ASC" : "DESC";
     const typeFilter = ["group", "channel"].includes(req.query.type) ? req.query.type : null;
-    const chats = adminListChats({ limit, offset, search, sortBy, sortDir, typeFilter });
-    res.json({ chats });
+    const { chats, total } = adminListChats({ limit, offset, search, sortBy, sortDir, typeFilter });
+    res.json({ chats, total, limit, offset });
   });
 
   // ─── Chats — create ──────────────────────────────────────────────────────────
@@ -766,9 +809,10 @@ function registerAdminPanelRoutes(app, deps) {
   app.get("/api/admin/logs", (req, res) => {
     if (!requireAdmin(req, res)) return;
     const limit  = Number(req.query.limit || 200);
+    const offset = Number(req.query.offset || 0);
     const search = String(req.query.search || "").trim();
-    const logs = readAdminLog({ limit, search });
-    res.json({ logs });
+    const { entries, total } = readAdminLog({ limit, offset, search });
+    res.json({ logs: entries, total, limit, offset });
   });
 
   app.delete("/api/admin/logs", (req, res) => {
@@ -853,7 +897,37 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Service control ─────────────────────────────────────────────────────────
 
-  const SERVICE_NAME = process.env.SONGBIRD_SERVICE_NAME || "songbird.service";
+  const SERVICE_NAME = process.env.SONGBIRD_SERVICE_NAME || "songbird";
+
+  // Detects whether the server is running inside a Docker container by checking
+  // for the presence of /.dockerenv (set by the Docker runtime on every container).
+  const isDocker = () => {
+    try { return deps.fs.existsSync("/.dockerenv"); } catch { return false; }
+  };
+
+  // Sends a POST request to the Docker Engine API via the Unix socket to
+  // restart or stop this container. The container name / ID is read from the
+  // HOSTNAME env var, which Docker sets to the container ID by default, and
+  // can be overridden with SONGBIRD_CONTAINER_NAME for named containers.
+  const runDockerAction = (action) => new Promise((resolve) => {
+    const container = process.env.SONGBIRD_CONTAINER_NAME || process.env.HOSTNAME || "songbird";
+    const socketPath = "/var/run/docker.sock";
+    // action is "restart" or "stop" — both are POST endpoints in the Docker API.
+    const path = `/containers/${container}/${action}`;
+    // Use the built-in http module to talk to the socket directly, avoiding any
+    // extra dependency. t=5 gives the container 5 s to stop gracefully.
+    const http = deps.http;
+    if (!http) return resolve({ ok: false, error: "http module not available." });
+    const req = http.request({ socketPath, path: `${path}?t=5`, method: "POST" }, (res) => {
+      // 204 = success for both restart and stop; 304 = already stopped (not an error).
+      resolve(res.statusCode === 204 || res.statusCode === 304
+        ? { ok: true }
+        : { ok: false, error: `Docker API returned HTTP ${res.statusCode}` });
+      res.resume(); // drain response body
+    });
+    req.on("error", (err) => resolve({ ok: false, error: `Docker socket error: ${err.message}` }));
+    req.end();
+  });
 
   // Runs `systemctl <action> <service>`, falling back to sudo -n if needed.
   const runSystemctl = (action) => new Promise((resolve) => {
@@ -867,13 +941,17 @@ function registerAdminPanelRoutes(app, deps) {
     });
   });
 
+  // Dispatches to the right mechanism based on the deployment environment.
+  const runServiceAction = (action) =>
+    isDocker() ? runDockerAction(action) : runSystemctl(action);
+
   app.post("/api/admin/service/restart", async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
     log(session, "service.restart", { targetType: "system", targetLabel: SERVICE_NAME });
     // Respond first — a successful restart kills this process before the command returns.
     res.json({ ok: true, pending: true });
-    setTimeout(() => { runSystemctl("restart"); }, 250);
+    setTimeout(() => { runServiceAction("restart"); }, 250);
   });
 
   app.post("/api/admin/service/stop", async (req, res) => {
@@ -881,7 +959,7 @@ function registerAdminPanelRoutes(app, deps) {
     if (!session) return;
     log(session, "service.stop", { targetType: "system", targetLabel: SERVICE_NAME });
     res.json({ ok: true, pending: true });
-    setTimeout(() => { runSystemctl("stop"); }, 250);
+    setTimeout(() => { runServiceAction("stop"); }, 250);
   });
 
   // ─── Nginx config update + reload ───────────────────────────────────────────

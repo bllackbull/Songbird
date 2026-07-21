@@ -1,6 +1,7 @@
 import express from "express";
 import path from "node:path";
 import fs from "node:fs";
+import http from "node:http";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -125,6 +126,8 @@ import {
   getAdminStats,
   adminListUsers,
   adminListChats,
+  adminCountUsers,
+  adminCountChats,
   adminBanUser,
   adminDeleteUser,
   adminDeleteChat,
@@ -247,12 +250,29 @@ app.use((req, res, next) => {
   next();
 });
 
+// Prefer originalUrl: when limiters are mounted at "/api", Express rewrites
+// req.path/req.url to the remainder (e.g. "/events"), which broke a prior
+// skip on "/api/events" and let SSE / admin polling share the chat budget.
+function apiRequestPath(req) {
+  return String(req.originalUrl || req.url || req.path || "").split("?")[0];
+}
+
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 1000,
-  // Skip the SSE endpoint — it's a long-lived connection, not a discrete
-  // request, and counting it burns the budget instantly.
-  skip: (req) => req.path === "/api/events",
+  // SSE is long-lived (one hit opens a stream). Admin routes have their own
+  // bucket so dashboard polling cannot 429 chat health / messages.
+  skip: (req) => {
+    const p = apiRequestPath(req);
+    return p === "/api/events" || p.startsWith("/api/admin");
+  },
+});
+
+// Separate ceiling for /api/admin/* — few admins, but metrics + list refresh
+// are chatty. Keeps that load off the shared chat/health limiter.
+const adminApiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 3000,
 });
 
 const staticLimiter = rateLimit({
@@ -660,6 +680,7 @@ const apiDeps = {
   parseUploadFileMetadata,
   path,
   projectRootDir,
+  http,
   skipAllRemoteChannelQueueItems,
   skipCurrentRemoteChannelQueueItem,
   updateRemoteChannelSourcePaused,
@@ -708,6 +729,8 @@ const apiDeps = {
   getAdminStats,
   adminListUsers,
   adminListChats,
+  adminCountUsers,
+  adminCountChats,
   adminBanUser,
   adminDeleteUser,
   adminDeleteChat,
@@ -778,6 +801,7 @@ apiDeps.remoteChannelManager = remoteChannelManager;
 
 if (isProduction) {
   app.use("/api", apiLimiter);
+  app.use("/api/admin", adminApiLimiter);
 }
 
 registerApiRoutes(app, apiDeps);

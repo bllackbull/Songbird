@@ -4,10 +4,14 @@ import {
   ArrowDown,
   ArrowUpDown,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Close,
   Filter,
+  Search,
 } from "../../icons/lucide.js";
-import { labelCls } from "./adminShared.js";
+import { labelCls, PAGE_SIZE_OPTIONS, PAGE_LOCK_THRESHOLD, inputSmCls, searchIconCls } from "./adminShared.js";
+import { hasPersian } from "../../utils/fontUtils.js";
 
 // ─── Loading / empty states ─────────────────────────────────────────────────
 
@@ -26,6 +30,58 @@ export function EmptyState({ message }) {
     <div className="flex h-32 items-center justify-center rounded-2xl border border-dashed border-slate-200 dark:border-white/10">
       <p className="text-sm text-slate-400 dark:text-slate-500">{message}</p>
     </div>
+  );
+}
+
+// ─── Tab toolbar ─────────────────────────────────────────────────────────────
+
+// Consistent flex row for the search + filter + action controls at the top of
+// every paginated tab. Wraps on sm screens so buttons don't get squeezed.
+export function TabToolbar({ children }) {
+  return (
+    <div className="flex flex-nowrap items-center gap-2 sm:flex-wrap">
+      {children}
+    </div>
+  );
+}
+
+// ─── Tab search input ─────────────────────────────────────────────────────────
+
+// Shared search field used by UsersTab, ChatsTab, and LogsTab.
+export function TabSearchInput({ value, onChange, placeholder = "Search…" }) {
+  const isPersian = hasPersian(value);
+  return (
+    <label className="group relative block min-w-0 flex-1 sm:min-w-40">
+      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
+        <Search size={16} className={searchIconCls} />
+      </span>
+      <input
+        type="text"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        lang={isPersian ? "fa" : "en"}
+        dir={isPersian ? "rtl" : "ltr"}
+        className={inputSmCls + " pl-8" + (isPersian ? " font-fa text-right" : "")}
+        style={{ unicodeBidi: "plaintext" }}
+      />
+    </label>
+  );
+}
+
+// ─── Section heading ──────────────────────────────────────────────────────────
+
+// Small all-caps overline label used above content sections in DashboardTab,
+// ActionsTab, and SettingsTab. `danger` switches the colour to rose.
+export function SectionHeading({ children, danger = false }) {
+  return (
+    <h2 className={`mb-3 text-[10px] font-semibold uppercase tracking-widest ${
+      danger
+        ? "text-rose-400 dark:text-rose-400/80"
+        : "text-slate-400 dark:text-slate-500"
+    }`}>
+      {children}
+    </h2>
   );
 }
 
@@ -60,6 +116,95 @@ export function SortTh({ field, sortBy, sortDir, onToggle, children }) {
           : <ArrowUpDown size={10} className="opacity-30" />}
       </span>
     </th>
+  );
+}
+
+// ─── Pagination ─────────────────────────────────────────────────────────────
+
+// Page-size selector always showing the current size as its label and 
+// opening upward (it lives in the bottom footer). When `disabled`, it 
+// renders as a static, dimmed control with no menu.
+function PageSizeSelect({ value, onChange, options, disabled = false }) {
+  const { open, toggle, setOpen, btnRef, menuRef } = useDropdown();
+  const isOpen = open && !disabled;
+  return (
+    <div className="relative">
+      <button ref={btnRef} type="button" onClick={disabled ? undefined : toggle} disabled={disabled}
+        aria-expanded={isOpen} title="Rows per page"
+        className="relative flex h-8 items-center gap-1.5 rounded-xl border border-emerald-200/70 bg-white/90 pl-3 pr-7 text-xs font-semibold text-slate-600 outline-hidden transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-emerald-200/70 disabled:hover:bg-white/90 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-emerald-500/5 dark:disabled:hover:bg-slate-900/50">
+        <span className="truncate">{value} / page</span>
+        <ChevronDown size={15} className={`absolute right-2 top-1/2 -translate-y-1/2 text-emerald-500 transition-transform ${isOpen ? "" : "rotate-180"}`} />
+      </button>
+      {isOpen && (
+        <div ref={menuRef} className="absolute bottom-full right-0 z-50 mb-1.5 min-w-max overflow-hidden rounded-xl border border-emerald-200 bg-white p-1 text-xs font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100">
+          {options.map((opt) => (
+            <button key={opt} type="button" onClick={() => { onChange(opt); setOpen(false); }}
+              className={`flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200 ${opt === value ? "text-emerald-700 dark:text-emerald-300" : ""}`}>
+              <span>{opt} / page</span>
+              {opt === value && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Server-side pagination footer. `total` is the count across the whole filtered
+// dataset (not just the current page), so sorting/filtering always span every
+// item. Both the prev/next controls and the page-size selector are always
+// rendered for a stable layout; they lock (disabled + dimmed) when the list has
+// PAGE_LOCK_THRESHOLD items or fewer, since everything then fits on one page at
+// any size. Renders nothing only when the list is completely empty.
+export function Pagination({
+  page,
+  pageSize,
+  total,
+  onPageChange,
+  pageSizeOptions = PAGE_SIZE_OPTIONS,
+  onPageSizeChange,
+  busy = false,
+}) {
+  const safeTotal    = Math.max(0, Number(total) || 0);
+  const safePageSize = Math.max(1, Number(pageSize) || 1);
+  const pageCount    = Math.max(1, Math.ceil(safeTotal / safePageSize));
+  const current      = Math.min(Math.max(1, Number(page) || 1), pageCount);
+
+  if (safeTotal === 0) return null;
+
+  const first = (current - 1) * safePageSize + 1;
+  const last  = Math.min(current * safePageSize, safeTotal);
+  // Locked when the whole list fits on one page regardless of chosen size.
+  const locked = safeTotal <= PAGE_LOCK_THRESHOLD;
+  const go = (next) => {
+    const target = Math.min(Math.max(1, next), pageCount);
+    if (target !== current && !busy) onPageChange(target);
+  };
+
+  const navBtn =
+    "inline-flex h-8 w-8 items-center justify-center rounded-xl border border-emerald-200/70 bg-white/90 text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-emerald-200/70 disabled:hover:bg-white/90 disabled:hover:text-slate-500 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-emerald-500/10 dark:disabled:hover:bg-slate-900/50 dark:disabled:hover:text-slate-300";
+
+  const canSelectSize = typeof onPageSizeChange === "function";
+
+  return (
+    <div className="flex items-center justify-between gap-2 px-1 pt-1">
+      <p className="text-[11px] text-slate-400 dark:text-slate-500">
+        <span className="font-semibold text-slate-600 dark:text-slate-300">{first}–{last}</span> of{" "}
+        <span className="font-semibold text-slate-600 dark:text-slate-300">{safeTotal}</span>
+      </p>
+      <div className="flex items-center gap-1.5">
+        <button type="button" onClick={() => go(current - 1)} disabled={locked || busy || current <= 1} title="Previous page" className={navBtn}>
+          <ChevronLeft size={16} />
+        </button>
+        <span className="px-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+          {current} / {pageCount}
+        </span>
+        <button type="button" onClick={() => go(current + 1)} disabled={locked || busy || current >= pageCount} title="Next page" className={navBtn}>
+          <ChevronRight size={16} />
+        </button>
+        <PageSizeSelect value={safePageSize} onChange={onPageSizeChange} options={pageSizeOptions} disabled={locked || !canSelectSize} />
+      </div>
+    </div>
   );
 }
 

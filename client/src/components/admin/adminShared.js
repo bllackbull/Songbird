@@ -4,7 +4,7 @@ import { apiFetch } from "../../api/chatApi.js";
 
 export const cardCls    = "rounded-2xl border border-emerald-200/70 bg-white/90 dark:border-emerald-500/30 dark:bg-slate-950/50";
 export const inputCls   = "w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100";
-export const inputSmCls = "h-9 w-full rounded-2xl border border-emerald-200/70 bg-white/90 px-3 text-sm text-slate-700 outline-hidden transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.18)] focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/40 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200 dark:placeholder-slate-500 dark:hover:border-emerald-500/50 dark:hover:shadow-[0_0_18px_rgba(16,185,129,0.12)]";
+export const inputSmCls = "h-9 w-full rounded-xl border border-emerald-200/70 bg-white/90 px-3 text-sm text-slate-700 outline-hidden transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.18)] focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/40 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200 dark:placeholder-slate-500 dark:hover:border-emerald-500/50 dark:hover:shadow-[0_0_18px_rgba(16,185,129,0.12)]";
 export const searchIconCls = "text-emerald-500 transition-colors group-hover:text-emerald-600 dark:text-emerald-400 dark:group-hover:text-emerald-300 icon-anim-pop";
 export const labelCls   = "block text-sm font-semibold text-slate-700 dark:text-slate-200";
 export const btnPrimary = "inline-flex h-9 items-center gap-1.5 rounded-xl bg-emerald-500 px-3 text-xs font-semibold text-white transition hover:bg-emerald-400 hover:shadow-[0_0_14px_rgba(16,185,129,0.3)]";
@@ -20,6 +20,15 @@ export const iconBtn = (color = "slate") => {
   };
   return `inline-flex h-8 w-8 items-center justify-center rounded-full border transition disabled:cursor-not-allowed disabled:opacity-40 ${map[color] || map.slate}`;
 };
+
+// ─── Pagination ───────────────────────────────────────────────────────────────
+
+// `PAGE_LOCK_THRESHOLD` is the smallest option: when a list has this
+// many items or fewer, everything fits on one page at any size, so the
+// pagination controls render but stay locked.
+export const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+export const DEFAULT_PAGE_SIZE = 25;
+export const PAGE_LOCK_THRESHOLD = Math.min(...PAGE_SIZE_OPTIONS);
 
 // ─── API helper ───────────────────────────────────────────────────────────────
 
