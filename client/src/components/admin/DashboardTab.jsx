@@ -145,6 +145,8 @@ const SYSTEM_REFRESH_MS = 10_000;
 
 const DashboardTab = forwardRef(function DashboardTab({ stats, onStatsChange }, ref) {
   const [sys, setSys] = useState(null);
+  // Holds the last successfully fetched system data.
+  const lastSysRef = useRef(null);
   // Parent owns `/api/admin/stats` polling; keep a stable ref so manual refresh
   // can still bump stats without putting an unstable callback in effect deps.
   const onStatsChangeRef = useRef(onStatsChange);
@@ -155,6 +157,7 @@ const DashboardTab = forwardRef(function DashboardTab({ stats, onStatsChange }, 
   const loadSys = useCallback(async () => {
     try {
       const d = await api.get("/api/admin/system");
+      lastSysRef.current = d;
       setSys(d);
     } catch {}
   }, []);
@@ -191,20 +194,23 @@ const DashboardTab = forwardRef(function DashboardTab({ stats, onStatsChange }, 
     },
   }), [loadSys]);
 
-  const sysPct = sys
-    ? Math.round((sys.memory.systemUsed / sys.memory.systemTotal) * 100)
+  // Use the last data while a refresh is in-flight. Falls back to null on first load.
+  const displaySys = sys ?? lastSysRef.current;
+
+  const sysPct = displaySys
+    ? Math.round((displaySys.memory.systemUsed / displaySys.memory.systemTotal) * 100)
     : 0;
-  const heapPct = sys
-    ? Math.round((sys.memory.heapUsed / sys.memory.heapTotal) * 100)
+  const heapPct = displaySys
+    ? Math.round((displaySys.memory.heapUsed / displaySys.memory.heapTotal) * 100)
     : 0;
-  const load1 = sys?.loadAvg?.[0] ?? null;
-  const loadPct = sys
-    ? Math.round(Math.min(100, (load1 / (sys.cpuCount || 1)) * 100))
+  const load1 = displaySys?.loadAvg?.[0] ?? null;
+  const loadPct = displaySys
+    ? Math.round(Math.min(100, (load1 / (displaySys.cpuCount || 1)) * 100))
     : 0;
-  const diskTotal = sys?.storage?.diskTotalBytes ?? 0;
-  const diskUsed = sys?.storage?.diskUsedBytes ?? 0;
+  const diskTotal = displaySys?.storage?.diskTotalBytes ?? 0;
+  const diskUsed = displaySys?.storage?.diskUsedBytes ?? 0;
   const diskPct = diskTotal > 0 ? Math.round((diskUsed / diskTotal) * 100) : 0;
-  const uploadsSize = sys?.storage?.uploadsSizeBytes ?? 0;
+  const uploadsSize = displaySys?.storage?.uploadsSizeBytes ?? 0;
 
   const gaugeColor = (pct) =>
     pct > 85 ? "rose" : pct > 65 ? "orange" : "emerald";
@@ -294,19 +300,19 @@ const DashboardTab = forwardRef(function DashboardTab({ stats, onStatsChange }, 
   const infoCards = [
     {
       label: "Database Size",
-      value: sys ? fmtBytes(uploadsSize) : "—",
+      value: displaySys ? fmtBytes(uploadsSize) : "—",
       icon: Database,
       hint: "Total size of uploaded files on disk",
     },
     {
       label: "Process RSS",
-      value: sys ? fmtBytes(sys.memory.rss) : "—",
+      value: displaySys ? fmtBytes(displaySys.memory.rss) : "—",
       icon: MemoryStick,
       hint: "Total RAM used by the server process (Resident Set Size)",
     },
     {
       label: "Uptime",
-      value: sys ? fmtUptime(sys.uptime) : "—",
+      value: displaySys ? fmtUptime(displaySys.uptime) : "—",
       icon: Activity,
       accent: true,
     },
@@ -318,42 +324,34 @@ const DashboardTab = forwardRef(function DashboardTab({ stats, onStatsChange }, 
       <div>
         <SectionHeading>Resources</SectionHeading>
         <div className={cardCls + " p-4"}>
-          {!sys ? (
-            <p className="py-6 text-center text-xs text-slate-400 dark:text-slate-500">
-              Loading…
-            </p>
-          ) : (
-            <div className="flex flex-wrap items-start justify-around gap-2">
-              <SemiCircleGauge
-                pct={loadPct}
-                color={gaugeColor(loadPct)}
-                label="CPU Load"
-                sublabel={`${load1?.toFixed(2)} avg · ${sys.cpuCount} core${sys.cpuCount !== 1 ? "s" : ""}`}
-              />
-              <SemiCircleGauge
-                pct={heapPct}
-                color={gaugeColor(heapPct)}
-                label="App Memory"
-                sublabel={`${fmtBytes(sys.memory.heapUsed)} / ${fmtBytes(sys.memory.heapTotal)}`}
-              />
-              <SemiCircleGauge
-                pct={sysPct}
-                color={gaugeColor(sysPct)}
-                label="System Memory"
-                sublabel={`${fmtBytes(sys.memory.systemUsed)} / ${fmtBytes(sys.memory.systemTotal)}`}
-              />
-              <SemiCircleGauge
-                pct={diskPct}
-                color={gaugeColor(diskPct)}
-                label="Disk Storage"
-                sublabel={
-                  diskTotal > 0
-                    ? `${fmtBytes(diskUsed)} / ${fmtBytes(diskTotal)}`
-                    : "Unavailable"
-                }
-              />
-            </div>
-          )}
+          <div className="flex flex-wrap items-start justify-around gap-2">
+            <SemiCircleGauge
+              pct={loadPct}
+              color={gaugeColor(loadPct)}
+              label="CPU Load"
+              sublabel={displaySys ? `${load1?.toFixed(2)} avg · ${displaySys.cpuCount} core${displaySys.cpuCount !== 1 ? "s" : ""}` : "—"}
+            />
+            <SemiCircleGauge
+              pct={heapPct}
+              color={gaugeColor(heapPct)}
+              label="App Memory"
+              sublabel={displaySys ? `${fmtBytes(displaySys.memory.heapUsed)} / ${fmtBytes(displaySys.memory.heapTotal)}` : "—"}
+            />
+            <SemiCircleGauge
+              pct={sysPct}
+              color={gaugeColor(sysPct)}
+              label="System Memory"
+              sublabel={displaySys ? `${fmtBytes(displaySys.memory.systemUsed)} / ${fmtBytes(displaySys.memory.systemTotal)}` : "—"}
+            />
+            <SemiCircleGauge
+              pct={diskPct}
+              color={gaugeColor(diskPct)}
+              label="Disk Storage"
+              sublabel={displaySys
+                ? (diskTotal > 0 ? `${fmtBytes(diskUsed)} / ${fmtBytes(diskTotal)}` : "Unavailable")
+                : "—"}
+            />
+          </div>
         </div>
 
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
