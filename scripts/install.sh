@@ -3384,17 +3384,21 @@ check_owner_exists() {
     node --input-type=module -e "
       import { pathToFileURL } from \"node:url\";
       const rootUrl = pathToFileURL(process.cwd() + \"/\");
-      const { openDatabase } = await import(new URL(\"./server/scripts/_db-admin.js\", rootUrl));
-      const dbApi = await openDatabase();
+      let dbApi;
       try {
+        const { openDatabase } = await import(new URL(\"./server/scripts/_db-admin.js\", rootUrl));
+        dbApi = await openDatabase();
         const sql = \"SELECT id FROM users WHERE role = \" + \"'owner'\" + \" LIMIT 1\";
         const row = dbApi.getRow(sql);
         process.exit(row && row.id ? 0 : 1);
+      } catch (err) {
+        process.stderr.write(String(err?.message || err) + \"\\n\");
+        process.exit(1);
       } finally {
-        dbApi.close();
+        try { dbApi?.close(); } catch (_) {}
       }
     "
-  ' 2>/dev/null
+  '
 }
 
 # After installation, offer to create an owner user if none exists.
