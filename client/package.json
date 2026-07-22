@@ -21,7 +21,7 @@
     "lint:fix": "eslint . --fix"
   },
   "dependencies": {
-    "dompurify": "^3.2.7",
+    "dompurify": "^3.4.12",
     "highlight.js": "^11.11.1",
     "lucide-react": "^1.23.0",
     "marked": "^18.0.5",
