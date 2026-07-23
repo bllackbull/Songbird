@@ -14,11 +14,17 @@ services:
       APP_ENV: ${APP_ENV:-production}
       SERVER_PORT: ${SERVER_PORT:-5174}
       BIND_ADDRESS: "0.0.0.0"
+      # Tell the admin panel which container to use via the Docker API.
+      # Defaults to "songbird" which matches the container_name above.
+      SONGBIRD_CONTAINER_NAME: ${SONGBIRD_CONTAINER_NAME:-songbird}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-}
     volumes:
       - songbird-data:/app/data
+      # Required for the admin panel's services.
+      # The container uses the Docker Engine API (via this socket) to control itself.
+      # Remove this mount if you do not need service control from the admin panel.
       - /var/run/docker.sock:/var/run/docker.sock
 
   nginx:
@@ -26,14 +32,17 @@ services:
     container_name: nginx
     restart: unless-stopped
     ports:
+      - "${CLIENT_PORT:-443}:443"
       - "80:80"
-      - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./certs/cert.pem:/etc/nginx/certs/cert.pem:ro
       - ./certs/key.pem:/etc/nginx/certs/key.pem:ro
+    # Wait for the app to pass its healthcheck before nginx starts accepting traffic.
+    # This avoids 502s during the brief startup window (migrations, WASM init).
     depends_on:
-      - songbird
+      songbird:
+        condition: service_healthy
 
 volumes:
   songbird-data:

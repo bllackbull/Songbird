@@ -4,8 +4,14 @@ node_modules
 **/node_modules
 client/dist
 data
+logs
+certs
+docs
+scripts
 npm-debug.log*
 .gitignore
 .vscode
 .idea
 .todo
+*.md
+.env
