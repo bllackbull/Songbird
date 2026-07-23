@@ -17,8 +17,14 @@
     "build:analyze": "ANALYZE=true vite build",
     "preview": "vite preview",
     "lint": "eslint .",
-    "test": "npm run lint",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "test": "vitest --run",
+    "test:watch": "vitest",
+    "test:unit": "vitest --project unit --run",
+    "test:browser": "vitest --project browser --run",
+    "test:browser:headful": "VITEST_HEADFUL=1 vitest --project browser --run",
+    "test:ui": "vitest --ui",
+    "test:bench": "vitest bench --run"
   },
   "dependencies": {
     "dompurify": "^3.4.12",
@@ -33,6 +39,9 @@
     "@eslint/js": "^9.39.3",
     "@tailwindcss/postcss": "^4.3.2",
     "@vitejs/plugin-react": "^6.0.3",
+    "@vitest/browser": "^4.1.10",
+    "@vitest/browser-playwright": "^4.1.10",
+    "@vitest/ui": "^4.1.10",
     "eslint": "^9.39.3",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.1.1",
@@ -41,6 +50,8 @@
     "postcss": "^8.5.16",
     "rollup-plugin-visualizer": "^7.0.1",
     "tailwindcss": "^4.3.2",
-    "vite": "^8.1.3"
+    "vite": "^8.1.3",
+    "vitest": "^4.1.10",
+    "vitest-browser-react": "^2.2.0"
   }
 }

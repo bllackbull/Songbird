@@ -12,10 +12,11 @@
   "homepage": "https://github.com/bllackbull/songbird#readme",
   "scripts": {
     "dev": "concurrently \"npm --prefix client run dev\" \"npm --prefix server run dev\"",
+    "test": "concurrently \"npm --prefix client run test\" \"npm --prefix server run test\"",
+    "start": "concurrently \"npm --prefix client run start\" \"npm --prefix server run start\"",
     "build": "npm --prefix client run build",
     "preview": "npm --prefix client run preview",
-    "start": "npm --prefix server run start",
-    "remote:configure": "node server/scripts/configure-remote-channel.js",
+    "remote:configure": "npm --prefix server run remote:configure",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs"

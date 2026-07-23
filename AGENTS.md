@@ -16,6 +16,11 @@ Songbird is a comprehensive real-time communication platform built with a modern
 
 ## Verification & Tooling
 - **Client Lint**: `npm --prefix client run lint`
+- **Server Tests**: `npm --prefix server run test` (Vitest, includes unit + API integration tests via supertest)
+- **Client Tests**: `npm --prefix client run test` (Vitest, includes unit tests and Playwright browser/component tests)
+- **All Tests**: `npm test` (runs both in parallel)
+- **Client Unit Only**: `npm --prefix client run test:unit` (fast, no browser)
+- **Client Browser Only**: `npm --prefix client run test:browser` (Chromium + Firefox via Playwright)
 - **Server DB Tools**: The server includes a wide array of database maintenance scripts under `npm --prefix server run db:*` (e.g., `db:migrate`, `db:reset`, `db:inspect`).
 - **Remote Channels**: `npm run remote:configure` or `npm --prefix server run remote:configure` to set up mirrored channels.
 

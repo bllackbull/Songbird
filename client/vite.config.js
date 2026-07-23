@@ -13,7 +13,8 @@ export default defineConfig(({ mode }) => {
       5174,
   );
   const analyze =
-    String(rootEnv.ANALYZE || process.env.ANALYZE || "").toLowerCase() === "true";
+    String(rootEnv.ANALYZE || process.env.ANALYZE || "").toLowerCase() ===
+    "true";
 
   return {
     plugins: [
