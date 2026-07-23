@@ -78,10 +78,14 @@ See [SSL Certificates](./SSL-Certificates.md) for the available options (Certbot
 
 ## 5. Build and start
 
+Pull the pre-built image and start the containers:
+
 ```bash
 cd /opt/songbird
-docker compose up -d --build
+docker compose up -d
 ```
+
+The image is pulled automatically from Docker Hub on first run. If you prefer to build from source instead, edit `docker-compose.yaml` and swap the `image:` line for the `build:` block (instructions are in the comments).
 
 The nginx container waits for the app to pass its health check before it starts accepting traffic. This prevents 502 errors during the brief startup window while migrations run.
 
@@ -123,12 +127,12 @@ If you do not need service control from the admin panel, you can remove the sock
 
 ## Updating
 
-Pull the latest code and rebuild:
+Pull the latest image and restart:
 
 ```bash
 cd /opt/songbird
-git pull origin main
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
 See the [Updating](./Updating.md) page for the full update procedure.
