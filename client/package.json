@@ -22,6 +22,7 @@
     "test:watch": "vitest",
     "test:unit": "vitest --project unit --run",
     "test:browser": "vitest --project browser --run",
+    "test:browser:headful": "VITEST_HEADFUL=1 vitest --project browser --run",
     "test:ui": "vitest --ui",
     "test:bench": "vitest bench --run"
   },
