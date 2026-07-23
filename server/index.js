@@ -681,6 +681,7 @@ const apiDeps = {
   parseUploadFileMetadata,
   path,
   projectRootDir,
+  dataDir,
   http,
   skipAllRemoteChannelQueueItems,
   skipCurrentRemoteChannelQueueItem,

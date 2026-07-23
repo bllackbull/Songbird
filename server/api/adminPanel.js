@@ -109,6 +109,7 @@ function registerAdminPanelRoutes(app, deps) {
     adminClearAllMessages,
     adminResetDatabase,
     projectRootDir,
+    dataDir: adminDataDir,
     path: nodePath,
     fs,
   } = deps;
@@ -176,12 +177,13 @@ function registerAdminPanelRoutes(app, deps) {
     const cpuCount  = os.cpus().length;
 
     const { projectRootDir, path: nodePath, fs } = deps;
+    const effectiveDataDir = adminDataDir || nodePath.join(projectRootDir, "data");
 
     // DB file size
     let dbSizeBytes = 0;
     try {
-      if (nodePath && projectRootDir && fs) {
-        const dbPath = nodePath.join(projectRootDir, "data", "songbird.db");
+      if (nodePath && fs) {
+        const dbPath = nodePath.join(effectiveDataDir, "songbird.db");
         if (fs.existsSync(dbPath)) dbSizeBytes = fs.statSync(dbPath).size;
       }
     } catch {}
@@ -189,11 +191,11 @@ function registerAdminPanelRoutes(app, deps) {
     // Uploads folder size (recursive, TTL-cached — see getCachedUploadsSizeBytes)
     let uploadsSizeBytes = 0;
     try {
-      if (nodePath && projectRootDir && fs) {
+      if (nodePath && fs) {
         uploadsSizeBytes = getCachedUploadsSizeBytes(
           fs,
           nodePath,
-          nodePath.join(projectRootDir, "data", "uploads"),
+          nodePath.join(effectiveDataDir, "uploads"),
         );
       }
     } catch {}
@@ -203,8 +205,8 @@ function registerAdminPanelRoutes(app, deps) {
     let diskFreeBytes  = 0;
     let diskUsedBytes  = 0;
     try {
-      if (fs && typeof fs.statfsSync === "function" && projectRootDir) {
-        const stat = fs.statfsSync(projectRootDir);
+      if (fs && typeof fs.statfsSync === "function") {
+        const stat = fs.statfsSync(effectiveDataDir);
         diskTotalBytes = stat.blocks * stat.bsize;
         diskFreeBytes  = stat.bavail * stat.bsize;
         diskUsedBytes  = diskTotalBytes - diskFreeBytes;
@@ -1113,7 +1115,8 @@ function registerAdminPanelRoutes(app, deps) {
   app.get("/api/admin/maintenance/download-db", (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const dbPath = nodePath.join(projectRootDir, "data", "songbird.db");
+    const effectiveDataDir = adminDataDir || nodePath.join(projectRootDir, "data");
+    const dbPath = nodePath.join(effectiveDataDir, "songbird.db");
     if (!fs.existsSync(dbPath)) {
       return res.status(404).json({ error: "Database file not found." });
     }
@@ -1155,7 +1158,7 @@ function registerAdminPanelRoutes(app, deps) {
       return res.status(400).json({ error: "The uploaded file is not a valid SQLite database." });
     }
 
-    const dataDir = nodePath.join(projectRootDir, "data");
+    const dataDir = adminDataDir || nodePath.join(projectRootDir, "data");
     const dbPath  = nodePath.join(dataDir, "songbird.db");
 
     try {
