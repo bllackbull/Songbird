@@ -257,6 +257,7 @@ function registerMessageRoutes(app, deps) {
               created_at: message.reply_created_at || null,
               username: message.reply_username || "",
               nickname: message.reply_nickname || "",
+              color: message.reply_user_color || null,
               avatar_url: ensureAvatarExists(
                 message.reply_user_id || null,
                 message.reply_avatar_url,

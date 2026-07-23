@@ -2061,7 +2061,8 @@ export function getMessages(chatId, options = {}) {
       reply.user_id AS reply_user_id,
       COALESCE(reply_user.username, 'deleted') AS reply_username,
       COALESCE(reply_user.nickname, 'Deleted user') AS reply_nickname,
-      reply_user.avatar_url AS reply_avatar_url
+      reply_user.avatar_url AS reply_avatar_url,
+      reply_user.color AS reply_user_color
     FROM chat_messages
     LEFT JOIN users ON users.id = chat_messages.user_id
     LEFT JOIN chat_messages reply
