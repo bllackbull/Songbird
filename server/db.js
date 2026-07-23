@@ -16,11 +16,16 @@ const serverDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRootDir = path.resolve(serverDir, "..");
 dotenv.config({ path: path.join(projectRootDir, ".env"), override: true, quiet: true });
 dotenv.config({ path: path.join(serverDir, ".env"), override: true, quiet: true });
-ensureStorageEncryptionKey({ projectRootDir, fsImpl: fs, pathImpl: path, cryptoImpl: crypto });
-ensureAdminApiToken({ projectRootDir, fsImpl: fs, pathImpl: path, cryptoImpl: crypto });
-const dataDir = path.resolve(serverDir, "..", "data");
+const dataDir = path.resolve(process.env.DATA_DIR || path.resolve(serverDir, "..", "data"));
 const dbPath = path.join(dataDir, "songbird.db");
 const backupDir = path.join(dataDir, "backups");
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
+// Load persistent secrets from the data volume before deciding to generate new
+// ones — this ensures keys survive container restarts on ephemeral filesystems.
+ensureStorageEncryptionKey({ projectRootDir, dataDir, fsImpl: fs, pathImpl: path, cryptoImpl: crypto });
+ensureAdminApiToken({ projectRootDir, dataDir, fsImpl: fs, pathImpl: path, cryptoImpl: crypto });
 const REMOTE_MESSAGE_CLIENT_REQUEST_SQL =
   "LOWER(COALESCE(client_request_id, '')) LIKE 'remote:%'";
 
@@ -29,10 +34,6 @@ export const isRemoteMessageClientRequestId = (value) =>
 
 export const isRemoteMessageRow = (row) =>
   isRemoteMessageClientRequestId(row?.client_request_id || row?.clientRequestId);
-
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-}
 
 const SQL = await initSqlJs({
   locateFile: (file) =>

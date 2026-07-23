@@ -154,6 +154,7 @@ const ActionsTab = forwardRef(function ActionsTab(_props, ref) {
   const [appInfo, setAppInfo] = useState(null);
   const [rowStatus, setRowStatus] = useState({});
   const statusTimers = useRef({});
+  const [serviceAvailable, setServiceAvailable] = useState(null); // null = probing
 
   const [pendingFile, setPendingFile] = useState(null);
   const [serviceAction, setServiceAction] = useState(null);
@@ -191,6 +192,13 @@ const ActionsTab = forwardRef(function ActionsTab(_props, ref) {
   }, []);
 
   useEffect(() => { loadAppInfo(); }, [loadAppInfo]);
+
+  // Probe whether service control (restart/stop) is available in this deployment.
+  useEffect(() => {
+    api.get("/api/admin/service/available")
+      .then((d) => setServiceAvailable(Boolean(d?.available)))
+      .catch(() => setServiceAvailable(false));
+  }, []);
 
   useImperativeHandle(ref, () => ({ refresh: loadAppInfo }), [loadAppInfo]);
 
@@ -282,17 +290,27 @@ const ActionsTab = forwardRef(function ActionsTab(_props, ref) {
             icon={Rotate}
             iconAnim="icon-anim-spin-full"
             label="Restart service"
-            description="Briefly interrupts the app while the service restarts."
+            description={
+              serviceAvailable === false
+                ? "Not available in this deployment environment."
+                : "Briefly interrupts the app while the service restarts."
+            }
             onClick={() => setServiceAction("restart")}
             status={rowStatus.restart}
+            disabled={!serviceAvailable}
           />
           <ActionRow
             icon={Power}
             iconAnim="icon-anim-beat"
             label="Stop service"
-            description="Takes the app offline until restarted from the server."
+            description={
+              serviceAvailable === false
+                ? "Not available in this deployment environment."
+                : "Takes the app offline until restarted from the server."
+            }
             onClick={() => setServiceAction("stop")}
             status={rowStatus.stop}
+            disabled={!serviceAvailable}
             danger
           />
         </div>

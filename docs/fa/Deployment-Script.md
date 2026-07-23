@@ -62,6 +62,7 @@ songbird-deploy
 | Obtain certificate | درخواست خودکار یک گواهی‌نامه. برای دامنه‌ها از Certbot (Let's Encrypt) استفاده می‌کند؛ برای IPها یک گواهی‌نامه کوتاه‌مدت ۶ روزه از طریق `lego` درخواست می‌کند. |
 | TLS certificate files | استفاده از `fullchain.pem` و `privkey.pem` موجود خودتان. |
 | HTTP only | صرف‌نظر از TLS و ارائه روی HTTP ساده. |
+| Self-signed certificate | تولید یک گواهی‌نامه self-signed. توصیه‌نشده. |
 
 :::info
 

@@ -34,6 +34,11 @@ COPY --from=server-deps /app/server/node_modules ./server/node_modules
 COPY server/ ./server/
 COPY --from=client-build /app/client/dist ./client/dist
 
+# Root-level files needed at runtime for version info and changelog
+COPY VERSION ./
+COPY CHANGELOG.md ./
+COPY package.json ./
+
 RUN mkdir -p /app/data /app/data/uploads /app/data/backups
 
 ENV APP_ENV=production

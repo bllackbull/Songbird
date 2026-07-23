@@ -286,7 +286,7 @@ const USERNAME_MAX = getSetting("USERNAME_MAX_CHARS");
 const NICKNAME_MAX = getSetting("NICKNAME_MAX_CHARS");
 const MESSAGE_MAX_CHARS = getSetting("MESSAGE_MAX_CHARS");
 const ACCOUNT_CREATION = getSetting("SIGN_UP");
-const dataDir = path.resolve(serverDir, "..", "data");
+const dataDir = path.resolve(process.env.DATA_DIR || path.resolve(serverDir, "..", "data"));
 const vapid = ensureValidVapidKeys({ projectRootDir, dataDir, fs, path, webpush });
 const uploadRootDir = path.join(dataDir, "uploads", "messages");
 const avatarUploadRootDir = path.join(dataDir, "uploads", "avatars");
@@ -681,6 +681,7 @@ const apiDeps = {
   parseUploadFileMetadata,
   path,
   projectRootDir,
+  dataDir,
   http,
   skipAllRemoteChannelQueueItems,
   skipCurrentRemoteChannelQueueItem,

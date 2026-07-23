@@ -184,12 +184,10 @@ Perform system administration tasks:
 
 :::warning Permission Requirements
 
-Service control (restart/stop) requires proper permissions:
-- Docker: Container must have access to Docker socket
-- Systemd: Service user must have sudo privileges for systemctl
-- PM2: Process must have access to PM2 runtime
+Service control (restart/stop) requires the right setup depending on deployment:
 
-See [Troubleshooting](./Troubleshooting.md#admin-panel-issues) if these features don't work.
+- **Docker**: The `songbird` container must have the Docker socket mounted (`/var/run/docker.sock`). This is included in the default `docker-compose.yaml`. The `SONGBIRD_CONTAINER_NAME` environment variable tells the app which container to target (defaults to `songbird`). See [Install via Docker](./Installation-Docker.md#admin-panel-service-control).
+- **Systemd**: The service user must have `sudo` privileges for `systemctl`. See [Troubleshooting](./Troubleshooting.md#admin-panel-issues).
 
 :::
 
