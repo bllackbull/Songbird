@@ -15,6 +15,7 @@
     "dev": "node --watch --watch-path=. --watch-path=../.env index.js",
     "start": "node index.js",
     "test": "vitest --run",
+    "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "db:delete": "node scripts/delete-db.js",
     "db:reset": "node scripts/reset-db.js",
@@ -53,5 +54,10 @@
     "telegram": "^2.26.22",
     "undici": "^8.7.0",
     "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "@vitest/ui": "^4.1.10",
+    "supertest": "^7.2.2",
+    "vitest": "^4.1.10"
   }
 }
