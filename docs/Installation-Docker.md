@@ -42,7 +42,7 @@ sudo usermod -aG docker $USER
 newgrp docker
 ```
 
-Optional: Verify Installation:
+Optional: Verify installation:
 
 ```bash
 docker --version
@@ -58,33 +58,77 @@ cd /opt/songbird
 git clone https://github.com/bllackbull/Songbird.git .
 ```
 
-Create a self-signed cert in `certs/` directory if running the app on SSL:
+## 3. Configure environment
+
+Copy the example environment file and edit it:
 
 ```bash
-openssl req -x509 -newkey rsa:2048 \
-  -keyout certs/key.pem \
-  -out certs/cert.pem \
-  -days 365 -nodes \
-  -subj "/CN=localhost"
+cp .env.example .env
+nano .env
 ```
 
-## 3. Build container
+## 4. Set up TLS certificates
+
+The nginx container requires TLS certificate files before it can start. Place your certificate and private key at:
+
+- `certs/cert.pem` — certificate (or full chain)
+- `certs/key.pem` — private key
+
+See [SSL Certificates](./SSL-Certificates.md) for the available options (Certbot, existing files, or the deploy script).
+
+## 5. Build and start
 
 ```bash
 cd /opt/songbird
-docker compose -f docker-compose.yaml up -d --build
+docker compose up -d --build
 ```
 
-Optional: Verify container is built successfully:
+The nginx container waits for the app to pass its health check before it starts accepting traffic. This prevents 502 errors during the brief startup window while migrations run.
+
+Optional: verify the containers started successfully:
 
 ```bash
-docker compose -f docker-compose.yaml ps
-docker compose -f docker-compose.yaml logs -f
+docker compose ps
+docker compose logs -f
 ```
 
-:::info
+:::info Nginx configuration
 
-Docker automatically configures the nginx config to run on port 443 using the self-signed cert you previously generated.
-To change and customize the nginx config, refer to the [Configure Nginx](./Nginx-Configuration.md) page.
+The nginx container serves HTTPS on port 443 using the certificates from the `certs/` directory. To customise the nginx config, refer to [Configure Nginx](./Nginx-Configuration.md). After editing `nginx/nginx.conf`, restart the nginx container:
+
+```bash
+docker compose restart nginx
+```
 
 :::
+
+## Admin panel service control
+
+The admin panel's **Restart service** and **Stop service** actions work in Docker deployments by calling the Docker Engine API through the mounted socket (`/var/run/docker.sock`). The compose file sets `SONGBIRD_CONTAINER_NAME=songbird` so the app knows which container to target.
+
+If you rename the container or use a custom name, set the env var to match:
+
+```yaml
+# docker-compose.yaml
+environment:
+  SONGBIRD_CONTAINER_NAME: my-custom-name
+```
+
+If you do not need service control from the admin panel, you can remove the socket mount from `docker-compose.yaml`:
+
+```yaml
+# Remove or comment out this line under songbird volumes:
+# - /var/run/docker.sock:/var/run/docker.sock
+```
+
+## Updating
+
+Pull the latest code and rebuild:
+
+```bash
+cd /opt/songbird
+git pull origin main
+docker compose up -d --build
+```
+
+See the [Updating](./Updating.md) page for the full update procedure.
