@@ -1,8 +1,11 @@
 services:
   songbird:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    # Use the pre-built image from Docker Hub (recommended):
+    image: ${SONGBIRD_IMAGE:-bllackbull/songbird:latest}
+    # Or build locally from source (uncomment and remove the image line above):
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
     container_name: songbird
     restart: unless-stopped
     expose:
