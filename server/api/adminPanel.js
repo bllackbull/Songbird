@@ -1,7 +1,7 @@
 import { normalizeHexColor, normalizeGroupUsername, normalizeVisibility, normalizeChatType } from "../lib/dbToolHelpers.js";
 import { createInviteToken } from "../lib/inviteTokens.js";
 import { writeAdminLog, readAdminLog, clearAdminLog } from "../lib/adminLog.js";
-import { readInstallerLog, readNginxLog, readServiceLog } from "../lib/systemLogs.js";
+import { readInstallerLog, readNginxLog, readServiceLog, probeLogSources } from "../lib/systemLogs.js";
 import os from "node:os";
 import multer from "multer";
 import { execFile } from "node:child_process";
@@ -857,6 +857,12 @@ function registerAdminPanelRoutes(app, deps) {
   });
 
   // Installer / service / nginx logs
+  app.get("/api/admin/logs/sources", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const sources = await probeLogSources();
+    res.json({ sources });
+  });
+
   app.get("/api/admin/logs/installer", (req, res) => {
     if (!requireAdmin(req, res)) return;
     res.json(readInstallerLog({ maxLines: 400 }));
@@ -978,6 +984,38 @@ function registerAdminPanelRoutes(app, deps) {
   // Dispatches to the right mechanism based on the deployment environment.
   const runServiceAction = (action) =>
     isDocker() ? runDockerAction(action) : runSystemctl(action);
+
+  // Probes whether service control (restart/stop) is usable in the current
+  // deployment. In Docker it requires the socket to be mounted; on bare metal
+  // it requires systemctl to be available.
+  app.get("/api/admin/service/available", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    if (isDocker()) {
+      // Check whether the Docker socket is actually mounted and accessible.
+      const available = await new Promise((resolve) => {
+        try {
+          const http = deps.http;
+          if (!http) return resolve(false);
+          const r = http.request(
+            { socketPath: "/var/run/docker.sock", path: "/info", method: "GET" },
+            (resp) => { resp.resume(); resolve(resp.statusCode < 500); },
+          );
+          r.on("error", () => resolve(false));
+          r.setTimeout(2000, () => { r.destroy(); resolve(false); });
+          r.end();
+        } catch { resolve(false); }
+      });
+      return res.json({ available, reason: available ? null : "Docker socket not mounted." });
+    }
+    // Bare metal — check whether systemctl exists.
+    const available = await new Promise((resolve) => {
+      execFile("systemctl", ["--version"], { timeout: 2000 }, (err) => {
+        if (!err) return resolve(true);
+        execFile("sudo", ["-n", "systemctl", "--version"], { timeout: 2000 }, (err2) => resolve(!err2));
+      });
+    });
+    res.json({ available, reason: available ? null : "systemctl not available." });
+  });
 
   app.post("/api/admin/service/restart", async (req, res) => {
     const session = requireAdmin(req, res);

@@ -137,3 +137,60 @@ export function readServiceLog({ maxLines = 300 } = {}) {
     );
   });
 }
+
+/**
+ * Probes which log sources are available in the current deployment environment.
+ * Each entry includes an `available` boolean so the UI can hide irrelevant tabs
+ * rather than showing them with an error message.
+ *
+ * Probing is intentionally lightweight — we only check file existence / command
+ * availability, not read the full content.
+ */
+export async function probeLogSources() {
+  const isDocker = (() => {
+    try { return fs.existsSync("/.dockerenv"); } catch { return false; }
+  })();
+
+  // Installer log: check whether any candidate path exists.
+  const installerAvailable = INSTALLER_LOG_CANDIDATES.some((p) => {
+    try { return fs.existsSync(p); } catch { return false; }
+  });
+
+  // Nginx log: check whether any candidate is directly readable, or
+  // accessible via sudo (matching the real read logic). Skip in Docker —
+  // nginx runs in a separate container and its logs are not on this filesystem.
+  let nginxAvailable = false;
+  if (!isDocker) {
+    nginxAvailable = NGINX_LOG_CANDIDATES.some((p) => {
+      try { fs.accessSync(p, fs.constants.R_OK); return true; } catch { return false; }
+    });
+    if (!nginxAvailable) {
+      // Quick sudo probe — if sudo -n cat succeeds on at least one file it's accessible.
+      for (const p of NGINX_LOG_CANDIDATES) {
+        try { fs.accessSync(p, fs.constants.F_OK); } catch { continue; }
+        const result = await new Promise((resolve) => {
+          execFile("sudo", ["-n", "cat", p], { timeout: 2000 }, (err) => resolve(!err));
+        });
+        if (result) { nginxAvailable = true; break; }
+      }
+    }
+  }
+
+  // Service log: journalctl only works on systemd hosts, not in Docker.
+  let serviceAvailable = false;
+  if (!isDocker) {
+    serviceAvailable = await new Promise((resolve) => {
+      execFile("journalctl", ["--version"], { timeout: 2000 }, (err) => {
+        if (!err) return resolve(true);
+        execFile("sudo", ["-n", "journalctl", "--version"], { timeout: 2000 }, (err2) => resolve(!err2));
+      });
+    });
+  }
+
+  return {
+    admin:     { available: true },
+    installer: { available: installerAvailable },
+    service:   { available: serviceAvailable },
+    nginx:     { available: nginxAvailable },
+  };
+}

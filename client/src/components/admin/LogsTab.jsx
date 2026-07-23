@@ -31,12 +31,12 @@ const LOG_ACTION_META = {
   "user.ban":            { label: "User banned",       color: "rose",    icon: Ban },
   "user.unban":          { label: "User unbanned",     color: "emerald", icon: CirclePlus },
   "user.role":           { label: "Role changed",      color: "emerald", icon: Tag },
-  "user.reset_password": { label: "Password reset",    color: "slate",  icon: KeyRound },
+  "user.reset_password": { label: "Password reset",    color: "slate",   icon: KeyRound },
   "chat.create":         { label: "Chat created",      color: "emerald", icon: Plus },
   "chat.edit":           { label: "Chat edited",       color: "slate",   icon: Pencil },
   "chat.delete":         { label: "Chat deleted",      color: "rose",    icon: Trash },
   "chat.member_add":     { label: "Member added",      color: "emerald", icon: UserPlus },
-  "chat.member_remove":  { label: "Member removed",    color: "rose",  icon: UserMinus },
+  "chat.member_remove":  { label: "Member removed",    color: "rose",    icon: UserMinus },
   "chat.member_role":    { label: "Member role",       color: "slate",   icon: Tag },
   "db.vacuum":           { label: "DB vacuumed",       color: "emerald", icon: Brush },
   "db.clear_messages":   { label: "Messages cleared",  color: "rose",    icon: MessageCircleX },
@@ -56,12 +56,15 @@ const LOG_COLORS = {
   slate:   { icon: "text-slate-500 dark:text-slate-400" },
 };
 
-const LOG_SOURCES = [
+// All possible log sources in display order.
+const ALL_LOG_SOURCES = [
   { id: "admin",     label: "Admin Panel" },
   { id: "installer", label: "Installer" },
   { id: "service",   label: "Service" },
   { id: "nginx",     label: "Nginx" },
 ];
+
+// ─── Admin audit log ──────────────────────────────────────────────────────────
 
 const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = true }, ref) {
   const [logs, setLogs]               = useState([]);
@@ -73,22 +76,17 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = tr
   const [search, setSearch]           = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [clearing, setClearing]       = useState(false);
-  const debounceRef = useRef(null);
+  const debounceRef  = useRef(null);
   const requestIdRef = useRef(0);
 
   const isOwner = currentUser?.role === "owner";
 
-  // Fetch one page from the server. Search spans the whole admin log file
-  // server-side; `total` drives the pagination footer.
   const trimmedSearch = search.trim();
   const fetchPage = useCallback(async (targetPage) => {
     const requestId = ++requestIdRef.current;
     setLoading(true);
     const offset = (Math.max(1, targetPage) - 1) * pageSize;
-    const params = new URLSearchParams({
-      limit: String(pageSize),
-      offset: String(offset),
-    });
+    const params = new URLSearchParams({ limit: String(pageSize), offset: String(offset) });
     if (trimmedSearch) params.set("search", trimmedSearch);
     try {
       const data = await api.get(`/api/admin/logs?${params.toString()}`);
@@ -104,7 +102,6 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = tr
     }
   }, [trimmedSearch, pageSize]);
 
-  // Refetch (debounced) whenever the search or page changes while the tab is visible.
   useEffect(() => {
     if (!active) return undefined;
     clearTimeout(debounceRef.current);
@@ -115,9 +112,7 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = tr
   const refresh = useCallback(() => fetchPage(page), [fetchPage, page]);
   useImperativeHandle(ref, () => ({ refresh }), [refresh]);
 
-  // Reset to page 1 in the handler (not an effect) so re-revealing the tab via
-  // <Activity> keeps the page the admin was already on.
-  const changeSearch = (value) => { setSearch(value); setPage(1); };
+  const changeSearch   = (value) => { setSearch(value);   setPage(1); };
   const changePageSize = (value) => { setPageSize(value); setPage(1); };
 
   const clearLogs = async () => {
@@ -133,7 +128,8 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = tr
         {isOwner && (
           <button type="button" onClick={() => setConfirmOpen(true)} title="Clear"
             className={btnDanger + " w-9 shrink-0 justify-center px-0 sm:w-auto sm:justify-start sm:px-3"}>
-            <Trash size={16} className="icon-anim-slide shrink-0" /> <span className="hidden sm:inline">Clear</span>
+            <Trash size={16} className="icon-anim-slide shrink-0" />
+            <span className="hidden sm:inline">Clear</span>
           </button>
         )}
       </TabToolbar>
@@ -150,40 +146,42 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = tr
 
       {!initialized ? <LoadingRows /> : logs.length === 0 ? <EmptyState message="No log entries." /> : (
         <>
-        <div className={"overflow-hidden " + cardCls}>
-          {logs.map((entry, i) => {
-            const meta = LOG_ACTION_META[entry.action] || { label: entry.action, color: "slate", icon: History };
-            const Icon = meta.icon || History;
-            const colors = LOG_COLORS[meta.color] || LOG_COLORS.slate;
-            const detailText = [entry.targetLabel, entry.details].filter(Boolean).join(" · ");
-            const detailHasPersian = hasPersian(detailText);
-            return (
-              <div key={i} className={`flex items-start gap-3 px-4 py-3 ${i < logs.length - 1 ? "border-b border-slate-100 dark:border-white/5" : ""}`}>
-                <div className={`flex h-7 w-7 shrink-0 items-center justify-center ${colors.icon}`}>
-                  <Icon size={18} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{meta.label}</span>
-                    {entry.status === "error" && <span className="text-[10px] font-semibold text-rose-500">failed</span>}
+          <div className={"overflow-hidden " + cardCls}>
+            {logs.map((entry, i) => {
+              const meta   = LOG_ACTION_META[entry.action] || { label: entry.action, color: "slate", icon: History };
+              const Icon   = meta.icon || History;
+              const colors = LOG_COLORS[meta.color] || LOG_COLORS.slate;
+              const detailText      = [entry.targetLabel, entry.details].filter(Boolean).join(" · ");
+              const detailHasPersian = hasPersian(detailText);
+              return (
+                <div key={i} className={`flex items-start gap-3 px-4 py-3 ${i < logs.length - 1 ? "border-b border-slate-100 dark:border-white/5" : ""}`}>
+                  <div className={`flex h-7 w-7 shrink-0 items-center justify-center ${colors.icon}`}>
+                    <Icon size={18} />
                   </div>
-                  <p className={`mt-0.5 truncate text-[11px] text-slate-400 dark:text-slate-500 ${detailHasPersian ? "font-fa" : ""}`} dir="ltr">
-                    <bdi>{detailText}</bdi>
-                    {detailText ? " · " : ""}
-                    {entry.actorUsername ? `@${entry.actorUsername}` : "system"} · {fmtDateTime(entry.ts)}
-                  </p>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{meta.label}</span>
+                      {entry.status === "error" && <span className="text-[10px] font-semibold text-rose-500">failed</span>}
+                    </div>
+                    <p className={`mt-0.5 truncate text-[11px] text-slate-400 dark:text-slate-500 ${detailHasPersian ? "font-fa" : ""}`} dir="ltr">
+                      <bdi>{detailText}</bdi>
+                      {detailText ? " · " : ""}
+                      {entry.actorUsername ? `@${entry.actorUsername}` : "system"} · {fmtDateTime(entry.ts)}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-        <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage}
-          onPageSizeChange={changePageSize} busy={loading} />
+              );
+            })}
+          </div>
+          <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage}
+            onPageSizeChange={changePageSize} busy={loading} />
         </>
       )}
     </div>
   );
 });
+
+// ─── System log viewer (installer / service / nginx) ─────────────────────────
 
 const SystemLogView = forwardRef(function SystemLogView({ source }, ref) {
   const [data, setData]               = useState(null);
@@ -198,7 +196,6 @@ const SystemLogView = forwardRef(function SystemLogView({ source }, ref) {
 
   useEffect(() => { setInitialized(false); load(); }, [load]);
 
-  // Auto-scroll to bottom when data loads or updates
   useEffect(() => {
     if (data?.lines?.length > 0 && logContainerRef.current) {
       logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
@@ -220,23 +217,59 @@ const SystemLogView = forwardRef(function SystemLogView({ source }, ref) {
           </pre>
         </div>
       )}
-      {data?.source && <p className="text-[11px] text-slate-400 dark:text-slate-500">Source: <code className="rounded-sm bg-slate-100 px-1 py-0.5 dark:bg-white/10">{data.source}</code></p>}
+      {data?.source && (
+        <p className="text-[11px] text-slate-400 dark:text-slate-500">
+          Source: <code className="rounded-sm bg-slate-100 px-1 py-0.5 dark:bg-white/10">{data.source}</code>
+        </p>
+      )}
     </div>
   );
 });
 
+// ─── Tab container ────────────────────────────────────────────────────────────
+
 const LogsTab = forwardRef(function LogsTab({ currentUser, active = true }, ref) {
-  const [source, setSource] = useState("admin");
+  const [source, setSource]                 = useState("admin");
+  const [availableSources, setAvailableSources] = useState(null); // null = probing
   const viewRef = useRef(null);
 
   useImperativeHandle(ref, () => ({ refresh: () => viewRef.current?.refresh() }), []);
 
+  // Probe which log sources exist in this deployment on mount.
+  // Hides tabs that will never work (e.g. journalctl/nginx in Docker).
+  useEffect(() => {
+    api.get("/api/admin/logs/sources")
+      .then((data) => {
+        const available = new Set(
+          Object.entries(data.sources ?? {})
+            .filter(([, v]) => v?.available)
+            .map(([k]) => k),
+        );
+        available.add("admin"); // always present
+        setAvailableSources(available);
+        if (!available.has(source)) setSource("admin");
+      })
+      .catch(() => {
+        // On network error fall back to showing all tabs; individual views
+        // will display their own unavailability messages.
+        setAvailableSources(new Set(ALL_LOG_SOURCES.map((s) => s.id)));
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Show all tabs always; disable ones that aren't available in this deployment.
+  const visibleSources = ALL_LOG_SOURCES.map((s) => ({
+    ...s,
+    disabled: availableSources !== null && !availableSources.has(s.id),
+  }));
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-1.5">
-        {LOG_SOURCES.map(({ id, label }) => (
-          <button key={id} type="button" onClick={() => setSource(id)}
-            className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
+        {visibleSources.map(({ id, label, disabled }) => (
+          <button key={id} type="button" onClick={() => !disabled && setSource(id)}
+            disabled={disabled}
+            className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
               source === id
                 ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300"
                 : "border-transparent text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5"
@@ -245,7 +278,10 @@ const LogsTab = forwardRef(function LogsTab({ currentUser, active = true }, ref)
           </button>
         ))}
       </div>
-      {source === "admin" ? <AdminLogView ref={viewRef} currentUser={currentUser} active={active && source === "admin"} /> : <SystemLogView ref={viewRef} source={source} key={source} />}
+      {source === "admin"
+        ? <AdminLogView ref={viewRef} currentUser={currentUser} active={active && source === "admin"} />
+        : <SystemLogView ref={viewRef} source={source} key={source} />
+      }
     </div>
   );
 });
