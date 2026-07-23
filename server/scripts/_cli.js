@@ -5,7 +5,7 @@ import { stdin as input, stdout as output } from 'node:process'
 
 export const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 export const serverDir = path.resolve(scriptDir, '..')
-export const dataDir = path.resolve(serverDir, '..', 'data')
+export const dataDir = path.resolve(process.env.DATA_DIR || path.resolve(serverDir, '..', 'data'))
 
 function parseNpmOriginalArgs() {
   const raw = process.env.npm_config_argv

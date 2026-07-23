@@ -1,9 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import { serverDir } from "./_cli.js";
+import { serverDir, dataDir } from "./_cli.js";
 
 const projectRootDir = path.resolve(serverDir, "..");
-const dataDir = path.join(projectRootDir, "data");
 const dbPath = path.join(dataDir, "songbird.db");
 const backupDir = path.join(dataDir, "backups");
 

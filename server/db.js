@@ -18,7 +18,7 @@ dotenv.config({ path: path.join(projectRootDir, ".env"), override: true, quiet: 
 dotenv.config({ path: path.join(serverDir, ".env"), override: true, quiet: true });
 ensureStorageEncryptionKey({ projectRootDir, fsImpl: fs, pathImpl: path, cryptoImpl: crypto });
 ensureAdminApiToken({ projectRootDir, fsImpl: fs, pathImpl: path, cryptoImpl: crypto });
-const dataDir = path.resolve(serverDir, "..", "data");
+const dataDir = path.resolve(process.env.DATA_DIR || path.resolve(serverDir, "..", "data"));
 const dbPath = path.join(dataDir, "songbird.db");
 const backupDir = path.join(dataDir, "backups");
 const REMOTE_MESSAGE_CLIENT_REQUEST_SQL =
