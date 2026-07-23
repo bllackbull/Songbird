@@ -17,6 +17,7 @@
     "test": "vitest --run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
+    "test:bench": "vitest bench --run",
     "db:delete": "node scripts/delete-db.js",
     "db:reset": "node scripts/reset-db.js",
     "db:backup": "node scripts/backup-db.js",

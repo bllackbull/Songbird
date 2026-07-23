@@ -22,6 +22,7 @@ export default defineConfig({
         test: {
           name: "browser",
           include: ["test/components/**/*.{test,spec}.{js,jsx}"],
+          exclude: ["test/bench/**"],
           browser: {
             enabled: true,
             provider: playwright(),
@@ -30,5 +31,8 @@ export default defineConfig({
         },
       },
     ],
+  },
+  benchmark: {
+    include: ["test/bench/**/*.bench.js"],
   },
 });

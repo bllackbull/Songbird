@@ -1,12 +1,12 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    environment: 'node',
-    include: ['test/**/*.test.{js,mjs,cjs}'],
-    reporters: ['default'],
+    environment: "node",
+    include: ["test/**/*.test.{js,mjs,cjs}"],
+    reporters: ["default"],
+  },
+  benchmark: {
+    include: ["test/bench/**/*.bench.js"],
   },
 });
-
-
-

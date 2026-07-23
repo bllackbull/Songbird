@@ -22,7 +22,8 @@
     "test:watch": "vitest",
     "test:unit": "vitest --project unit --run",
     "test:browser": "vitest --project browser --run",
-    "test:ui": "vitest --ui"
+    "test:ui": "vitest --ui",
+    "test:bench": "vitest bench --run"
   },
   "dependencies": {
     "dompurify": "^3.4.12",
