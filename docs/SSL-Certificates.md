@@ -55,6 +55,8 @@ bash scripts/gen-certs.sh
 bash scripts/gen-certs.sh example.com
 ```
 
+The [Deployment Script](./Deployment-Script.md) (`songbird-deploy`) also offers this as **Certificate Mode → Self-signed** during installation, so you do not need to run the script manually for bare-metal installs.
+
 :::danger Limitations of self-signed certificates
 
 - **Browser security warnings**: Every visitor sees a "Your connection is not private" error. There is no way to suppress this without manually installing the certificate into each client's trust store.

@@ -62,6 +62,7 @@ When you choose **Install**, the script walks you through a series of prompts:
 | Obtain certificate | Automatically request a certificate. For domains this uses Certbot (Let's Encrypt); for IPs it requests a short-lived 6-day certificate via `lego`. |
 | TLS certificate files | Use your own existing `fullchain.pem` and `privkey.pem`. |
 | HTTP only | Skip TLS and serve over plain HTTP. |
+| Self-signed certificate | Generate a self-signed certificate. Not recommended. |
 
 :::info
 
