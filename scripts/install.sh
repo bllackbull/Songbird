@@ -378,6 +378,15 @@ show_deployment_success_frame() {
         else
           lines+=("Visit: http://<your-server-ip>:${CLIENT_PORT}")
         fi
+      elif [[ "$CERT_MODE" == "selfsigned" ]]; then
+        local visit_ip="${CERTBOT_IP_ADDRESS:-<your-server-ip>}"
+        [[ "$DEPLOY_MODE" == "domain" && "${#DOMAIN_NAMES[@]}" -gt 0 ]] && visit_ip="${DOMAIN_NAMES[0]}"
+        if [[ "$CLIENT_PORT" == "443" ]]; then
+          lines+=("Visit: https://${visit_ip}")
+        else
+          lines+=("Visit: https://${visit_ip}:${CLIENT_PORT}")
+        fi
+        lines+=("Note: Self-signed cert — accept the browser security warning to proceed.")
       elif [[ "$DEPLOY_MODE" == "domain" ]]; then
         local d=""
         for d in "${DOMAIN_NAMES[@]}"; do
@@ -868,7 +877,8 @@ prompt_cert_mode() {
     printf "1) %s\n" "$option_one_label"
     printf "2) TLS certificate files\n"
     printf "3) HTTP only\n"
-    prompt_read "Choose an option [1-3]: " mode
+    printf "4) Self-signed certificate (not recommended)\n"
+    prompt_read "Choose an option [1-4]: " mode
     mode="${mode#"${mode%%[![:space:]]*}"}"
     mode="${mode%"${mode##*[![:space:]]}"}"
     case "$mode" in
@@ -884,7 +894,11 @@ prompt_cert_mode() {
         CERT_MODE="http"
         break
         ;;
-      *) printf "Choose 1, 2, or 3.\n" ;;
+      4)
+        CERT_MODE="selfsigned"
+        break
+        ;;
+      *) printf "Choose 1, 2, 3, or 4.\n" ;;
     esac
   done
 }
@@ -2415,10 +2429,53 @@ EOF
   run_as_root systemctl enable --now songbird-lego-renew.timer || return 1
 }
 
+configure_selfsigned_ssl() {
+  # Determine the CN: prefer the first domain name, fall back to the IP address,
+  # fall back to "localhost" as a last resort.
+  local cn="localhost"
+  if [[ "${#DOMAIN_NAMES[@]}" -gt 0 && -n "${DOMAIN_NAMES[0]}" ]]; then
+    cn="${DOMAIN_NAMES[0]}"
+  elif [[ -n "$CERTBOT_IP_ADDRESS" ]]; then
+    cn="$CERTBOT_IP_ADDRESS"
+  fi
+
+  local gen_script="${INSTALL_DIR}/scripts/gen-certs.sh"
+  if [[ ! -f "$gen_script" ]]; then
+    warn "gen-certs.sh not found at ${gen_script}."
+    return 1
+  fi
+
+  log "Running gen-certs.sh for CN=${cn}..."
+  # gen-certs.sh writes to <repo>/certs/ by default, but for a bare-metal install
+  # we want the certs in CERT_INSTALL_DIR (/etc/ssl/songbird). We temporarily
+  # override the output directory by symlinking, then copy to the final location.
+  run_silent run_as_root mkdir -p "$CERT_INSTALL_DIR" || return 1
+
+  # Run gen-certs.sh — it handles openssl installation automatically if missing.
+  # It writes certs/cert.pem and certs/key.pem relative to the repo root.
+  run_silent run_as_root bash "$gen_script" "$cn" || return 1
+
+  local repo_cert="${INSTALL_DIR}/certs/cert.pem"
+  local repo_key="${INSTALL_DIR}/certs/key.pem"
+
+  run_silent run_as_root cp -f "$repo_cert" "$CERT_INSTALL_DIR/fullchain.pem" || return 1
+  run_silent run_as_root cp -f "$repo_key"  "$CERT_INSTALL_DIR/privkey.pem"  || return 1
+  run_silent run_as_root chmod 644 "$CERT_INSTALL_DIR/fullchain.pem" || return 1
+  run_silent run_as_root chmod 600 "$CERT_INSTALL_DIR/privkey.pem"  || return 1
+
+  install_ssl_files_into_nginx "$CERT_INSTALL_DIR/fullchain.pem" "$CERT_INSTALL_DIR/privkey.pem" || return 1
+  log "Self-signed certificate installed."
+}
+
 configure_ssl_if_needed() {
   case "$CERT_MODE" in
     http)
       log "HTTP-only mode selected. Skipping TLS setup."
+      return 0
+      ;;
+    selfsigned)
+      log "Generating self-signed TLS certificate..."
+      configure_selfsigned_ssl || return 1
       return 0
       ;;
     files)
