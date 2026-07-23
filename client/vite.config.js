@@ -1,6 +1,5 @@
 import path from "node:path";
 import { defineConfig, loadEnv } from "vite";
-import { playwright } from "@vitest/browser-playwright";
 import react from "@vitejs/plugin-react";
 import { visualizer } from "rollup-plugin-visualizer";
 
@@ -67,31 +66,6 @@ export default defineConfig(({ mode }) => {
       proxy: {
         "/api": `http://localhost:${apiPort}`,
       },
-    },
-    test: {
-      environment: "node",
-      include: ["src/**/*.{test,spec}.{js,jsx}"],
-      projects: [
-        {
-          name: "unit",
-          exclude: ["**/*.browser.{test,spec}.{js,jsx}"],
-          environment: "node",
-        },
-        {
-          name: "browser",
-          include: ["**/*.browser.{test,spec}.{js,jsx}"],
-          browser: {
-            enabled: true,
-            provider: playwright(),
-            instances: [
-              { browser: "chromium" },
-              { browser: "firefox" },
-              { browser: "webkit" },
-            ],
-          },
-        },
-      ],
-      reporters: ["default"],
     },
   };
 });
