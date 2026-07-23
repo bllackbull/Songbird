@@ -56,16 +56,37 @@ function updateEnvValue(targetPath, key, value, { fsImpl = fs } = {}) {
 
 function ensureStorageEncryptionKey({
   projectRootDir,
+  dataDir,
   fsImpl = fs,
   pathImpl = path,
   cryptoImpl = crypto,
 } = {}) {
+  // Load from data volume secrets file first — survives container rebuilds
+  // even when the project .env is on an ephemeral filesystem.
+  const secretsPath = dataDir ? pathImpl.join(String(dataDir), "secrets.env") : null;
+  if (secretsPath) {
+    try {
+      if (fsImpl.existsSync(secretsPath)) {
+        const lines = fsImpl.readFileSync(secretsPath, "utf8").split(/\r?\n/);
+        for (const line of lines) {
+          const match = line.match(/^([A-Z_]+)=(.+)$/);
+          if (match && match[1] === "STORAGE_ENCRYPTION_KEY" && !process.env.STORAGE_ENCRYPTION_KEY) {
+            process.env.STORAGE_ENCRYPTION_KEY = match[2];
+          }
+        }
+      }
+    } catch {
+      // best effort
+    }
+  }
+
   const existing = normalizeEnvSecret(process.env.STORAGE_ENCRYPTION_KEY);
   if (existing) return existing;
 
   const generated = cryptoImpl.randomBytes(32).toString("base64url");
-  const envPath = pathImpl.join(String(projectRootDir || ""), ".env");
 
+  // Write to project .env (best-effort, may be ephemeral in Docker/cloud)
+  const envPath = pathImpl.join(String(projectRootDir || ""), ".env");
   try {
     updateEnvValue(envPath, "STORAGE_ENCRYPTION_KEY", generated, { fsImpl });
   } catch (error) {
@@ -73,6 +94,20 @@ function ensureStorageEncryptionKey({
       "[storage-encryption] Unable to update .env with generated storage key:",
       String(error?.message || error),
     );
+  }
+
+  // Write to data volume so the key survives container restarts
+  if (secretsPath) {
+    try {
+      fsImpl.mkdirSync(String(dataDir), { recursive: true });
+      updateEnvValue(secretsPath, "STORAGE_ENCRYPTION_KEY", generated, { fsImpl });
+      console.log("[storage-encryption] Encryption key persisted to data volume.");
+    } catch (error) {
+      console.warn(
+        "[storage-encryption] Unable to persist encryption key to data volume:",
+        String(error?.message || error),
+      );
+    }
   }
 
   process.env.STORAGE_ENCRYPTION_KEY = generated;
