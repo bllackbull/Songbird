@@ -14,7 +14,8 @@
   "scripts": {
     "dev": "node --watch --watch-path=. --watch-path=../.env index.js",
     "start": "node index.js",
-    "test": "node -e \"console.log('No server tests configured.');\"",
+    "test": "vitest --run",
+    "test:ui": "vitest --ui",
     "db:delete": "node scripts/delete-db.js",
     "db:reset": "node scripts/reset-db.js",
     "db:backup": "node scripts/backup-db.js",
