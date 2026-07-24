@@ -766,19 +766,32 @@ export const MessageItem = memo(function MessageItem({
           ) : remoteForwardedProvider === "songbird" ? (
             <SongbirdIcon size={13} />
           ) : null}
-          <span
-            className={`min-w-0 max-w-[18rem] truncate ${
-              forwardedLabelHasPersian ? "font-fa" : ""
-            }`}
-            dir="auto"
-            style={{ unicodeBidi: "isolate" }}
-            title={forwardedFromLabel}
-          >
-            {remoteForwardedProvider === "telegram"
-              ? forwardedFromLabel.replace(/^telegram:\s*/i, "")
-              : remoteForwardedProvider === "songbird"
-                ? forwardedFromLabel.replace(/^songbird:\s*/i, "")
-                : forwardedFromLabel}
+          <span className="inline-flex min-w-0 items-center gap-0.5">
+            <span
+              className={`min-w-0 max-w-[18rem] truncate ${
+                forwardedLabelHasPersian ? "font-fa" : ""
+              }`}
+              dir="auto"
+              style={{ unicodeBidi: "isolate" }}
+              title={forwardedFromLabel}
+            >
+              {remoteForwardedProvider === "telegram"
+                ? forwardedFromLabel.replace(/^telegram:\s*/i, "")
+                : remoteForwardedProvider === "songbird"
+                  ? forwardedFromLabel.replace(/^songbird:\s*/i, "")
+                  : forwardedFromLabel}
+            </span>
+            {/* Verified badge: shown for forwarded users and verified forwarded chats */}
+            {!isDeletedForwardedUser && forwardedFromUserId > 0 && Boolean(forwardedUser?.verified) && (
+              <VerifiedBadge size={11} />
+            )}
+            {!isDeletedForwardedChat && forwardedFromChatId > 0 && Boolean(forwardedChat?.verified) && (
+              <VerifiedBadge size={11} />
+            )}
+            {/* Role badge: only for forwarded users, not chats */}
+            {!isDeletedForwardedUser && forwardedFromUserId > 0 && (
+              <UserRoleBadge role={forwardedUser?.role} size={11} />
+            )}
           </span>
         </button>
       </div>

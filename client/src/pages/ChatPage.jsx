@@ -962,6 +962,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       icon: preview.icon,
       displayName: replyName || "Unknown",
       color: replyColor,
+      verified: isActiveChannelChat ? false : Boolean(msg.user_verified),
+      role: isActiveChannelChat ? null : (msg.user_role || null),
     });
     scrollToBottomIfSafe("auto");
   };
@@ -2606,6 +2608,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                   avatar_url: data?.avatarUrl || "",
                   color: data?.color || "#10b981",
                   status: data?.status || "online",
+                  verified: Boolean(data?.verified),
+                  role: data?.role || "user",
                 },
               },
             }));

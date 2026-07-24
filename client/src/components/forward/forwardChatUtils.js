@@ -39,6 +39,7 @@ export function getForwardChatDisplay(chat, currentUsername) {
       color: String(chat?.group_color || "#10b981"),
       kind: type,
       initials: title,
+      verified: Boolean(chat?.verified),
     };
   }
   const members = Array.isArray(chat?.members) ? chat.members : [];
@@ -58,6 +59,8 @@ export function getForwardChatDisplay(chat, currentUsername) {
       String(peer?.nickname || peer?.username || "Deleted account").trim() ||
       "Deleted account",
     isOnline: String(peer?.status || "").toLowerCase() === "online",
+    verified: Boolean(peer?.user_verified),
+    role: peer?.user_role || null,
   };
 }
 
