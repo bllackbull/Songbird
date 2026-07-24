@@ -228,8 +228,8 @@ for (const [label, viewport] of [
       const admin = page.getByLabelText("Server Admin");
       await expect.element(verified).toBeInTheDocument();
       await expect.element(admin).toBeInTheDocument();
-      const verifiedEl = await verified.element();
-      const adminEl = await admin.element();
+      const verifiedEl = verified.element();
+      const adminEl = admin.element();
       expect(
         verifiedEl.compareDocumentPosition(adminEl) &
           Node.DOCUMENT_POSITION_FOLLOWING,
@@ -323,8 +323,8 @@ for (const [label, viewport] of [
       const owner = page.getByLabelText("Server Owner");
       await expect.element(verified).toBeInTheDocument();
       await expect.element(owner).toBeInTheDocument();
-      const verifiedEl = await verified.element();
-      const ownerEl = await owner.element();
+      const verifiedEl = verified.element();
+      const ownerEl = owner.element();
       expect(
         verifiedEl.compareDocumentPosition(ownerEl) &
           Node.DOCUMENT_POSITION_FOLLOWING,
@@ -467,8 +467,8 @@ for (const [label, viewport] of [
       const owner = page.getByLabelText("Server Owner");
       await expect.element(verified).toBeInTheDocument();
       await expect.element(owner).toBeInTheDocument();
-      const verifiedEl = await verified.element();
-      const ownerEl = await owner.element();
+      const verifiedEl = verified.element();
+      const ownerEl = owner.element();
       expect(
         verifiedEl.compareDocumentPosition(ownerEl) &
           Node.DOCUMENT_POSITION_FOLLOWING,

@@ -44,198 +44,195 @@ function mockFetch(users, total = null) {
   });
 }
 
-let originalFetch;
-beforeEach(() => {
-  originalFetch = window.fetch;
-});
-afterEach(() => {
-  window.fetch = originalFetch;
-  vi.restoreAllMocks();
-});
+// All tests live inside this describe so beforeEach/afterEach are scoped
+// within the browser runner context (top-level lifecycle hooks cause a
+// "Vitest failed to find the runner" error in browser mode).
+describe("UsersTab badge rendering", () => {
+  let originalFetch;
 
-// ─── Verified badge ───────────────────────────────────────────────────────────
-
-describe("UsersTab — verified badge", () => {
-  test("shows Verified badge for a verified user", async () => {
-    window.fetch = mockFetch([makeApiUser({ verified: true })]);
-    render(<UsersTab currentUser={CURRENT_USER} active={true} />);
-    await expect
-      .element(page.getByLabelText("Verified").first())
-      .toBeInTheDocument();
+  beforeEach(() => {
+    originalFetch = window.fetch;
   });
 
-  test("shows Verified badge when verified=1 (integer from DB)", async () => {
-    window.fetch = mockFetch([makeApiUser({ verified: 1 })]);
-    render(<UsersTab currentUser={CURRENT_USER} active={true} />);
-    await expect
-      .element(page.getByLabelText("Verified").first())
-      .toBeInTheDocument();
+  afterEach(() => {
+    window.fetch = originalFetch;
+    vi.restoreAllMocks();
   });
 
-  test("hides Verified badge for unverified user", async () => {
-    window.fetch = mockFetch([makeApiUser({ verified: false })]);
-    render(<UsersTab currentUser={CURRENT_USER} active={true} />);
-    // Wait for data to load then confirm no badge
-    await expect.element(page.getByText("Bob").first()).toBeInTheDocument();
-    await expect
-      .element(page.getByLabelText("Verified"))
-      .not.toBeInTheDocument();
-  });
-});
+  // ─── Verified badge ─────────────────────────────────────────────────────────
 
-// ─── Role badge ───────────────────────────────────────────────────────────────
+  describe("verified badge", () => {
+    test("shows Verified badge for a verified user", async () => {
+      window.fetch = mockFetch([makeApiUser({ verified: true })]);
+      render(<UsersTab currentUser={CURRENT_USER} active={true} />);
+      await expect
+        .element(page.getByLabelText("Verified").first())
+        .toBeInTheDocument();
+    });
 
-describe("UsersTab — role badge", () => {
-  test("shows Owner badge for owner user", async () => {
-    window.fetch = mockFetch([makeApiUser({ role: "owner" })]);
-    render(<UsersTab currentUser={CURRENT_USER} active={true} />);
-    await expect
-      .element(page.getByLabelText("Server Owner").first())
-      .toBeInTheDocument();
-  });
+    test("shows Verified badge when verified=1 (integer from DB)", async () => {
+      window.fetch = mockFetch([makeApiUser({ verified: 1 })]);
+      render(<UsersTab currentUser={CURRENT_USER} active={true} />);
+      await expect
+        .element(page.getByLabelText("Verified").first())
+        .toBeInTheDocument();
+    });
 
-  test("shows Admin badge for admin user", async () => {
-    window.fetch = mockFetch([makeApiUser({ role: "admin" })]);
-    render(<UsersTab currentUser={CURRENT_USER} active={true} />);
-    await expect
-      .element(page.getByLabelText("Server Admin").first())
-      .toBeInTheDocument();
-  });
-
-  test("shows no role badge for plain user", async () => {
-    window.fetch = mockFetch([makeApiUser({ role: "user" })]);
-    render(<UsersTab currentUser={CURRENT_USER} active={true} />);
-    await expect.element(page.getByText("Bob").first()).toBeInTheDocument();
-    await expect
-      .element(page.getByLabelText("Server Owner"))
-      .not.toBeInTheDocument();
-    await expect
-      .element(page.getByLabelText("Server Admin"))
-      .not.toBeInTheDocument();
-  });
-});
-
-// ─── Both badges ──────────────────────────────────────────────────────────────
-
-describe("UsersTab — both badges together", () => {
-  test("shows both Verified and Owner badges for a verified owner", async () => {
-    window.fetch = mockFetch([makeApiUser({ verified: true, role: "owner" })]);
-    render(<UsersTab currentUser={CURRENT_USER} active={true} />);
-    await expect
-      .element(page.getByLabelText("Verified").first())
-      .toBeInTheDocument();
-    await expect
-      .element(page.getByLabelText("Server Owner").first())
-      .toBeInTheDocument();
+    test("hides Verified badge for unverified user", async () => {
+      window.fetch = mockFetch([makeApiUser({ verified: false })]);
+      render(<UsersTab currentUser={CURRENT_USER} active={true} />);
+      await expect.element(page.getByText("Bob").first()).toBeInTheDocument();
+      await expect
+        .element(page.getByLabelText("Verified"))
+        .not.toBeInTheDocument();
+    });
   });
 
-  test("shows both Verified and Admin badges for a verified admin", async () => {
-    window.fetch = mockFetch([makeApiUser({ verified: true, role: "admin" })]);
-    render(<UsersTab currentUser={CURRENT_USER} active={true} />);
-    await expect
-      .element(page.getByLabelText("Verified").first())
-      .toBeInTheDocument();
-    await expect
-      .element(page.getByLabelText("Server Admin").first())
-      .toBeInTheDocument();
+  // ─── Role badge ─────────────────────────────────────────────────────────────
+
+  describe("role badge", () => {
+    test("shows Owner badge for owner user", async () => {
+      window.fetch = mockFetch([makeApiUser({ role: "owner" })]);
+      render(<UsersTab currentUser={CURRENT_USER} active={true} />);
+      await expect
+        .element(page.getByLabelText("Server Owner").first())
+        .toBeInTheDocument();
+    });
+
+    test("shows Admin badge for admin user", async () => {
+      window.fetch = mockFetch([makeApiUser({ role: "admin" })]);
+      render(<UsersTab currentUser={CURRENT_USER} active={true} />);
+      await expect
+        .element(page.getByLabelText("Server Admin").first())
+        .toBeInTheDocument();
+    });
+
+    test("shows no role badge for plain user", async () => {
+      window.fetch = mockFetch([makeApiUser({ role: "user" })]);
+      render(<UsersTab currentUser={CURRENT_USER} active={true} />);
+      await expect.element(page.getByText("Bob").first()).toBeInTheDocument();
+      await expect
+        .element(page.getByLabelText("Server Owner"))
+        .not.toBeInTheDocument();
+      await expect
+        .element(page.getByLabelText("Server Admin"))
+        .not.toBeInTheDocument();
+    });
   });
 
-  test("shows no badges for plain unverified user", async () => {
-    window.fetch = mockFetch([makeApiUser({ verified: false, role: "user" })]);
-    render(<UsersTab currentUser={CURRENT_USER} active={true} />);
-    await expect.element(page.getByText("Bob").first()).toBeInTheDocument();
-    await expect
-      .element(page.getByLabelText("Verified"))
-      .not.toBeInTheDocument();
-    await expect
-      .element(page.getByLabelText("Server Owner"))
-      .not.toBeInTheDocument();
-    await expect
-      .element(page.getByLabelText("Server Admin"))
-      .not.toBeInTheDocument();
-  });
-});
+  // ─── Both badges ─────────────────────────────────────────────────────────────
 
-// ─── Badge order ──────────────────────────────────────────────────────────────
+  describe("both badges together", () => {
+    test("shows both Verified and Owner badges for a verified owner", async () => {
+      window.fetch = mockFetch([
+        makeApiUser({ verified: true, role: "owner" }),
+      ]);
+      render(<UsersTab currentUser={CURRENT_USER} active={true} />);
+      await expect
+        .element(page.getByLabelText("Verified").first())
+        .toBeInTheDocument();
+      await expect
+        .element(page.getByLabelText("Server Owner").first())
+        .toBeInTheDocument();
+    });
 
-describe("UsersTab — badge order", () => {
-  test("Verified badge appears before Owner badge in the DOM", async () => {
-    window.fetch = mockFetch([makeApiUser({ verified: true, role: "owner" })]);
-    render(<UsersTab currentUser={CURRENT_USER} active={true} />);
-    const verified = page.getByLabelText("Verified").first();
-    const owner = page.getByLabelText("Server Owner").first();
-    await expect.element(verified).toBeInTheDocument();
-    await expect.element(owner).toBeInTheDocument();
-    const verifiedEl = await verified.element();
-    const ownerEl = await owner.element();
-    expect(
-      verifiedEl.compareDocumentPosition(ownerEl) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-  });
+    test("shows both Verified and Admin badges for a verified admin", async () => {
+      window.fetch = mockFetch([
+        makeApiUser({ verified: true, role: "admin" }),
+      ]);
+      render(<UsersTab currentUser={CURRENT_USER} active={true} />);
+      await expect
+        .element(page.getByLabelText("Verified").first())
+        .toBeInTheDocument();
+      await expect
+        .element(page.getByLabelText("Server Admin").first())
+        .toBeInTheDocument();
+    });
 
-  test("Verified badge appears before Admin badge in the DOM", async () => {
-    window.fetch = mockFetch([makeApiUser({ verified: true, role: "admin" })]);
-    render(<UsersTab currentUser={CURRENT_USER} active={true} />);
-    const verified = page.getByLabelText("Verified").first();
-    const admin = page.getByLabelText("Server Admin").first();
-    await expect.element(verified).toBeInTheDocument();
-    await expect.element(admin).toBeInTheDocument();
-    const verifiedEl = await verified.element();
-    const adminEl = await admin.element();
-    expect(
-      verifiedEl.compareDocumentPosition(adminEl) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-  });
-});
-
-// ─── Multiple users — badges on correct users only ───────────────────────────
-
-describe("UsersTab — badges appear on the right users only", () => {
-  test("only the verified user gets a Verified badge", async () => {
-    window.fetch = mockFetch([
-      makeApiUser({
-        id: 2,
-        username: "bob",
-        nickname: "Bob",
-        verified: true,
-        role: "user",
-      }),
-      makeApiUser({
-        id: 3,
-        username: "carol",
-        nickname: "Carol",
-        verified: false,
-        role: "user",
-      }),
-    ]);
-    render(<UsersTab currentUser={CURRENT_USER} active={true} />);
-    // Both names should appear; Verified badge should be present (on Bob)
-    await expect.element(page.getByText("Bob").first()).toBeInTheDocument();
-    await expect.element(page.getByText("Carol").first()).toBeInTheDocument();
-    // At least one Verified badge exists (Bob has it, Carol doesn't)
-    await expect
-      .element(page.getByLabelText("Verified").first())
-      .toBeInTheDocument();
+    test("shows no badges for plain unverified user", async () => {
+      window.fetch = mockFetch([
+        makeApiUser({ verified: false, role: "user" }),
+      ]);
+      render(<UsersTab currentUser={CURRENT_USER} active={true} />);
+      await expect.element(page.getByText("Bob").first()).toBeInTheDocument();
+      await expect
+        .element(page.getByLabelText("Verified"))
+        .not.toBeInTheDocument();
+      await expect
+        .element(page.getByLabelText("Server Owner"))
+        .not.toBeInTheDocument();
+      await expect
+        .element(page.getByLabelText("Server Admin"))
+        .not.toBeInTheDocument();
+    });
   });
 
-  test("admin badge on admin, no badge on plain user", async () => {
-    window.fetch = mockFetch([
-      makeApiUser({ id: 2, username: "bob", nickname: "Bob", role: "admin" }),
-      makeApiUser({
-        id: 3,
-        username: "carol",
-        nickname: "Carol",
-        role: "user",
-      }),
-    ]);
-    render(<UsersTab currentUser={CURRENT_USER} active={true} />);
-    await expect
-      .element(page.getByLabelText("Server Admin").first())
-      .toBeInTheDocument();
-    await expect
-      .element(page.getByLabelText("Server Owner"))
-      .not.toBeInTheDocument();
+  // ─── Badge order ─────────────────────────────────────────────────────────────
+
+  describe("badge order", () => {
+    test("Verified badge appears before Owner badge in the DOM", async () => {
+      window.fetch = mockFetch([
+        makeApiUser({ verified: true, role: "owner" }),
+      ]);
+      render(<UsersTab currentUser={CURRENT_USER} active={true} />);
+      const verified = page.getByLabelText("Verified").first();
+      const owner = page.getByLabelText("Server Owner").first();
+      await expect.element(verified).toBeInTheDocument();
+      await expect.element(owner).toBeInTheDocument();
+      const verifiedEl = verified.element();
+      const ownerEl = owner.element();
+      expect(
+        verifiedEl.compareDocumentPosition(ownerEl) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    });
+
+    test("Verified badge appears before Admin badge in the DOM", async () => {
+      window.fetch = mockFetch([
+        makeApiUser({ verified: true, role: "admin" }),
+      ]);
+      render(<UsersTab currentUser={CURRENT_USER} active={true} />);
+      const verified = page.getByLabelText("Verified").first();
+      const admin = page.getByLabelText("Server Admin").first();
+      await expect.element(verified).toBeInTheDocument();
+      await expect.element(admin).toBeInTheDocument();
+      const verifiedEl = verified.element();
+      const adminEl = admin.element();
+      expect(
+        verifiedEl.compareDocumentPosition(adminEl) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    });
+  });
+
+  // ─── Multiple users ───────────────────────────────────────────────────────────
+
+  describe("badges appear on the right users only", () => {
+    test("only the verified user gets a Verified badge", async () => {
+      window.fetch = mockFetch([
+        makeApiUser({ id: 2, username: "bob", nickname: "Bob", verified: true, role: "user" }),
+        makeApiUser({ id: 3, username: "carol", nickname: "Carol", verified: false, role: "user" }),
+      ]);
+      render(<UsersTab currentUser={CURRENT_USER} active={true} />);
+      await expect.element(page.getByText("Bob").first()).toBeInTheDocument();
+      await expect.element(page.getByText("Carol").first()).toBeInTheDocument();
+      await expect
+        .element(page.getByLabelText("Verified").first())
+        .toBeInTheDocument();
+    });
+
+    test("admin badge on admin, no badge on plain user", async () => {
+      window.fetch = mockFetch([
+        makeApiUser({ id: 2, username: "bob", nickname: "Bob", role: "admin" }),
+        makeApiUser({ id: 3, username: "carol", nickname: "Carol", role: "user" }),
+      ]);
+      render(<UsersTab currentUser={CURRENT_USER} active={true} />);
+      await expect
+        .element(page.getByLabelText("Server Admin").first())
+        .toBeInTheDocument();
+      await expect
+        .element(page.getByLabelText("Server Owner"))
+        .not.toBeInTheDocument();
+    });
   });
 });

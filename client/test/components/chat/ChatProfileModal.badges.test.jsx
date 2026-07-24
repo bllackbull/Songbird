@@ -239,8 +239,8 @@ describe("ChatProfileModal — user profile header badges", () => {
     const admin = page.getByLabelText("Server Admin");
     await expect.element(verified).toBeInTheDocument();
     await expect.element(admin).toBeInTheDocument();
-    const verifiedEl = await verified.element();
-    const adminEl = await admin.element();
+    const verifiedEl = verified.element();
+    const adminEl = admin.element();
     expect(
       verifiedEl.compareDocumentPosition(adminEl) &
         Node.DOCUMENT_POSITION_FOLLOWING,

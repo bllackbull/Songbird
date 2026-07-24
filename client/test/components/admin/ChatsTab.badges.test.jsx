@@ -38,116 +38,110 @@ function mockFetch(chats, total = null) {
   });
 }
 
-let originalFetch;
-beforeEach(() => {
-  originalFetch = window.fetch;
-});
-afterEach(() => {
-  window.fetch = originalFetch;
-  vi.restoreAllMocks();
-});
+// All tests wrapped in a describe so beforeEach/afterEach are scoped inside
+// the browser runner context (top-level lifecycle hooks cause a runner error).
+describe("ChatsTab badge rendering", () => {
+  let originalFetch;
 
-// ─── Verified badge ───────────────────────────────────────────────────────────
-
-describe("ChatsTab — verified badge", () => {
-  test("shows Verified badge for a verified group", async () => {
-    window.fetch = mockFetch([makeApiChat({ verified: true })]);
-    render(<ChatsTab active={true} />);
-    await expect
-      .element(page.getByLabelText("Verified").first())
-      .toBeInTheDocument();
+  beforeEach(() => {
+    originalFetch = window.fetch;
   });
 
-  test("shows Verified badge when verified=1 (integer from DB)", async () => {
-    window.fetch = mockFetch([makeApiChat({ verified: 1 })]);
-    render(<ChatsTab active={true} />);
-    await expect
-      .element(page.getByLabelText("Verified").first())
-      .toBeInTheDocument();
+  afterEach(() => {
+    window.fetch = originalFetch;
+    vi.restoreAllMocks();
   });
 
-  test("hides Verified badge for unverified group", async () => {
-    window.fetch = mockFetch([makeApiChat({ verified: false })]);
-    render(<ChatsTab active={true} />);
-    await expect
-      .element(page.getByText("Test Group").first())
-      .toBeInTheDocument();
-    await expect
-      .element(page.getByLabelText("Verified"))
-      .not.toBeInTheDocument();
+  // ─── Verified badge ───────────────────────────────────────────────────────────
+
+  describe("verified badge", () => {
+    test("shows Verified badge for a verified group", async () => {
+      window.fetch = mockFetch([makeApiChat({ verified: true })]);
+      render(<ChatsTab active={true} />);
+      await expect
+        .element(page.getByLabelText("Verified").first())
+        .toBeInTheDocument();
+    });
+
+    test("shows Verified badge when verified=1 (integer from DB)", async () => {
+      window.fetch = mockFetch([makeApiChat({ verified: 1 })]);
+      render(<ChatsTab active={true} />);
+      await expect
+        .element(page.getByLabelText("Verified").first())
+        .toBeInTheDocument();
+    });
+
+    test("hides Verified badge for unverified group", async () => {
+      window.fetch = mockFetch([makeApiChat({ verified: false })]);
+      render(<ChatsTab active={true} />);
+      await expect
+        .element(page.getByText("Test Group").first())
+        .toBeInTheDocument();
+      await expect
+        .element(page.getByLabelText("Verified"))
+        .not.toBeInTheDocument();
+    });
+
+    test("shows Verified badge for a verified channel", async () => {
+      window.fetch = mockFetch([
+        makeApiChat({ type: "channel", name: "My Channel", verified: true }),
+      ]);
+      render(<ChatsTab active={true} />);
+      await expect
+        .element(page.getByLabelText("Verified").first())
+        .toBeInTheDocument();
+    });
+
+    test("hides Verified badge for unverified channel", async () => {
+      window.fetch = mockFetch([
+        makeApiChat({ type: "channel", name: "My Channel", verified: false }),
+      ]);
+      render(<ChatsTab active={true} />);
+      await expect
+        .element(page.getByText("My Channel").first())
+        .toBeInTheDocument();
+      await expect
+        .element(page.getByLabelText("Verified"))
+        .not.toBeInTheDocument();
+    });
   });
 
-  test("shows Verified badge for a verified channel", async () => {
-    window.fetch = mockFetch([
-      makeApiChat({ type: "channel", name: "My Channel", verified: true }),
-    ]);
-    render(<ChatsTab active={true} />);
-    await expect
-      .element(page.getByLabelText("Verified").first())
-      .toBeInTheDocument();
+  // ─── No role badge for chats ──────────────────────────────────────────────────
+
+  describe("no role badges for chats", () => {
+    test("never shows Server Owner badge even for a verified chat", async () => {
+      window.fetch = mockFetch([makeApiChat({ verified: true })]);
+      render(<ChatsTab active={true} />);
+      await expect
+        .element(page.getByLabelText("Verified").first())
+        .toBeInTheDocument();
+      await expect
+        .element(page.getByLabelText("Server Owner"))
+        .not.toBeInTheDocument();
+      await expect
+        .element(page.getByLabelText("Server Admin"))
+        .not.toBeInTheDocument();
+    });
   });
 
-  test("hides Verified badge for unverified channel", async () => {
-    window.fetch = mockFetch([
-      makeApiChat({ type: "channel", name: "My Channel", verified: false }),
-    ]);
-    render(<ChatsTab active={true} />);
-    await expect
-      .element(page.getByText("My Channel").first())
-      .toBeInTheDocument();
-    await expect
-      .element(page.getByLabelText("Verified"))
-      .not.toBeInTheDocument();
-  });
-});
+  // ─── Multiple chats ───────────────────────────────────────────────────────────
 
-// ─── No role badge for chats ──────────────────────────────────────────────────
-
-describe("ChatsTab — no role badges for chats", () => {
-  test("never shows Server Owner badge even for a verified chat", async () => {
-    window.fetch = mockFetch([makeApiChat({ verified: true })]);
-    render(<ChatsTab active={true} />);
-    await expect
-      .element(page.getByLabelText("Verified").first())
-      .toBeInTheDocument();
-    await expect
-      .element(page.getByLabelText("Server Owner"))
-      .not.toBeInTheDocument();
-    await expect
-      .element(page.getByLabelText("Server Admin"))
-      .not.toBeInTheDocument();
-  });
-});
-
-// ─── Multiple chats — badge on the right chat only ───────────────────────────
-
-describe("ChatsTab — verified badge only on verified chats", () => {
-  test("only verified chat gets the badge, unverified does not", async () => {
-    window.fetch = mockFetch([
-      makeApiChat({
-        id: 1,
-        name: "Verified Group",
-        group_username: "verified_group",
-        verified: true,
-      }),
-      makeApiChat({
-        id: 2,
-        name: "Regular Group",
-        group_username: "regular_group",
-        verified: false,
-      }),
-    ]);
-    render(<ChatsTab active={true} />);
-    // Both chat names should appear
-    await expect
-      .element(page.getByText("Verified Group").first())
-      .toBeInTheDocument();
-    await expect
-      .element(page.getByText("Regular Group").first())
-      .toBeInTheDocument();
-    // At least one Verified badge exists (on the verified chat)
-    await expect
-      .element(page.getByLabelText("Verified").first())
-      .toBeInTheDocument();
+  describe("verified badge only on verified chats", () => {
+    test("only verified chat gets the badge, unverified does not", async () => {
+      window.fetch = mockFetch([
+        makeApiChat({ id: 1, name: "Verified Group", group_username: "verified_group", verified: true }),
+        makeApiChat({ id: 2, name: "Regular Group", group_username: "regular_group", verified: false }),
+      ]);
+      render(<ChatsTab active={true} />);
+      await expect
+        .element(page.getByText("Verified Group").first())
+        .toBeInTheDocument();
+      await expect
+        .element(page.getByText("Regular Group").first())
+        .toBeInTheDocument();
+      await expect
+        .element(page.getByLabelText("Verified").first())
+        .toBeInTheDocument();
+    });
   });
 });

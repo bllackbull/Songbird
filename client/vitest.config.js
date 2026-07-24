@@ -33,6 +33,9 @@ export default defineConfig({
             instances: [{ browser: "chromium" }, { browser: "firefox" }],
           },
         },
+        optimizeDeps: {
+          include: ["lucide-react", "react-icons"],
+        },
       },
     ],
   },

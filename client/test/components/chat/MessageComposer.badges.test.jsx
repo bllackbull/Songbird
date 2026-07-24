@@ -179,8 +179,8 @@ for (const [label, viewport] of [
       const owner = page.getByLabelText("Server Owner");
       await expect.element(verified).toBeInTheDocument();
       await expect.element(owner).toBeInTheDocument();
-      const verifiedEl = await verified.element();
-      const ownerEl = await owner.element();
+      const verifiedEl = verified.element();
+      const ownerEl = owner.element();
       expect(
         verifiedEl.compareDocumentPosition(ownerEl) &
           Node.DOCUMENT_POSITION_FOLLOWING,
