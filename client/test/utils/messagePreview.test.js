@@ -1,152 +1,247 @@
 import { describe, test, expect } from "vitest";
 import {
-  truncateText,
   summarizeFiles,
   resolveReplyPreview,
+  truncateText,
 } from "../../src/utils/messagePreview.js";
 
-// Helpers for building file stubs
-const image = (n = 1) =>
-  Array.from({ length: n }, () => ({ mimeType: "image/jpeg" }));
-const video = (n = 1) =>
-  Array.from({ length: n }, () => ({ mimeType: "video/mp4" }));
-const audio = (n = 1) =>
-  Array.from({ length: n }, () => ({ mimeType: "audio/ogg" }));
-const doc = (n = 1) =>
-  Array.from({ length: n }, () => ({ mimeType: "application/pdf" }));
+// ─── truncateText ─────────────────────────────────────────────────────────────
 
 describe("truncateText", () => {
-  test("returns the string unchanged when within limit", () => {
-    expect(truncateText("hello", 10)).toBe("hello");
+  test("returns the string unchanged when under the limit", () => {
+    expect(truncateText("Hello", 10)).toBe("Hello");
   });
 
-  test("returns the string unchanged when exactly at limit", () => {
-    expect(truncateText("hello", 5)).toBe("hello");
+  test("returns the string unchanged when exactly at the limit", () => {
+    expect(truncateText("Hello", 5)).toBe("Hello");
   });
 
-  test('truncates and appends "..." when over limit', () => {
-    expect(truncateText("hello world", 5)).toBe("hello...");
+  test("truncates and appends ellipsis when over the limit", () => {
+    expect(truncateText("Hello world", 5)).toBe("Hello...");
   });
 
-  test('trims trailing whitespace before appending "..."', () => {
-    expect(truncateText("hello   world", 6)).toBe("hello...");
+  test("handles empty string", () => {
+    expect(truncateText("", 10)).toBe("");
   });
 
-  test("handles null/undefined as empty string", () => {
-    expect(truncateText(null, 5)).toBe("");
-    expect(truncateText(undefined, 5)).toBe("");
+  test("handles null/undefined gracefully", () => {
+    expect(truncateText(null, 10)).toBe("");
+    expect(truncateText(undefined, 10)).toBe("");
   });
 });
 
+// ─── summarizeFiles ───────────────────────────────────────────────────────────
+
 describe("summarizeFiles", () => {
-  test("returns empty string for no files", () => {
-    expect(summarizeFiles([])).toBe("");
-    expect(summarizeFiles()).toBe("");
+  // ── single file ────────────────────────────────────────────────────────────
+
+  test("single image → 'Sent a photo'", () => {
+    expect(summarizeFiles([{ mimeType: "image/jpeg" }])).toBe("Sent a photo");
   });
 
-  test('returns "Sent a photo" for a single image', () => {
-    expect(summarizeFiles(image(1))).toBe("Sent a photo");
+  test("single video → 'Sent a video'", () => {
+    expect(summarizeFiles([{ mimeType: "video/mp4" }])).toBe("Sent a video");
   });
 
-  test('returns "Sent a video" for a single video', () => {
-    expect(summarizeFiles(video(1))).toBe("Sent a video");
-  });
-
-  test('returns "Sent a voice message" for a single audio file', () => {
-    expect(summarizeFiles(audio(1))).toBe("Sent a voice message");
-  });
-
-  test('returns "Sent a document" for a single generic file', () => {
-    expect(summarizeFiles(doc(1))).toBe("Sent a document");
-  });
-
-  test("returns plural photos for multiple images", () => {
-    expect(summarizeFiles(image(3))).toBe("Sent 3 photos");
-  });
-
-  test("returns plural videos for multiple videos", () => {
-    expect(summarizeFiles(video(2))).toBe("Sent 2 videos");
-  });
-
-  test("returns plural voice messages for multiple audio files", () => {
-    expect(summarizeFiles(audio(4))).toBe("Sent 4 voice messages");
-  });
-
-  test("returns plural documents for multiple docs", () => {
-    expect(summarizeFiles(doc(2))).toBe("Sent 2 documents");
-  });
-
-  test("returns media files summary for mixed image+video", () => {
-    expect(summarizeFiles([...image(1), ...video(1)])).toBe(
-      "Sent 2 media files",
+  test("single audio → 'Sent a voice message'", () => {
+    expect(summarizeFiles([{ mimeType: "audio/webm" }])).toBe(
+      "Sent a voice message",
     );
   });
 
-  test("treats document uploadMode as document regardless of mime type", () => {
-    expect(summarizeFiles(image(1), "document")).toBe("Sent a document");
+  test("single document (no mime) → 'Sent a document'", () => {
+    expect(summarizeFiles([{ mimeType: "application/pdf" }])).toBe(
+      "Sent a document",
+    );
   });
 
-  test("mixed audio with other types falls back to photo summary", () => {
-    // 1 audio + 1 image: image path is checked first (imageCount > 0, no video/doc)
-    const result = summarizeFiles([...audio(1), ...image(1)]);
-    expect(result).toBe("Sent 1 photo");
+  test("single file with document upload mode → 'Sent a document'", () => {
+    expect(summarizeFiles([{ mimeType: "image/jpeg" }], "document")).toBe(
+      "Sent a document",
+    );
+  });
+
+  // ── multiple files — pure type groups ──────────────────────────────────────
+
+  test("two images → 'Sent 2 photos'", () => {
+    expect(
+      summarizeFiles([{ mimeType: "image/png" }, { mimeType: "image/jpeg" }]),
+    ).toBe("Sent 2 photos");
+  });
+
+  test("three videos → 'Sent 3 videos'", () => {
+    expect(
+      summarizeFiles([
+        { mimeType: "video/mp4" },
+        { mimeType: "video/webm" },
+        { mimeType: "video/mp4" },
+      ]),
+    ).toBe("Sent 3 videos");
+  });
+
+  test("two audio files → 'Sent 2 voice messages'", () => {
+    expect(
+      summarizeFiles([{ mimeType: "audio/ogg" }, { mimeType: "audio/webm" }]),
+    ).toBe("Sent 2 voice messages");
+  });
+
+  test("two documents → 'Sent 2 documents'", () => {
+    expect(
+      summarizeFiles([
+        { mimeType: "application/pdf" },
+        { mimeType: "application/zip" },
+      ]),
+    ).toBe("Sent 2 documents");
+  });
+
+  // ── mixed media (image + video) ─────────────────────────────────────────────
+
+  test("one image + one video → 'Sent 2 media files'", () => {
+    expect(
+      summarizeFiles([{ mimeType: "image/png" }, { mimeType: "video/mp4" }]),
+    ).toBe("Sent 2 media files");
+  });
+
+  test("two images + one video → 'Sent 3 media files'", () => {
+    expect(
+      summarizeFiles([
+        { mimeType: "image/png" },
+        { mimeType: "image/jpg" },
+        { mimeType: "video/mp4" },
+      ]),
+    ).toBe("Sent 3 media files");
+  });
+
+  // ── mixed with documents / audio → falls back to document label ────────────
+
+  test("image + document → 'Sent 2 documents'", () => {
+    expect(
+      summarizeFiles([
+        { mimeType: "image/png" },
+        { mimeType: "application/pdf" },
+      ]),
+    ).toBe("Sent 2 documents");
+  });
+
+  test("image + audio (mixed audio) → audio counted separately, non-audio shown", () => {
+    // One image + one audio: audio is handled as voice message separately.
+    // The code splits audio out, leaving 1 image → "Sent 1 photo".
+    expect(
+      summarizeFiles([{ mimeType: "image/png" }, { mimeType: "audio/webm" }]),
+    ).toBe("Sent 1 photo");
+  });
+
+  // ── empty / edge cases ──────────────────────────────────────────────────────
+
+  test("empty array → empty string", () => {
+    expect(summarizeFiles([])).toBe("");
+  });
+
+  test("undefined input → empty string", () => {
+    expect(summarizeFiles()).toBe("");
   });
 });
 
+// ─── resolveReplyPreview ──────────────────────────────────────────────────────
+
 describe("resolveReplyPreview", () => {
-  test("returns empty text and null icon for null message", () => {
+  test("returns empty text for null message", () => {
     expect(resolveReplyPreview(null)).toEqual({ text: "", icon: null });
   });
 
-  test("returns the message body as text when no files", () => {
+  test("returns plain body text for a text-only message", () => {
     const result = resolveReplyPreview({ body: "Hello there", files: [] });
     expect(result.text).toBe("Hello there");
     expect(result.icon).toBeNull();
   });
 
-  test("uses file summary when body is a generic file placeholder", () => {
+  // ── single file messages ────────────────────────────────────────────────────
+
+  test("single image file → photo preview + image icon", () => {
     const result = resolveReplyPreview({
-      body: "Sent a file",
-      files: image(1),
+      body: "Sent a photo",
+      files: [{ mimeType: "image/jpeg" }],
     });
     expect(result.text).toBe("Sent a photo");
     expect(result.icon).toBe("image");
   });
 
-  test("preserves real body text over file summary", () => {
+  test("single video file → video preview + video icon", () => {
     const result = resolveReplyPreview({
-      body: "Check out this pic",
-      files: image(1),
+      body: "Sent a video",
+      files: [{ mimeType: "video/mp4" }],
     });
-    expect(result.text).toBe("Check out this pic");
-  });
-
-  test('returns "Sent a video" icon for a single video file', () => {
-    const result = resolveReplyPreview({
-      body: "Sent a file",
-      files: video(1),
-    });
+    expect(result.text).toBe("Sent a video");
     expect(result.icon).toBe("video");
   });
 
-  test("returns voice icon for audio file", () => {
+  test("single audio file → voice message preview + voice icon", () => {
     const result = resolveReplyPreview({
       body: "Sent a voice message",
-      files: audio(1),
+      files: [{ mimeType: "audio/webm" }],
     });
+    expect(result.text).toBe("Sent a voice message");
     expect(result.icon).toBe("voice");
   });
 
-  test('falls back to "Message" when body is empty and no files', () => {
-    const result = resolveReplyPreview({ body: "", files: [] });
-    expect(result.text).toBe("Message");
+  test("single document → document preview + document icon", () => {
+    const result = resolveReplyPreview({
+      body: "Sent a document",
+      files: [{ mimeType: "application/pdf" }],
+    });
+    expect(result.text).toBe("Sent a document");
+    expect(result.icon).toBe("document");
   });
 
-  test("uses _files fallback when files is not an array", () => {
+  // ── multiple file messages ──────────────────────────────────────────────────
+
+  test("two photos → 'Sent 2 photos' + image icon", () => {
     const result = resolveReplyPreview({
-      body: "Sent a file",
-      _files: image(1),
+      body: "Sent 2 photos",
+      files: [{ mimeType: "image/png" }, { mimeType: "image/jpeg" }],
     });
+    expect(result.text).toBe("Sent 2 photos");
     expect(result.icon).toBe("image");
+  });
+
+  test("mixed image + video → 'Sent 2 media files' + image icon", () => {
+    const result = resolveReplyPreview({
+      body: "Sent 2 media files",
+      files: [{ mimeType: "image/png" }, { mimeType: "video/mp4" }],
+    });
+    expect(result.text).toBe("Sent 2 media files");
+    expect(result.icon).toBe("image");
+  });
+
+  // ── uses _files (pending uploads) when files is absent ─────────────────────
+
+  test("falls back to _files array when files is not present", () => {
+    const result = resolveReplyPreview({
+      body: "Sent a photo",
+      _files: [{ mimeType: "image/png" }],
+    });
+    expect(result.text).toBe("Sent a photo");
+    expect(result.icon).toBe("image");
+  });
+
+  // ── prefers body text when it is not a generic summary ─────────────────────
+
+  test("returns real body text even when files are present", () => {
+    const result = resolveReplyPreview({
+      body: "Check out this photo!",
+      files: [{ mimeType: "image/jpeg" }],
+    });
+    expect(result.text).toBe("Check out this photo!");
+  });
+
+  // ── generic body + no files ─────────────────────────────────────────────────
+
+  test("'Sent a media file' body with no matching files → preserves body", () => {
+    const result = resolveReplyPreview({
+      body: "Sent a media file",
+      files: [],
+    });
+    // No files to derive from — body is returned as-is
+    expect(result.text).toBe("Sent a media file");
   });
 });

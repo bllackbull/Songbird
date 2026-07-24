@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Vitest browser test artifacts
+.vitest-attachments
+test/components/chat/__screenshots__
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

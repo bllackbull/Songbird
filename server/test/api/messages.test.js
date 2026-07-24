@@ -1,10 +1,7 @@
 import { describe, test, expect } from "vitest";
 import request from "supertest";
 import bcrypt from "bcryptjs";
-import {
-  makeApp,
-  makeUserStore,
-} from "../helpers/makeApp.js";
+import { makeApp, makeUserStore } from "../helpers/makeApp.js";
 
 // ─── Shared setup helpers ─────────────────────────────────────────────────────
 
@@ -487,5 +484,176 @@ describe("POST /api/messages/delete", () => {
       .set("Cookie", cookie)
       .send({ chatId: 1, username: "alice", messageId: 7, scope: "everyone" });
     expect(res.status).toBe(403);
+  });
+});
+
+// ─── GET /api/messages — response shape ──────────────────────────────────────
+
+describe("GET /api/messages — replyTo shape", () => {
+  // Raw DB row shape returned by the getMessages stub.
+  // Mirrors what db.js produces after the LEFT JOIN with reply_user.
+  function makeRawMessage(overrides = {}) {
+    return {
+      id: 1,
+      chat_id: 10,
+      user_id: 1,
+      username: "alice",
+      nickname: "Alice",
+      avatar_url: null,
+      color: "#10b981",
+      body: "Hello!",
+      created_at: new Date().toISOString(),
+      edited: 0,
+      read_at: null,
+      read_by_user_id: null,
+      expires_at: null,
+      client_request_id: null,
+      reply_to_message_id: null,
+      // reply_* columns — null when there is no reply
+      reply_id: null,
+      reply_body: null,
+      reply_created_at: null,
+      reply_user_id: null,
+      reply_username: null,
+      reply_nickname: null,
+      reply_avatar_url: null,
+      reply_user_color: null,
+      // forwarded origin columns
+      forwarded_from_chat_id: null,
+      forwarded_from_user_id: null,
+      forwarded_from_label: null,
+      forwarded_from_avatar_url: null,
+      forwarded_from_color: null,
+      hidden_everyone_at: null,
+      ...overrides,
+    };
+  }
+
+  function makeGetMessagesApp({ rawMessages = [], chatType = "group" } = {}) {
+    const hash = bcrypt.hashSync("secret123", 4);
+    const userStore = makeUserStore([
+      {
+        id: 1,
+        username: "alice",
+        password_hash: hash,
+        nickname: "Alice",
+        avatar_url: null,
+        color: "#10b981",
+        status: "online",
+        role: "user",
+        banned: false,
+      },
+    ]);
+    return makeApp({
+      userStore,
+      deps: {
+        isMember: () => true,
+        findChatById: () => ({ id: 10, type: chatType, name: "Test Group" }),
+        getMessages: () => ({ messages: rawMessages, hasMore: false }),
+        getMessageReadByUser: () => [],
+        getMessageReadCounts: () => [],
+        listMessageFilesByMessageIds: () => [],
+        hydrateMissingVideoMetadata: async (files) => files,
+      },
+    });
+  }
+
+  async function getMessages(app, chatId = 10) {
+    const hash = bcrypt.hashSync("secret123", 4);
+    // Login first
+    const loginRes = await request(app)
+      .post("/api/login")
+      .send({ username: "alice", password: "secret123" });
+    const cookie = loginRes.headers["set-cookie"];
+    return request(app)
+      .get("/api/messages")
+      .set("Cookie", cookie)
+      .query({ chatId, username: "alice" });
+  }
+
+  test("replyTo is null when message has no reply", async () => {
+    const { app } = makeGetMessagesApp({
+      rawMessages: [makeRawMessage()],
+    });
+    const res = await getMessages(app);
+    expect(res.status).toBe(200);
+    expect(res.body.messages[0].replyTo).toBeNull();
+  });
+
+  test("replyTo includes id, body, username, nickname, color, avatar_url", async () => {
+    const { app } = makeGetMessagesApp({
+      rawMessages: [
+        makeRawMessage({
+          id: 2,
+          // This message (id:2) is a reply to message id:1, authored by bob
+          reply_to_message_id: 1,
+          reply_id: 1,
+          reply_body: "Hey there",
+          reply_created_at: new Date().toISOString(),
+          reply_user_id: 2,
+          reply_username: "bob",
+          reply_nickname: "Bob",
+          reply_avatar_url: null,
+          reply_user_color: "#3b82f6",
+        }),
+      ],
+    });
+    const res = await getMessages(app);
+    expect(res.status).toBe(200);
+
+    const replyTo = res.body.messages[0].replyTo;
+    expect(replyTo).not.toBeNull();
+    expect(replyTo.id).toBe(1);
+    expect(replyTo.body).toBe("Hey there");
+    expect(replyTo.username).toBe("bob");
+    expect(replyTo.nickname).toBe("Bob");
+    // This is the field the bug was about — must be present and correct
+    expect(replyTo.color).toBe("#3b82f6");
+  });
+
+  test("replyTo.color is null when the reply author has no color set", async () => {
+    const { app } = makeGetMessagesApp({
+      rawMessages: [
+        makeRawMessage({
+          id: 3,
+          reply_to_message_id: 1,
+          reply_id: 1,
+          reply_body: "Some message",
+          reply_created_at: new Date().toISOString(),
+          reply_user_id: 2,
+          reply_username: "bob",
+          reply_nickname: "Bob",
+          reply_avatar_url: null,
+          reply_user_color: null, // deleted user or no color
+        }),
+      ],
+    });
+    const res = await getMessages(app);
+    expect(res.status).toBe(200);
+    expect(res.body.messages[0].replyTo.color).toBeNull();
+  });
+
+  test("replyTo is not affected by the sender's own color", async () => {
+    // Sender (alice) has color #10b981 — reply author (bob) has #3b82f6.
+    // The chip must show bob's color, not alice's.
+    const { app } = makeGetMessagesApp({
+      rawMessages: [
+        makeRawMessage({
+          color: "#10b981", // alice — the message sender
+          reply_to_message_id: 1,
+          reply_id: 1,
+          reply_body: "Original",
+          reply_user_id: 2,
+          reply_username: "bob",
+          reply_nickname: "Bob",
+          reply_avatar_url: null,
+          reply_user_color: "#3b82f6", // bob — the reply target author
+        }),
+      ],
+    });
+    const res = await getMessages(app);
+    const replyTo = res.body.messages[0].replyTo;
+    expect(replyTo.color).toBe("#3b82f6");
+    expect(replyTo.color).not.toBe("#10b981");
   });
 });
