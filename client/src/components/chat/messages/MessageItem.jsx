@@ -1159,9 +1159,9 @@ export const MessageItem = memo(function MessageItem({
                           dir="auto"
                           style={{ color: String(replyColor), unicodeBidi: "isolate" }}
                         >
-                          {replyDisplayName}
+                        {replyDisplayName}
                         </span>
-                        {!isChannelChat && Boolean(replyTarget?.verified) && (
+                        {Boolean(replyTarget?.verified) && (
                           <VerifiedBadge size={10} />
                         )}
                         {!isChannelChat && (
@@ -1306,7 +1306,7 @@ export const MessageItem = memo(function MessageItem({
                       >
                         {replyDisplayName}
                       </span>
-                      {!isChannelChat && Boolean(replyTarget?.verified) && (
+                      {Boolean(replyTarget?.verified) && (
                         <VerifiedBadge size={10} />
                       )}
                       {!isChannelChat && (

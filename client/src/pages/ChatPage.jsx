@@ -962,7 +962,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       icon: preview.icon,
       displayName: replyName || "Unknown",
       color: replyColor,
-      verified: isActiveChannelChat ? false : Boolean(msg.user_verified),
+      verified: isActiveChannelChat ? Boolean(activeChat?.verified) : Boolean(msg.user_verified),
       role: isActiveChannelChat ? null : (msg.user_role || null),
     });
     scrollToBottomIfSafe("auto");

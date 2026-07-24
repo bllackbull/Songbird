@@ -417,7 +417,7 @@ for (const [label, viewport] of [
         .not.toBeInTheDocument();
     });
 
-    test("suppresses reply chip badges in channel chat", async () => {
+    test("shows verified badge in channel reply chip (channel is verified)", async () => {
       render(
         <MessageItem
           {...BASE_PROPS}
@@ -428,11 +428,27 @@ for (const [label, viewport] of [
           })}
         />,
       );
-      await expect
-        .element(page.getByLabelText("Verified"))
-        .not.toBeInTheDocument();
+      // Verified badge shows — the channel itself can be verified
+      await expect.element(page.getByLabelText("Verified")).toBeInTheDocument();
+      // Role badge is suppressed — channels don't have user server roles
       await expect
         .element(page.getByLabelText("Server Admin"))
+        .not.toBeInTheDocument();
+    });
+
+    test("suppresses role badge in channel reply chip", async () => {
+      render(
+        <MessageItem
+          {...BASE_PROPS}
+          isDesktop={label === "desktop"}
+          isChannelChat={true}
+          msg={makeMsg({
+            replyTo: makeReply({ verified: false, role: "owner" }),
+          })}
+        />,
+      );
+      await expect
+        .element(page.getByLabelText("Server Owner"))
         .not.toBeInTheDocument();
     });
 
