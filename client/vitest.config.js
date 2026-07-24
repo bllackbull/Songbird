@@ -36,7 +36,22 @@ export default defineConfig({
             enabled: true,
             headless,
             provider: playwright(),
-            instances: [{ browser: "chromium" }],
+            instances: [
+              {
+                browser: "chromium",
+                launch: {
+                  // CI runners give Chromium a 64MB /dev/shm, which it
+                  // exhausts and then a tab crashes silently — Vitest waits
+                  // forever for the dead tab. These flags avoid /dev/shm and
+                  // the crashed-GPU stalls that only surface in CI.
+                  args: [
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                  ],
+                },
+              },
+            ],
           },
         },
       },

@@ -67,6 +67,7 @@ jobs:
         run: npx --prefix client playwright install --with-deps chromium firefox
 
       - name: Run client browser tests
+        timeout-minutes: 10
         run: npm run test:browser --prefix client
 
   # ── Build ─────────────────────────────────────────────────────────────────────
