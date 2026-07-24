@@ -139,6 +139,8 @@ const getMessageRenderSignature = (msg) => {
     msg?.nickname ?? "",
     msg?.avatar_url ?? "",
     msg?.color ?? "",
+    msg?.user_verified ?? "",
+    msg?.user_role ?? "",
     msg?.forwarded_from_chat_id ?? "",
     msg?.forwarded_from_user_id ?? "",
     msg?.forwarded_from_label ?? "",
@@ -1490,6 +1492,10 @@ export const MessageItem = memo(function MessageItem({
   if (prev.seenCount !== next.seenCount) return false;
   if (prev.mentionRefreshToken !== next.mentionRefreshToken) return false;
   if (prev.user?.username !== next.user?.username) return false;
+  if (prev.forwardedUser !== next.forwardedUser) return false;
+  if (prev.forwardedUserStatus !== next.forwardedUserStatus) return false;
+  if (prev.forwardedChat !== next.forwardedChat) return false;
+  if (prev.forwardedChatStatus !== next.forwardedChatStatus) return false;
   if (prev.messageFilesProps !== next.messageFilesProps) {
     const prevFiles = Array.isArray(prev.msg?.files) ? prev.msg.files : [];
     const nextFiles = Array.isArray(next.msg?.files) ? next.msg.files : [];
