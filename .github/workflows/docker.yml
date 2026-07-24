@@ -3,9 +3,15 @@ name: Docker
 on:
   release:
     types: [published]
-  # Allows manually running the build against a specific tag/ref from the
-  # Actions tab. Useful to (re)build an image manually.
+  # Allows manually running the build from the Actions tab. Run this from the
+  # `main` branch (the ref must contain this trigger) and pass the release tag
+  # you want to build via the `tag` input, e.g. `v0.11.2`.
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to build. Leave empty to build the selected ref.'
+        required: false
+        type: string
 
 jobs:
   build-and-push:
@@ -19,6 +25,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # For a manual run with a tag input, check out that tag's source so
+          # the image is built from the released code. Otherwise use the ref
+          # that triggered the workflow (the release tag, or the selected ref).
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -38,10 +49,13 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ secrets.DOCKERHUB_USERNAME }}/songbird
+          # `value=${{ inputs.tag }}` overrides the version for manual runs.
+          # When empty (automatic release event), type=semver falls back to the
+          # git ref (the release tag), preserving the original behavior.
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
+            type=semver,pattern={{version}},value=${{ github.event.inputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ github.event.inputs.tag }}
+            type=semver,pattern={{major}},value=${{ github.event.inputs.tag }}
             type=raw,value=latest
 
       - name: Build and push
