@@ -14,6 +14,12 @@ RUN npm run build
 
 FROM node:24-bookworm-slim AS server-deps
 WORKDIR /app/server
+# python3/make/g++ are required to compile native modules (bufferutil,
+# utf-8-validate via telegram->ws) when no prebuilt binary is available,
+# which happens on the emulated linux/arm64 build.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
 COPY server/package*.json ./
 RUN npm config set registry https://registry.npmjs.org/ \
   && npm config set fetch-retries 5 \
