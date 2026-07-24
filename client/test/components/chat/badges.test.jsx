@@ -476,3 +476,155 @@ for (const [label, viewport] of [
     });
   });
 }
+
+// ─── Forwarded-from header badges ────────────────────────────────────────────
+// (merged from MessageItem.forwardedBadges.test.jsx to avoid CI fetch issues
+//  with many concurrent test file requests in Vite's browser dev server)
+
+function makeUserForwardedMsg(overrides = {}) {
+  return {
+    id: 10,
+    user_id: BOB.id,
+    username: BOB.username,
+    nickname: BOB.nickname,
+    color: BOB.color,
+    avatar_url: null,
+    body: "Forwarded content",
+    created_at: "2024-01-01T12:00:00.000Z",
+    read_at: null,
+    read_by_user_id: null,
+    edited: 0,
+    files: [],
+    replyTo: null,
+    user_verified: 0,
+    user_role: "user",
+    forwarded_from_user_id: 3,
+    forwarded_from_label: "Carol",
+    forwarded_from_username: "carol",
+    forwarded_from_avatar_url: null,
+    forwarded_from_color: "#f59e0b",
+    forwarded_from_chat_id: 0,
+    ...overrides,
+  };
+}
+
+function makeChatForwardedMsg(overrides = {}) {
+  return {
+    id: 11,
+    user_id: BOB.id,
+    username: BOB.username,
+    nickname: BOB.nickname,
+    color: BOB.color,
+    avatar_url: null,
+    body: "Channel post",
+    created_at: "2024-01-01T12:00:00.000Z",
+    read_at: null,
+    read_by_user_id: null,
+    edited: 0,
+    files: [],
+    replyTo: null,
+    user_verified: 0,
+    user_role: "user",
+    forwarded_from_chat_id: 99,
+    forwarded_from_label: "News Channel",
+    forwarded_from_username: "news_channel",
+    forwarded_from_avatar_url: null,
+    forwarded_from_color: "#10b981",
+    forwarded_from_user_id: 0,
+    ...overrides,
+  };
+}
+
+function makeForwardedUser(overrides = {}) {
+  return { id: 3, username: "carol", nickname: "Carol", avatar_url: null, color: "#f59e0b", status: "online", verified: false, role: "user", ...overrides };
+}
+
+function makeForwardedChat(overrides = {}) {
+  return { id: 99, name: "News Channel", type: "channel", group_avatar_url: null, group_color: "#10b981", verified: false, ...overrides };
+}
+
+for (const [label, viewport] of [["desktop", DESKTOP_VIEWPORT], ["mobile", MOBILE_VIEWPORT]]) {
+  describe(`MessageItem forwarded-from user badges — ${label}`, () => {
+    beforeEach(async () => {
+      await page.viewport(viewport.width, viewport.height);
+    });
+
+    test("shows Verified badge for a verified forwarded user", async () => {
+      render(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={makeForwardedUser({ verified: true })} forwardedUserStatus="ready" />);
+      await expect.element(page.getByLabelText("Verified")).toBeInTheDocument();
+    });
+
+    test("hides Verified badge for unverified forwarded user", async () => {
+      render(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={makeForwardedUser({ verified: false })} forwardedUserStatus="ready" />);
+      await expect.element(page.getByText("Forwarded from")).toBeInTheDocument();
+      await expect.element(page.getByLabelText("Verified")).not.toBeInTheDocument();
+    });
+
+    test("shows Owner badge for forwarded user with role='owner'", async () => {
+      render(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={makeForwardedUser({ role: "owner" })} forwardedUserStatus="ready" />);
+      await expect.element(page.getByLabelText("Server Owner")).toBeInTheDocument();
+    });
+
+    test("shows Admin badge for forwarded user with role='admin'", async () => {
+      render(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={makeForwardedUser({ role: "admin" })} forwardedUserStatus="ready" />);
+      await expect.element(page.getByLabelText("Server Admin")).toBeInTheDocument();
+    });
+
+    test("shows both Verified and Admin for verified admin forwarded user", async () => {
+      render(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={makeForwardedUser({ verified: true, role: "admin" })} forwardedUserStatus="ready" />);
+      await expect.element(page.getByLabelText("Verified")).toBeInTheDocument();
+      await expect.element(page.getByLabelText("Server Admin")).toBeInTheDocument();
+    });
+
+    test("shows no badges for plain unverified forwarded user", async () => {
+      render(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={makeForwardedUser({ verified: false, role: "user" })} forwardedUserStatus="ready" />);
+      await expect.element(page.getByText("Forwarded from")).toBeInTheDocument();
+      await expect.element(page.getByLabelText("Verified")).not.toBeInTheDocument();
+      await expect.element(page.getByLabelText("Server Owner")).not.toBeInTheDocument();
+    });
+
+    test("no badges when forwarded user not yet resolved (null)", async () => {
+      render(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={null} forwardedUserStatus={null} />);
+      await expect.element(page.getByText("Forwarded from")).toBeInTheDocument();
+      await expect.element(page.getByLabelText("Verified")).not.toBeInTheDocument();
+    });
+
+    test("forwarded user: Verified before role badge in DOM", async () => {
+      render(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={makeForwardedUser({ verified: true, role: "owner" })} forwardedUserStatus="ready" />);
+      const verified = page.getByLabelText("Verified");
+      const owner = page.getByLabelText("Server Owner");
+      await expect.element(verified).toBeInTheDocument();
+      await expect.element(owner).toBeInTheDocument();
+      expect(verified.element().compareDocumentPosition(owner.element()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+  });
+
+  describe(`MessageItem forwarded-from chat/channel badges — ${label}`, () => {
+    beforeEach(async () => {
+      await page.viewport(viewport.width, viewport.height);
+    });
+
+    test("shows Verified badge for a verified forwarded channel", async () => {
+      render(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeChatForwardedMsg()} forwardedChat={makeForwardedChat({ verified: true })} forwardedChatStatus="ready" />);
+      await expect.element(page.getByLabelText("Verified")).toBeInTheDocument();
+    });
+
+    test("hides Verified badge for unverified forwarded channel", async () => {
+      render(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeChatForwardedMsg()} forwardedChat={makeForwardedChat({ verified: false })} forwardedChatStatus="ready" />);
+      await expect.element(page.getByText("Forwarded from")).toBeInTheDocument();
+      await expect.element(page.getByLabelText("Verified")).not.toBeInTheDocument();
+    });
+
+    test("no role badge for forwarded channel", async () => {
+      render(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeChatForwardedMsg()} forwardedChat={makeForwardedChat({ verified: true })} forwardedChatStatus="ready" />);
+      await expect.element(page.getByLabelText("Verified")).toBeInTheDocument();
+      await expect.element(page.getByLabelText("Server Owner")).not.toBeInTheDocument();
+    });
+
+    test("no Verified badge when forwarded chat not yet resolved (null)", async () => {
+      render(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeChatForwardedMsg()} forwardedChat={null} forwardedChatStatus={null} />);
+      await expect.element(page.getByText("Forwarded from")).toBeInTheDocument();
+      await expect.element(page.getByLabelText("Verified")).not.toBeInTheDocument();
+    });
+  });
+}

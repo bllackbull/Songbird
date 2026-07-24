@@ -9,7 +9,7 @@ export default defineConfig({
   plugins: [react()],
   // Pre-bundle these so Vite doesn't attempt dynamic import in CI's cold cache
   optimizeDeps: {
-    include: ["lucide-react", "react-icons"],
+    include: ["lucide-react", "react-icons/fa6"],
   },
   test: {
     reporters: ["default"],
