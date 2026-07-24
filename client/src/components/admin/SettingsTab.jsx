@@ -511,7 +511,7 @@ function SettingGroup({ groupKey, defs, effectiveVals, onChange }) {
 
 // ─── Main tab ─────────────────────────────────────────────────────────────────
 
-const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cachedIsLoading, hasData, onMutated }, ref) {
+const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cachedIsLoading, hasData: _hasData, onMutated }, ref) {
   const [settings, setSettings] = useState([]);
   const [localVals, setLocalVals] = useState({});
   const [loading, setLoading] = useState(true);

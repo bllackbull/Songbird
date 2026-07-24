@@ -272,8 +272,10 @@ const VoiceMessageChip = memo(
     const [isStarting, setIsStarting] = useState(false);
     const [progress, setProgress] = useState(0);
     const [debugInfo, setDebugInfo] = useState(null);
-    const cacheKeyRef = useRef(
-      serverUrl ||
+    // Stable cache key computed once for the lifetime of this component.
+    const [cacheKey] = useState(
+      () =>
+        serverUrl ||
         file?._localId ||
         file?.id ||
         file?.storedName ||
@@ -289,7 +291,6 @@ const VoiceMessageChip = memo(
       : 0;
     const fileDurationRef = useRef(fileDuration);
     const [duration, setDuration] = useState(fileDuration);
-    const cacheKey = cacheKeyRef.current;
     const getStoredResumeTime = () =>
       Math.max(
         0,
@@ -784,8 +785,10 @@ const VoiceMessageChip = memo(
     }, [cacheKey]);
 
     const hasActivePlayback = isPlaying || isStarting;
+    // `resumeTimeRef` mirrors VOICE_AUDIO_POSITIONS at every write, so read the
+    // persisted position here instead of the ref to stay render-safe.
     const hasProgressPosition =
-      progress > 0 || Number(resumeTimeRef.current || 0) > 0;
+      progress > 0 || Number(VOICE_AUDIO_POSITIONS.get(cacheKey) || 0) > 0;
     const canPlay = Boolean(serverUrl);
     const waveformMaxHeight = 32;
     return (

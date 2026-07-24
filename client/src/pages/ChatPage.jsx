@@ -349,7 +349,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [pendingDeleteIds, setPendingDeleteIds] = useState([]);
   const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(false);
   const [pendingLeaveChatId, setPendingLeaveChatId] = useState(null);
-  const [, setIsAtBottom] = useState(true);
+  const [isAtBottom, setIsAtBottom] = useState(true);
   const [userScrolledUp, setUserScrolledUp] = useState(false);
   const [unreadInChat, setUnreadInChat] = useState(0);
   const [unreadMarkerId, setUnreadMarkerId] = useState(null);
@@ -6588,6 +6588,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         hasOlderMessages={hasOlderMessages}
         handleSend={handleSend}
         userScrolledUp={userScrolledUp}
+        isAtBottom={isAtBottom}
         unreadInChat={unreadInChat}
         onJumpToLatest={handleJumpToLatest}
         isConnected={isConnected}

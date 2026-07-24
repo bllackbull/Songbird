@@ -145,8 +145,6 @@ const SYSTEM_REFRESH_MS = 10_000;
 
 const DashboardTab = forwardRef(function DashboardTab({ stats, onStatsChange }, ref) {
   const [sys, setSys] = useState(null);
-  // Holds the last successfully fetched system data.
-  const lastSysRef = useRef(null);
   // Parent owns `/api/admin/stats` polling; keep a stable ref so manual refresh
   // can still bump stats without putting an unstable callback in effect deps.
   const onStatsChangeRef = useRef(onStatsChange);
@@ -157,7 +155,6 @@ const DashboardTab = forwardRef(function DashboardTab({ stats, onStatsChange }, 
   const loadSys = useCallback(async () => {
     try {
       const d = await api.get("/api/admin/system");
-      lastSysRef.current = d;
       setSys(d);
     } catch {}
   }, []);
@@ -194,8 +191,9 @@ const DashboardTab = forwardRef(function DashboardTab({ stats, onStatsChange }, 
     },
   }), [loadSys]);
 
-  // Use the last data while a refresh is in-flight. Falls back to null on first load.
-  const displaySys = sys ?? lastSysRef.current;
+  // `sys` retains the last successfully fetched data; it is never reset to null
+  // after the first load, so a refresh in-flight keeps showing the prior values.
+  const displaySys = sys;
 
   const sysPct = displaySys
     ? Math.round((displaySys.memory.systemUsed / displaySys.memory.systemTotal) * 100)

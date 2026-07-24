@@ -50,7 +50,7 @@ function makeFile(overrides = {}) {
 
 describe("MessageFiles — empty state", () => {
   test("renders nothing when files array is empty", async () => {
-    const { container } = render(<MessageFiles {...BASE_PROPS} files={[]} />);
+    render(<MessageFiles {...BASE_PROPS} files={[]} />);
     // null is returned — nothing in the DOM
     await expect.element(page.getByRole("link")).not.toBeInTheDocument();
     await expect.element(page.getByRole("button")).not.toBeInTheDocument();

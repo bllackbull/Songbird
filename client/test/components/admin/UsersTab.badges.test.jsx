@@ -5,7 +5,7 @@
  * Uses vi.stubGlobal("fetch", ...) so the stub is properly scoped and
  * cleaned up via vi.unstubAllGlobals() in afterEach.
  */
-import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, test, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-react";
 import { page } from "vitest/browser";
 import UsersTab from "../../../src/components/admin/UsersTab.jsx";

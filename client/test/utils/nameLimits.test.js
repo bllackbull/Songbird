@@ -1,10 +1,5 @@
 import { describe, test, expect, beforeEach } from "vitest";
-import {
-  USERNAME_REGEX,
-  setNameLimits,
-  NICKNAME_MAX,
-  USERNAME_MAX,
-} from "../../src/utils/nameLimits.js";
+import { USERNAME_REGEX, setNameLimits } from "../../src/utils/nameLimits.js";
 
 describe("USERNAME_REGEX", () => {
   const valid = [

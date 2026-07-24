@@ -72,6 +72,7 @@ export default function ChatWindowPanel({
   hasOlderMessages,
   handleSend,
   userScrolledUp,
+  isAtBottom = false,
   unreadInChat,
   onJumpToLatest,
   isConnected,
@@ -352,7 +353,7 @@ export default function ChatWindowPanel({
     activeChatId &&
       userScrolledUp &&
       isTimelineScrollable &&
-      !isAtBottomRef?.current,
+      !isAtBottom,
   );
   const groupedMessages = useMemo(() => {
     const groups = [];

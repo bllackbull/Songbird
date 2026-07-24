@@ -49,7 +49,7 @@ export default [
     },
   },
   {
-    files: ["vite.config.js"],
+    files: ["vite.config.js", "vitest.config.js"],
     languageOptions: {
       globals: globals.node,
     },
