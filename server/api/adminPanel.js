@@ -356,9 +356,11 @@ function registerAdminPanelRoutes(app, deps) {
       }
     }
 
+    const nextVerified = b.verified !== undefined ? (b.verified ? 1 : 0) : (user.verified ? 1 : 0);
+
     adminRun(
-      "UPDATE users SET username = ?, nickname = ?, status = ?, color = ? WHERE id = ?",
-      [nextUsername, nextNickname, nextStatus, nextColor, userId],
+      "UPDATE users SET username = ?, nickname = ?, status = ?, color = ?, verified = ? WHERE id = ?",
+      [nextUsername, nextNickname, nextStatus, nextColor, nextVerified, userId],
     );
     adminSave();
     const updated = findUserById(userId);
@@ -591,6 +593,8 @@ function registerAdminPanelRoutes(app, deps) {
       if (mid !== Number(owner.id)) addChatMember(chatId, mid, "member");
     });
 
+    if (b.verified) adminRun("UPDATE chats SET verified = 1 WHERE id = ?", [chatId]);
+
     adminSave();
     const created = findChatById(chatId);
     // Notify the owner so the new chat appears in their sidebar immediately.
@@ -652,6 +656,7 @@ function registerAdminPanelRoutes(app, deps) {
     }
 
     if (nextColor) adminRun("UPDATE chats SET group_color = ? WHERE id = ?", [nextColor, chatId]);
+    if (b.verified !== undefined) adminRun("UPDATE chats SET verified = ? WHERE id = ?", [b.verified ? 1 : 0, chatId]);
     adminSave();
 
     emitChatEvent(chatId, { type: "chat_updated", chatId });

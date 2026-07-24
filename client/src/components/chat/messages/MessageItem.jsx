@@ -49,6 +49,7 @@ import { resolveMention, getCachedMention } from "../../../utils/mentions.js";
 import { summarizeFiles } from "../../../utils/messagePreview.js";
 import Avatar from "../../common/Avatar.jsx";
 import UserRoleBadge from "../../common/UserRoleBadge.jsx";
+import VerifiedBadge from "../../common/VerifiedBadge.jsx";
 
 const MAX_MESSAGE_HTML_CACHE_ENTRIES = 800;
 const messageBodyHtmlCache = new Map();
@@ -1108,7 +1109,7 @@ export const MessageItem = memo(function MessageItem({
                       : undefined
                   }
                   disabled={!canOpenSenderProfile}
-                  className={`mb-1 inline-flex max-w-[60vw] items-center gap-1 text-[11px] font-semibold transition ${
+                  className={`mb-1 inline-flex max-w-[60vw] items-center gap-0.5 text-[11px] font-semibold transition ${
                     canOpenSenderProfile ? "hover:underline" : ""
                   } sm:max-w-[40vw] md:max-w-[28vw]`}
                   dir="ltr"
@@ -1117,6 +1118,9 @@ export const MessageItem = memo(function MessageItem({
                   contextMenu={senderContextMenu}
                 >
                   <span className={`truncate ${hasPersian(senderName) ? "font-fa" : ""}`} dir="auto">{senderName}</span>
+                  {!isDeletedAuthor && Boolean(msg.user_verified) && (
+                    <VerifiedBadge size={12} />
+                  )}
                   {!isDeletedAuthor && (
                     <UserRoleBadge role={msg.user_role} size={12} />
                   )}
@@ -1131,14 +1135,25 @@ export const MessageItem = memo(function MessageItem({
                   >
                     <span className="min-w-0 flex-1">
                       <span
-                        className={`block max-w-full truncate whitespace-nowrap text-[10px] font-semibold ${
-                          hasPersian(replyDisplayName) ? "font-fa" : ""
-                        }`}
-                        dir="auto"
-                        style={{ color: String(replyColor), unicodeBidi: "isolate" }}
+                        className="flex max-w-full items-center gap-0.5 truncate whitespace-nowrap"
+                        dir="ltr"
                         title={replyDisplayName}
                       >
-                        {replyDisplayName}
+                        <span
+                          className={`min-w-0 truncate text-[10px] font-semibold ${
+                            hasPersian(replyDisplayName) ? "font-fa" : ""
+                          }`}
+                          dir="auto"
+                          style={{ color: String(replyColor), unicodeBidi: "isolate" }}
+                        >
+                          {replyDisplayName}
+                        </span>
+                        {!isChannelChat && Boolean(replyTarget?.verified) && (
+                          <VerifiedBadge size={10} />
+                        )}
+                        {!isChannelChat && (
+                          <UserRoleBadge role={replyTarget?.role} size={10} />
+                        )}
                       </span>
                       <span
                         className={`flex max-w-full items-baseline gap-1 truncate whitespace-nowrap ${
@@ -1241,12 +1256,18 @@ export const MessageItem = memo(function MessageItem({
             >
               {!isOwn && isGroupChat && !isChannelChat ? (
                 <p
-                  className={`mb-1 max-w-[60vw] truncate text-[11px] font-semibold sm:max-w-[40vw] md:max-w-[28vw] ${hasPersian(senderName) ? "font-fa" : ""}`}
+                  className={`mb-1 flex max-w-[60vw] items-center gap-0.5 truncate text-[11px] font-semibold sm:max-w-[40vw] md:max-w-[28vw]`}
                   dir="auto"
                   style={{ color: String(senderColor), unicodeBidi: "isolate" }}
                   title={senderName}
                 >
-                  {senderName}
+                  <span className={`truncate ${hasPersian(senderName) ? "font-fa" : ""}`} dir="auto">{senderName}</span>
+                  {!isDeletedAuthor && Boolean(msg.user_verified) && (
+                    <VerifiedBadge size={12} />
+                  )}
+                  {!isDeletedAuthor && (
+                    <UserRoleBadge role={msg.user_role} size={12} />
+                  )}
                 </p>
               ) : null}
               {renderForwardedHeader()}
@@ -1259,14 +1280,25 @@ export const MessageItem = memo(function MessageItem({
                 >
                   <span className="min-w-0 flex-1">
                     <span
-                      className={`block max-w-full truncate whitespace-nowrap text-[10px] font-semibold ${
-                        hasPersian(replyDisplayName) ? "font-fa" : ""
-                      }`}
-                      dir="auto"
-                      style={{ color: String(replyColor), unicodeBidi: "isolate" }}
+                      className="flex max-w-full items-center gap-0.5 truncate whitespace-nowrap"
+                      dir="ltr"
                       title={replyDisplayName}
                     >
-                      {replyDisplayName}
+                      <span
+                        className={`min-w-0 truncate text-[10px] font-semibold ${
+                          hasPersian(replyDisplayName) ? "font-fa" : ""
+                        }`}
+                        dir="auto"
+                        style={{ color: String(replyColor), unicodeBidi: "isolate" }}
+                      >
+                        {replyDisplayName}
+                      </span>
+                      {!isChannelChat && Boolean(replyTarget?.verified) && (
+                        <VerifiedBadge size={10} />
+                      )}
+                      {!isChannelChat && (
+                        <UserRoleBadge role={replyTarget?.role} size={10} />
+                      )}
                     </span>
                     <span
                       className={`flex max-w-full items-baseline gap-1 truncate whitespace-nowrap ${

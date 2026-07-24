@@ -49,6 +49,7 @@ export default function AdminUserModal({ mode = "edit", user = null, onClose, on
   const [nick, setNick]             = useState(user?.nickname || "");
   const [uname, setUname]           = useState(user?.username || "");
   const [color, setColor]           = useState(user?.color || "#10b981");
+  const [verified, setVerified]     = useState(Boolean(user?.verified));
   const [profileErr, setProfileErr] = useState("");
   const [profileBusy, setProfileBusy] = useState(false);
 
@@ -103,6 +104,7 @@ export default function AdminUserModal({ mode = "edit", user = null, onClose, on
         password: pw,
         color,
         role: "user",
+        verified,
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) { setProfileErr(data.error || "Failed"); return; }
@@ -123,6 +125,7 @@ export default function AdminUserModal({ mode = "edit", user = null, onClose, on
         nickname: nick,
         username: uname.toLowerCase(),
         color,
+        verified,
       });
       if (!r.ok) { const d = await r.json(); setProfileErr(d.error || "Failed"); return; }
       if (fileUploadEnabled) {
@@ -246,6 +249,24 @@ export default function AdminUserModal({ mode = "edit", user = null, onClose, on
                   className="color-swatch h-11 w-11 shrink-0 cursor-pointer overflow-hidden rounded-xl border border-emerald-200/70 dark:border-emerald-500/30" />
               </div>
             </div>
+
+            {/* Verified */}
+            <button
+              type="button"
+              role="switch"
+              aria-checked={verified}
+              onClick={() => setVerified((v) => !v)}
+              className="flex w-full items-center justify-between rounded-2xl border border-emerald-200 px-4 py-3 text-left text-sm font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+            >
+              <span>Verified</span>
+              <span
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition ${
+                  verified ? "justify-end bg-emerald-500" : "justify-start bg-slate-300 dark:bg-slate-700"
+                }`}
+              >
+                <span className="inline-block h-5 w-5 rounded-full bg-white shadow-sm transition" />
+              </span>
+            </button>
 
             {/* Password section — "Set password" for create, "Reset password" for edit */}
             <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">

@@ -305,14 +305,14 @@ export function getCurrentSchemaVersion() {
 
 export function findUserByUsername(username) {
   return getRow(
-    "SELECT id, username, nickname, avatar_url, color, status, password_hash, banned, role FROM users WHERE username = ?",
+    "SELECT id, username, nickname, avatar_url, color, status, password_hash, banned, role, verified FROM users WHERE username = ?",
     [username],
   );
 }
 
 export function findUserById(id) {
   return getRow(
-    "SELECT id, username, nickname, avatar_url, color, status, password_hash, banned, role FROM users WHERE id = ?",
+    "SELECT id, username, nickname, avatar_url, color, status, password_hash, banned, role, verified FROM users WHERE id = ?",
     [id],
   );
 }
@@ -320,7 +320,7 @@ export function findUserById(id) {
 export function listUsers(excludeUsername) {
   if (excludeUsername) {
     return getAll(
-      `SELECT id, username, nickname, avatar_url, color,
+      `SELECT id, username, nickname, avatar_url, color, role, verified,
               CASE
                 WHEN status = 'online' AND last_seen IS NOT NULL
                      AND (strftime('%s', 'now') - strftime('%s', last_seen)) <= 12
@@ -332,7 +332,7 @@ export function listUsers(excludeUsername) {
   }
 
   return getAll(
-    `SELECT id, username, nickname, avatar_url, color,
+    `SELECT id, username, nickname, avatar_url, color, role, verified,
             CASE
               WHEN status = 'online' AND last_seen IS NOT NULL
                    AND (strftime('%s', 'now') - strftime('%s', last_seen)) <= 12
@@ -348,7 +348,7 @@ export function searchUsers(query, excludeUsername) {
 
   if (excludeUsername) {
     return getAll(
-      `SELECT id, username, nickname, avatar_url, color,
+      `SELECT id, username, nickname, avatar_url, color, role, verified,
               CASE
                 WHEN status = 'online' AND last_seen IS NOT NULL
                      AND (strftime('%s', 'now') - strftime('%s', last_seen)) <= 12
@@ -361,7 +361,7 @@ export function searchUsers(query, excludeUsername) {
   }
 
   return getAll(
-    `SELECT id, username, nickname, avatar_url, color,
+    `SELECT id, username, nickname, avatar_url, color, role, verified,
             CASE
               WHEN status = 'online' AND last_seen IS NOT NULL
                    AND (strftime('%s', 'now') - strftime('%s', last_seen)) <= 12
@@ -480,7 +480,7 @@ export function searchPublicGroups(query, viewerUserId, limit = 20) {
   const like = `%${String(query || "").trim()}%`;
   const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
   return getAll(
-    `SELECT c.id, c.name, c.group_username, c.group_color, c.group_avatar_url, c.invite_token,
+    `SELECT c.id, c.name, c.group_username, c.group_color, c.group_avatar_url, c.invite_token, c.verified,
             (SELECT COUNT(*) FROM chat_members m WHERE m.chat_id = c.id) AS members_count,
             EXISTS(
               SELECT 1 FROM chat_members vm
@@ -512,7 +512,7 @@ export function searchPublicChannels(query, viewerUserId, limit = 20) {
   const like = `%${String(query || "").trim()}%`;
   const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
   return getAll(
-    `SELECT c.id, c.name, c.group_username, c.group_color, c.group_avatar_url, c.invite_token,
+    `SELECT c.id, c.name, c.group_username, c.group_color, c.group_avatar_url, c.invite_token, c.verified,
             (SELECT COUNT(*) FROM chat_members m WHERE m.chat_id = c.id) AS members_count,
             EXISTS(
               SELECT 1 FROM chat_members vm
@@ -1204,7 +1204,7 @@ export function findChatByInviteToken(inviteToken) {
 export function findChatById(chatId) {
   return getRow(
     `SELECT id, name, type, group_username, group_visibility, invite_token, group_color,
-            allow_member_invites, group_avatar_url, created_by_user_id
+            allow_member_invites, group_avatar_url, created_by_user_id, verified
      FROM chats WHERE id = ?`,
     [Number(chatId)],
   );
@@ -1303,6 +1303,8 @@ export function listChatMembers(chatId) {
   return getAll(
     `
     SELECT users.id, users.username, users.nickname, users.avatar_url, users.color,
+           users.verified AS user_verified,
+           users.role AS user_role,
            CASE
              WHEN users.status = 'online'
                   AND users.last_seen IS NOT NULL
@@ -1336,6 +1338,8 @@ export function listChatMembersForChats(chatIds = []) {
     `
     SELECT chat_members.chat_id,
            users.id, users.username, users.nickname, users.avatar_url, users.color,
+           users.verified AS user_verified,
+           users.role AS user_role,
            CASE
              WHEN users.status = 'online'
                   AND users.last_seen IS NOT NULL
@@ -1594,6 +1598,7 @@ export function listChatsForUser(userId) {
         c.group_avatar_url,
         c.created_by_user_id,
         c.created_at,
+        c.verified,
         COALESCE(mu.muted, 0) AS muted
       FROM chats c
       JOIN chat_members m ON m.chat_id = c.id
@@ -1613,6 +1618,7 @@ export function listChatsForUser(userId) {
       mc.allow_member_invites,
       mc.group_avatar_url,
       mc.created_by_user_id,
+      mc.verified,
       mc.muted,
       COALESCE(rcs.enabled, 0) AS remote_channel_enabled,
       last_vm.id AS last_message_id,
@@ -2056,6 +2062,7 @@ export function getMessages(chatId, options = {}) {
       COALESCE(users.nickname, 'Deleted user') AS nickname,
       users.avatar_url, users.color,
       users.role AS user_role,
+      users.verified AS user_verified,
       reply.id AS reply_id,
       COALESCE(reply.edited_body, reply.body) AS reply_body,
       reply.created_at AS reply_created_at,
@@ -2063,7 +2070,9 @@ export function getMessages(chatId, options = {}) {
       COALESCE(reply_user.username, 'deleted') AS reply_username,
       COALESCE(reply_user.nickname, 'Deleted user') AS reply_nickname,
       reply_user.avatar_url AS reply_avatar_url,
-      reply_user.color AS reply_user_color
+      reply_user.color AS reply_user_color,
+      reply_user.verified AS reply_user_verified,
+      reply_user.role AS reply_user_role
     FROM chat_messages
     LEFT JOIN users ON users.id = chat_messages.user_id
     LEFT JOIN chat_messages reply
@@ -2484,7 +2493,7 @@ export function getSession(token) {
   return getRow(
     `
     SELECT sessions.id AS session_id, sessions.token, users.id, users.username, users.nickname,
-           users.avatar_url, users.color, users.status, users.banned, users.role
+           users.avatar_url, users.color, users.status, users.banned, users.role, users.verified
     FROM sessions
     JOIN users ON users.id = sessions.user_id
     WHERE sessions.token = ?
@@ -2691,7 +2700,7 @@ export function adminListUsers({ limit = 200, offset = 0, search = "", sortBy = 
   // COUNT(*) OVER() computes the filtered total in the same pass as the page
   // rows, eliminating the separate adminCountUsers query.
   const rows = getAll(
-    `SELECT id, username, nickname, avatar_url, color, status, role, banned, created_at, last_seen,
+    `SELECT id, username, nickname, avatar_url, color, status, role, banned, verified, created_at, last_seen,
             CASE WHEN status = 'online' AND last_seen IS NOT NULL
                       AND last_seen >= datetime('now', '-' || ? || ' seconds')
                  THEN 1 ELSE 0 END AS online,
@@ -2778,7 +2787,7 @@ export function adminListChats({ limit = 200, offset = 0, search = "", sortBy = 
   // COUNT(*) OVER() computes the filtered total in the same pass as the page
   // rows, eliminating the separate adminCountChats query.
   const rows = getAll(
-    `SELECT c.id, c.name, c.type, c.group_username, c.group_visibility, c.group_color, c.group_avatar_url, c.created_at,
+    `SELECT c.id, c.name, c.type, c.group_username, c.group_visibility, c.group_color, c.group_avatar_url, c.created_at, c.verified,
             (SELECT COUNT(*) FROM chat_members WHERE chat_id = c.id) AS member_count,
             (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) AS message_count,
             owner.id AS owner_id, owner.username AS owner_username, owner.nickname AS owner_nickname,

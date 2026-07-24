@@ -108,6 +108,7 @@ function registerProfileRoutes(app, deps) {
       color: user.color || USER_COLORS[0],
       status: user.status || "online",
       role: user.role || "user",
+      verified: Boolean(user.verified),
     });
   });
 

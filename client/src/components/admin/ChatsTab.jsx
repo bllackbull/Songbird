@@ -5,6 +5,7 @@ import { LoadingRows, EmptyState, FilterDropdown, SortTh, Pagination, TabToolbar
 import AdminGroupModal from "./AdminGroupModal.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 import Avatar from "../common/Avatar.jsx";
+import VerifiedBadge from "../common/VerifiedBadge.jsx";
 import { hasPersian } from "../../utils/fontUtils.js";
 
 const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStatsChange }, ref) {
@@ -139,7 +140,10 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className={`truncate text-sm font-semibold text-slate-700 dark:text-slate-200 ${nameHasPersian ? "font-fa" : ""}`} dir="auto">{chatName}</p>
+                        <p className={`flex items-center gap-0.5 truncate text-sm font-semibold text-slate-700 dark:text-slate-200`} dir="ltr">
+                          <span className={`truncate ${nameHasPersian ? "font-fa" : ""}`} dir="auto">{chatName}</span>
+                          {Boolean(c.verified) && <VerifiedBadge size={13} />}
+                        </p>
                         {c.group_username && <p className="truncate text-[11px] text-slate-400">@{c.group_username}</p>}
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
@@ -197,7 +201,10 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
                             className="h-7 w-7 shrink-0 text-xs font-bold text-white"
                           />
                           <div className="min-w-0">
-                            <p className={`truncate text-xs font-semibold text-slate-700 dark:text-slate-200 ${nameHasPersian ? "font-fa" : ""}`} dir="auto">{chatName}</p>
+                            <p className={`flex items-center gap-0.5 truncate text-xs font-semibold text-slate-700 dark:text-slate-200`} dir="ltr">
+                              <span className={`truncate ${nameHasPersian ? "font-fa" : ""}`} dir="auto">{chatName}</span>
+                              {Boolean(c.verified) && <VerifiedBadge size={12} />}
+                            </p>
                             {c.group_username && <p className="text-[11px] text-slate-400">@{c.group_username}</p>}
                           </div>
                         </div>

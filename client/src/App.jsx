@@ -201,6 +201,7 @@ export default function App() {
       color: data.color || null,
       status: data.status || 'online',
       role: data.role || 'user',
+      verified: Boolean(data.verified),
     }
   }
 

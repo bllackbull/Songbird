@@ -5,6 +5,7 @@ import { CHAT_PAGE_CONFIG } from "../../settings/chatPageConfig.js";
 import { api, inputCls } from "./adminShared.js";
 import Avatar from "../common/Avatar.jsx";
 import UserRoleBadge from "../common/UserRoleBadge.jsx";
+import VerifiedBadge from "../common/VerifiedBadge.jsx";
 import { hasPersian } from "../../utils/fontUtils.js";
 
 const NewGroupModal = lazy(() => import("../modals/NewGroupModal.jsx"));
@@ -62,8 +63,9 @@ function OwnerPicker({ value, onChange }) {
       <div className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 bg-white/80 px-3 py-3 text-left dark:border-white/10 dark:bg-slate-950">
         <Avatar src={value.avatar_url} alt={label} name={label} color={value.color || "#10b981"} className="h-8 w-8 text-xs font-bold text-white" />
         <div className="min-w-0 flex-1">
-          <p className="flex items-center gap-1 truncate text-sm font-semibold text-slate-700 dark:text-slate-200" dir="ltr" title={label}>
+          <p className="flex items-center gap-0.5 truncate text-sm font-semibold text-slate-700 dark:text-slate-200" dir="ltr" title={label}>
             <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
+            {Boolean(value.verified) && <VerifiedBadge size={12} />}
             <UserRoleBadge role={value.role} size={12} />
           </p>
           <p className="truncate text-xs text-slate-500 dark:text-slate-400" dir="auto">@{value.username}</p>
@@ -111,8 +113,9 @@ function OwnerPicker({ value, onChange }) {
                   className="flex w-full items-center gap-3 rounded-2xl border border-emerald-100/70 bg-white/80 px-3 py-3 text-left text-sm font-medium text-slate-700 transition hover:border-emerald-300 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900/50">
                   <Avatar src={u.avatar_url} alt={label} name={label} color={u.color || "#10b981"} className="h-8 w-8 text-xs font-bold text-white" />
                   <div className="min-w-0">
-                    <p className={`flex items-center gap-1 truncate font-semibold ${hasPersian(label) ? "font-fa" : ""}`} dir="ltr" title={label}>
+                    <p className={`flex items-center gap-0.5 truncate font-semibold ${hasPersian(label) ? "font-fa" : ""}`} dir="ltr" title={label}>
                       <span className="truncate" dir="auto">{label}</span>
+                      {Boolean(u.verified) && <VerifiedBadge size={12} />}
                       <UserRoleBadge role={u.role} size={12} />
                     </p>
                     <p className="truncate text-xs text-slate-500 dark:text-slate-400" dir="auto">@{u.username}</p>
@@ -171,6 +174,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
   const [members, setMembers] = useState([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [verified, setVerified] = useState(editing ? Boolean(chat?.verified) : false);
 
   // Avatar state. In edit mode we upload immediately to the existing chat; in
   // create mode we hold the picked file and upload after the chat is created.
@@ -250,6 +254,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
           username,
           visibility: form.visibility,
           color: form.groupColor,
+          verified,
         };
         if (owner?.id && owner.id !== initialOwnerId) payload.owner = owner.id;
         const r = await api.patch(`/api/admin/chats/${chat.id}`, payload);
@@ -266,6 +271,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
           visibility: form.visibility,
           owner: owner.id,
           color: form.groupColor,
+          verified,
           memberIds: members.map((m) => Number(m.id)).filter(Boolean),
         };
         const r = await api.post("/api/admin/chats", payload);
@@ -280,7 +286,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
     } catch {
       setError("Request failed."); setBusy(false);
     }
-  }, [editing, form, owner, type, members, chat, onSaved, onClose, fileUploadEnabled, pendingAvatarFile, avatarRemoved, uploadAvatarTo, initialOwnerId]);
+  }, [editing, form, owner, type, members, chat, onSaved, onClose, fileUploadEnabled, pendingAvatarFile, avatarRemoved, uploadAvatarTo, initialOwnerId, verified]);
 
   const extraFields = (
     <div className="space-y-3">
@@ -298,6 +304,22 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
             className="color-swatch h-11 w-11 shrink-0 cursor-pointer overflow-hidden rounded-xl border border-emerald-200/70 dark:border-emerald-500/30" />
         </div>
       </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={verified}
+        onClick={() => setVerified((v) => !v)}
+        className="flex w-full items-center justify-between rounded-2xl border border-emerald-200 px-4 py-3 text-left text-sm font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+      >
+        <span>Verified</span>
+        <span
+          className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition ${
+            verified ? "justify-end bg-emerald-500" : "justify-start bg-slate-300 dark:bg-slate-700"
+          }`}
+        >
+          <span className="inline-block h-5 w-5 rounded-full bg-white shadow-sm transition" />
+        </span>
+      </button>
     </div>
   );
 

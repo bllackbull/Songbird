@@ -31,6 +31,7 @@ import { migration030HiddenMessagesCompositeIndex } from "./030-hidden-messages-
 import { migration031UserRoles } from "./031-user-roles.js";
 import { migration032AppSettings } from "./032-app-settings.js";
 import { migration033AdminStatsIndexes } from "./033-admin-stats-indexes.js";
+import { migration034VerifiedField } from "./034-verified-field.js";
 
 export const migrations = [
   migration001InitialSchema,
@@ -66,4 +67,5 @@ export const migrations = [
   migration031UserRoles,
   migration032AppSettings,
   migration033AdminStatsIndexes,
+  migration034VerifiedField,
 ];

@@ -2694,6 +2694,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           color: mentionProfile.color || "#10b981",
           status: "online",
           role: mentionProfile.role || "user",
+          verified: Boolean(mentionProfile.verified),
         }
       : null;
   const liveMentionProfileChat = mentionProfile
@@ -5582,6 +5583,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       color: user?.color || "#10b981",
       status: user?.status || "online",
       role: user?.role || "user",
+      verified: Boolean(user?.verified),
     });
     setProfileInviteLink("");
     setProfileModalOpen(true);
@@ -5630,6 +5632,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       color: msg.color || "#10b981",
       status: "online",
       role: msg.user_role || "user",
+      verified: Boolean(msg.user_verified),
     };
     setProfileModalMember(selected);
     setProfileModalOpen(true);
@@ -5637,7 +5640,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const openMemberProfileFromList = (member) => {
     if (!member) return;
-    setProfileModalMember(member);
+    // Member objects from the chat list use `user_verified` (DB alias).
+    // Normalize to `verified` so ChatProfileModal reads it correctly.
+    const normalized = Object.prototype.hasOwnProperty.call(member, "user_verified")
+      ? { ...member, verified: Boolean(member.user_verified) }
+      : member;
+    setProfileModalMember(normalized);
     setProfileModalOpen(true);
   };
 
