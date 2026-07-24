@@ -3,6 +3,9 @@ name: Docker
 on:
   release:
     types: [published]
+  # Allows manually running the build against a specific tag/ref from the
+  # Actions tab. Useful to (re)build an image manually.
+  workflow_dispatch:
 
 jobs:
   build-and-push:

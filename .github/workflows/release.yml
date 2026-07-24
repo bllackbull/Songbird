@@ -27,6 +27,8 @@ jobs:
       - name: Run Semantic Release
         run: npx semantic-release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Use a PAT (not the default GITHUB_TOKEN) so that the release/tag
+          # created here is attributed to a real user identity.
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
 
 
