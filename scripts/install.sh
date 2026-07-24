@@ -704,6 +704,12 @@ normalize_path_input() {
 
 strip_surrounding_quotes() {
   local value="$1"
+  # Need at least two characters to have a surrounding pair; a lone quote
+  # would otherwise trigger a negative substring expression below.
+  if (( ${#value} < 2 )); then
+    printf "%s" "$value"
+    return 0
+  fi
   local first="${value:0:1}"
   local last="${value: -1}"
   if [[ ( "$first" == "\"" && "$last" == "\"" ) || ( "$first" == "'" && "$last" == "'" ) ]]; then
@@ -1806,6 +1812,10 @@ parse_domain_input() {
       seen_names="${seen_names}|${d}|"
     fi
   done
+  # Restore default word-splitting before build_domain_groups runs. Its
+  # www/apex pairing logic relies on space-joined membership checks
+  # (" ${DOMAIN_NAMES[*]} "), which break while IFS is still a comma.
+  unset IFS
   build_domain_groups
   NGINX_SERVER_NAME="${DOMAIN_NAMES[*]}"
 }
