@@ -5,18 +5,27 @@ import react from "@vitejs/plugin-react";
 // Pass VITEST_HEADFUL=1 (or use the test:browser:headful script) to open a
 const headless = process.env.VITEST_HEADFUL !== "1";
 
+// Dependencies the browser project must pre-bundle. If Vite discovers any of
+// these *during* a run instead, it re-optimizes and reloads the page mid-test,
+// which throws "Vitest failed to find the runner" and then hangs the runner
+// forever. Listing them here forces a single up-front optimize pass.
+const browserOptimizeInclude = [
+  "lucide-react",
+  "react-icons/fa6",
+  "vitest-browser-react",
+  "react",
+  "react/jsx-dev-runtime",
+  "react/jsx-runtime",
+  "react-dom",
+  "react-dom/client",
+];
+
 export default defineConfig({
-  plugins: [react()],
-  // Pre-bundle these so Vite doesn't attempt dynamic import in CI's cold cache
-  optimizeDeps: {
-    include: ["lucide-react", "react-icons/fa6"],
-  },
   test: {
     reporters: ["default"],
     projects: [
       {
         // Pure utility tests — no DOM needed, runs in Node
-        name: "unit",
         test: {
           name: "unit",
           include: ["test/utils/**/*.{test,spec}.{js,jsx}"],
@@ -24,8 +33,14 @@ export default defineConfig({
         },
       },
       {
-        // Component tests — runs in a real Chromium browser via Playwright
-        name: "browser",
+        // Component tests — runs in a real Chromium browser via Playwright.
+        // plugins + optimizeDeps must live on the project itself: the browser
+        // project runs its own Vite server and does NOT inherit them from the
+        // root config.
+        plugins: [react()],
+        optimizeDeps: {
+          include: browserOptimizeInclude,
+        },
         test: {
           name: "browser",
           include: ["test/components/**/*.{test,spec}.{js,jsx}"],
