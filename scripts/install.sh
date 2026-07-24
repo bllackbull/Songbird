@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# songbird-deploy-version: 0.11.1
+# songbird-deploy-version: 0.11.2
 
 set -uo pipefail
 

@@ -1,3 +1,37 @@
+## 0.11.2
+
+### New Features
+
+- 🏅 Verified and role badge system for users and chats
+
+### Improvements
+
+- 🐋 Production-ready Docker and cloud platform deployment with container health checks
+- 🔌 Configurable server bind address and graceful shutdown handling
+- ⚡ Faster admin panel with server-side pagination for users, chats, and logs
+- 🔢 Adjustable page-size selector on admin pagination controls
+- 📊 Smoother dashboard stats with cached system metrics
+- 💨 Snappier chat experience with reduced SSE-driven refetching and debounced chat list reloads
+- 🎨 Refreshed upload menu styling to match the new dropdown design
+
+### Bug Fixes
+
+- 💬 Keep the connection alive when navigating in and out of the admin panel
+- 🔄 Sidebar now updates instantly when members are added, removed, or have their role changed
+- 🎨 Include reply author color in message replies
+- 🚪 Sign out all clients correctly after a database reset or restore
+- 🛠️ Service control now works on Docker deployments
+
+**⏺️ If you encountered any problem, don't forget to submit an issue on Songbird github repository.**
+
+**⭐ Don't forget to give a star to Songbird github repository!**
+
+🕊️ [Songbird main server](https://chat.songbird.website/invite/songbird)
+
+📢 [Songbird Telegram channel](https://t.me/songbirdapp)
+
+🌐 [Songbird Github repository](https://github.com/bllackbull/Songbird)
+
 ## 0.11.1
 
 ### New Features
@@ -16,16 +50,6 @@
 
 - 🔒 Resolved permission issues for logs and service control on dedicated-user deployments
 - 👥 Fixed presence status computed server-side on initial load (eliminates ghost green dot)
-
-**⏺️ If you encountered any problem, don't forget to submit an issue on Songbird github repository.**
-
-**⭐ Don't forget to give a star to Songbird github repository!**
-
-🕊️ [Songbird main server](https://chat.songbird.website/invite/songbird)
-
-📢 [Songbird Telegram channel](https://t.me/songbirdapp)
-
-🌐 [Songbird Github repository](https://github.com/bllackbull/Songbird)
 
 ## 0.11.0
 
