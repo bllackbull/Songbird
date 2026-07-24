@@ -43,12 +43,26 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # ghcr.io uses the built-in GITHUB_TOKEN (packages: write permission),
+      # so no extra secret is required. Images appear under the repo's
+      # "Packages" section on GitHub.
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       # Derives tags from the release tag
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ secrets.DOCKERHUB_USERNAME }}/songbird
+          # Tags are applied to both registries. metadata-action lowercases
+          # the image path automatically (ghcr.io requires lowercase).
+          images: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/songbird
+            ghcr.io/${{ github.repository }}
           # `value=${{ inputs.tag }}` overrides the version for manual runs.
           # When empty (automatic release event), type=semver falls back to the
           # git ref (the release tag), preserving the original behavior.
