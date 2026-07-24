@@ -725,7 +725,7 @@ export function MessageComposer({
             </div>
             <div className="flex min-w-0 flex-1 flex-col">
               <span
-                className={`flex items-center gap-0.5 truncate text-[11px] font-semibold text-emerald-700 dark:text-emerald-200`}
+                className="flex items-center gap-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-200"
                 dir="ltr"
                 title={
                   replyTarget.displayName || replyTarget.username || "message"

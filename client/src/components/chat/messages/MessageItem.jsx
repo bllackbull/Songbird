@@ -1270,11 +1270,11 @@ export const MessageItem = memo(function MessageItem({
               {!isOwn && isGroupChat && !isChannelChat ? (
                 <p
                   className={`mb-1 flex max-w-[60vw] items-center gap-0.5 truncate text-[11px] font-semibold sm:max-w-[40vw] md:max-w-[28vw]`}
-                  dir="auto"
-                  style={{ color: String(senderColor), unicodeBidi: "isolate" }}
+                  dir="ltr"
+                  style={{ color: String(senderColor) }}
                   title={senderName}
                 >
-                  <span className={`truncate ${hasPersian(senderName) ? "font-fa" : ""}`} dir="auto">{senderName}</span>
+                  <span className={`truncate ${hasPersian(senderName) ? "font-fa" : ""}`} dir="auto" style={{ unicodeBidi: "isolate" }}>{senderName}</span>
                   {!isDeletedAuthor && Boolean(msg.user_verified) && (
                     <VerifiedBadge size={12} />
                   )}
