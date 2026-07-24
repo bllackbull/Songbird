@@ -66,6 +66,7 @@ export default defineConfig({
                   ],
                 },
               },
+              { browser: "firefox" },
             ],
           },
         },

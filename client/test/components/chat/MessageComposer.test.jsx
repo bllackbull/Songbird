@@ -159,7 +159,10 @@ describe("MessageComposer — pending uploads", () => {
     render(
       <MessageComposer
         {...BASE_PROPS}
-        pendingUploadFiles={[pendingImage, pendingImage]}
+        pendingUploadFiles={[
+          pendingImage,
+          { ...pendingImage, id: "upload-1b", name: "photo2.jpg" },
+        ]}
         pendingUploadType="media"
       />,
     );
