@@ -14,7 +14,7 @@ dist-ssr
 
 # Vitest browser test artifacts
 .vitest-attachments
-test/components/chat/__screenshots__
+test/components/*/__screenshots__
 
 # Editor directories and files
 .vscode/*

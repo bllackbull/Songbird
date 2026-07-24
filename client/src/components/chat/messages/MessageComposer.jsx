@@ -14,6 +14,8 @@ import {
 } from "../../../icons/lucide.js";
 import { hasPersian } from "../../../utils/fontUtils.js";
 import { renderMarkdownInlinePlain } from "../../../utils/markdown.js";
+import VerifiedBadge from "../../common/VerifiedBadge.jsx";
+import UserRoleBadge from "../../common/UserRoleBadge.jsx";
 
 function applyTextareaSize({
   textareaEl,
@@ -723,21 +725,28 @@ export function MessageComposer({
             </div>
             <div className="flex min-w-0 flex-1 flex-col">
               <span
-                className={`truncate text-[11px] font-semibold text-emerald-700 dark:text-emerald-200 ${
-                  hasPersian(
-                    replyTarget.displayName || replyTarget.username || "message",
-                  )
-                    ? "font-fa"
-                    : ""
-                }`}
-                dir="auto"
-                style={{ unicodeBidi: "isolate" }}
+                className="flex items-center gap-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-200"
+                dir="ltr"
                 title={
                   replyTarget.displayName || replyTarget.username || "message"
                 }
               >
-                Reply to{" "}
-                {replyTarget.displayName || replyTarget.username || "message"}
+                <span
+                  className={`truncate ${
+                    hasPersian(
+                      replyTarget.displayName || replyTarget.username || "message",
+                    )
+                      ? "font-fa"
+                      : ""
+                  }`}
+                  dir="auto"
+                  style={{ unicodeBidi: "isolate" }}
+                >
+                  Reply to{" "}
+                  {replyTarget.displayName || replyTarget.username || "message"}
+                </span>
+                {Boolean(replyTarget.verified) && <VerifiedBadge size={11} />}
+                <UserRoleBadge role={replyTarget.role} size={11} />
               </span>
               <span
                 className="mt-1 flex min-w-0 items-baseline gap-1 text-xs text-slate-600 dark:text-slate-300"

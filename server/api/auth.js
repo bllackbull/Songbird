@@ -149,6 +149,7 @@ function registerAuthRoutes(app, deps) {
       color: session.color || USER_COLORS[0],
       status: session.status || "online",
       role: session.role || "user",
+      verified: Boolean(session.verified),
     });
   });
 

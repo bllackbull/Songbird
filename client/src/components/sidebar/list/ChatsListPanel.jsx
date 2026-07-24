@@ -23,6 +23,8 @@ import { summarizeFiles } from "../../../utils/messagePreview.js";
 import { isMessageAuthoredByUser } from "../../../utils/messageOwnership.js";
 import { formatCompactCount } from "../../../utils/chatFormat.js";
 import Avatar from "../../common/Avatar.jsx";
+import UserRoleBadge from "../../common/UserRoleBadge.jsx";
+import VerifiedBadge from "../../common/VerifiedBadge.jsx";
 
 export default function ChatsListPanel({
   loadingChats,
@@ -244,13 +246,15 @@ export default function ChatsListPanel({
                       showOnlineBadge={showOnlineBadge}
                       className="h-9 w-9 text-xs"
                     />
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p
-                        className={`truncate text-sm font-semibold ${hasPersian(label) ? "font-fa" : ""}`}
-                        dir="auto"
+                        className="flex items-center gap-0.5 truncate text-sm font-semibold"
+                        dir="ltr"
                         title={label}
                       >
-                        {label}
+                        <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
+                        {Boolean(member.verified) && <VerifiedBadge size={12} />}
+                        <UserRoleBadge role={member.role} size={12} />
                       </p>
                       <p
                         className="truncate text-xs text-slate-500 dark:text-slate-400"
@@ -304,11 +308,12 @@ export default function ChatsListPanel({
                     )}
                     <div className="min-w-0 flex-1">
                       <p
-                        className={`truncate text-sm font-semibold ${hasPersian(label) ? "font-fa" : ""}`}
-                        dir="auto"
+                        className="flex items-center gap-0.5 truncate text-sm font-semibold"
+                        dir="ltr"
                         title={label}
                       >
-                        {label}
+                        <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
+                        {Boolean(group.verified) && <VerifiedBadge size={12} />}
                       </p>
                       <p
                         className="truncate text-xs text-slate-500 dark:text-slate-400"
@@ -371,11 +376,12 @@ export default function ChatsListPanel({
                     )}
                     <div className="min-w-0 flex-1">
                       <p
-                        className={`truncate text-sm font-semibold ${hasPersian(label) ? "font-fa" : ""}`}
-                        dir="auto"
+                        className="flex items-center gap-0.5 truncate text-sm font-semibold"
+                        dir="ltr"
                         title={label}
                       >
-                        {label}
+                        <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
+                        {Boolean(channel.verified) && <VerifiedBadge size={12} />}
                       </p>
                       <p
                         className="truncate text-xs text-slate-500 dark:text-slate-400"
@@ -558,7 +564,7 @@ export default function ChatsListPanel({
                   showOnlineBadge={showOnlineBadge}
                 />
                 <div className="min-w-0 flex-1">
-                  <p className="flex min-w-0 items-center gap-1.5 font-semibold">
+                  <p className="flex min-w-0 items-center gap-0.5 font-semibold" dir="ltr">
                     {isChannel ? (
                       <Megaphone
                         size={14}
@@ -574,6 +580,15 @@ export default function ChatsListPanel({
                     >
                       {name}
                     </span>
+                    {conv.type === "dm" && !isDeletedDm && other && Boolean(other.user_verified) ? (
+                      <VerifiedBadge size={13} />
+                    ) : null}
+                    {conv.type === "dm" && !isDeletedDm && other ? (
+                      <UserRoleBadge role={other.user_role} size={13} />
+                    ) : null}
+                    {conv.type !== "dm" && Boolean(conv.verified) ? (
+                      <VerifiedBadge size={13} />
+                    ) : null}
                     {conv._muted ? (
                       <VolumeX
                         size={15}

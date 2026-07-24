@@ -22,6 +22,8 @@ import { hasPersian } from "../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import { formatCompactCount } from "../../utils/chatFormat.js";
 import Avatar from "../common/Avatar.jsx";
+import UserRoleBadge from "../common/UserRoleBadge.jsx";
+import VerifiedBadge from "../common/VerifiedBadge.jsx";
 import {
   FocusedMediaModal,
   MessageComposer,
@@ -1232,31 +1234,30 @@ export default function ChatWindowPanel({
                   <button
                     type="button"
                     onClick={onOpenHeaderProfile}
-                    className="min-w-0 max-w-[60vw] text-center text-lg font-semibold transition hover:text-emerald-600 dark:hover:text-emerald-300 sm:max-w-[40vw] md:max-w-[28vw]"
-                    dir="auto"
-                    style={{ unicodeBidi: "plaintext" }}
+                    className="inline-flex min-w-0 max-w-[60vw] items-center gap-0.5 text-center text-lg font-semibold transition hover:text-emerald-600 dark:hover:text-emerald-300 sm:max-w-[40vw] md:max-w-[28vw]"
+                    dir="ltr"
                     title={activeFallbackTitle}
                   >
                     <span
-                      className={`block min-w-0 truncate ${
-                        hasPersian(activeFallbackTitle) ? "font-fa" : ""
-                      }`}
+                      className={`block min-w-0 truncate ${hasPersian(activeFallbackTitle) ? "font-fa" : ""}`}
                       dir="auto"
-                      style={{ unicodeBidi: "plaintext" }}
                     >
                       {activeFallbackTitle}
                     </span>
+                    {Boolean(activeChat?.verified) && <VerifiedBadge size={15} />}
+                    {!activeChat?.verified && Boolean(activeHeaderPeer?.user_verified) && <VerifiedBadge size={15} />}
+                    <UserRoleBadge role={activeHeaderPeer?.user_role} size={15} />
                   </button>
                 ) : (
                   <span
-                    className={`block min-w-0 max-w-[60vw] truncate text-center text-lg font-semibold text-slate-700 dark:text-slate-100 sm:max-w-[40vw] md:max-w-[28vw] ${
-                      hasPersian(activeFallbackTitle) ? "font-fa" : ""
-                    }`}
-                    dir="auto"
-                    style={{ unicodeBidi: "plaintext" }}
+                    className="inline-flex min-w-0 max-w-[60vw] items-center gap-0.5 truncate text-center text-lg font-semibold text-slate-700 dark:text-slate-100 sm:max-w-[40vw] md:max-w-[28vw]"
+                    dir="ltr"
                     title={activeFallbackTitle}
                   >
-                    {activeFallbackTitle}
+                    <span className={`truncate ${hasPersian(activeFallbackTitle) ? "font-fa" : ""}`} dir="auto">{activeFallbackTitle}</span>
+                    {Boolean(activeChat?.verified) && <VerifiedBadge size={15} />}
+                    {!activeChat?.verified && Boolean(activeHeaderPeer?.user_verified) && <VerifiedBadge size={15} />}
+                    <UserRoleBadge role={activeHeaderPeer?.user_role} size={15} />
                   </span>
                 )}
                 {showStatus ? (

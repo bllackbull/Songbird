@@ -4,6 +4,8 @@ import { Close } from "../../icons/lucide.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import Avatar from "../common/Avatar.jsx";
+import UserRoleBadge from "../common/UserRoleBadge.jsx";
+import VerifiedBadge from "../common/VerifiedBadge.jsx";
 import { useFocusTrap } from "../../hooks/useFocusTrap.js";
 
 export default function NewChatModal({
@@ -127,11 +129,13 @@ export default function NewChatModal({
                     />
                     <div className="min-w-0">
                       <p
-                        className={`truncate font-semibold ${hasPersian(label) ? "font-fa" : ""}`}
-                        dir="auto"
+                        className="flex items-center gap-0.5 truncate font-semibold"
+                        dir="ltr"
                         title={label}
                       >
-                        {label}
+                        <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
+                        {Boolean(result.verified) && <VerifiedBadge size={12} />}
+                        <UserRoleBadge role={result.role} size={12} />
                       </p>
                       <p
                         className="truncate text-xs text-slate-500 dark:text-slate-400"

@@ -1546,6 +1546,8 @@ function registerChatRoutes(app, deps) {
           nickname: user.nickname || user.username,
           avatarUrl: ensureAvatarExists(user.id, user.avatar_url) || null,
           color: user.color || "#10b981",
+          role: user.role || "user",
+          verified: Boolean(user.verified),
         });
         return;
       }
@@ -1604,6 +1606,7 @@ function registerChatRoutes(app, deps) {
       inviteToken: group.invite_token || "",
       membersCount: Number(group.members_count || 0),
       isMember: Boolean(Number(group.is_member || 0)),
+      verified: Boolean(group.verified),
       type: "group",
     }));
 
@@ -1616,6 +1619,7 @@ function registerChatRoutes(app, deps) {
       inviteToken: channel.invite_token || "",
       membersCount: Number(channel.members_count || 0),
       isMember: Boolean(Number(channel.is_member || 0)),
+      verified: Boolean(channel.verified),
       type: "channel",
     }));
 

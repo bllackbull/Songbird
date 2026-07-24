@@ -258,6 +258,8 @@ function registerMessageRoutes(app, deps) {
               username: message.reply_username || "",
               nickname: message.reply_nickname || "",
               color: message.reply_user_color || null,
+              verified: Boolean(message.reply_user_verified),
+              role: message.reply_user_role || "user",
               avatar_url: ensureAvatarExists(
                 message.reply_user_id || null,
                 message.reply_avatar_url,

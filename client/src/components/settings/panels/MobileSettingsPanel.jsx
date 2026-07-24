@@ -27,6 +27,8 @@ import { DataSettingsPanel } from "./DataSettingsPanel.jsx";
 import { NotificationsSettingsPanel } from "./NotificationsSettingsPanel.jsx";
 import ConfirmPasswordModal from "../../modals/ConfirmPasswordModal.jsx";
 import Avatar from "../../common/Avatar.jsx";
+import VerifiedBadge from "../../common/VerifiedBadge.jsx";
+import UserRoleBadge from "../../common/UserRoleBadge.jsx";
 
 const DETAIL_TITLES = {
   profile: "Edit profile",
@@ -584,14 +586,20 @@ export function MobileSettingsPanel({
                     />
                     <span className="min-w-0 flex-1">
                       <span
-                        className={`block truncate text-sm font-semibold text-emerald-700 dark:text-emerald-200 ${
-                          hasPersian(displayName) ? "font-fa" : ""
-                        }`}
-                        dir="auto"
-                        style={{ unicodeBidi: "plaintext" }}
+                        className={`flex items-center gap-0.5`}
+                        dir="ltr"
                         title={displayName}
                       >
-                        {displayName}
+                        <span
+                          className={`truncate text-sm font-semibold text-emerald-700 dark:text-emerald-200 ${
+                            hasPersian(displayName) ? "font-fa" : ""
+                          }`}
+                          dir="auto"
+                        >
+                          {displayName}
+                        </span>
+                        {Boolean(user.verified) && <VerifiedBadge size={13} />}
+                        <UserRoleBadge role={user.role} size={13} />
                       </span>
                       <span className="mt-1 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                         <span className={statusTextClass}>{statusValue}</span>

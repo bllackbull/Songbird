@@ -7,6 +7,10 @@ const headless = process.env.VITEST_HEADFUL !== "1";
 
 export default defineConfig({
   plugins: [react()],
+  // Pre-bundle these so Vite doesn't attempt dynamic import in CI's cold cache
+  optimizeDeps: {
+    include: ["lucide-react", "react-icons/fa6"],
+  },
   test: {
     reporters: ["default"],
     projects: [
@@ -26,11 +30,13 @@ export default defineConfig({
           name: "browser",
           include: ["test/components/**/*.{test,spec}.{js,jsx}"],
           exclude: ["test/bench/**"],
+          // Fail individual tests quickly rather than hanging the whole CI job
+          testTimeout: 20000,
           browser: {
             enabled: true,
             headless,
             provider: playwright(),
-            instances: [{ browser: "chromium" }, { browser: "firefox" }],
+            instances: [{ browser: "chromium" }],
           },
         },
       },

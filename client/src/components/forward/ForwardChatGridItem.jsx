@@ -2,6 +2,8 @@ import { Check, Bookmark, Megaphone, Users } from "../../icons/lucide.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import Avatar from "../common/Avatar.jsx";
+import VerifiedBadge from "../common/VerifiedBadge.jsx";
+import UserRoleBadge from "../common/UserRoleBadge.jsx";
 
 function ForwardChatGlyph({ kind }) {
   if (kind === "saved") return <Bookmark size={18} className="text-white" />;
@@ -25,6 +27,8 @@ export default function ForwardChatGridItem({
   kind,
   initialsSource,
   showOnlineBadge = false,
+  verified = false,
+  role = null,
   selected,
   onClick,
 }) {
@@ -70,15 +74,19 @@ export default function ForwardChatGridItem({
       </span>
       <span className="flex min-w-0 max-w-full items-center gap-1">
         <ForwardChatKindIcon kind={kind} />
-        <span
-          className={`block min-w-0 max-w-full truncate text-[11px] font-semibold text-slate-700 dark:text-slate-200 ${
-            titleHasPersian ? "font-fa" : ""
-          }`}
-          dir="auto"
-          title={title}
-          style={{ unicodeBidi: "plaintext" }}
-        >
-          {title}
+        <span className="inline-flex min-w-0 items-center gap-0.5">
+          <span
+            className={`block min-w-0 max-w-full truncate text-[11px] font-semibold text-slate-700 dark:text-slate-200 ${
+              titleHasPersian ? "font-fa" : ""
+            }`}
+            dir="auto"
+            title={title}
+            style={{ unicodeBidi: "plaintext" }}
+          >
+            {title}
+          </span>
+          {Boolean(verified) && <VerifiedBadge size={11} />}
+          {kind === "dm" && <UserRoleBadge role={role} size={11} />}
         </span>
       </span>
     </button>
