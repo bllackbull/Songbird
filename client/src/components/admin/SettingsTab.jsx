@@ -534,17 +534,40 @@ const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cac
     );
   };
 
-  // Use cachedData if available, otherwise fetch fresh
-  const fetchSettings = useCallback(async () => {
+  // Keep a stable ref to the latest cachedData/cachedIsLoading so fetchSettings
+  // can read them without those values appearing in its dependency array.
+  // This prevents the callback from being re-created on every background refresh
+  const cachedDataRef = useRef(cachedData);
+  const cachedIsLoadingRef = useRef(cachedIsLoading);
+  useEffect(() => {
+    cachedDataRef.current = cachedData;
+    cachedIsLoadingRef.current = cachedIsLoading;
+  });
+
+  // Apply incoming cachedData to the server-side settings array without
+  // touching localVals — unsaved edits must survive background refreshes.
+  useEffect(() => {
     if (cachedData?.settings) {
       setSettings(cachedData.settings);
-      setLocalVals({});
+      setLoading(false);
+      setError("");
+    }
+  }, [cachedData]);
+
+  // Use cachedData if available, otherwise fetch fresh.
+  // NOTE: cachedData / cachedIsLoading are intentionally read via refs so that
+  // this callback is never re-created when the parent's background refresh
+  // produces a new cachedData object. Re-creating the callback would re-run
+  // the effect below and call setLocalVals({}), wiping unsaved edits.
+  const fetchSettings = useCallback(async () => {
+    if (cachedDataRef.current?.settings) {
+      setSettings(cachedDataRef.current.settings);
+      // Do NOT reset localVals here — the user may have unsaved edits.
       setLoading(false);
       setError("");
       return;
     }
-    // If we're actively loading from cache, show loading state
-    if (cachedIsLoading) {
+    if (cachedIsLoadingRef.current) {
       setLoading(true);
       setError("");
       return;
@@ -554,13 +577,14 @@ const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cac
     try {
       const data = await api.get("/api/admin/settings");
       setSettings(data.settings ?? []);
-      setLocalVals({});
+      // Don't reset localVals on a manual refresh — only save/reset actions
+      // should clear unsaved edits.
     } catch {
       setError("Failed to load settings.");
     } finally {
       setLoading(false);
     }
-  }, [cachedData, cachedIsLoading]);
+  }, []); // stable — no deps that change on background refresh
 
   useEffect(() => {
     fetchSettings();
