@@ -411,10 +411,13 @@ function resolveEnvDefault(def) {
     return readEnvBool(keys.length ? keys : ["__NOSUCHVAR__"], def.defaultVal);
   }
   if (def.type === TYPE_INT) {
-    return readEnvInt(keys.length ? keys : ["__NOSUCHVAR__"], def.defaultVal, {
-      min: def.min,
-      max: def.max,
-    });
+    // Nullable ints use 0 as the "disabled" sentinel value. Passing min/max to
+    // readEnvInt would cause 0 to be treated as out-of-range and silently fall
+    // back to defaultVal, so we skip the min/max constraint for nullable settings.
+    const opts = def.nullable
+      ? {}
+      : { min: def.min, max: def.max };
+    return readEnvInt(keys.length ? keys : ["__NOSUCHVAR__"], def.defaultVal, opts);
   }
   // TYPE_STRING
   for (const k of keys) {
@@ -438,6 +441,8 @@ function coerce(def, raw) {
   if (def.type === TYPE_INT) {
     const n = Math.trunc(Number(s));
     if (!Number.isFinite(n)) return resolveEnvDefault(def);
+    // Nullable ints use 0 as the "disabled" sentinel — skip min/max clamp for 0.
+    if (n === 0 && def.nullable) return 0;
     if (def.min !== undefined && n < def.min) return def.min;
     if (def.max !== undefined && n > def.max) return def.max;
     return n;
