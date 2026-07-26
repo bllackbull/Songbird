@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import {
   Ban,
   Brush,
@@ -66,12 +66,12 @@ const ALL_LOG_SOURCES = [
 
 // ─── Admin audit log ──────────────────────────────────────────────────────────
 
-const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = true }, ref) {
-  const [logs, setLogs]               = useState([]);
-  const [total, setTotal]             = useState(0);
+// `cachedData`  — { logs, total } from the parent cache (may be null on first load)
+// `onFetched`   — parent callback to store fresh data: (page, pageSize, search, data) => void
+// `active`      — whether this tab is visible
+const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = true, cachedData, onFetched }, ref) {
   const [page, setPage]               = useState(1);
   const [pageSize, setPageSize]       = useState(DEFAULT_PAGE_SIZE);
-  const [initialized, setInitialized] = useState(false);
   const [loading, setLoading]         = useState(false);
   const [search, setSearch]           = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -80,6 +80,13 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = tr
   const requestIdRef = useRef(0);
 
   const isOwner = currentUser?.role === "owner";
+
+  // Derive display data from cache. While the first fetch is in-flight,
+  // cachedData is null → show LoadingRows. After that, stale data stays
+  // visible while a background refresh runs (loading=true but data shown).
+  const logs      = cachedData?.logs  ?? null;
+  const total     = cachedData?.total ?? 0;
+  const initialized = logs !== null;
 
   const trimmedSearch = search.trim();
   const fetchPage = useCallback(async (targetPage) => {
@@ -91,16 +98,13 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = tr
     try {
       const data = await api.get(`/api/admin/logs?${params.toString()}`);
       if (requestId !== requestIdRef.current) return;
-      setLogs(data.logs ?? []);
-      setTotal(Number(data.total || 0));
-      setInitialized(true);
+      onFetched?.({ logs: data.logs ?? [], total: Number(data.total || 0) });
     } catch {
-      if (requestId !== requestIdRef.current) return;
-      setInitialized(true);
+      // Leave stale cache intact on error
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
     }
-  }, [trimmedSearch, pageSize]);
+  }, [trimmedSearch, pageSize, onFetched]);
 
   useEffect(() => {
     if (!active) return undefined;
@@ -183,43 +187,54 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = tr
 
 // ─── System log viewer (installer / service / nginx) ─────────────────────────
 
-const SystemLogView = forwardRef(function SystemLogView({ source }, ref) {
-  const [data, setData]               = useState(null);
-  const [initialized, setInitialized] = useState(false);
+// `cachedData`  — { available, lines, reason, source } from parent cache (null = not yet loaded)
+// `onFetched`   — parent callback to store fresh data: (data) => void
+const SystemLogView = forwardRef(function SystemLogView({ source, cachedData, onFetched }, ref) {
   const logContainerRef = useRef(null);
 
   const load = useCallback(async () => {
-    try { const d = await api.get(`/api/admin/logs/${source}`); setData(d); }
-    catch { setData({ available: false, lines: [], reason: "Failed to load." }); }
-    setInitialized(true);
+    try {
+      const d = await api.get(`/api/admin/logs/${source}`);
+      onFetched?.(d);
+    } catch {
+      onFetched?.({ available: false, lines: [], reason: "Failed to load." });
+    }
+  }, [source, onFetched]);
+
+  // Fetch on mount only if we have no cached data yet.
+  useEffect(() => {
+    if (!cachedData) load();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source]);
 
-  useEffect(() => { setInitialized(false); load(); }, [load]);
-
+  // Scroll to bottom whenever fresh lines arrive.
   useEffect(() => {
-    if (data?.lines?.length > 0 && logContainerRef.current) {
+    if (cachedData?.lines?.length > 0 && logContainerRef.current) {
       logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
     }
-  }, [data]);
+  }, [cachedData]);
 
   useImperativeHandle(ref, () => ({ refresh: load }), [load]);
 
+  // Show LoadingRows only on the very first load (no cached data yet).
+  const initialized = cachedData !== null;
+
   return (
     <div className="space-y-3">
-      {!initialized ? <LoadingRows /> : !data?.available ? (
-        <EmptyState message={data?.reason || "Logs not available."} />
-      ) : data.lines.length === 0 ? (
+      {!initialized ? <LoadingRows /> : !cachedData?.available ? (
+        <EmptyState message={cachedData?.reason || "Logs not available."} />
+      ) : cachedData.lines.length === 0 ? (
         <EmptyState message="Log is empty." />
       ) : (
         <div className={"overflow-hidden " + cardCls}>
           <pre ref={logContainerRef} className="app-scroll max-h-[40vh] overflow-auto p-3 text-[10px] leading-relaxed text-slate-600 sm:max-h-[60vh] sm:p-4 sm:text-[11px] dark:text-slate-300">
-            {data.lines.join("\n")}
+            {cachedData.lines.join("\n")}
           </pre>
         </div>
       )}
-      {data?.source && (
+      {cachedData?.source && (
         <p className="text-[11px] text-slate-400 dark:text-slate-500">
-          Source: <code className="rounded-sm bg-slate-100 px-1 py-0.5 dark:bg-white/10">{data.source}</code>
+          Source: <code className="rounded-sm bg-slate-100 px-1 py-0.5 dark:bg-white/10">{cachedData.source}</code>
         </p>
       )}
     </div>
@@ -228,16 +243,42 @@ const SystemLogView = forwardRef(function SystemLogView({ source }, ref) {
 
 // ─── Tab container ────────────────────────────────────────────────────────────
 
+// Module-level store so cache survives tab navigation (same pattern as useAdminCache).
+const _logCache = {};
+
 const LogsTab = forwardRef(function LogsTab({ currentUser, active = true }, ref) {
   const [source, setSource]                 = useState("admin");
   const [availableSources, setAvailableSources] = useState(null); // null = probing
+
+  // Per-source cache: { admin: { logs, total } | null, installer: {...} | null, ... }
+  // null = not yet fetched; populated value = last-known data (shown instantly on revisit).
+  const [sourceCache, setSourceCache] = useState(() => ({
+    admin:     _logCache.admin     ?? null,
+    installer: _logCache.installer ?? null,
+    service:   _logCache.service   ?? null,
+    nginx:     _logCache.nginx     ?? null,
+    sources:   _logCache.sources   ?? null, // sources probe result
+  }));
+
+  // Keep module store in sync so data survives unmount/remount.
+  const persistCache = useCallback((key, data) => {
+    _logCache[key] = data;
+    setSourceCache((prev) => ({ ...prev, [key]: data }));
+  }, []);
+
   const viewRef = useRef(null);
 
   useImperativeHandle(ref, () => ({ refresh: () => viewRef.current?.refresh() }), []);
 
-  // Probe which log sources exist in this deployment on mount.
-  // Hides tabs that will never work (e.g. journalctl/nginx in Docker).
+  // Probe which log sources exist. Uses cached result if available; otherwise
+  // fetches once and caches permanently for the session.
   useEffect(() => {
+    if (sourceCache.sources !== null) {
+      // Restore from cache — re-apply availability and ensure source is valid.
+      const available = sourceCache.sources;
+      if (!available.has(source)) setSource("admin");
+      return;
+    }
     api.get("/api/admin/logs/sources")
       .then((data) => {
         const available = new Set(
@@ -246,16 +287,38 @@ const LogsTab = forwardRef(function LogsTab({ currentUser, active = true }, ref)
             .map(([k]) => k),
         );
         available.add("admin"); // always present
+        persistCache("sources", available);
         setAvailableSources(available);
         if (!available.has(source)) setSource("admin");
       })
       .catch(() => {
-        // On network error fall back to showing all tabs; individual views
-        // will display their own unavailability messages.
-        setAvailableSources(new Set(ALL_LOG_SOURCES.map((s) => s.id)));
+        const fallback = new Set(ALL_LOG_SOURCES.map((s) => s.id));
+        persistCache("sources", fallback);
+        setAvailableSources(fallback);
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Sync availableSources state from cache on mount (when cache already populated).
+  useEffect(() => {
+    if (availableSources === null && sourceCache.sources !== null) {
+      setAvailableSources(sourceCache.sources);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceCache.sources]);
+
+  // Stable callbacks per source so child components don't re-render on unrelated cache updates.
+  const onAdminFetched   = useCallback((d) => persistCache("admin",     d), [persistCache]);
+  const onInstallerFetched = useCallback((d) => persistCache("installer", d), [persistCache]);
+  const onServiceFetched = useCallback((d) => persistCache("service",   d), [persistCache]);
+  const onNginxFetched   = useCallback((d) => persistCache("nginx",     d), [persistCache]);
+
+  const onFetchedBySource = useMemo(() => ({
+    admin:     onAdminFetched,
+    installer: onInstallerFetched,
+    service:   onServiceFetched,
+    nginx:     onNginxFetched,
+  }), [onAdminFetched, onInstallerFetched, onServiceFetched, onNginxFetched]);
 
   // Show all tabs always; disable ones that aren't available in this deployment.
   const visibleSources = ALL_LOG_SOURCES.map((s) => ({
@@ -279,8 +342,20 @@ const LogsTab = forwardRef(function LogsTab({ currentUser, active = true }, ref)
         ))}
       </div>
       {source === "admin"
-        ? <AdminLogView ref={viewRef} currentUser={currentUser} active={active && source === "admin"} />
-        : <SystemLogView ref={viewRef} source={source} key={source} />
+        ? <AdminLogView
+            ref={viewRef}
+            currentUser={currentUser}
+            active={active && source === "admin"}
+            cachedData={sourceCache.admin}
+            onFetched={onAdminFetched}
+          />
+        : <SystemLogView
+            ref={viewRef}
+            source={source}
+            key={source}
+            cachedData={sourceCache[source] ?? null}
+            onFetched={onFetchedBySource[source]}
+          />
       }
     </div>
   );
