@@ -682,6 +682,7 @@ function registerAdminRoutes(app, deps) {
       if (action === "add_chat_members") {
         const chatSelector = String(payload.chatSelector || "").trim();
         const addAllUsers = Boolean(payload.addAllUsers);
+        const force = Boolean(payload.force);
         const rawSelectors = Array.isArray(payload.userSelectors)
           ? payload.userSelectors
           : parseListValue(payload.userSelectors);
@@ -722,26 +723,28 @@ function registerAdminRoutes(app, deps) {
               [Number(chat.id), Number(user.id)],
             );
             if (exists?.member) return;
-            const priorLeft = adminGetRow(
-              `SELECT 1 AS prior_left
-               FROM chat_left_members
-               WHERE chat_id = ? AND user_id = ?
-               UNION
-               SELECT 1 AS prior_left
-               FROM chat_messages
-               WHERE chat_id = ? AND user_id = ? AND body LIKE ?
-               LIMIT 1`,
-              [
-                Number(chat.id),
-                Number(user.id),
-                Number(chat.id),
-                Number(user.id),
-                "[[system:left:%",
-              ],
-            );
-            if (priorLeft?.prior_left) {
-              skippedLeftCount += 1;
-              return;
+            if (!force) {
+              const priorLeft = adminGetRow(
+                `SELECT 1 AS prior_left
+                 FROM chat_left_members
+                 WHERE chat_id = ? AND user_id = ?
+                 UNION
+                 SELECT 1 AS prior_left
+                 FROM chat_messages
+                 WHERE chat_id = ? AND user_id = ? AND body LIKE ?
+                 LIMIT 1`,
+                [
+                  Number(chat.id),
+                  Number(user.id),
+                  Number(chat.id),
+                  Number(user.id),
+                  "[[system:left:%",
+                ],
+              );
+              if (priorLeft?.prior_left) {
+                skippedLeftCount += 1;
+                return;
+              }
             }
             adminRun(
               "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",

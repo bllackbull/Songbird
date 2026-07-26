@@ -294,17 +294,19 @@ npm run db:chat:create -- --type channel --name "My Channel" --owner alice --use
 
 ### `db:chat:add`
 
-Adds members to a group or channel. The first positional argument is the chat selector. Users who previously left are skipped.
+Adds members to a group or channel. The first positional argument is the chat selector. Users who previously left are skipped unless `--force` is given.
 
 | Argument / Flag | Required | Description |
 |---|---|---|
 | `<chat-id-or-username>` | Yes | The target chat. |
 | `<user> [more...]` | Conditional | One or more users to add. Required unless `--all` is given. |
 | `--all` | Conditional | Add every user in the database. |
+| `--force` | No | Re-add users who previously left the chat. |
 
 ```bash
 npm run db:chat:add -- core.team songbird.sage2 songbird.sage3
 npm run db:chat:add -- 1 --all
+npm run db:chat:add -- 1 --all --force
 ```
 
 ### `db:chat:edit`
