@@ -438,6 +438,8 @@ function coerce(def, raw) {
   if (def.type === TYPE_INT) {
     const n = Math.trunc(Number(s));
     if (!Number.isFinite(n)) return resolveEnvDefault(def);
+    // Nullable ints use 0 as the "disabled" sentinel — skip min/max clamp for 0.
+    if (n === 0 && def.nullable) return 0;
     if (def.min !== undefined && n < def.min) return def.min;
     if (def.max !== undefined && n > def.max) return def.max;
     return n;
