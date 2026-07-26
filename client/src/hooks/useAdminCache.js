@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+// Survives component unmount/remount within the same browser session.
+// Keyed by sorted join of fetcher keys so distinct consumers get independent stores.
+const _stores = {};
+function getStore(keys) {
+  const id = [...keys].sort().join(',');
+  if (!_stores[id]) _stores[id] = {};
+  return _stores[id];
+}
+
 /**
  * Lightweight cache for admin panel tab data.
  *
@@ -12,10 +21,32 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * so the next visit to that tab always gets fresh data.
  */
 export function useAdminCache(fetchers, { ttlMs = 10_000 } = {}) {
+  // Stable ref to the module-level store for this hook's key-set.
+  // Captured once on mount so the useState initialiser and future writes
+  // always target the same store object.
+  const storeRef = useRef(getStore(Object.keys(fetchers)));
+
   // cache: { [key]: { data: any, fetchedAt: number, loading: boolean } | null }
-  const [cache, setCache] = useState(() =>
-    Object.fromEntries(Object.keys(fetchers).map((k) => [k, null])),
-  );
+  // Seeds from the module store on remount so cached data survives navigation.
+  // On first visit the store is empty → store[k] ?? null === null (unchanged).
+  const [cache, setCache] = useState(() => {
+    const store = storeRef.current;
+    return Object.fromEntries(
+      Object.keys(fetchers).map((k) => [k, store[k] ?? null])
+    );
+  });
+
+  // Wrapper around setCache that also writes every key back to the module
+  // store so that cached data survives the next unmount/remount cycle.
+  const setAndPersistCache = useCallback((updater) => {
+    setCache((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      // Write each key back to the module store so data survives unmount
+      const store = storeRef.current;
+      Object.keys(next).forEach((k) => { store[k] = next[k]; });
+      return next;
+    });
+  }, []);
 
   // Keep a stable ref to the latest fetchers so the interval callback
   // always calls the current version without going stale.
@@ -29,16 +60,16 @@ export function useAdminCache(fetchers, { ttlMs = 10_000 } = {}) {
     if (loadingRef.current.has(key)) return;
     loadingRef.current.add(key);
     // Mark as loading
-    setCache((prev) => ({
+    setAndPersistCache((prev) => ({
       ...prev,
       [key]: prev[key] ? { ...prev[key], loading: true } : { data: null, fetchedAt: 0, loading: true },
     }));
     try {
       const data = await fetchersRef.current[key]();
-      setCache((prev) => ({ ...prev, [key]: { data, fetchedAt: Date.now(), loading: false } }));
+      setAndPersistCache((prev) => ({ ...prev, [key]: { data, fetchedAt: Date.now(), loading: false } }));
     } catch {
       // Leave stale data in place on error; mark loading as false.
-      setCache((prev) => ({
+      setAndPersistCache((prev) => ({
         ...prev,
         [key]: prev[key] ? { ...prev[key], loading: false } : { data: null, fetchedAt: 0, loading: false },
       }));
@@ -62,8 +93,8 @@ export function useAdminCache(fetchers, { ttlMs = 10_000 } = {}) {
    * Call this after any mutation (create / edit / delete).
    */
   const invalidate = useCallback((key) => {
-    setCache((prev) => ({ ...prev, [key]: null }));
-  }, []);
+    setAndPersistCache((prev) => ({ ...prev, [key]: null }));
+  }, [setAndPersistCache]);
 
   /**
    * Immediately refetch `key` regardless of freshness, and return the result.
