@@ -734,6 +734,10 @@ export default function App() {
           messageFetchLimit: data?.chatMessageFetchLimit,
           messagePageSize: data?.chatMessagePageSize,
           cacheTtlHours: data?.chatCacheTtlHours,
+          fileUploadEnabled: data?.fileUploadEnabled,
+          fileUploadMaxFiles: data?.fileUploadMaxFiles,
+          fileUploadMaxSizeMb: data?.fileUploadMaxSizeMb,
+          fileUploadMaxTotalSizeMb: data?.fileUploadMaxTotalSizeMb,
         })
       })
       .catch(() => {
