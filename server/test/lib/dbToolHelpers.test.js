@@ -166,6 +166,17 @@ describe("resolveUserRow", () => {
     expect(result).toEqual({ username: "alice" });
   });
 
+  test("selects verified state when resolving by username", () => {
+    const db = {
+      getRow: (sql) => {
+        expect(sql).toContain("verified");
+        return { id: 1, username: "alice", verified: 1 };
+      },
+    };
+
+    expect(resolveUserRow(db, "alice")).toMatchObject({ verified: 1 });
+  });
+
   test("returns null when db returns no row", () => {
     expect(resolveUserRow(makeDb(null), "nobody")).toBeNull();
     expect(resolveUserRow(makeDb(undefined), "nobody")).toBeNull();

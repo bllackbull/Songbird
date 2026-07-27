@@ -35,6 +35,7 @@ Users:
   npm run db:user:edit -- songbird.sage --role admin
   npm run db:user:edit -- songbird.sage --role owner
   npm run db:user:edit -- songbird.sage --role user
+  npm run db:user:verify -- songbird.sage
   npm run db:user:ban -- songbird.sage -y
 
 Chats:
@@ -54,6 +55,7 @@ Notes:
   - Delete-all actions use explicit --all.
   - Destructive/safety-sensitive commands support -y and --yes.
   - db:user:ban is a toggle: run it again to unban the user.
+  - db:user:verify is a toggle: run it again to remove the user's verified status.
   - db:user:create/edit accept --role user|admin|owner. Only one user can hold the owner role at a time. The owner cannot be demoted, banned, or deleted via the admin panel.
   - db:backup copies songbird.db to data/backups/ with a timestamp filename.
   - db:restore replaces the live database with a given .db file and restarts the service if running as root.

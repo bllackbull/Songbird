@@ -33,6 +33,7 @@
     "db:file:delete": "node scripts/delete-file.js",
     "db:user:edit": "node scripts/edit-user.js",
     "db:user:ban": "node scripts/ban-user.js",
+    "db:user:verify": "node scripts/verify-user.js",
     "db:user:delete": "node scripts/delete-user.js",
     "db:user:create": "node scripts/create-user.js",
     "db:user:generate": "node scripts/generate-user.js",

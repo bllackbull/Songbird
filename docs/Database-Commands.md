@@ -43,6 +43,7 @@ A few rules apply across all commands:
 | [`npm run db:user:generate`](#dbusergenerate) | Generate random test users. |
 | [`npm run db:user:edit`](#dbuseredit) | Edit a user profile. |
 | [`npm run db:user:ban`](#dbuserban) | Toggle a user's ban state. |
+| [`npm run db:user:verify`](#dbuserverify) | Toggle a user's verified status. |
 | [`npm run db:user:delete`](#dbuserdelete) | Delete one, many, or all users. |
 | [`npm run db:chat:create`](#dbchatcreate) | Create a group or channel (optionally a Remote Channel). |
 | [`npm run db:chat:add`](#dbchatadd) | Add members to a group or channel. |
@@ -246,6 +247,20 @@ Toggles a user's ban state. Running it again unbans. Banning also expires all of
 npm run db:user:ban -- songbird.sage
 # run again to unban:
 npm run db:user:ban -- songbird.sage
+```
+
+### `db:user:verify`
+
+Toggles a user's verified status. Run the command again for the same user to remove verification.
+
+| Argument | Required | Description |
+|---|---|---|
+| `<user-id-or-username>` | Yes | The user to verify or unverify. |
+
+```bash
+npm run db:user:verify -- songbird.sage
+# run again to unverify:
+npm run db:user:verify -- songbird.sage
 ```
 
 ### `db:user:delete`

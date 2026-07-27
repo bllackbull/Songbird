@@ -43,6 +43,7 @@ cd /opt/songbird/server
 | `npm run db:user:generate` | تولید کاربران آزمایشی تصادفی. |
 | `npm run db:user:edit` | ویرایش پروفایل یک کاربر. |
 | `npm run db:user:ban` | تغییر وضعیت مسدودیت یک کاربر. |
+| `npm run db:user:verify` | تغییر وضعیت تأییدشده‌بودن یک کاربر. |
 | `npm run db:user:delete` | حذف یک، چند یا همه کاربران. |
 | `npm run db:chat:create` | ایجاد یک گروه یا کانال (به‌صورت اختیاری یک کانال ریموت). |
 | `npm run db:chat:add` | افزودن اعضا به یک گروه یا کانال. |
@@ -244,6 +245,20 @@ npm run db:user:edit -- 1 --username songbird.admin --status invisible
 npm run db:user:ban -- songbird.sage
 # run again to unban:
 npm run db:user:ban -- songbird.sage
+```
+
+### `db:user:verify`
+
+وضعیت تأییدشده‌بودن یک کاربر را تغییر می‌دهد. اجرای دوباره دستور برای همان کاربر، تأیید را حذف می‌کند.
+
+| آرگومان | موردنیاز | توضیح |
+|---|---|---|
+| `<user-id-or-username>` | بله | کاربری که باید تأیید یا لغو تأیید شود. |
+
+```bash
+npm run db:user:verify -- songbird.sage
+# اجرای دوباره برای لغو تأیید:
+npm run db:user:verify -- songbird.sage
 ```
 
 ### `db:user:delete`

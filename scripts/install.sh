@@ -3538,14 +3538,17 @@ User and chat management:
   13    Ban/unban user
         Prompts: user selector, confirmation
         Passes: -y selector
-  14    Create group/channel
+  14    Verify/unverify user
+        Prompts: user selector, confirmation
+        Passes: selector
+  15    Create group/channel
         Prompts: type, name, username, visibility, owner, optional members
         For channels: optional remote channel configuration (Telegram source, sync metadata, stream media)
         Passes: --type --name --owner --username --visibility --users [--remote-channel --sync-metadata --stream-media]
-  15    Add members to chat
+  16    Add members to chat
         Prompts: chat selector, all-users yes/no, or user selectors
         Passes: chat selector plus --all or user selectors
-  16    Edit chat
+  17    Edit chat
         Prompts: chat selector and optional profile/settings fields
         For channels with remote channel: menu with 9 actions (update source, toggle settings, enable/disable, pause/resume queue, skip queue items)
         Passes: selector plus any changed --name/--username/--visibility/--color/--owner/invite flag
@@ -3553,24 +3556,25 @@ User and chat management:
         Or: --enable-remote/--disable-remote --pause-queue/--resume-queue --skip-queue/--skip-all-queue
 
 Remote channel configuration:
-  17    Configure Remote Channel
+  18    Configure Remote Channel
         Prompts: Telegram API ID/hash, proxy URL, phone number, optional 2FA password
         Passes: --api-id --api-hash --proxy-url/--no-proxy --phone-number [--password]
 
 Destructive actions:
-  18    Delete chats
+  19    Delete chats
         Prompts: chat ids/usernames or "all"
         Passes: -y selectors or --all -y
-  19    Delete users
+  20    Delete users
         Prompts: user ids/usernames or "all"
         Passes: -y selectors or --all -y
-  20    Delete files
+  21    Delete files
         Prompts: file ids/stored names or "all"
         Passes: -y selectors or --all -y
 
 Notes:
   - "all" is explicit for chat/user/file delete actions.
   - "Ban/unban user" is a toggle and expires that user's sessions.
+  - "Verify/unverify user" is a toggle: run it again to remove verification.
   - Public chats always allow member invites. Invite settings only apply to private chats.
   - Backups are plain .db copies saved to data/backups/ with a timestamp filename.
   - Restore replaces the live database with the selected .db file.
@@ -4160,6 +4164,18 @@ db_restore_backup() {
   press_enter_to_continue
 }
 
+db_user_verify() {
+  local user=""
+  user="$(prompt_non_empty "User id or username")"
+  if [[ "$(prompt_yes_no "Toggle verification state for ${user} ?" "no")" != "yes" ]]; then
+    log "Verify/unverify canceled."
+    press_enter_to_continue
+    return 0
+  fi
+  run_db_command npm --prefix server run db:user:verify -- "$user"
+  press_enter_to_continue
+}
+
 show_db_menu() {
   while true; do
     clear
@@ -4176,41 +4192,42 @@ show_db_menu() {
     printf "│                                             │\n"
     printf "├──── Backup & Repair ────────────────────────┤\n"
     printf "│                                             │\n"
-    printf "│  5) 📤  Backup database                     │\n"
-    printf "│  6) ♻️  Restore backup                       │\n"
-    printf "│  7) 🧹  Vacuum database                     │\n"
-    printf "│  8) 🔄️  Reset database                      │\n"
-    printf "│  9) 🗑️  Delete database                      │\n"
+    printf "│  5) 📤  Backup database                      │\n"
+    printf "│  6) ♻️  Restore backup                        │\n"
+    printf "│  7) 🧹  Vacuum database                      │\n"
+    printf "│  8) 🔄️  Reset database                       │\n"
+    printf "│  9) 🗑️  Delete database                       │\n"
     printf "│                                             │\n"
     printf "├──── User & Chat Management ─────────────────┤\n"
     printf "│                                             │\n"
-    printf "│  10) 👤  Create user                        │\n"
-    printf "│  11) 👥  Generate users (bulk)              │\n"
-    printf "│  12) ✏️  Edit user                           │\n"
-    printf "│  13) 🚫  Ban/unban user                     │\n"
-    printf "│  14) 💬  Create group/channel               │\n"
-    printf "│  15) ➕  Add members to chat                │\n"
-    printf "│  16) ✏️  Edit chat                           │\n"
+    printf "│  10) 👤  Create user                         │\n"
+    printf "│  11) 👥  Generate users (bulk)               │\n"
+    printf "│  12) ✏️  Edit user                            │\n"
+    printf "│  13) 🚫  Ban/unban user                      │\n"
+    printf "│  14) ✅  Verify/unverify user                │\n"
+    printf "│  15) 💬  Create group/channel                │\n"
+    printf "│  16) ➕  Add members to chat                 │\n"
+    printf "│  17) ✏️  Edit chat                            │\n"
     printf "│                                             │\n"
     printf "├──── Remote Channels ────────────────────────┤\n"
     printf "│                                             │\n"
-    printf "│  17) 📡  Configure Remote Channel           │\n"
+    printf "│  18) 📡  Configure Remote Channel            │\n"
     printf "│                                             │\n"
     printf "├──── Destructive Actions ────────────────────┤\n"
     printf "│                                             │\n"
-    printf "│  18) 🗑️  Delete chats                        │\n"
-    printf "│  19) 🗑️  Delete users                        │\n"
-    printf "│  20) 🗑️  Delete files                        │\n"
+    printf "│  19) 🗑️  Delete chats                         │\n"
+    printf "│  20) 🗑️  Delete users                         │\n"
+    printf "│  21) 🗑️  Delete files                         │\n"
     printf "│                                             │\n"
     printf "├──── Help & Navigation ──────────────────────┤\n"
     printf "│                                             │\n"
-    printf "│  21) ❔  Show help                          │\n"
-    printf "│  22) ↩️  Go back                             │\n"
-    printf "│  0) 🚪  Exit                                │\n"
+    printf "│  22) ❔  Show help                            │\n"
+    printf "│  23) ↩️  Go back                              │\n"
+    printf "│  0) 🚪  Exit                                 │\n"
     printf "│                                             │\n"
     printf "└─────────────────────────────────────────────┘\n\n"
 
-    prompt_read "Choose an option [0-22]: " choice
+    prompt_read "Choose an option [0-23]: " choice
     case "$choice" in
       1) db_inspect "all" ;;
       2) db_inspect "chat" ;;
@@ -4225,17 +4242,18 @@ show_db_menu() {
       11) db_user_generate ;;
       12) db_user_edit ;;
       13) db_user_ban ;;
-      14) db_chat_create ;;
-      15) db_chat_add ;;
-      16) db_chat_edit ;;
-      17) db_remote_configure ;;
-      18) db_chat_delete ;;
-      19) db_user_delete ;;
-      20) db_file_delete ;;
-      21) db_help ;;
-      22) return ;;
+      14) db_user_verify ;;
+      15) db_chat_create ;;
+      16) db_chat_add ;;
+      17) db_chat_edit ;;
+      18) db_remote_configure ;;
+      19) db_chat_delete ;;
+      20) db_user_delete ;;
+      21) db_file_delete ;;
+      22) db_help ;;
+      23) return ;;
       0) exit 0 ;;
-      *) printf "Invalid choice. Select a number from 0 to 22.\n" ;;
+      *) printf "Invalid choice. Select a number from 0 to 23.\n" ;;
     esac
   done
 }

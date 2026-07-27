@@ -1020,6 +1020,33 @@ function registerAdminRoutes(app, deps) {
         });
       }
 
+      if (action === "toggle_user_verified") {
+        const userSelector = String(payload.userSelector || "").trim();
+        const user = resolveUserRow(
+          { getRow: adminGetRow, getAll: adminGetAll },
+          userSelector,
+        );
+        if (!user?.id) {
+          return res.status(404).json({ error: "User not found." });
+        }
+
+        const nextVerified = Number(user.verified || 0) ? 0 : 1;
+        adminRun("UPDATE users SET verified = ? WHERE id = ?", [
+          nextVerified,
+          Number(user.id),
+        ]);
+        adminSave();
+
+        return res.json({
+          ok: true,
+          result: {
+            id: Number(user.id),
+            username: user.username,
+            verified: Boolean(nextVerified),
+          },
+        });
+      }
+
       if (action === "toggle_user_ban") {
         const userSelector = String(payload.userSelector || "").trim();
         const user = resolveUserRow(

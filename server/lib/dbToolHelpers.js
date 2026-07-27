@@ -53,14 +53,14 @@ export function resolveUserRow(dbApi, selector) {
   if (Number.isFinite(numeric) && numeric > 0) {
     return (
       dbApi.getRow(
-        "SELECT id, username, nickname, avatar_url, color, status, banned FROM users WHERE id = ?",
+        "SELECT id, username, nickname, avatar_url, color, status, banned, verified FROM users WHERE id = ?",
         [Math.trunc(numeric)],
       ) || null
     );
   }
   return (
     dbApi.getRow(
-      "SELECT id, username, nickname, avatar_url, color, status, banned FROM users WHERE username = ?",
+      "SELECT id, username, nickname, avatar_url, color, status, banned, verified FROM users WHERE username = ?",
       [raw.toLowerCase()],
     ) || null
   );
