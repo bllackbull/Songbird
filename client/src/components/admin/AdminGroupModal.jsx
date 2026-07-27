@@ -6,6 +6,7 @@ import { api, inputCls } from "./adminShared.js";
 import Avatar from "../common/Avatar.jsx";
 import UserRoleBadge from "../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../common/VerifiedBadge.jsx";
+import { getRandomAvatarColor } from "../../utils/avatarColor.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 
 const NewGroupModal = lazy(() => import("../modals/NewGroupModal.jsx"));
@@ -16,7 +17,7 @@ const MAX_RESULTS = 6;
 const emptyFormFor = (type) => ({
   nickname: "",
   username: "",
-  groupColor: "#10b981",
+  groupColor: getRandomAvatarColor(),
   visibility: "public",
   allowMemberInvites: true,
   // Remote-channel fields are unused in the admin flow but kept for shape parity.

@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Close, Eye, EyeOff, Pencil, Trash } from "../../icons/lucide.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
+import { getRandomAvatarColor } from "../../utils/avatarColor.js";
 import { USERNAME_INPUT_PATTERN, useNameLimits } from "../../utils/nameLimits.js";
 import { apiFetch } from "../../api/chatApi.js";
 import { CHAT_PAGE_CONFIG } from "../../settings/chatPageConfig.js";
@@ -48,7 +49,7 @@ export default function AdminUserModal({ mode = "edit", user = null, onClose, on
   // Profile fields
   const [nick, setNick]             = useState(user?.nickname || "");
   const [uname, setUname]           = useState(user?.username || "");
-  const [color, setColor]           = useState(user?.color || "#10b981");
+  const [color, setColor]           = useState(creating ? getRandomAvatarColor() : (user?.color || "#10b981"));
   const [verified, setVerified]     = useState(Boolean(user?.verified));
   const [profileErr, setProfileErr] = useState("");
   const [profileBusy, setProfileBusy] = useState(false);
