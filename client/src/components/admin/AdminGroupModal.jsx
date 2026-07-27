@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, lazy, Suspense } from "react";
-import { Close } from "../../icons/lucide.js";
+import { Check, Close, Refresh } from "../../icons/lucide.js";
 import { searchUsers, apiFetch } from "../../api/chatApi.js";
 import { CHAT_PAGE_CONFIG } from "../../settings/chatPageConfig.js";
 import { api, inputCls } from "./adminShared.js";
@@ -183,9 +183,21 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
   const [avatarPreview, setAvatarPreview] = useState(editing ? (chat?.group_avatar_url || "") : "");
   const [pendingAvatarFile, setPendingAvatarFile] = useState(null);
   const [avatarRemoved, setAvatarRemoved] = useState(false);
+  const [colorRefreshState, setColorRefreshState] = useState("");
   const objectUrlRef = useRef(null);
+  const colorRefreshResetRef = useRef(null);
 
-  useEffect(() => () => { if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current); }, []);
+  useEffect(() => () => {
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+    if (colorRefreshResetRef.current) clearTimeout(colorRefreshResetRef.current);
+  }, []);
+
+  const handleColorRefresh = useCallback(() => {
+    if (colorRefreshResetRef.current) clearTimeout(colorRefreshResetRef.current);
+    setForm((currentForm) => ({ ...currentForm, groupColor: getRandomAvatarColor() }));
+    setColorRefreshState("done");
+    colorRefreshResetRef.current = setTimeout(() => setColorRefreshState(""), 1500);
+  }, []);
 
   const uploadAvatarTo = useCallback(async (chatId, file) => {
     const fd = new FormData();
@@ -300,7 +312,21 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
       <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
         <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Color</p>
         <div className="mt-2 flex items-center gap-2">
-          <input className={inputCls + " flex-1"} value={form.groupColor} onChange={(e) => setForm((f) => ({ ...f, groupColor: e.target.value }))} placeholder="#10b981" />
+          <div className="relative flex-1">
+            <input className={inputCls + " w-full pr-12"} value={form.groupColor} onChange={(e) => setForm((f) => ({ ...f, groupColor: e.target.value }))} placeholder="#10b981" />
+            <button
+              type="button"
+              onClick={handleColorRefresh}
+              disabled={colorRefreshState === "done"}
+              className="absolute right-1 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-2xl border border-transparent text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-700 disabled:cursor-default disabled:text-emerald-600 dark:text-slate-400 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300 dark:disabled:text-emerald-400"
+              aria-label="Choose a random color"
+              title="Choose a random color"
+            >
+              {colorRefreshState === "done"
+                ? <Check size={16} className="text-emerald-600 dark:text-emerald-400" />
+                : <Refresh size={16} className="icon-anim-spin-full" />}
+            </button>
+          </div>
           <input type="color" value={form.groupColor || "#10b981"} onChange={(e) => setForm((f) => ({ ...f, groupColor: e.target.value }))}
             className="color-swatch h-11 w-11 shrink-0 cursor-pointer overflow-hidden rounded-xl border border-emerald-200/70 dark:border-emerald-500/30" />
         </div>
