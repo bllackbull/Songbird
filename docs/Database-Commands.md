@@ -48,6 +48,7 @@ A few rules apply across all commands:
 | [`npm run db:chat:create`](#dbchatcreate) | Create a group or channel (optionally a Remote Channel). |
 | [`npm run db:chat:add`](#dbchatadd) | Add members to a group or channel. |
 | [`npm run db:chat:edit`](#dbchatedit) | Edit a chat profile, ownership, or Remote Channel config. |
+| [`npm run db:chat:verify`](#dbchatverify) | Toggle a chat's verified status. |
 | [`npm run db:chat:delete`](#dbchatdelete) | Delete one, many, or all chats. |
 | [`npm run db:file:delete`](#dbfiledelete) | Delete uploaded message files and/or avatars. |
 | [`npm run db:message:generate`](#dbmessagegenerate) | Generate random messages between two users. |
@@ -366,6 +367,20 @@ npm run db:chat:edit -- my_channel --no-stream-media
 npm run db:chat:edit -- my_channel --enable-remote
 npm run db:chat:edit -- my_channel --pause-queue
 npm run db:chat:edit -- my_channel --skip-all-queue
+```
+
+### `db:chat:verify`
+
+Toggles a group or channel's verified status. Run the command again for the same chat to remove verification.
+
+| Argument | Required | Description |
+|---|---|---|
+| `<chat-id-or-username>` | Yes | The group or channel to verify or unverify. |
+
+```bash
+npm run db:chat:verify -- core.team
+# run again to unverify:
+npm run db:chat:verify -- core.team
 ```
 
 ### `db:chat:delete`

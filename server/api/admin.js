@@ -1020,6 +1020,38 @@ function registerAdminRoutes(app, deps) {
         });
       }
 
+      if (action === "toggle_chat_verified") {
+        const chatSelector = String(payload.chatSelector || "").trim();
+        const chat = resolveChatRow(
+          { getRow: adminGetRow, getAll: adminGetAll },
+          chatSelector,
+        );
+        if (!chat?.id) {
+          return res.status(404).json({ error: "Chat not found." });
+        }
+
+        const nextVerified = Number(chat.verified || 0) ? 0 : 1;
+        adminRun("UPDATE chats SET verified = ? WHERE id = ?", [
+          nextVerified,
+          Number(chat.id),
+        ]);
+        adminSave();
+        emitChatEvent(Number(chat.id), {
+          type: "chat_updated",
+          chatId: Number(chat.id),
+        });
+
+        return res.json({
+          ok: true,
+          result: {
+            id: Number(chat.id),
+            name: chat.name || "",
+            groupUsername: chat.group_username || null,
+            verified: Boolean(nextVerified),
+          },
+        });
+      }
+
       if (action === "toggle_user_verified") {
         const userSelector = String(payload.userSelector || "").trim();
         const user = resolveUserRow(

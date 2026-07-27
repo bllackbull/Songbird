@@ -44,6 +44,7 @@ Chats:
   npm run db:chat:add -- core.team bob charlie
   npm run db:chat:edit -- core.team --name "Core Team HQ" --owner songbird.sage2
   npm run db:chat:edit -- core.team --visibility private --disallow-member-invites
+  npm run db:chat:verify -- core.team
 
 Messages:
   npm run db:message:generate -- 1 songbird.sage songbird.sage2 300 7
@@ -56,6 +57,7 @@ Notes:
   - Destructive/safety-sensitive commands support -y and --yes.
   - db:user:ban is a toggle: run it again to unban the user.
   - db:user:verify is a toggle: run it again to remove the user's verified status.
+  - db:chat:verify is a toggle: run it again to remove the chat's verified status.
   - db:user:create/edit accept --role user|admin|owner. Only one user can hold the owner role at a time. The owner cannot be demoted, banned, or deleted via the admin panel.
   - db:backup copies songbird.db to data/backups/ with a timestamp filename.
   - db:restore replaces the live database with a given .db file and restarts the service if running as root.

@@ -29,6 +29,7 @@
     "db:chat:create": "node scripts/create-chat.js",
     "db:chat:add": "node scripts/add-chat-member.js",
     "db:chat:edit": "node scripts/edit-chat.js",
+    "db:chat:verify": "node scripts/verify-chat.js",
     "db:chat:delete": "node scripts/delete-chat.js",
     "db:file:delete": "node scripts/delete-file.js",
     "db:user:edit": "node scripts/edit-user.js",

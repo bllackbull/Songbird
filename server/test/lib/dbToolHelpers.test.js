@@ -206,6 +206,17 @@ describe("resolveChatRow", () => {
     expect(result.group_username).toBe("my_group");
   });
 
+  test("selects verified state when resolving by chat username", () => {
+    const db = {
+      getRow: (sql) => {
+        expect(sql).toContain("verified");
+        return { id: 1, group_username: "my_group", verified: 1 };
+      },
+    };
+
+    expect(resolveChatRow(db, "my_group")).toMatchObject({ verified: 1 });
+  });
+
   test("returns null when db returns no row", () => {
     expect(resolveChatRow(makeDb(null), "nosuchchat")).toBeNull();
   });

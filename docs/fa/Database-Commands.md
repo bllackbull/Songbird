@@ -48,6 +48,7 @@ cd /opt/songbird/server
 | `npm run db:chat:create` | ایجاد یک گروه یا کانال (به‌صورت اختیاری یک کانال ریموت). |
 | `npm run db:chat:add` | افزودن اعضا به یک گروه یا کانال. |
 | `npm run db:chat:edit` | ویرایش پروفایل چت، مالکیت، یا پیکربندی کانال ریموت. |
+| `npm run db:chat:verify` | تغییر وضعیت تأییدشده‌بودن یک چت. |
 | `npm run db:chat:delete` | حذف یک، چند یا همه چت‌ها. |
 | `npm run db:file:delete` | حذف فایل‌های پیام آپلودشده و/یا آواتارها. |
 | `npm run db:message:generate` | تولید پیام‌های تصادفی بین دو کاربر. |
@@ -364,6 +365,20 @@ npm run db:chat:edit -- my_channel --no-stream-media
 npm run db:chat:edit -- my_channel --enable-remote
 npm run db:chat:edit -- my_channel --pause-queue
 npm run db:chat:edit -- my_channel --skip-all-queue
+```
+
+### `db:chat:verify`
+
+وضعیت تأییدشده‌بودن یک گروه یا کانال را تغییر می‌دهد. اجرای دوباره دستور برای همان چت، تأیید را حذف می‌کند.
+
+| آرگومان | موردنیاز | توضیح |
+|---|---|---|
+| `<chat-id-or-username>` | بله | گروه یا کانالی که باید تأیید یا لغو تأیید شود. |
+
+```bash
+npm run db:chat:verify -- core.team
+# اجرای دوباره برای لغو تأیید:
+npm run db:chat:verify -- core.team
 ```
 
 ### `db:chat:delete`
