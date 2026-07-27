@@ -50,6 +50,7 @@ export function TabToolbar({ children }) {
 // Shared search field used by UsersTab, ChatsTab, and LogsTab.
 export function TabSearchInput({ value, onChange, placeholder = "Search…" }) {
   const isPersian = hasPersian(value);
+  const hasSearchText = Boolean(String(value || "").trim());
   return (
     <label className="group relative block min-w-0 flex-1 sm:min-w-40">
       <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
@@ -62,9 +63,20 @@ export function TabSearchInput({ value, onChange, placeholder = "Search…" }) {
         onChange={(e) => onChange(e.target.value)}
         lang={isPersian ? "fa" : "en"}
         dir={isPersian ? "rtl" : "ltr"}
-        className={inputSmCls + " pl-8" + (isPersian ? " font-fa text-right" : "")}
+        className={inputSmCls + " pl-8 pr-10" + (isPersian ? " font-fa text-right" : "")}
         style={{ unicodeBidi: "plaintext" }}
       />
+      {hasSearchText ? (
+        <button
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => onChange("")}
+          className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-rose-600 transition hover:bg-rose-100 hover:shadow-[0_0_18px_rgba(244,63,94,0.22)] dark:text-rose-200 dark:hover:bg-rose-500/10"
+          aria-label="Clear search"
+        >
+          <Close size={14} className="icon-anim-pop" />
+        </button>
+      ) : null}
     </label>
   );
 }

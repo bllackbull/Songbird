@@ -95,8 +95,8 @@ function OwnerPicker({ value, onChange }) {
           style={{ unicodeBidi: "plaintext" }}
         />
         {query.trim() ? (
-          <button type="button" onClick={() => setQuery("")}
-            className="absolute right-1 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-rose-600 transition hover:bg-rose-100 dark:text-rose-200 dark:hover:bg-rose-500/10"
+          <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => setQuery("")}
+            className="absolute right-1 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-rose-600 transition hover:bg-rose-100 hover:shadow-[0_0_18px_rgba(244,63,94,0.22)] dark:text-rose-200 dark:hover:bg-rose-500/10"
             aria-label="Clear search">
             <Close size={16} className="icon-anim-pop" />
           </button>
