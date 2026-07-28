@@ -2795,6 +2795,7 @@ export function adminListChats({ limit = 200, offset = 0, search = "", sortBy = 
             (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) AS message_count,
             owner.id AS owner_id, owner.username AS owner_username, owner.nickname AS owner_nickname,
             owner.avatar_url AS owner_avatar_url, owner.color AS owner_color,
+            owner.verified AS owner_verified, owner.role AS owner_role,
             COUNT(*) OVER() AS _total
      FROM chats c
      LEFT JOIN users owner ON owner.id = (

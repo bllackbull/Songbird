@@ -163,6 +163,8 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
         nickname: chat.owner_nickname,
         avatar_url: chat.owner_avatar_url,
         color: chat.owner_color,
+        verified: Boolean(chat.owner_verified),
+        role: chat.owner_role,
       };
     }
     return null;
