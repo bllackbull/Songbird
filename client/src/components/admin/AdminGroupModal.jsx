@@ -66,8 +66,8 @@ function OwnerPicker({ value, onChange }) {
         <div className="min-w-0 flex-1">
           <p className="flex items-center gap-0.5 truncate text-sm font-semibold text-slate-700 dark:text-slate-200" dir="ltr" title={label}>
             <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
-            {Boolean(value.verified) && <VerifiedBadge size={12} />}
-            <UserRoleBadge role={value.role} size={12} />
+            {Boolean(value.verified) && <VerifiedBadge size={14} />}
+            <UserRoleBadge role={value.role} size={14} />
           </p>
           <p className="truncate text-xs text-slate-500 dark:text-slate-400" dir="auto">@{value.username}</p>
         </div>
@@ -116,8 +116,8 @@ function OwnerPicker({ value, onChange }) {
                   <div className="min-w-0">
                     <p className={`flex items-center gap-0.5 truncate font-semibold ${hasPersian(label) ? "font-fa" : ""}`} dir="ltr" title={label}>
                       <span className="truncate" dir="auto">{label}</span>
-                      {Boolean(u.verified) && <VerifiedBadge size={12} />}
-                      <UserRoleBadge role={u.role} size={12} />
+                      {Boolean(u.verified) && <VerifiedBadge size={14} />}
+                      <UserRoleBadge role={u.role} size={14} />
                     </p>
                     <p className="truncate text-xs text-slate-500 dark:text-slate-400" dir="auto">@{u.username}</p>
                   </div>

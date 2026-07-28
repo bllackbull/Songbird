@@ -1245,9 +1245,9 @@ export default function ChatWindowPanel({
                     >
                       {activeFallbackTitle}
                     </span>
-                    {Boolean(activeChat?.verified) && <VerifiedBadge size={15} />}
-                    {!activeChat?.verified && Boolean(activeHeaderPeer?.user_verified) && <VerifiedBadge size={15} />}
-                    <UserRoleBadge role={activeHeaderPeer?.user_role} size={15} />
+                    {Boolean(activeChat?.verified) && <VerifiedBadge size={17} />}
+                    {!activeChat?.verified && Boolean(activeHeaderPeer?.user_verified) && <VerifiedBadge size={17} />}
+                    <UserRoleBadge role={activeHeaderPeer?.user_role} size={17} />
                   </button>
                 ) : (
                   <span
@@ -1256,9 +1256,9 @@ export default function ChatWindowPanel({
                     title={activeFallbackTitle}
                   >
                     <span className={`truncate ${hasPersian(activeFallbackTitle) ? "font-fa" : ""}`} dir="auto">{activeFallbackTitle}</span>
-                    {Boolean(activeChat?.verified) && <VerifiedBadge size={15} />}
-                    {!activeChat?.verified && Boolean(activeHeaderPeer?.user_verified) && <VerifiedBadge size={15} />}
-                    <UserRoleBadge role={activeHeaderPeer?.user_role} size={15} />
+                    {Boolean(activeChat?.verified) && <VerifiedBadge size={17} />}
+                    {!activeChat?.verified && Boolean(activeHeaderPeer?.user_verified) && <VerifiedBadge size={17} />}
+                    <UserRoleBadge role={activeHeaderPeer?.user_role} size={17} />
                   </span>
                 )}
                 {showStatus ? (

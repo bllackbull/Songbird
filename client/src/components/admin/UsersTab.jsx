@@ -145,8 +145,8 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
                           <div className="flex items-center gap-1.5">
                             <p className="flex items-center gap-0.5 truncate text-sm font-semibold text-slate-700 dark:text-slate-200" dir="ltr">
                               <span className={`truncate ${nameHasPersian ? "font-fa" : ""}`} dir="auto">{displayName}</span>
-                              {Boolean(u.verified) && <VerifiedBadge size={12} />}
-                              <UserRoleBadge role={u.role} size={12} />
+                              {Boolean(u.verified) && <VerifiedBadge size={14} />}
+                              <UserRoleBadge role={u.role} size={14} />
                             </p>
                             {(u.banned || u.role === "admin" || u.role === "owner") && <RoleBadge role={u.role} banned={u.banned} />}
                           </div>
@@ -240,8 +240,8 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
                             <div className="min-w-0">
                               <p className="flex items-center gap-0.5 truncate text-xs font-semibold text-slate-700 dark:text-slate-200" dir="ltr">
                                 <span className={`truncate ${nameHasPersian ? "font-fa" : ""}`} dir="auto">{displayName}</span>
-                                {Boolean(u.verified) && <VerifiedBadge size={12} />}
-                                <UserRoleBadge role={u.role} size={12} />
+                                {Boolean(u.verified) && <VerifiedBadge size={14} />}
+                                <UserRoleBadge role={u.role} size={14} />
                               </p>
                               <p className="text-[11px] text-slate-400 dark:text-slate-500">@{u.username}</p>
                             </div>

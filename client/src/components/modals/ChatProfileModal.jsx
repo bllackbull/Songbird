@@ -399,9 +399,9 @@ export default function ChatProfileModal({
             {!isSaved && (
               <>
                 {/* User verified (shown first) */}
-                {!isGroup && !isChannel && Boolean(targetUser?.verified ?? targetUser?.user_verified) && <VerifiedBadge size={16} />}
+                {!isGroup && !isChannel && Boolean(targetUser?.verified ?? targetUser?.user_verified) && <VerifiedBadge size={18} />}
                 {/* Chat verified */}
-                {(isGroup || isChannel) && Boolean(chat?.verified) && <VerifiedBadge size={16} />}
+                {(isGroup || isChannel) && Boolean(chat?.verified) && <VerifiedBadge size={18} />}
               </>
             )}
             {!isGroup && !isChannel && !isSaved && (
@@ -412,7 +412,7 @@ export default function ChatProfileModal({
                     ? targetUser?.role
                     : null)
                 }
-                size={16}
+                size={18}
               />
             )}
           </p>
@@ -672,8 +672,8 @@ export default function ChatProfileModal({
                           title={label}
                         >
                           <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
-                          {Boolean(member.user_verified) && <VerifiedBadge size={12} />}
-                          <UserRoleBadge role={member.user_role} size={12} />
+                          {Boolean(member.user_verified) && <VerifiedBadge size={14} />}
+                          <UserRoleBadge role={member.user_role} size={14} />
                         </p>
                         <p
                           className={`truncate text-xs ${

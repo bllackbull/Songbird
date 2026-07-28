@@ -769,14 +769,14 @@ export const MessageItem = memo(function MessageItem({
             </span>
             {/* Verified badge: shown for forwarded users and verified forwarded chats */}
             {!isDeletedForwardedUser && forwardedFromUserId > 0 && Boolean(forwardedUser?.verified) && (
-              <VerifiedBadge size={11} />
+              <VerifiedBadge size={13} />
             )}
             {!isDeletedForwardedChat && forwardedFromChatId > 0 && Boolean(forwardedChat?.verified) && (
-              <VerifiedBadge size={11} />
+              <VerifiedBadge size={13} />
             )}
             {/* Role badge: only for forwarded users, not chats */}
             {!isDeletedForwardedUser && forwardedFromUserId > 0 && (
-              <UserRoleBadge role={forwardedUser?.role} size={11} />
+              <UserRoleBadge role={forwardedUser?.role} size={13} />
             )}
           </span>
         </button>
@@ -1118,10 +1118,10 @@ export const MessageItem = memo(function MessageItem({
                 >
                   <span className={`truncate ${hasPersian(senderName) ? "font-fa" : ""}`} dir="auto">{senderName}</span>
                   {!isDeletedAuthor && Boolean(msg.user_verified) && (
-                    <VerifiedBadge size={12} />
+                    <VerifiedBadge size={14} />
                   )}
                   {!isDeletedAuthor && (
-                    <UserRoleBadge role={msg.user_role} size={12} />
+                    <UserRoleBadge role={msg.user_role} size={14} />
                   )}
                 </ContextMenuSurface>
                 {renderForwardedHeader()}
@@ -1148,10 +1148,10 @@ export const MessageItem = memo(function MessageItem({
                         {replyDisplayName}
                         </span>
                         {Boolean(replyTarget?.verified) && (
-                          <VerifiedBadge size={10} />
+                          <VerifiedBadge size={12} />
                         )}
                         {!isChannelChat && (
-                          <UserRoleBadge role={replyTarget?.role} size={10} />
+                          <UserRoleBadge role={replyTarget?.role} size={12} />
                         )}
                       </span>
                       <span
@@ -1262,10 +1262,10 @@ export const MessageItem = memo(function MessageItem({
                 >
                   <span className={`truncate ${hasPersian(senderName) ? "font-fa" : ""}`} dir="auto" style={{ unicodeBidi: "isolate" }}>{senderName}</span>
                   {!isDeletedAuthor && Boolean(msg.user_verified) && (
-                    <VerifiedBadge size={12} />
+                    <VerifiedBadge size={14} />
                   )}
                   {!isDeletedAuthor && (
-                    <UserRoleBadge role={msg.user_role} size={12} />
+                    <UserRoleBadge role={msg.user_role} size={14} />
                   )}
                 </p>
               ) : null}
@@ -1293,10 +1293,10 @@ export const MessageItem = memo(function MessageItem({
                         {replyDisplayName}
                       </span>
                       {Boolean(replyTarget?.verified) && (
-                        <VerifiedBadge size={10} />
+                        <VerifiedBadge size={12} />
                       )}
                       {!isChannelChat && (
-                        <UserRoleBadge role={replyTarget?.role} size={10} />
+                        <UserRoleBadge role={replyTarget?.role} size={12} />
                       )}
                     </span>
                     <span

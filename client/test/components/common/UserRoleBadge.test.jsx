@@ -17,6 +17,13 @@ describe("UserRoleBadge", () => {
       await expect.element(page.getByTitle("Server Owner")).toBeInTheDocument();
     });
 
+    test("uses the default 15px size", async () => {
+      render(<UserRoleBadge role="owner" />);
+      const svg = page.getByLabelText("Server Owner").locator("svg");
+      await expect.element(svg).toHaveAttribute("width", "15");
+      await expect.element(svg).toHaveAttribute("height", "15");
+    });
+
     test("is case-insensitive for 'owner'", async () => {
       render(<UserRoleBadge role="OWNER" />);
       await expect

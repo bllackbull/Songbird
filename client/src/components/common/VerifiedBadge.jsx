@@ -6,10 +6,10 @@
  * the default outline-only appearance.
  *
  * Props:
- *   size      – icon size in px (default 13)
+ *   size      – icon size in px (default 15)
  *   className – extra classes on the wrapper span
  */
-export default function VerifiedBadge({ size = 13, className = "" }) {
+export default function VerifiedBadge({ size = 15, className = "" }) {
   return (
     <span
       className={`inline-flex shrink-0 items-center ${className}`}

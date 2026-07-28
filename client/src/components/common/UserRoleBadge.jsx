@@ -6,10 +6,10 @@
  *
  * Props:
  *   role      – "owner" | "admin" | "user" | falsy
- *   size      – icon size in px (default 13)
+ *   size      – icon size in px (default 15)
  *   className – extra classes on the wrapper span
  */
-export default function UserRoleBadge({ role, size = 13, className = "" }) {
+export default function UserRoleBadge({ role, size = 15, className = "" }) {
   const normalizedRole = String(role || "").toLowerCase();
 
   if (normalizedRole === "owner") {

@@ -745,8 +745,8 @@ export function MessageComposer({
                   Reply to{" "}
                   {replyTarget.displayName || replyTarget.username || "message"}
                 </span>
-                {Boolean(replyTarget.verified) && <VerifiedBadge size={11} />}
-                <UserRoleBadge role={replyTarget.role} size={11} />
+                {Boolean(replyTarget.verified) && <VerifiedBadge size={13} />}
+                <UserRoleBadge role={replyTarget.role} size={13} />
               </span>
               <span
                 className="mt-1 flex min-w-0 items-baseline gap-1 text-xs text-slate-600 dark:text-slate-300"

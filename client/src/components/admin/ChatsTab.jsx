@@ -142,7 +142,7 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
                       <div className="min-w-0">
                         <p className={`flex items-center gap-0.5 truncate text-sm font-semibold text-slate-700 dark:text-slate-200`} dir="ltr">
                           <span className={`truncate ${nameHasPersian ? "font-fa" : ""}`} dir="auto">{chatName}</span>
-                          {Boolean(c.verified) && <VerifiedBadge size={13} />}
+                          {Boolean(c.verified) && <VerifiedBadge size={15} />}
                         </p>
                         {c.group_username && <p className="truncate text-[11px] text-slate-400">@{c.group_username}</p>}
                       </div>
@@ -203,7 +203,7 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
                           <div className="min-w-0">
                             <p className={`flex items-center gap-0.5 truncate text-xs font-semibold text-slate-700 dark:text-slate-200`} dir="ltr">
                               <span className={`truncate ${nameHasPersian ? "font-fa" : ""}`} dir="auto">{chatName}</span>
-                              {Boolean(c.verified) && <VerifiedBadge size={12} />}
+                              {Boolean(c.verified) && <VerifiedBadge size={14} />}
                             </p>
                             {c.group_username && <p className="text-[11px] text-slate-400">@{c.group_username}</p>}
                           </div>

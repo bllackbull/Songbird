@@ -30,11 +30,11 @@ describe("VerifiedBadge", () => {
     await expect.element(svg).toHaveAttribute("height", "20");
   });
 
-  test("uses default size of 13 when not specified", async () => {
+  test("uses default size of 15 when not specified", async () => {
     render(<VerifiedBadge />);
     const svg = page.getByLabelText("Verified").locator("svg");
-    await expect.element(svg).toHaveAttribute("width", "13");
-    await expect.element(svg).toHaveAttribute("height", "13");
+    await expect.element(svg).toHaveAttribute("width", "15");
+    await expect.element(svg).toHaveAttribute("height", "15");
   });
 
   test("applies extra className to the wrapper span", async () => {

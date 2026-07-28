@@ -134,8 +134,8 @@ export default function NewChatModal({
                         title={label}
                       >
                         <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
-                        {Boolean(result.verified) && <VerifiedBadge size={12} />}
-                        <UserRoleBadge role={result.role} size={12} />
+                        {Boolean(result.verified) && <VerifiedBadge size={14} />}
+                        <UserRoleBadge role={result.role} size={14} />
                       </p>
                       <p
                         className="truncate text-xs text-slate-500 dark:text-slate-400"

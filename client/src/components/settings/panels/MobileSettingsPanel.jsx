@@ -598,8 +598,8 @@ export function MobileSettingsPanel({
                         >
                           {displayName}
                         </span>
-                        {Boolean(user.verified) && <VerifiedBadge size={13} />}
-                        <UserRoleBadge role={user.role} size={13} />
+                        {Boolean(user.verified) && <VerifiedBadge size={15} />}
+                        <UserRoleBadge role={user.role} size={15} />
                       </span>
                       <span className="mt-1 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                         <span className={statusTextClass}>{statusValue}</span>

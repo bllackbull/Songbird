@@ -85,8 +85,8 @@ export default function ForwardChatGridItem({
           >
             {title}
           </span>
-          {Boolean(verified) && <VerifiedBadge size={11} />}
-          {kind === "dm" && <UserRoleBadge role={role} size={11} />}
+          {Boolean(verified) && <VerifiedBadge size={13} />}
+          {kind === "dm" && <UserRoleBadge role={role} size={13} />}
         </span>
       </span>
     </button>

@@ -253,8 +253,8 @@ export default function ChatsListPanel({
                         title={label}
                       >
                         <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
-                        {Boolean(member.verified) && <VerifiedBadge size={12} />}
-                        <UserRoleBadge role={member.role} size={12} />
+                        {Boolean(member.verified) && <VerifiedBadge size={14} />}
+                        <UserRoleBadge role={member.role} size={14} />
                       </p>
                       <p
                         className="truncate text-xs text-slate-500 dark:text-slate-400"
@@ -313,7 +313,7 @@ export default function ChatsListPanel({
                         title={label}
                       >
                         <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
-                        {Boolean(group.verified) && <VerifiedBadge size={12} />}
+                        {Boolean(group.verified) && <VerifiedBadge size={14} />}
                       </p>
                       <p
                         className="truncate text-xs text-slate-500 dark:text-slate-400"
@@ -381,7 +381,7 @@ export default function ChatsListPanel({
                         title={label}
                       >
                         <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
-                        {Boolean(channel.verified) && <VerifiedBadge size={12} />}
+                        {Boolean(channel.verified) && <VerifiedBadge size={14} />}
                       </p>
                       <p
                         className="truncate text-xs text-slate-500 dark:text-slate-400"
@@ -581,13 +581,13 @@ export default function ChatsListPanel({
                       {name}
                     </span>
                     {conv.type === "dm" && !isDeletedDm && other && Boolean(other.user_verified) ? (
-                      <VerifiedBadge size={13} />
+                      <VerifiedBadge size={15} />
                     ) : null}
                     {conv.type === "dm" && !isDeletedDm && other ? (
-                      <UserRoleBadge role={other.user_role} size={13} />
+                      <UserRoleBadge role={other.user_role} size={15} />
                     ) : null}
                     {conv.type !== "dm" && Boolean(conv.verified) ? (
-                      <VerifiedBadge size={13} />
+                      <VerifiedBadge size={15} />
                     ) : null}
                     {conv._muted ? (
                       <VolumeX
