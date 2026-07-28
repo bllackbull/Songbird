@@ -141,6 +141,29 @@ const GROUP_CHILDREN = {
 
 // ─── iOS-style toggle — same pattern as NewGroupModal ────────────────────────
 
+function EnvLockBadge({ envVar }) {
+  const tooltipId = `env-var-${envVar}`;
+
+  return (
+    <span className="group relative inline-flex">
+      <span
+        tabIndex={0}
+        aria-describedby={tooltipId}
+        className="inline-flex cursor-help items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-white/10 dark:text-slate-400"
+      >
+        <KeyRound size={9} /> set in .env
+      </span>
+      <span
+        id={tooltipId}
+        role="tooltip"
+        className="pointer-events-none absolute bottom-full left-0 z-10 mb-1 hidden whitespace-nowrap rounded-md bg-emerald-400 px-2 py-1 text-[10px] font-semibold text-white shadow-lg group-hover:block group-focus-within:block"
+      >
+        {envVar}
+      </span>
+    </span>
+  );
+}
+
 function Toggle({ checked, onChange, disabled = false }) {
   return (
     <button
@@ -231,9 +254,9 @@ function SubRow({ def, localVal, onChange, masterDisabled = false }) {
   const Icon = SETTING_ICONS[def.key] ?? Info;
   const iconAnim = SETTING_ICON_ANIM[def.key] ?? "icon-anim-sway";
   const envLocked = Boolean(def.envLocked);
-  // Only disable controls for masterDisabled — envLocked dims the whole
-  // sub-row via opacity already, so the control doesn't need a second layer.
-  const isDisabled = masterDisabled;
+  // Environment-locked sub-settings remain visible for their tooltip but their
+  // controls must remain read-only, just like locked standalone settings.
+  const isDisabled = masterDisabled || envLocked;
 
   return (
     <div className={`settings-row flex items-center gap-3 border-t px-4 py-3 border-emerald-100 dark:border-emerald-500/20 transition-opacity ${
@@ -247,11 +270,7 @@ function SubRow({ def, localVal, onChange, masterDisabled = false }) {
           <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">
             {def.label}
           </p>
-          {envLocked && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-white/10 dark:text-slate-400">
-              <KeyRound size={9} /> set in .env
-            </span>
-          )}
+          {envLocked && <EnvLockBadge envVar={def.key} />}
         </div>
         {def.description && (
           <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
@@ -289,9 +308,9 @@ function SettingRow({ def, localVal, onChange, groupDisabled = false, childDefs 
   const isNullableString = isNullable && def.type === "string";
   const nullIntVal = "0";
   const envLocked = Boolean(def.envLocked);
-  // Only disable controls for group-master-off, not for envLocked —
-  // the whole card is already pointer-events-none when envLocked.
-  const controlDisabled = groupDisabled;
+  // Environment-locked settings remain visible and their badges must still
+  // receive hover/focus events; disable the controls below instead.
+  const controlDisabled = groupDisabled || envLocked;
 
   // For nullable strings, the "enabled" flag and the URL value are tracked
   // separately so that toggling off→on doesn't immediately re-disable the field.
@@ -337,7 +356,7 @@ function SettingRow({ def, localVal, onChange, groupDisabled = false, childDefs 
 
   return (
     <div className={`${cardCls} transition-opacity ${
-      envLocked || groupDisabled ? "opacity-50 pointer-events-none" : ""
+      envLocked || groupDisabled ? "opacity-50" : ""
     }`}>
       {/* ── Main row ──────────────────────────────────────────────────────── */}
       <div className="settings-row flex items-center gap-3 p-4">
@@ -350,11 +369,7 @@ function SettingRow({ def, localVal, onChange, groupDisabled = false, childDefs 
             <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
               {def.label}
             </p>
-            {envLocked && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-white/10 dark:text-slate-400">
-                <KeyRound size={9} /> set in .env
-              </span>
-            )}
+            {envLocked && <EnvLockBadge envVar={def.key} />}
           </div>
           {def.description && (
             <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">

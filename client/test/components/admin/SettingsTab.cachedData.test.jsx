@@ -149,6 +149,38 @@ describe("SettingsTab — unsaved edits survive a cachedData prop update", () =>
 
 // ─── Unsaved changes indicator ────────────────────────────────────────────────
 
+describe("SettingsTab — environment-locked settings", () => {
+  test("keeps the control disabled while revealing the environment variable on hover", async () => {
+    const envLockedSetting = {
+      key: "SIGN_UP",
+      label: "Allow registration",
+      description: "Allow new users to register.",
+      type: "bool",
+      value: "true",
+      defaultVal: "true",
+      group: "registration",
+      envLocked: true,
+      nullable: false,
+    };
+    render(
+      <SettingsTab
+        cachedData={makeCachedData(makeSettings([envLockedSetting]))}
+        isLoading={false}
+        hasData={true}
+        onMutated={vi.fn()}
+      />,
+    );
+
+    const lockBadge = page.getByText("set in .env");
+    await expect.element(lockBadge).toBeInTheDocument();
+    await expect.element(page.getByRole("switch").last()).toBeDisabled();
+
+    await userEvent.hover(lockBadge);
+    await expect.element(page.getByRole("tooltip")).toHaveTextContent("SIGN_UP");
+    await expect.element(page.getByRole("tooltip")).toBeVisible();
+  });
+});
+
 describe("SettingsTab — unsaved changes indicator", () => {
   test("shows unsaved changes count after editing a toggle", async () => {
     render(
