@@ -1,18 +1,10 @@
-import { useEffect, useRef, useState } from "react";
-import {
-  AlertCircle,
-  Check,
-  Copy,
-  Heart,
-  LoaderCircle,
-  Refresh,
-} from "../../../icons/lucide.js";
+import { useState } from "react";
+import { Check, Copy, Heart } from "../../../icons/lucide.js";
 import {
   GithubIcon,
   SongbirdIcon,
   TelegramIcon,
 } from "../../../icons/BrandIcons.jsx";
-import { checkAppVersion } from "../../../api/appMetaApi.js";
 import { ABOUT_CONTENT } from "../../../settings/aboutContent.js";
 import { copyTextToClipboard } from "../../../utils/clipboard.js";
 
@@ -86,18 +78,10 @@ function DonationLinkRow({ donationLink }) {
 export function AboutSettingsPanel({
   appInfo,
   appInfoLoading,
-  appInfoError,
   onDone,
   variant = "desktop",
 }) {
   const isMobile = variant === "mobile";
-  const [checkState, setCheckState] = useState({
-    status: "",
-    latestVersion: "",
-    latestTag: "",
-  });
-  const resetCheckStateTimerRef = useRef(null);
-
   const versionLabel =
     String(appInfo?.version || "Unknown").trim() || "Unknown";
   const ownerHref = ABOUT_CONTENT.copyright?.ownerHref || "";
@@ -105,71 +89,6 @@ export function AboutSettingsPanel({
   const year = new Date().getFullYear();
   const rowBase =
     "flex w-full items-center justify-between gap-3 rounded-2xl border border-emerald-200/70 bg-white/90 px-4 py-3 text-left text-sm font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-emerald-200";
-  const actionButtonBase =
-    "inline-flex h-7 min-w-[58px] items-center justify-center rounded-full px-3 py-1 text-xs font-semibold leading-none transition";
-
-  useEffect(() => {
-    return () => {
-      if (resetCheckStateTimerRef.current) {
-        window.clearTimeout(resetCheckStateTimerRef.current);
-      }
-    };
-  }, []);
-
-  const scheduleCheckStateReset = () => {
-    if (resetCheckStateTimerRef.current) {
-      window.clearTimeout(resetCheckStateTimerRef.current);
-    }
-    resetCheckStateTimerRef.current = window.setTimeout(() => {
-      setCheckState({
-        status: "",
-        latestVersion: "",
-        latestTag: "",
-      });
-      resetCheckStateTimerRef.current = null;
-    }, 3200);
-  };
-
-  const currentButtonStyle = (() => {
-    if (checkState.status === "checking") {
-      return {
-        className:
-          "cursor-wait border border-emerald-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10",
-        label: "Checking",
-        icon: <LoaderCircle size={12} className="animate-spin" />,
-      };
-    }
-    if (checkState.status === "error") {
-      return {
-        className:
-          "border border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200",
-        label: "Failed",
-        icon: <AlertCircle size={13} />,
-      };
-    }
-    if (checkState.status === "update-available") {
-      return {
-        className:
-          "border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200",
-        label: "Update available",
-        icon: <AlertCircle size={13} />,
-      };
-    }
-    if (checkState.status === "up-to-date") {
-      return {
-        className:
-          "border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200",
-        label: "Up to date",
-        icon: <Check size={13} />,
-      };
-    }
-    return {
-      className:
-        "border border-emerald-200 bg-white text-emerald-700 hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10",
-      label: appInfoLoading ? "Loading..." : versionLabel,
-      icon: <Refresh size={13} />,
-    };
-  })();
 
   return (
     <div className="space-y-4 text-slate-600 dark:text-slate-300">
@@ -180,50 +99,11 @@ export function AboutSettingsPanel({
             : "app-scroll max-h-[calc(100dvh-18rem)] space-y-3 overflow-y-auto pr-1"
         }
       >
-        <div className={`${rowBase} items-start`}>
-          <div className="min-w-0 flex-1">
-            <p>App version</p>
-            {appInfoError ? (
-              <p className="mt-1 text-xs font-normal text-rose-600 dark:text-rose-300">
-                {appInfoError}
-              </p>
-            ) : null}
-          </div>
-          <button
-            type="button"
-            onClick={async () => {
-              if (resetCheckStateTimerRef.current) {
-                window.clearTimeout(resetCheckStateTimerRef.current);
-                resetCheckStateTimerRef.current = null;
-              }
-              setCheckState({
-                status: "checking",
-                latestVersion: "",
-                latestTag: "",
-              });
-              try {
-                const payload = await checkAppVersion(appInfo);
-                setCheckState({
-                  status: payload?.status || "up-to-date",
-                  latestVersion: String(payload?.latestVersion || ""),
-                  latestTag: String(payload?.latestTag || ""),
-                });
-                scheduleCheckStateReset();
-              } catch {
-                setCheckState({
-                  status: "error",
-                  latestVersion: "",
-                  latestTag: "",
-                });
-                scheduleCheckStateReset();
-              }
-            }}
-            disabled={checkState.status === "checking"}
-            className={`${actionButtonBase} ${currentButtonStyle.className}`}
-          >
-            {currentButtonStyle.icon}
-            <span className="ml-1">{currentButtonStyle.label}</span>
-          </button>
+        <div className={rowBase}>
+          <p>Version</p>
+          <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+            {appInfoLoading ? "Loading..." : versionLabel}
+          </span>
         </div>
 
         <div className="rounded-2xl border border-emerald-200/70 bg-white/90 p-4 dark:border-emerald-500/30 dark:bg-slate-900/50">
