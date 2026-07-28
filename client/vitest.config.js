@@ -11,7 +11,6 @@ const headless = process.env.VITEST_HEADFUL !== "1";
 // forever. Listing them here forces a single up-front optimize pass.
 const browserOptimizeInclude = [
   "lucide-react",
-  "react-icons/fa6",
   "vitest-browser-react",
   "react",
   "react/jsx-dev-runtime",
