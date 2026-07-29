@@ -22,8 +22,8 @@ function getStore(keys) {
  */
 export function useAdminCache(fetchers, { ttlMs = 10_000 } = {}) {
   // Stable ref to the module-level store for this hook's key-set.
-  // Captured once on mount so the useState initialiser and future writes
-  // always target the same store object.
+  // `store` also seeds initial React state, while the ref preserves that exact
+  // store for future writes after re-renders.
   const storeRef = useRef(getStore(Object.keys(fetchers)));
 
   // cache: { [key]: { data: any, fetchedAt: number, loading: boolean } | null }

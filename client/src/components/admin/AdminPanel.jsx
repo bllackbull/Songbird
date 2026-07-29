@@ -299,7 +299,7 @@ export default function AdminPanel({ user, onBack }) {
           <span className="h-9 w-9 shrink-0" aria-hidden="true" />
         </div>
 
-        <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-4">
+        <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-4 pb-[calc(104px+env(safe-area-inset-bottom)+var(--vv-bottom-offset,0px))] md:pb-5">
           <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-xs dark:border-white/5 dark:bg-slate-950/60">
             {TABS.map(({ id, label, icon: Icon, anim }, index) => (
               <button key={id} type="button"
@@ -348,7 +348,7 @@ export default function AdminPanel({ user, onBack }) {
           </Tooltip>
         </div>
 
-        <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-4 md:p-5">
+        <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-4 pb-[calc(104px+env(safe-area-inset-bottom)+var(--vv-bottom-offset,0px))] md:p-5 md:pb-5">
             <Activity mode={tab === "dashboard" ? "visible" : "hidden"}>
               <DashboardTab ref={(r) => { tabRefs.current.dashboard = r; }} stats={stats} onStatsChange={refreshStats} />
             </Activity>
