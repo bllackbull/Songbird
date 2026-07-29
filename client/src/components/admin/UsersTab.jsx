@@ -153,7 +153,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
                               {Boolean(u.verified) && <VerifiedBadge size={14} />}
                               <UserRoleBadge role={u.role} size={14} />
                             </p>
-                            {(u.banned || u.role === "admin" || u.role === "owner") && <RoleBadge role={u.role} banned={u.banned} />}
+                            {u.banned && <RoleBadge role={u.role} banned />}
                           </div>
                           <p className="truncate text-[11px] text-slate-400 dark:text-slate-500">@{u.username}</p>
                         </div>
