@@ -12,6 +12,7 @@ import {
 } from "../../icons/lucide.js";
 import { labelCls, PAGE_SIZE_OPTIONS, PAGE_LOCK_THRESHOLD, inputSmCls, searchIconCls } from "./adminShared.js";
 import { hasPersian } from "../../utils/fontUtils.js";
+import Tooltip from "../common/Tooltip.jsx";
 
 // ─── Loading / empty states ─────────────────────────────────────────────────
 
@@ -141,12 +142,14 @@ function PageSizeSelect({ value, onChange, options, disabled = false }) {
   const isOpen = open && !disabled;
   return (
     <div className="relative">
-      <button ref={btnRef} type="button" onClick={disabled ? undefined : toggle} disabled={disabled}
-        aria-expanded={isOpen} title="Rows per page"
-        className="relative flex h-8 items-center gap-1.5 rounded-xl border border-emerald-200/70 bg-white/90 pl-3 pr-7 text-xs font-semibold text-slate-600 outline-hidden transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-emerald-200/70 disabled:hover:bg-white/90 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-emerald-500/5 dark:disabled:hover:bg-slate-900/50">
-        <span className="truncate">{value} / page</span>
-        <ChevronDown size={15} className={`absolute right-2 top-1/2 -translate-y-1/2 text-emerald-500 transition-transform ${isOpen ? "" : "rotate-180"}`} />
-      </button>
+      <Tooltip label="Rows per page">
+        <button ref={btnRef} type="button" onClick={disabled ? undefined : toggle} disabled={disabled}
+          aria-expanded={isOpen}
+          className="relative flex h-8 items-center gap-1.5 rounded-xl border border-emerald-200/70 bg-white/90 pl-3 pr-7 text-xs font-semibold text-slate-600 outline-hidden transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-emerald-200/70 disabled:hover:bg-white/90 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-emerald-500/5 dark:disabled:hover:bg-slate-900/50">
+          <span className="truncate">{value} / page</span>
+          <ChevronDown size={15} className={`absolute right-2 top-1/2 -translate-y-1/2 text-emerald-500 transition-transform ${isOpen ? "" : "rotate-180"}`} />
+        </button>
+      </Tooltip>
       {isOpen && (
         <div ref={menuRef} className="absolute bottom-full right-0 z-50 mb-1.5 min-w-max overflow-hidden rounded-xl border border-emerald-200 bg-white p-1 text-xs font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100">
           {options.map((opt) => (
@@ -205,15 +208,19 @@ export function Pagination({
         <span className="font-semibold text-slate-600 dark:text-slate-300">{safeTotal}</span>
       </p>
       <div className="flex items-center gap-1.5">
-        <button type="button" onClick={() => go(current - 1)} disabled={locked || busy || current <= 1} title="Previous page" className={navBtn}>
-          <ChevronLeft size={16} />
-        </button>
+        <Tooltip label="Previous page">
+          <button type="button" onClick={() => go(current - 1)} disabled={locked || busy || current <= 1} className={navBtn}>
+            <ChevronLeft size={16} />
+          </button>
+        </Tooltip>
         <span className="px-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
           {current} / {pageCount}
         </span>
-        <button type="button" onClick={() => go(current + 1)} disabled={locked || busy || current >= pageCount} title="Next page" className={navBtn}>
-          <ChevronRight size={16} />
-        </button>
+        <Tooltip label="Next page">
+          <button type="button" onClick={() => go(current + 1)} disabled={locked || busy || current >= pageCount} className={navBtn}>
+            <ChevronRight size={16} />
+          </button>
+        </Tooltip>
         <PageSizeSelect value={safePageSize} onChange={onPageSizeChange} options={pageSizeOptions} disabled={locked || !canSelectSize} />
       </div>
     </div>

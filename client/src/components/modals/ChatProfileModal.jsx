@@ -31,6 +31,7 @@ import Avatar from "../common/Avatar.jsx";
 import UserRoleBadge from "../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../common/VerifiedBadge.jsx";
 import RemoteChannelQueueStatus from "./RemoteChannelQueueStatus.jsx";
+import Tooltip from "../common/Tooltip.jsx";
 import { useFocusTrap } from "../../hooks/useFocusTrap.js";
 
 const MEMBERS_BATCH_SIZE = 10;
@@ -417,13 +418,14 @@ export default function ChatProfileModal({
             )}
           </p>
           {profileUsername ? (
-            <p
-              className="max-w-full truncate text-sm text-slate-500 dark:text-slate-400"
-              dir="auto"
-              title={profileUsername}
-            >
-              @{profileUsername}
-            </p>
+            <Tooltip label={profileUsername} asChild>
+              <p
+                className="max-w-full truncate text-sm text-slate-500 dark:text-slate-400"
+                dir="auto"
+              >
+                @{profileUsername}
+              </p>
+            </Tooltip>
           ) : null}
           {isGroup || isChannel ? (
             <p
@@ -666,15 +668,16 @@ export default function ChatProfileModal({
                         className="h-8 w-8 text-xs"
                       />
                       <div className="min-w-0">
-                        <p
-                          className="flex items-center gap-0.5 truncate text-sm font-semibold"
-                          dir="ltr"
-                          title={label}
-                        >
-                          <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
-                          {Boolean(member.user_verified) && <VerifiedBadge size={14} />}
-                          <UserRoleBadge role={member.user_role} size={14} />
-                        </p>
+                        <Tooltip label={label} asChild>
+                          <p
+                            className="flex items-center gap-0.5 truncate text-sm font-semibold"
+                            dir="ltr"
+                          >
+                            <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
+                            {Boolean(member.user_verified) && <VerifiedBadge size={14} />}
+                            <UserRoleBadge role={member.user_role} size={14} />
+                          </p>
+                        </Tooltip>
                         <p
                           className={`truncate text-xs ${
                             memberIsOnline

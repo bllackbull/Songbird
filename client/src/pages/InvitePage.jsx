@@ -4,6 +4,7 @@ import { getGroupInviteInfo, joinGroupByInvite } from "../api/chatApi.js";
 import { getAvatarStyle } from "../utils/avatarColor.js";
 import { getAvatarInitials } from "../utils/avatarInitials.js";
 import { hasPersian } from "../utils/fontUtils.js";
+import Tooltip from "../components/common/Tooltip.jsx";
 
 export default function InvitePage({
   token,
@@ -228,27 +229,29 @@ export default function InvitePage({
                 </div>
               )}
               <p className="w-full text-center">
-                <span
-                  className={`mx-auto block w-fit max-w-full truncate text-base font-semibold text-emerald-800 dark:text-emerald-200 ${
-                    groupNameHasPersian ? "font-fa text-right" : "text-center"
+                <Tooltip label={groupName} asChild>
+                  <span
+                    className={`mx-auto block w-fit max-w-full truncate text-base font-semibold text-emerald-800 dark:text-emerald-200 ${
+                      groupNameHasPersian ? "font-fa text-right" : "text-center"
+                    }`}
+                    dir="auto"
+                    style={{ unicodeBidi: "plaintext" }}
+                  >
+                    {groupName}
+                  </span>
+                </Tooltip>
+              </p>
+              <Tooltip label={group?.username || "group"} asChild>
+                <p
+                  className={`mt-1 w-full truncate text-xs text-slate-600 dark:text-slate-300 ${
+                    hasPersian(group?.username || "") ? "font-fa text-right" : "text-center"
                   }`}
                   dir="auto"
                   style={{ unicodeBidi: "plaintext" }}
-                  title={groupName}
                 >
-                  {groupName}
-                </span>
-              </p>
-              <p
-                className={`mt-1 w-full truncate text-xs text-slate-600 dark:text-slate-300 ${
-                  hasPersian(group?.username || "") ? "font-fa text-right" : "text-center"
-                }`}
-                dir="auto"
-                style={{ unicodeBidi: "plaintext" }}
-                title={group?.username || "group"}
-              >
-                @{group?.username || "group"}
-              </p>
+                  @{group?.username || "group"}
+                </p>
+              </Tooltip>
               <p className="mt-1 inline-flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
                 <Users size={12} className="icon-anim-bob" />
                 {Number(group?.membersCount || 0)} members

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { getAvatarStyle } from "../../utils/avatarColor.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import { hasPersian } from "../../utils/fontUtils.js";
+import Tooltip from "./Tooltip.jsx";
 
 export default function Avatar({
   src,
@@ -66,10 +67,13 @@ export default function Avatar({
         />
       ) : null}
       {showOnlineBadge ? (
-        <span
-          className={`pointer-events-none absolute bottom-0 right-0 z-10 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900 ${onlineBadgeClassName}`}
-          title="online"
-        />
+        <Tooltip label="online" className="absolute bottom-0 right-0 z-10">
+          <span
+            role="img"
+            aria-label="online"
+            className={`h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900 ${onlineBadgeClassName}`}
+          />
+        </Tooltip>
       ) : null}
     </div>
   );

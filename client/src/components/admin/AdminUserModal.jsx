@@ -10,6 +10,7 @@ import { CHAT_PAGE_CONFIG } from "../../settings/chatPageConfig.js";
 import { api, inputCls } from "./adminShared.js";
 import Avatar from "../common/Avatar.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
+import Tooltip from "../common/Tooltip.jsx";
 
 // ─── Avatar upload helpers ────────────────────────────────────────────────────
 
@@ -261,18 +262,19 @@ export default function AdminUserModal({ mode = "edit", user = null, onClose, on
               <div className="mt-2 flex items-center gap-2">
                 <div className="relative flex-1">
                   <input className={inputCls + " w-full pr-12"} value={color} onChange={(e) => setColor(e.target.value)} placeholder="#10b981" />
-                  <button
-                    type="button"
-                    onClick={handleColorRefresh}
-                    disabled={colorRefreshState === "done"}
-                    className="absolute right-1 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-2xl border border-transparent text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-700 disabled:cursor-default disabled:text-emerald-600 dark:text-slate-400 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300 dark:disabled:text-emerald-400"
-                    aria-label="Choose a random color"
-                    title="Choose a random color"
-                  >
-                    {colorRefreshState === "done"
-                      ? <Check size={16} className="text-emerald-600 dark:text-emerald-400" />
-                      : <Refresh size={16} className="icon-anim-spin-full" />}
-                  </button>
+                  <Tooltip label="Reroll" className="absolute right-1 top-1/2 -translate-y-1/2">
+                    <button
+                      type="button"
+                      onClick={handleColorRefresh}
+                      disabled={colorRefreshState === "done"}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-transparent text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-700 disabled:cursor-default disabled:text-emerald-600 dark:text-slate-400 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300 dark:disabled:text-emerald-400"
+                      aria-label="Choose a random color"
+                    >
+                      {colorRefreshState === "done"
+                        ? <Check size={16} className="text-emerald-600 dark:text-emerald-400" />
+                        : <Refresh size={16} className="icon-anim-spin-full" />}
+                    </button>
+                  </Tooltip>
                 </div>
                 <input type="color" value={color || "#10b981"} onChange={(e) => setColor(e.target.value)}
                   className="color-swatch h-11 w-11 shrink-0 cursor-pointer overflow-hidden rounded-xl border border-emerald-200/70 dark:border-emerald-500/30" />

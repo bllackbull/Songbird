@@ -7,6 +7,7 @@ import {
 } from "../../../icons/BrandIcons.jsx";
 import { ABOUT_CONTENT } from "../../../settings/aboutContent.js";
 import { copyTextToClipboard } from "../../../utils/clipboard.js";
+import Tooltip from "../../common/Tooltip.jsx";
 
 const SOCIAL_ICONS = {
   github: GithubIcon,
@@ -130,19 +131,19 @@ export function AboutSettingsPanel({
             {ABOUT_CONTENT.socials.map((item) => {
               const Icon = SOCIAL_ICONS[item.icon];
               return (
-                <a
-                  key={`${item.icon}-${item.href}`}
-                  href={item.href}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label={item.icon}
-                  title={item.icon}
-                  className="group inline-flex items-center justify-center p-1 text-slate-500 transition hover:text-emerald-700 dark:text-slate-400 dark:hover:text-emerald-200"
-                >
-                  <span className="inline-flex items-center justify-center text-slate-600 transition group-hover:text-emerald-700 dark:text-slate-300 dark:group-hover:text-emerald-200">
-                    {Icon ? <Icon size={24} /> : null}
-                  </span>
-                </a>
+                <Tooltip key={`${item.icon}-${item.href}`} label={item.icon}>
+                  <a
+                    href={item.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={item.icon}
+                    className="group inline-flex items-center justify-center p-1 text-slate-500 transition hover:text-emerald-700 dark:text-slate-400 dark:hover:text-emerald-200"
+                  >
+                    <span className="inline-flex items-center justify-center text-slate-600 transition group-hover:text-emerald-700 dark:text-slate-300 dark:group-hover:text-emerald-200">
+                      {Icon ? <Icon size={24} /> : null}
+                    </span>
+                  </a>
+                </Tooltip>
               );
             })}
           </div>

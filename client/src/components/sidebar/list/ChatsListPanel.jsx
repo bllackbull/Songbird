@@ -25,6 +25,7 @@ import { formatCompactCount } from "../../../utils/chatFormat.js";
 import Avatar from "../../common/Avatar.jsx";
 import UserRoleBadge from "../../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../../common/VerifiedBadge.jsx";
+import Tooltip from "../../common/Tooltip.jsx";
 
 export default function ChatsListPanel({
   loadingChats,
@@ -247,22 +248,24 @@ export default function ChatsListPanel({
                       className="h-9 w-9 text-xs"
                     />
                     <div className="min-w-0 flex-1">
-                      <p
-                        className="flex items-center gap-0.5 truncate text-sm font-semibold"
-                        dir="ltr"
-                        title={label}
-                      >
-                        <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
-                        {Boolean(member.verified) && <VerifiedBadge size={14} />}
-                        <UserRoleBadge role={member.role} size={14} />
-                      </p>
-                      <p
-                        className="truncate text-xs text-slate-500 dark:text-slate-400"
-                        dir="auto"
-                        title={member.username}
-                      >
-                        @{member.username}
-                      </p>
+                      <Tooltip label={label} asChild>
+                        <p
+                          className="flex items-center gap-0.5 truncate text-sm font-semibold"
+                          dir="ltr"
+                        >
+                          <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
+                          {Boolean(member.verified) && <VerifiedBadge size={14} />}
+                          <UserRoleBadge role={member.role} size={14} />
+                        </p>
+                      </Tooltip>
+                      <Tooltip label={member.username} asChild>
+                        <p
+                          className="truncate text-xs text-slate-500 dark:text-slate-400"
+                          dir="auto"
+                        >
+                          @{member.username}
+                        </p>
+                      </Tooltip>
                     </div>
                   </ContextMenuSurface>
                 );
@@ -307,18 +310,18 @@ export default function ChatsListPanel({
                       </div>
                     )}
                     <div className="min-w-0 flex-1">
-                      <p
-                        className="flex items-center gap-0.5 truncate text-sm font-semibold"
-                        dir="ltr"
-                        title={label}
-                      >
-                        <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
-                        {Boolean(group.verified) && <VerifiedBadge size={14} />}
-                      </p>
+                      <Tooltip label={label} asChild>
+                        <p
+                          className="flex items-center gap-0.5 truncate text-sm font-semibold"
+                          dir="ltr"
+                        >
+                          <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
+                          {Boolean(group.verified) && <VerifiedBadge size={14} />}
+                        </p>
+                      </Tooltip>
                       <p
                         className="truncate text-xs text-slate-500 dark:text-slate-400"
                         dir="auto"
-                        title={group.username}
                       >
                         @{group.username} •{" "}
                         {Number(group.membersCount || 0).toLocaleString(
@@ -375,18 +378,18 @@ export default function ChatsListPanel({
                       </div>
                     )}
                     <div className="min-w-0 flex-1">
-                      <p
-                        className="flex items-center gap-0.5 truncate text-sm font-semibold"
-                        dir="ltr"
-                        title={label}
-                      >
-                        <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
-                        {Boolean(channel.verified) && <VerifiedBadge size={14} />}
-                      </p>
+                      <Tooltip label={label} asChild>
+                        <p
+                          className="flex items-center gap-0.5 truncate text-sm font-semibold"
+                          dir="ltr"
+                        >
+                          <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
+                          {Boolean(channel.verified) && <VerifiedBadge size={14} />}
+                        </p>
+                      </Tooltip>
                       <p
                         className="truncate text-xs text-slate-500 dark:text-slate-400"
                         dir="auto"
-                        title={channel.username}
                       >
                         @{channel.username} •{" "}
                         {Number(channel.membersCount || 0).toLocaleString(
@@ -573,13 +576,14 @@ export default function ChatsListPanel({
                     ) : isGroup ? (
                       <Users size={14} className="shrink-0 text-emerald-500" />
                     ) : null}
-                    <span
-                      className={`min-w-0 max-w-full truncate ${hasPersian(name) ? "font-fa" : ""} ${isDeletedDm ? "text-slate-500" : ""}`}
-                      dir="auto"
-                      title={name}
-                    >
-                      {name}
-                    </span>
+                    <Tooltip label={name} asChild>
+                      <span
+                        className={`min-w-0 max-w-full truncate ${hasPersian(name) ? "font-fa" : ""} ${isDeletedDm ? "text-slate-500" : ""}`}
+                        dir="auto"
+                      >
+                        {name}
+                      </span>
+                    </Tooltip>
                     {conv.type === "dm" && !isDeletedDm && other && Boolean(other.user_verified) ? (
                       <VerifiedBadge size={15} />
                     ) : null}
@@ -653,31 +657,35 @@ export default function ChatsListPanel({
                           {isGroup &&
                           (conv.last_sender_nickname ||
                             conv.last_sender_username) ? (
-                            <span
-                              className="shrink-0 inline-flex min-w-0 max-w-[48%] items-baseline font-bold text-slate-500 dark:text-slate-400"
-                              dir="ltr"
-                              style={{ unicodeBidi: "isolate" }}
-                              title={
+                            <Tooltip
+                              label={
                                 conv.last_sender_nickname ||
                                 conv.last_sender_username
                               }
+                              asChild
                             >
-                              <bdi
-                                dir="auto"
-                                className={`min-w-0 truncate ${
-                                  hasPersian(
-                                    conv.last_sender_nickname ||
-                                      conv.last_sender_username,
-                                  )
-                                    ? "font-fa"
-                                    : ""
-                                }`}
+                              <span
+                                className="shrink-0 inline-flex min-w-0 max-w-[48%] items-baseline font-bold text-slate-500 dark:text-slate-400"
+                                dir="ltr"
+                                style={{ unicodeBidi: "isolate" }}
                               >
-                                {conv.last_sender_nickname ||
-                                  conv.last_sender_username}
-                              </bdi>
-                              <span className="shrink-0">:</span>
-                            </span>
+                                <bdi
+                                  dir="auto"
+                                  className={`min-w-0 truncate ${
+                                    hasPersian(
+                                      conv.last_sender_nickname ||
+                                        conv.last_sender_username,
+                                    )
+                                      ? "font-fa"
+                                      : ""
+                                  }`}
+                                >
+                                  {conv.last_sender_nickname ||
+                                    conv.last_sender_username}
+                                </bdi>
+                                <span className="shrink-0">:</span>
+                              </span>
+                            </Tooltip>
                           ) : null}
                           {lastPreview.icon === "voice" ? (
                             <Mic

@@ -34,6 +34,7 @@ import { summarizeFiles } from "../../../utils/messagePreview.js";
 import Avatar from "../../common/Avatar.jsx";
 import UserRoleBadge from "../../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../../common/VerifiedBadge.jsx";
+import Tooltip from "../../common/Tooltip.jsx";
 
 const MAX_MESSAGE_HTML_CACHE_ENTRIES = 800;
 const messageBodyHtmlCache = new Map();
@@ -753,20 +754,21 @@ export const MessageItem = memo(function MessageItem({
             <SongbirdIcon size={13} />
           ) : null}
           <span className="inline-flex min-w-0 items-center gap-0.5">
-            <span
-              className={`min-w-0 max-w-[18rem] truncate ${
-                forwardedLabelHasPersian ? "font-fa" : ""
-              }`}
-              dir="auto"
-              style={{ unicodeBidi: "isolate" }}
-              title={forwardedFromLabel}
-            >
-              {remoteForwardedProvider === "telegram"
-                ? forwardedFromLabel.replace(/^telegram:\s*/i, "")
-                : remoteForwardedProvider === "songbird"
-                  ? forwardedFromLabel.replace(/^songbird:\s*/i, "")
-                  : forwardedFromLabel}
-            </span>
+            <Tooltip label={forwardedFromLabel} asChild>
+              <span
+                className={`min-w-0 max-w-[18rem] truncate ${
+                  forwardedLabelHasPersian ? "font-fa" : ""
+                }`}
+                dir="auto"
+                style={{ unicodeBidi: "isolate" }}
+              >
+                {remoteForwardedProvider === "telegram"
+                  ? forwardedFromLabel.replace(/^telegram:\s*/i, "")
+                  : remoteForwardedProvider === "songbird"
+                    ? forwardedFromLabel.replace(/^songbird:\s*/i, "")
+                    : forwardedFromLabel}
+              </span>
+            </Tooltip>
             {/* Verified badge: shown for forwarded users and verified forwarded chats */}
             {!isDeletedForwardedUser && forwardedFromUserId > 0 && Boolean(forwardedUser?.verified) && (
               <VerifiedBadge size={13} />
@@ -1099,31 +1101,32 @@ export const MessageItem = memo(function MessageItem({
                 }}
                 contextMenu={messageContextMenu}
               >
-                <ContextMenuSurface
-                  as="button"
-                  type="button"
-                  onClick={
-                    canOpenSenderProfile
-                      ? () => onOpenSenderProfile?.(msg)
-                      : undefined
-                  }
-                  disabled={!canOpenSenderProfile}
-                  className={`mb-1 inline-flex max-w-[60vw] items-center gap-0.5 text-[11px] font-semibold transition ${
-                    canOpenSenderProfile ? "hover:underline" : ""
-                  } sm:max-w-[40vw] md:max-w-[28vw]`}
-                  dir="ltr"
-                  style={{ color: String(senderColor) }}
-                  title={senderName}
-                  contextMenu={senderContextMenu}
-                >
-                  <span className={`truncate ${hasPersian(senderName) ? "font-fa" : ""}`} dir="auto">{senderName}</span>
-                  {!isDeletedAuthor && Boolean(msg.user_verified) && (
-                    <VerifiedBadge size={14} />
-                  )}
-                  {!isDeletedAuthor && (
-                    <UserRoleBadge role={msg.user_role} size={14} />
-                  )}
-                </ContextMenuSurface>
+                <Tooltip label={senderName} asChild>
+                  <ContextMenuSurface
+                    as="button"
+                    type="button"
+                    onClick={
+                      canOpenSenderProfile
+                        ? () => onOpenSenderProfile?.(msg)
+                        : undefined
+                    }
+                    disabled={!canOpenSenderProfile}
+                    className={`mb-1 inline-flex max-w-[60vw] items-center gap-0.5 text-[11px] font-semibold transition ${
+                      canOpenSenderProfile ? "hover:underline" : ""
+                    } sm:max-w-[40vw] md:max-w-[28vw]`}
+                    dir="ltr"
+                    style={{ color: String(senderColor) }}
+                    contextMenu={senderContextMenu}
+                  >
+                    <span className={`truncate ${hasPersian(senderName) ? "font-fa" : ""}`} dir="auto">{senderName}</span>
+                    {!isDeletedAuthor && Boolean(msg.user_verified) && (
+                      <VerifiedBadge size={14} />
+                    )}
+                    {!isDeletedAuthor && (
+                      <UserRoleBadge role={msg.user_role} size={14} />
+                    )}
+                  </ContextMenuSurface>
+                </Tooltip>
                 {renderForwardedHeader()}
                 {replyTarget ? (
                   <button
@@ -1133,27 +1136,28 @@ export const MessageItem = memo(function MessageItem({
                     aria-label={`Reply to ${replyDisplayName}`}
                   >
                     <span className="min-w-0 flex-1">
-                      <span
-                        className="flex max-w-full items-center gap-0.5 truncate whitespace-nowrap"
-                        dir="ltr"
-                        title={replyDisplayName}
-                      >
+                      <Tooltip label={replyDisplayName} asChild>
                         <span
-                          className={`min-w-0 truncate text-[10px] font-semibold ${
-                            hasPersian(replyDisplayName) ? "font-fa" : ""
-                          }`}
-                          dir="auto"
-                          style={{ color: String(replyColor), unicodeBidi: "isolate" }}
+                          className="flex max-w-full items-center gap-0.5 truncate whitespace-nowrap"
+                          dir="ltr"
                         >
-                        {replyDisplayName}
+                          <span
+                            className={`min-w-0 truncate text-[10px] font-semibold ${
+                              hasPersian(replyDisplayName) ? "font-fa" : ""
+                            }`}
+                            dir="auto"
+                            style={{ color: String(replyColor), unicodeBidi: "isolate" }}
+                          >
+                          {replyDisplayName}
+                          </span>
+                          {Boolean(replyTarget?.verified) && (
+                            <VerifiedBadge size={12} />
+                          )}
+                          {!isChannelChat && (
+                            <UserRoleBadge role={replyTarget?.role} size={12} />
+                          )}
                         </span>
-                        {Boolean(replyTarget?.verified) && (
-                          <VerifiedBadge size={12} />
-                        )}
-                        {!isChannelChat && (
-                          <UserRoleBadge role={replyTarget?.role} size={12} />
-                        )}
-                      </span>
+                      </Tooltip>
                       <span
                         className={`flex max-w-full items-baseline gap-1 truncate whitespace-nowrap ${
                           hasPersian(normalizedReplyPreview) ? "font-fa" : ""
@@ -1254,20 +1258,21 @@ export const MessageItem = memo(function MessageItem({
               contextMenu={messageContextMenu}
             >
               {!isOwn && isGroupChat && !isChannelChat ? (
-                <p
-                  className={`mb-1 flex max-w-[60vw] items-center gap-0.5 truncate text-[11px] font-semibold sm:max-w-[40vw] md:max-w-[28vw]`}
-                  dir="ltr"
-                  style={{ color: String(senderColor) }}
-                  title={senderName}
-                >
-                  <span className={`truncate ${hasPersian(senderName) ? "font-fa" : ""}`} dir="auto" style={{ unicodeBidi: "isolate" }}>{senderName}</span>
-                  {!isDeletedAuthor && Boolean(msg.user_verified) && (
-                    <VerifiedBadge size={14} />
-                  )}
-                  {!isDeletedAuthor && (
-                    <UserRoleBadge role={msg.user_role} size={14} />
-                  )}
-                </p>
+                <Tooltip label={senderName} asChild>
+                  <p
+                    className={`mb-1 flex max-w-[60vw] items-center gap-0.5 truncate text-[11px] font-semibold sm:max-w-[40vw] md:max-w-[28vw]`}
+                    dir="ltr"
+                    style={{ color: String(senderColor) }}
+                  >
+                    <span className={`truncate ${hasPersian(senderName) ? "font-fa" : ""}`} dir="auto" style={{ unicodeBidi: "isolate" }}>{senderName}</span>
+                    {!isDeletedAuthor && Boolean(msg.user_verified) && (
+                      <VerifiedBadge size={14} />
+                    )}
+                    {!isDeletedAuthor && (
+                      <UserRoleBadge role={msg.user_role} size={14} />
+                    )}
+                  </p>
+                </Tooltip>
               ) : null}
               {renderForwardedHeader()}
               {replyTarget ? (
@@ -1278,27 +1283,28 @@ export const MessageItem = memo(function MessageItem({
                   aria-label={`Reply to ${replyDisplayName}`}
                 >
                   <span className="min-w-0 flex-1">
-                    <span
-                      className="flex max-w-full items-center gap-0.5 truncate whitespace-nowrap"
-                      dir="ltr"
-                      title={replyDisplayName}
-                    >
+                    <Tooltip label={replyDisplayName} asChild>
                       <span
-                        className={`min-w-0 truncate text-[10px] font-semibold ${
-                          hasPersian(replyDisplayName) ? "font-fa" : ""
-                        }`}
-                        dir="auto"
-                        style={{ color: String(replyColor), unicodeBidi: "isolate" }}
+                        className="flex max-w-full items-center gap-0.5 truncate whitespace-nowrap"
+                        dir="ltr"
                       >
-                        {replyDisplayName}
+                        <span
+                          className={`min-w-0 truncate text-[10px] font-semibold ${
+                            hasPersian(replyDisplayName) ? "font-fa" : ""
+                          }`}
+                          dir="auto"
+                          style={{ color: String(replyColor), unicodeBidi: "isolate" }}
+                        >
+                          {replyDisplayName}
+                        </span>
+                        {Boolean(replyTarget?.verified) && (
+                          <VerifiedBadge size={12} />
+                        )}
+                        {!isChannelChat && (
+                          <UserRoleBadge role={replyTarget?.role} size={12} />
+                        )}
                       </span>
-                      {Boolean(replyTarget?.verified) && (
-                        <VerifiedBadge size={12} />
-                      )}
-                      {!isChannelChat && (
-                        <UserRoleBadge role={replyTarget?.role} size={12} />
-                      )}
-                    </span>
+                    </Tooltip>
                     <span
                       className={`flex max-w-full items-baseline gap-1 truncate whitespace-nowrap ${
                         hasPersian(normalizedReplyPreview) ? "font-fa" : ""

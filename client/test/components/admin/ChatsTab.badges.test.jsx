@@ -90,7 +90,7 @@ describe("ChatsTab badge rendering", () => {
       vi.stubGlobal("fetch", mockFetch([makeApiChat({ owner_verified: true, owner_role: "owner" })]));
       render(<ChatsTab active={true} />);
 
-      await userEvent.click(page.getByTitle("Edit").first());
+      await userEvent.click(page.getByRole("button", { name: "Edit" }).first());
 
       await expect.element(page.getByLabelText("Verified").first()).toBeInTheDocument();
       await expect.element(page.getByLabelText("Server Owner")).toBeInTheDocument();

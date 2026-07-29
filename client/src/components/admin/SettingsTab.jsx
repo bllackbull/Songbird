@@ -32,6 +32,7 @@ import {
 import { api, cardCls, btnPrimary, btnSecondary } from "./adminShared.js";
 import { SectionHeading } from "./AdminCommon.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
+import Tooltip from "../common/Tooltip.jsx";
 
 // ─── Group metadata ───────────────────────────────────────────────────────────
 
@@ -142,25 +143,15 @@ const GROUP_CHILDREN = {
 // ─── iOS-style toggle — same pattern as NewGroupModal ────────────────────────
 
 function EnvLockBadge({ envVar }) {
-  const tooltipId = `env-var-${envVar}`;
-
   return (
-    <span className="group relative inline-flex">
+    <Tooltip label={envVar}>
       <span
         tabIndex={0}
-        aria-describedby={tooltipId}
         className="inline-flex cursor-help items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-white/10 dark:text-slate-400"
       >
         <KeyRound size={9} /> set in .env
       </span>
-      <span
-        id={tooltipId}
-        role="tooltip"
-        className="pointer-events-none absolute bottom-full left-0 z-10 mb-1 hidden whitespace-nowrap rounded-md bg-emerald-400 px-2 py-1 text-[10px] font-semibold text-white shadow-lg group-hover:block group-focus-within:block"
-      >
-        {envVar}
-      </span>
-    </span>
+    </Tooltip>
   );
 }
 

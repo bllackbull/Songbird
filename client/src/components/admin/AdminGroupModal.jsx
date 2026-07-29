@@ -6,6 +6,7 @@ import { api, inputCls } from "./adminShared.js";
 import Avatar from "../common/Avatar.jsx";
 import UserRoleBadge from "../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../common/VerifiedBadge.jsx";
+import Tooltip from "../common/Tooltip.jsx";
 import { getRandomAvatarColor } from "../../utils/avatarColor.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 
@@ -64,18 +65,21 @@ function OwnerPicker({ value, onChange }) {
       <div className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 bg-white/80 px-3 py-3 text-left dark:border-white/10 dark:bg-slate-950">
         <Avatar src={value.avatar_url} alt={label} name={label} color={value.color || "#10b981"} className="h-8 w-8 text-xs font-bold text-white" />
         <div className="min-w-0 flex-1">
-          <p className="flex items-center gap-0.5 truncate text-sm font-semibold text-slate-700 dark:text-slate-200" dir="ltr" title={label}>
-            <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
-            {Boolean(value.verified) && <VerifiedBadge size={14} />}
-            <UserRoleBadge role={value.role} size={14} />
-          </p>
+          <Tooltip label={label} asChild>
+            <p className="flex items-center gap-0.5 truncate text-sm font-semibold text-slate-700 dark:text-slate-200" dir="ltr">
+              <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
+              {Boolean(value.verified) && <VerifiedBadge size={14} />}
+              <UserRoleBadge role={value.role} size={14} />
+            </p>
+          </Tooltip>
           <p className="truncate text-xs text-slate-500 dark:text-slate-400" dir="auto">@{value.username}</p>
         </div>
-        <button type="button" onClick={() => { onChange(null); }}
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-rose-200 bg-transparent text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 dark:border-rose-500/30 dark:text-rose-200 dark:hover:bg-rose-500/10"
-          title="Remove owner">
-          <Close size={14} className="icon-anim-pop" />
-        </button>
+        <Tooltip label="Remove" className="shrink-0">
+          <button type="button" onClick={() => { onChange(null); }}
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-rose-200 bg-transparent text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 dark:border-rose-500/30 dark:text-rose-200 dark:hover:bg-rose-500/10">
+            <Close size={14} className="icon-anim-pop" />
+          </button>
+        </Tooltip>
       </div>
     );
   }
@@ -114,11 +118,13 @@ function OwnerPicker({ value, onChange }) {
                   className="flex w-full items-center gap-3 rounded-2xl border border-emerald-100/70 bg-white/80 px-3 py-3 text-left text-sm font-medium text-slate-700 transition hover:border-emerald-300 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900/50">
                   <Avatar src={u.avatar_url} alt={label} name={label} color={u.color || "#10b981"} className="h-8 w-8 text-xs font-bold text-white" />
                   <div className="min-w-0">
-                    <p className={`flex items-center gap-0.5 truncate font-semibold ${hasPersian(label) ? "font-fa" : ""}`} dir="ltr" title={label}>
-                      <span className="truncate" dir="auto">{label}</span>
-                      {Boolean(u.verified) && <VerifiedBadge size={14} />}
-                      <UserRoleBadge role={u.role} size={14} />
-                    </p>
+                    <Tooltip label={label} asChild>
+                      <p className={`flex items-center gap-0.5 truncate font-semibold ${hasPersian(label) ? "font-fa" : ""}`} dir="ltr">
+                        <span className="truncate" dir="auto">{label}</span>
+                        {Boolean(u.verified) && <VerifiedBadge size={14} />}
+                        <UserRoleBadge role={u.role} size={14} />
+                      </p>
+                    </Tooltip>
                     <p className="truncate text-xs text-slate-500 dark:text-slate-400" dir="auto">@{u.username}</p>
                   </div>
                 </button>
@@ -316,18 +322,19 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
         <div className="mt-2 flex items-center gap-2">
           <div className="relative flex-1">
             <input className={inputCls + " w-full pr-12"} value={form.groupColor} onChange={(e) => setForm((f) => ({ ...f, groupColor: e.target.value }))} placeholder="#10b981" />
-            <button
-              type="button"
-              onClick={handleColorRefresh}
-              disabled={colorRefreshState === "done"}
-              className="absolute right-1 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-2xl border border-transparent text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-700 disabled:cursor-default disabled:text-emerald-600 dark:text-slate-400 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300 dark:disabled:text-emerald-400"
-              aria-label="Choose a random color"
-              title="Choose a random color"
-            >
-              {colorRefreshState === "done"
-                ? <Check size={16} className="text-emerald-600 dark:text-emerald-400" />
-                : <Refresh size={16} className="icon-anim-spin-full" />}
-            </button>
+            <Tooltip label="Reroll" className="absolute right-1 top-1/2 -translate-y-1/2">
+              <button
+                type="button"
+                onClick={handleColorRefresh}
+                disabled={colorRefreshState === "done"}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-transparent text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-700 disabled:cursor-default disabled:text-emerald-600 dark:text-slate-400 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300 dark:disabled:text-emerald-400"
+                aria-label="Choose a random color"
+              >
+                {colorRefreshState === "done"
+                  ? <Check size={16} className="text-emerald-600 dark:text-emerald-400" />
+                  : <Refresh size={16} className="icon-anim-spin-full" />}
+              </button>
+            </Tooltip>
           </div>
           <input type="color" value={form.groupColor || "#10b981"} onChange={(e) => setForm((f) => ({ ...f, groupColor: e.target.value }))}
             className="color-swatch h-11 w-11 shrink-0 cursor-pointer overflow-hidden rounded-xl border border-emerald-200/70 dark:border-emerald-500/30" />

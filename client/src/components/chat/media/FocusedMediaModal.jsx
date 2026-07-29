@@ -8,6 +8,7 @@ import {
   VolumeX,
   Close,
 } from "../../../icons/lucide.js";
+import Tooltip from "../../common/Tooltip.jsx";
 
 export function FocusedMediaModal({
   focusedMedia,
@@ -644,17 +645,18 @@ export function FocusedMediaModal({
           }`}
           onClick={(event) => event.stopPropagation()}
         >
-          <div
-            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold leading-none ${
-              focusExpiryWarning.danger
-                ? "border-rose-300 bg-rose-100 text-rose-700 dark:border-rose-500 dark:bg-rose-900 dark:text-rose-100"
-                : "border-white/20 bg-black/65 text-white"
-            }`}
-            title={focusExpiryWarning.title || ""}
-          >
-            <ClockFading className="h-[13px] w-[13px] shrink-0" />
-            <span className="leading-none">{focusExpiryWarning.label}</span>
-          </div>
+          <Tooltip label={focusExpiryWarning.title || ""} placement="bottom">
+            <div
+              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold leading-none ${
+                focusExpiryWarning.danger
+                  ? "border-rose-300 bg-rose-100 text-rose-700 dark:border-rose-500 dark:bg-rose-900 dark:text-rose-100"
+                  : "border-white/20 bg-black/65 text-white"
+              }`}
+            >
+              <ClockFading className="h-[13px] w-[13px] shrink-0" />
+              <span className="leading-none">{focusExpiryWarning.label}</span>
+            </div>
+          </Tooltip>
         </div>
       ) : null}
     </div>

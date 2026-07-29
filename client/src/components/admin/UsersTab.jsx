@@ -7,6 +7,7 @@ import ConfirmModal from "../modals/ConfirmModal.jsx";
 import Avatar from "../common/Avatar.jsx";
 import UserRoleBadge from "../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../common/VerifiedBadge.jsx";
+import Tooltip from "../common/Tooltip.jsx";
 import { hasPersian } from "../../utils/fontUtils.js";
 
 const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMutated, onStatsChange }, ref) {
@@ -137,7 +138,11 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
                         color={u.color || "#10b981"}
                         className="h-10 w-10 text-sm font-bold text-white"
                       />
-                      {u.online ? <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900" title="online" /> : null}
+                      {u.online ? (
+                        <Tooltip label="online" className="absolute -bottom-0.5 -right-0.5">
+                          <span className="h-3 w-3 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900" />
+                        </Tooltip>
+                      ) : null}
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
@@ -155,34 +160,41 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
                         <div className="flex shrink-0 items-center gap-1">
                           {isSelf ? (
                             <>
-                              <button type="button" onClick={() => setEditUser(u)} className={iconBtn("slate")} title="Edit"><Pencil size={16} /></button>
-                              <button type="button" disabled className={iconBtn(u.role === "admin" ? "rose" : "emerald")} title="Cannot change your own role">
-                                {u.role === "admin" ? <ShieldOff size={16} /> : <ShieldCheck size={16} />}
-                              </button>
-                              <button type="button" disabled className={iconBtn("rose")} title="Cannot ban yourself"><Ban size={16} /></button>
-                              <button type="button" disabled className={iconBtn("rose")} title="Cannot delete yourself"><Trash size={16} /></button>
+                              <Tooltip label="Edit"><button type="button" onClick={() => setEditUser(u)} className={iconBtn("slate")}><Pencil size={16} /></button></Tooltip>
+                              <Tooltip label="Cannot change your own role">
+                                <button type="button" disabled className={iconBtn(u.role === "admin" ? "rose" : "emerald")}>
+                                  {u.role === "admin" ? <ShieldOff size={16} /> : <ShieldCheck size={16} />}
+                                </button>
+                              </Tooltip>
+                              <Tooltip label="Cannot ban yourself"><button type="button" disabled className={iconBtn("rose")}><Ban size={16} /></button></Tooltip>
+                              <Tooltip label="Cannot delete yourself"><button type="button" disabled className={iconBtn("rose")}><Trash size={16} /></button></Tooltip>
                             </>
                           ) : actionsBlocked ? (
                             <>
-                              <button type="button" disabled className={iconBtn("slate")} title={isOwnerRow ? "Cannot edit the owner" : "Cannot edit other admins"}><Pencil size={16} /></button>
-                              <button type="button" disabled className={iconBtn(isOwnerRow ? "rose" : "slate")} title={isOwnerRow ? "Cannot change the owner's role" : "Cannot change another admin's role"}>
-                                <ShieldOff size={16} />
-                              </button>
-                              <button type="button" disabled className={iconBtn("rose")} title={isOwnerRow ? "Cannot ban the owner" : "Cannot ban other admins"}><Ban size={16} /></button>
-                              <button type="button" disabled className={iconBtn("rose")} title={isOwnerRow ? "Cannot delete the owner" : "Cannot delete other admins"}><Trash size={16} /></button>
+                              <Tooltip label={isOwnerRow ? "Cannot edit the owner" : "Cannot edit other admins"}><button type="button" disabled className={iconBtn("slate")}><Pencil size={16} /></button></Tooltip>
+                              <Tooltip label={isOwnerRow ? "Cannot change the owner's role" : "Cannot change another admin's role"}>
+                                <button type="button" disabled className={iconBtn(isOwnerRow ? "rose" : "slate")}>
+                                  <ShieldOff size={16} />
+                                </button>
+                              </Tooltip>
+                              <Tooltip label={isOwnerRow ? "Cannot ban the owner" : "Cannot ban other admins"}><button type="button" disabled className={iconBtn("rose")}><Ban size={16} /></button></Tooltip>
+                              <Tooltip label={isOwnerRow ? "Cannot delete the owner" : "Cannot delete other admins"}><button type="button" disabled className={iconBtn("rose")}><Trash size={16} /></button></Tooltip>
                             </>
                           ) : (
                             <>
-                              <button type="button" onClick={() => setEditUser(u)} disabled={!!u.banned} className={iconBtn("slate")} title={u.banned ? "Cannot edit a banned user" : "Edit"}><Pencil size={16} /></button>
-                              <button type="button" onClick={() => setPending({ type: "role", user: u })} disabled={!!u.banned || isOwnerRow}
-                                className={iconBtn(u.role === "admin" ? "rose" : "emerald")}
-                                title={u.banned ? "Cannot change role of a banned user" : isOwnerRow ? "Cannot demote the owner" : u.role === "admin" ? "Demote from admin" : "Promote to admin"}>
-                                {u.role === "admin" ? <ShieldOff size={16} /> : <ShieldCheck size={16} />}
-                              </button>
-                              <button type="button" onClick={() => setPending({ type: "ban", user: u })} className={iconBtn(u.banned ? "emerald" : "rose")} title={u.banned ? "Unban" : "Ban"}>
-                                {u.banned ? <CirclePlus size={16} /> : <Ban size={16} />}
-                              </button>
-                              <button type="button" onClick={() => setPending({ type: "delete", user: u })} className={iconBtn("rose")} title="Delete"><Trash size={16} /></button>
+                              <Tooltip label={u.banned ? "Cannot edit a banned user" : "Edit"}><button type="button" onClick={() => setEditUser(u)} disabled={!!u.banned} className={iconBtn("slate")}><Pencil size={16} /></button></Tooltip>
+                              <Tooltip label={u.banned ? "Cannot change role of a banned user" : isOwnerRow ? "Cannot demote the owner" : u.role === "admin" ? "Demote from admin" : "Promote to admin"}>
+                                <button type="button" onClick={() => setPending({ type: "role", user: u })} disabled={!!u.banned || isOwnerRow}
+                                  className={iconBtn(u.role === "admin" ? "rose" : "emerald")}>
+                                  {u.role === "admin" ? <ShieldOff size={16} /> : <ShieldCheck size={16} />}
+                                </button>
+                              </Tooltip>
+                              <Tooltip label={u.banned ? "Unban" : "Ban"}>
+                                <button type="button" onClick={() => setPending({ type: "ban", user: u })} className={iconBtn(u.banned ? "emerald" : "rose")}>
+                                  {u.banned ? <CirclePlus size={16} /> : <Ban size={16} />}
+                                </button>
+                              </Tooltip>
+                              <Tooltip label="Delete"><button type="button" onClick={() => setPending({ type: "delete", user: u })} className={iconBtn("rose")}><Trash size={16} /></button></Tooltip>
                             </>
                           )}
                         </div>
@@ -235,7 +247,11 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
                                 color={u.color || "#10b981"}
                                 className="h-7 w-7 text-xs font-bold text-white"
                               />
-                              {u.online ? <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900" title="online" /> : null}
+                              {u.online ? (
+                                <Tooltip label="online" className="absolute -bottom-0.5 -right-0.5">
+                                  <span className="h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900" />
+                                </Tooltip>
+                              ) : null}
                             </div>
                             <div className="min-w-0">
                               <p className="flex items-center gap-0.5 truncate text-xs font-semibold text-slate-700 dark:text-slate-200" dir="ltr">
@@ -262,38 +278,45 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
                           {isSelf ? (
                             /* Self — show edit + role (functional), ban + delete disabled */
                             <div className="flex items-center gap-1">
-                              <button type="button" onClick={() => setEditUser(u)} className={iconBtn("slate")} title="Edit"><Pencil size={16} className="icon-anim-sway" /></button>
-                              <button type="button" disabled className={iconBtn(u.role === "admin" ? "rose" : "emerald")} title="Cannot change your own role">
-                                {u.role === "admin" ? <ShieldOff size={16} /> : <ShieldCheck size={16} />}
-                              </button>
-                              <button type="button" disabled className={iconBtn("rose")} title="Cannot ban yourself"><Ban size={16} /></button>
-                              <button type="button" disabled className={iconBtn("rose")} title="Cannot delete yourself"><Trash size={16} /></button>
+                              <Tooltip label="Edit"><button type="button" onClick={() => setEditUser(u)} className={iconBtn("slate")}><Pencil size={16} className="icon-anim-sway" /></button></Tooltip>
+                              <Tooltip label="Cannot change your own role">
+                                <button type="button" disabled className={iconBtn(u.role === "admin" ? "rose" : "emerald")}>
+                                  {u.role === "admin" ? <ShieldOff size={16} /> : <ShieldCheck size={16} />}
+                                </button>
+                              </Tooltip>
+                              <Tooltip label="Cannot ban yourself"><button type="button" disabled className={iconBtn("rose")}><Ban size={16} /></button></Tooltip>
+                              <Tooltip label="Cannot delete yourself"><button type="button" disabled className={iconBtn("rose")}><Trash size={16} /></button></Tooltip>
                             </div>
                           ) : actionsBlocked ? (
                             /* Owner row (for non-owners) or admin row (for non-owners) — all buttons disabled */
                             <div className="flex items-center gap-1">
-                              <button type="button" disabled className={iconBtn("slate")} title={isOwnerRow ? "Cannot edit the owner" : "Cannot edit other admins"}><Pencil size={16} /></button>
-                              <button type="button" disabled className={iconBtn(isOwnerRow ? "rose" : "slate")} title={isOwnerRow ? "Cannot change the owner's role" : "Cannot change another admin's role"}>
-                                <ShieldOff size={16} />
-                              </button>
-                              <button type="button" disabled className={iconBtn("rose")} title={isOwnerRow ? "Cannot ban the owner" : "Cannot ban other admins"}><Ban size={16} /></button>
-                              <button type="button" disabled className={iconBtn("rose")} title={isOwnerRow ? "Cannot delete the owner" : "Cannot delete other admins"}><Trash size={16} /></button>
+                              <Tooltip label={isOwnerRow ? "Cannot edit the owner" : "Cannot edit other admins"}><button type="button" disabled className={iconBtn("slate")}><Pencil size={16} /></button></Tooltip>
+                              <Tooltip label={isOwnerRow ? "Cannot change the owner's role" : "Cannot change another admin's role"}>
+                                <button type="button" disabled className={iconBtn(isOwnerRow ? "rose" : "slate")}>
+                                  <ShieldOff size={16} />
+                                </button>
+                              </Tooltip>
+                              <Tooltip label={isOwnerRow ? "Cannot ban the owner" : "Cannot ban other admins"}><button type="button" disabled className={iconBtn("rose")}><Ban size={16} /></button></Tooltip>
+                              <Tooltip label={isOwnerRow ? "Cannot delete the owner" : "Cannot delete other admins"}><button type="button" disabled className={iconBtn("rose")}><Trash size={16} /></button></Tooltip>
                             </div>
                           ) : (
                             /* Normal row — full controls */
                             <div className="flex items-center gap-1">
-                              <button type="button" onClick={() => setEditUser(u)} disabled={!!u.banned} className={iconBtn("slate")} title={u.banned ? "Cannot edit a banned user" : "Edit"}><Pencil size={16} className="icon-anim-sway" /></button>
-                              <button type="button" onClick={() => setPending({ type: "role", user: u })} disabled={!!u.banned || isOwnerRow}
-                                className={iconBtn(u.role === "admin" ? "rose" : "emerald")}
-                                title={u.banned ? "Cannot change role of a banned user" : isOwnerRow ? "Cannot demote the owner" : u.role === "admin" ? "Demote from admin" : "Promote to admin"}>
-                                {u.role === "admin"
-                                  ? <ShieldOff size={16} className="icon-anim-beat" />
-                                  : <ShieldCheck size={16} className="icon-anim-beat" />}
-                              </button>
-                              <button type="button" onClick={() => setPending({ type: "ban", user: u })} className={iconBtn(u.banned ? "emerald" : "rose")} title={u.banned ? "Unban" : "Ban"}>
-                                {u.banned ? <CirclePlus size={16} className="icon-anim-pop" /> : <Ban size={16} className="icon-anim-wiggle" />}
-                              </button>
-                              <button type="button" onClick={() => setPending({ type: "delete", user: u })} className={iconBtn("rose")} title="Delete"><Trash size={16} className="icon-anim-slide" /></button>
+                              <Tooltip label={u.banned ? "Cannot edit a banned user" : "Edit"}><button type="button" onClick={() => setEditUser(u)} disabled={!!u.banned} className={iconBtn("slate")}><Pencil size={16} className="icon-anim-sway" /></button></Tooltip>
+                              <Tooltip label={u.banned ? "Cannot change role of a banned user" : isOwnerRow ? "Cannot demote the owner" : u.role === "admin" ? "Demote from admin" : "Promote to admin"}>
+                                <button type="button" onClick={() => setPending({ type: "role", user: u })} disabled={!!u.banned || isOwnerRow}
+                                  className={iconBtn(u.role === "admin" ? "rose" : "emerald")}>
+                                  {u.role === "admin"
+                                    ? <ShieldOff size={16} className="icon-anim-beat" />
+                                    : <ShieldCheck size={16} className="icon-anim-beat" />}
+                                </button>
+                              </Tooltip>
+                              <Tooltip label={u.banned ? "Unban" : "Ban"}>
+                                <button type="button" onClick={() => setPending({ type: "ban", user: u })} className={iconBtn(u.banned ? "emerald" : "rose")}>
+                                  {u.banned ? <CirclePlus size={16} className="icon-anim-pop" /> : <Ban size={16} className="icon-anim-wiggle" />}
+                                </button>
+                              </Tooltip>
+                              <Tooltip label="Delete"><button type="button" onClick={() => setPending({ type: "delete", user: u })} className={iconBtn("rose")}><Trash size={16} className="icon-anim-slide" /></button></Tooltip>
                             </div>
                           )}
                         </td>

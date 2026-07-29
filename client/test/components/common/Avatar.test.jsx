@@ -51,12 +51,15 @@ describe("Avatar", () => {
   describe("online badge", () => {
     test("renders the online badge when showOnlineBadge is true", async () => {
       render(<Avatar name="Alice" color="#10b981" showOnlineBadge />);
-      await expect.element(page.getByTitle("online")).toBeInTheDocument();
+      await expect.element(page.getByLabelText("online")).toBeInTheDocument();
     });
 
+    // The dot is sized purely by Tailwind classes, which aren't loaded in the
+    // test browser, so it has no box to hover. Tooltip.test.jsx covers the
+    // hover behaviour itself; here we only assert the badge and its label.
     test("does not render the online badge by default", async () => {
       render(<Avatar name="Alice" color="#10b981" />);
-      await expect.element(page.getByTitle("online")).not.toBeInTheDocument();
+      await expect.element(page.getByLabelText("online")).not.toBeInTheDocument();
     });
   });
 });

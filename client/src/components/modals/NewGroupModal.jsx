@@ -25,6 +25,7 @@ import ConfirmPasswordModal from "./ConfirmPasswordModal.jsx";
 import Avatar from "../common/Avatar.jsx";
 import UserRoleBadge from "../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../common/VerifiedBadge.jsx";
+import Tooltip from "../common/Tooltip.jsx";
 import { useFocusTrap } from "../../hooks/useFocusTrap.js";
 
 export default function NewGroupModal({
@@ -434,27 +435,30 @@ export default function NewGroupModal({
                 </button>
                 {onRegenerateInvite ? (
                   <div className="mt-3 flex items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!privateChatEnabled) return;
-                        onRegenerateInvite();
-                      }}
-                      disabled={!privateChatEnabled || regeneratingInviteLink}
-                      title={
+                    <Tooltip
+                      label={
                         privateChatEnabled
                           ? "Regenerate invite link"
                           : "Private chats can regenerate invite links"
                       }
-                      className="inline-flex h-8 items-center gap-2 rounded-full border border-emerald-200 bg-white px-3 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
                     >
-                      {regeneratingInviteLink ? (
-                        <LoaderCircle size={12} className="animate-spin" />
-                      ) : (
-                        <Refresh size={12} className="icon-anim-spin-dir" />
-                      )}
-                      Regenerate
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!privateChatEnabled) return;
+                          onRegenerateInvite();
+                        }}
+                        disabled={!privateChatEnabled || regeneratingInviteLink}
+                        className="inline-flex h-8 items-center gap-2 rounded-full border border-emerald-200 bg-white px-3 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                      >
+                        {regeneratingInviteLink ? (
+                          <LoaderCircle size={12} className="animate-spin" />
+                        ) : (
+                          <Refresh size={12} className="icon-anim-spin-dir" />
+                        )}
+                        Regenerate
+                      </button>
+                    </Tooltip>
                   </div>
                 ) : null}
               </div>
@@ -553,34 +557,38 @@ export default function NewGroupModal({
                           ref={remoteSourceMenuRef}
                           className="absolute left-0 right-0 z-50 mt-2 overflow-hidden rounded-2xl border border-emerald-200 bg-white p-1 text-sm font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
                         >
-                          <button
-                            type="button"
-                            disabled={!remoteChannelTelegramAvailable}
-                            onClick={() => {
-                              if (!remoteChannelTelegramAvailable) return;
-                              setRemoteSourceMenuOpen(false);
-                              setGroupForm((prev) => ({
-                                ...prev,
-                                remoteChannelProvider: "telegram",
-                                remoteChannelSource: "",
-                              }));
-                            }}
-                            title={!remoteChannelTelegramAvailable ? "Telegram is not configured on this server" : undefined}
-                            className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition ${
-                              remoteChannelTelegramAvailable
-                                ? "hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
-                                : "cursor-not-allowed opacity-40"
-                            }`}
+                          <Tooltip
+                            label={!remoteChannelTelegramAvailable ? "Telegram is not configured on this server" : ""}
+                            className="w-full"
                           >
-                            <span className="flex items-center gap-2">
-                              <TelegramIcon size={16} className="shrink-0" />
-                              Telegram
-                            </span>
-                            {(groupForm.remoteChannelProvider === "telegram" ||
-                              !groupForm.remoteChannelProvider) && remoteChannelTelegramAvailable ? (
-                              <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                            ) : null}
-                          </button>
+                            <button
+                              type="button"
+                              disabled={!remoteChannelTelegramAvailable}
+                              onClick={() => {
+                                if (!remoteChannelTelegramAvailable) return;
+                                setRemoteSourceMenuOpen(false);
+                                setGroupForm((prev) => ({
+                                  ...prev,
+                                  remoteChannelProvider: "telegram",
+                                  remoteChannelSource: "",
+                                }));
+                              }}
+                              className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition ${
+                                remoteChannelTelegramAvailable
+                                  ? "hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
+                                  : "cursor-not-allowed opacity-40"
+                              }`}
+                            >
+                              <span className="flex items-center gap-2">
+                                <TelegramIcon size={16} className="shrink-0" />
+                                Telegram
+                              </span>
+                              {(groupForm.remoteChannelProvider === "telegram" ||
+                                !groupForm.remoteChannelProvider) && remoteChannelTelegramAvailable ? (
+                                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                              ) : null}
+                            </button>
+                          </Tooltip>
                           <button
                             type="button"
                             onClick={() => {
@@ -777,15 +785,16 @@ export default function NewGroupModal({
                             className="h-8 w-8"
                           />
                           <div className="min-w-0">
-                            <p
-                              className="flex items-center gap-0.5 truncate font-semibold"
-                              dir="ltr"
-                              title={label}
-                            >
-                              <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
-                              {Boolean(result.verified) && <VerifiedBadge size={14} />}
-                              <UserRoleBadge role={result.role} size={14} />
-                            </p>
+                            <Tooltip label={label} asChild>
+                              <p
+                                className="flex items-center gap-0.5 truncate font-semibold"
+                                dir="ltr"
+                              >
+                                <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
+                                {Boolean(result.verified) && <VerifiedBadge size={14} />}
+                                <UserRoleBadge role={result.role} size={14} />
+                              </p>
+                            </Tooltip>
                             <p
                               className="truncate text-xs text-slate-500 dark:text-slate-400"
                               dir="auto"
@@ -833,13 +842,11 @@ export default function NewGroupModal({
                           initials={initials}
                           className="h-4 w-4 text-[9px]"
                         />
-                        <span
-                          className="max-w-[160px] truncate"
-                          dir="auto"
-                          title={member.username}
-                        >
-                          @{member.username}
-                        </span>
+                        <Tooltip label={member.username} asChild>
+                          <span className="max-w-[160px] truncate" dir="auto">
+                            @{member.username}
+                          </span>
+                        </Tooltip>
                         <Close size={12} />
                       </button>
                     );

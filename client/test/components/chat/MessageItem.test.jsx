@@ -808,6 +808,8 @@ describe("MessageItem — sender profile", () => {
         msg={makeMsg({ nickname: "Bob" })}
       />,
     );
-    await expect.element(page.getByText("Bob")).toBeInTheDocument();
+    // Scope to the sender name element — a lingering hover from the previous
+    // test could otherwise open a tooltip carrying the same text.
+    await expect.element(page.getByText("Bob").first()).toBeInTheDocument();
   });
 });

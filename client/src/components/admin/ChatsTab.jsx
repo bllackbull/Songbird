@@ -6,6 +6,7 @@ import AdminGroupModal from "./AdminGroupModal.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 import Avatar from "../common/Avatar.jsx";
 import VerifiedBadge from "../common/VerifiedBadge.jsx";
+import Tooltip from "../common/Tooltip.jsx";
 import { hasPersian } from "../../utils/fontUtils.js";
 
 const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStatsChange }, ref) {
@@ -147,8 +148,8 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
                         {c.group_username && <p className="truncate text-[11px] text-slate-400">@{c.group_username}</p>}
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
-                        <button type="button" onClick={() => setEditChat(c)} className={iconBtn("slate")} title="Edit"><Pencil size={16} /></button>
-                        <button type="button" onClick={() => setPendingDelete(c)} className={iconBtn("rose")} title="Delete"><Trash size={16} /></button>
+                        <Tooltip label="Edit"><button type="button" onClick={() => setEditChat(c)} className={iconBtn("slate")}><Pencil size={16} /></button></Tooltip>
+                        <Tooltip label="Delete"><button type="button" onClick={() => setPendingDelete(c)} className={iconBtn("rose")}><Trash size={16} /></button></Tooltip>
                       </div>
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-slate-500 dark:text-slate-400">
@@ -230,8 +231,8 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
                       <td className="px-4 py-2.5 text-[11px] text-slate-400 dark:text-slate-500">{fmtDate(c.created_at)}</td>
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-1">
-                          <button type="button" onClick={() => setEditChat(c)} className={iconBtn("slate")} title="Edit"><Pencil size={16} className="icon-anim-sway" /></button>
-                          <button type="button" onClick={() => setPendingDelete(c)} className={iconBtn("rose")} title="Delete"><Trash size={16} className="icon-anim-slide" /></button>
+                          <Tooltip label="Edit"><button type="button" onClick={() => setEditChat(c)} className={iconBtn("slate")}><Pencil size={16} className="icon-anim-sway" /></button></Tooltip>
+                          <Tooltip label="Delete"><button type="button" onClick={() => setPendingDelete(c)} className={iconBtn("rose")}><Trash size={16} className="icon-anim-slide" /></button></Tooltip>
                         </div>
                       </td>
                     </tr>

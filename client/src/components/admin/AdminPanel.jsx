@@ -24,6 +24,7 @@ import ChatsTab from "./ChatsTab.jsx";
 import ActionsTab from "./ActionsTab.jsx";
 import LogsTab from "./LogsTab.jsx";
 import SettingsTab from "./SettingsTab.jsx";
+import Tooltip from "../common/Tooltip.jsx";
 
 const TABS = [
   { id: "dashboard", label: "Dashboard", icon: GaugeIcon,         anim: "" },
@@ -240,37 +241,42 @@ export default function AdminPanel({ user, onBack }) {
               <span className="truncate text-sm font-bold text-slate-700 dark:text-slate-200">Admin Panel</span>
             </label>
           )}
-          <button type="button" onClick={() => setSidebarOpen((o) => !o)} title={sidebarOpen ? "Collapse" : "Expand"}
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-400 transition hover:border-emerald-200/60 hover:bg-emerald-50/50 hover:text-emerald-600 dark:text-slate-500 dark:hover:border-emerald-500/20 dark:hover:bg-emerald-500/5 dark:hover:text-emerald-400">
-            {sidebarOpen ? <ArrowLeftFromLine size={15} className="icon-anim-nudge" /> : <ArrowRightFromLine size={15} className="icon-anim-nudge" />}
-          </button>
+          <Tooltip label={sidebarOpen ? "Collapse" : "Expand"} className="shrink-0">
+            <button type="button" onClick={() => setSidebarOpen((o) => !o)}
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-400 transition hover:border-emerald-200/60 hover:bg-emerald-50/50 hover:text-emerald-600 dark:text-slate-500 dark:hover:border-emerald-500/20 dark:hover:bg-emerald-500/5 dark:hover:text-emerald-400">
+              {sidebarOpen ? <ArrowLeftFromLine size={15} className="icon-anim-nudge" /> : <ArrowRightFromLine size={15} className="icon-anim-nudge" />}
+            </button>
+          </Tooltip>
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2">
           {TABS.map(({ id, label, icon: Icon, anim }) => (
-            <button key={id} type="button"
-              onClick={() => selectTab(id)}
-              title={!showLabels ? label : undefined}
-              className={`flex h-9 w-full items-center rounded-xl border transition
-                ${showLabels ? "gap-2.5 px-3 text-sm font-semibold" : "justify-center"}
-                ${tab === id
-                  ? "border-emerald-400 bg-emerald-50 text-emerald-700 dark:border-emerald-400/60 dark:bg-emerald-500/10 dark:text-emerald-300"
-                  : "border-transparent text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 dark:text-slate-100 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
-                }`}>
-              <Icon size={15} className={`shrink-0 text-emerald-500 ${anim}`} />
-              {showLabels && <span className="truncate">{label}</span>}
-            </button>
+            <Tooltip key={id} label={!showLabels ? label : ""} className="w-full">
+              <button type="button"
+                onClick={() => selectTab(id)}
+                className={`flex h-9 w-full items-center rounded-xl border transition
+                  ${showLabels ? "gap-2.5 px-3 text-sm font-semibold" : "justify-center"}
+                  ${tab === id
+                    ? "border-emerald-400 bg-emerald-50 text-emerald-700 dark:border-emerald-400/60 dark:bg-emerald-500/10 dark:text-emerald-300"
+                    : "border-transparent text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 dark:text-slate-100 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
+                  }`}>
+                <Icon size={15} className={`shrink-0 text-emerald-500 ${anim}`} />
+                {showLabels && <span className="truncate">{label}</span>}
+              </button>
+            </Tooltip>
           ))}
         </div>
 
         <div className="shrink-0 border-t border-slate-100 p-2 dark:border-white/5">
-          <button type="button" onClick={onBack} title={!showLabels ? "Exit" : undefined}
-            className={`flex h-9 w-full items-center rounded-xl text-rose-600 transition
-              hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10
-              ${showLabels ? "gap-2.5 px-3 text-sm font-semibold" : "justify-center"}`}>
-            <ArrowLeft size={15} className="shrink-0 icon-anim-slide" />
-            {showLabels && <span className="truncate">Exit</span>}
-          </button>
+          <Tooltip label={!showLabels ? "Exit" : ""} className="w-full">
+            <button type="button" onClick={onBack}
+              className={`flex h-9 w-full items-center rounded-xl text-rose-600 transition
+                hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10
+                ${showLabels ? "gap-2.5 px-3 text-sm font-semibold" : "justify-center"}`}>
+              <ArrowLeft size={15} className="shrink-0 icon-anim-slide" />
+              {showLabels && <span className="truncate">Exit</span>}
+            </button>
+          </Tooltip>
         </div>
       </nav>
 
@@ -330,14 +336,16 @@ export default function AdminPanel({ user, onBack }) {
           <span className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 px-16 md:px-14">
             <h1 className="truncate text-base font-semibold text-slate-700 dark:text-slate-200 md:text-sm">{activeTab?.label}</h1>
           </span>
-          <button type="button" onClick={handleManualRefresh} disabled={refreshState === "loading"} title="Refresh"
-            className={`ml-auto inline-flex shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-700 disabled:cursor-wait dark:text-slate-400 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300 ${isDesktopView ? "h-8 w-8" : "h-10 w-10"}`}>
-            {refreshState === "loading"
-              ? <LoaderCircle size={isDesktopView ? 14 : 16} className="animate-spin text-emerald-600 dark:text-emerald-400" />
-              : refreshState === "done"
-                ? <Check size={isDesktopView ? 14 : 16} className="text-emerald-600 dark:text-emerald-400" />
-                : <Refresh size={isDesktopView ? 14 : 16} className="icon-anim-spin-full" />}
-          </button>
+          <Tooltip label="Refresh" placement="bottom" className="ml-auto shrink-0">
+            <button type="button" onClick={handleManualRefresh} disabled={refreshState === "loading"}
+              className={`inline-flex shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-700 disabled:cursor-wait dark:text-slate-400 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300 ${isDesktopView ? "h-8 w-8" : "h-10 w-10"}`}>
+              {refreshState === "loading"
+                ? <LoaderCircle size={isDesktopView ? 14 : 16} className="animate-spin text-emerald-600 dark:text-emerald-400" />
+                : refreshState === "done"
+                  ? <Check size={isDesktopView ? 14 : 16} className="text-emerald-600 dark:text-emerald-400" />
+                  : <Refresh size={isDesktopView ? 14 : 16} className="icon-anim-spin-full" />}
+            </button>
+          </Tooltip>
         </div>
 
         <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-4 md:p-5">
