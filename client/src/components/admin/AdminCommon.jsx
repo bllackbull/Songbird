@@ -100,7 +100,7 @@ export function SectionHeading({ children, danger = false }) {
 
 // ─── Badges / icons ──────────────────────────────────────────────────────────
 
-const ROLE_CHIP_BASE = "inline-flex w-16 items-center justify-center rounded-full border px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide";
+const ROLE_CHIP_BASE = "inline-flex w-12 items-center justify-center rounded-full border px-1 py-px text-[9px] font-semibold uppercase tracking-wide";
 
 export function RoleBadge({ role, banned = false }) {
   if (banned) return (
