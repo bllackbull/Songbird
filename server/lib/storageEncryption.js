@@ -161,19 +161,23 @@ function createStorageEncryption({
     const iv = source.subarray(FILE_IV_OFFSET, FILE_TAG_OFFSET);
     const tag = source.subarray(FILE_TAG_OFFSET, FILE_DATA_OFFSET);
     const ciphertext = source.subarray(FILE_DATA_OFFSET);
-    const decipher = cryptoImpl.createDecipheriv("aes-256-gcm", key, iv);
+    const decipher = cryptoImpl.createDecipheriv("aes-256-gcm", key, iv, {
+      authTagLength: 16,
+    });
     decipher.setAuthTag(tag);
     return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
   };
 
-  const encryptText = (value = "") => {
+  const encryptText = (
+    value = "",
+    { allowPlaintextSystemMessage = false } = {},
+  ) => {
     const input = String(value || "");
     const key = resolveKey();
     if (
       !key ||
       !input ||
-      isSystemMessageBody(input) ||
-      isEncryptedText(input)
+      (allowPlaintextSystemMessage && isSystemMessageBody(input))
     ) {
       return input;
     }
@@ -197,15 +201,20 @@ function createStorageEncryption({
     const [ivPart, tagPart, cipherPart] = payload.split(".");
     if (!ivPart || !tagPart || !cipherPart) return input;
 
+    const iv = Buffer.from(ivPart, "base64url");
+    const tag = Buffer.from(tagPart, "base64url");
+    const ciphertext = Buffer.from(cipherPart, "base64url");
+    if (iv.length !== 12 || tag.length !== 16 || ciphertext.length === 0) {
+      return input;
+    }
+
     try {
-      const decipher = cryptoImpl.createDecipheriv(
-        "aes-256-gcm",
-        key,
-        Buffer.from(ivPart, "base64url"),
-      );
-      decipher.setAuthTag(Buffer.from(tagPart, "base64url"));
+      const decipher = cryptoImpl.createDecipheriv("aes-256-gcm", key, iv, {
+        authTagLength: 16,
+      });
+      decipher.setAuthTag(tag);
       const plaintext = Buffer.concat([
-        decipher.update(Buffer.from(cipherPart, "base64url")),
+        decipher.update(ciphertext),
         decipher.final(),
       ]);
       return plaintext.toString("utf8");

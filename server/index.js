@@ -497,6 +497,15 @@ function backfillStorageEncryption() {
     let encryptedInBatch = 0;
     batch.forEach((row) => {
       const body = String(row?.body || "");
+      if (!body || storageEncryption.isSystemMessageBody(body)) return;
+
+      // Valid ciphertext must remain untouched, while legacy plaintext that
+      // merely imitates the ciphertext prefix is encrypted on startup.
+      const isValidCiphertext =
+        storageEncryption.isEncryptedText(body) &&
+        storageEncryption.decryptText(body) !== body;
+      if (isValidCiphertext) return;
+
       const nextBody = storageEncryption.encryptText(body);
       if (nextBody === body) return;
       adminRun("UPDATE chat_messages SET body = ? WHERE id = ?", [

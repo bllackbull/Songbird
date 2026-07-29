@@ -368,7 +368,15 @@ function registerProfileRoutes(app, deps) {
       if (!chatId) return;
       const label = user.nickname || user.username;
       if (String(chat?.type || "").toLowerCase() === "group") {
-        createMessage(chatId, user.id, `[[system:left:${label}]]`);
+        createMessage(
+          chatId,
+          user.id,
+          `[[system:left:${label}]]`,
+          null,
+          null,
+          null,
+          { allowPlaintextSystemMessage: true },
+        );
         emitChatEvent(chatId, {
           type: "chat_message",
           chatId,

@@ -708,7 +708,15 @@ function registerChatRoutes(app, deps) {
       clearChatMemberLeft(chatId, user.id);
       addChatMember(chatId, user.id, "member");
       if (chat.type === "group") {
-        createMessage(chatId, user.id, `[[system:joined:${user.nickname || user.username}]]`);
+        createMessage(
+          chatId,
+          user.id,
+          `[[system:joined:${user.nickname || user.username}]]`,
+          null,
+          null,
+          null,
+          { allowPlaintextSystemMessage: true },
+        );
         try {
           emitChatEvent(chatId, {
             type: "chat_message",
@@ -1042,6 +1050,10 @@ function registerChatRoutes(app, deps) {
           chatId,
           user.id,
           `[[system:joined:${member.nickname || member.username}]]`,
+          null,
+          null,
+          null,
+          { allowPlaintextSystemMessage: true },
         );
         emitChatEvent(chatId, {
           type: "chat_message",
@@ -1119,7 +1131,15 @@ function registerChatRoutes(app, deps) {
     removeChatMember(chatId, user.id);
     markChatMemberLeft(chatId, user.id);
     if (chat.type === "group") {
-      createMessage(chatId, user.id, `[[system:left:${user.nickname || user.username}]]`);
+      createMessage(
+        chatId,
+        user.id,
+        `[[system:left:${user.nickname || user.username}]]`,
+        null,
+        null,
+        null,
+        { allowPlaintextSystemMessage: true },
+      );
       emitChatEvent(chatId, {
         type: "chat_message",
         chatId,
@@ -1232,6 +1252,10 @@ function registerChatRoutes(app, deps) {
         chatId,
         actor.id,
         `[[system:removed:${target.nickname || target.username}]]`,
+        null,
+        null,
+        null,
+        { allowPlaintextSystemMessage: true },
       );
       emitChatEvent(chatId, {
         type: "chat_message",
@@ -1474,7 +1498,15 @@ function registerChatRoutes(app, deps) {
       clearChatMemberLeft(chatId, user.id);
       addChatMember(chatId, user.id, "member");
       if (chat.type === "group") {
-        createMessage(chatId, user.id, `[[system:joined:${user.nickname || user.username}]]`);
+        createMessage(
+          chatId,
+          user.id,
+          `[[system:joined:${user.nickname || user.username}]]`,
+          null,
+          null,
+          null,
+          { allowPlaintextSystemMessage: true },
+        );
         emitChatEvent(chatId, {
           type: "chat_message",
           chatId,

@@ -1,3 +1,9 @@
+## 0.11.3
+
+### Security
+- 🔧 Fixed a message at-rest encryption bypass caused by untrusted ciphertext-marker handling.
+
+
 ## 0.11.2
 
 ### New Features

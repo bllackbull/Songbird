@@ -1717,8 +1717,11 @@ export function createMessage(
   replyToMessageId = null,
   expiresAt = null,
   clientRequestId = null,
+  { allowPlaintextSystemMessage = false } = {},
 ) {
-  const storedBody = storageEncryption.encryptText(body);
+  const storedBody = storageEncryption.encryptText(body, {
+    allowPlaintextSystemMessage,
+  });
   run(
     `INSERT INTO chat_messages (
       chat_id, user_id, body, reply_to_message_id, expires_at, client_request_id
