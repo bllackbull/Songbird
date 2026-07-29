@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, Close, Eye, EyeOff, Pencil, Refresh, Trash } from "../../icons/lucide.js";
+import { BadgeCheck, Check, Close, Eye, EyeOff, Pencil, Refresh, Trash } from "../../icons/lucide.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import { getRandomAvatarColor } from "../../utils/avatarColor.js";
@@ -289,7 +289,10 @@ export default function AdminUserModal({ mode = "edit", user = null, onClose, on
               onClick={() => setVerified((v) => !v)}
               className="flex w-full items-center justify-between rounded-2xl border border-emerald-200 px-4 py-3 text-left text-sm font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
             >
-              <span>Verified</span>
+              <span className="inline-flex items-center gap-2">
+                <BadgeCheck size={18} className="shrink-0 icon-anim-pop" aria-hidden="true" />
+                Verified
+              </span>
               <span
                 className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition ${
                   verified ? "justify-end bg-emerald-500" : "justify-start bg-slate-300 dark:bg-slate-700"
