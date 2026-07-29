@@ -277,6 +277,9 @@ export function makeApp(overrides = {}) {
     reloadDatabase: () => {},
     adminClearAllMessages: () => {},
     adminResetDatabase: () => {},
+    // Avoid probing the host's service manager whenever an in-memory test app
+    // registers admin routes. Production resolves this once during startup.
+    getServiceControlStatus: () => ({ available: false, reason: "systemctl not available." }),
     dbGetAllSettings: () => [],
     dbSetSetting: () => {},
     dbDeleteSetting: () => {},

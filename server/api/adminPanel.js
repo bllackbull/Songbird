@@ -944,12 +944,6 @@ function registerAdminPanelRoutes(app, deps) {
 
   const SERVICE_NAME = process.env.SONGBIRD_SERVICE_NAME || "songbird";
 
-  // Detects whether the server is running inside a Docker container by checking
-  // for the presence of /.dockerenv (set by the Docker runtime on every container).
-  const isDocker = () => {
-    try { return deps.fs.existsSync("/.dockerenv"); } catch { return false; }
-  };
-
   // Sends a POST request to the Docker Engine API via the Unix socket to
   // restart or stop this container. The container name / ID is read from the
   // HOSTNAME env var, which Docker sets to the container ID by default, and
@@ -986,40 +980,52 @@ function registerAdminPanelRoutes(app, deps) {
     });
   });
 
-  // Dispatches to the right mechanism based on the deployment environment.
-  const runServiceAction = (action) =>
-    isDocker() ? runDockerAction(action) : runSystemctl(action);
+  // Docker mode and its service-control capability are fixed for a running
+  // process, so detect and probe them once while routes are registered.
+  const dockerMode = (() => {
+    try { return fs?.existsSync("/.dockerenv") ?? false; } catch { return false; }
+  })();
 
-  // Probes whether service control (restart/stop) is usable in the current
-  // deployment. In Docker it requires the socket to be mounted; on bare metal
-  // it requires systemctl to be available.
+  const probeDockerServiceControl = () => new Promise((resolve) => {
+    try {
+      const http = deps.http;
+      if (!http) return resolve(false);
+      const r = http.request(
+        { socketPath: "/var/run/docker.sock", path: "/info", method: "GET" },
+        (resp) => { resp.resume(); resolve(resp.statusCode < 500); },
+      );
+      r.on("error", () => resolve(false));
+      r.setTimeout(2000, () => { r.destroy(); resolve(false); });
+      r.end();
+    } catch { resolve(false); }
+  });
+
+  const probeSystemctlServiceControl = () => new Promise((resolve) => {
+    execFile("systemctl", ["--version"], { timeout: 2000 }, (err) => {
+      if (!err) return resolve(true);
+      execFile("sudo", ["-n", "systemctl", "--version"], { timeout: 2000 }, (err2) => resolve(!err2));
+    });
+  });
+
+  const serviceControlStatus = typeof deps.getServiceControlStatus === "function"
+    ? Promise.resolve(deps.getServiceControlStatus({ dockerMode }))
+    : (dockerMode
+      ? probeDockerServiceControl()
+      : probeSystemctlServiceControl()
+    ).then((available) => ({
+      available,
+      reason: available
+        ? null
+        : dockerMode ? "Docker socket not mounted." : "systemctl not available.",
+    }));
+
+  // Dispatches to the mechanism selected once during startup.
+  const runServiceAction = (action) =>
+    dockerMode ? runDockerAction(action) : runSystemctl(action);
+
   app.get("/api/admin/service/available", async (req, res) => {
     if (!requireAdmin(req, res)) return;
-    if (isDocker()) {
-      // Check whether the Docker socket is actually mounted and accessible.
-      const available = await new Promise((resolve) => {
-        try {
-          const http = deps.http;
-          if (!http) return resolve(false);
-          const r = http.request(
-            { socketPath: "/var/run/docker.sock", path: "/info", method: "GET" },
-            (resp) => { resp.resume(); resolve(resp.statusCode < 500); },
-          );
-          r.on("error", () => resolve(false));
-          r.setTimeout(2000, () => { r.destroy(); resolve(false); });
-          r.end();
-        } catch { resolve(false); }
-      });
-      return res.json({ available, reason: available ? null : "Docker socket not mounted." });
-    }
-    // Bare metal — check whether systemctl exists.
-    const available = await new Promise((resolve) => {
-      execFile("systemctl", ["--version"], { timeout: 2000 }, (err) => {
-        if (!err) return resolve(true);
-        execFile("sudo", ["-n", "systemctl", "--version"], { timeout: 2000 }, (err2) => resolve(!err2));
-      });
-    });
-    res.json({ available, reason: available ? null : "systemctl not available." });
+    res.json(await serviceControlStatus);
   });
 
   app.post("/api/admin/service/restart", async (req, res) => {

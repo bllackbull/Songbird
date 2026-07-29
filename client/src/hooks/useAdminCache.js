@@ -21,20 +21,18 @@ function getStore(keys) {
  * so the next visit to that tab always gets fresh data.
  */
 export function useAdminCache(fetchers, { ttlMs = 10_000 } = {}) {
-  // Stable ref to the module-level store for this hook's key-set.
-  // `store` also seeds initial React state, while the ref preserves that exact
-  // store for future writes after re-renders.
-  const storeRef = useRef(getStore(Object.keys(fetchers)));
+  // Keep the module-level store stable for this hook instance without reading
+  // a ref during render. The lazy initializer also preserves it on remounts.
+  const [store] = useState(() => getStore(Object.keys(fetchers)));
 
   // cache: { [key]: { data: any, fetchedAt: number, loading: boolean } | null }
   // Seeds from the module store on remount so cached data survives navigation.
   // On first visit the store is empty → store[k] ?? null === null (unchanged).
-  const [cache, setCache] = useState(() => {
-    const store = storeRef.current;
-    return Object.fromEntries(
+  const [cache, setCache] = useState(() => (
+    Object.fromEntries(
       Object.keys(fetchers).map((k) => [k, store[k] ?? null])
-    );
-  });
+    )
+  ));
 
   // Wrapper around setCache that also writes every key back to the module
   // store so that cached data survives the next unmount/remount cycle.
@@ -42,11 +40,10 @@ export function useAdminCache(fetchers, { ttlMs = 10_000 } = {}) {
     setCache((prev) => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
       // Write each key back to the module store so data survives unmount
-      const store = storeRef.current;
       Object.keys(next).forEach((k) => { store[k] = next[k]; });
       return next;
     });
-  }, []);
+  }, [store]);
 
   // Keep a stable ref to the latest fetchers so the interval callback
   // always calls the current version without going stale.
@@ -76,7 +73,7 @@ export function useAdminCache(fetchers, { ttlMs = 10_000 } = {}) {
     } finally {
       loadingRef.current.delete(key);
     }
-  }, []);
+  }, [setAndPersistCache]);
 
   /**
    * Ensure the cache for `key` is fresh.  Fetches immediately if stale/missing.
@@ -87,6 +84,14 @@ export function useAdminCache(fetchers, { ttlMs = 10_000 } = {}) {
     const isStale = !entry || Date.now() - entry.fetchedAt > ttlMs;
     if (isStale) fetchKey(key);
   }, [cache, fetchKey, ttlMs]);
+
+  /**
+   * Fetch a cache entry only when it has never been loaded. Use this for
+   * process/session-stable data that should not expire while the app is open.
+   */
+  const ensureLoaded = useCallback((key) => {
+    if (!cache[key]) fetchKey(key);
+  }, [cache, fetchKey]);
 
   /**
    * Force-invalidate a cache entry so the next `ensureFresh` always refetches.
@@ -109,5 +114,5 @@ export function useAdminCache(fetchers, { ttlMs = 10_000 } = {}) {
     return Promise.all((keys.length ? keys : Object.keys(fetchers)).map(fetchKey));
   }, [fetchers, fetchKey]);
 
-  return { cache, ensureFresh, invalidate, refresh, refreshAll };
+  return { cache, ensureFresh, ensureLoaded, invalidate, refresh, refreshAll };
 }

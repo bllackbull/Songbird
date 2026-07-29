@@ -57,8 +57,9 @@ export default function AdminPanel({ user, onBack }) {
   // Users, chats, and logs are paginated server-side and own their own data
   // fetching (see the individual tabs), so they are intentionally NOT in this
   // shared cache. Only the small, single-shot payloads live here.
-  const { cache, ensureFresh, invalidate, refresh: refreshKey, refreshAll } = useAdminCache({
+  const { cache, ensureFresh, ensureLoaded, invalidate, refresh: refreshKey, refreshAll } = useAdminCache({
     stats:    () => api.get("/api/admin/stats"),
+    actions:  () => api.get("/api/admin/service/available"),
     settings: () => api.get("/api/admin/settings"),
   }, { ttlMs: AUTO_REFRESH_MS });
 
@@ -132,10 +133,11 @@ export default function AdminPanel({ user, onBack }) {
   // The dashboard also needs `stats`, so always keep that fresh.
   useEffect(() => {
     ensureFresh("stats");
-    // Only shared-cache tabs (e.g. settings) refetch here; self-paginated tabs
-    // load their own data on mount/param change.
-    if (tab !== "dashboard" && cache[tab] !== undefined) ensureFresh(tab);
-  }, [tab, ensureFresh, cache]);
+    // Service-control availability is fixed for the browser session; load it
+    // once when the Actions tab is first visited. Other shared tabs stay fresh.
+    if (tab === "actions") ensureLoaded("actions");
+    else if (tab !== "dashboard" && cache[tab] !== undefined) ensureFresh(tab);
+  }, [tab, ensureFresh, ensureLoaded, cache]);
 
   // ── Background auto-refresh (10 s) ───────────────────────────────────────
   // Refresh stats always; also refresh the current tab's data if it has a
@@ -147,7 +149,7 @@ export default function AdminPanel({ user, onBack }) {
         return;
       }
       refreshKey("stats");
-      if (cache[tab] !== undefined) refreshKey(tab);
+      if (tab !== "actions" && cache[tab] !== undefined) refreshKey(tab);
       // Self-paginated tabs refresh their current page via their own ref.
       else if (SELF_PAGINATED_TABS.includes(tab)) tabRefs.current[tab]?.refresh?.();
     };
@@ -168,7 +170,7 @@ export default function AdminPanel({ user, onBack }) {
     if (refreshResetRef.current) { clearTimeout(refreshResetRef.current); refreshResetRef.current = null; }
     setRefreshState("loading");
     const keys = ["stats"];
-    if (cache[tab] !== undefined) keys.push(tab);
+    if (tab !== "actions" && cache[tab] !== undefined) keys.push(tab);
     await refreshAll(...keys);
     // Self-paginated tabs aren't in the shared cache; refresh via their ref
     // below (handled by the tabRefs.current[tab]?.refresh?.() call).
@@ -379,7 +381,10 @@ export default function AdminPanel({ user, onBack }) {
               />
             </Activity>
             <Activity mode={tab === "actions" ? "visible" : "hidden"}>
-              <ActionsTab ref={(r) => { tabRefs.current.actions = r; }} />
+              <ActionsTab
+                ref={(r) => { tabRefs.current.actions = r; }}
+                serviceStatus={cache.actions?.data ?? null}
+              />
             </Activity>
             <Activity mode={tab === "logs" ? "visible" : "hidden"}>
               <LogsTab
