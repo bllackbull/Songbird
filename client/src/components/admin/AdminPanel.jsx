@@ -43,10 +43,21 @@ const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 // Auto-refresh interval for shared admin cache (stats / active tab).
 // DashboardTab polls /api/admin/system on its own matching cadence.
 const AUTO_REFRESH_MS = 10_000;
+const ADMIN_SIDEBAR_OPEN_STORAGE_KEY = "songbird.admin.sidebar-open";
+
+function getInitialSidebarOpen() {
+  if (typeof window === "undefined") return true;
+
+  try {
+    return window.localStorage.getItem(ADMIN_SIDEBAR_OPEN_STORAGE_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
 
 export default function AdminPanel({ user, onBack }) {
   const [tab, setTab]                 = useState("dashboard");
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(getInitialSidebarOpen);
   const [refreshState, setRefreshState] = useState(""); // "" | "loading" | "done"
   const refreshResetRef = useRef(null);
   const tabRefs = useRef({});
@@ -96,6 +107,18 @@ export default function AdminPanel({ user, onBack }) {
   const selectTab = useCallback((id) => {
     setTab(id);
     setMobileView("detail");
+  }, []);
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarOpen((isOpen) => {
+      const nextSidebarOpen = !isOpen;
+      try {
+        window.localStorage.setItem(ADMIN_SIDEBAR_OPEN_STORAGE_KEY, String(nextSidebarOpen));
+      } catch {
+        // Preserve the in-memory preference when browser storage is unavailable.
+      }
+      return nextSidebarOpen;
+    });
   }, []);
 
   const handleTouchStart = (event) => {
@@ -244,7 +267,7 @@ export default function AdminPanel({ user, onBack }) {
             </label>
           )}
           <Tooltip label={sidebarOpen ? "Collapse" : "Expand"} className="shrink-0">
-            <button type="button" onClick={() => setSidebarOpen((o) => !o)}
+            <button type="button" onClick={toggleSidebar}
               className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-400 transition hover:border-emerald-200/60 hover:bg-emerald-50/50 hover:text-emerald-600 dark:text-slate-500 dark:hover:border-emerald-500/20 dark:hover:bg-emerald-500/5 dark:hover:text-emerald-400">
               {sidebarOpen ? <ArrowLeftFromLine size={15} className="icon-anim-nudge" /> : <ArrowRightFromLine size={15} className="icon-anim-nudge" />}
             </button>
