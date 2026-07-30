@@ -110,7 +110,7 @@ function makeDb({
 
     run(sql, params = []) {
       const s = sql.replace(/\s+/g, " ").trim().toLowerCase();
-      if (s.startsWith("insert")) {
+      if (s.startsWith("insert or ignore into chat_members")) {
         // INSERT OR IGNORE INTO chat_members (chat_id, user_id, role)
         const [chatId, userId, role] = params;
         const alreadyThere = insertedMembers.some(
@@ -160,6 +160,17 @@ describe("addChatMembers — normal add", () => {
       role: "member",
     });
     expect(db._saved).toBe(true);
+  });
+
+  test("records a join system message when adding a group member", () => {
+    const db = makeDb({ users: USERS });
+
+    addChatMembers(db, CHAT, [USERS[1]], { force: false });
+
+    expect(db._runs).toContainEqual({
+      sql: "INSERT INTO chat_messages (chat_id, user_id, body) VALUES (?, ?, ?)",
+      params: [1, 2, "[[system:joined:bob]]"],
+    });
   });
 
   test("skips a user who is already a member", () => {

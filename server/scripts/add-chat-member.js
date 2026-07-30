@@ -49,7 +49,7 @@ async function main() {
     }
 
     const rows = addAllUsers
-      ? dbApi.getAll("SELECT id, username FROM users ORDER BY id ASC")
+      ? dbApi.getAll("SELECT id, username, nickname FROM users ORDER BY id ASC")
       : Array.from(
           new Map(
             userSelectors

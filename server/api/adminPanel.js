@@ -86,6 +86,7 @@ function registerAdminPanelRoutes(app, deps) {
     // chat creation / editing
     crypto,
     createChat,
+    createMessage,
     addChatMember,
     addAllEligibleChatMembers,
     removeChatMember,
@@ -146,6 +147,26 @@ function registerAdminPanelRoutes(app, deps) {
 
   // Returns true if the acting session belongs to the owner role.
   const actorIsOwner = (session) => isUserOwner(session?.id);
+
+  const emitGroupJoinMessage = (chat, chatId, session, member) => {
+    if (chat.type !== "group") return;
+    const body = `[[system:joined:${member.nickname || member.username}]]`;
+    createMessage(
+      chatId,
+      session.id,
+      body,
+      null,
+      null,
+      null,
+      { allowPlaintextSystemMessage: true },
+    );
+    emitChatEvent(chatId, {
+      type: "chat_message",
+      chatId,
+      username: session.username,
+      body,
+    });
+  };
 
   // Helper to write an audit log entry (to logs/admin.log) tied to the acting admin.
   const log = (session, action, opts = {}) => {
@@ -793,6 +814,7 @@ function registerAdminPanelRoutes(app, deps) {
       adminSave();
       result.addedUsers.forEach((user) => {
         emitSseEvent(String(user.username), { type: "chat_list_changed" });
+        emitGroupJoinMessage(chat, chatId, session, user);
       });
       if (result.addedUsers.length > 0) {
         emitChatEvent(chatId, { type: "chat_updated", chatId });
@@ -813,8 +835,11 @@ function registerAdminPanelRoutes(app, deps) {
     if (!userId) return res.status(400).json({ error: "userId required" });
     const user = findUserById(userId);
     if (!user) return res.status(404).json({ error: "User not found" });
-    addChatMember(chatId, userId, "member");
+    const added = addChatMember(chatId, userId, "member") > 0;
     adminSave();
+    if (added) {
+      emitGroupJoinMessage(chat, chatId, session, user);
+    }
     // Notify the added user so the chat appears in their sidebar immediately.
     emitSseEvent(String(user.username), { type: "chat_list_changed" });
     // Notify existing members that the member list changed.

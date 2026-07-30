@@ -486,7 +486,7 @@ export function addAllEligibleChatMembers(chatId) {
   const leftMessagePattern = "[[system:left:%";
   const addedUsers = getAll(
     `
-    SELECT users.id, users.username
+    SELECT users.id, users.username, users.nickname
     FROM users
     WHERE NOT EXISTS (
       SELECT 1 FROM chat_members

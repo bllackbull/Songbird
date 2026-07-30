@@ -61,6 +61,16 @@ export function addChatMembers(dbApi, chat, rows, { force = false } = {}) {
       "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",
       [Number(chat.id), Number(row.id), role],
     );
+    if (chat.type === "group") {
+      dbApi.run(
+        "INSERT INTO chat_messages (chat_id, user_id, body) VALUES (?, ?, ?)",
+        [
+          Number(chat.id),
+          Number(row.id),
+          `[[system:joined:${row.nickname || row.username}]]`,
+        ],
+      );
+    }
     addedCount += 1;
   });
 

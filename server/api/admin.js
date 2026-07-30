@@ -696,7 +696,7 @@ function registerAdminRoutes(app, deps) {
         }
 
         const users = addAllUsers
-          ? adminGetAll("SELECT id, username FROM users ORDER BY id ASC")
+          ? adminGetAll("SELECT id, username, nickname FROM users ORDER BY id ASC")
           : Array.from(
               new Map(
                 rawSelectors
@@ -750,6 +750,19 @@ function registerAdminRoutes(app, deps) {
               "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",
               [Number(chat.id), Number(user.id), "member"],
             );
+            if (chat.type === "group") {
+              const body = `[[system:joined:${user.nickname || user.username}]]`;
+              adminRun(
+                "INSERT INTO chat_messages (chat_id, user_id, body) VALUES (?, ?, ?)",
+                [Number(chat.id), Number(user.id), body],
+              );
+              emitChatEvent(Number(chat.id), {
+                type: "chat_message",
+                chatId: Number(chat.id),
+                username: String(user.username || ""),
+                body,
+              });
+            }
             addedCount += 1;
           });
           adminRun("COMMIT");
