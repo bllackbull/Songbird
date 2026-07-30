@@ -470,10 +470,84 @@ export function createChat(name, type = "dm", options = {}) {
 }
 
 export function addChatMember(chatId, userId, role = "member") {
-  run(
+  return run(
     "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",
     [chatId, userId, role],
   );
+}
+
+/**
+ * Adds users eligible for the admin Add all action. The eligibility criteria
+ * intentionally match `db:chat:add <chat> --all`: existing members and users
+ * with either persisted or legacy left-chat markers are excluded.
+ */
+export function addAllEligibleChatMembers(chatId) {
+  const normalizedChatId = Number(chatId);
+  const leftMessagePattern = "[[system:left:%";
+  const addedUsers = getAll(
+    `
+    SELECT users.id, users.username
+    FROM users
+    WHERE NOT EXISTS (
+      SELECT 1 FROM chat_members
+      WHERE chat_members.chat_id = ? AND chat_members.user_id = users.id
+    )
+      AND NOT EXISTS (
+        SELECT 1 FROM chat_left_members
+        WHERE chat_left_members.chat_id = ? AND chat_left_members.user_id = users.id
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM chat_messages
+        WHERE chat_messages.chat_id = ?
+          AND chat_messages.user_id = users.id
+          AND chat_messages.body LIKE ?
+      )
+    ORDER BY users.id ASC
+    `,
+    [
+      normalizedChatId,
+      normalizedChatId,
+      normalizedChatId,
+      leftMessagePattern,
+    ],
+  );
+  const skippedLeftRow = getRow(
+    `
+    SELECT COUNT(*) AS count
+    FROM users
+    WHERE NOT EXISTS (
+      SELECT 1 FROM chat_members
+      WHERE chat_members.chat_id = ? AND chat_members.user_id = users.id
+    )
+      AND (
+        EXISTS (
+          SELECT 1 FROM chat_left_members
+          WHERE chat_left_members.chat_id = ? AND chat_left_members.user_id = users.id
+        )
+        OR EXISTS (
+          SELECT 1 FROM chat_messages
+          WHERE chat_messages.chat_id = ?
+            AND chat_messages.user_id = users.id
+            AND chat_messages.body LIKE ?
+        )
+      )
+    `,
+    [
+      normalizedChatId,
+      normalizedChatId,
+      normalizedChatId,
+      leftMessagePattern,
+    ],
+  );
+
+  addedUsers.forEach((user) => {
+    addChatMember(normalizedChatId, Number(user.id), "member");
+  });
+
+  return {
+    addedUsers,
+    skippedLeftCount: Number(skippedLeftRow?.count || 0),
+  };
 }
 
 export function searchPublicGroups(query, viewerUserId, limit = 20) {

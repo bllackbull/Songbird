@@ -14,6 +14,7 @@ import {
   SatelliteDish,
   Trash,
   UserPlus,
+  Users,
 } from "../../icons/lucide.js";
 import { SongbirdIcon, TelegramIcon } from "../../icons/BrandIcons.jsx";
 import { copyTextToClipboard } from "../../utils/clipboard.js";
@@ -67,6 +68,8 @@ export default function NewGroupModal({
   username: _username = "",
   extraFields = null,
   showMemberSearch = true,
+  addAllMembersSelected = false,
+  onToggleAddAllMembers,
 }) {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [remoteSourceMenuOpen, setRemoteSourceMenuOpen] = useState(false);
@@ -717,9 +720,10 @@ export default function NewGroupModal({
                     setGroupError("");
                   }}
                   placeholder="username"
+                  disabled={addAllMembersSelected}
                   lang={groupSearchHasPersian ? "fa" : "en"}
                   dir={groupSearchHasPersian ? "rtl" : "ltr"}
-                  className={`w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-14 text-sm text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
+                  className={`w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 ${onToggleAddAllMembers ? "pr-24" : "pr-14"} text-sm text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
                     groupSearchHasPersian ? "font-fa text-right" : "text-left"
                   }`}
                   style={{ unicodeBidi: "plaintext" }}
@@ -733,6 +737,23 @@ export default function NewGroupModal({
                     aria-label="Clear member search"
                   >
                     <Close size={16} className="icon-anim-pop" />
+                  </button>
+                ) : onToggleAddAllMembers ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onToggleAddAllMembers();
+                      setGroupError("");
+                    }}
+                    className={`absolute right-2 top-1/2 inline-flex h-8 -translate-y-1/2 items-center gap-1 rounded-2xl border px-2 text-[11px] font-semibold transition ${
+                      addAllMembersSelected
+                        ? "border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-400"
+                        : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/20"
+                    }`}
+                    aria-pressed={addAllMembersSelected}
+                  >
+                    <Users size={14} />
+                    {addAllMembersSelected ? "All selected" : "Add all"}
                   </button>
                 ) : null}
               </div>

@@ -181,6 +181,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [members, setMembers] = useState([]);
+  const [addAllEligibleMembers, setAddAllEligibleMembers] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [verified, setVerified] = useState(editing ? Boolean(chat?.verified) : false);
@@ -260,6 +261,13 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
 
   const entityLabel = type === "channel" ? "Channel" : "Group";
 
+  const toggleAddAllEligibleMembers = useCallback(() => {
+    if (!addAllEligibleMembers) {
+      setMembers([]);
+    }
+    setAddAllEligibleMembers((selected) => !selected);
+  }, [addAllEligibleMembers]);
+
   const submit = useCallback(async () => {
     setError(""); setBusy(true);
     try {
@@ -290,6 +298,17 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
             return;
           }
         }
+        if (addAllEligibleMembers) {
+          const allMembersResponse = await api.post(`/api/admin/chats/${chat.id}/members`, {
+            all: true,
+          });
+          if (!allMembersResponse.ok) {
+            const data = await allMembersResponse.json().catch(() => ({}));
+            setError(data.error || "Failed to add all eligible members.");
+            setBusy(false);
+            return;
+          }
+        }
         if (fileUploadEnabled) {
           if (pendingAvatarFile) await uploadAvatarTo(chat.id, pendingAvatarFile);
           else if (avatarRemoved) await apiFetch(`/api/admin/chats/${chat.id}/avatar`, { method: "DELETE" });
@@ -304,6 +323,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
           color: form.groupColor,
           verified,
           memberIds: members.map((m) => Number(m.id)).filter(Boolean),
+          addAllEligibleMembers,
         };
         const r = await api.post("/api/admin/chats", payload);
         if (!r.ok) { const d = await r.json(); setError(d.error || "Failed"); setBusy(false); return; }
@@ -317,7 +337,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
     } catch {
       setError("Request failed."); setBusy(false);
     }
-  }, [editing, form, owner, type, members, chat, onSaved, onClose, fileUploadEnabled, pendingAvatarFile, avatarRemoved, uploadAvatarTo, initialOwnerId, verified]);
+  }, [editing, form, owner, type, members, addAllEligibleMembers, chat, onSaved, onClose, fileUploadEnabled, pendingAvatarFile, avatarRemoved, uploadAvatarTo, initialOwnerId, verified]);
 
   const extraFields = (
     <div className="space-y-3">
@@ -394,6 +414,8 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
         entityLabel={entityLabel}
         extraFields={extraFields}
         showMemberSearch
+        addAllMembersSelected={addAllEligibleMembers}
+        onToggleAddAllMembers={toggleAddAllEligibleMembers}
         showAvatarField={fileUploadEnabled}
         avatarPreview={avatarPreview}
         avatarColor={form.groupColor || "#10b981"}

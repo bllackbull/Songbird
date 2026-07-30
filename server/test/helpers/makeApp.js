@@ -213,6 +213,7 @@ export function makeApp(overrides = {}) {
     deleteChatById: () => {},
     deleteUserById: () => {},
     addChatMember: () => {},
+    addAllEligibleChatMembers: () => ({ addedUsers: [], skippedLeftCount: 0 }),
     removeChatMember: () => {},
     setChatMuted: () => {},
     setChatMemberRole: () => {},

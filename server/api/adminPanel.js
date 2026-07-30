@@ -87,6 +87,7 @@ function registerAdminPanelRoutes(app, deps) {
     crypto,
     createChat,
     addChatMember,
+    addAllEligibleChatMembers,
     removeChatMember,
     setChatMemberRole,
     listChatMembers,
@@ -589,9 +590,13 @@ function registerAdminPanelRoutes(app, deps) {
     addChatMember(chatId, Number(owner.id), "owner");
 
     const memberIds = Array.isArray(b.memberIds) ? b.memberIds.map(Number).filter(Boolean) : [];
+    const addAllEligibleMembers = Boolean(b.addAllEligibleMembers);
     memberIds.forEach((mid) => {
       if (mid !== Number(owner.id)) addChatMember(chatId, mid, "member");
     });
+    const bulkMembers = addAllEligibleMembers
+      ? addAllEligibleChatMembers(chatId)
+      : { addedUsers: [], skippedLeftCount: 0 };
 
     if (b.verified) adminRun("UPDATE chats SET verified = 1 WHERE id = ?", [chatId]);
 
@@ -605,8 +610,18 @@ function registerAdminPanelRoutes(app, deps) {
       const member = findUserById(mid);
       if (member?.username) emitSseEvent(String(member.username), { type: "chat_list_changed" });
     });
-    log(session, "chat.create", { targetType: "chat", targetLabel: name, details: `type=${type}` });
-    res.status(201).json({ ok: true, chat: created });
+    bulkMembers.addedUsers.forEach((member) => {
+      if (Number(member.id) !== Number(owner.id)) {
+        emitSseEvent(String(member.username), { type: "chat_list_changed" });
+      }
+    });
+    log(session, "chat.create", { targetType: "chat", targetLabel: name, details: `type=${type} added_all=${bulkMembers.addedUsers.length} skipped_left=${bulkMembers.skippedLeftCount}` });
+    res.status(201).json({
+      ok: true,
+      chat: created,
+      addedAllCount: bulkMembers.addedUsers.length,
+      skippedLeftCount: bulkMembers.skippedLeftCount,
+    });
   });
 
   // ─── Chats — edit ────────────────────────────────────────────────────────────
@@ -766,11 +781,37 @@ function registerAdminPanelRoutes(app, deps) {
     const session = requireAdmin(req, res);
     if (!session) return;
     const chatId = Number(req.params.id);
-    const userId = Number(req.body?.userId);
-    if (!chatId || !userId) return res.status(400).json({ error: "chatId and userId required" });
+    if (!chatId) return res.status(400).json({ error: "Invalid chat ID" });
     const chat = findChatById(chatId);
-    const user = findUserById(userId);
     if (!chat) return res.status(404).json({ error: "Chat not found" });
+    if (!["group", "channel"].includes(chat.type)) {
+      return res.status(400).json({ error: "Only groups and channels can have members." });
+    }
+
+    if (req.body?.all) {
+      const result = addAllEligibleChatMembers(chatId);
+      adminSave();
+      result.addedUsers.forEach((user) => {
+        emitSseEvent(String(user.username), { type: "chat_list_changed" });
+      });
+      if (result.addedUsers.length > 0) {
+        emitChatEvent(chatId, { type: "chat_updated", chatId });
+      }
+      log(session, "chat.member_add", {
+        targetType: "chat",
+        targetLabel: chat.name || `Chat #${chatId}`,
+        details: `all added=${result.addedUsers.length} skipped_left=${result.skippedLeftCount}`,
+      });
+      return res.json({
+        ok: true,
+        addedCount: result.addedUsers.length,
+        skippedLeftCount: result.skippedLeftCount,
+      });
+    }
+
+    const userId = Number(req.body?.userId);
+    if (!userId) return res.status(400).json({ error: "userId required" });
+    const user = findUserById(userId);
     if (!user) return res.status(404).json({ error: "User not found" });
     addChatMember(chatId, userId, "member");
     adminSave();

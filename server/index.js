@@ -29,6 +29,7 @@ import { USER_COLORS, setUserColor } from "./settings/colors.js";
 import { readEnvInt } from "./settings/env.js";
 import {
   addChatMember,
+  addAllEligibleChatMembers,
   adminGetAll,
   adminGetRow,
   adminRun,
@@ -669,6 +670,7 @@ const apiDeps = {
   isVideoFileProcessing,
   listPushSubscriptionsByUserIds,
   listChatMembers,
+  addAllEligibleChatMembers,
   listChatMembersForChats,
   listChatsForUser,
   listEnabledRemoteChannelSources,
