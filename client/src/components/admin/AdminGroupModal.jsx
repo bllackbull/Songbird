@@ -232,10 +232,9 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
     setAvatarPreview("");
   }, []);
 
-  // Member search (create flow only). Mirrors useNewGroupModal behaviour, and
-  // also excludes whoever is currently selected as the owner.
+  // Member search mirrors useNewGroupModal and excludes the selected owner.
+  // During edits, selected members represent additions to the existing chat.
   useEffect(() => {
-    if (editing) return undefined;
     if (!search.trim()) { setResults([]); return undefined; }
     const handle = setTimeout(async () => {
       try {
@@ -280,6 +279,17 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
         if (owner?.id && owner.id !== initialOwnerId) payload.owner = owner.id;
         const r = await api.patch(`/api/admin/chats/${chat.id}`, payload);
         if (!r.ok) { const d = await r.json(); setError(d.error || "Failed"); setBusy(false); return; }
+        for (const member of members) {
+          const memberResponse = await api.post(`/api/admin/chats/${chat.id}/members`, {
+            userId: Number(member.id),
+          });
+          if (!memberResponse.ok) {
+            const data = await memberResponse.json().catch(() => ({}));
+            setError(data.error || "Failed to add member.");
+            setBusy(false);
+            return;
+          }
+        }
         if (fileUploadEnabled) {
           if (pendingAvatarFile) await uploadAvatarTo(chat.id, pendingAvatarFile);
           else if (avatarRemoved) await apiFetch(`/api/admin/chats/${chat.id}/avatar`, { method: "DELETE" });
@@ -383,7 +393,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
         submitLabel={editing ? "Save" : "Create"}
         entityLabel={entityLabel}
         extraFields={extraFields}
-        showMemberSearch={!editing}
+        showMemberSearch
         showAvatarField={fileUploadEnabled}
         avatarPreview={avatarPreview}
         avatarColor={form.groupColor || "#10b981"}
