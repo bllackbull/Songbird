@@ -1552,9 +1552,6 @@ install_songbird_dependencies() {
   log "Installing client dependencies..."
   run_in_install_dir "npm ${npm_registry_arg} --prefix client install" || return 1
 
-  log "Installing root dependencies..."
-  run_in_install_dir "npm ${npm_registry_arg} install" || return 1
-
   log "Building client..."
   run_in_install_dir "npm --prefix client run build" || return 1
 }
