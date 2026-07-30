@@ -615,6 +615,14 @@ const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cac
 
   const hasDirty = dirtyKeys.length > 0;
 
+  // Only settings not controlled by .env can be restored. Disable the action
+  // when none of those settings differs from its default value.
+  const hasRestorableSettings = settings.some((def) =>
+    !def.envLocked &&
+    String(def.value ?? def.defaultVal ?? "") !==
+      String(def.defaultVal ?? ""),
+  );
+
   const handleChange = (key, val) => {
     // Never track changes for env-locked keys — they can't be saved
     if (defsByKey[key]?.envLocked) return;
@@ -782,7 +790,10 @@ const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cac
         <button
           type="button"
           onClick={() => setResetOpen(true)}
-          className={btnSecondary}
+          disabled={!hasRestorableSettings}
+          className={
+            btnSecondary + " disabled:cursor-not-allowed disabled:opacity-50"
+          }
         >
           <Rotate size={13} className="icon-anim-spin-full" />
           Restore defaults
