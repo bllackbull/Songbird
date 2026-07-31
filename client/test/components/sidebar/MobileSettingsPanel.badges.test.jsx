@@ -111,7 +111,9 @@ for (const [label, viewport] of [
             user={makeUser({ verified: false })}
           />,
         );
-        await expect.element(page.getByText("Alice")).toBeInTheDocument();
+        await expect
+          .element(page.getByRole("button", { name: /Alice/ }))
+          .toBeInTheDocument();
         await expect
           .element(page.getByLabelText("Verified"))
           .not.toBeInTheDocument();
@@ -124,7 +126,9 @@ for (const [label, viewport] of [
             user={makeUser({ verified: 0 })}
           />,
         );
-        await expect.element(page.getByText("Alice")).toBeInTheDocument();
+        await expect
+          .element(page.getByRole("button", { name: /Alice/ }))
+          .toBeInTheDocument();
         await expect
           .element(page.getByLabelText("Verified"))
           .not.toBeInTheDocument();
@@ -163,7 +167,9 @@ for (const [label, viewport] of [
             user={makeUser({ role: "user" })}
           />,
         );
-        await expect.element(page.getByText("Alice")).toBeInTheDocument();
+        await expect
+          .element(page.getByRole("button", { name: /Alice/ }))
+          .toBeInTheDocument();
         await expect
           .element(page.getByLabelText("Server Owner"))
           .not.toBeInTheDocument();
@@ -211,7 +217,9 @@ for (const [label, viewport] of [
             user={makeUser({ verified: false, role: "user" })}
           />,
         );
-        await expect.element(page.getByText("Alice")).toBeInTheDocument();
+        await expect
+          .element(page.getByRole("button", { name: /Alice/ }))
+          .toBeInTheDocument();
         await expect
           .element(page.getByLabelText("Verified"))
           .not.toBeInTheDocument();

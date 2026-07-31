@@ -175,7 +175,9 @@ describe("ChatsListPanel — DM chat card badges", () => {
     render(
       <ChatsListPanel {...BASE_PROPS} visibleChats={[makeDmChat(peer)]} />,
     );
-    await expect.element(page.getByText("Bob")).toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: "Bob" }))
+      .toBeInTheDocument();
     await expect
       .element(page.getByLabelText("Verified"))
       .not.toBeInTheDocument();
@@ -206,7 +208,9 @@ describe("ChatsListPanel — DM chat card badges", () => {
     render(
       <ChatsListPanel {...BASE_PROPS} visibleChats={[makeDmChat(peer)]} />,
     );
-    await expect.element(page.getByText("Bob")).toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: "Bob" }))
+      .toBeInTheDocument();
     await expect
       .element(page.getByLabelText("Server Owner"))
       .not.toBeInTheDocument();
@@ -275,7 +279,9 @@ describe("ChatsListPanel — group/channel chat card badges", () => {
         visibleChats={[makeGroupChat({ verified: false })]}
       />,
     );
-    await expect.element(page.getByText("Test Group")).toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: "Test Group" }))
+      .toBeInTheDocument();
     await expect
       .element(page.getByLabelText("Verified"))
       .not.toBeInTheDocument();
@@ -413,7 +419,9 @@ describe("ChatsListPanel — discover group search badges", () => {
         discoverGroups={[makeDiscoverGroup({ verified: false })]}
       />,
     );
-    await expect.element(page.getByText("Public Group")).toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: /Public Group/ }))
+      .toBeInTheDocument();
     await expect
       .element(page.getByLabelText("Verified"))
       .not.toBeInTheDocument();
