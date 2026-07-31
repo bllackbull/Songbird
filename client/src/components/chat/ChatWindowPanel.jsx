@@ -24,6 +24,7 @@ import { formatCompactCount } from "../../utils/chatFormat.js";
 import Avatar from "../common/Avatar.jsx";
 import UserRoleBadge from "../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../common/VerifiedBadge.jsx";
+import Tooltip from "../common/Tooltip.jsx";
 import {
   FocusedMediaModal,
   MessageComposer,
@@ -1221,45 +1222,48 @@ export default function ChatWindowPanel({
             >
               <>
                 {activeHeaderPeer?.isDeleted ? (
-                  <span
-                    className={`block min-w-0 max-w-[60vw] truncate text-center text-lg font-semibold text-slate-500 dark:text-slate-400 sm:max-w-[40vw] md:max-w-[28vw] ${
-                      hasPersian(activeFallbackTitle) ? "font-fa" : ""
-                    }`}
-                    dir="auto"
-                    style={{ unicodeBidi: "plaintext" }}
-                    title={activeFallbackTitle}
-                  >
-                    {activeFallbackTitle}
-                  </span>
-                ) : canOpenHeaderProfile ? (
-                  <button
-                    type="button"
-                    onClick={onOpenHeaderProfile}
-                    className="inline-flex min-w-0 max-w-[60vw] items-center gap-0.5 text-center text-lg font-semibold transition hover:text-emerald-600 dark:hover:text-emerald-300 sm:max-w-[40vw] md:max-w-[28vw]"
-                    dir="ltr"
-                    title={activeFallbackTitle}
-                  >
+                  <Tooltip label={activeFallbackTitle} placement="bottom" asChild>
                     <span
-                      className={`block min-w-0 truncate ${hasPersian(activeFallbackTitle) ? "font-fa" : ""}`}
+                      className={`block min-w-0 max-w-[60vw] truncate text-center text-lg font-semibold text-slate-500 dark:text-slate-400 sm:max-w-[40vw] md:max-w-[28vw] ${
+                        hasPersian(activeFallbackTitle) ? "font-fa" : ""
+                      }`}
                       dir="auto"
+                      style={{ unicodeBidi: "plaintext" }}
                     >
                       {activeFallbackTitle}
                     </span>
-                    {Boolean(activeChat?.verified) && <VerifiedBadge size={15} />}
-                    {!activeChat?.verified && Boolean(activeHeaderPeer?.user_verified) && <VerifiedBadge size={15} />}
-                    <UserRoleBadge role={activeHeaderPeer?.user_role} size={15} />
-                  </button>
+                  </Tooltip>
+                ) : canOpenHeaderProfile ? (
+                  <Tooltip label={activeFallbackTitle} placement="bottom" asChild>
+                    <button
+                      type="button"
+                      onClick={onOpenHeaderProfile}
+                      className="inline-flex min-w-0 max-w-[60vw] items-center gap-0.5 text-center text-lg font-semibold transition hover:text-emerald-600 dark:hover:text-emerald-300 sm:max-w-[40vw] md:max-w-[28vw]"
+                      dir="ltr"
+                    >
+                      <span
+                        className={`block min-w-0 truncate ${hasPersian(activeFallbackTitle) ? "font-fa" : ""}`}
+                        dir="auto"
+                      >
+                        {activeFallbackTitle}
+                      </span>
+                      {Boolean(activeChat?.verified) && <VerifiedBadge size={17} />}
+                      {!activeChat?.verified && Boolean(activeHeaderPeer?.user_verified) && <VerifiedBadge size={17} />}
+                      <UserRoleBadge role={activeHeaderPeer?.user_role} size={17} />
+                    </button>
+                  </Tooltip>
                 ) : (
-                  <span
-                    className="inline-flex min-w-0 max-w-[60vw] items-center gap-0.5 truncate text-center text-lg font-semibold text-slate-700 dark:text-slate-100 sm:max-w-[40vw] md:max-w-[28vw]"
-                    dir="ltr"
-                    title={activeFallbackTitle}
-                  >
-                    <span className={`truncate ${hasPersian(activeFallbackTitle) ? "font-fa" : ""}`} dir="auto">{activeFallbackTitle}</span>
-                    {Boolean(activeChat?.verified) && <VerifiedBadge size={15} />}
-                    {!activeChat?.verified && Boolean(activeHeaderPeer?.user_verified) && <VerifiedBadge size={15} />}
-                    <UserRoleBadge role={activeHeaderPeer?.user_role} size={15} />
-                  </span>
+                  <Tooltip label={activeFallbackTitle} placement="bottom" asChild>
+                    <span
+                      className="inline-flex min-w-0 max-w-[60vw] items-center gap-0.5 truncate text-center text-lg font-semibold text-slate-700 dark:text-slate-100 sm:max-w-[40vw] md:max-w-[28vw]"
+                      dir="ltr"
+                    >
+                      <span className={`truncate ${hasPersian(activeFallbackTitle) ? "font-fa" : ""}`} dir="auto">{activeFallbackTitle}</span>
+                      {Boolean(activeChat?.verified) && <VerifiedBadge size={17} />}
+                      {!activeChat?.verified && Boolean(activeHeaderPeer?.user_verified) && <VerifiedBadge size={17} />}
+                      <UserRoleBadge role={activeHeaderPeer?.user_role} size={17} />
+                    </span>
+                  </Tooltip>
                 )}
                 {showStatus ? (
                   <p className="flex min-w-0 max-w-[70vw] items-center gap-2 text-xs text-slate-500 dark:text-slate-400 sm:max-w-[42vw] md:max-w-[30vw]">
@@ -1278,43 +1282,53 @@ export default function ChatWindowPanel({
                           <span className="sb-typing-dot" />
                           <span className="sb-typing-dot" />
                         </span>
+                        <Tooltip
+                          label={typingIndicator?.fullLabel || typingIndicator?.label}
+                          placement="bottom"
+                          asChild
+                          // fullLabel names every typist, which the collapsed
+                          // label omits, so show it even when nothing is clipped.
+                          whenTruncated={false}
+                        >
+                          <span
+                            className={`block min-w-0 truncate whitespace-nowrap font-semibold leading-[1.2] text-emerald-500 dark:text-emerald-300 ${
+                              hasPersian(typingIndicator?.label) ? "font-fa sb-fa-baseline-fix" : ""
+                            }`}
+                            dir="auto"
+                            style={{ unicodeBidi: "plaintext" }}
+                          >
+                            {typingIndicator?.label}
+                          </span>
+                        </Tooltip>
+                      </>
+                    ) : isGroupChat || isChannelChat ? (
+                      <Tooltip label={peerStatusLabel} placement="bottom" asChild>
                         <span
-                          className={`block min-w-0 truncate whitespace-nowrap font-semibold leading-[1.2] text-emerald-500 dark:text-emerald-300 ${
-                            hasPersian(typingIndicator?.label) ? "font-fa sb-fa-baseline-fix" : ""
+                          className={`block min-w-0 truncate whitespace-nowrap text-[11px] leading-[1.2] sm:text-xs ${
+                            hasPersian(peerStatusLabel) ? "font-fa sb-fa-baseline-fix" : ""
                           }`}
                           dir="auto"
                           style={{ unicodeBidi: "plaintext" }}
-                          title={typingIndicator?.fullLabel || typingIndicator?.label}
                         >
-                          {typingIndicator?.label}
+                          {peerStatusLabel}
                         </span>
-                      </>
-                    ) : isGroupChat || isChannelChat ? (
-                      <span
-                        className={`block min-w-0 truncate whitespace-nowrap text-[11px] leading-[1.2] sm:text-xs ${
-                          hasPersian(peerStatusLabel) ? "font-fa sb-fa-baseline-fix" : ""
-                        }`}
-                        dir="auto"
-                        style={{ unicodeBidi: "plaintext" }}
-                        title={peerStatusLabel}
-                      >
-                        {peerStatusLabel}
-                      </span>
+                      </Tooltip>
                     ) : (
-                      <span
-                        className={`block min-w-0 truncate leading-[1.2] ${
-                          peerStatusLabel === "online"
-                            ? "font-semibold text-emerald-500 dark:text-emerald-300"
-                            : ""
-                        } ${
-                          hasPersian(peerStatusLabel) ? "font-fa sb-fa-baseline-fix" : ""
-                        }`}
-                        dir="auto"
-                        style={{ unicodeBidi: "plaintext" }}
-                        title={peerStatusLabel}
-                      >
-                        {peerStatusLabel}
-                      </span>
+                      <Tooltip label={peerStatusLabel} placement="bottom" asChild>
+                        <span
+                          className={`block min-w-0 truncate leading-[1.2] ${
+                            peerStatusLabel === "online"
+                              ? "font-semibold text-emerald-500 dark:text-emerald-300"
+                              : ""
+                          } ${
+                            hasPersian(peerStatusLabel) ? "font-fa sb-fa-baseline-fix" : ""
+                          }`}
+                          dir="auto"
+                          style={{ unicodeBidi: "plaintext" }}
+                        >
+                          {peerStatusLabel}
+                        </span>
+                      </Tooltip>
                     )}
                   </p>
                 ) : null}

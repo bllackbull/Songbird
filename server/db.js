@@ -470,10 +470,84 @@ export function createChat(name, type = "dm", options = {}) {
 }
 
 export function addChatMember(chatId, userId, role = "member") {
-  run(
+  return run(
     "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",
     [chatId, userId, role],
   );
+}
+
+/**
+ * Adds users eligible for the admin Add all action. The eligibility criteria
+ * intentionally match `db:chat:add <chat> --all`: existing members and users
+ * with either persisted or legacy left-chat markers are excluded.
+ */
+export function addAllEligibleChatMembers(chatId) {
+  const normalizedChatId = Number(chatId);
+  const leftMessagePattern = "[[system:left:%";
+  const addedUsers = getAll(
+    `
+    SELECT users.id, users.username, users.nickname
+    FROM users
+    WHERE NOT EXISTS (
+      SELECT 1 FROM chat_members
+      WHERE chat_members.chat_id = ? AND chat_members.user_id = users.id
+    )
+      AND NOT EXISTS (
+        SELECT 1 FROM chat_left_members
+        WHERE chat_left_members.chat_id = ? AND chat_left_members.user_id = users.id
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM chat_messages
+        WHERE chat_messages.chat_id = ?
+          AND chat_messages.user_id = users.id
+          AND chat_messages.body LIKE ?
+      )
+    ORDER BY users.id ASC
+    `,
+    [
+      normalizedChatId,
+      normalizedChatId,
+      normalizedChatId,
+      leftMessagePattern,
+    ],
+  );
+  const skippedLeftRow = getRow(
+    `
+    SELECT COUNT(*) AS count
+    FROM users
+    WHERE NOT EXISTS (
+      SELECT 1 FROM chat_members
+      WHERE chat_members.chat_id = ? AND chat_members.user_id = users.id
+    )
+      AND (
+        EXISTS (
+          SELECT 1 FROM chat_left_members
+          WHERE chat_left_members.chat_id = ? AND chat_left_members.user_id = users.id
+        )
+        OR EXISTS (
+          SELECT 1 FROM chat_messages
+          WHERE chat_messages.chat_id = ?
+            AND chat_messages.user_id = users.id
+            AND chat_messages.body LIKE ?
+        )
+      )
+    `,
+    [
+      normalizedChatId,
+      normalizedChatId,
+      normalizedChatId,
+      leftMessagePattern,
+    ],
+  );
+
+  addedUsers.forEach((user) => {
+    addChatMember(normalizedChatId, Number(user.id), "member");
+  });
+
+  return {
+    addedUsers,
+    skippedLeftCount: Number(skippedLeftRow?.count || 0),
+  };
 }
 
 export function searchPublicGroups(query, viewerUserId, limit = 20) {
@@ -1187,7 +1261,7 @@ export function findChatByGroupUsername(groupUsername) {
   const withAt = normalized.startsWith("@") ? normalized : `@${normalized}`;
   return getRow(
     `SELECT id, name, type, group_username, group_visibility, invite_token, group_color,
-            allow_member_invites, group_avatar_url, created_by_user_id
+            allow_member_invites, group_avatar_url, created_by_user_id, verified
      FROM chats
      WHERE group_username IN (?, ?) AND type IN ('group', 'channel')`,
     [normalized, withAt],
@@ -1196,7 +1270,7 @@ export function findChatByGroupUsername(groupUsername) {
 
 export function findChatByInviteToken(inviteToken) {
   return getRow(
-    "SELECT id, name, type, group_username, group_visibility, invite_token, group_color, allow_member_invites, group_avatar_url, created_by_user_id FROM chats WHERE invite_token = ? AND type IN ('group', 'channel')",
+    "SELECT id, name, type, group_username, group_visibility, invite_token, group_color, allow_member_invites, group_avatar_url, created_by_user_id, verified FROM chats WHERE invite_token = ? AND type IN ('group', 'channel')",
     [String(inviteToken || "").trim()],
   );
 }
@@ -2795,6 +2869,7 @@ export function adminListChats({ limit = 200, offset = 0, search = "", sortBy = 
             (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) AS message_count,
             owner.id AS owner_id, owner.username AS owner_username, owner.nickname AS owner_nickname,
             owner.avatar_url AS owner_avatar_url, owner.color AS owner_color,
+            owner.verified AS owner_verified, owner.role AS owner_role,
             COUNT(*) OVER() AS _total
      FROM chats c
      LEFT JOIN users owner ON owner.id = (

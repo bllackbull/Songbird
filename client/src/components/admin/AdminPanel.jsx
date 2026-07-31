@@ -24,6 +24,7 @@ import ChatsTab from "./ChatsTab.jsx";
 import ActionsTab from "./ActionsTab.jsx";
 import LogsTab from "./LogsTab.jsx";
 import SettingsTab from "./SettingsTab.jsx";
+import Tooltip from "../common/Tooltip.jsx";
 
 const TABS = [
   { id: "dashboard", label: "Dashboard", icon: GaugeIcon,         anim: "" },
@@ -42,10 +43,21 @@ const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 // Auto-refresh interval for shared admin cache (stats / active tab).
 // DashboardTab polls /api/admin/system on its own matching cadence.
 const AUTO_REFRESH_MS = 10_000;
+const ADMIN_SIDEBAR_OPEN_STORAGE_KEY = "songbird.admin.sidebar-open";
+
+function getInitialSidebarOpen() {
+  if (typeof window === "undefined") return true;
+
+  try {
+    return window.localStorage.getItem(ADMIN_SIDEBAR_OPEN_STORAGE_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
 
 export default function AdminPanel({ user, onBack }) {
   const [tab, setTab]                 = useState("dashboard");
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(getInitialSidebarOpen);
   const [refreshState, setRefreshState] = useState(""); // "" | "loading" | "done"
   const refreshResetRef = useRef(null);
   const tabRefs = useRef({});
@@ -56,8 +68,9 @@ export default function AdminPanel({ user, onBack }) {
   // Users, chats, and logs are paginated server-side and own their own data
   // fetching (see the individual tabs), so they are intentionally NOT in this
   // shared cache. Only the small, single-shot payloads live here.
-  const { cache, ensureFresh, invalidate, refresh: refreshKey, refreshAll } = useAdminCache({
+  const { cache, ensureFresh, ensureLoaded, invalidate, refresh: refreshKey, refreshAll } = useAdminCache({
     stats:    () => api.get("/api/admin/stats"),
+    actions:  () => api.get("/api/admin/service/available"),
     settings: () => api.get("/api/admin/settings"),
   }, { ttlMs: AUTO_REFRESH_MS });
 
@@ -96,6 +109,18 @@ export default function AdminPanel({ user, onBack }) {
     setMobileView("detail");
   }, []);
 
+  const toggleSidebar = useCallback(() => {
+    setSidebarOpen((isOpen) => {
+      const nextSidebarOpen = !isOpen;
+      try {
+        window.localStorage.setItem(ADMIN_SIDEBAR_OPEN_STORAGE_KEY, String(nextSidebarOpen));
+      } catch {
+        // Preserve the in-memory preference when browser storage is unavailable.
+      }
+      return nextSidebarOpen;
+    });
+  }, []);
+
   const handleTouchStart = (event) => {
     if (isDesktopView || mobileView !== "detail") return;
     const touch = event.touches?.[0];
@@ -131,10 +156,11 @@ export default function AdminPanel({ user, onBack }) {
   // The dashboard also needs `stats`, so always keep that fresh.
   useEffect(() => {
     ensureFresh("stats");
-    // Only shared-cache tabs (e.g. settings) refetch here; self-paginated tabs
-    // load their own data on mount/param change.
-    if (tab !== "dashboard" && cache[tab] !== undefined) ensureFresh(tab);
-  }, [tab, ensureFresh, cache]);
+    // Service-control availability is fixed for the browser session; load it
+    // once when the Actions tab is first visited. Other shared tabs stay fresh.
+    if (tab === "actions") ensureLoaded("actions");
+    else if (tab !== "dashboard" && cache[tab] !== undefined) ensureFresh(tab);
+  }, [tab, ensureFresh, ensureLoaded, cache]);
 
   // ── Background auto-refresh (10 s) ───────────────────────────────────────
   // Refresh stats always; also refresh the current tab's data if it has a
@@ -146,7 +172,7 @@ export default function AdminPanel({ user, onBack }) {
         return;
       }
       refreshKey("stats");
-      if (cache[tab] !== undefined) refreshKey(tab);
+      if (tab !== "actions" && cache[tab] !== undefined) refreshKey(tab);
       // Self-paginated tabs refresh their current page via their own ref.
       else if (SELF_PAGINATED_TABS.includes(tab)) tabRefs.current[tab]?.refresh?.();
     };
@@ -167,7 +193,7 @@ export default function AdminPanel({ user, onBack }) {
     if (refreshResetRef.current) { clearTimeout(refreshResetRef.current); refreshResetRef.current = null; }
     setRefreshState("loading");
     const keys = ["stats"];
-    if (cache[tab] !== undefined) keys.push(tab);
+    if (tab !== "actions" && cache[tab] !== undefined) keys.push(tab);
     await refreshAll(...keys);
     // Self-paginated tabs aren't in the shared cache; refresh via their ref
     // below (handled by the tabRefs.current[tab]?.refresh?.() call).
@@ -240,37 +266,42 @@ export default function AdminPanel({ user, onBack }) {
               <span className="truncate text-sm font-bold text-slate-700 dark:text-slate-200">Admin Panel</span>
             </label>
           )}
-          <button type="button" onClick={() => setSidebarOpen((o) => !o)} title={sidebarOpen ? "Collapse" : "Expand"}
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-400 transition hover:border-emerald-200/60 hover:bg-emerald-50/50 hover:text-emerald-600 dark:text-slate-500 dark:hover:border-emerald-500/20 dark:hover:bg-emerald-500/5 dark:hover:text-emerald-400">
-            {sidebarOpen ? <ArrowLeftFromLine size={15} className="icon-anim-nudge" /> : <ArrowRightFromLine size={15} className="icon-anim-nudge" />}
-          </button>
+          <Tooltip label={sidebarOpen ? "Collapse" : "Expand"} className="shrink-0">
+            <button type="button" onClick={toggleSidebar}
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-400 transition hover:border-emerald-200/60 hover:bg-emerald-50/50 hover:text-emerald-600 dark:text-slate-500 dark:hover:border-emerald-500/20 dark:hover:bg-emerald-500/5 dark:hover:text-emerald-400">
+              {sidebarOpen ? <ArrowLeftFromLine size={15} className="icon-anim-nudge" /> : <ArrowRightFromLine size={15} className="icon-anim-nudge" />}
+            </button>
+          </Tooltip>
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2">
           {TABS.map(({ id, label, icon: Icon, anim }) => (
-            <button key={id} type="button"
-              onClick={() => selectTab(id)}
-              title={!showLabels ? label : undefined}
-              className={`flex h-9 w-full items-center rounded-xl border transition
-                ${showLabels ? "gap-2.5 px-3 text-sm font-semibold" : "justify-center"}
-                ${tab === id
-                  ? "border-emerald-400 bg-emerald-50 text-emerald-700 dark:border-emerald-400/60 dark:bg-emerald-500/10 dark:text-emerald-300"
-                  : "border-transparent text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 dark:text-slate-100 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
-                }`}>
-              <Icon size={15} className={`shrink-0 text-emerald-500 ${anim}`} />
-              {showLabels && <span className="truncate">{label}</span>}
-            </button>
+            <Tooltip key={id} label={!showLabels ? label : ""} className="w-full">
+              <button type="button"
+                onClick={() => selectTab(id)}
+                className={`flex h-9 w-full items-center rounded-xl border transition
+                  ${showLabels ? "gap-2.5 px-3 text-sm font-semibold" : "justify-center"}
+                  ${tab === id
+                    ? "border-emerald-400 bg-emerald-50 text-emerald-700 dark:border-emerald-400/60 dark:bg-emerald-500/10 dark:text-emerald-300"
+                    : "border-transparent text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 dark:text-slate-100 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
+                  }`}>
+                <Icon size={15} className={`shrink-0 text-emerald-500 ${anim}`} />
+                {showLabels && <span className="truncate">{label}</span>}
+              </button>
+            </Tooltip>
           ))}
         </div>
 
         <div className="shrink-0 border-t border-slate-100 p-2 dark:border-white/5">
-          <button type="button" onClick={onBack} title={!showLabels ? "Exit" : undefined}
-            className={`flex h-9 w-full items-center rounded-xl text-rose-600 transition
-              hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10
-              ${showLabels ? "gap-2.5 px-3 text-sm font-semibold" : "justify-center"}`}>
-            <ArrowLeft size={15} className="shrink-0 icon-anim-slide" />
-            {showLabels && <span className="truncate">Exit</span>}
-          </button>
+          <Tooltip label={!showLabels ? "Exit" : ""} className="w-full">
+            <button type="button" onClick={onBack}
+              className={`flex h-9 w-full items-center rounded-xl text-rose-600 transition
+                hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10
+                ${showLabels ? "gap-2.5 px-3 text-sm font-semibold" : "justify-center"}`}>
+              <ArrowLeft size={15} className="shrink-0 icon-anim-slide" />
+              {showLabels && <span className="truncate">Exit</span>}
+            </button>
+          </Tooltip>
         </div>
       </nav>
 
@@ -293,7 +324,7 @@ export default function AdminPanel({ user, onBack }) {
           <span className="h-9 w-9 shrink-0" aria-hidden="true" />
         </div>
 
-        <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-4">
+        <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-4 pb-[calc(104px+env(safe-area-inset-bottom)+var(--vv-bottom-offset,0px))] md:pb-5">
           <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-xs dark:border-white/5 dark:bg-slate-950/60">
             {TABS.map(({ id, label, icon: Icon, anim }, index) => (
               <button key={id} type="button"
@@ -330,17 +361,19 @@ export default function AdminPanel({ user, onBack }) {
           <span className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 px-16 md:px-14">
             <h1 className="truncate text-base font-semibold text-slate-700 dark:text-slate-200 md:text-sm">{activeTab?.label}</h1>
           </span>
-          <button type="button" onClick={handleManualRefresh} disabled={refreshState === "loading"} title="Refresh"
-            className={`ml-auto inline-flex shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-700 disabled:cursor-wait dark:text-slate-400 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300 ${isDesktopView ? "h-8 w-8" : "h-10 w-10"}`}>
-            {refreshState === "loading"
-              ? <LoaderCircle size={isDesktopView ? 14 : 16} className="animate-spin text-emerald-600 dark:text-emerald-400" />
-              : refreshState === "done"
-                ? <Check size={isDesktopView ? 14 : 16} className="text-emerald-600 dark:text-emerald-400" />
-                : <Refresh size={isDesktopView ? 14 : 16} className="icon-anim-spin-full" />}
-          </button>
+          <Tooltip label="Refresh" placement="bottom" className="ml-auto shrink-0">
+            <button type="button" onClick={handleManualRefresh} disabled={refreshState === "loading"}
+              className={`inline-flex shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-700 disabled:cursor-wait dark:text-slate-400 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300 ${isDesktopView ? "h-8 w-8" : "h-10 w-10"}`}>
+              {refreshState === "loading"
+                ? <LoaderCircle size={isDesktopView ? 14 : 16} className="animate-spin text-emerald-600 dark:text-emerald-400" />
+                : refreshState === "done"
+                  ? <Check size={isDesktopView ? 14 : 16} className="text-emerald-600 dark:text-emerald-400" />
+                  : <Refresh size={isDesktopView ? 14 : 16} className="icon-anim-spin-full" />}
+            </button>
+          </Tooltip>
         </div>
 
-        <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-4 md:p-5">
+        <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-4 pb-[calc(104px+env(safe-area-inset-bottom)+var(--vv-bottom-offset,0px))] md:p-5 md:pb-5">
             <Activity mode={tab === "dashboard" ? "visible" : "hidden"}>
               <DashboardTab ref={(r) => { tabRefs.current.dashboard = r; }} stats={stats} onStatsChange={refreshStats} />
             </Activity>
@@ -371,7 +404,10 @@ export default function AdminPanel({ user, onBack }) {
               />
             </Activity>
             <Activity mode={tab === "actions" ? "visible" : "hidden"}>
-              <ActionsTab ref={(r) => { tabRefs.current.actions = r; }} />
+              <ActionsTab
+                ref={(r) => { tabRefs.current.actions = r; }}
+                serviceStatus={cache.actions?.data ?? null}
+              />
             </Activity>
             <Activity mode={tab === "logs" ? "visible" : "hidden"}>
               <LogsTab

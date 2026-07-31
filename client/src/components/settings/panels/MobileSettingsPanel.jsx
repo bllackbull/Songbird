@@ -29,6 +29,7 @@ import ConfirmPasswordModal from "../../modals/ConfirmPasswordModal.jsx";
 import Avatar from "../../common/Avatar.jsx";
 import VerifiedBadge from "../../common/VerifiedBadge.jsx";
 import UserRoleBadge from "../../common/UserRoleBadge.jsx";
+import Tooltip from "../../common/Tooltip.jsx";
 
 const DETAIL_TITLES = {
   profile: "Edit profile",
@@ -585,22 +586,20 @@ export function MobileSettingsPanel({
                       className="h-10 w-10 transition group-hover:ring-2 group-hover:ring-emerald-300"
                     />
                     <span className="min-w-0 flex-1">
-                      <span
-                        className={`flex items-center gap-0.5`}
-                        dir="ltr"
-                        title={displayName}
-                      >
-                        <span
-                          className={`truncate text-sm font-semibold text-emerald-700 dark:text-emerald-200 ${
-                            hasPersian(displayName) ? "font-fa" : ""
-                          }`}
-                          dir="auto"
-                        >
-                          {displayName}
+                      <Tooltip label={displayName} asChild>
+                        <span className="flex items-center gap-0.5" dir="ltr">
+                          <span
+                            className={`truncate text-sm font-semibold text-emerald-700 dark:text-emerald-200 ${
+                              hasPersian(displayName) ? "font-fa" : ""
+                            }`}
+                            dir="auto"
+                          >
+                            {displayName}
+                          </span>
+                          {Boolean(user.verified) && <VerifiedBadge size={15} />}
+                          <UserRoleBadge role={user.role} size={15} />
                         </span>
-                        {Boolean(user.verified) && <VerifiedBadge size={13} />}
-                        <UserRoleBadge role={user.role} size={13} />
-                      </span>
+                      </Tooltip>
                       <span className="mt-1 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                         <span className={statusTextClass}>{statusValue}</span>
                       </span>

@@ -43,10 +43,12 @@ A few rules apply across all commands:
 | [`npm run db:user:generate`](#dbusergenerate) | Generate random test users. |
 | [`npm run db:user:edit`](#dbuseredit) | Edit a user profile. |
 | [`npm run db:user:ban`](#dbuserban) | Toggle a user's ban state. |
+| [`npm run db:user:verify`](#dbuserverify) | Toggle a user's verified status. |
 | [`npm run db:user:delete`](#dbuserdelete) | Delete one, many, or all users. |
 | [`npm run db:chat:create`](#dbchatcreate) | Create a group or channel (optionally a Remote Channel). |
 | [`npm run db:chat:add`](#dbchatadd) | Add members to a group or channel. |
 | [`npm run db:chat:edit`](#dbchatedit) | Edit a chat profile, ownership, or Remote Channel config. |
+| [`npm run db:chat:verify`](#dbchatverify) | Toggle a chat's verified status. |
 | [`npm run db:chat:delete`](#dbchatdelete) | Delete one, many, or all chats. |
 | [`npm run db:file:delete`](#dbfiledelete) | Delete uploaded message files and/or avatars. |
 | [`npm run db:message:generate`](#dbmessagegenerate) | Generate random messages between two users. |
@@ -248,6 +250,20 @@ npm run db:user:ban -- songbird.sage
 npm run db:user:ban -- songbird.sage
 ```
 
+### `db:user:verify`
+
+Toggles a user's verified status. Run the command again for the same user to remove verification.
+
+| Argument | Required | Description |
+|---|---|---|
+| `<user-id-or-username>` | Yes | The user to verify or unverify. |
+
+```bash
+npm run db:user:verify -- songbird.sage
+# run again to unverify:
+npm run db:user:verify -- songbird.sage
+```
+
 ### `db:user:delete`
 
 Deletes one, many, or all users along with their sessions and messages. Owned chats are either deleted (if no members remain) or transferred to a random remaining member.
@@ -294,17 +310,19 @@ npm run db:chat:create -- --type channel --name "My Channel" --owner alice --use
 
 ### `db:chat:add`
 
-Adds members to a group or channel. The first positional argument is the chat selector. Users who previously left are skipped.
+Adds members to a group or channel. The first positional argument is the chat selector. Users who previously left are skipped unless `--force` is given.
 
 | Argument / Flag | Required | Description |
 |---|---|---|
 | `<chat-id-or-username>` | Yes | The target chat. |
 | `<user> [more...]` | Conditional | One or more users to add. Required unless `--all` is given. |
 | `--all` | Conditional | Add every user in the database. |
+| `--force` | No | Re-add users who previously left the chat. |
 
 ```bash
 npm run db:chat:add -- core.team songbird.sage2 songbird.sage3
 npm run db:chat:add -- 1 --all
+npm run db:chat:add -- 1 --all --force
 ```
 
 ### `db:chat:edit`
@@ -349,6 +367,20 @@ npm run db:chat:edit -- my_channel --no-stream-media
 npm run db:chat:edit -- my_channel --enable-remote
 npm run db:chat:edit -- my_channel --pause-queue
 npm run db:chat:edit -- my_channel --skip-all-queue
+```
+
+### `db:chat:verify`
+
+Toggles a group or channel's verified status. Run the command again for the same chat to remove verification.
+
+| Argument | Required | Description |
+|---|---|---|
+| `<chat-id-or-username>` | Yes | The group or channel to verify or unverify. |
+
+```bash
+npm run db:chat:verify -- core.team
+# run again to unverify:
+npm run db:chat:verify -- core.team
 ```
 
 ### `db:chat:delete`

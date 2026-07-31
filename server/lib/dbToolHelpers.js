@@ -53,14 +53,14 @@ export function resolveUserRow(dbApi, selector) {
   if (Number.isFinite(numeric) && numeric > 0) {
     return (
       dbApi.getRow(
-        "SELECT id, username, nickname, avatar_url, color, status, banned FROM users WHERE id = ?",
+        "SELECT id, username, nickname, avatar_url, color, status, banned, verified FROM users WHERE id = ?",
         [Math.trunc(numeric)],
       ) || null
     );
   }
   return (
     dbApi.getRow(
-      "SELECT id, username, nickname, avatar_url, color, status, banned FROM users WHERE username = ?",
+      "SELECT id, username, nickname, avatar_url, color, status, banned, verified FROM users WHERE username = ?",
       [raw.toLowerCase()],
     ) || null
   );
@@ -76,7 +76,7 @@ export function resolveChatRow(dbApi, selector, options = {}) {
     return (
       dbApi.getRow(
         `SELECT id, name, type, group_username, group_visibility, invite_token, group_color,
-                allow_member_invites, group_avatar_url, created_by_user_id
+                allow_member_invites, group_avatar_url, created_by_user_id, verified
          FROM chats
          WHERE id = ?${typeFilter}`,
         [Math.trunc(numeric)],
@@ -87,7 +87,7 @@ export function resolveChatRow(dbApi, selector, options = {}) {
   return (
     dbApi.getRow(
       `SELECT id, name, type, group_username, group_visibility, invite_token, group_color,
-              allow_member_invites, group_avatar_url, created_by_user_id
+              allow_member_invites, group_avatar_url, created_by_user_id, verified
        FROM chats
        WHERE group_username IN (?, ?)${typeFilter}`,
       [normalizedUsername, `@${normalizedUsername}`],

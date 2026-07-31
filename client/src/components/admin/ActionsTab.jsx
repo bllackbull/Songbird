@@ -150,11 +150,11 @@ function CheckUpdateRow({ appInfo }) {
   );
 }
 
-const ActionsTab = forwardRef(function ActionsTab(_props, ref) {
+const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
   const [appInfo, setAppInfo] = useState(null);
   const [rowStatus, setRowStatus] = useState({});
   const statusTimers = useRef({});
-  const [serviceAvailable, setServiceAvailable] = useState(null); // null = probing
+  const serviceAvailable = serviceStatus ? Boolean(serviceStatus.available) : null;
 
   const [pendingFile, setPendingFile] = useState(null);
   const [serviceAction, setServiceAction] = useState(null);
@@ -192,13 +192,6 @@ const ActionsTab = forwardRef(function ActionsTab(_props, ref) {
   }, []);
 
   useEffect(() => { loadAppInfo(); }, [loadAppInfo]);
-
-  // Probe whether service control (restart/stop) is available in this deployment.
-  useEffect(() => {
-    api.get("/api/admin/service/available")
-      .then((d) => setServiceAvailable(Boolean(d?.available)))
-      .catch(() => setServiceAvailable(false));
-  }, []);
 
   useImperativeHandle(ref, () => ({ refresh: loadAppInfo }), [loadAppInfo]);
 

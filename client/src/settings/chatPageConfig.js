@@ -132,9 +132,17 @@ export const CHAT_PAGE_CONFIG = {
 
 // ─── Live override for admin-panel-configurable client settings ─────────────
 //
-// messageFetchLimit, messagePageSize, and cacheTtlMs (hours) can be tuned
-// from the admin panel. App.jsx calls this once after fetching /api/app/info.
-export function setChatPageConfig({ messageFetchLimit, messagePageSize, cacheTtlHours } = {}) {
+// Settings that can be tuned from the admin panel. App.jsx calls this once
+// after fetching /api/app/info so DB values override build-time env defaults.
+export function setChatPageConfig({
+  messageFetchLimit,
+  messagePageSize,
+  cacheTtlHours,
+  fileUploadEnabled,
+  fileUploadMaxFiles,
+  fileUploadMaxSizeMb,
+  fileUploadMaxTotalSizeMb,
+} = {}) {
   if (Number.isFinite(messageFetchLimit) && messageFetchLimit > 0) {
     CHAT_PAGE_CONFIG.messageFetchLimit = Math.trunc(messageFetchLimit);
   }
@@ -143,5 +151,17 @@ export function setChatPageConfig({ messageFetchLimit, messagePageSize, cacheTtl
   }
   if (Number.isFinite(cacheTtlHours) && cacheTtlHours > 0) {
     CHAT_PAGE_CONFIG.cacheTtlMs = Math.trunc(cacheTtlHours) * 60 * 60 * 1000;
+  }
+  if (typeof fileUploadEnabled === "boolean") {
+    CHAT_PAGE_CONFIG.fileUploadEnabled = fileUploadEnabled;
+  }
+  if (Number.isFinite(fileUploadMaxFiles) && fileUploadMaxFiles > 0) {
+    CHAT_PAGE_CONFIG.maxFilesPerMessage = Math.trunc(fileUploadMaxFiles);
+  }
+  if (Number.isFinite(fileUploadMaxSizeMb) && fileUploadMaxSizeMb > 0) {
+    CHAT_PAGE_CONFIG.maxFileSizeBytes = Math.trunc(fileUploadMaxSizeMb) * MB;
+  }
+  if (Number.isFinite(fileUploadMaxTotalSizeMb) && fileUploadMaxTotalSizeMb > 0) {
+    CHAT_PAGE_CONFIG.maxTotalUploadBytes = Math.trunc(fileUploadMaxTotalSizeMb) * MB;
   }
 }

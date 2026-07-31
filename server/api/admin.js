@@ -682,6 +682,7 @@ function registerAdminRoutes(app, deps) {
       if (action === "add_chat_members") {
         const chatSelector = String(payload.chatSelector || "").trim();
         const addAllUsers = Boolean(payload.addAllUsers);
+        const force = Boolean(payload.force);
         const rawSelectors = Array.isArray(payload.userSelectors)
           ? payload.userSelectors
           : parseListValue(payload.userSelectors);
@@ -695,7 +696,7 @@ function registerAdminRoutes(app, deps) {
         }
 
         const users = addAllUsers
-          ? adminGetAll("SELECT id, username FROM users ORDER BY id ASC")
+          ? adminGetAll("SELECT id, username, nickname FROM users ORDER BY id ASC")
           : Array.from(
               new Map(
                 rawSelectors
@@ -722,31 +723,46 @@ function registerAdminRoutes(app, deps) {
               [Number(chat.id), Number(user.id)],
             );
             if (exists?.member) return;
-            const priorLeft = adminGetRow(
-              `SELECT 1 AS prior_left
-               FROM chat_left_members
-               WHERE chat_id = ? AND user_id = ?
-               UNION
-               SELECT 1 AS prior_left
-               FROM chat_messages
-               WHERE chat_id = ? AND user_id = ? AND body LIKE ?
-               LIMIT 1`,
-              [
-                Number(chat.id),
-                Number(user.id),
-                Number(chat.id),
-                Number(user.id),
-                "[[system:left:%",
-              ],
-            );
-            if (priorLeft?.prior_left) {
-              skippedLeftCount += 1;
-              return;
+            if (!force) {
+              const priorLeft = adminGetRow(
+                `SELECT 1 AS prior_left
+                 FROM chat_left_members
+                 WHERE chat_id = ? AND user_id = ?
+                 UNION
+                 SELECT 1 AS prior_left
+                 FROM chat_messages
+                 WHERE chat_id = ? AND user_id = ? AND body LIKE ?
+                 LIMIT 1`,
+                [
+                  Number(chat.id),
+                  Number(user.id),
+                  Number(chat.id),
+                  Number(user.id),
+                  "[[system:left:%",
+                ],
+              );
+              if (priorLeft?.prior_left) {
+                skippedLeftCount += 1;
+                return;
+              }
             }
             adminRun(
               "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",
               [Number(chat.id), Number(user.id), "member"],
             );
+            if (chat.type === "group") {
+              const body = `[[system:joined:${user.nickname || user.username}]]`;
+              adminRun(
+                "INSERT INTO chat_messages (chat_id, user_id, body) VALUES (?, ?, ?)",
+                [Number(chat.id), Number(user.id), body],
+              );
+              emitChatEvent(Number(chat.id), {
+                type: "chat_message",
+                chatId: Number(chat.id),
+                username: String(user.username || ""),
+                body,
+              });
+            }
             addedCount += 1;
           });
           adminRun("COMMIT");
@@ -1013,6 +1029,65 @@ function registerAdminRoutes(app, deps) {
             username: updated.username,
             nickname: updated.nickname || null,
             color: updated.color || null,
+          },
+        });
+      }
+
+      if (action === "toggle_chat_verified") {
+        const chatSelector = String(payload.chatSelector || "").trim();
+        const chat = resolveChatRow(
+          { getRow: adminGetRow, getAll: adminGetAll },
+          chatSelector,
+        );
+        if (!chat?.id) {
+          return res.status(404).json({ error: "Chat not found." });
+        }
+
+        const nextVerified = Number(chat.verified || 0) ? 0 : 1;
+        adminRun("UPDATE chats SET verified = ? WHERE id = ?", [
+          nextVerified,
+          Number(chat.id),
+        ]);
+        adminSave();
+        emitChatEvent(Number(chat.id), {
+          type: "chat_updated",
+          chatId: Number(chat.id),
+        });
+
+        return res.json({
+          ok: true,
+          result: {
+            id: Number(chat.id),
+            name: chat.name || "",
+            groupUsername: chat.group_username || null,
+            verified: Boolean(nextVerified),
+          },
+        });
+      }
+
+      if (action === "toggle_user_verified") {
+        const userSelector = String(payload.userSelector || "").trim();
+        const user = resolveUserRow(
+          { getRow: adminGetRow, getAll: adminGetAll },
+          userSelector,
+        );
+        if (!user?.id) {
+          return res.status(404).json({ error: "User not found." });
+        }
+
+        const nextVerified = Number(user.verified || 0) ? 0 : 1;
+        adminRun("UPDATE users SET verified = ? WHERE id = ?", [
+          nextVerified,
+          Number(user.id),
+        ]);
+        adminSave();
+
+        return res.json({
+          ok: true,
+          result: {
+            id: Number(user.id),
+            username: user.username,
+            verified: Boolean(nextVerified),
           },
         });
       }

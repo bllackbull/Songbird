@@ -16,6 +16,7 @@ import { hasPersian } from "../../../utils/fontUtils.js";
 import { renderMarkdownInlinePlain } from "../../../utils/markdown.js";
 import VerifiedBadge from "../../common/VerifiedBadge.jsx";
 import UserRoleBadge from "../../common/UserRoleBadge.jsx";
+import Tooltip from "../../common/Tooltip.jsx";
 
 function applyTextareaSize({
   textareaEl,
@@ -686,7 +687,6 @@ export function MessageComposer({
                 }`}
                 dir="auto"
                 style={{ unicodeBidi: "isolate" }}
-                title="Edit Message"
               >
                 Edit Message
               </span>
@@ -724,30 +724,32 @@ export function MessageComposer({
               <Reply size={20} className="icon-anim-sway" />
             </div>
             <div className="flex min-w-0 flex-1 flex-col">
-              <span
-                className="flex items-center gap-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-200"
-                dir="ltr"
-                title={
-                  replyTarget.displayName || replyTarget.username || "message"
-                }
+              <Tooltip
+                label={replyTarget.displayName || replyTarget.username || "message"}
+                asChild
               >
                 <span
-                  className={`truncate ${
-                    hasPersian(
-                      replyTarget.displayName || replyTarget.username || "message",
-                    )
-                      ? "font-fa"
-                      : ""
-                  }`}
-                  dir="auto"
-                  style={{ unicodeBidi: "isolate" }}
+                  className="flex items-center gap-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-200"
+                  dir="ltr"
                 >
-                  Reply to{" "}
-                  {replyTarget.displayName || replyTarget.username || "message"}
+                  <span
+                    className={`truncate ${
+                      hasPersian(
+                        replyTarget.displayName || replyTarget.username || "message",
+                      )
+                        ? "font-fa"
+                        : ""
+                    }`}
+                    dir="auto"
+                    style={{ unicodeBidi: "isolate" }}
+                  >
+                    Reply to{" "}
+                    {replyTarget.displayName || replyTarget.username || "message"}
+                  </span>
+                  {Boolean(replyTarget.verified) && <VerifiedBadge size={13} />}
+                  <UserRoleBadge role={replyTarget.role} size={13} />
                 </span>
-                {Boolean(replyTarget.verified) && <VerifiedBadge size={11} />}
-                <UserRoleBadge role={replyTarget.role} size={11} />
-              </span>
+              </Tooltip>
               <span
                 className="mt-1 flex min-w-0 items-baseline gap-1 text-xs text-slate-600 dark:text-slate-300"
                 dir="ltr"

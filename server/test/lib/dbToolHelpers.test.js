@@ -166,6 +166,17 @@ describe("resolveUserRow", () => {
     expect(result).toEqual({ username: "alice" });
   });
 
+  test("selects verified state when resolving by username", () => {
+    const db = {
+      getRow: (sql) => {
+        expect(sql).toContain("verified");
+        return { id: 1, username: "alice", verified: 1 };
+      },
+    };
+
+    expect(resolveUserRow(db, "alice")).toMatchObject({ verified: 1 });
+  });
+
   test("returns null when db returns no row", () => {
     expect(resolveUserRow(makeDb(null), "nobody")).toBeNull();
     expect(resolveUserRow(makeDb(undefined), "nobody")).toBeNull();
@@ -193,6 +204,17 @@ describe("resolveChatRow", () => {
     const db = { getRow: (sql, params) => ({ group_username: params[0] }) };
     const result = resolveChatRow(db, "my_group");
     expect(result.group_username).toBe("my_group");
+  });
+
+  test("selects verified state when resolving by chat username", () => {
+    const db = {
+      getRow: (sql) => {
+        expect(sql).toContain("verified");
+        return { id: 1, group_username: "my_group", verified: 1 };
+      },
+    };
+
+    expect(resolveChatRow(db, "my_group")).toMatchObject({ verified: 1 });
   });
 
   test("returns null when db returns no row", () => {

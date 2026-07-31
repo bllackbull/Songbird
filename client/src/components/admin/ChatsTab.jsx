@@ -6,6 +6,7 @@ import AdminGroupModal from "./AdminGroupModal.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 import Avatar from "../common/Avatar.jsx";
 import VerifiedBadge from "../common/VerifiedBadge.jsx";
+import Tooltip from "../common/Tooltip.jsx";
 import { hasPersian } from "../../utils/fontUtils.js";
 
 const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStatsChange }, ref) {
@@ -101,7 +102,7 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
         <TabSearchInput value={search} onChange={changeSearch} placeholder="Search chats…" />
         <FilterDropdown value={typeFilter} onChange={changeTypeFilter} options={[["", "All types"], ["group", "Groups"], ["channel", "Channels"]]} />
         <div ref={createMenuRef} className="relative shrink-0">
-          <button type="button" onClick={() => setCreateMenuOpen((o) => !o)} aria-expanded={createMenuOpen} title="New chat"
+          <button type="button" onClick={() => setCreateMenuOpen((o) => !o)} aria-expanded={createMenuOpen}
             className={btnPrimary + " w-9 shrink-0 justify-center px-0 sm:w-auto sm:justify-start sm:px-3"}>
             <Plus size={16} className="icon-anim-pop shrink-0" /> <span className="hidden sm:inline">New chat</span>
             <ChevronDown size={12} className={`hidden transition-transform sm:inline-flex ${createMenuOpen ? "rotate-180" : ""}`} />
@@ -142,13 +143,13 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
                       <div className="min-w-0">
                         <p className={`flex items-center gap-0.5 truncate text-sm font-semibold text-slate-700 dark:text-slate-200`} dir="ltr">
                           <span className={`truncate ${nameHasPersian ? "font-fa" : ""}`} dir="auto">{chatName}</span>
-                          {Boolean(c.verified) && <VerifiedBadge size={13} />}
+                          {Boolean(c.verified) && <VerifiedBadge size={15} />}
                         </p>
                         {c.group_username && <p className="truncate text-[11px] text-slate-400">@{c.group_username}</p>}
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
-                        <button type="button" onClick={() => setEditChat(c)} className={iconBtn("slate")} title="Edit"><Pencil size={16} /></button>
-                        <button type="button" onClick={() => setPendingDelete(c)} className={iconBtn("rose")} title="Delete"><Trash size={16} /></button>
+                        <Tooltip label="Edit"><button type="button" onClick={() => setEditChat(c)} className={iconBtn("slate")}><Pencil size={16} /></button></Tooltip>
+                        <Tooltip label="Delete"><button type="button" onClick={() => setPendingDelete(c)} className={iconBtn("rose")}><Trash size={16} /></button></Tooltip>
                       </div>
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-slate-500 dark:text-slate-400">
@@ -203,7 +204,7 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
                           <div className="min-w-0">
                             <p className={`flex items-center gap-0.5 truncate text-xs font-semibold text-slate-700 dark:text-slate-200`} dir="ltr">
                               <span className={`truncate ${nameHasPersian ? "font-fa" : ""}`} dir="auto">{chatName}</span>
-                              {Boolean(c.verified) && <VerifiedBadge size={12} />}
+                              {Boolean(c.verified) && <VerifiedBadge size={14} />}
                             </p>
                             {c.group_username && <p className="text-[11px] text-slate-400">@{c.group_username}</p>}
                           </div>
@@ -230,8 +231,8 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
                       <td className="px-4 py-2.5 text-[11px] text-slate-400 dark:text-slate-500">{fmtDate(c.created_at)}</td>
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-1">
-                          <button type="button" onClick={() => setEditChat(c)} className={iconBtn("slate")} title="Edit"><Pencil size={16} className="icon-anim-sway" /></button>
-                          <button type="button" onClick={() => setPendingDelete(c)} className={iconBtn("rose")} title="Delete"><Trash size={16} className="icon-anim-slide" /></button>
+                          <Tooltip label="Edit"><button type="button" onClick={() => setEditChat(c)} className={iconBtn("slate")}><Pencil size={16} className="icon-anim-sway" /></button></Tooltip>
+                          <Tooltip label="Delete"><button type="button" onClick={() => setPendingDelete(c)} className={iconBtn("rose")}><Trash size={16} className="icon-anim-slide" /></button></Tooltip>
                         </div>
                       </td>
                     </tr>

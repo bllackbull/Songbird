@@ -12,6 +12,7 @@ import {
 } from "../../icons/lucide.js";
 import { labelCls, PAGE_SIZE_OPTIONS, PAGE_LOCK_THRESHOLD, inputSmCls, searchIconCls } from "./adminShared.js";
 import { hasPersian } from "../../utils/fontUtils.js";
+import Tooltip from "../common/Tooltip.jsx";
 
 // ─── Loading / empty states ─────────────────────────────────────────────────
 
@@ -50,6 +51,7 @@ export function TabToolbar({ children }) {
 // Shared search field used by UsersTab, ChatsTab, and LogsTab.
 export function TabSearchInput({ value, onChange, placeholder = "Search…" }) {
   const isPersian = hasPersian(value);
+  const hasSearchText = Boolean(String(value || "").trim());
   return (
     <label className="group relative block min-w-0 flex-1 sm:min-w-40">
       <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
@@ -62,9 +64,20 @@ export function TabSearchInput({ value, onChange, placeholder = "Search…" }) {
         onChange={(e) => onChange(e.target.value)}
         lang={isPersian ? "fa" : "en"}
         dir={isPersian ? "rtl" : "ltr"}
-        className={inputSmCls + " pl-8" + (isPersian ? " font-fa text-right" : "")}
+        className={inputSmCls + " pl-8 pr-10" + (isPersian ? " font-fa text-right" : "")}
         style={{ unicodeBidi: "plaintext" }}
       />
+      {hasSearchText ? (
+        <button
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => onChange("")}
+          className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-rose-600 transition hover:bg-rose-100 hover:shadow-[0_0_18px_rgba(244,63,94,0.22)] dark:text-rose-200 dark:hover:bg-rose-500/10"
+          aria-label="Clear search"
+        >
+          <Close size={14} className="icon-anim-pop" />
+        </button>
+      ) : null}
     </label>
   );
 }
@@ -87,7 +100,7 @@ export function SectionHeading({ children, danger = false }) {
 
 // ─── Badges / icons ──────────────────────────────────────────────────────────
 
-const ROLE_CHIP_BASE = "inline-flex w-16 items-center justify-center rounded-full border px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide";
+const ROLE_CHIP_BASE = "inline-flex w-12 items-center justify-center rounded-full border px-1 py-px text-[9px] font-semibold uppercase tracking-wide";
 
 export function RoleBadge({ role, banned = false }) {
   if (banned) return (
@@ -129,12 +142,14 @@ function PageSizeSelect({ value, onChange, options, disabled = false }) {
   const isOpen = open && !disabled;
   return (
     <div className="relative">
-      <button ref={btnRef} type="button" onClick={disabled ? undefined : toggle} disabled={disabled}
-        aria-expanded={isOpen} title="Rows per page"
-        className="relative flex h-8 items-center gap-1.5 rounded-xl border border-emerald-200/70 bg-white/90 pl-3 pr-7 text-xs font-semibold text-slate-600 outline-hidden transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-emerald-200/70 disabled:hover:bg-white/90 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-emerald-500/5 dark:disabled:hover:bg-slate-900/50">
-        <span className="truncate">{value} / page</span>
-        <ChevronDown size={15} className={`absolute right-2 top-1/2 -translate-y-1/2 text-emerald-500 transition-transform ${isOpen ? "" : "rotate-180"}`} />
-      </button>
+      <Tooltip label="Rows per page">
+        <button ref={btnRef} type="button" onClick={disabled ? undefined : toggle} disabled={disabled}
+          aria-expanded={isOpen}
+          className="relative flex h-8 items-center gap-1.5 rounded-xl border border-emerald-200/70 bg-white/90 pl-3 pr-7 text-xs font-semibold text-slate-600 outline-hidden transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-emerald-200/70 disabled:hover:bg-white/90 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-emerald-500/5 dark:disabled:hover:bg-slate-900/50">
+          <span className="truncate">{value} / page</span>
+          <ChevronDown size={15} className={`absolute right-2 top-1/2 -translate-y-1/2 text-emerald-500 transition-transform ${isOpen ? "" : "rotate-180"}`} />
+        </button>
+      </Tooltip>
       {isOpen && (
         <div ref={menuRef} className="absolute bottom-full right-0 z-50 mb-1.5 min-w-max overflow-hidden rounded-xl border border-emerald-200 bg-white p-1 text-xs font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100">
           {options.map((opt) => (
@@ -193,15 +208,19 @@ export function Pagination({
         <span className="font-semibold text-slate-600 dark:text-slate-300">{safeTotal}</span>
       </p>
       <div className="flex items-center gap-1.5">
-        <button type="button" onClick={() => go(current - 1)} disabled={locked || busy || current <= 1} title="Previous page" className={navBtn}>
-          <ChevronLeft size={16} />
-        </button>
+        <Tooltip label="Previous page">
+          <button type="button" onClick={() => go(current - 1)} disabled={locked || busy || current <= 1} className={navBtn}>
+            <ChevronLeft size={16} />
+          </button>
+        </Tooltip>
         <span className="px-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
           {current} / {pageCount}
         </span>
-        <button type="button" onClick={() => go(current + 1)} disabled={locked || busy || current >= pageCount} title="Next page" className={navBtn}>
-          <ChevronRight size={16} />
-        </button>
+        <Tooltip label="Next page">
+          <button type="button" onClick={() => go(current + 1)} disabled={locked || busy || current >= pageCount} className={navBtn}>
+            <ChevronRight size={16} />
+          </button>
+        </Tooltip>
         <PageSizeSelect value={safePageSize} onChange={onPageSizeChange} options={pageSizeOptions} disabled={locked || !canSelectSize} />
       </div>
     </div>
@@ -291,7 +310,7 @@ export function FilterDropdown({ value, onChange, options, icon: Icon = Filter }
   const isActive = Boolean(value);
   return (
     <div className="relative">
-      <button ref={btnRef} type="button" onClick={toggle} aria-expanded={open} title={label}
+      <button ref={btnRef} type="button" onClick={toggle} aria-expanded={open}
         className="relative flex h-9 w-9 items-center justify-center rounded-xl border border-emerald-200/70 bg-white/90 text-xs font-semibold text-slate-600 outline-hidden transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-emerald-500/5 sm:w-auto sm:gap-1.5 sm:pl-3 sm:pr-7">
         <Icon size={16} className="text-emerald-500 sm:hidden" />
         <span className="hidden max-w-24 truncate sm:inline">{label}</span>

@@ -32,6 +32,7 @@ import {
 import { api, cardCls, btnPrimary, btnSecondary } from "./adminShared.js";
 import { SectionHeading } from "./AdminCommon.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
+import Tooltip from "../common/Tooltip.jsx";
 
 // ─── Group metadata ───────────────────────────────────────────────────────────
 
@@ -141,6 +142,19 @@ const GROUP_CHILDREN = {
 
 // ─── iOS-style toggle — same pattern as NewGroupModal ────────────────────────
 
+function EnvLockBadge({ envVar }) {
+  return (
+    <Tooltip label={envVar}>
+      <span
+        tabIndex={0}
+        className="inline-flex cursor-help items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-white/10 dark:text-slate-400"
+      >
+        <KeyRound size={9} /> set in .env
+      </span>
+    </Tooltip>
+  );
+}
+
 function Toggle({ checked, onChange, disabled = false }) {
   return (
     <button
@@ -231,9 +245,9 @@ function SubRow({ def, localVal, onChange, masterDisabled = false }) {
   const Icon = SETTING_ICONS[def.key] ?? Info;
   const iconAnim = SETTING_ICON_ANIM[def.key] ?? "icon-anim-sway";
   const envLocked = Boolean(def.envLocked);
-  // Only disable controls for masterDisabled — envLocked dims the whole
-  // sub-row via opacity already, so the control doesn't need a second layer.
-  const isDisabled = masterDisabled;
+  // Environment-locked sub-settings remain visible for their tooltip but their
+  // controls must remain read-only, just like locked standalone settings.
+  const isDisabled = masterDisabled || envLocked;
 
   return (
     <div className={`settings-row flex items-center gap-3 border-t px-4 py-3 border-emerald-100 dark:border-emerald-500/20 transition-opacity ${
@@ -247,11 +261,7 @@ function SubRow({ def, localVal, onChange, masterDisabled = false }) {
           <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">
             {def.label}
           </p>
-          {envLocked && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-white/10 dark:text-slate-400">
-              <KeyRound size={9} /> set in .env
-            </span>
-          )}
+          {envLocked && <EnvLockBadge envVar={def.key} />}
         </div>
         {def.description && (
           <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
@@ -289,9 +299,9 @@ function SettingRow({ def, localVal, onChange, groupDisabled = false, childDefs 
   const isNullableString = isNullable && def.type === "string";
   const nullIntVal = "0";
   const envLocked = Boolean(def.envLocked);
-  // Only disable controls for group-master-off, not for envLocked —
-  // the whole card is already pointer-events-none when envLocked.
-  const controlDisabled = groupDisabled;
+  // Environment-locked settings remain visible and their badges must still
+  // receive hover/focus events; disable the controls below instead.
+  const controlDisabled = groupDisabled || envLocked;
 
   // For nullable strings, the "enabled" flag and the URL value are tracked
   // separately so that toggling off→on doesn't immediately re-disable the field.
@@ -337,7 +347,7 @@ function SettingRow({ def, localVal, onChange, groupDisabled = false, childDefs 
 
   return (
     <div className={`${cardCls} transition-opacity ${
-      envLocked || groupDisabled ? "opacity-50 pointer-events-none" : ""
+      envLocked || groupDisabled ? "opacity-50" : ""
     }`}>
       {/* ── Main row ──────────────────────────────────────────────────────── */}
       <div className="settings-row flex items-center gap-3 p-4">
@@ -350,11 +360,7 @@ function SettingRow({ def, localVal, onChange, groupDisabled = false, childDefs 
             <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
               {def.label}
             </p>
-            {envLocked && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-white/10 dark:text-slate-400">
-                <KeyRound size={9} /> set in .env
-              </span>
-            )}
+            {envLocked && <EnvLockBadge envVar={def.key} />}
           </div>
           {def.description && (
             <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
@@ -534,17 +540,40 @@ const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cac
     );
   };
 
-  // Use cachedData if available, otherwise fetch fresh
-  const fetchSettings = useCallback(async () => {
+  // Keep a stable ref to the latest cachedData/cachedIsLoading so fetchSettings
+  // can read them without those values appearing in its dependency array.
+  // This prevents the callback from being re-created on every background refresh
+  const cachedDataRef = useRef(cachedData);
+  const cachedIsLoadingRef = useRef(cachedIsLoading);
+  useEffect(() => {
+    cachedDataRef.current = cachedData;
+    cachedIsLoadingRef.current = cachedIsLoading;
+  });
+
+  // Apply incoming cachedData to the server-side settings array without
+  // touching localVals — unsaved edits must survive background refreshes.
+  useEffect(() => {
     if (cachedData?.settings) {
       setSettings(cachedData.settings);
-      setLocalVals({});
+      setLoading(false);
+      setError("");
+    }
+  }, [cachedData]);
+
+  // Use cachedData if available, otherwise fetch fresh.
+  // NOTE: cachedData / cachedIsLoading are intentionally read via refs so that
+  // this callback is never re-created when the parent's background refresh
+  // produces a new cachedData object. Re-creating the callback would re-run
+  // the effect below and call setLocalVals({}), wiping unsaved edits.
+  const fetchSettings = useCallback(async () => {
+    if (cachedDataRef.current?.settings) {
+      setSettings(cachedDataRef.current.settings);
+      // Do NOT reset localVals here — the user may have unsaved edits.
       setLoading(false);
       setError("");
       return;
     }
-    // If we're actively loading from cache, show loading state
-    if (cachedIsLoading) {
+    if (cachedIsLoadingRef.current) {
       setLoading(true);
       setError("");
       return;
@@ -554,13 +583,14 @@ const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cac
     try {
       const data = await api.get("/api/admin/settings");
       setSettings(data.settings ?? []);
-      setLocalVals({});
+      // Don't reset localVals on a manual refresh — only save/reset actions
+      // should clear unsaved edits.
     } catch {
       setError("Failed to load settings.");
     } finally {
       setLoading(false);
     }
-  }, [cachedData, cachedIsLoading]);
+  }, []); // stable — no deps that change on background refresh
 
   useEffect(() => {
     fetchSettings();
@@ -584,6 +614,14 @@ const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cac
     .map((def) => def.key);
 
   const hasDirty = dirtyKeys.length > 0;
+
+  // Only settings not controlled by .env can be restored. Disable the action
+  // when none of those settings differs from its default value.
+  const hasRestorableSettings = settings.some((def) =>
+    !def.envLocked &&
+    String(def.value ?? def.defaultVal ?? "") !==
+      String(def.defaultVal ?? ""),
+  );
 
   const handleChange = (key, val) => {
     // Never track changes for env-locked keys — they can't be saved
@@ -752,7 +790,10 @@ const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cac
         <button
           type="button"
           onClick={() => setResetOpen(true)}
-          className={btnSecondary}
+          disabled={!hasRestorableSettings}
+          className={
+            btnSecondary + " disabled:cursor-not-allowed disabled:opacity-50"
+          }
         >
           <Rotate size={13} className="icon-anim-spin-full" />
           Restore defaults

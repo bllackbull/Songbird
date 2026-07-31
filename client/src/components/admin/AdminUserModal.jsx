@@ -1,14 +1,16 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Close, Eye, EyeOff, Pencil, Trash } from "../../icons/lucide.js";
+import { BadgeCheck, Check, Close, Eye, EyeOff, Pencil, Refresh, Trash } from "../../icons/lucide.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
+import { getRandomAvatarColor } from "../../utils/avatarColor.js";
 import { USERNAME_INPUT_PATTERN, useNameLimits } from "../../utils/nameLimits.js";
 import { apiFetch } from "../../api/chatApi.js";
 import { CHAT_PAGE_CONFIG } from "../../settings/chatPageConfig.js";
 import { api, inputCls } from "./adminShared.js";
 import Avatar from "../common/Avatar.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
+import Tooltip from "../common/Tooltip.jsx";
 
 // ─── Avatar upload helpers ────────────────────────────────────────────────────
 
@@ -48,7 +50,7 @@ export default function AdminUserModal({ mode = "edit", user = null, onClose, on
   // Profile fields
   const [nick, setNick]             = useState(user?.nickname || "");
   const [uname, setUname]           = useState(user?.username || "");
-  const [color, setColor]           = useState(user?.color || "#10b981");
+  const [color, setColor]           = useState(creating ? getRandomAvatarColor() : (user?.color || "#10b981"));
   const [verified, setVerified]     = useState(Boolean(user?.verified));
   const [profileErr, setProfileErr] = useState("");
   const [profileBusy, setProfileBusy] = useState(false);
@@ -66,8 +68,22 @@ export default function AdminUserModal({ mode = "edit", user = null, onClose, on
   const [avatarPreview, setAvatarPreview] = useState(user?.avatar_url || "");
   const [pendingAvatarFile, setPendingAvatarFile] = useState(null);
   const [avatarRemoved, setAvatarRemoved] = useState(false);
+  const [colorRefreshState, setColorRefreshState] = useState("");
   const objectUrlRef = useRef(null);
   const fileInputRef = useRef(null);
+  const colorRefreshResetRef = useRef(null);
+
+  useEffect(() => () => {
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+    if (colorRefreshResetRef.current) clearTimeout(colorRefreshResetRef.current);
+  }, []);
+
+  const handleColorRefresh = () => {
+    if (colorRefreshResetRef.current) clearTimeout(colorRefreshResetRef.current);
+    setColor(getRandomAvatarColor());
+    setColorRefreshState("done");
+    colorRefreshResetRef.current = setTimeout(() => setColorRefreshState(""), 1500);
+  };
 
   const handleAvatarChange = (e) => {
     const file = e.target.files?.[0]; e.target.value = "";
@@ -244,7 +260,22 @@ export default function AdminUserModal({ mode = "edit", user = null, onClose, on
             <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
               <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Color</p>
               <div className="mt-2 flex items-center gap-2">
-                <input className={inputCls + " flex-1"} value={color} onChange={(e) => setColor(e.target.value)} placeholder="#10b981" />
+                <div className="relative flex-1">
+                  <input className={inputCls + " w-full pr-12"} value={color} onChange={(e) => setColor(e.target.value)} placeholder="#10b981" />
+                  <Tooltip label="Reroll" className="absolute right-1 top-1/2 -translate-y-1/2">
+                    <button
+                      type="button"
+                      onClick={handleColorRefresh}
+                      disabled={colorRefreshState === "done"}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-transparent text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-700 disabled:cursor-default disabled:text-emerald-600 dark:text-slate-400 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300 dark:disabled:text-emerald-400"
+                      aria-label="Choose a random color"
+                    >
+                      {colorRefreshState === "done"
+                        ? <Check size={16} className="text-emerald-600 dark:text-emerald-400" />
+                        : <Refresh size={16} className="icon-anim-spin-full" />}
+                    </button>
+                  </Tooltip>
+                </div>
                 <input type="color" value={color || "#10b981"} onChange={(e) => setColor(e.target.value)}
                   className="color-swatch h-11 w-11 shrink-0 cursor-pointer overflow-hidden rounded-xl border border-emerald-200/70 dark:border-emerald-500/30" />
               </div>
@@ -258,7 +289,10 @@ export default function AdminUserModal({ mode = "edit", user = null, onClose, on
               onClick={() => setVerified((v) => !v)}
               className="flex w-full items-center justify-between rounded-2xl border border-emerald-200 px-4 py-3 text-left text-sm font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
             >
-              <span>Verified</span>
+              <span className="inline-flex items-center gap-2">
+                <BadgeCheck size={18} className="shrink-0 icon-anim-pop" aria-hidden="true" />
+                Verified
+              </span>
               <span
                 className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition ${
                   verified ? "justify-end bg-emerald-500" : "justify-start bg-slate-300 dark:bg-slate-700"

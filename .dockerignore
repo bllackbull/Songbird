@@ -8,6 +8,12 @@ logs
 certs
 docs
 scripts
+# Tests and test artifacts
+**/test
+**/coverage
+**/test-results
+**/playwright-report
+**/.vitest-attachments
 npm-debug.log*
 .gitignore
 .vscode

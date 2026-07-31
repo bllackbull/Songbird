@@ -43,10 +43,12 @@ cd /opt/songbird/server
 | `npm run db:user:generate` | تولید کاربران آزمایشی تصادفی. |
 | `npm run db:user:edit` | ویرایش پروفایل یک کاربر. |
 | `npm run db:user:ban` | تغییر وضعیت مسدودیت یک کاربر. |
+| `npm run db:user:verify` | تغییر وضعیت تأییدشده‌بودن یک کاربر. |
 | `npm run db:user:delete` | حذف یک، چند یا همه کاربران. |
 | `npm run db:chat:create` | ایجاد یک گروه یا کانال (به‌صورت اختیاری یک کانال ریموت). |
 | `npm run db:chat:add` | افزودن اعضا به یک گروه یا کانال. |
 | `npm run db:chat:edit` | ویرایش پروفایل چت، مالکیت، یا پیکربندی کانال ریموت. |
+| `npm run db:chat:verify` | تغییر وضعیت تأییدشده‌بودن یک چت. |
 | `npm run db:chat:delete` | حذف یک، چند یا همه چت‌ها. |
 | `npm run db:file:delete` | حذف فایل‌های پیام آپلودشده و/یا آواتارها. |
 | `npm run db:message:generate` | تولید پیام‌های تصادفی بین دو کاربر. |
@@ -246,6 +248,20 @@ npm run db:user:ban -- songbird.sage
 npm run db:user:ban -- songbird.sage
 ```
 
+### `db:user:verify`
+
+وضعیت تأییدشده‌بودن یک کاربر را تغییر می‌دهد. اجرای دوباره دستور برای همان کاربر، تأیید را حذف می‌کند.
+
+| آرگومان | موردنیاز | توضیح |
+|---|---|---|
+| `<user-id-or-username>` | بله | کاربری که باید تأیید یا لغو تأیید شود. |
+
+```bash
+npm run db:user:verify -- songbird.sage
+# اجرای دوباره برای لغو تأیید:
+npm run db:user:verify -- songbird.sage
+```
+
 ### `db:user:delete`
 
 یک، چند یا همه کاربران را همراه با نشست‌ها و پیام‌هایشان حذف می‌کند. چت‌های متعلق به آن‌ها یا حذف می‌شوند (اگر عضوی باقی نماند) یا به یک عضو باقی‌مانده تصادفی منتقل می‌شوند.
@@ -292,17 +308,19 @@ npm run db:chat:create -- --type channel --name "My Channel" --owner alice --use
 
 ### `db:chat:add`
 
-اعضا را به یک گروه یا کانال اضافه می‌کند. اولین آرگومان موضعی، انتخاب‌گر چت است. کاربرانی که پیش‌تر خارج شده‌اند نادیده گرفته می‌شوند.
+اعضا را به یک گروه یا کانال اضافه می‌کند. اولین آرگومان موضعی، انتخاب‌گر چت است. کاربرانی که پیش‌تر خارج شده‌اند نادیده گرفته می‌شوند، مگر آنکه `--force` داده شود.
 
 | آرگومان / پرچم | موردنیاز | توضیح |
 |---|---|---|
 | `<chat-id-or-username>` | بله | چت هدف. |
 | `<user> [more...]` | مشروط | یک یا چند کاربر برای افزودن. موردنیاز مگر آنکه `--all` داده شود. |
 | `--all` | مشروط | افزودن هر کاربر در پایگاه داده. |
+| `--force` | خیر | افزودن مجدد کاربرانی که پیش‌تر از چت خارج شده‌اند. |
 
 ```bash
 npm run db:chat:add -- core.team songbird.sage2 songbird.sage3
 npm run db:chat:add -- 1 --all
+npm run db:chat:add -- 1 --all --force
 ```
 
 ### `db:chat:edit`
@@ -347,6 +365,20 @@ npm run db:chat:edit -- my_channel --no-stream-media
 npm run db:chat:edit -- my_channel --enable-remote
 npm run db:chat:edit -- my_channel --pause-queue
 npm run db:chat:edit -- my_channel --skip-all-queue
+```
+
+### `db:chat:verify`
+
+وضعیت تأییدشده‌بودن یک گروه یا کانال را تغییر می‌دهد. اجرای دوباره دستور برای همان چت، تأیید را حذف می‌کند.
+
+| آرگومان | موردنیاز | توضیح |
+|---|---|---|
+| `<chat-id-or-username>` | بله | گروه یا کانالی که باید تأیید یا لغو تأیید شود. |
+
+```bash
+npm run db:chat:verify -- core.team
+# اجرای دوباره برای لغو تأیید:
+npm run db:chat:verify -- core.team
 ```
 
 ### `db:chat:delete`

@@ -5,7 +5,7 @@
  */
 import { describe, test, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-react";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import ChatsTab from "../../../src/components/admin/ChatsTab.jsx";
 
 function makeApiChat(overrides = {}) {
@@ -84,6 +84,16 @@ describe("ChatsTab badge rendering", () => {
       await expect.element(page.getByLabelText("Verified").first()).toBeInTheDocument();
       await expect.element(page.getByLabelText("Server Owner")).not.toBeInTheDocument();
       await expect.element(page.getByLabelText("Server Admin")).not.toBeInTheDocument();
+    });
+
+    test("shows the selected owner's badges when editing an existing chat", async () => {
+      vi.stubGlobal("fetch", mockFetch([makeApiChat({ owner_verified: true, owner_role: "owner" })]));
+      render(<ChatsTab active={true} />);
+
+      await userEvent.click(page.getByRole("button", { name: "Edit" }).first());
+
+      await expect.element(page.getByLabelText("Verified").first()).toBeInTheDocument();
+      await expect.element(page.getByLabelText("Server Owner")).toBeInTheDocument();
     });
   });
 

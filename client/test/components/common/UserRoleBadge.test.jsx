@@ -12,9 +12,19 @@ describe("UserRoleBadge", () => {
         .toBeInTheDocument();
     });
 
-    test("renders title 'Server Owner' for role='owner'", async () => {
+    test("reveals the 'Server Owner' tooltip on hover", async () => {
       render(<UserRoleBadge role="owner" />);
-      await expect.element(page.getByTitle("Server Owner")).toBeInTheDocument();
+      await page.getByLabelText("Server Owner").hover();
+      await expect
+        .element(page.getByRole("tooltip"))
+        .toHaveTextContent("Server Owner");
+    });
+
+    test("uses the default 15px size", async () => {
+      render(<UserRoleBadge role="owner" />);
+      const svg = page.getByLabelText("Server Owner").locator("svg");
+      await expect.element(svg).toHaveAttribute("width", "15");
+      await expect.element(svg).toHaveAttribute("height", "15");
     });
 
     test("is case-insensitive for 'owner'", async () => {
@@ -33,9 +43,12 @@ describe("UserRoleBadge", () => {
         .toBeInTheDocument();
     });
 
-    test("renders title 'Server Admin' for role='admin'", async () => {
+    test("reveals the 'Server Admin' tooltip on hover", async () => {
       render(<UserRoleBadge role="admin" />);
-      await expect.element(page.getByTitle("Server Admin")).toBeInTheDocument();
+      await page.getByLabelText("Server Admin").hover();
+      await expect
+        .element(page.getByRole("tooltip"))
+        .toHaveTextContent("Server Admin");
     });
 
     test("is case-insensitive for 'admin'", async () => {

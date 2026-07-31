@@ -1,3 +1,26 @@
+## 0.11.4
+
+### New Features
+
+- 👥 Add all eligible members to groups directly from the admin panel
+- 🛠️ Toggle verified status for users and chats via new database commands
+
+### Improvements
+
+- 💾 Preserve admin data, logs, service availability, and sidebar state when navigating away from the admin panel
+- ⚙️ Show environment variable names for settings locked by `.env`
+- 🎨 Add quick color refresh controls and randomized default colors for new users and chats
+- 🔎 Add clear buttons to admin search inputs
+- 💬 Replace browser hover hints with consistent, accessible in-app tooltips
+- 🏅 Show verification and owner badges consistently in invite pages and admin chat editing
+
+### Bug Fixes
+
+- 🧮 Allow disabled message/file retention settings to remain disabled when set to `0`
+- ✍️ Preserve unsaved admin settings edits during background data refreshes
+- ♻️ Disable default settings restore button when there are no non-default settings to restore
+- 📱 Preserve mobile pagination scroll clearance in the admin panel
+
 ## 0.11.3
 
 ### Security
@@ -27,16 +50,6 @@
 - 🎨 Include reply author color in message replies
 - 🚪 Sign out all clients correctly after a database reset or restore
 - 🛠️ Service control now works on Docker deployments
-
-**⏺️ If you encountered any problem, don't forget to submit an issue on Songbird github repository.**
-
-**⭐ Don't forget to give a star to Songbird github repository!**
-
-🕊️ [Songbird main server](https://chat.songbird.website/invite/songbird)
-
-📢 [Songbird Telegram channel](https://t.me/songbirdapp)
-
-🌐 [Songbird Github repository](https://github.com/bllackbull/Songbird)
 
 ## 0.11.1
 

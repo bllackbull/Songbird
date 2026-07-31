@@ -14,8 +14,9 @@ import {
   SatelliteDish,
   Trash,
   UserPlus,
+  Users,
 } from "../../icons/lucide.js";
-import { FaTelegram } from "react-icons/fa6";
+import { SongbirdIcon, TelegramIcon } from "../../icons/BrandIcons.jsx";
 import { copyTextToClipboard } from "../../utils/clipboard.js";
 import { getAvatarStyle } from "../../utils/avatarColor.js";
 import { hasPersian } from "../../utils/fontUtils.js";
@@ -25,23 +26,8 @@ import ConfirmPasswordModal from "./ConfirmPasswordModal.jsx";
 import Avatar from "../common/Avatar.jsx";
 import UserRoleBadge from "../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../common/VerifiedBadge.jsx";
+import Tooltip from "../common/Tooltip.jsx";
 import { useFocusTrap } from "../../hooks/useFocusTrap.js";
-
-function SongbirdIcon({ size = 18 }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 512 512"
-      fill="currentColor"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-      style={{ overflow: "visible", flexShrink: 0 }}
-    >
-      <path d="M256 0C397.385 0 512 114.615 512 256C512 397.385 397.385 512 256 512C114.615 512 0 397.385 0 256C0 114.615 114.615 0 256 0ZM200.384 360.058C200.384 382.004 240.211 399.795 289.339 399.795C289.341 399.795 289.344 399.795 289.346 399.795V360.056H200.384V360.058ZM289.337 112.001C240.211 112.004 200.388 148.663 200.388 193.884C200.388 194.939 200.409 195.99 200.452 197.036L125.91 169.619C115.331 165.728 103.116 170.956 98.627 181.296C94.1384 191.636 99.0768 203.173 109.656 207.064L154.029 223.385C144.513 221.87 134.616 227.007 130.675 236.086C126.187 246.426 131.124 257.962 141.703 261.854L201.931 284.006C192.779 283.064 183.514 288.147 179.732 296.858C175.244 307.198 180.182 318.735 190.761 322.626L292.287 359.969C291.316 360.026 290.336 360.058 289.35 360.059V399.795C338.475 399.792 378.297 363.133 378.298 317.912C378.298 286.404 358.965 259.052 330.622 245.36C329.479 244.648 328.239 244.038 326.91 243.549L324.101 242.515C322.94 242.061 321.766 241.629 320.58 241.22L249.843 215.202C245.85 208.948 243.558 201.663 243.558 193.884C243.558 172.753 260.451 155.255 282.483 152.208C292.724 161.311 309.043 161.212 319.15 151.908L319.152 151.906L318.969 151.737H332.508V151.736H345.585V151.735C345.585 139.865 336.254 130.001 323.976 128.017C316.106 118.296 303.521 112 289.339 112H289.337V112.001Z" />
-    </svg>
-  );
-}
 
 export default function NewGroupModal({
   open,
@@ -82,6 +68,8 @@ export default function NewGroupModal({
   username: _username = "",
   extraFields = null,
   showMemberSearch = true,
+  addAllMembersSelected = false,
+  onToggleAddAllMembers,
 }) {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [remoteSourceMenuOpen, setRemoteSourceMenuOpen] = useState(false);
@@ -450,27 +438,30 @@ export default function NewGroupModal({
                 </button>
                 {onRegenerateInvite ? (
                   <div className="mt-3 flex items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!privateChatEnabled) return;
-                        onRegenerateInvite();
-                      }}
-                      disabled={!privateChatEnabled || regeneratingInviteLink}
-                      title={
+                    <Tooltip
+                      label={
                         privateChatEnabled
                           ? "Regenerate invite link"
                           : "Private chats can regenerate invite links"
                       }
-                      className="inline-flex h-8 items-center gap-2 rounded-full border border-emerald-200 bg-white px-3 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
                     >
-                      {regeneratingInviteLink ? (
-                        <LoaderCircle size={12} className="animate-spin" />
-                      ) : (
-                        <Refresh size={12} className="icon-anim-spin-dir" />
-                      )}
-                      Regenerate
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!privateChatEnabled) return;
+                          onRegenerateInvite();
+                        }}
+                        disabled={!privateChatEnabled || regeneratingInviteLink}
+                        className="inline-flex h-8 items-center gap-2 rounded-full border border-emerald-200 bg-white px-3 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                      >
+                        {regeneratingInviteLink ? (
+                          <LoaderCircle size={12} className="animate-spin" />
+                        ) : (
+                          <Refresh size={12} className="icon-anim-spin-dir" />
+                        )}
+                        Regenerate
+                      </button>
+                    </Tooltip>
                   </div>
                 ) : null}
               </div>
@@ -554,7 +545,7 @@ export default function NewGroupModal({
                         <span className="flex items-center gap-2">
                           {groupForm.remoteChannelProvider === "songbird"
                             ? <SongbirdIcon size={16} />
-                            : <FaTelegram size={16} className="shrink-0" />}
+                            : <TelegramIcon size={16} className="shrink-0" />}
                           {remoteProviderLabel}
                         </span>
                         <ChevronDown
@@ -569,34 +560,38 @@ export default function NewGroupModal({
                           ref={remoteSourceMenuRef}
                           className="absolute left-0 right-0 z-50 mt-2 overflow-hidden rounded-2xl border border-emerald-200 bg-white p-1 text-sm font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
                         >
-                          <button
-                            type="button"
-                            disabled={!remoteChannelTelegramAvailable}
-                            onClick={() => {
-                              if (!remoteChannelTelegramAvailable) return;
-                              setRemoteSourceMenuOpen(false);
-                              setGroupForm((prev) => ({
-                                ...prev,
-                                remoteChannelProvider: "telegram",
-                                remoteChannelSource: "",
-                              }));
-                            }}
-                            title={!remoteChannelTelegramAvailable ? "Telegram is not configured on this server" : undefined}
-                            className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition ${
-                              remoteChannelTelegramAvailable
-                                ? "hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
-                                : "cursor-not-allowed opacity-40"
-                            }`}
+                          <Tooltip
+                            label={!remoteChannelTelegramAvailable ? "Telegram is not configured on this server" : ""}
+                            className="w-full"
                           >
-                            <span className="flex items-center gap-2">
-                              <FaTelegram size={16} className="shrink-0" />
-                              Telegram
-                            </span>
-                            {(groupForm.remoteChannelProvider === "telegram" ||
-                              !groupForm.remoteChannelProvider) && remoteChannelTelegramAvailable ? (
-                              <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                            ) : null}
-                          </button>
+                            <button
+                              type="button"
+                              disabled={!remoteChannelTelegramAvailable}
+                              onClick={() => {
+                                if (!remoteChannelTelegramAvailable) return;
+                                setRemoteSourceMenuOpen(false);
+                                setGroupForm((prev) => ({
+                                  ...prev,
+                                  remoteChannelProvider: "telegram",
+                                  remoteChannelSource: "",
+                                }));
+                              }}
+                              className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition ${
+                                remoteChannelTelegramAvailable
+                                  ? "hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
+                                  : "cursor-not-allowed opacity-40"
+                              }`}
+                            >
+                              <span className="flex items-center gap-2">
+                                <TelegramIcon size={16} className="shrink-0" />
+                                Telegram
+                              </span>
+                              {(groupForm.remoteChannelProvider === "telegram" ||
+                                !groupForm.remoteChannelProvider) && remoteChannelTelegramAvailable ? (
+                                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                              ) : null}
+                            </button>
+                          </Tooltip>
                           <button
                             type="button"
                             onClick={() => {
@@ -725,9 +720,10 @@ export default function NewGroupModal({
                     setGroupError("");
                   }}
                   placeholder="username"
+                  disabled={addAllMembersSelected}
                   lang={groupSearchHasPersian ? "fa" : "en"}
                   dir={groupSearchHasPersian ? "rtl" : "ltr"}
-                  className={`w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-14 text-sm text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
+                  className={`w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 ${onToggleAddAllMembers ? "pr-24" : "pr-14"} text-sm text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
                     groupSearchHasPersian ? "font-fa text-right" : "text-left"
                   }`}
                   style={{ unicodeBidi: "plaintext" }}
@@ -735,11 +731,29 @@ export default function NewGroupModal({
                 {groupSearchQuery.trim() ? (
                   <button
                     type="button"
+                    onMouseDown={(event) => event.preventDefault()}
                     onClick={() => setGroupSearchQuery("")}
                     className="absolute right-1 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-rose-600 transition hover:bg-rose-100 hover:shadow-[0_0_18px_rgba(244,63,94,0.22)] dark:text-rose-200 dark:hover:bg-rose-500/10"
                     aria-label="Clear member search"
                   >
                     <Close size={16} className="icon-anim-pop" />
+                  </button>
+                ) : onToggleAddAllMembers ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onToggleAddAllMembers();
+                      setGroupError("");
+                    }}
+                    className={`absolute right-2 top-1/2 inline-flex h-8 -translate-y-1/2 items-center gap-1 rounded-2xl border px-2 text-[11px] font-semibold transition ${
+                      addAllMembersSelected
+                        ? "border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-400"
+                        : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/20"
+                    }`}
+                    aria-pressed={addAllMembersSelected}
+                  >
+                    <Users size={14} />
+                    {addAllMembersSelected ? "All selected" : "Add all"}
                   </button>
                 ) : null}
               </div>
@@ -792,15 +806,16 @@ export default function NewGroupModal({
                             className="h-8 w-8"
                           />
                           <div className="min-w-0">
-                            <p
-                              className="flex items-center gap-0.5 truncate font-semibold"
-                              dir="ltr"
-                              title={label}
-                            >
-                              <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
-                              {Boolean(result.verified) && <VerifiedBadge size={12} />}
-                              <UserRoleBadge role={result.role} size={12} />
-                            </p>
+                            <Tooltip label={label} asChild>
+                              <p
+                                className="flex items-center gap-0.5 truncate font-semibold"
+                                dir="ltr"
+                              >
+                                <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
+                                {Boolean(result.verified) && <VerifiedBadge size={14} />}
+                                <UserRoleBadge role={result.role} size={14} />
+                              </p>
+                            </Tooltip>
                             <p
                               className="truncate text-xs text-slate-500 dark:text-slate-400"
                               dir="auto"
@@ -848,13 +863,11 @@ export default function NewGroupModal({
                           initials={initials}
                           className="h-4 w-4 text-[9px]"
                         />
-                        <span
-                          className="max-w-[160px] truncate"
-                          dir="auto"
-                          title={member.username}
-                        >
-                          @{member.username}
-                        </span>
+                        <Tooltip label={member.username} asChild>
+                          <span className="max-w-[160px] truncate" dir="auto">
+                            @{member.username}
+                          </span>
+                        </Tooltip>
                         <Close size={12} />
                       </button>
                     );

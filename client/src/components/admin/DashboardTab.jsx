@@ -17,6 +17,7 @@ import {
 } from "../../icons/lucide.js";
 import { api, cardCls, fmtBytes, fmtUptime } from "./adminShared.js";
 import { SectionHeading } from "./AdminCommon.jsx";
+import Tooltip from "../common/Tooltip.jsx";
 
 const prefersReducedMotion = () =>
   typeof window !== "undefined" &&
@@ -354,19 +355,21 @@ const DashboardTab = forwardRef(function DashboardTab({ stats, onStatsChange }, 
 
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
           {infoCards.map(({ label, value, icon: Icon, accent, hint }) => (
-            <div key={label} className={cardCls + " px-4 py-3"} title={hint}>
-              <div className="mb-1 flex items-center gap-1.5">
-                <Icon size={11} className="shrink-0 text-emerald-500" />
-                <span className="truncate text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-400 dark:text-slate-500">
-                  {label}
+            <Tooltip key={label} label={hint} placement="bottom" as="div" className="w-full">
+              <div className={cardCls + " w-full px-4 py-3"}>
+                <div className="mb-1 flex items-center gap-1.5">
+                  <Icon size={11} className="shrink-0 text-emerald-500" />
+                  <span className="truncate text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-400 dark:text-slate-500">
+                    {label}
+                  </span>
+                </div>
+                <span
+                  className={`text-base font-bold ${accent ? "text-emerald-600 dark:text-emerald-400" : "text-slate-700 dark:text-slate-200"}`}
+                >
+                  {value}
                 </span>
               </div>
-              <span
-                className={`text-base font-bold ${accent ? "text-emerald-600 dark:text-emerald-400" : "text-slate-700 dark:text-slate-200"}`}
-              >
-                {value}
-              </span>
-            </div>
+            </Tooltip>
           ))}
         </div>
       </div>
@@ -376,24 +379,26 @@ const DashboardTab = forwardRef(function DashboardTab({ stats, onStatsChange }, 
         <SectionHeading>Overview</SectionHeading>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {statCards.map(({ label, value, icon: Icon, accent, hint }) => (
-            <div key={label} className={cardCls + " px-4 py-3"} title={hint}>
-              <div className="flex items-center gap-1.5">
-                <Icon
-                  size={12}
-                  className={
-                    accent === "rose" ? "text-rose-400" : "text-emerald-500"
-                  }
-                />
-                <p className="truncate text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-400 dark:text-slate-500">
-                  {label}
+            <Tooltip key={label} label={hint} placement="bottom" as="div" className="w-full">
+              <div className={cardCls + " w-full px-4 py-3"}>
+                <div className="flex items-center gap-1.5">
+                  <Icon
+                    size={12}
+                    className={
+                      accent === "rose" ? "text-rose-400" : "text-emerald-500"
+                    }
+                  />
+                  <p className="truncate text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-400 dark:text-slate-500">
+                    {label}
+                  </p>
+                </div>
+                <p
+                  className={`mt-1.5 text-2xl font-bold ${accent === "rose" ? "text-rose-500 dark:text-rose-400" : "text-emerald-700 dark:text-emerald-300"}`}
+                >
+                  <CountUp value={value} />
                 </p>
               </div>
-              <p
-                className={`mt-1.5 text-2xl font-bold ${accent === "rose" ? "text-rose-500 dark:text-rose-400" : "text-emerald-700 dark:text-emerald-300"}`}
-              >
-                <CountUp value={value} />
-              </p>
-            </div>
+            </Tooltip>
           ))}
         </div>
       </div>

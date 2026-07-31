@@ -86,7 +86,9 @@ function registerAdminPanelRoutes(app, deps) {
     // chat creation / editing
     crypto,
     createChat,
+    createMessage,
     addChatMember,
+    addAllEligibleChatMembers,
     removeChatMember,
     setChatMemberRole,
     listChatMembers,
@@ -145,6 +147,26 @@ function registerAdminPanelRoutes(app, deps) {
 
   // Returns true if the acting session belongs to the owner role.
   const actorIsOwner = (session) => isUserOwner(session?.id);
+
+  const emitGroupJoinMessage = (chat, chatId, session, member) => {
+    if (chat.type !== "group") return;
+    const body = `[[system:joined:${member.nickname || member.username}]]`;
+    createMessage(
+      chatId,
+      session.id,
+      body,
+      null,
+      null,
+      null,
+      { allowPlaintextSystemMessage: true },
+    );
+    emitChatEvent(chatId, {
+      type: "chat_message",
+      chatId,
+      username: session.username,
+      body,
+    });
+  };
 
   // Helper to write an audit log entry (to logs/admin.log) tied to the acting admin.
   const log = (session, action, opts = {}) => {
@@ -589,9 +611,13 @@ function registerAdminPanelRoutes(app, deps) {
     addChatMember(chatId, Number(owner.id), "owner");
 
     const memberIds = Array.isArray(b.memberIds) ? b.memberIds.map(Number).filter(Boolean) : [];
+    const addAllEligibleMembers = Boolean(b.addAllEligibleMembers);
     memberIds.forEach((mid) => {
       if (mid !== Number(owner.id)) addChatMember(chatId, mid, "member");
     });
+    const bulkMembers = addAllEligibleMembers
+      ? addAllEligibleChatMembers(chatId)
+      : { addedUsers: [], skippedLeftCount: 0 };
 
     if (b.verified) adminRun("UPDATE chats SET verified = 1 WHERE id = ?", [chatId]);
 
@@ -605,8 +631,18 @@ function registerAdminPanelRoutes(app, deps) {
       const member = findUserById(mid);
       if (member?.username) emitSseEvent(String(member.username), { type: "chat_list_changed" });
     });
-    log(session, "chat.create", { targetType: "chat", targetLabel: name, details: `type=${type}` });
-    res.status(201).json({ ok: true, chat: created });
+    bulkMembers.addedUsers.forEach((member) => {
+      if (Number(member.id) !== Number(owner.id)) {
+        emitSseEvent(String(member.username), { type: "chat_list_changed" });
+      }
+    });
+    log(session, "chat.create", { targetType: "chat", targetLabel: name, details: `type=${type} added_all=${bulkMembers.addedUsers.length} skipped_left=${bulkMembers.skippedLeftCount}` });
+    res.status(201).json({
+      ok: true,
+      chat: created,
+      addedAllCount: bulkMembers.addedUsers.length,
+      skippedLeftCount: bulkMembers.skippedLeftCount,
+    });
   });
 
   // ─── Chats — edit ────────────────────────────────────────────────────────────
@@ -766,14 +802,44 @@ function registerAdminPanelRoutes(app, deps) {
     const session = requireAdmin(req, res);
     if (!session) return;
     const chatId = Number(req.params.id);
-    const userId = Number(req.body?.userId);
-    if (!chatId || !userId) return res.status(400).json({ error: "chatId and userId required" });
+    if (!chatId) return res.status(400).json({ error: "Invalid chat ID" });
     const chat = findChatById(chatId);
-    const user = findUserById(userId);
     if (!chat) return res.status(404).json({ error: "Chat not found" });
+    if (!["group", "channel"].includes(chat.type)) {
+      return res.status(400).json({ error: "Only groups and channels can have members." });
+    }
+
+    if (req.body?.all) {
+      const result = addAllEligibleChatMembers(chatId);
+      adminSave();
+      result.addedUsers.forEach((user) => {
+        emitSseEvent(String(user.username), { type: "chat_list_changed" });
+        emitGroupJoinMessage(chat, chatId, session, user);
+      });
+      if (result.addedUsers.length > 0) {
+        emitChatEvent(chatId, { type: "chat_updated", chatId });
+      }
+      log(session, "chat.member_add", {
+        targetType: "chat",
+        targetLabel: chat.name || `Chat #${chatId}`,
+        details: `all added=${result.addedUsers.length} skipped_left=${result.skippedLeftCount}`,
+      });
+      return res.json({
+        ok: true,
+        addedCount: result.addedUsers.length,
+        skippedLeftCount: result.skippedLeftCount,
+      });
+    }
+
+    const userId = Number(req.body?.userId);
+    if (!userId) return res.status(400).json({ error: "userId required" });
+    const user = findUserById(userId);
     if (!user) return res.status(404).json({ error: "User not found" });
-    addChatMember(chatId, userId, "member");
+    const added = addChatMember(chatId, userId, "member") > 0;
     adminSave();
+    if (added) {
+      emitGroupJoinMessage(chat, chatId, session, user);
+    }
     // Notify the added user so the chat appears in their sidebar immediately.
     emitSseEvent(String(user.username), { type: "chat_list_changed" });
     // Notify existing members that the member list changed.
@@ -944,12 +1010,6 @@ function registerAdminPanelRoutes(app, deps) {
 
   const SERVICE_NAME = process.env.SONGBIRD_SERVICE_NAME || "songbird";
 
-  // Detects whether the server is running inside a Docker container by checking
-  // for the presence of /.dockerenv (set by the Docker runtime on every container).
-  const isDocker = () => {
-    try { return deps.fs.existsSync("/.dockerenv"); } catch { return false; }
-  };
-
   // Sends a POST request to the Docker Engine API via the Unix socket to
   // restart or stop this container. The container name / ID is read from the
   // HOSTNAME env var, which Docker sets to the container ID by default, and
@@ -986,40 +1046,52 @@ function registerAdminPanelRoutes(app, deps) {
     });
   });
 
-  // Dispatches to the right mechanism based on the deployment environment.
-  const runServiceAction = (action) =>
-    isDocker() ? runDockerAction(action) : runSystemctl(action);
+  // Docker mode and its service-control capability are fixed for a running
+  // process, so detect and probe them once while routes are registered.
+  const dockerMode = (() => {
+    try { return fs?.existsSync("/.dockerenv") ?? false; } catch { return false; }
+  })();
 
-  // Probes whether service control (restart/stop) is usable in the current
-  // deployment. In Docker it requires the socket to be mounted; on bare metal
-  // it requires systemctl to be available.
+  const probeDockerServiceControl = () => new Promise((resolve) => {
+    try {
+      const http = deps.http;
+      if (!http) return resolve(false);
+      const r = http.request(
+        { socketPath: "/var/run/docker.sock", path: "/info", method: "GET" },
+        (resp) => { resp.resume(); resolve(resp.statusCode < 500); },
+      );
+      r.on("error", () => resolve(false));
+      r.setTimeout(2000, () => { r.destroy(); resolve(false); });
+      r.end();
+    } catch { resolve(false); }
+  });
+
+  const probeSystemctlServiceControl = () => new Promise((resolve) => {
+    execFile("systemctl", ["--version"], { timeout: 2000 }, (err) => {
+      if (!err) return resolve(true);
+      execFile("sudo", ["-n", "systemctl", "--version"], { timeout: 2000 }, (err2) => resolve(!err2));
+    });
+  });
+
+  const serviceControlStatus = typeof deps.getServiceControlStatus === "function"
+    ? Promise.resolve(deps.getServiceControlStatus({ dockerMode }))
+    : (dockerMode
+      ? probeDockerServiceControl()
+      : probeSystemctlServiceControl()
+    ).then((available) => ({
+      available,
+      reason: available
+        ? null
+        : dockerMode ? "Docker socket not mounted." : "systemctl not available.",
+    }));
+
+  // Dispatches to the mechanism selected once during startup.
+  const runServiceAction = (action) =>
+    dockerMode ? runDockerAction(action) : runSystemctl(action);
+
   app.get("/api/admin/service/available", async (req, res) => {
     if (!requireAdmin(req, res)) return;
-    if (isDocker()) {
-      // Check whether the Docker socket is actually mounted and accessible.
-      const available = await new Promise((resolve) => {
-        try {
-          const http = deps.http;
-          if (!http) return resolve(false);
-          const r = http.request(
-            { socketPath: "/var/run/docker.sock", path: "/info", method: "GET" },
-            (resp) => { resp.resume(); resolve(resp.statusCode < 500); },
-          );
-          r.on("error", () => resolve(false));
-          r.setTimeout(2000, () => { r.destroy(); resolve(false); });
-          r.end();
-        } catch { resolve(false); }
-      });
-      return res.json({ available, reason: available ? null : "Docker socket not mounted." });
-    }
-    // Bare metal — check whether systemctl exists.
-    const available = await new Promise((resolve) => {
-      execFile("systemctl", ["--version"], { timeout: 2000 }, (err) => {
-        if (!err) return resolve(true);
-        execFile("sudo", ["-n", "systemctl", "--version"], { timeout: 2000 }, (err2) => resolve(!err2));
-      });
-    });
-    res.json({ available, reason: available ? null : "systemctl not available." });
+    res.json(await serviceControlStatus);
   });
 
   app.post("/api/admin/service/restart", async (req, res) => {
