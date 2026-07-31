@@ -174,8 +174,8 @@ describe("useAdminCache — fix verified: cache survives unmount within TTL", ()
     const store = makeStore();
 
     // ── First mount + fetch ──────────────────────────────────────────────────
-    let cache = store.simulateMountCache(trackingFetchers);
-    cache = await simulateFetch(cache, "stats", trackingFetchers, store);
+    const cache = store.simulateMountCache(trackingFetchers);
+    await simulateFetch(cache, "stats", trackingFetchers, store);
     expect(fetchCallCount).toBe(1); // one fetch on first visit
 
     // ── Unmount — React state gone; module store survives ───────────────────
