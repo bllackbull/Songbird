@@ -664,6 +664,7 @@ function registerChatRoutes(app, deps) {
         username: chat.group_username || "",
         color: chat.group_color || "#10b981",
         avatarUrl: normalizeGroupAvatarUrl(chat.group_avatar_url),
+        verified: Boolean(chat.verified),
         visibility: chat.group_visibility || "public",
         allowMemberInvites: Boolean(Number(chat.allow_member_invites || 0)),
         membersCount: members.length,

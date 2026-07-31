@@ -1261,7 +1261,7 @@ export function findChatByGroupUsername(groupUsername) {
   const withAt = normalized.startsWith("@") ? normalized : `@${normalized}`;
   return getRow(
     `SELECT id, name, type, group_username, group_visibility, invite_token, group_color,
-            allow_member_invites, group_avatar_url, created_by_user_id
+            allow_member_invites, group_avatar_url, created_by_user_id, verified
      FROM chats
      WHERE group_username IN (?, ?) AND type IN ('group', 'channel')`,
     [normalized, withAt],
@@ -1270,7 +1270,7 @@ export function findChatByGroupUsername(groupUsername) {
 
 export function findChatByInviteToken(inviteToken) {
   return getRow(
-    "SELECT id, name, type, group_username, group_visibility, invite_token, group_color, allow_member_invites, group_avatar_url, created_by_user_id FROM chats WHERE invite_token = ? AND type IN ('group', 'channel')",
+    "SELECT id, name, type, group_username, group_visibility, invite_token, group_color, allow_member_invites, group_avatar_url, created_by_user_id, verified FROM chats WHERE invite_token = ? AND type IN ('group', 'channel')",
     [String(inviteToken || "").trim()],
   );
 }

@@ -5,6 +5,7 @@ import { getAvatarStyle } from "../utils/avatarColor.js";
 import { getAvatarInitials } from "../utils/avatarInitials.js";
 import { hasPersian } from "../utils/fontUtils.js";
 import Tooltip from "../components/common/Tooltip.jsx";
+import VerifiedBadge from "../components/common/VerifiedBadge.jsx";
 
 export default function InvitePage({
   token,
@@ -229,17 +230,20 @@ export default function InvitePage({
                 </div>
               )}
               <p className="w-full text-center">
-                <Tooltip label={groupName} asChild>
-                  <span
-                    className={`mx-auto block w-fit max-w-full truncate text-base font-semibold text-emerald-800 dark:text-emerald-200 ${
-                      groupNameHasPersian ? "font-fa text-right" : "text-center"
-                    }`}
-                    dir="auto"
-                    style={{ unicodeBidi: "plaintext" }}
-                  >
-                    {groupName}
-                  </span>
-                </Tooltip>
+                <span className="mx-auto inline-flex max-w-full items-center gap-1">
+                  <Tooltip label={groupName} asChild>
+                    <span
+                      className={`min-w-0 truncate text-base font-semibold text-emerald-800 dark:text-emerald-200 ${
+                        groupNameHasPersian ? "font-fa text-right" : "text-center"
+                      }`}
+                      dir="auto"
+                      style={{ unicodeBidi: "plaintext" }}
+                    >
+                      {groupName}
+                    </span>
+                  </Tooltip>
+                  {Boolean(group?.verified) && <VerifiedBadge size={15} />}
+                </span>
               </p>
               <Tooltip label={group?.username || "group"} asChild>
                 <p
