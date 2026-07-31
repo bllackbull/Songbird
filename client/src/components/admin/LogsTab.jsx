@@ -130,7 +130,7 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = tr
       <TabToolbar>
         <TabSearchInput value={search} onChange={changeSearch} placeholder="Search logs…" />
         {isOwner && (
-          <button type="button" onClick={() => setConfirmOpen(true)} title="Clear"
+          <button type="button" onClick={() => setConfirmOpen(true)}
             className={btnDanger + " w-9 shrink-0 justify-center px-0 sm:w-auto sm:justify-start sm:px-3"}>
             <Trash size={16} className="icon-anim-slide shrink-0" />
             <span className="hidden sm:inline">Clear</span>

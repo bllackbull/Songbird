@@ -310,7 +310,7 @@ export function FilterDropdown({ value, onChange, options, icon: Icon = Filter }
   const isActive = Boolean(value);
   return (
     <div className="relative">
-      <button ref={btnRef} type="button" onClick={toggle} aria-expanded={open} title={label}
+      <button ref={btnRef} type="button" onClick={toggle} aria-expanded={open}
         className="relative flex h-9 w-9 items-center justify-center rounded-xl border border-emerald-200/70 bg-white/90 text-xs font-semibold text-slate-600 outline-hidden transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-emerald-500/5 sm:w-auto sm:gap-1.5 sm:pl-3 sm:pr-7">
         <Icon size={16} className="text-emerald-500 sm:hidden" />
         <span className="hidden max-w-24 truncate sm:inline">{label}</span>

@@ -102,7 +102,7 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
         <TabSearchInput value={search} onChange={changeSearch} placeholder="Search chats…" />
         <FilterDropdown value={typeFilter} onChange={changeTypeFilter} options={[["", "All types"], ["group", "Groups"], ["channel", "Channels"]]} />
         <div ref={createMenuRef} className="relative shrink-0">
-          <button type="button" onClick={() => setCreateMenuOpen((o) => !o)} aria-expanded={createMenuOpen} title="New chat"
+          <button type="button" onClick={() => setCreateMenuOpen((o) => !o)} aria-expanded={createMenuOpen}
             className={btnPrimary + " w-9 shrink-0 justify-center px-0 sm:w-auto sm:justify-start sm:px-3"}>
             <Plus size={16} className="icon-anim-pop shrink-0" /> <span className="hidden sm:inline">New chat</span>
             <ChevronDown size={12} className={`hidden transition-transform sm:inline-flex ${createMenuOpen ? "rotate-180" : ""}`} />
