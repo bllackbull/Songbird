@@ -45,7 +45,7 @@ describe("InvitePage verified badge", () => {
       />,
     );
 
-    await expect.element(page.getByText("Verified Group")).toBeInTheDocument();
+    await expect.element(page.getByText("Verified Group").first()).toBeInTheDocument();
     await expect.element(page.getByLabelText("Verified")).toBeInTheDocument();
   });
 });
