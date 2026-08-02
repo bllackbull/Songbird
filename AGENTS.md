@@ -4,27 +4,61 @@ Songbird is a comprehensive real-time communication platform built with a modern
 
 ## Architecture
 - **Monorepo Structure**: 
-  - `client/`: React 19 frontend (JSX, Vite, Tailwind 4)
-  - `server/`: Node.js backend (Express 5 + SSE)
+  - `client/`: React 19 frontend (JSX, Vite, Tailwind 4, Vitest + Playwright)
+  - `server/`: Node.js backend (Express 5 + SSE, SQLite via `sql.js`, Vitest + Supertest)
   - `docs/`: VitePress documentation
 
 ## Developer Commands
+
+### Full Stack & Management
 - **Full Stack Dev**: `npm run dev` (runs client and server concurrently)
-- **Client Only**: `npm --prefix client run dev`
-- **Server Only**: `npm --prefix server run dev`
+- **All Tests**: `npm test` (runs client and server tests concurrently)
 - **Build Client**: `npm run build` (runs `vite build` in client folder)
+- **Remote Channels**: `npm run remote:configure` or `npm --prefix server run remote:configure`
 
-## Verification & Tooling
-- **Client Lint**: `npm --prefix client run lint`
-- **Server Tests**: `npm --prefix server run test` (Vitest, includes unit + API integration tests via supertest)
-- **Client Tests**: `npm --prefix client run test` (Vitest, includes unit tests and Playwright browser/component tests)
-- **All Tests**: `npm test` (runs both in parallel)
-- **Client Unit Only**: `npm --prefix client run test:unit` (fast, no browser)
-- **Client Browser Only**: `npm --prefix client run test:browser` (Chromium + Firefox via Playwright)
-- **Server DB Tools**: The server includes a wide array of database maintenance scripts under `npm --prefix server run db:*` (e.g., `db:migrate`, `db:reset`, `db:inspect`).
-- **Remote Channels**: `npm run remote:configure` or `npm --prefix server run remote:configure` to set up mirrored channels.
+### Client (`client/`)
+- **Dev Server**: `npm --prefix client run dev` (or `npm run dev` from `client/`)
+- **Lint**: `npm --prefix client run lint`
+- **All Tests**: `npm --prefix client run test` (Vitest unit + Playwright browser tests)
+- **Unit Tests Only**: `npm --prefix client run test:unit` (fast, headless Node env)
+- **Browser Tests Only**: `npm --prefix client run test:browser` (Chromium + Firefox via Playwright)
+- **Build**: `npm --prefix client run build`
 
-## Key Constraints
-- **Node Version**: Requires Node `>=24.0.0` (Volta configured for `24.18.0`).
-- **Server Watch**: The server dev mode watches both the server directory and the root `.env` file.
-- **Database**: SQLite (`sql.js`) managed via structured migrations (`server/migrations/`) ensuring predictable schema evolution.
+### Server (`server/`)
+- **Dev Server**: `npm --prefix server run dev` (or `npm run dev` from `server/`)
+- **Run Tests**: `npm --prefix server run test` (Vitest unit + integration tests via Supertest)
+- **DB Tools**: Maintenance scripts under `npm --prefix server run db:*` (`db:migrate`, `db:reset`, `db:inspect`, etc.)
+
+## Frontend Guidance (Client)
+- **Routing**: No router library. Routing is controlled in `App.jsx` using `window.history` and manual route matching (`getRoute`).
+- **State Management**: User state passed down from `App.jsx`. Feature-specific cache stored in `IndexedDB` via `utils/chatCache.js`.
+- **API Requests**: Always use `apiFetch` in `src/api/chatApi.js` (`credentials: "include"`).
+- **Styling**: Tailwind 4 with CSS variables and custom utilities in `src/index.css`. Support dark mode via `.dark` class.
+
+## Backend Guidance (Server)
+- **App Bootstrap**: `index.js` initializes dependencies (`apiDeps`) and registers routes via `api/index.js`.
+- **Database**: `db.js` wraps `sql.js`. Operations are in-memory with debounced file flushes (`DB_SAVE_DEBOUNCE_MS`).
+- **Migrations**: Idempotent migrations in `server/migrations/`.
+- **Realtime**: `lib/sse.js` handles SSE subscriber connections and event broadcasting (`emitChatEvent`).
+- **Auth**: Cookie-based session authentication (`sid` cookie via `lib/sessions.js`).
+
+## Key / Exemplar Files
+
+### Frontend (`client/`)
+- `client/src/App.jsx`: Top-level SPA shell, manual history route dispatch, PWA & mobile safe-area handling
+- `client/src/api/chatApi.js`: API client boundary (`apiFetch` with `credentials: "include"`)
+- `client/src/utils/chatCache.js`: Browser storage (`IndexedDB`) caching layer with TTL
+- `client/src/index.css`: Tailwind 4 theme, `@custom-variant dark`, safe-area utilities
+
+### Backend (`server/`)
+- `server/index.js`: Server bootstrap, Express 5 app setup, dependency injection (`apiDeps`)
+- `server/db.js`: Memory-first SQLite (`sql.js`) with debounced disk persistence
+- `server/lib/sse.js`: Real-time SSE event hub and connection tracking
+- `server/api/index.js`: API route registration
+
+## Conventions & Pitfalls
+- **Node Requirement**: Node `>=24.18.0`.
+- **Database Persistence**: `sql.js` operates in-memory; disk writes are debounced (`DB_SAVE_DEBOUNCE_MS`). Do not bypass `db.js` helpers for DB operations.
+- **SSE Events**: `/api/events` provides real-time updates and bypasses normal compression/rate limiting.
+- **Client Caching**: `localStorage` and `IndexedDB` act as best-effort caches; avoid assuming local cache is authoritative.
+- **Runtime Config**: App settings loaded from the database can override environment defaults dynamically.

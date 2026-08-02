@@ -20,3 +20,7 @@ npm-debug.log*
 .idea
 .todo
 .env
+
+# Agent & AI tool configs
+AGENTS.md
+opencode.json

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "ag/gemini-3.6-flash-high",
+  "small_model": "ag/gpt-oss-120b-medium",
+  "formatter": true,
+  "instructions": [
+    ".kiro/steering/conventions.md",
+    ".kiro/steering/product.md",
+    ".kiro/steering/structure.md",
+    ".kiro/steering/tech.md",
+    ".kiro/steering/testing.md"
+  ],
+  "server": {
+    "port": 4096
+  },
+  "mcp": {
+    "github": {
+      "type": "remote",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "enabled": true,
+      "oauth": false,
+      "headers": {
+        "Authorization": "Bearer {env:GITHUB_PERSONAL_ACCESS_TOKEN}"
+      }
+    }
+  }
+}
