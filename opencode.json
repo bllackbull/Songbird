@@ -22,6 +22,11 @@
       "headers": {
         "Authorization": "Bearer {env:GITHUB_PERSONAL_ACCESS_TOKEN}"
       }
+    },
+    "codebase-memory-mcp": {
+      "type": "local",
+      "enabled": true,
+      "command": ["{env:CODEBASE_MEMORY_MCP_PATH}"]
     }
   }
 }
