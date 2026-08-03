@@ -61,7 +61,8 @@
     "sql.js": "^1.14.1",
     "telegram": "^2.26.22",
     "undici": "^8.9.0",
-    "web-push": "^3.6.7"
+    "web-push": "^3.6.7",
+    "ws": "^8.21.2"
   },
   "devDependencies": {
     "@vitest/ui": "^4.1.10",

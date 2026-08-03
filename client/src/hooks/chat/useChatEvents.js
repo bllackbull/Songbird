@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { getWebSocketUrl } from "../../api/chatApi.js";
 import {
   isMessageAuthoredByUser,
   isRemoteChannelMessage,
@@ -146,18 +147,26 @@ export function useChatEvents({
 
     const connect = () => {
       if (!isMounted) return;
-      source = new EventSource(getSseStreamUrl(username), {
-        withCredentials: true,
-      });
-      source.onopen = () => {
+      let ws = null;
+      try {
+        const wsUrl = getWebSocketUrl();
+        ws = new WebSocket(wsUrl);
+        source = ws;
+      } catch (_) {
+        source = new EventSource(getSseStreamUrl(username), {
+          withCredentials: true,
+        });
+      }
+
+      const handleOpen = () => {
         setSseConnected(true);
         reconnectAttempts = 0;
       };
 
-      source.onmessage = (event) => {
+      const handleMessageData = (dataStr) => {
         let payload = null;
         try {
-          payload = JSON.parse(event.data);
+          payload = JSON.parse(dataStr);
         } catch {
           return;
         }
@@ -393,14 +402,13 @@ export function useChatEvents({
         }
       };
 
-      source.onerror = () => {
+      const handleError = () => {
         setSseConnected(false);
-        source?.close();
+        try { source?.close(); } catch (_) {}
         if (!isMounted) return;
         if (sseReconnectRef.current) {
           clearTimeout(sseReconnectRef.current);
         }
-        // Exponential backoff with jitter to avoid thundering herd on server restart.
         const backoffDelay = Math.min(
           30000,
           sseReconnectDelayMs * Math.pow(2, reconnectAttempts),
@@ -410,6 +418,17 @@ export function useChatEvents({
         reconnectAttempts += 1;
         sseReconnectRef.current = setTimeout(connect, delay);
       };
+
+      if (source instanceof WebSocket) {
+        source.onopen = handleOpen;
+        source.onmessage = (event) => handleMessageData(event.data);
+        source.onerror = handleError;
+        source.onclose = handleError;
+      } else if (source) {
+        source.onopen = handleOpen;
+        source.onmessage = (event) => handleMessageData(event.data);
+        source.onerror = handleError;
+      }
     };
 
     void connect();

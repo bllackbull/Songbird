@@ -14,6 +14,7 @@ import webpush from "web-push";
 import { registerApiRoutes } from "./api/index.js";
 import { ensureValidVapidKeys } from "./lib/vapid.js";
 import { createSseHub } from "./lib/sse.js";
+import { createWebSocketGateway } from "./lib/websocketGateway.js";
 import { createPushService } from "./lib/push.js";
 import { createUploadTools } from "./lib/uploads.js";
 import { createVideoTranscodeManager } from "./lib/videoTranscode.js";
@@ -1102,6 +1103,13 @@ if (REMOTE_CHANNEL) {
 
 const server = app.listen(port, bindAddress, () => {
   console.log(`Songbird server running on http://${bindAddress}:${port}`);
+});
+
+const wsGateway = createWebSocketGateway({
+  server,
+  sseHub,
+  redisClient,
+  getSessionFromToken: getSessionCombined,
 });
 
 // Graceful shutdown for container orchestrators
