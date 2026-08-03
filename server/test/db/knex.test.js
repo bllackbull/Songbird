@@ -2,9 +2,9 @@ import { describe, test, expect } from "vitest";
 import { createKnexInstance } from "../../db/knex.js";
 
 describe("Knex DB Connection Factory", () => {
-  test("creates sqlite3 knex instance by default", () => {
+  test("creates better-sqlite3 knex instance by default", () => {
     const instance = createKnexInstance();
-    expect(instance.client.config.client).toBe("sqlite3");
+    expect(instance.client.config.client).toBe("better-sqlite3");
     expect(instance.client.config.useNullAsDefault).toBe(true);
     instance.destroy();
   });
