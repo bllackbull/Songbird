@@ -1,4 +1,5 @@
 import rateLimit from "express-rate-limit";
+import { createMessagePublicationService } from "../lib/services/messagePublicationService.js";
 
 function registerMessageRoutes(app, deps) {
   const {
@@ -61,6 +62,19 @@ function registerMessageRoutes(app, deps) {
     markMessagesRead,
     markMessageRead,
   } = deps;
+
+  const messagePubService = createMessagePublicationService({
+    createOrReuseMessage,
+    createMessageFiles,
+    editMessage,
+    findChatById,
+    findMessageById,
+    listChatMembers,
+    listMutedUserIdsForChat,
+    markMessageRead,
+    setMessageExpiresAt,
+    setMessageForwardOrigin,
+  });
 
   const computeTextExpiryIso = (createdAt) => {
     const textRetentionDays = Number(getSetting("MESSAGE_TEXT_RETENTION") || 0);
@@ -1133,21 +1147,19 @@ function registerMessageRoutes(app, deps) {
 
     const createdAtIso = new Date().toISOString();
     const expiresAt = computeTextExpiryIso(createdAtIso);
-    const created = createOrReuseMessage(
-      Number(chatId),
-      user.id,
-      bodyText,
+    
+    const result = messagePubService.publishTextMessage({
+      chatId: Number(chatId),
+      userId: user.id,
+      body: bodyText,
       replyToMessageId,
       expiresAt,
       clientRequestId,
-    );
-    const id = Number(created?.id || 0);
-    if (!id) {
-      return res.status(500).json({ error: "Unable to create message." });
-    }
-    if (chat.type === "saved" && !created?.deduped) {
-      markMessageRead(id, user.id);
-    }
+      username: user.username,
+      isUserConnectedFn: isUserConnected,
+    });
+
+    const id = result.messageId;
 
     debugLog("api:messages/send", {
       chatId: Number(chatId),
@@ -1156,64 +1168,37 @@ function registerMessageRoutes(app, deps) {
       bodyLength: String(body || "").length,
     });
 
-    // Respond to the sender immediately — before the SSE broadcast.
-    // This lets the client clear the pending state without waiting for
-    // all member connections to be written to.
     res.json({
       id,
       expiresAt,
-      deduped: Boolean(created?.deduped),
+      deduped: result.deduped,
     });
 
-    if (!created?.deduped) {
-      emitChatEvent(Number(chatId), {
-        type: "chat_message",
-        chatId: Number(chatId),
-        messageId: Number(id),
-        username: user.username,
-        body,
-        replyToMessageId,
-      });
-    }
+    result.sseEvents.forEach((ev) => {
+      emitChatEvent(ev.chatId, ev.payload);
+    });
 
-    if (created?.deduped) {
+    if (result.deduped) {
       return;
     }
 
-    void (async () => {
-      try {
-        const members = listChatMembers(Number(chatId));
-        const mutedRows = listMutedUserIdsForChat(Number(chatId));
-        const mutedIds = new Set(
-          mutedRows.map((row) => Number(row?.user_id || 0)).filter(Boolean),
-        );
-        const recipientIds = members
-          .filter((member) => Number(member.id) !== Number(user.id))
-          .filter((member) => !isUserConnected(member.username))
-          .map((member) => Number(member.id))
-          .filter(
-            (memberId) =>
-              Number.isFinite(memberId) &&
-              memberId > 0 &&
-              !mutedIds.has(Number(memberId)),
-          );
-        if (recipientIds.length) {
+    if (result.pushRecipients.length) {
+      void (async () => {
+        try {
           const title =
             chat.type === "dm"
               ? user.nickname || user.username
               : chat.name || (chat.type === "channel" ? "Channel" : "Group");
           const trimmedBody = String(body || "").trim();
           const notifyBody = trimmedBody || "New message";
-          await sendPushNotificationToUsers(recipientIds, {
+          await sendPushNotificationToUsers(result.pushRecipients, {
             title,
             body: notifyBody,
-            data: { url: "/", chatId },
+            data: { chatId: Number(chatId) },
           });
-        }
-      } catch {
-        // ignore push failures
-      }
-    })();
+        } catch (_) {}
+      })();
+    }
   });
 
   app.post("/api/messages/edit", messageEditLimiter, async (req, res) => {
