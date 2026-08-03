@@ -10,6 +10,8 @@ import {
   serverDir,
   dataDir,
 } from "./_cli.js";
+import { convertSqliteToPostgres } from "../lib/convertDb.js";
+import { readDbConfig } from "../settings/env.js";
 
 const projectRootDir = path.resolve(serverDir, "..");
 const dbPath = path.join(dataDir, "songbird.db");
@@ -108,14 +110,29 @@ async function main() {
 
   if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
-  try {
-    fs.copyFileSync(sourcePath, dbPath);
-  } catch (error) {
-    console.error(`Restore failed: ${error?.message || error}`);
-    process.exit(1);
-  }
+  const dbConfig = readDbConfig();
+  if (dbConfig.client === "postgres") {
+    console.log(`PostgreSQL active — converting and importing "${path.basename(sourcePath)}" into PostgreSQL...`);
+    try {
+      const res = await convertSqliteToPostgres({
+        sqlitePath: sourcePath,
+        postgresConfig: dbConfig.postgres,
+      });
+      console.log(`Database successfully converted and imported ${res.tablesConverted} tables into PostgreSQL.`);
+    } catch (error) {
+      console.error(`PostgreSQL restore/conversion failed: ${error?.message || error}`);
+      process.exit(1);
+    }
+  } else {
+    try {
+      fs.copyFileSync(sourcePath, dbPath);
+    } catch (error) {
+      console.error(`Restore failed: ${error?.message || error}`);
+      process.exit(1);
+    }
 
-  applyOwnership();
+    applyOwnership();
+  }
   restartService();
 
   console.log(`Database restored from: ${sourcePath}`);

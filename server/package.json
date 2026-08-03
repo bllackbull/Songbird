@@ -22,6 +22,7 @@
     "db:reset": "node scripts/reset-db.js",
     "db:backup": "node scripts/backup-db.js",
     "db:restore": "node scripts/restore-db.js",
+    "db:convert": "node scripts/convert-db.js",
     "db:vacuum": "node scripts/vacuum-db.js",
     "db:help": "node scripts/db-help.js",
     "db:migrate": "node scripts/migrate.js",
