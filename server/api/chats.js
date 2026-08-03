@@ -1,5 +1,6 @@
 import { createInviteToken } from "../lib/inviteTokens.js";
 import { createMembershipService } from "../lib/services/membershipService.js";
+import { createDeletionService } from "../lib/services/deletionService.js";
 import { normalizeSongbirdSource, normalizeTelegramSource, resolveSongbirdSource } from "../lib/remoteChannels.js";
 
 function registerChatRoutes(app, deps) {
@@ -16,6 +17,7 @@ function registerChatRoutes(app, deps) {
     createChat,
     createMessage,
     deleteChatById,
+    deleteUserById,
     emitChatEvent,
     emitSseEvent,
     ensureSavedChatForUser,
@@ -75,6 +77,15 @@ function registerChatRoutes(app, deps) {
     findGroupByInviteToken: (tok) => findChatByInviteTarget(tok),
     addSystemMessage: (chatId, body) =>
       createMessage(chatId, null, body, null, null, null, { allowPlaintextSystemMessage: true }),
+  });
+
+  const deletionService = createDeletionService({
+    deleteChatById,
+    deleteUserById,
+    findChatById: (id) => getChatById(id) || getGroupChat(id) || getChannelChat(id),
+    findUserById,
+    listChatMembers,
+    listChatsForUser,
   });
 
   const resolveClientBaseOrigin = (req) => {
@@ -1114,9 +1125,9 @@ function registerChatRoutes(app, deps) {
         (member) => Number(member.id) !== Number(user.id),
       );
       if (remainingMembers.length === 0) {
-        const { storedNames } = deleteChatById(chatId);
-        if (Array.isArray(storedNames) && storedNames.length > 0) {
-          removeStoredFileNames(storedNames);
+        const result = deletionService.deleteChat({ chatId });
+        if (Array.isArray(result.storedFilesToRemove) && result.storedFilesToRemove.length > 0) {
+          removeStoredFileNames(result.storedFilesToRemove);
         }
         return res.json({ ok: true, deleted: true });
       }
@@ -1190,16 +1201,14 @@ function registerChatRoutes(app, deps) {
       .map((member) => String(member?.username || "").toLowerCase())
       .filter(Boolean);
 
-    const { storedNames } = deleteChatById(chatId);
-    if (Array.isArray(storedNames) && storedNames.length > 0) {
-      removeStoredFileNames(storedNames);
+    const result = deletionService.deleteChat({ chatId });
+    if (Array.isArray(result.storedFilesToRemove) && result.storedFilesToRemove.length > 0) {
+      removeStoredFileNames(result.storedFilesToRemove);
     }
-    memberUsernames.forEach((memberUsername) => {
+    result.sseEvents.forEach((ev) => {
       try {
-        emitSseEvent(memberUsername, { type: "chat_list_changed", chatId });
-      } catch {
-        // ignore realtime list errors
-      }
+        emitSseEvent(ev.targetUsername, ev.payload);
+      } catch (_) {}
     });
     return res.json({ ok: true, deleted: true });
   });
