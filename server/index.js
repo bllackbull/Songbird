@@ -20,6 +20,7 @@ import { createVideoTranscodeManager } from "./lib/videoTranscode.js";
 import { createMessageFileJobs } from "./lib/messageFileJobs.js";
 import { createInspector } from "./lib/inspect.js";
 import { createSessionHelpers } from "./lib/sessions.js";
+import { createRedisClient, createRedisSessionStore } from "./lib/redis.js";
 import { storageEncryption } from "./lib/storageEncryption.js";
 import { createRemoteChannelManager } from "./lib/remoteChannels.js";
 import { buildTimestampSchedule } from "./lib/timeUtils.js";
@@ -463,9 +464,33 @@ const {
 const inspector = createInspector({ fs, dataDir, adminGetRow, adminGetAll });
 const { buildInspectSnapshot, hasEnoughFreeDiskSpace } = inspector;
 
+const redisClient = createRedisClient();
+const redisSessionStore = createRedisSessionStore({ redisClient, dbGetSession: getSession });
+
+function createSessionCombined(userId, token) {
+  createSession(userId, token);
+  redisSessionStore.createSession(userId, token);
+}
+
+function getSessionCombined(token) {
+  const cached = redisSessionStore.getSession(token);
+  if (cached && typeof cached.then !== "function") return cached;
+  return getSession(token);
+}
+
+function touchSessionCombined(token) {
+  touchSession(token);
+  redisSessionStore.touchSession(token);
+}
+
+function deleteSessionCombined(token) {
+  deleteSession(token);
+  redisSessionStore.deleteSession(token);
+}
+
 const sessionHelpers = createSessionHelpers({
-  getSession,
-  touchSession,
+  getSession: getSessionCombined,
+  touchSession: touchSessionCombined,
   isProduction,
 });
 const {
@@ -576,6 +601,8 @@ registerUploadRoutes(app, { adminGetRow });
 
 const apiDeps = {
   ALLOWED_AVATAR_MIME_TYPES,
+  redisClient,
+  redisSessionStore,
   // APP_DEBUG intentionally NOT passed here — messages.js must call
   // getSetting("APP_DEBUG") at request time so admin-panel changes apply live.
   AVATAR_FILE_LIMITS,
@@ -619,12 +646,12 @@ const apiDeps = {
   createOrReuseMessage,
   createMessageFiles,
   editMessage,
-  createSession,
+  createSession: createSessionCombined,
   createUser,
   crypto,
   debugLog,
   decodeOriginalFilename,
-  deleteSession,
+  deleteSession: deleteSessionCombined,
   deleteChatById,
   deleteUserById,
   emitChatEvent,
