@@ -331,6 +331,7 @@ export function createUploadTools({
         res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
         res.setHeader("Vary", "Accept-Encoding");
         res.setHeader("X-Content-Type-Options", "nosniff");
+        res.setHeader("Accept-Ranges", "bytes");
 
         if (mimeType) {
           res.type(mimeType);
@@ -347,9 +348,33 @@ export function createUploadTools({
           );
         }
 
+        const totalSize = storageEncryption.getDecryptedFileSize(filePath);
+        if (!totalSize) return res.status(404).end();
+
+        const rangeHeader = req.headers.range;
+        if (rangeHeader && rangeHeader.startsWith("bytes=")) {
+          const parts = rangeHeader.replace(/bytes=/, "").split("-");
+          const start = parseInt(parts[0], 10) || 0;
+          const end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
+
+          if (start >= totalSize || end >= totalSize || start > end) {
+            res.setHeader("Content-Range", `bytes */${totalSize}`);
+            return res.status(416).end();
+          }
+
+          const chunkSize = end - start + 1;
+          const chunkBuffer = storageEncryption.decryptFileRange(filePath, start, end);
+          if (!chunkBuffer) return res.status(500).end();
+
+          res.status(206);
+          res.setHeader("Content-Range", `bytes ${start}-${end}/${totalSize}`);
+          res.setHeader("Content-Length", chunkSize);
+          return res.send(chunkBuffer);
+        }
+
         const fileBuffer = storageEncryption.decryptFileToBuffer(filePath);
         if (!fileBuffer) return res.status(404).end();
-
+        res.setHeader("Content-Length", fileBuffer.length);
         return res.send(fileBuffer);
       },
     );

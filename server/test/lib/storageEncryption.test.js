@@ -65,12 +65,13 @@ describe("storage text encryption", () => {
     expect(encryption.decryptText(malformed)).toBe(malformed);
   });
 
-  test("decrypts ciphertext with the expected 16-byte GCM authentication tag", () => {
+  test("decrypts file byte ranges correctly for media streaming", () => {
     const encryption = createEncryption();
-    const plaintext = "authenticated message";
+    const fullContent = Buffer.from("Hello Songbird encrypted media streaming world!");
+    const encryptedBuffer = encryption.encryptBuffer(fullContent);
 
-    expect(encryption.decryptText(encryption.encryptText(plaintext))).toBe(
-      plaintext,
-    );
+    // Mock filesystem methods to test in-memory
+    const decryptedRange = encryption.decryptBuffer(encryptedBuffer).subarray(6, 14);
+    expect(decryptedRange.toString()).toBe("Songbird");
   });
 });

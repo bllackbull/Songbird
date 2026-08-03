@@ -297,14 +297,39 @@ function createStorageEncryption({
     fsImpl.writeFileSync(filePath, output);
   };
 
+  const getDecryptedFileSize = (filePath) => {
+    if (!filePath || !fsImpl.existsSync(filePath)) return 0;
+    const stat = fsImpl.statSync(filePath);
+    if (!isEncryptedFilePath(filePath)) return stat.size;
+    return Math.max(0, stat.size - FILE_HEADER_LENGTH);
+  };
+
+  const decryptFileRange = (filePath, start = 0, end = null) => {
+    if (!filePath || !fsImpl.existsSync(filePath)) return null;
+    const decrypted = decryptFileToBuffer(filePath);
+    if (!decrypted) return null;
+
+    const totalLen = decrypted.length;
+    const reqStart = Math.max(0, Number(start) || 0);
+    const reqEnd = end === null || end === undefined ? totalLen - 1 : Math.min(totalLen - 1, Number(end));
+
+    if (reqStart >= totalLen || reqStart > reqEnd) {
+      return Buffer.alloc(0);
+    }
+
+    return decrypted.subarray(reqStart, reqEnd + 1);
+  };
+
   return {
     decryptBuffer,
     decryptFileToBuffer,
+    decryptFileRange,
     decryptFileToTempPath,
     decryptText,
     encryptBuffer,
     encryptFileInPlace,
     encryptText,
+    getDecryptedFileSize,
     isEnabled,
     isEncryptedFileBuffer,
     isEncryptedFilePath,
