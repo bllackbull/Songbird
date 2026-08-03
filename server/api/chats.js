@@ -1,4 +1,5 @@
 import { createInviteToken } from "../lib/inviteTokens.js";
+import { createMembershipService } from "../lib/services/membershipService.js";
 import { normalizeSongbirdSource, normalizeTelegramSource, resolveSongbirdSource } from "../lib/remoteChannels.js";
 
 function registerChatRoutes(app, deps) {
@@ -24,6 +25,7 @@ function registerChatRoutes(app, deps) {
     findChatByInviteToken,
     findDmChat,
     findUserByUsername,
+    findUserById,
     hideChatsForUser,
     hydrateMissingVideoMetadata,
     isGroupMemberRemoved,
@@ -61,6 +63,19 @@ function registerChatRoutes(app, deps) {
     remoteChannelManager,
     upsertRemoteChannelSource,
   } = deps;
+
+  const membershipService = createMembershipService({
+    getChatById: (id) => getChatById(id) || getGroupChat(id) || getChannelChat(id),
+    listChatMembers,
+    addChatMember,
+    removeChatMember,
+    updateChatMemberRole: setChatMemberRole,
+    findUserById,
+    findUserByUsername,
+    findGroupByInviteToken: (tok) => findChatByInviteTarget(tok),
+    addSystemMessage: (chatId, body) =>
+      createMessage(chatId, null, body, null, null, null, { allowPlaintextSystemMessage: true }),
+  });
 
   const resolveClientBaseOrigin = (req) => {
     const referer = String(req.headers?.referer || "").trim();
@@ -706,29 +721,12 @@ function registerChatRoutes(app, deps) {
     }
     const wasMember = isMember(chatId, user.id);
     if (!wasMember) {
-      clearChatMemberLeft(chatId, user.id);
-      addChatMember(chatId, user.id, "member");
-      if (chat.type === "group") {
-        createMessage(
-          chatId,
-          user.id,
-          `[[system:joined:${user.nickname || user.username}]]`,
-          null,
-          null,
-          null,
-          { allowPlaintextSystemMessage: true },
-        );
+      const result = membershipService.joinByInvite({ inviteToken: target, userId: user.id });
+      result.sseEvents.forEach((ev) => {
         try {
-          emitChatEvent(chatId, {
-            type: "chat_message",
-            chatId,
-            username: user.username,
-            body: `[[system:joined:${user.nickname || user.username}]]`,
-          });
-        } catch {
-          // Joining should not fail due to transient event broadcast issues.
-        }
-      }
+          emitSseEvent(ev.targetUsername, ev.payload);
+        } catch (_) {}
+      });
     }
     unhideChat(user.id, chatId);
     emitChatListChangedToChatParticipants(chatId);
