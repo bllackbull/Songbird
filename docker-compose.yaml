@@ -49,3 +49,5 @@ services:
 
 volumes:
   songbird-data:
+  # Optional volume for PostgreSQL database:
+  # postgres-data:

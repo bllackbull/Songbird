@@ -35,4 +35,20 @@ function readEnvBool(keys, fallback) {
   return fallback;
 }
 
-export { readEnvBool, readEnvInt };
+function readDbConfig() {
+  const dbClient = (process.env.DB_CLIENT || "sqlite3").toLowerCase();
+  return {
+    client: ["postgres", "postgresql", "pg"].includes(dbClient) ? "postgres" : "sqlite3",
+    postgres: {
+      host: process.env.POSTGRES_HOST || "127.0.0.1",
+      port: readEnvInt("POSTGRES_PORT", 5432, { min: 1, max: 65535 }),
+      user: process.env.POSTGRES_USER || "postgres",
+      password: process.env.POSTGRES_PASSWORD || "postgres",
+      database: process.env.POSTGRES_DB || "songbird",
+      url: process.env.POSTGRES_URL || null,
+      ssl: readEnvBool("POSTGRES_SSL", false),
+    },
+  };
+}
+
+export { readEnvBool, readEnvInt, readDbConfig };
