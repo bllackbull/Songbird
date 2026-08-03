@@ -1627,8 +1627,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, [user, sseConnected, isAppActive]);
 
   useEffect(() => {
-    if (!user) return;
-    if (!isAppActive) return;
+    if (!user || sseConnected || !isAppActive) return;
     const ping = async () => {
       try {
         await pingPresence(user.username);
@@ -1639,7 +1638,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     ping();
     const interval = setInterval(ping, CHAT_PAGE_CONFIG.presencePingIntervalMs);
     return () => clearInterval(interval);
-  }, [user, isAppActive]);
+  }, [user, sseConnected, isAppActive]);
 
   useEffect(() => {
     if (user && activeChatId) {
