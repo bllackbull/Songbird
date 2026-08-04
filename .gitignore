@@ -33,3 +33,8 @@ logs/
 
 # TLS certs
 certs/
+
+# Tools
+graphify-out/
+.opencode/
+.agents/

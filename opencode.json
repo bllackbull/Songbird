@@ -3,9 +3,13 @@
   "model": "ag/gemini-3.6-flash-high",
   "small_model": "ag/gpt-oss-120b-medium",
   "formatter": true,
+  "lsp": true,
   "server": {
     "port": 4096
   },
+  "plugin": [
+    ".opencode/plugins/graphify.js"
+  ],
   "mcp": {
     "github": {
       "type": "remote",
