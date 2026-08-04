@@ -33,9 +33,6 @@ const TABS = [
 // Auto-exit the panel after this much inactivity (no mouse/keyboard/touch).
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 
-// Auto-refresh interval for shared admin cache (stats / active tab).
-// DashboardTab polls /api/admin/system on its own matching cadence.
-const AUTO_REFRESH_MS = 10_000;
 const ADMIN_SIDEBAR_OPEN_STORAGE_KEY = "songbird.admin.sidebar-open";
 
 function getInitialSidebarOpen() {
@@ -47,6 +44,9 @@ function getInitialSidebarOpen() {
     return true;
   }
 }
+
+// Tabs that manage their own paginated data and expose a `refresh()` via ref.
+const SELF_PAGINATED_TABS = ["users", "chats", "logs"];
 
 export default function AdminPanel({ user, onBack }) {
   const [tab, setTab]                 = useState("dashboard");
@@ -63,10 +63,12 @@ export default function AdminPanel({ user, onBack }) {
     stats:    () => api.get("/api/admin/stats"),
     actions:  () => api.get("/api/admin/service/available"),
     settings: () => api.get("/api/admin/settings"),
-  }, { ttlMs: AUTO_REFRESH_MS });
+  });
 
-  // Tabs that manage their own paginated data and expose a `refresh()` via ref.
-  const SELF_PAGINATED_TABS = ["users", "chats", "logs"];
+  const cacheRef = useRef(cache);
+  useEffect(() => {
+    cacheRef.current = cache;
+  }, [cache]);
 
   // Convenience aliases so downstream JSX stays readable.
   const stats = cache.stats?.data ?? null;
@@ -154,21 +156,28 @@ export default function AdminPanel({ user, onBack }) {
   }, [tab, ensureFresh, ensureLoaded, cache]);
 
   // ── Push-driven real-time refresh ──────────────────────────────────────────
-  // Stats and tab views update on user action or manual refresh.
-  // Skip background 10s polling interval since WebSocket events provide live updates.
+  // Stats and active tab views update in real-time on WebSocket events.
+  const debounceTimerRef = useRef(null);
   useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState === "visible") {
+    const handleRealtimeEvent = () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = setTimeout(() => {
         refreshKey("stats");
-        if (tab !== "actions" && cache[tab] !== undefined) refreshKey(tab);
-        else if (SELF_PAGINATED_TABS.includes(tab)) tabRefs.current[tab]?.refresh?.();
-      }
+        if (tab === "dashboard") {
+          tabRefs.current.dashboard?.refresh?.();
+        } else if (tab !== "actions" && cacheRef.current[tab] !== undefined) {
+          refreshKey(tab);
+        } else if (SELF_PAGINATED_TABS.includes(tab)) {
+          tabRefs.current[tab]?.refresh?.();
+        }
+      }, 300);
     };
-    document.addEventListener("visibilitychange", onVisible);
+
+    window.addEventListener("songbird:realtime-event", handleRealtimeEvent);
     return () => {
-      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("songbird:realtime-event", handleRealtimeEvent);
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, refreshKey]);
 
   // Called by tabs after a mutation so sibling caches stay in sync.

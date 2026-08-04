@@ -27,7 +27,10 @@ export default defineConfig({
         // Pure utility tests — no DOM needed, runs in Node
         test: {
           name: "unit",
-          include: ["test/utils/**/*.{test,spec}.{js,jsx}"],
+          include: [
+            "test/utils/**/*.{test,spec}.{js,jsx}",
+            "test/hooks/**/*.{test,spec}.{js,jsx}",
+          ],
           environment: "node",
         },
       },

@@ -184,6 +184,9 @@ export function useChatEvents({
         ) {
           return;
         }
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("songbird:realtime-event", { detail: payload }));
+        }
         if (payload.type === "session_revoked") {
           onSessionRevokedRef.current?.(payload);
           return;
