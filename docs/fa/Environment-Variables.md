@@ -57,8 +57,6 @@ nano .env
 | `CHAT_MESSAGE_FETCH_LIMIT` | `integer` | `60` | حداکثر تعداد پیام‌های درخواستی در هر دریافت چت (پنجره اولیه/جدیدترین). |
 | `CHAT_MESSAGE_PAGE_SIZE` | `integer` | `60` | اندازه صفحه برای بارگذاری پیام‌های قدیمی‌تر هنگام اسکرول به بالا. |
 | `CHAT_LIST_REFRESH_INTERVAL` | `integer` | `20000` | فاصله زمانی تازه‌سازی پس‌زمینه فهرست چت‌ها (میلی‌ثانیه). |
-| `CHAT_PRESENCE_PING_INTERVAL` | `integer` | `5000` | فاصله زمانی heartbeat حضور (میلی‌ثانیه). |
-| `CHAT_PEER_PRESENCE_POLL_INTERVAL` | `integer` | `3000` | فاصله زمانی poll حضور همتای فعال (میلی‌ثانیه). |
 | `CHAT_HEALTH_CHECK_INTERVAL` | `integer` | `10000` | فاصله زمانی بررسی سلامت اتصال (میلی‌ثانیه). |
 | `CHAT_SSE_RECONNECT_DELAY` | `integer` | `2000` | تأخیر پیش از اتصال مجدد SSE پس از خطا (میلی‌ثانیه). |
 | `CHAT_SEARCH_MAX_RESULTS` | `integer` | `5` | حداکثر تعداد کاربران نمایش‌داده‌شده در نتایج جستجو. |

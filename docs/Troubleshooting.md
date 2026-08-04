@@ -135,7 +135,7 @@ sudo systemctl reload nginx
 
 ## Real-time updates not arriving
 
-Songbird uses Server-Sent Events (SSE) for live messages and presence. If messages only appear after a refresh, the SSE stream is likely being buffered by Nginx.
+Songbird uses a persistent WebSocket for live messages, presence, and typing indicators, with Server-Sent Events (SSE) as a fallback stream. A user is shown as online while any realtime connection is open and goes offline when the last one closes. If messages only appear after a refresh, the SSE stream is likely being buffered by Nginx.
 
 - Ensure the `/api/events` location block is present and disables buffering (`proxy_buffering off;`, `add_header X-Accel-Buffering no;`). See [Configure Nginx](./Nginx-Configuration.md).
 - Confirm any upstream proxy or CDN is not buffering or timing out the connection.
