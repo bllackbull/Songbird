@@ -30,6 +30,7 @@ function registerChatRoutes(app, deps) {
     findUserById,
     hideChatsForUser,
     hydrateMissingVideoMetadata,
+    isConnected,
     isGroupMemberRemoved,
     isMember,
     isVideoFileProcessing,
@@ -325,6 +326,10 @@ function registerChatRoutes(app, deps) {
         const members = (membersMap.get(Number(conv.id)) || []).map((member) => ({
           ...member,
           avatar_url: ensureAvatarExists(member.id, member.avatar_url),
+          status:
+            isConnected(member.username) && String(member.status || "").toLowerCase() === "online"
+              ? "online"
+              : "offline",
         }));
         return { ...conv, members };
       });
@@ -1540,16 +1545,18 @@ function registerChatRoutes(app, deps) {
     const query = req.query.query?.toString();
     if (exclude && !requireSessionUsernameMatch(res, session, exclude)) return;
 
-    const users = query
-      ? searchUsers(query.toLowerCase(), exclude)
-      : listUsers(exclude);
-
-    res.json({
-      users: users.map((item) => ({
+    const users = (query ? searchUsers(query.toLowerCase(), exclude) : listUsers(exclude)).map(
+      (item) => ({
         ...item,
         avatar_url: ensureAvatarExists(item.id, item.avatar_url),
-      })),
-    });
+        status:
+          isConnected(item.username) && String(item.status || "").toLowerCase() === "online"
+            ? "online"
+            : "offline",
+      }),
+    );
+
+    res.json({ users });
   });
 
   app.post("/api/mentions/resolve", (req, res) => {
@@ -1634,6 +1641,10 @@ function registerChatRoutes(app, deps) {
       .map((item) => ({
         ...item,
         avatar_url: ensureAvatarExists(item.id, item.avatar_url),
+        status:
+          isConnected(item.username) && String(item.status || "").toLowerCase() === "online"
+            ? "online"
+            : "offline",
       }))
       .slice(0, 20);
 

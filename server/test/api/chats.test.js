@@ -49,3 +49,27 @@ describe("GET /api/groups/invite/:token", () => {
     expect(res.body.group.verified).toBe(true);
   });
 });
+
+describe("GET /api/users effective presence", () => {
+  test("marks connected users online and disconnected users offline", async () => {
+    const { app, sessionStore } = makeApp({
+      userStore: makeUserStore([
+        { id: 1, username: "alice", status: "online" },
+        { id: 2, username: "bob", status: "online" },
+      ]),
+      deps: {
+        listUsers: () => [
+          { id: 1, username: "alice", status: "online", nickname: null, avatar_url: null, color: null, role: "user", verified: 0 },
+          { id: 2, username: "bob", status: "online", nickname: null, avatar_url: null, color: null, role: "user", verified: 0 },
+        ],
+        isConnected: (username) => username === "alice",
+      },
+    });
+    sessionStore.createSession(1, "tok");
+    const res = await request(app).get("/api/users").set("Cookie", "sid=tok");
+    expect(res.status).toBe(200);
+    const byName = Object.fromEntries(res.body.users.map((u) => [u.username, u]));
+    expect(byName.alice.status).toBe("online");
+    expect(byName.bob.status).toBe("offline");
+  });
+});

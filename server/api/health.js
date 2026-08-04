@@ -5,7 +5,8 @@ function registerHealthRoutes(app, deps) {
     removeSseClient,
     requireSession,
     requireSessionUsernameMatch,
-    updateLastSeen,
+    connectPresence,
+    disconnectPresence,
   } = deps;
 
   app.get("/api/health", (_req, res) => {
@@ -36,7 +37,7 @@ function registerHealthRoutes(app, deps) {
     res.flushHeaders?.();
 
     addSseClient(username, res);
-    updateLastSeen(user.id);
+    connectPresence(username, res);
 
     res.write(`data: ${JSON.stringify({ type: "connected" })}\n\n`);
 
@@ -47,6 +48,7 @@ function registerHealthRoutes(app, deps) {
     req.on("close", () => {
       clearInterval(keepAlive);
       removeSseClient(username, res);
+      disconnectPresence(username, res);
     });
   });
 }

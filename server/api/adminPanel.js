@@ -62,10 +62,12 @@ function registerAdminPanelRoutes(app, deps) {
     findUserById,
     findUserByUsername,
     findChatById,
+    isConnected,
     isUserAdmin,
     isUserOwner,
     getOwnerUser,
     getAdminStats,
+    getOnlineCount,
     adminListUsers,
     adminListChats,
     adminCountUsers,
@@ -185,7 +187,9 @@ function registerAdminPanelRoutes(app, deps) {
 
   app.get("/api/admin/stats", (req, res) => {
     if (!requireAdmin(req, res)) return;
-    res.json(getCachedAdminStats(getAdminStats));
+    const stats = getCachedAdminStats(getAdminStats);
+    stats.onlineUsers = getOnlineCount();
+    res.json(stats);
   });
 
   app.get("/api/admin/system", (req, res) => {
@@ -271,6 +275,10 @@ function registerAdminPanelRoutes(app, deps) {
     const roleFilter = ["user", "admin", "owner", "banned"].includes(req.query.role) ? req.query.role : null;
     const statusFilter = ["online", "offline"].includes(req.query.status) ? req.query.status : null;
     const { users, total } = adminListUsers({ limit, offset, search, sortBy, sortDir, roleFilter, statusFilter });
+    users.forEach((u) => {
+      u.online =
+        isConnected(u.username) && String(u.status || "").toLowerCase() === "online" ? 1 : 0;
+    });
     res.json({ users, total, limit, offset });
   });
 

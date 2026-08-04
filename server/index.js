@@ -15,6 +15,7 @@ import { registerApiRoutes } from "./api/index.js";
 import { ensureValidVapidKeys } from "./lib/vapid.js";
 import { createSseHub } from "./lib/sse.js";
 import { createWebSocketGateway } from "./lib/websocketGateway.js";
+import { createPresenceTracker } from "./lib/presenceTracker.js";
 import { createPushService } from "./lib/push.js";
 import { createUploadTools } from "./lib/uploads.js";
 import { createVideoTranscodeManager } from "./lib/videoTranscode.js";
@@ -402,7 +403,19 @@ const {
 } = uploadTools;
 
 const sseHub = createSseHub({ listChatMembers });
-const { addSseClient, removeSseClient, emitSseEvent, emitChatEvent, broadcastAll, getCachedMembers, isUserConnected } = sseHub;
+const { addSseClient, removeSseClient, emitSseEvent, emitChatEvent, broadcastAll, getCachedMembers } = sseHub;
+
+let wsPresenceBroadcaster = null;
+const presenceTracker = createPresenceTracker({
+  updateLastSeen,
+  getUserPresence,
+  listChatsForUser,
+  listChatMembers,
+  emitToUser: (username, payload) => {
+    emitSseEvent(username, payload);
+    wsPresenceBroadcaster?.(username, payload);
+  },
+});
 
 const pushService = createPushService({
   webpush,
@@ -654,10 +667,13 @@ const apiDeps = {
   deleteSession: deleteSessionCombined,
   deleteChatById,
   deleteUserById,
+  disconnectPresence: (username, ref) => presenceTracker.markDisconnected(username, ref),
   emitChatEvent,
   emitSseEvent,
   broadcastAll,
-  isUserConnected,
+  broadcastPresence: (username) => presenceTracker.broadcastStatus(username),
+  connectPresence: (username, ref) => presenceTracker.markConnected(username, ref),
+  isUserConnected: (username) => presenceTracker.isConnected(username),
   enqueueRemoteChannelQueueItem,
   enqueueVideoTranscodeJob,
   ensureAvatarExists,
@@ -677,6 +693,7 @@ const apiDeps = {
   getMessageReadByUser,
   getMessages,
   getFirstUnreadMessage,
+  getOnlineCount: () => presenceTracker.getOnlineCount(),
   getRemoteChannelProviderState,
   getRemoteChannelQueueSummary,
   getRemoteChannelSourceByChatId,
@@ -690,6 +707,7 @@ const apiDeps = {
   hideMessageForUser,
   hydrateMissingVideoMetadata,
   inferMimeFromFilename,
+  isConnected: (username) => presenceTracker.isConnected(username),
   isDangerousUploadFile,
   isLoopbackRequest,
   isMember,
@@ -827,7 +845,7 @@ const remoteChannelManager = createRemoteChannelManager({
   sanitizeDurationSeconds,
   sanitizePositiveInt,
   sendPushNotificationToUsers,
-  isUserConnected,
+  isUserConnected: (username) => presenceTracker.isConnected(username),
   setMessageExpiresAt,
   setMessageForwardOrigin,
   setRemoteChannelProviderState,
@@ -1109,7 +1127,10 @@ const wsGateway = createWebSocketGateway({
   sseHub,
   redisClient,
   getSessionFromToken: getSessionCombined,
+  onUserConnected: (username, ws) => presenceTracker.markConnected(username, ws),
+  onUserDisconnected: (username, ws) => presenceTracker.markDisconnected(username, ws),
 });
+wsPresenceBroadcaster = (username, payload) => wsGateway.sendEvent(username, payload);
 
 // Graceful shutdown for container orchestrators
 process.on("SIGTERM", () => {

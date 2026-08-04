@@ -1,4 +1,4 @@
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, vi } from "vitest";
 import request from "supertest";
 import bcrypt from "bcryptjs";
 import { makeApp, makeUserStore } from "../helpers/makeApp.js";
@@ -316,5 +316,19 @@ describe("PUT /api/status", () => {
       .send({ username: "alice", status: "invisible" });
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("invisible");
+  });
+});
+
+describe("PUT /api/status", () => {
+  test("broadcasts presence through the tracker after updating status", async () => {
+    const broadcastPresence = vi.fn();
+    const { app } = makeAppWithAlice({ deps: { broadcastPresence } });
+    const cookie = await loginCookie(app);
+    const res = await request(app)
+      .put("/api/status")
+      .set("Cookie", cookie)
+      .send({ username: "alice", status: "invisible" });
+    expect(res.status).toBe(200);
+    expect(broadcastPresence).toHaveBeenCalledWith("alice");
   });
 });

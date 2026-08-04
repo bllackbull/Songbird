@@ -5,6 +5,8 @@ export function createWebSocketGateway({
   sseHub,
   redisClient,
   getSessionFromToken,
+  onUserConnected,
+  onUserDisconnected,
 }) {
   const wss = new WebSocketServer({ noServer: true });
   const clientsByUsername = new Map();
@@ -110,6 +112,7 @@ export function createWebSocketGateway({
       clients.add(ws);
       clientsByUsername.set(username, clients);
     }
+    if (onUserConnected) onUserConnected(username, ws);
 
     ws.on("close", () => {
       if (username) {
@@ -119,6 +122,7 @@ export function createWebSocketGateway({
           if (!clients.size) clientsByUsername.delete(username);
         }
       }
+      if (onUserDisconnected) onUserDisconnected(username, ws);
     });
 
     ws.on("message", (raw) => {

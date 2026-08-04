@@ -1,61 +1,5 @@
 function registerPresenceRoutes(app, deps) {
-  const {
-    emitSseEvent,
-    findUserByUsername,
-    getCachedMembers,
-    getUserPresence,
-    listChatsForUser,
-    requireSession,
-    requireSessionUsernameMatch,
-    updateLastSeen,
-  } = deps;
-
-  const emitPresenceUpdate = (user) => {
-    if (!user?.username) return;
-
-    const normalizedUsername = String(user.username || "").toLowerCase();
-    const payload = {
-      type: "presence_update",
-      username: normalizedUsername,
-      status: String(user.status || "online").toLowerCase(),
-      lastSeen: user.last_seen || new Date().toISOString(),
-    };
-
-    const targets = new Set([normalizedUsername]);
-    const chats = listChatsForUser(Number(user.id || 0));
-    chats.forEach((chat) => {
-      const members = getCachedMembers(Number(chat?.id || 0));
-      members.forEach((member) => {
-        const memberUsername = String(member?.username || "").toLowerCase();
-        if (memberUsername) targets.add(memberUsername);
-      });
-    });
-
-    targets.forEach((targetUsername) => {
-      emitSseEvent(targetUsername, payload);
-    });
-  };
-
-  app.post("/api/presence", (req, res) => {
-    const session = requireSession(req, res);
-    if (!session) return;
-
-    const suppliedUsername = req.body?.username;
-    if (!requireSessionUsernameMatch(res, session, suppliedUsername)) return;
-
-    const user = findUserByUsername(String(session.username || "").toLowerCase());
-    if (!user) {
-      return res.status(404).json({ error: "User not found." });
-    }
-
-    updateLastSeen(user.id);
-    const refreshedUser = getUserPresence(String(user.username || "").toLowerCase());
-    if (refreshedUser) {
-      emitPresenceUpdate(refreshedUser);
-    }
-
-    res.json({ ok: true });
-  });
+  const { getUserPresence, requireSession, requireSessionUsernameMatch, isConnected } = deps;
 
   app.get("/api/presence", (req, res) => {
     const session = requireSession(req, res);
@@ -71,9 +15,15 @@ function registerPresenceRoutes(app, deps) {
       return res.status(404).json({ error: "User not found." });
     }
 
+    const effectiveStatus =
+      isConnected(user.username) && String(user.status || "").toLowerCase() === "online"
+        ? "online"
+        : "offline";
+
     res.json({
       username: user.username,
-      status: user.status || "online",
+      status: effectiveStatus,
+      rawStatus: String(user.status || "online").toLowerCase(),
       lastSeen: user.last_seen || null,
     });
   });

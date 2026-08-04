@@ -95,3 +95,34 @@ describe("POST /api/admin/chats/:id/members", () => {
     });
   });
 });
+
+describe("admin presence overlays", () => {
+  test("/api/admin/users marks connected online users with online: 1", async () => {
+    const { app } = makeAdminApp({
+      adminListUsers: () => ({
+        users: [{ id: 2, username: "bob", status: "online", role: "user", banned: 0, verified: 0 }],
+        total: 1,
+      }),
+      isConnected: () => true,
+    });
+
+    const res = await request(app)
+      .get("/api/admin/users")
+      .set("Cookie", "sid=admin-session");
+    expect(res.status).toBe(200);
+    expect(res.body.users[0].online).toBe(1);
+  });
+
+  test("/api/admin/stats reports live onlineUsers from getOnlineCount", async () => {
+    const { app } = makeAdminApp({
+      getAdminStats: () => ({ onlineUsers: 0, totalUsers: 1 }),
+      getOnlineCount: () => 1,
+    });
+
+    const res = await request(app)
+      .get("/api/admin/stats")
+      .set("Cookie", "sid=admin-session");
+    expect(res.status).toBe(200);
+    expect(res.body.onlineUsers).toBe(1);
+  });
+});

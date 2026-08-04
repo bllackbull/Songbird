@@ -1,4 +1,5 @@
 import { describe, test, expect, vi } from "vitest";
+import { EventEmitter } from "node:events";
 import { createWebSocketGateway } from "../../lib/websocketGateway.js";
 import { createSseHub } from "../../lib/sse.js";
 import { createRedisClient } from "../../lib/redis.js";
@@ -70,6 +71,24 @@ describe("WebSocket Gateway", () => {
     expect(getCachedMembers).toHaveBeenCalledWith(10);
     expect(wsAlice.send).toHaveBeenCalledWith(JSON.stringify({ type: "chat_message", text: "hello" }));
     expect(wsBob.send).toHaveBeenCalledWith(JSON.stringify({ type: "chat_message", text: "hello" }));
+
+    gateway.close();
+  });
+
+  test("invokes onUserConnected and onUserDisconnected on connection/close", () => {
+    const onUserConnected = vi.fn();
+    const onUserDisconnected = vi.fn();
+    const gateway = createWebSocketGateway({ onUserConnected, onUserDisconnected });
+
+    const ws = new EventEmitter();
+    gateway.wss.emit("connection", ws, {}, { username: "Alice" });
+
+    expect(onUserConnected).toHaveBeenCalledWith("alice", ws);
+    expect(gateway.clientsByUsername.get("alice")).toEqual(new Set([ws]));
+
+    ws.emit("close");
+    expect(onUserDisconnected).toHaveBeenCalledWith("alice", ws);
+    expect(gateway.clientsByUsername.has("alice")).toBe(false);
 
     gateway.close();
   });

@@ -320,25 +320,14 @@ export function findUserById(id) {
 export function listUsers(excludeUsername) {
   if (excludeUsername) {
     return getAll(
-      `SELECT id, username, nickname, avatar_url, color, role, verified,
-              CASE
-                WHEN status = 'online' AND last_seen IS NOT NULL
-                     AND (strftime('%s', 'now') - strftime('%s', last_seen)) <= 12
-                THEN 'online' ELSE 'offline'
-              END AS status
+      `SELECT id, username, nickname, avatar_url, color, role, verified, status
        FROM users WHERE username != ? ORDER BY username`,
       [excludeUsername],
     );
   }
 
   return getAll(
-    `SELECT id, username, nickname, avatar_url, color, role, verified,
-            CASE
-              WHEN status = 'online' AND last_seen IS NOT NULL
-                   AND (strftime('%s', 'now') - strftime('%s', last_seen)) <= 12
-              THEN 'online' ELSE 'offline'
-            END AS status,
-            banned
+    `SELECT id, username, nickname, avatar_url, color, role, verified, status, banned
      FROM users ORDER BY username`,
   );
 }
@@ -348,26 +337,14 @@ export function searchUsers(query, excludeUsername) {
 
   if (excludeUsername) {
     return getAll(
-      `SELECT id, username, nickname, avatar_url, color, role, verified,
-              CASE
-                WHEN status = 'online' AND last_seen IS NOT NULL
-                     AND (strftime('%s', 'now') - strftime('%s', last_seen)) <= 12
-                THEN 'online' ELSE 'offline'
-              END AS status,
-              banned
+      `SELECT id, username, nickname, avatar_url, color, role, verified, status, banned
        FROM users WHERE username != ? AND (username LIKE ? OR nickname LIKE ?) ORDER BY username`,
       [excludeUsername, like, like],
     );
   }
 
   return getAll(
-    `SELECT id, username, nickname, avatar_url, color, role, verified,
-            CASE
-              WHEN status = 'online' AND last_seen IS NOT NULL
-                   AND (strftime('%s', 'now') - strftime('%s', last_seen)) <= 12
-              THEN 'online' ELSE 'offline'
-            END AS status,
-            banned
+    `SELECT id, username, nickname, avatar_url, color, role, verified, status, banned
      FROM users WHERE username LIKE ? OR nickname LIKE ? ORDER BY username`,
     [like, like],
   );
@@ -1379,13 +1356,7 @@ export function listChatMembers(chatId) {
     SELECT users.id, users.username, users.nickname, users.avatar_url, users.color,
            users.verified AS user_verified,
            users.role AS user_role,
-           CASE
-             WHEN users.status = 'online'
-                  AND users.last_seen IS NOT NULL
-                  AND (strftime('%s', 'now') - strftime('%s', users.last_seen)) <= 12
-             THEN 'online'
-             ELSE 'offline'
-           END AS status,
+           users.status AS status,
            chat_members.role
     FROM chat_members
     JOIN users ON users.id = chat_members.user_id
@@ -1414,13 +1385,7 @@ export function listChatMembersForChats(chatIds = []) {
            users.id, users.username, users.nickname, users.avatar_url, users.color,
            users.verified AS user_verified,
            users.role AS user_role,
-           CASE
-             WHEN users.status = 'online'
-                  AND users.last_seen IS NOT NULL
-                  AND (strftime('%s', 'now') - strftime('%s', users.last_seen)) <= 12
-             THEN 'online'
-             ELSE 'offline'
-           END AS status,
+           users.status AS status,
            chat_members.role
     FROM chat_members
     JOIN users ON users.id = chat_members.user_id
@@ -2641,10 +2606,6 @@ export function bootstrapAdminUsers(adminUsernames) {
   }
 }
 
-// A user is considered "online" when active within this window (matches the
-// client-side PRESENCE_IDLE_THRESHOLD_MS of 12s, with a small buffer for poll lag).
-const ONLINE_THRESHOLD_SECONDS = 30;
-
 export function getAdminStats() {
   // Batch user counts: one pass over the users table instead of four separate queries.
   const userStats = getRow(
@@ -2652,13 +2613,8 @@ export function getAdminStats() {
        COUNT(*)                                                                   AS totalUsers,
        COUNT(*) FILTER (WHERE banned = 1)                                        AS bannedUsers,
        COUNT(*) FILTER (WHERE created_at >= datetime('now', '-7 days'))          AS newUsers7d,
-       COUNT(*) FILTER (
-         WHERE status = 'online'
-           AND last_seen IS NOT NULL
-           AND last_seen >= datetime('now', '-' || ? || ' seconds')
-       )                                                                          AS onlineUsers
+       COUNT(*) FILTER (WHERE status = 'online')                                 AS onlineUsers
      FROM users`,
-    [ONLINE_THRESHOLD_SECONDS],
   ) || {};
 
   // Batch chat counts: one pass over the chats table instead of five queries.
@@ -2735,9 +2691,6 @@ export function adminListUsers({ limit = 200, offset = 0, search = "", sortBy = 
   const conditions = [];
   const params     = [];
 
-  // First positional param binds to the SELECT CASE that computes `online`.
-  params.push(ONLINE_THRESHOLD_SECONDS);
-
   if (search) {
     const like = `%${escapeLikePattern(search)}%`;
     conditions.push("(username LIKE ? ESCAPE '\\' OR nickname LIKE ? ESCAPE '\\')");
@@ -2750,15 +2703,12 @@ export function adminListUsers({ limit = 200, offset = 0, search = "", sortBy = 
     params.push(roleFilter);
   }
 
-  // Presence: a user counts as "online" when their status preference allows it
-  // and they've pinged recently (mirrors the app's online/offline indicator).
-  const onlinePredicate = "status = 'online' AND last_seen IS NOT NULL AND last_seen >= datetime('now', '-' || ? || ' seconds')";
+  // Presence filter uses the persisted status preference. Live connection state
+  // is overlaid by the route layer via presenceTracker.isConnected.
   if (statusFilter === "online") {
-    conditions.push(onlinePredicate);
-    params.push(ONLINE_THRESHOLD_SECONDS);
+    conditions.push("status = 'online'");
   } else if (statusFilter === "offline") {
-    conditions.push(`NOT (${onlinePredicate})`);
-    params.push(ONLINE_THRESHOLD_SECONDS);
+    conditions.push("status != 'online'");
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -2778,9 +2728,7 @@ export function adminListUsers({ limit = 200, offset = 0, search = "", sortBy = 
   // rows, eliminating the separate adminCountUsers query.
   const rows = getAll(
     `SELECT id, username, nickname, avatar_url, color, status, role, banned, verified, created_at, last_seen,
-            CASE WHEN status = 'online' AND last_seen IS NOT NULL
-                      AND last_seen >= datetime('now', '-' || ? || ' seconds')
-                 THEN 1 ELSE 0 END AS online,
+            CASE WHEN status = 'online' THEN 1 ELSE 0 END AS online,
             COUNT(*) OVER() AS _total
      FROM users ${where} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
     params,
@@ -2809,13 +2757,11 @@ export function adminCountUsers({ search = "", roleFilter = null, statusFilter =
     params.push(roleFilter);
   }
 
-  const onlinePredicate = "status = 'online' AND last_seen IS NOT NULL AND last_seen >= datetime('now', '-' || ? || ' seconds')";
+  const onlinePredicate = "status = 'online'";
   if (statusFilter === "online") {
     conditions.push(onlinePredicate);
-    params.push(ONLINE_THRESHOLD_SECONDS);
   } else if (statusFilter === "offline") {
     conditions.push(`NOT (${onlinePredicate})`);
-    params.push(ONLINE_THRESHOLD_SECONDS);
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";

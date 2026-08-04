@@ -6,7 +6,7 @@ function registerProfileRoutes(app, deps) {
     emitChatEvent,
     emitSseEvent,
     getSetting,
-    getUserPresence,
+    broadcastPresence,
     listChatMembers,
     listChatsForUser,
     USER_COLORS,
@@ -32,28 +32,6 @@ function registerProfileRoutes(app, deps) {
     uploadAvatar,
   } = deps;
 
-  const emitPresenceUpdate = (user) => {
-    if (!user?.username) return;
-    const normalizedUsername = String(user.username || "").toLowerCase();
-    const payload = {
-      type: "presence_update",
-      username: normalizedUsername,
-      status: String(user.status || "online").toLowerCase(),
-      lastSeen: user.last_seen || new Date().toISOString(),
-    };
-    const targets = new Set([normalizedUsername]);
-    const chats = listChatsForUser(Number(user.id || 0));
-    chats.forEach((chat) => {
-      const members = listChatMembers(Number(chat?.id || 0));
-      members.forEach((member) => {
-        const memberUsername = String(member?.username || "").toLowerCase();
-        if (memberUsername) targets.add(memberUsername);
-      });
-    });
-    targets.forEach((targetUsername) => {
-      emitSseEvent(targetUsername, payload);
-    });
-  };
   const emitProfileUpdate = (user, options = {}) => {
     if (!user?.id) return;
     const currentUsername = String(user.username || "").toLowerCase();
@@ -335,10 +313,7 @@ function registerProfileRoutes(app, deps) {
     }
 
     updateUserStatus(user.id, status);
-    const refreshedUser = getUserPresence(String(user.username || "").toLowerCase());
-    if (refreshedUser) {
-      emitPresenceUpdate(refreshedUser);
-    }
+    broadcastPresence(String(user.username || "").toLowerCase());
 
     res.json({ ok: true, status });
   });

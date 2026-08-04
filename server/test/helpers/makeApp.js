@@ -157,6 +157,11 @@ export function makeApp(overrides = {}) {
     emitChatEvent: () => {},
     broadcastAll: () => {},
     isUserConnected: () => false,
+    connectPresence: () => {},
+    disconnectPresence: () => {},
+    broadcastPresence: () => {},
+    isConnected: () => false,
+    getOnlineCount: () => 0,
 
     // ── Upload stubs (multer instances — .single/.array called at route
     //    registration time, so they must return valid middleware) ───────────
