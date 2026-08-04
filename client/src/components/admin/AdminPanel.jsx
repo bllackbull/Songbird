@@ -15,6 +15,7 @@ import { pingPresence } from "../../api/chatApi.js";
 import { GaugeIcon, LayoutDashboardIcon } from "../../icons/AnimatedIcons.jsx";
 import { CHAT_PAGE_CONFIG } from "../../settings/chatPageConfig.js";
 import { useAdminCache } from "../../hooks/useAdminCache.js";
+import Tooltip from "../common/Tooltip.jsx";
 import DashboardTab from "./DashboardTab.jsx";
 import UsersTab from "./UsersTab.jsx";
 import ChatsTab from "./ChatsTab.jsx";

@@ -401,9 +401,8 @@ const {
   registerUploadRoutes,
 } = uploadTools;
 
-const { addSseClient, removeSseClient, emitSseEvent, emitChatEvent, broadcastAll, getCachedMembers, isUserConnected } = createSseHub({
-  listChatMembers,
-});
+const sseHub = createSseHub({ listChatMembers });
+const { addSseClient, removeSseClient, emitSseEvent, emitChatEvent, broadcastAll, getCachedMembers, isUserConnected } = sseHub;
 
 const pushService = createPushService({
   webpush,

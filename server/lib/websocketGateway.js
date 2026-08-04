@@ -84,6 +84,13 @@ export function createWebSocketGateway({
     }
   }
 
+  let unsubscribeHub = null;
+  if (sseHub && typeof sseHub.onChatEvent === "function") {
+    unsubscribeHub = sseHub.onChatEvent((chatId, payload) => {
+      sendChatEvent(chatId, payload);
+    });
+  }
+
   function broadcastAll(payload) {
     broadcastLocal(payload);
     if (redisClient) {
@@ -152,6 +159,7 @@ export function createWebSocketGateway({
     sendChatEvent,
     broadcastAll,
     close() {
+      if (unsubscribeHub) unsubscribeHub();
       if (pubsubSub) pubsubSub.quit();
       wss.close();
     },

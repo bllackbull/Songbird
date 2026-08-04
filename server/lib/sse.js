@@ -69,6 +69,19 @@ export function createSseHub({ listChatMembers }) {
       if (!member?.username) return;
       emitSseEvent(member.username, payload);
     });
+    listeners.forEach((listener) => {
+      try {
+        listener(chatId, payload);
+      } catch (_) {}
+    });
+  }
+
+  const listeners = new Set();
+  function onChatEvent(listener) {
+    if (typeof listener === "function") {
+      listeners.add(listener);
+    }
+    return () => listeners.delete(listener);
   }
 
   // Broadcasts a payload to every currently connected SSE client.
@@ -86,6 +99,7 @@ export function createSseHub({ listChatMembers }) {
     removeSseClient,
     emitSseEvent,
     emitChatEvent,
+    onChatEvent,
     broadcastAll,
     getCachedMembers,
     isUserConnected(username) {
