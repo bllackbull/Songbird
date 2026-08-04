@@ -9,13 +9,6 @@ export const apiFetch = (url, options = {}) => fetch(url, withCredentials(option
 
 export const fetchHealth = () => apiFetch(`${API_BASE}/api/health`);
 
-export const pingPresence = (username) =>
-  apiFetch(`${API_BASE}/api/presence`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username }),
-  });
-
 export const fetchPresence = (username) =>
   apiFetch(`${API_BASE}/api/presence?username=${encodeURIComponent(username)}`);
 

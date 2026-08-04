@@ -11,9 +11,7 @@ import {
   Wrench,
 } from "../../icons/lucide.js";
 import { api } from "./adminShared.js";
-import { pingPresence } from "../../api/chatApi.js";
 import { GaugeIcon, LayoutDashboardIcon } from "../../icons/AnimatedIcons.jsx";
-import { CHAT_PAGE_CONFIG } from "../../settings/chatPageConfig.js";
 import { useAdminCache } from "../../hooks/useAdminCache.js";
 import Tooltip from "../common/Tooltip.jsx";
 import DashboardTab from "./DashboardTab.jsx";
@@ -32,8 +30,6 @@ const TABS = [
   { id: "logs",      label: "Logs",      icon: ScrollText,        anim: "icon-anim-sway" },
 ];
 
-// Keep the admin's presence fresh while they're active in the panel.
-const PRESENCE_PING_INTERVAL_MS = CHAT_PAGE_CONFIG.presencePingIntervalMs;
 // Auto-exit the panel after this much inactivity (no mouse/keyboard/touch).
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 
@@ -180,19 +176,6 @@ export default function AdminPanel({ user, onBack }) {
   // Stable callback for DashboardTab manual refresh (via tabRefs); auto-poll
   // of stats stays in this panel so DashboardTab does not re-trigger it.
   const refreshStats = useCallback(() => refreshKey("stats"), [refreshKey]);
-
-  // Keep the admin marked online while they're in the panel: ping presence on
-  // mount, on a fixed interval, and whenever the tab regains focus.
-  useEffect(() => {
-    const username = user?.username;
-    if (!username) return undefined;
-    const ping = () => { pingPresence(username).catch(() => {}); };
-    ping();
-    const interval = setInterval(ping, PRESENCE_PING_INTERVAL_MS);
-    const onVisible = () => { if (document.visibilityState === "visible") ping(); };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => { clearInterval(interval); document.removeEventListener("visibilitychange", onVisible); };
-  }, [user?.username]);
 
   // Auto-exit the panel after a period of inactivity. Any user interaction
   // resets the countdown; when it elapses we leave the panel via onBack.
