@@ -1,64 +1,45 @@
-# Agent Guidance: Songbird
+# Repository Guidelines: Songbird
 
-Songbird is a comprehensive real-time communication platform built with a modern monorepo architecture. It supports features ranging from private messaging and group chats to advanced functionalities like message previews, read receipts, push notifications, and complex user management systems (e.g., banning, role assignment).
+Songbird is a self-hosted real-time communication platform built as a Node.js/React monorepo.
 
-## Architecture
-- **Monorepo Structure**: 
-  - `client/`: React 19 frontend (JSX, Vite, Tailwind 4, Vitest + Playwright)
-  - `server/`: Node.js backend (Express 5 + SSE, SQLite via `sql.js`, Vitest + Supertest)
-  - `docs/`: VitePress documentation
+## Workspace Architecture
 
-## Developer Commands
+- **`client/`**: React 19 SPA (Vite, Tailwind CSS 4, Vitest + Playwright).
+- **`server/`**: Node.js Express 5 backend (SSE realtime updates, in-memory SQLite via `sql.js`, Vitest + Supertest).
+- **`docs/`**: Dual-language VitePress documentation (English & Persian/Farsi).
 
-### Full Stack & Management
-- **Full Stack Dev**: `npm run dev` (runs client and server concurrently)
-- **All Tests**: `npm test` (runs client and server tests concurrently)
-- **Build Client**: `npm run build` (runs `vite build` in client folder)
-- **Remote Channels**: `npm run remote:configure` or `npm --prefix server run remote:configure`
+## Essential Commands
 
-### Client (`client/`)
-- **Dev Server**: `npm --prefix client run dev` (or `npm run dev` from `client/`)
-- **Lint**: `npm --prefix client run lint`
-- **All Tests**: `npm --prefix client run test` (Vitest unit + Playwright browser tests)
-- **Unit Tests Only**: `npm --prefix client run test:unit` (fast, headless Node env)
-- **Browser Tests Only**: `npm --prefix client run test:browser` (Chromium + Firefox via Playwright)
-- **Build**: `npm --prefix client run build`
+```bash
+# Development & Build
+npm run dev                  # Concurrent client + server dev servers
+npm --prefix client run dev  # Frontend dev server (Vite)
+npm --prefix server run dev  # Backend dev server (Node --watch)
+npm run build                # Build client frontend
 
-### Server (`server/`)
-- **Dev Server**: `npm --prefix server run dev` (or `npm run dev` from `server/`)
-- **Run Tests**: `npm --prefix server run test` (Vitest unit + integration tests via Supertest)
-- **DB Tools**: Maintenance scripts under `npm --prefix server run db:*` (`db:migrate`, `db:reset`, `db:inspect`, etc.)
+# Testing
+npm test                     # Run client and server tests concurrently
+npm --prefix client run test # Client Vitest (unit + browser)
+npm --prefix client run test:unit    # Fast Node-only unit tests
+npm --prefix client run test:browser # Playwright browser component tests (Chromium + Firefox)
+npm --prefix server run test # Server Vitest (unit + Supertest API integration)
 
-## Frontend Guidance (Client)
-- **Routing**: No router library. Routing is controlled in `App.jsx` using `window.history` and manual route matching (`getRoute`).
-- **State Management**: User state passed down from `App.jsx`. Feature-specific cache stored in `IndexedDB` via `utils/chatCache.js`.
-- **API Requests**: Always use `apiFetch` in `src/api/chatApi.js` (`credentials: "include"`).
-- **Styling**: Tailwind 4 with CSS variables and custom utilities in `src/index.css`. Support dark mode via `.dark` class.
+# Docs
+npm run docs:dev             # VitePress dev server
+npm run docs:build           # Build documentation site
+```
 
-## Backend Guidance (Server)
-- **App Bootstrap**: `index.js` initializes dependencies (`apiDeps`) and registers routes via `api/index.js`.
-- **Database**: `db.js` wraps `sql.js`. Operations are in-memory with debounced file flushes (`DB_SAVE_DEBOUNCE_MS`).
-- **Migrations**: Idempotent migrations in `server/migrations/`.
-- **Realtime**: `lib/sse.js` handles SSE subscriber connections and event broadcasting (`emitChatEvent`).
-- **Auth**: Cookie-based session authentication (`sid` cookie via `lib/sessions.js`).
+## Critical Architecture Quirks & Pitfalls
 
-## Key / Exemplar Files
+- **Node Requirement**: Requires Node `>=24.18.0` and npm `>=11.18.0`.
+- **Database (`server/db.js`)**: `sql.js` runs in-memory with debounced disk persistence (`DB_SAVE_DEBOUNCE_MS`). All SQL queries **must** reside inside `server/db.js`. Never write inline SQL queries elsewhere.
+- **Server Test Isolation**: `server/db.js` and `server/index.js` initialize WASM and disk state on module load and **cannot** be imported in tests. Server API integration tests must use `makeApp` from `server/test/helpers/makeApp.js` to inject stubbed dependencies.
+- **Realtime SSE**: Real-time events are dispatched via `server/lib/sse.js` (`emitChatEvent`). API mutations must invoke SSE broadcast handlers to notify connected clients.
+- **Client Routing & API**: No React Router library. SPA navigation is managed manually in `client/src/App.jsx` via `window.history`. All client HTTP calls **must** use `apiFetch` in `client/src/api/chatApi.js` (`credentials: "include"`).
+- **Documentation Updates**: Any update to documentation under `docs/` must update both English (`docs/*.md`) and Persian (`docs/fa/*.md`) documents, matching the structure in `docs/.vitepress/config.mjs`.
 
-### Frontend (`client/`)
-- `client/src/App.jsx`: Top-level SPA shell, manual history route dispatch, PWA & mobile safe-area handling
-- `client/src/api/chatApi.js`: API client boundary (`apiFetch` with `credentials: "include"`)
-- `client/src/utils/chatCache.js`: Browser storage (`IndexedDB`) caching layer with TTL
-- `client/src/index.css`: Tailwind 4 theme, `@custom-variant dark`, safe-area utilities
+## Development & Git Workflow
 
-### Backend (`server/`)
-- `server/index.js`: Server bootstrap, Express 5 app setup, dependency injection (`apiDeps`)
-- `server/db.js`: Memory-first SQLite (`sql.js`) with debounced disk persistence
-- `server/lib/sse.js`: Real-time SSE event hub and connection tracking
-- `server/api/index.js`: API route registration
-
-## Conventions & Pitfalls
-- **Node Requirement**: Node `>=24.18.0`.
-- **Database Persistence**: `sql.js` operates in-memory; disk writes are debounced (`DB_SAVE_DEBOUNCE_MS`). Do not bypass `db.js` helpers for DB operations.
-- **SSE Events**: `/api/events` provides real-time updates and bypasses normal compression/rate limiting.
-- **Client Caching**: `localStorage` and `IndexedDB` act as best-effort caches; avoid assuming local cache is authoritative.
-- **Runtime Config**: App settings loaded from the database can override environment defaults dynamically.
+- **Git Execution**: **NEVER** run `git` commands automatically. Suggest a commit message in the format `type(scope): description` and let the user execute git operations.
+- **Bug Fixing Workflow**: Do not guess or fix immediately upon a bug report. First write a test reproducing the issue under test scenarios, verify it catches the bug, then apply the fix.
+- **Response Style**: Keep task completions concise. Do not generate unrequested markdown summary files.
