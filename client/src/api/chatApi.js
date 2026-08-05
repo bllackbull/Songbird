@@ -1,3 +1,5 @@
+import { extractMediaPreprocessMetadata } from "../utils/mediaPreprocess.js";
+
 const API_BASE = "";
 
 const withCredentials = (options = {}) => ({
@@ -371,3 +373,85 @@ export const getWebSocketUrl = () => {
 };
 
 export const getMessagesUploadUrl = () => `${API_BASE}/api/messages/upload`;
+
+export async function uploadFile(file) {
+  const metadata = (await extractMediaPreprocessMetadata(file)) || {};
+  const { width, height, duration, clientWebpThumbBase64, waveform } = metadata;
+
+  let presignRes = null;
+  try {
+    const res = await apiFetch(`${API_BASE}/api/uploads/presign`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        filename: file?.name,
+        contentType: file?.type,
+        fileSize: file?.size,
+        width,
+        height,
+        duration,
+        clientWebpThumbBase64,
+        waveform,
+      }),
+    });
+
+    if (res.ok) {
+      presignRes = await res.json();
+    }
+  } catch (_err) {
+    presignRes = null;
+  }
+
+  if (presignRes && presignRes.type === "s3" && presignRes.uploadUrl) {
+    const uploadRes = await fetch(presignRes.uploadUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": file?.type || "application/octet-stream",
+      },
+      body: file,
+    });
+
+    if (!uploadRes.ok) {
+      throw new Error(`S3 upload failed with status ${uploadRes.status}`);
+    }
+
+    await apiFetch(`${API_BASE}/api/uploads/complete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fileId: presignRes.fileId,
+        storageKey: presignRes.storageKey,
+      }),
+    });
+
+    return {
+      fileId: presignRes.fileId,
+      url: presignRes.downloadUrl || `/api/uploads/file/${presignRes.fileId}`,
+      filename: file?.name,
+      mimeType: file?.type,
+      fileSize: file?.size,
+      waveform,
+      blurhash: presignRes.blurhash || clientWebpThumbBase64,
+    };
+  }
+
+  const formData = new FormData();
+  if (file) formData.append("file", file);
+  if (width != null) formData.append("width", String(width));
+  if (height != null) formData.append("height", String(height));
+  if (duration != null) formData.append("duration", String(duration));
+  if (clientWebpThumbBase64 != null) formData.append("clientWebpThumbBase64", clientWebpThumbBase64);
+  if (waveform != null) formData.append("waveform", typeof waveform === "string" ? waveform : JSON.stringify(waveform));
+
+  const localRes = await apiFetch(`${API_BASE}/api/uploads`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!localRes.ok) {
+    const errData = await localRes.json().catch(() => ({}));
+    throw new Error(errData.error || `Upload failed with status ${localRes.status}`);
+  }
+
+  return await localRes.json();
+}
