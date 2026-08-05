@@ -12,6 +12,7 @@ import bcrypt from "bcryptjs";
 import { registerApiRoutes } from "../../api/index.js";
 import { createSessionHelpers } from "../../lib/sessions.js";
 import { USER_COLORS } from "../../settings/colors.js";
+import { createStorageProvider } from "../../lib/storage/index.js";
 
 // ─── Minimal in-memory session store ─────────────────────────────────────────
 
@@ -170,6 +171,9 @@ export function makeApp(overrides = {}) {
     uploadRootDir: "/tmp/test-uploads",
     avatarUploadRootDir: "/tmp/test-avatars",
     removeUploadedFiles: () => {},
+    storageProvider: createStorageProvider({ STORAGE_DRIVER: "local" }),
+    s3ProcessingMode: "sync",
+    webhookSecret: null,
 
     // ── Misc stubs expected by other routes ───────────────────────────────
     debugLog: () => {},

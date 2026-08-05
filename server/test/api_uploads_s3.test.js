@@ -1,0 +1,434 @@
+import { describe, test, expect, vi, beforeEach } from "vitest";
+import request from "supertest";
+import { makeApp } from "./helpers/makeApp.js";
+import { S3StorageProvider } from "../lib/storage/S3StorageProvider.js";
+import { LocalStorageProvider } from "../lib/storage/LocalStorageProvider.js";
+import { createStorageEncryption } from "../lib/storageEncryption.js";
+
+describe("S3 Uploads & File Management Routes (Task 3)", () => {
+  let appObj;
+  let mockS3Provider;
+  let sessionToken = "test-session-token-s3";
+  let userId;
+
+  beforeEach(() => {
+    mockS3Provider = new S3StorageProvider({
+      STORAGE_S3_BUCKET: "test-bucket",
+      STORAGE_S3_REGION: "us-east-1",
+      STORAGE_S3_ACCESS_KEY_ID: "test-key",
+      STORAGE_S3_SECRET_ACCESS_KEY: "test-secret",
+    });
+
+    // Mock getUploadUrl and getDownloadUrl to avoid real AWS calls in test
+    vi.spyOn(mockS3Provider, "getUploadUrl").mockImplementation(
+      async (info) => {
+        const key = info?.key || info?.filename || "test-file.png";
+        return {
+          type: "s3",
+          uploadUrl: `https://test-bucket.s3.amazonaws.com/${key}?presigned=true`,
+          storageKey: key,
+        };
+      },
+    );
+
+    vi.spyOn(mockS3Provider, "getDownloadUrl").mockImplementation(
+      async (key) => {
+        return `https://test-bucket.s3.amazonaws.com/${key}?download=true`;
+      },
+    );
+
+    appObj = makeApp({
+      deps: {
+        storageProvider: mockS3Provider,
+        s3ProcessingMode: "sync",
+        webhookSecret: "secret-key-123",
+        MESSAGE_FILE_LIMITS: { maxFileSizeBytes: 50 * 1024 * 1024 },
+      },
+    });
+
+    userId = appObj.userStore.createUser(
+      "s3user",
+      "hash",
+      "S3 User",
+      null,
+      "#10b981",
+    );
+    appObj.sessionStore.createSession(userId, sessionToken);
+  });
+
+  describe("POST /api/uploads/presign", () => {
+    test("returns 401 when not authenticated", async () => {
+      const res = await request(appObj.app).post("/api/uploads/presign").send({
+        filename: "video.mp4",
+        contentType: "video/mp4",
+        fileSize: 1024,
+      });
+
+      expect(res.status).toBe(401);
+    });
+
+    test("returns 400 when fileSize exceeds maximum allowed limit", async () => {
+      const res = await request(appObj.app)
+        .post("/api/uploads/presign")
+        .set("Cookie", [`sid=${sessionToken}`])
+        .send({
+          filename: "huge.mp4",
+          contentType: "video/mp4",
+          fileSize: 100 * 1024 * 1024, // 100MB > 50MB limit
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBeDefined();
+    });
+
+    test("returns 200 with presigned upload details when authenticated and valid", async () => {
+      const filesStore = [];
+      const createMessageFilesMock = vi.fn((msgId, files) => {
+        files.forEach((f, idx) => {
+          const fileRecord = {
+            id: filesStore.length + 1,
+            message_id: msgId,
+            ...f,
+          };
+          filesStore.push(fileRecord);
+        });
+        return filesStore;
+      });
+
+      const customApp = makeApp({
+        deps: {
+          storageProvider: mockS3Provider,
+          createMessageFiles: createMessageFilesMock,
+          findMessageFileById: (id) =>
+            filesStore.find((f) => f.id === Number(id)) || null,
+          adminGetRow: (sql, params) => {
+            if (sql.includes("chat_message_files")) {
+              return filesStore[filesStore.length - 1] || null;
+            }
+            return null;
+          },
+          MESSAGE_FILE_LIMITS: { maxFileSizeBytes: 50 * 1024 * 1024 },
+        },
+      });
+      const uId = customApp.userStore.createUser(
+        "testuser",
+        "pass",
+        "Test",
+        null,
+        "#fff",
+      );
+      customApp.sessionStore.createSession(uId, sessionToken);
+
+      const res = await request(customApp.app)
+        .post("/api/uploads/presign")
+        .set("Cookie", [`sid=${sessionToken}`])
+        .send({
+          filename: "sample.png",
+          contentType: "image/png",
+          fileSize: 2048,
+          width: 800,
+          height: 600,
+          clientWebpThumbBase64: "data:image/webp;base64,mock",
+          waveform: "[1,2,3]",
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.type).toBe("s3");
+      expect(res.body.uploadUrl).toContain(
+        "https://test-bucket.s3.amazonaws.com/",
+      );
+      expect(res.body.storageKey).toBeDefined();
+      expect(res.body.fileId).toBeDefined();
+
+      expect(createMessageFilesMock).toHaveBeenCalled();
+    });
+  });
+
+  describe("POST /api/uploads/complete", () => {
+    test("returns 401 when not authenticated", async () => {
+      const res = await request(appObj.app)
+        .post("/api/uploads/complete")
+        .send({ fileId: 1, storageKey: "uploads/file.png" });
+
+      expect(res.status).toBe(401);
+    });
+
+    test("returns 404 when fileId does not exist", async () => {
+      const res = await request(appObj.app)
+        .post("/api/uploads/complete")
+        .set("Cookie", [`sid=${sessionToken}`])
+        .send({ fileId: 999, storageKey: "uploads/missing.png" });
+
+      expect(res.status).toBe(404);
+    });
+
+    test("updates status to ready in sync mode", async () => {
+      let fileStatus = "pending";
+      const fileRecord = {
+        id: 10,
+        message_id: 0,
+        storage_driver: "s3",
+        storage_key: "uploads/file10.mp4",
+        processing_status: fileStatus,
+      };
+
+      const customApp = makeApp({
+        deps: {
+          storageProvider: mockS3Provider,
+          s3ProcessingMode: "sync",
+          findMessageFileById: (id) => (Number(id) === 10 ? fileRecord : null),
+          adminGetRow: (sql) =>
+            sql.includes("chat_message_files") ? fileRecord : null,
+          adminRun: (sql, params) => {
+            if (sql.includes("UPDATE chat_message_files")) {
+              fileStatus = params[0];
+              fileRecord.processing_status = fileStatus;
+            }
+          },
+          adminSave: () => {},
+        },
+      });
+      const uId = customApp.userStore.createUser(
+        "testuser10",
+        "pass",
+        "Test",
+        null,
+        "#fff",
+      );
+      customApp.sessionStore.createSession(uId, sessionToken);
+
+      const res = await request(customApp.app)
+        .post("/api/uploads/complete")
+        .set("Cookie", [`sid=${sessionToken}`])
+        .send({ fileId: 10, storageKey: "uploads/file10.mp4" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.fileId).toBe(10);
+      expect(res.body.status).toBe("ready");
+    });
+
+    test("keeps status as pending in webhook mode", async () => {
+      let fileStatus = "pending";
+      const fileRecord = {
+        id: 11,
+        message_id: 0,
+        storage_driver: "s3",
+        storage_key: "uploads/file11.mp4",
+        processing_status: fileStatus,
+      };
+
+      const customApp = makeApp({
+        deps: {
+          storageProvider: mockS3Provider,
+          s3ProcessingMode: "webhook",
+          findMessageFileById: (id) => (Number(id) === 11 ? fileRecord : null),
+          adminGetRow: (sql) =>
+            sql.includes("chat_message_files") ? fileRecord : null,
+          adminRun: (sql, params) => {
+            if (sql.includes("UPDATE chat_message_files")) {
+              fileStatus = params[0];
+              fileRecord.processing_status = fileStatus;
+            }
+          },
+          adminSave: () => {},
+        },
+      });
+      const uId = customApp.userStore.createUser(
+        "testuser11",
+        "pass",
+        "Test",
+        null,
+        "#fff",
+      );
+      customApp.sessionStore.createSession(uId, sessionToken);
+
+      const res = await request(customApp.app)
+        .post("/api/uploads/complete")
+        .set("Cookie", [`sid=${sessionToken}`])
+        .send({ fileId: 11, storageKey: "uploads/file11.mp4" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.fileId).toBe(11);
+      expect(res.body.status).toBe("pending");
+    });
+  });
+
+  describe("POST /api/uploads/webhook/processed", () => {
+    test("returns 401 when webhook secret is invalid", async () => {
+      const res = await request(appObj.app)
+        .post("/api/uploads/webhook/processed")
+        .set("x-songbird-webhook-secret", "wrong-secret")
+        .send({ fileId: 10, status: "ready" });
+
+      expect(res.status).toBe(401);
+    });
+
+    test("returns 404 when file is not found", async () => {
+      const res = await request(appObj.app)
+        .post("/api/uploads/webhook/processed")
+        .set("x-songbird-webhook-secret", "secret-key-123")
+        .send({ fileId: 999, status: "ready" });
+
+      expect(res.status).toBe(404);
+    });
+
+    test("updates file status and emits video:ready SSE event", async () => {
+      const fileRecord = {
+        id: 20,
+        message_id: 5,
+        storage_driver: "s3",
+        storage_key: "uploads/raw.mp4",
+        processing_status: "pending",
+      };
+
+      const emitChatEventMock = vi.fn();
+      let updatedStatus = "pending";
+      let updatedTranscodedKey = null;
+
+      const customApp = makeApp({
+        deps: {
+          storageProvider: mockS3Provider,
+          webhookSecret: "secret-key-123",
+          findMessageFileById: (id) => (Number(id) === 20 ? fileRecord : null),
+          adminGetRow: (sql) => {
+            if (sql.includes("chat_messages")) return { chat_id: 42 };
+            if (sql.includes("chat_message_files")) return fileRecord;
+            return null;
+          },
+          adminRun: (sql, params) => {
+            updatedStatus = params[0];
+            updatedTranscodedKey = params[1];
+          },
+          adminSave: () => {},
+          emitChatEvent: emitChatEventMock,
+        },
+      });
+
+      const res = await request(customApp.app)
+        .post("/api/uploads/webhook/processed")
+        .set("x-songbird-webhook-secret", "secret-key-123")
+        .send({
+          fileId: 20,
+          status: "ready",
+          transcodedStorageKey: "transcoded/video20.mp4",
+          thumbStorageKey: "thumbs/thumb20.jpg",
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(updatedStatus).toBe("ready");
+      expect(updatedTranscodedKey).toBe("transcoded/video20.mp4");
+
+      expect(emitChatEventMock).toHaveBeenCalledWith(
+        42,
+        expect.objectContaining({
+          type: "video:ready",
+          fileId: 20,
+          status: "ready",
+          storageKey: "transcoded/video20.mp4",
+        }),
+      );
+    });
+  });
+
+  describe("GET /api/uploads/file/:id", () => {
+    test("redirects 302 to S3 download URL when encryption_type is none", async () => {
+      const fileRecord = {
+        id: 30,
+        storage_driver: "s3",
+        storage_key: "uploads/public.jpg",
+        encryption_type: "none",
+        mime_type: "image/jpeg",
+      };
+
+      const customApp = makeApp({
+        deps: {
+          storageProvider: mockS3Provider,
+          findMessageFileById: (id) => (Number(id) === 30 ? fileRecord : null),
+          adminGetRow: () => fileRecord,
+        },
+      });
+
+      const res = await request(customApp.app).get("/api/uploads/file/30");
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toContain(
+        "https://test-bucket.s3.amazonaws.com/uploads/public.jpg",
+      );
+    });
+
+    test("redirects 302 to S3 download URL when encryption_type is provider_sse", async () => {
+      const fileRecord = {
+        id: 31,
+        storage_driver: "s3",
+        storage_key: "uploads/sse.png",
+        encryption_type: "provider_sse",
+        mime_type: "image/png",
+      };
+
+      const customApp = makeApp({
+        deps: {
+          storageProvider: mockS3Provider,
+          findMessageFileById: (id) => (Number(id) === 31 ? fileRecord : null),
+          adminGetRow: () => fileRecord,
+        },
+      });
+
+      const res = await request(customApp.app).get("/api/uploads/file/31");
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toContain(
+        "https://test-bucket.s3.amazonaws.com/uploads/sse.png",
+      );
+    });
+
+    test("decrypts and streams content when encryption_type is aes-256-gcm", async () => {
+      const enc = createStorageEncryption();
+      process.env.STORAGE_ENCRYPTION_KEY = "test-secret-key-32-chars-long!!";
+
+      const plainText = "Hello Decrypted S3 Data!";
+      const encryptedBuf = enc.encryptBuffer(Buffer.from(plainText));
+
+      const fileRecord = {
+        id: 32,
+        storage_driver: "s3",
+        storage_key: "uploads/encrypted.txt",
+        encryption_type: "aes-256-gcm",
+        mime_type: "text/plain",
+      };
+
+      // Mock fetch globally or pass custom fetch implementation in deps
+      const originalFetch = global.fetch;
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        arrayBuffer: async () =>
+          encryptedBuf.buffer.slice(
+            encryptedBuf.byteOffset,
+            encryptedBuf.byteOffset + encryptedBuf.byteLength,
+          ),
+      });
+
+      try {
+        const customApp = makeApp({
+          deps: {
+            storageProvider: mockS3Provider,
+            storageEncryption: enc,
+            findMessageFileById: (id) =>
+              Number(id) === 32 ? fileRecord : null,
+            adminGetRow: () => fileRecord,
+          },
+        });
+
+        const res = await request(customApp.app).get("/api/uploads/file/32");
+
+        expect(res.status).toBe(200);
+        expect(res.text).toBe(plainText);
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+  });
+});
