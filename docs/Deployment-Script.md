@@ -70,9 +70,16 @@ HTTPS is required for push notifications (except on `localhost`). Choose a certi
 
 :::
 
-### 4. Environment prompts
+### 4. Database engine selection
 
-During install the script asks for the core settings and writes them into `.env`:
+| Option | Description |
+|---|---|
+| SQLite (Default) | In-memory SQLite database with debounced disk persistence (`better-sqlite3`). Best for small to medium instances. |
+| PostgreSQL | External PostgreSQL database engine. Recommended for larger instances (+500 users). Prompts for PostgreSQL host, port, database name, username, and password. |
+
+### 5. Environment prompts
+
+During install the script asks for core settings and writes them into `.env`:
 
 | Prompt | Env variable | Default |
 |---|---|---|
@@ -82,7 +89,7 @@ During install the script asks for the core settings and writes them into `.env`
 
 Encryption and push keys (`STORAGE_ENCRYPTION_KEY`, `VAPID_*`) are generated automatically. The full list of variables you can tune later lives in [Environment Variables](./Environment-Variables.md).
 
-### 5. First-run owner creation
+### 6. First-run owner creation
 
 After installation completes and the service starts, you'll be prompted to create an owner user on first access. This owner account has full admin panel access for managing users, chats, and system settings. See [Admin Panel](./Admin-Panel.md) for details.
 

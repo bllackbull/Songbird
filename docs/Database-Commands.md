@@ -1,6 +1,6 @@
 # Database Commands
 
-Songbird ships a set of `npm` scripts for managing the database, users, chats, files, and backups from the command line. Run them from the `server/` directory:
+Songbird supports both SQLite (default) and PostgreSQL database engines, and ships a set of `npm` scripts for managing the database, users, chats, files, and backups from the command line. Run them from the `server/` directory:
 
 ```bash
 cd /opt/songbird/server
@@ -29,32 +29,32 @@ A few rules apply across all commands:
 | Command | Purpose |
 |---|---|
 | `npm run db:help` | Print the built-in command guide. |
-| [`npm run db:backup`](#dbbackup) | Create an encrypted backup zip of `.env` and `data/`. |
-| [`npm run db:restore`](#dbrestore) | Restore the database and uploads from a backup zip. |
-| [`npm run db:vacuum`](#dbvacuum) | Compact the SQLite database file. |
-| [`npm run db:migrate`](#dbmigrate) | Apply pending database migrations. |
-| [`npm run db:reset`](#dbreset) | Wipe database content and uploaded message files. |
-| [`npm run db:delete`](#dbdelete) | Delete the database file. |
-| [`npm run db:inspect`](#dbinspect-and-friends) | Print a full summary (users, chats, messages, files, disk). |
-| [`npm run db:chat:inspect`](#dbinspect-and-friends) | Inspect chats only. |
-| [`npm run db:user:inspect`](#dbinspect-and-friends) | Inspect users only. |
-| [`npm run db:file:inspect`](#dbinspect-and-friends) | Inspect files only. |
-| [`npm run db:user:create`](#dbusercreate) | Create a single user. |
-| [`npm run db:user:generate`](#dbusergenerate) | Generate random test users. |
-| [`npm run db:user:edit`](#dbuseredit) | Edit a user profile. |
-| [`npm run db:user:ban`](#dbuserban) | Toggle a user's ban state. |
-| [`npm run db:user:verify`](#dbuserverify) | Toggle a user's verified status. |
-| [`npm run db:user:delete`](#dbuserdelete) | Delete one, many, or all users. |
-| [`npm run db:chat:create`](#dbchatcreate) | Create a group or channel (optionally a Remote Channel). |
-| [`npm run db:chat:add`](#dbchatadd) | Add members to a group or channel. |
-| [`npm run db:chat:edit`](#dbchatedit) | Edit a chat profile, ownership, or Remote Channel config. |
-| [`npm run db:chat:verify`](#dbchatverify) | Toggle a chat's verified status. |
-| [`npm run db:chat:delete`](#dbchatdelete) | Delete one, many, or all chats. |
-| [`npm run db:file:delete`](#dbfiledelete) | Delete uploaded message files and/or avatars. |
-| [`npm run db:message:generate`](#dbmessagegenerate) | Generate random messages between two users. |
-| [`npm run remote:configure`](#remote-channel-configuration) | Configure Telegram credentials for Remote Channel. |
+| [`npm run db:backup`](#db-backup) | Create an encrypted backup zip of `.env` and `data/`. |
+| [`npm run db:restore`](#db-restore) | Restore the database and uploads from a backup zip. |
+| [`npm run db:vacuum`](#db-vacuum) | Compact the SQLite database file. |
+| [`npm run db:convert`](#db-convert) | Convert an existing SQLite database to PostgreSQL. |
+| [`npm run db:migrate`](#db-migrate) | Apply pending database migrations. |
+| [`npm run db:reset`](#db-reset) | Wipe database content and uploaded message files. |
+| [`npm run db:delete`](#db-delete) | Delete the database file. |
+| [`npm run db:inspect`](#db-inspect-and-friends) | Print a full summary (users, chats, messages, files, disk). |
+| [`npm run db:chat:inspect`](#db-inspect-and-friends) | Inspect chats only. |
+| [`npm run db:user:inspect`](#db-inspect-and-friends) | Inspect users only. |
+| [`npm run db:file:inspect`](#db-inspect-and-friends) | Inspect files only. |
+| [`npm run db:user:create`](#db-user-create) | Create a single user. |
+| [`npm run db:user:generate`](#db-user-generate) | Generate random test users. |
+| [`npm run db:user:edit`](#db-user-edit) | Edit a user profile. |
+| [`npm run db:user:ban`](#db-user-ban) | Toggle a user's ban state. |
+| [`npm run db:user:verify`](#db-user-verify) | Toggle a user's verified status. |
+| [`npm run db:user:delete`](#db-user-delete) | Delete one, many, or all users. |
+| [`npm run db:chat:create`](#db-chat-create) | Create a group or channel (optionally a Remote Channel). |
+| [`npm run db:chat:add`](#db-chat-add) | Add members to a group or channel. |
+| [`npm run db:chat:edit`](#db-chat-edit) | Edit a chat profile, ownership, or Remote Channel config. |
+| [`npm run db:chat:verify`](#db-chat-verify) | Toggle a chat's verified status. |
+| [`npm run db:chat:delete`](#db-chat-delete) | Delete one, many, or all chats. |
+| [`npm run db:file:delete`](#db-file-delete) | Delete uploaded message files and/or avatars. |
+| [`npm run db:message:generate`](#db-message-generate) | Generate random messages between two users. |
+| [`npm run remote:configure`](#remote-configure) | Configure Telegram credentials for Remote Channel. |
 
----
 
 ## Backup & restore
 
@@ -107,7 +107,6 @@ Legacy backups with `songbird.db` and `uploads/` at the zip root are also accept
 
 :::
 
----
 
 ## Maintenance
 
@@ -121,6 +120,22 @@ Compacts the database file to reclaim space.
 
 ```bash
 npm run db:vacuum -- -y
+```
+
+### `db:convert`
+
+Converts an existing SQLite database (`data/songbird.db`) to PostgreSQL. Target PostgreSQL connection details are read from `.env` (`DB_CLIENT=postgres` and `POSTGRES_*` variables).
+
+| Positional Argument | Required | Default | Description |
+|---|---|---|---|
+| `<sqlite-path>` | No | `../data/songbird.db` | Path to source SQLite `.db` file. |
+
+```bash
+# Ensure DB_CLIENT=postgres and POSTGRES_* settings are configured in .env:
+npm run db:convert
+
+# Or specify a custom SQLite database file path:
+npm run db:convert -- /path/to/custom-songbird.db
 ```
 
 ### `db:migrate`
@@ -158,7 +173,6 @@ Deletes the database file outright.
 npm run db:delete -- -y
 ```
 
----
 
 ## Inspection
 
@@ -178,7 +192,6 @@ npm run db:user:inspect
 npm run db:file:inspect
 ```
 
----
 
 ## Users
 
@@ -279,7 +292,6 @@ npm run db:user:delete -- songbird.sage -y
 npm run db:user:delete -- --all -y
 ```
 
----
 
 ## Chats
 
@@ -399,7 +411,6 @@ npm run db:chat:delete -- core.team -y
 npm run db:chat:delete -- --all -y
 ```
 
----
 
 ## Files
 
@@ -419,7 +430,6 @@ npm run db:file:delete -- stored-file-name.ext -y
 npm run db:file:delete -- --all -y
 ```
 
----
 
 ## Messages
 
@@ -440,7 +450,6 @@ npm run db:message:generate -- 1 songbird.sage songbird.sage2 300 7
 npm run db:message:generate -- --chatId 1 --userA songbird.sage --userB songbird.sage2 --count 300 --days 7
 ```
 
----
 
 ## Remote Channel configuration
 
@@ -454,7 +463,6 @@ npm run remote:configure
 
 See [Remote Channel Setup](./Remote-Channel-Setup.md) for the complete guide, including how to obtain API credentials.
 
----
 
 ## Running commands via Docker
 

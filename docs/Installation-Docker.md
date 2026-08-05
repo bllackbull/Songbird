@@ -67,6 +67,10 @@ cp .env.example .env
 nano .env
 ```
 
+:::info Using PostgreSQL with Docker
+Songbird defaults to SQLite (`DB_CLIENT=sqlite3`). To use PostgreSQL instead, edit `.env` to set `DB_CLIENT=postgres` along with your `POSTGRES_*` environment variables, or uncomment the optional `postgres` service and `postgres-data` volume block in `docker-compose.yaml`.
+:::
+
 ## 4. Set up TLS certificates
 
 The nginx container requires TLS certificate files before it can start. Place your certificate and private key at:

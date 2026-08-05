@@ -22,6 +22,17 @@ nano .env
 | `CLIENT_PORT` | `integer` | `80` | Nginx listen port (what users connect to). |
 | `BIND_ADDRESS` | `string` | `localhost` | Network interface to bind to. Use `localhost` for VPS/private networks to avoid exposing backend when firewall is disabled; use `0.0.0.0` for Docker containers. |
 | `DATA_DIR` | `string` | `<project_root>/data` | Absolute path to the data directory (database, uploads, backups). Override this on cloud platforms (Railway, Render, Fly.io) to point at the platform's persistent volume mount. |
+| `DB_CLIENT` | `string` | `sqlite3` | Database driver client (`sqlite3` or `postgres`). |
+| `POSTGRES_HOST` | `string` | `127.0.0.1` | PostgreSQL database host. |
+| `POSTGRES_PORT` | `integer` | `5432` | PostgreSQL database port. |
+| `POSTGRES_USER` | `string` | `postgres` | PostgreSQL username. |
+| `POSTGRES_PASSWORD` | `string` | `postgres` | PostgreSQL password. |
+| `POSTGRES_DB` | `string` | `songbird` | PostgreSQL database name. |
+| `POSTGRES_URL` | `string` | `null` | Optional full PostgreSQL connection string URL. |
+| `POSTGRES_SSL` | `boolean` | `false` | Enable SSL for PostgreSQL connections. |
+| `REDIS_HOST` | `string` | `""` | Optional Redis host. If set, Songbird uses Redis for session storage and pub/sub instead of in-process fallback. |
+| `REDIS_PORT` | `integer` | `6379` | Optional Redis port. |
+| `REDIS_URL` | `string` | `""` | Optional Redis connection URL (e.g. `redis://user:pass@host:port`). |
 | `APP_ENV` | `string` | `production` | Server runtime mode (`production` recommended/default). |
 | `APP_DEBUG` | `boolean` | `false` | Enable verbose server debug logs in terminal/stdout (`[app-debug]` lines for message send/upload/transcode/metadata events). |
 | `SIGN_UP` | `boolean` | `true` | Allow new accounts to be created via the website (`/signup`). (`ACCOUNT_CREATION` is supported as a legacy fallback.) |

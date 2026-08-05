@@ -22,6 +22,17 @@ nano .env
 | `CLIENT_PORT` | `integer` | `80` | پورت listen مربوط به Nginx (همان چیزی که کاربران به آن متصل می‌شوند). |
 | `BIND_ADDRESS` | `string` | `localhost` | رابط شبکه مورد اتصال. برای VPS / شبکه‌های خصوصی از `localhost` استفاده کنید تا هنگام غیرفعال بودن فایروال، بک‌اند قابل افشا نباشد؛ و برای کانتینرهای Docker از `0.0.0.0` استفاده کنید. |
 | `DATA_DIR` | `string` | `<project_root>/data` | مسیر مطلق پوشه داده (پایگاه داده، آپلودها، پشتیبان‌ها). این مقدار را روی پلتفرم‌های ابری (Railway، Render، Fly.io) به مسیر mount شده volume پایدار پلتفرم تنظیم کنید. |
+| `DB_CLIENT` | `string` | `sqlite3` | درایور پایگاه داده (`sqlite3` یا `postgres`). |
+| `POSTGRES_HOST` | `string` | `127.0.0.1` | آدرس هاست پایگاه داده PostgreSQL. |
+| `POSTGRES_PORT` | `integer` | `5432` | پورت پایگاه داده PostgreSQL. |
+| `POSTGRES_USER` | `string` | `postgres` | نام کاربری پایگاه داده PostgreSQL. |
+| `POSTGRES_PASSWORD` | `string` | `postgres` | رمز عبور پایگاه داده PostgreSQL. |
+| `POSTGRES_DB` | `string` | `songbird` | نام پایگاه داده PostgreSQL. |
+| `POSTGRES_URL` | `string` | `null` | رشته اتصال اختیاری کامل برای PostgreSQL. |
+| `POSTGRES_SSL` | `boolean` | `false` | فعالسازی SSL برای اتصالات PostgreSQL. |
+| `REDIS_HOST` | `string` | `""` | آدرس اختیاری هاست Redis. در صورت تنظیم، Songbird از Redis برای مدیریت نشست ها و pub/sub به جای مکانیزم درون-فرآیندی استفاده میکند. |
+| `REDIS_PORT` | `integer` | `6379` | پورت اختیاری Redis. |
+| `REDIS_URL` | `string` | `""` | آدرس URL اختیاری اتصال به Redis (مانند `redis://user:pass@host:port`). |
 | `APP_ENV` | `string` | `production` | حالت اجرای سرور (`production` توصیه‌شده/پیش‌فرض است). |
 | `APP_DEBUG` | `boolean` | `false` | فعال‌کردن لاگ‌های پرجزئیات اشکال‌زدایی سرور در ترمینال/stdout (خطوط `[app-debug]` برای رویدادهای ارسال پیام/آپلود/ترنسکد/متادیتا). |
 | `SIGN_UP` | `boolean` | `true` | اجازه ایجاد حساب‌های جدید از طریق وب‌سایت (`/signup`). (`ACCOUNT_CREATION` به‌عنوان جایگزین قدیمی پشتیبانی می‌شود.) |

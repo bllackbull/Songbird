@@ -34,7 +34,6 @@
 | کانال ریموت بازتاب نمی‌دهد | اعتبارنامه‌های Telegram / صف | [کانال ریموت](#remote-channel-not-mirroring) |
 | کنترل سرویس پنل مدیریت شکست می‌خورد | مجوزها | [مشکلات پنل مدیریت](#مشکلات-پنل-مدیریت) |
 
----
 
 ## توقف نصب هنگام دانلود بسته‌ها {#installation-stuck-downloading-packages}
 
@@ -106,7 +105,6 @@ sudo systemctl restart systemd-resolved
 
 :::
 
----
 
 ## اپلیکیشن راه‌اندازی نمی‌شود / 502 Bad Gateway {#app-wont-start--502-bad-gateway}
 
@@ -214,7 +212,6 @@ docker compose -f docker-compose.yaml build --no-cache --progress=plain
 
 برای راهنمای کامل پیکربندی به [راه‌اندازی کانال ریموت](./Remote-Channel-Setup.md) مراجعه کنید.
 
----
 
 ## مشکلات پنل مدیریت {#مشکلات-پنل-مدیریت}
 
@@ -284,7 +281,6 @@ sudo chown -R songbird:songbird /opt/songbird/data
 docker compose exec songbird chown -R node:node /app/data
 ```
 
----
 
 ## هنوز گیر کرده‌اید؟
 

@@ -67,6 +67,10 @@ cp .env.example .env
 nano .env
 ```
 
+:::info استفاده از PostgreSQL در Docker
+پایگاه داده پیشفرض Songbird بر پایه SQLite است (`DB_CLIENT=sqlite3`). برای استفاده از PostgreSQL، فایل `.env` را ویرایش کرده و `DB_CLIENT=postgres` را به همراه متغیرهای `POSTGRES_*` تنظیم کنید، یا سرویس و volume اختیاری `postgres` را در `docker-compose.yaml` از حالت کامنت خارج کنید.
+:::
+
 ## ۴. راه‌اندازی گواهی‌نامه TLS
 
 کانتینر nginx برای اجرا به فایل‌های گواهی‌نامه TLS نیاز دارد. گواهی‌نامه و کلید خصوصی خود را در مسیرهای زیر قرار دهید:

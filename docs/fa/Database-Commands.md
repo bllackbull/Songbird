@@ -1,6 +1,6 @@
 # دستورات پایگاه داده
 
-Songbird مجموعه‌ای از اسکریپت‌های `npm` را برای مدیریت پایگاه داده، کاربران، چت‌ها، فایل‌ها و پشتیبان‌ها از خط فرمان ارائه می‌دهد. آن‌ها را از پوشه `server/` اجرا کنید:
+Songbird از هر دو موتور پایگاه داده SQLite (پیشفرض) و PostgreSQL پشتیبانی می کند و مجموعه ای از اسکریپته ای `npm` را برای مدیریت پایگاه داده، کاربران، چت ها، فایل ها و پشتیبان ها از خط فرمان ارائه می دهد. آنها را از پوشه `server/` اجرا کنید:
 
 ```bash
 cd /opt/songbird/server
@@ -29,32 +29,31 @@ cd /opt/songbird/server
 | دستور | هدف |
 |---|---|
 | `npm run db:help` | چاپ راهنمای داخلی دستورها. |
-| `npm run db:backup` | ایجاد یک فایل zip پشتیبان رمزنگاری‌شده از `.env` و `data/`. |
-| `npm run db:restore` | بازیابی پایگاه داده و آپلودها از یک فایل zip پشتیبان. |
-| `npm run db:vacuum` | فشرده‌سازی فایل پایگاه داده SQLite. |
-| `npm run db:migrate` | اعمال migrationهای در انتظار پایگاه داده. |
-| `npm run db:reset` | پاک‌کردن محتوای پایگاه داده و فایل‌های پیام آپلودشده. |
-| `npm run db:delete` | حذف فایل پایگاه داده. |
-| `npm run db:inspect` | چاپ یک خلاصه کامل (کاربران، چت‌ها، پیام‌ها، فایل‌ها، دیسک). |
-| `npm run db:chat:inspect` | بازرسی فقط چت‌ها. |
-| `npm run db:user:inspect` | بازرسی فقط کاربران. |
-| `npm run db:file:inspect` | بازرسی فقط فایل‌ها. |
-| `npm run db:user:create` | ایجاد یک کاربر منفرد. |
-| `npm run db:user:generate` | تولید کاربران آزمایشی تصادفی. |
-| `npm run db:user:edit` | ویرایش پروفایل یک کاربر. |
-| `npm run db:user:ban` | تغییر وضعیت مسدودیت یک کاربر. |
-| `npm run db:user:verify` | تغییر وضعیت تأییدشده‌بودن یک کاربر. |
-| `npm run db:user:delete` | حذف یک، چند یا همه کاربران. |
-| `npm run db:chat:create` | ایجاد یک گروه یا کانال (به‌صورت اختیاری یک کانال ریموت). |
-| `npm run db:chat:add` | افزودن اعضا به یک گروه یا کانال. |
-| `npm run db:chat:edit` | ویرایش پروفایل چت، مالکیت، یا پیکربندی کانال ریموت. |
-| `npm run db:chat:verify` | تغییر وضعیت تأییدشده‌بودن یک چت. |
-| `npm run db:chat:delete` | حذف یک، چند یا همه چت‌ها. |
-| `npm run db:file:delete` | حذف فایل‌های پیام آپلودشده و/یا آواتارها. |
-| `npm run db:message:generate` | تولید پیام‌های تصادفی بین دو کاربر. |
-| `npm run remote:configure` | پیکربندی اعتبارنامه‌های Telegram برای کانال ریموت. |
-
----
+| [`npm run db:backup`](#db-backup) | ایجاد یک فایل zip پشتیبان رمزنگاریشده از `.env` و `data/`. |
+| [`npm run db:restore`](#db-restore) | بازیابی پایگاه داده و آپلودها از یک فایل zip پشتیبان. |
+| [`npm run db:vacuum`](#db-vacuum) | فشردهسازی فایل پایگاه داده SQLite. |
+| [`npm run db:convert`](#db-convert) | تبدیل یک پایگاه داده SQLite موجود به PostgreSQL. |
+| [`npm run db:migrate`](#db-migrate) | اعمال migrationهای در انتظار پایگاه داده. |
+| [`npm run db:reset`](#db-reset) | پاککردن محتوای پایگاه داده و فایلهای پیام آپلودشده. |
+| [`npm run db:delete`](#db-delete) | حذف فایل پایگاه داده. |
+| [`npm run db:inspect`](#db-inspect-و-دستورهای-مرتبط) | چاپ یک خلاصه کامل (کاربران، چتها، پیامها، فایلها، دیسک). |
+| [`npm run db:chat:inspect`](#db-inspect-و-دستورهای-مرتبط) | بازرسی فقط چتها. |
+| [`npm run db:user:inspect`](#db-inspect-و-دستورهای-مرتبط) | بازرسی فقط کاربران. |
+| [`npm run db:file:inspect`](#db-inspect-و-دستورهای-مرتبط) | بازرسی فقط فایلها. |
+| [`npm run db:user:create`](#db-user-create) | ایجاد یک کاربر منفرد. |
+| [`npm run db:user:generate`](#db-user-generate) | تولید کاربران آزمایشی تصادفی. |
+| [`npm run db:user:edit`](#db-user-edit) | ویرایش پروفایل یک کاربر. |
+| [`npm run db:user:ban`](#db-user-ban) | تغییر وضعیت مسدودیت یک کاربر. |
+| [`npm run db:user:verify`](#db-user-verify) | تغییر وضعیت تأییدشدهبودن یک کاربر. |
+| [`npm run db:user:delete`](#db-user-delete) | حذف یک، چند یا همه کاربران. |
+| [`npm run db:chat:create`](#db-chat-create) | ایجاد یک گروه یا کانال (بهصورت اختیاری یک کانال ریموت). |
+| [`npm run db:chat:add`](#db-chat-add) | افزودن اعضا به یک گروه یا کانال. |
+| [`npm run db:chat:edit`](#db-chat-edit) | ویرایش پروفایل چت، مالکیت، یا پیکربندی کانال ریموت. |
+| [`npm run db:chat:verify`](#db-chat-verify) | تغییر وضعیت تأییدشدهبودن یک چت. |
+| [`npm run db:chat:delete`](#db-chat-delete) | حذف یک، چند یا همه چتها. |
+| [`npm run db:file:delete`](#db-file-delete) | حذف فایلهای پیام آپلودشده و/یا آواتارها. |
+| [`npm run db:message:generate`](#db-message-generate) | تولید پیامهای تصادفی بین دو کاربر. |
+| [`npm run remote:configure`](#remote-configure) | پیکربندی اعتبارنامه های Telegram برای کانال ریموت. |
 
 ## پشتیبان‌گیری و بازیابی
 
@@ -107,7 +106,6 @@ songbird-backup-YYYY-MM-DDTHH-MM-SS-sssZ.zip
 
 :::
 
----
 
 ## نگه‌داری
 
@@ -122,6 +120,23 @@ songbird-backup-YYYY-MM-DDTHH-MM-SS-sssZ.zip
 ```bash
 npm run db:vacuum -- -y
 ```
+
+### `db:convert`
+
+یک پایگاه داده SQLite موجود (`data/songbird.db`) را به PostgreSQL تبدیل می کند. اطلاعات اتصال PostgreSQL مقصد از `.env` (متغیرهای `DB_CLIENT=postgres` و `POSTGRES_*`) خوانده میشود.
+
+| آرگومان موضعی | موردنیاز | پیشفرض | توضیح |
+|---|---|---|---|
+| `<sqlite-path>` | خیر | `../data/songbird.db` | مسیر فایل پایگاه داده SQLite مبدأ. |
+
+```bash
+# اطمینان حاصل کنید تنظیمات DB_CLIENT=postgres و POSTGRES_* در .env پیکربندی شده اند:
+npm run db:convert
+
+# یا مسیر فایل پایگاه داده SQLite سفارشی را مشخص کنید:
+npm run db:convert -- /path/to/custom-songbird.db
+```
+
 
 ### `db:migrate`
 
@@ -158,7 +173,6 @@ npm run db:reset -- -y --no-recreate
 npm run db:delete -- -y
 ```
 
----
 
 ## بازرسی
 
@@ -178,7 +192,6 @@ npm run db:user:inspect
 npm run db:file:inspect
 ```
 
----
 
 ## کاربران
 
@@ -277,7 +290,6 @@ npm run db:user:delete -- songbird.sage -y
 npm run db:user:delete -- --all -y
 ```
 
----
 
 ## چت‌ها
 
@@ -397,7 +409,6 @@ npm run db:chat:delete -- core.team -y
 npm run db:chat:delete -- --all -y
 ```
 
----
 
 ## فایل‌ها
 
@@ -417,7 +428,6 @@ npm run db:file:delete -- stored-file-name.ext -y
 npm run db:file:delete -- --all -y
 ```
 
----
 
 ## پیام‌ها
 
@@ -438,7 +448,18 @@ npm run db:message:generate -- 1 songbird.sage songbird.sage2 300 7
 npm run db:message:generate -- --chatId 1 --userA songbird.sage --userB songbird.sage2 --count 300 --days 7
 ```
 
----
+
+## پیکربندی کانال ریموت
+
+### `remote:configure`
+
+اعتبارنامه های Telegram را برای ویژگی کانال ریموت به صورت تعاملی پیکربندی می کند. این دستور متغیرهای `REMOTE_CHANNEL_TELEGRAM_API_ID`، `REMOTE_CHANNEL_TELEGRAM_API_HASH` و `REMOTE_CHANNEL_TELEGRAM_SESSION_STRING` را در فایل `.env` شما تنظیم می کند.
+
+```bash
+npm run remote:configure
+```
+
+برای راهنمای کامل، از جمله نحوه دریافت اعتبارنامه های API، به [راه اندازی Remote Channel](./Remote-Channel-Setup.md) مراجعه کنید.
 
 ## اجرای دستورها از طریق Docker
 

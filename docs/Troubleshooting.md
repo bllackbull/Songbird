@@ -34,7 +34,6 @@ The [deployment script](./Deployment-Script.md) has a built-in **View Logs** men
 | Remote Channel not mirroring | Telegram creds / queue | [Remote Channel](#remote-channel-not-mirroring) |
 | Admin panel service control fails | Permissions | [Admin panel issues](#admin-panel-issues) |
 
----
 
 ## Installation stuck downloading packages
 
@@ -106,7 +105,6 @@ You can use these DNS resolvers in Iran's restricted environment:
 
 :::
 
----
 
 ## App won't start / 502 Bad Gateway
 
@@ -214,7 +212,6 @@ See [SSL Certificates](./SSL-Certificates.md) for the full setup options.
 
 See [Remote Channel Setup](./Remote-Channel-Setup.md) for the complete configuration guide.
 
----
 
 ## Admin panel issues
 
@@ -284,7 +281,6 @@ sudo chown -R songbird:songbird /opt/songbird/data
 docker compose exec songbird chown -R node:node /app/data
 ```
 
----
 
 ## Still stuck?
 
