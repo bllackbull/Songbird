@@ -24,6 +24,7 @@ import { createInspector } from "./lib/inspect.js";
 import { createSessionHelpers } from "./lib/sessions.js";
 import { createRedisClient, createRedisSessionStore } from "./lib/redis.js";
 import { storageEncryption } from "./lib/storageEncryption.js";
+import { createStorageProvider } from "./lib/storage/index.js";
 import { createRemoteChannelManager } from "./lib/remoteChannels.js";
 import { buildTimestampSchedule } from "./lib/timeUtils.js";
 import { isLoopbackRequest, parseUploadFileMetadata } from "./lib/requestUtils.js";
@@ -612,7 +613,12 @@ function backfillStorageEncryption() {
 
 registerUploadRoutes(app, { adminGetRow });
 
+const storageProvider = createStorageProvider(process.env);
+
 const apiDeps = {
+  storageProvider,
+  s3ProcessingMode: process.env.S3_PROCESSING_MODE || "sync",
+  webhookSecret: process.env.SONGBIRD_WEBHOOK_SECRET || process.env.WEBHOOK_SECRET || null,
   ALLOWED_AVATAR_MIME_TYPES,
   redisClient,
   redisSessionStore,

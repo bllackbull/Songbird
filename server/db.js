@@ -475,7 +475,7 @@ export function createUser(
   const nextColor = color || setUserColor();
 
   run(
-    'INSERT INTO users (username, nickname, avatar_url, color, password_hash, last_seen) VALUES (?, ?, ?, ?, ?, datetime("now"))',
+    "INSERT INTO users (username, nickname, avatar_url, color, password_hash, last_seen) VALUES (?, ?, ?, ?, ?, datetime('now'))",
     [username, nickname, avatarUrl, nextColor, passwordHash],
   );
 
@@ -2087,26 +2087,60 @@ export function setMessageForwardOrigin(messageId, payload = {}) {
 }
 
 export function createMessageFiles(messageId, files = []) {
-  if (!messageId) return;
+  if (messageId === undefined || messageId === null) return;
 
   files.forEach((file) => {
+    const originalName = file.originalName || file.original_name || "";
+    const storedName = file.storedName || file.stored_name || "";
+    const mimeType = file.mimeType || file.mime_type || "";
+    const sizeBytes = Number(file.sizeBytes || file.size_bytes || 0);
+    const widthPx = Number.isFinite(Number(file.widthPx ?? file.width_px))
+      ? Number(file.widthPx ?? file.width_px)
+      : null;
+    const heightPx = Number.isFinite(Number(file.heightPx ?? file.height_px))
+      ? Number(file.heightPx ?? file.height_px)
+      : null;
+    const durationSeconds = Number.isFinite(
+      Number(file.durationSeconds ?? file.duration_seconds),
+    )
+      ? Number(file.durationSeconds ?? file.duration_seconds)
+      : null;
+    const expiresAt = file.expiresAt || file.expires_at || null;
+    const storageDriver =
+      file.storageDriver || file.storage_driver || "local";
+    const storageKey = file.storageKey || file.storage_key || null;
+    const processingStatus =
+      file.processingStatus || file.processing_status || "ready";
+    const blurhash = file.blurhash || null;
+    const waveform = file.waveform || null;
+    const thumbStorageKey =
+      file.thumbStorageKey || file.thumb_storage_key || null;
+    const encryptionType =
+      file.encryptionType || file.encryption_type || "none";
+
     run(
       `INSERT INTO chat_message_files (
-        message_id, kind, original_name, stored_name, mime_type, size_bytes, width_px, height_px, duration_seconds, expires_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        message_id, kind, original_name, stored_name, mime_type, size_bytes, width_px, height_px, duration_seconds, expires_at,
+        storage_driver, storage_key, processing_status, blurhash, waveform, thumb_storage_key, encryption_type
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         messageId,
         file.kind,
-        file.originalName,
-        file.storedName,
-        file.mimeType,
-        Number(file.sizeBytes || 0),
-        Number.isFinite(Number(file.widthPx)) ? Number(file.widthPx) : null,
-        Number.isFinite(Number(file.heightPx)) ? Number(file.heightPx) : null,
-        Number.isFinite(Number(file.durationSeconds))
-          ? Number(file.durationSeconds)
-          : null,
-        file.expiresAt || null,
+        originalName,
+        storedName,
+        mimeType,
+        sizeBytes,
+        widthPx,
+        heightPx,
+        durationSeconds,
+        expiresAt,
+        storageDriver,
+        storageKey,
+        processingStatus,
+        blurhash,
+        waveform,
+        thumbStorageKey,
+        encryptionType,
       ],
     );
   });
@@ -2296,6 +2330,21 @@ export function getFirstUnreadMessage(chatId, viewerUserId) {
   return { id: Number(row.id), created_at: row.created_at };
 }
 
+export function findMessageFileById(id) {
+  if (!id) return null;
+  return (
+    getRow(
+      `
+      SELECT id, message_id, kind, original_name, stored_name, mime_type, size_bytes, width_px, height_px, duration_seconds, expires_at, created_at,
+             storage_driver, storage_key, processing_status, blurhash, waveform, thumb_storage_key, encryption_type
+      FROM chat_message_files
+      WHERE id = ?
+    `,
+      [Number(id)],
+    ) || null
+  );
+}
+
 export function listMessageFilesByMessageIds(messageIds = []) {
   if (!Array.isArray(messageIds) || !messageIds.length) return [];
 
@@ -2303,7 +2352,8 @@ export function listMessageFilesByMessageIds(messageIds = []) {
 
   return getAll(
     `
-      SELECT id, message_id, kind, original_name, stored_name, mime_type, size_bytes, width_px, height_px, duration_seconds, expires_at, created_at
+      SELECT id, message_id, kind, original_name, stored_name, mime_type, size_bytes, width_px, height_px, duration_seconds, expires_at, created_at,
+             storage_driver, storage_key, processing_status, blurhash, waveform, thumb_storage_key, encryption_type
       FROM chat_message_files
       WHERE message_id IN (${placeholders})
       ORDER BY id ASC
