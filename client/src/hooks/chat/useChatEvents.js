@@ -116,6 +116,8 @@ export function useChatEvents({
     let source = null;
     let isMounted = true;
     let reconnectAttempts = 0;
+    let useWebSocket = typeof WebSocket !== "undefined";
+    let wsOpened = false;
 
     // Trailing debounce for chat-list reloads. Each event pushes the flush out
     // by LOAD_CHATS_DEBOUNCE_MS so a burst (e.g. bulk deletes, rapid list
@@ -147,18 +149,28 @@ export function useChatEvents({
 
     const connect = () => {
       if (!isMounted) return;
+      wsOpened = false;
       let ws = null;
-      try {
-        const wsUrl = getWebSocketUrl();
-        ws = new WebSocket(wsUrl);
-        source = ws;
-      } catch (_) {
+      if (useWebSocket) {
+        try {
+          const wsUrl = getWebSocketUrl();
+          ws = new WebSocket(wsUrl);
+          source = ws;
+        } catch (_) {
+          useWebSocket = false;
+        }
+      }
+
+      if (!useWebSocket) {
         source = new EventSource(getSseStreamUrl(username), {
           withCredentials: true,
         });
       }
 
       const handleOpen = () => {
+        if (source instanceof WebSocket) {
+          wsOpened = true;
+        }
         setSseConnected(true);
         reconnectAttempts = 0;
       };
@@ -407,6 +419,9 @@ export function useChatEvents({
 
       const handleError = () => {
         setSseConnected(false);
+        if (source instanceof WebSocket && !wsOpened) {
+          useWebSocket = false;
+        }
         try { source?.close(); } catch (_) {}
         if (!isMounted) return;
         if (sseReconnectRef.current) {

@@ -1,4 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
+import viteConfig from "../../vite.config.js";
 
 if (typeof window === "undefined") {
   globalThis.window = new EventTarget();
@@ -12,7 +13,13 @@ if (typeof window === "undefined") {
   }
 }
 
-describe("useChatEvents — custom realtime event dispatch", () => {
+describe("useChatEvents — custom realtime event dispatch and dev proxy", () => {
+  test("configures vite dev server proxy for /ws with WebSocket support", () => {
+    const config = viteConfig({ mode: "development" });
+    expect(config.server.proxy["/ws"]).toBeDefined();
+    expect(config.server.proxy["/ws"].ws).toBe(true);
+  });
+
   test("dispatches songbird:realtime-event on window when a valid WebSocket event is received", () => {
     const listener = vi.fn();
     window.addEventListener("songbird:realtime-event", listener);
