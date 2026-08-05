@@ -1,9 +1,12 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import initSqlJs from 'sql.js'
+import Database from 'better-sqlite3'
 import dotenv from 'dotenv'
 import { dataDir, serverDir } from './_cli.js'
 import { migrations } from '../migrations/index.js'
+import { createKnexInstance } from '../db/knex.js'
+import { normalizeSqlForPostgres } from '../lib/sqlNormalizer.js'
 
 dotenv.config({ path: path.join(serverDir, '..', '.env'), quiet: true })
 dotenv.config({ path: path.join(serverDir, '.env'), override: true, quiet: true })
@@ -27,6 +30,11 @@ const USER_COLORS = [
   '#ec4899',
 ]
 
+function isPostgresMode() {
+  const client = (process.env.DB_CLIENT || 'sqlite3').toLowerCase()
+  return client === 'postgres' || client === 'postgresql' || client === 'pg'
+}
+
 async function getSql() {
   if (sqlSingleton) return sqlSingleton
   sqlSingleton = await initSqlJs({
@@ -39,22 +47,79 @@ export async function openDatabase() {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true })
   }
-  const SQL = await getSql()
+
+  const isPostgres = isPostgresMode()
+  let db = null
+  let isBetter = false
+
+  if (isPostgres) {
+    db = createKnexInstance()
+  } else {
+    try {
+      db = new Database(dbPath)
+      db.pragma('journal_mode = WAL')
+      isBetter = true
+    } catch (err) {
+      const SQL = await getSql()
+      const fileExists = fs.existsSync(dbPath)
+      const fileBuffer = fileExists ? fs.readFileSync(dbPath) : null
+      db = fileBuffer ? new SQL.Database(fileBuffer) : new SQL.Database()
+    }
+  }
+
   const fileExists = fs.existsSync(dbPath)
-  const fileBuffer = fileExists ? fs.readFileSync(dbPath) : null
-  const db = fileBuffer ? new SQL.Database(fileBuffer) : new SQL.Database()
 
   const getRow = (sql, params = []) => {
+    if (isPostgres) {
+      const { sql: normSql, params: normParams } = normalizeSqlForPostgres(sql, params)
+      const result = db.raw(normSql, normParams)
+      if (result && typeof result.then === 'function') {
+        return result
+          .then((res) => {
+            const rows = Array.isArray(res) ? res : res?.rows || []
+            return rows[0] || null
+          })
+          .catch(() => null)
+      }
+      const rows = Array.isArray(result) ? result : result?.rows || []
+      return rows[0] || null
+    }
+
+    const normalizedParams = Array.isArray(params) ? params : [params]
+    if (isBetter) {
+      const stmt = db.prepare(sql)
+      return stmt.get(...normalizedParams) || null
+    }
+
     const stmt = db.prepare(sql)
-    stmt.bind(params)
+    stmt.bind(normalizedParams)
     const row = stmt.step() ? stmt.getAsObject() : null
     stmt.free()
     return row
   }
 
   const getAll = (sql, params = []) => {
+    if (isPostgres) {
+      const { sql: normSql, params: normParams } = normalizeSqlForPostgres(sql, params)
+      const result = db.raw(normSql, normParams)
+      if (result && typeof result.then === 'function') {
+        return result
+          .then((res) => {
+            return Array.isArray(res) ? res : res?.rows || []
+          })
+          .catch(() => [])
+      }
+      return Array.isArray(result) ? result : result?.rows || []
+    }
+
+    const normalizedParams = Array.isArray(params) ? params : [params]
+    if (isBetter) {
+      const stmt = db.prepare(sql)
+      return stmt.all(...normalizedParams)
+    }
+
     const stmt = db.prepare(sql)
-    stmt.bind(params)
+    stmt.bind(normalizedParams)
     const rows = []
     while (stmt.step()) {
       rows.push(stmt.getAsObject())
@@ -64,25 +129,81 @@ export async function openDatabase() {
   }
 
   const run = (sql, params = []) => {
+    if (isPostgres) {
+      const { sql: normSql, params: normParams } = normalizeSqlForPostgres(sql, params)
+      const result = db.raw(normSql, normParams)
+      if (result && typeof result.then === 'function') {
+        return result
+          .then((res) => {
+            if (typeof res?.rowCount === 'number') return res.rowCount
+            const rows = Array.isArray(res) ? res : res?.rows || []
+            return rows.length
+          })
+          .catch(() => 0)
+      }
+      if (typeof result?.rowCount === 'number') return result.rowCount
+      const rows = Array.isArray(result) ? result : result?.rows || []
+      return rows.length
+    }
+
+    const normalizedParams = Array.isArray(params) ? params : [params]
+    if (isBetter) {
+      const stmt = db.prepare(sql)
+      const info = stmt.run(...normalizedParams)
+      return info.changes
+    }
+
     const stmt = db.prepare(sql)
-    stmt.bind(params)
+    stmt.bind(normalizedParams)
     stmt.step()
     stmt.free()
   }
 
-  const tableExists = (name) =>
-    Boolean(getRow("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", [name]))
+  const tableExists = (name) => {
+    const res = getRow("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", [name])
+    if (res && typeof res.then === 'function') {
+      return res.then((row) => Boolean(row)).catch(() => false)
+    }
+    return Boolean(res)
+  }
 
-  const hasColumn = (tableName, columnName) =>
-    getAll(`PRAGMA table_info('${tableName}')`).some((col) => col.name === columnName)
+  const hasColumn = (tableName, columnName) => {
+    if (isPostgres) {
+      const res = getAll(
+        `SELECT column_name AS name FROM information_schema.columns WHERE table_name = ?`,
+        [tableName],
+      )
+      if (res && typeof res.then === 'function') {
+        return res
+          .then((rows) => Array.isArray(rows) && rows.some((col) => col.name === columnName))
+          .catch(() => false)
+      }
+      return Array.isArray(res) && res.some((col) => col.name === columnName)
+    }
+    const res = getAll(`PRAGMA table_info('${tableName}')`)
+    if (res && typeof res.then === 'function') {
+      return res
+        .then((rows) => Array.isArray(rows) && rows.some((col) => col.name === columnName))
+        .catch(() => false)
+    }
+    return Array.isArray(res) && res.some((col) => col.name === columnName)
+  }
 
   const getSchemaVersion = () => {
-    const row = getRow('PRAGMA user_version')
-    return Number(row?.user_version || 0)
+    const res = getRow('PRAGMA user_version')
+    if (res && typeof res.then === 'function') {
+      return res.then((row) => Number(row?.user_version || 0)).catch(() => 0)
+    }
+    return Number(res?.user_version || 0)
   }
 
   const setSchemaVersion = (version) => {
-    db.run(`PRAGMA user_version = ${Number(version) || 0}`)
+    if (isPostgres) return
+    if (isBetter) {
+      db.pragma(`user_version = ${Number(version) || 0}`)
+    } else {
+      db.run(`PRAGMA user_version = ${Number(version) || 0}`)
+    }
   }
 
   const getRandomUserColor = () => {
@@ -91,7 +212,7 @@ export async function openDatabase() {
   }
 
   const createPreMigrationBackup = (fromVersion, toVersion) => {
-    if (!fileExists || !fs.existsSync(dbPath)) return
+    if (isPostgres || !fileExists || !fs.existsSync(dbPath)) return
     if (!fs.existsSync(backupDir)) {
       fs.mkdirSync(backupDir, { recursive: true })
     }
@@ -103,10 +224,21 @@ export async function openDatabase() {
     fs.copyFileSync(dbPath, backupPath)
   }
 
-  const schemaVersionBeforeMigrations = getSchemaVersion()
+  const schemaVersionBeforeMigrations = await getSchemaVersion()
   const migrationContext = {
-    db,
-    getAll,
+    db: {
+      run: (sql, params = []) => run(sql, params),
+      exec: (sql) => (isBetter ? db.exec(sql) : isPostgres ? db.raw(sql) : db?.exec(sql)),
+      prepare: (sql) => (isBetter ? db.prepare(sql) : isPostgres ? null : db?.prepare(sql)),
+    },
+    getAll: (sql, params = []) => {
+      const res = getAll(sql, params)
+      if (res && typeof res.then === 'function') {
+        res.catch(() => [])
+        return []
+      }
+      return Array.isArray(res) ? res : []
+    },
     tableExists,
     hasColumn,
     getRandomUserColor,
@@ -119,29 +251,43 @@ export async function openDatabase() {
   if (schemaVersionBeforeMigrations < latestVersion) {
     createPreMigrationBackup(schemaVersionBeforeMigrations, latestVersion)
   }
-  orderedMigrations.forEach((migration) => {
-    if (getSchemaVersion() >= migration.version) return
-    migration.up(migrationContext)
+  for (const migration of orderedMigrations) {
+    const currentVersion = await getSchemaVersion()
+    if (currentVersion >= migration.version) continue
+    await migration.up(migrationContext)
     setSchemaVersion(migration.version)
-  })
-  orderedMigrations.forEach((migration) => {
-    migration.up(migrationContext)
-  })
-  if (getSchemaVersion() < latestVersion) {
+  }
+  for (const migration of orderedMigrations) {
+    await migration.up(migrationContext)
+  }
+  if ((await getSchemaVersion()) < latestVersion) {
     setSchemaVersion(latestVersion)
   }
 
   const save = () => {
-    const data = db.export()
-    fs.writeFileSync(dbPath, Buffer.from(data))
+    if (isPostgres || isBetter) return
+    if (typeof db?.export === 'function') {
+      const data = db.export()
+      fs.writeFileSync(dbPath, Buffer.from(data))
+    }
   }
 
-  if (getSchemaVersion() !== schemaVersionBeforeMigrations) {
+  if ((await getSchemaVersion()) !== schemaVersionBeforeMigrations) {
     save()
   }
 
   const close = () => {
-    db.close()
+    if (isPostgres) {
+      if (typeof db?.destroy === 'function') {
+        db.destroy()
+      }
+    } else if (isBetter) {
+      if (typeof db?.close === 'function') {
+        db.close()
+      }
+    } else if (typeof db?.close === 'function') {
+      db.close()
+    }
   }
 
   return { db, getRow, getAll, run, save, close, fileExists }
