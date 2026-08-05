@@ -16,6 +16,7 @@ npm --prefix client run build         # Production build
 
 ## Architecture & Code Guidelines
 
+- **Design & Styling**: Respect and follow [`DESIGN.md`](../DESIGN.md) for all frontend styling, UI component design, typography, color system, accessibility, and UI patterns.
 - **No Router Library**: SPA routing is manually dispatched in `client/src/App.jsx` using `window.history` and `getRoute`.
 - **API Boundary**: All HTTP requests **must** use `apiFetch` in `client/src/api/chatApi.js` (`credentials: "include"`). Do not call `fetch` directly in components.
 - **State Management**: Context API for global state (`AuthContext`, `ChatContext`, `ThemeContext`, `SettingsContext`). Feature caches use IndexedDB (`client/src/utils/chatCache.js`).
