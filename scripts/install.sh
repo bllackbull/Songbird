@@ -1042,6 +1042,9 @@ install_required_packages() {
     zip
     unzip
   )
+  if [[ "$DB_CLIENT" == "postgres" && ( "$POSTGRES_HOST" == "127.0.0.1" || "$POSTGRES_HOST" == "localhost" ) ]]; then
+    required_pkgs+=(postgresql postgresql-contrib)
+  fi
   if [[ "$CERT_MODE" == "certbot" && "$DEPLOY_MODE" == "domain" ]]; then
     required_pkgs+=(python3-certbot-nginx)
   fi
