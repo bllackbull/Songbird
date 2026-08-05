@@ -23,4 +23,6 @@ npm-debug.log*
 
 # Agent & AI tool configs
 AGENTS.md
+DESIGN.md
 opencode.json
+skills-lock.json
