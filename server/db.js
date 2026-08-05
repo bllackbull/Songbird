@@ -4,6 +4,9 @@ import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 import initSqlJs from "sql.js";
+import Database from "better-sqlite3";
+import { dbKnex } from "./db/knex.js";
+import { normalizeSqlForPostgres } from "./lib/sqlNormalizer.js";
 import { migrations } from "./migrations/index.js";
 import { setUserColor } from "./settings/colors.js";
 import {
@@ -35,14 +38,29 @@ export const isRemoteMessageClientRequestId = (value) =>
 export const isRemoteMessageRow = (row) =>
   isRemoteMessageClientRequestId(row?.client_request_id || row?.clientRequestId);
 
-const SQL = await initSqlJs({
-  locateFile: (file) =>
-    path.resolve(serverDir, "node_modules", "sql.js", "dist", file),
-});
+let betterDb = null;
+try {
+  betterDb = new Database(dbPath);
+  betterDb.pragma("journal_mode = WAL");
+} catch (err) {
+  // fallback to sql.js if better-sqlite3 cannot be initialized
+  betterDb = null;
+}
+
+let SQL = null;
+let db = null;
+if (!betterDb) {
+  SQL = await initSqlJs({
+    locateFile: (file) =>
+      path.resolve(serverDir, "node_modules", "sql.js", "dist", file),
+  });
+
+  const fileExists = fs.existsSync(dbPath);
+  const fileBuffer = fileExists ? fs.readFileSync(dbPath) : null;
+  db = fileBuffer ? new SQL.Database(fileBuffer) : new SQL.Database();
+}
 
 const fileExists = fs.existsSync(dbPath);
-const fileBuffer = fileExists ? fs.readFileSync(dbPath) : null;
-let db = fileBuffer ? new SQL.Database(fileBuffer) : new SQL.Database();
 const DB_SAVE_DEBOUNCE_MS = Math.max(
   0,
   Number(process.env.DB_SAVE_DEBOUNCE_MS || 150),
@@ -50,9 +68,16 @@ const DB_SAVE_DEBOUNCE_MS = Math.max(
 let pendingSaveTimer = null;
 let databaseDirty = false;
 
+function isPostgresMode() {
+  const client = (process.env.DB_CLIENT || "sqlite3").toLowerCase();
+  return client === "postgres" || client === "postgresql" || client === "pg";
+}
+
 function writeDatabaseToDisk() {
-  const data = db.export();
-  fs.writeFileSync(dbPath, Buffer.from(data));
+  if (db && typeof db.export === "function") {
+    const data = db.export();
+    fs.writeFileSync(dbPath, Buffer.from(data));
+  }
   databaseDirty = false;
 }
 
@@ -68,12 +93,23 @@ function reloadDatabaseFromDisk() {
   if (!fs.existsSync(dbPath)) {
     throw new Error("Database file not found on disk.");
   }
-  const buffer = fs.readFileSync(dbPath);
-  const next = new SQL.Database(buffer);
-  try {
-    db.close();
-  } catch {}
-  db = next;
+  if (betterDb) {
+    try {
+      betterDb.close();
+    } catch {}
+    try {
+      betterDb = new Database(dbPath);
+      betterDb.pragma("journal_mode = WAL");
+    } catch {}
+  }
+  if (SQL) {
+    const buffer = fs.readFileSync(dbPath);
+    const next = new SQL.Database(buffer);
+    try {
+      if (db) db.close();
+    } catch {}
+    db = next;
+  }
 }
 
 function createPreMigrationBackup(fromVersion, toVersion) {
@@ -126,9 +162,29 @@ function scheduleDatabaseSave() {
   }
 }
 
-function getRow(sql, params = []) {
+export function getRow(sql, params = []) {
+  if (isPostgresMode()) {
+    const { sql: normSql, params: normParams } = normalizeSqlForPostgres(sql, params);
+    const result = dbKnex.raw(normSql, normParams);
+    if (result && typeof result.then === "function") {
+      return result.then((res) => {
+        const rows = Array.isArray(res) ? res : res?.rows || [];
+        return rows[0] || null;
+      });
+    }
+    const rows = Array.isArray(result) ? result : result?.rows || [];
+    return rows[0] || null;
+  }
+
+  const normalizedParams = Array.isArray(params) ? params : [params];
+
+  if (betterDb) {
+    const stmt = betterDb.prepare(sql);
+    return stmt.get(...normalizedParams) || null;
+  }
+
   const stmt = db.prepare(sql);
-  stmt.bind(params);
+  stmt.bind(normalizedParams);
 
   const row = stmt.step() ? stmt.getAsObject() : null;
 
@@ -137,9 +193,27 @@ function getRow(sql, params = []) {
   return row;
 }
 
-function getAll(sql, params = []) {
+export function getAll(sql, params = []) {
+  if (isPostgresMode()) {
+    const { sql: normSql, params: normParams } = normalizeSqlForPostgres(sql, params);
+    const result = dbKnex.raw(normSql, normParams);
+    if (result && typeof result.then === "function") {
+      return result.then((res) => {
+        return Array.isArray(res) ? res : res?.rows || [];
+      });
+    }
+    return Array.isArray(result) ? result : result?.rows || [];
+  }
+
+  const normalizedParams = Array.isArray(params) ? params : [params];
+
+  if (betterDb) {
+    const stmt = betterDb.prepare(sql);
+    return stmt.all(...normalizedParams);
+  }
+
   const stmt = db.prepare(sql);
-  stmt.bind(params);
+  stmt.bind(normalizedParams);
 
   const rows = [];
 
@@ -152,10 +226,33 @@ function getAll(sql, params = []) {
   return rows;
 }
 
-function run(sql, params = []) {
+export function run(sql, params = []) {
+  if (isPostgresMode()) {
+    const { sql: normSql, params: normParams } = normalizeSqlForPostgres(sql, params);
+    const result = dbKnex.raw(normSql, normParams);
+    if (result && typeof result.then === "function") {
+      return result.then((res) => {
+        if (typeof res?.rowCount === "number") return res.rowCount;
+        const rows = Array.isArray(res) ? res : res?.rows || [];
+        return rows.length;
+      });
+    }
+    if (typeof result?.rowCount === "number") return result.rowCount;
+    const rows = Array.isArray(result) ? result : result?.rows || [];
+    return rows.length;
+  }
+
+  const normalizedParams = Array.isArray(params) ? params : [params];
+
+  if (betterDb) {
+    const stmt = betterDb.prepare(sql);
+    const info = stmt.run(...normalizedParams);
+    return info.changes;
+  }
+
   const stmt = db.prepare(sql);
 
-  stmt.bind(params);
+  stmt.bind(normalizedParams);
   stmt.step();
   stmt.free();
 
@@ -168,9 +265,19 @@ function run(sql, params = []) {
 }
 
 function runWithoutSave(sql, params = []) {
+  if (isPostgresMode()) {
+    run(sql, params);
+    return;
+  }
+  const normalizedParams = Array.isArray(params) ? params : [params];
+  if (betterDb) {
+    const stmt = betterDb.prepare(sql);
+    stmt.run(...normalizedParams);
+    return;
+  }
   const stmt = db.prepare(sql);
 
-  stmt.bind(params);
+  stmt.bind(normalizedParams);
   stmt.step();
   stmt.free();
 }
@@ -234,12 +341,20 @@ function getSchemaVersion() {
 }
 
 function setSchemaVersion(version) {
-  db.run(`PRAGMA user_version = ${Number(version) || 0}`);
+  if (betterDb) {
+    betterDb.pragma(`user_version = ${Number(version) || 0}`);
+  } else if (db) {
+    db.run(`PRAGMA user_version = ${Number(version) || 0}`);
+  }
 }
 
 function runDatabaseMigrations() {
   const migrationContext = {
-    db,
+    db: {
+      run: (sql, params = []) => run(sql, params),
+      exec: (sql) => (betterDb ? betterDb.exec(sql) : db?.exec(sql)),
+      prepare: (sql) => (betterDb ? betterDb.prepare(sql) : db?.prepare(sql)),
+    },
     getAll,
     tableExists,
     hasColumn,
