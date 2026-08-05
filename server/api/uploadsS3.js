@@ -5,6 +5,7 @@ import { storageEncryption as defaultStorageEncryption } from "../lib/storageEnc
 export function registerS3UploadRoutes(app, deps) {
   const {
     storageProvider,
+    mediaQueueManager,
     adminGetRow,
     adminRun,
     adminSave,
@@ -238,6 +239,13 @@ export function registerS3UploadRoutes(app, deps) {
       if (typeof adminSave === "function") adminSave();
     }
 
+    if (newStatus === "pending" && mediaQueueManager?.scheduleFallbackCheck) {
+      mediaQueueManager.scheduleFallbackCheck({
+        fileId: Number(fileId),
+        storageKey: file.storage_key || storageKey,
+      });
+    }
+
     return res.json({
       success: true,
       fileId: Number(fileId),
@@ -292,6 +300,10 @@ export function registerS3UploadRoutes(app, deps) {
         ],
       );
       if (typeof adminSave === "function") adminSave();
+    }
+
+    if (mediaQueueManager?.cancelFallbackCheck) {
+      mediaQueueManager.cancelFallbackCheck(Number(fileId));
     }
 
     let chatId = 0;

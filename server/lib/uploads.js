@@ -14,6 +14,7 @@ export function createUploadTools({
   fileUploadMaxFiles,
   fileUploadMaxTotalSize,
   storageEncryption,
+  storageProvider,
 }) {
   const MESSAGE_FILE_LIMITS = {
     maxFiles: fileUploadMaxFiles,
@@ -382,14 +383,30 @@ export function createUploadTools({
     app.get(
       "/api/uploads/avatars/:storedName",
       uploadDownloadLimiter,
-      (req, res) => {
+      async (req, res) => {
         const storedName = path.basename(
           String(req.params?.storedName || "").trim(),
         );
         if (!storedName) return res.status(404).end();
 
         const filePath = path.join(avatarUploadRootDir, storedName);
-        if (!fs.existsSync(filePath)) return res.status(404).end();
+        if (!fs.existsSync(filePath)) {
+          if (
+            storageProvider &&
+            storageProvider.type === "s3" &&
+            typeof storageProvider.getDownloadUrl === "function"
+          ) {
+            try {
+              const url = await storageProvider.getDownloadUrl(
+                `avatars/${storedName}`,
+              );
+              if (url && url !== `/api/uploads/file/avatars/${storedName}`) {
+                return res.redirect(302, url);
+              }
+            } catch (_) {}
+          }
+          return res.status(404).end();
+        }
 
         const fileBuffer = storageEncryption.decryptFileToBuffer(filePath);
         if (!fileBuffer) return res.status(404).end();
