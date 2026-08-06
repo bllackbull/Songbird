@@ -30,7 +30,7 @@ nano .env
 | `POSTGRES_DB` | `string` | `songbird` | نام پایگاه داده PostgreSQL. |
 | `POSTGRES_URL` | `string` | `null` | رشته اتصال اختیاری کامل برای PostgreSQL. |
 | `POSTGRES_SSL` | `boolean` | `false` | فعالسازی SSL برای اتصالات PostgreSQL. |
-| `REDIS_HOST` | `string` | `""` | آدرس اختیاری هاست Redis. در صورت تنظیم، Songbird از Redis برای مدیریت نشست ها و pub/sub به جای مکانیزم درون-فرآیندی استفاده میکند. |
+| `REDIS_HOST` | `string` | `""` | آدرس اختیاری هاست Redis. در صورت تنظیم، Songbird از Redis برای صف های پس زمینه BullMQ (پردازش رسانه)، مدیریت نشست ها و pub/sub به جای مکانیزم درون-فرآیندی استفاده میکند. |
 | `REDIS_PORT` | `integer` | `6379` | پورت اختیاری Redis. |
 | `REDIS_URL` | `string` | `""` | آدرس URL اختیاری اتصال به Redis (مانند `redis://user:pass@host:port`). |
 | `APP_ENV` | `string` | `production` | حالت اجرای سرور (`production` توصیه‌شده/پیش‌فرض است). |
@@ -42,6 +42,19 @@ nano .env
 | `FILE_UPLOAD_MAX_TOTAL_SIZE_MB` | `integer` | `75` | سقف اندازه کل آپلود برای هر پیام (مگابایت). (`FILE_UPLOAD_MAX_TOTAL_SIZE` به‌عنوان جایگزین قدیمی به بایت پشتیبانی می‌شود.) |
 | `FILE_UPLOAD_MAX_FILES` | `integer` | `10` | حداکثر تعداد فایل‌های آپلودشده در یک پیام. |
 | `FILE_UPLOAD_TRANSCODE_VIDEOS` | `boolean` | `true` | تبدیل ویدیوهای آپلودشده به H.264/AAC MP4 و نگه‌داشتن فقط فایل تبدیل‌شده. به `ffmpeg` نیاز دارد. |
+| `STORAGE_DRIVER` | `string` | `local` | درایور ذخیره سازی قابل پیکربندی (`local` برای دیسک محلی، `remote` برای ذخیره سازی ابری ریموت). مستندات [ذخیره سازی ابری](./Object-Storage.md) را ببینید. |
+| `STORAGE_ENDPOINT` | `string` | `""` | نشانی URL سرویس ذخیره سازی ابری (مانند AWS S3، Cloudflare R2، MinIO، ArvanCloud، Wasabi). |
+| `STORAGE_BUCKET` | `string` | `""` | نام باکت (Bucket) ذخیره سازی. |
+| `STORAGE_REGION` | `string` | `auto` | منطقه جغرافیایی باکت (مانند `us-east-1`، `eu-central-1`). |
+| `STORAGE_ACCESS_KEY_ID` | `string` | `""` | کلید دسترسی Storage Access Key ID. |
+| `STORAGE_SECRET_ACCESS_KEY` | `string` | `""` | کلید محرمانه Storage Secret Access Key. |
+| `STORAGE_PUBLIC_URL` | `string` | `""` | پیشوند URL اختیاری دامنه CDN (مانند `https://cdn.example.com`). |
+| `STORAGE_EXPIRES_IN` | `integer` | `3600` | زمان انقضا به ثانیه برای Presigned URLها. |
+| `STORAGE_FORCE_PATH_STYLE` | `boolean` | `true` | فعال سازی ساختار URL به روش path-style (مقدار `true` برای MinIO، R2، ArvanCloud توصیه میشود). |
+| `STORAGE_PROCESSING_MODE` | `string` | `auto` | حالت گردش کار پردازش رسانه (`auto`، `remote`، `local`). |
+| `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `30000` | مهلت زمان Fallback به میلی ثانیه قبل از آنکه worker محلی BullMQ در حالت `auto` پردازش را تحویل بگیرد. |
+| `STORAGE_WEBHOOK_SECRET` | `string` | *(تولید خودکار)* | کلید محرمانه برای احراز هویت درخواست های Webhook دریافتی. |
+| `STORAGE_ENCRYPTION_MODE` | `string` | `remote` | استراتژی رمزنگاری ذخیره سازی (`remote` برای سمت ارائه دهنده، `local` برای رمزنگاری سمت اپلیکیشن). |
 | `MESSAGE_FILE_RETENTION` | `integer` | `7` | حذف خودکار فایل‌های پیام آپلودشده پس از N روز (`0` غیرفعال می‌کند). |
 | `MESSAGE_TEXT_RETENTION` | `integer` | `0` | حذف خودکار پیام‌های فقط‌متنی پس از N روز (`0` غیرفعال می‌کند). |
 | `MESSAGE_MAX_CHARS` | `integer` | `4000` | حداکثر طول پیام. |
@@ -75,11 +88,11 @@ nano .env
 | `CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS` | `integer` | `480` | حداکثر مدت‌زمان صوت (ثانیه) مجاز برای رمزگشایی شکل‌موج سمت‌کلاینت. |
 | `NICKNAME_MAX_CHARS` | `integer` | `24` | حداکثر طول نام مستعار برای کاربران و گروه‌ها. (`NICKNAME_MAX` به‌عنوان جایگزین قدیمی پشتیبانی می‌شود.) |
 | `USERNAME_MAX_CHARS` | `integer` | `16` | حداکثر طول نام کاربری برای کاربران و گروه‌ها. (`USERNAME_MAX` به‌عنوان جایگزین قدیمی پشتیبانی می‌شود.) |
-| `STORAGE_ENCRYPTION_KEY` | `string` | تولیدشده خودکار | کلید پایدار رمزنگاری در حالت سکون. تغییر این مقدار بدون رمزگشایی اولیه داده‌های قدیمی، محتوای قبلاً رمزنگاری‌شده را غیرقابل‌خواندن می‌کند. |
-| `ADMIN_API_TOKEN` | `string` | تولیدشده خودکار | توکن احراز هویت برای نقاط پایانی API مدیریت محلی. |
-| `VAPID_PUBLIC_KEY` | `string` | تولیدشده خودکار | کلید عمومی Web Push (برای Push notifications موردنیاز است). |
-| `VAPID_PRIVATE_KEY` | `string` | تولیدشده خودکار | کلید خصوصی Web Push (برای Push notifications موردنیاز است). |
-| `VAPID_SUBJECT` | `string` | تولیدشده خودکار | مخاطب برای VAPID (ایمیل یا URL). توسط ارائه‌دهندگان push استفاده می‌شود. |
+| `STORAGE_ENCRYPTION_KEY` | `string` | *(تولید خودکار)* | کلید پایدار رمزنگاری در حالت سکون. تغییر این مقدار بدون رمزگشایی اولیه داده‌های قدیمی، محتوای قبلاً رمزنگاری‌شده را غیرقابل‌خواندن می‌کند. |
+| `ADMIN_API_TOKEN` | `string` | *(تولید خودکار)* | توکن احراز هویت برای نقاط پایانی API مدیریت محلی. |
+| `VAPID_PUBLIC_KEY` | `string` | *(تولید خودکار)* | کلید عمومی Web Push (برای Push notifications موردنیاز است). |
+| `VAPID_PRIVATE_KEY` | `string` | *(تولید خودکار)* | کلید خصوصی Web Push (برای Push notifications موردنیاز است). |
+| `VAPID_SUBJECT` | `string` | *(تولید خودکار)* | مخاطب برای VAPID (ایمیل یا URL). توسط ارائه‌دهندگان push استفاده می‌شود. |
 | `PUSH_PROXY_URL` | `string` | `""` | نشانی پراکسی برای تحویل Push notification. زمانی استفاده کنید که سرور شما نمی‌تواند مستقیماً به نقاط پایانی سرویس‌های push دسترسی پیدا کند. |
 
 :::info

@@ -30,7 +30,7 @@ nano .env
 | `POSTGRES_DB` | `string` | `songbird` | PostgreSQL database name. |
 | `POSTGRES_URL` | `string` | `null` | Optional full PostgreSQL connection string URL. |
 | `POSTGRES_SSL` | `boolean` | `false` | Enable SSL for PostgreSQL connections. |
-| `REDIS_HOST` | `string` | `""` | Optional Redis host. If set, Songbird uses Redis for session storage and pub/sub instead of in-process fallback. |
+| `REDIS_HOST` | `string` | `""` | Optional Redis host. If set, Songbird uses Redis for BullMQ background job queues (media processing), session storage, and pub/sub instead of in-process fallback. |
 | `REDIS_PORT` | `integer` | `6379` | Optional Redis port. |
 | `REDIS_URL` | `string` | `""` | Optional Redis connection URL (e.g. `redis://user:pass@host:port`). |
 | `APP_ENV` | `string` | `production` | Server runtime mode (`production` recommended/default). |
@@ -42,6 +42,19 @@ nano .env
 | `FILE_UPLOAD_MAX_TOTAL_SIZE_MB` | `integer` | `75` | Per-message total upload size cap (MB). (`FILE_UPLOAD_MAX_TOTAL_SIZE` is supported as a legacy fallback in bytes.) |
 | `FILE_UPLOAD_MAX_FILES` | `integer` | `10` | Max uploaded files in one message. |
 | `FILE_UPLOAD_TRANSCODE_VIDEOS` | `boolean` | `true` | Convert uploaded videos to H.264/AAC MP4 and keep only the converted file. Requires `ffmpeg`. |
+| `STORAGE_DRIVER` | `string` | `local` | Pluggable storage driver (`local` for local disk, `remote` for remote object storage). See [Object Storage](./Object-Storage.md). |
+| `STORAGE_ENDPOINT` | `string` | `""` | S3-compatible service URL (AWS S3, Cloudflare R2, MinIO, ArvanCloud, Wasabi, etc.). |
+| `STORAGE_BUCKET` | `string` | `""` | Storage bucket name. |
+| `STORAGE_REGION` | `string` | `auto` | Storage bucket region (e.g. `us-east-1`, `eu-central-1`). |
+| `STORAGE_ACCESS_KEY_ID` | `string` | `""` | Storage Access Key ID. |
+| `STORAGE_SECRET_ACCESS_KEY` | `string` | `""` | Storage Secret Access Key. |
+| `STORAGE_PUBLIC_URL` | `string` | `""` | Optional custom CDN domain URL prefix (e.g. `https://cdn.example.com`). |
+| `STORAGE_EXPIRES_IN` | `integer` | `3600` | Expiration time in seconds for presigned URLs. |
+| `STORAGE_FORCE_PATH_STYLE` | `boolean` | `true` | Enable path-style URL syntax (`true` recommended for MinIO, R2, ArvanCloud, etc.). |
+| `STORAGE_PROCESSING_MODE` | `string` | `auto` | Media processing workflow mode (`auto`, `remote`, `local`). |
+| `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `30000` | Fallback timeout (ms) before local BullMQ worker takes over media processing in `auto` mode. |
+| `STORAGE_WEBHOOK_SECRET` | `string` | *(Auto-generated)* | Secret token to authenticate incoming webhook callback requests.|
+| `STORAGE_ENCRYPTION_MODE` | `string` | `remote` | Storage encryption strategy (`remote` for provider-side SSE-S3, `local` for application-level encryption). |
 | `MESSAGE_FILE_RETENTION` | `integer` | `7` | Auto-delete uploaded message files after N days (`0` disables). |
 | `MESSAGE_TEXT_RETENTION` | `integer` | `0` | Auto-delete text-only messages after N days (`0` disables). |
 | `MESSAGE_MAX_CHARS` | `integer` | `4000` | Max message length. |
@@ -75,11 +88,11 @@ nano .env
 | `CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS` | `integer` | `480` | Max audio duration (seconds) allowed for client-side waveform decode. |
 | `NICKNAME_MAX_CHARS` | `integer` | `24` | Max nickname length for users and groups. (`NICKNAME_MAX` is supported as a legacy fallback.) |
 | `USERNAME_MAX_CHARS` | `integer` | `16` | Max username length for users and groups. (`USERNAME_MAX` is supported as a legacy fallback.) |
-| `STORAGE_ENCRYPTION_KEY` | `string` | auto-generated | Persistent encryption-at-rest key. Changing this value without first decrypting old data will make previously encrypted content unreadable. |
-| `ADMIN_API_TOKEN` | `string` | auto-generated | Authentication token for local admin API endpoints. |
-| `VAPID_PUBLIC_KEY` | `string` | auto-generated | Web Push public key (required for push notifications). |
-| `VAPID_PRIVATE_KEY` | `string` | auto-generated | Web Push private key (required for push notifications). |
-| `VAPID_SUBJECT` | `string` | auto-generated | Contact for VAPID (email or URL). Used by push providers. |
+| `STORAGE_ENCRYPTION_KEY` | `string` | *(Auto-generated)* | Persistent encryption-at-rest key. Changing this value without first decrypting old data will make previously encrypted content unreadable. |
+| `ADMIN_API_TOKEN` | `string` | *(Auto-generated)* | Authentication token for local admin API endpoints. |
+| `VAPID_PUBLIC_KEY` | `string` | *(Auto-generated)* | Web Push public key (required for push notifications). |
+| `VAPID_PRIVATE_KEY` | `string` | *(Auto-generated)* | Web Push private key (required for push notifications). |
+| `VAPID_SUBJECT` | `string` | *(Auto-generated)* | Contact for VAPID (email or URL). Used by push providers. |
 | `PUSH_PROXY_URL` | `string` | `""` | Proxy URL for push notification delivery. Use when your server cannot directly reach push service endpoints. |
 
 :::info

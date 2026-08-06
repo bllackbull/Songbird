@@ -19,6 +19,7 @@ const enSidebar = [
     collapsed: false,
     items: [
       {text: '🔧 Environment Variables', link: '/Environment-Variables'},
+      {text: '☁️ Object Storage', link: '/Object-Storage'},
       {text: '🛡️ Admin Panel', link: '/Admin-Panel'},
       {text: '📡 Remote Channel Setup', link: '/Remote-Channel-Setup'},
       {text: '🔔 Push Notification Proxy', link: '/Push-Notification-Proxy'},
@@ -54,6 +55,7 @@ const faSidebar = [
     collapsed: false,
     items: [
       {text: '🔧 متغیرهای محیطی', link: '/fa/Environment-Variables'},
+      {text: '☁️ ذخیره سازی ابری', link: '/fa/Object-Storage'},
       {text: '🛡️ پنل مدیریت', link: '/fa/Admin-Panel'},
       {text: '📡 راه‌اندازی Remote Channel', link: '/fa/Remote-Channel-Setup'},
       {text: '🔔 پراکسی Push Notification', link: '/fa/Push-Notification-Proxy'},
@@ -91,9 +93,10 @@ export default defineConfig({
     logo: '/songbird-logo.svg',
 
     socialLinks: [
+      {icon: 'docker', link: 'https://hub.docker.com/r/bllackbull/songbird'},
       {icon: 'github', link: 'https://github.com/bllackbull/Songbird'},
       {icon: 'telegram', link: 'https://t.me/songbirdapp'},
-      {icon: 'linkedin', link: 'https://www.linkedin.com/in/pouyakhalilii/'}
+      {icon: 'linkedin', link: 'https://www.linkedin.com/in/pouyakhalilii/'},
     ],
 
     search: {

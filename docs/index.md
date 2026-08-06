@@ -21,6 +21,10 @@ features:
     title: Easy Install
     details: One-line deployment script handles dependencies, build, Nginx, and SSL for you.
     link: /Deployment-Script
+  - icon: 🐳
+    title: Docker Ready
+    details: Official ready-to-use Docker images and Docker Compose setup for fast, scalable deployment anywhere.
+    link: /Installation-Docker
   - icon: 🛡️
     title: Admin Panel
     details: Comprehensive management interface for users, chats, settings, and system operations.
@@ -29,6 +33,10 @@ features:
     title: Configurable
     details: Tune ports, uploads, retention, push, and more through environment variables or admin UI.
     link: /Environment-Variables
+  - icon: ☁️
+    title: Object Storage
+    details: Pluggable S3-compatible cloud storage, CDN distribution, and background media queues.
+    link: /Object-Storage
   - icon: 📡
     title: Remote Channels
     details: Mirror Telegram channels or other Songbird channels into your own channels.
