@@ -139,7 +139,11 @@ export function registerRemoteUploadRoutes(app, deps) {
             ? waveform
             : JSON.stringify(waveform)
           : null,
-        encryptionType: encryptionType || encryption_type || "none",
+        encryptionType:
+          encryptionType ||
+          encryption_type ||
+          process.env.STORAGE_ENCRYPTION_MODE ||
+          "remote",
       };
 
       const targetMsgId = Number(messageId) || 0;
@@ -452,12 +456,20 @@ export function registerRemoteUploadRoutes(app, deps) {
           file.storage_key,
         );
 
-        const encType = file.encryption_type || "none";
-        if (encType === "none" || encType === "provider_sse") {
+        const encType = file.encryption_type || "remote";
+        if (
+          encType === "remote" ||
+          encType === "none" ||
+          encType === "provider_sse"
+        ) {
           return res.redirect(302, downloadUrl);
         }
 
-        if (encType === "aes-256-gcm") {
+        if (
+          encType === "local" ||
+          encType === "app" ||
+          encType === "aes-256-gcm"
+        ) {
           const fetchImpl = deps.fetch || globalThis.fetch;
           const resp = await fetchImpl(downloadUrl);
           if (!resp.ok) return res.status(resp.status).end();

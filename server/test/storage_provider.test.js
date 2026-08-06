@@ -79,12 +79,15 @@ describe("RemoteStorageProvider", () => {
     STORAGE_ENDPOINT: "https://s3.example.com",
   };
 
-  it("initializes RemoteStorageProvider instance", () => {
+  it("initializes RemoteStorageProvider instance and defaults region to auto", () => {
     const provider = new RemoteStorageProvider(s3Config);
     expect(provider).toBeInstanceOf(StorageProvider);
     expect(provider.bucket).toBe("my-bucket");
     expect(provider.region).toBe("us-east-1");
     expect(provider.endpoint).toBe("https://s3.example.com");
+
+    const defaultRegionProvider = new RemoteStorageProvider({ STORAGE_BUCKET: "b" });
+    expect(defaultRegionProvider.region).toBe("auto");
   });
 
   it("generates presigned upload URL using PutObjectCommand", async () => {

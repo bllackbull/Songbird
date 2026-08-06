@@ -12,7 +12,7 @@ export class RemoteStorageProvider extends StorageProvider {
   constructor(config = {}) {
     super();
     this.bucket = config.bucket || config.STORAGE_BUCKET;
-    this.region = config.region || config.STORAGE_REGION || "us-east-1";
+    this.region = config.region || config.STORAGE_REGION || "auto";
     this.endpoint = config.endpoint || config.STORAGE_ENDPOINT;
     this.publicUrl = config.publicUrl || config.STORAGE_PUBLIC_URL;
     this.expiresIn = Number(
