@@ -2196,19 +2196,9 @@ export function createOrReuseMessage(
   clientRequestId = null,
 ) {
   const normalizedClientRequestId = String(clientRequestId || "").trim() || null;
-  if (normalizedClientRequestId) {
-    const existingId = findMessageIdByClientRequestId(
-      chatId,
-      userId,
-      normalizedClientRequestId,
-    );
-    if (existingId) {
-      return { id: existingId, deduped: true };
-    }
-  }
 
-  try {
-    const id = createMessage(
+  const createAndWrap = () => {
+    const rawId = createMessage(
       chatId,
       userId,
       body,
@@ -2216,18 +2206,48 @@ export function createOrReuseMessage(
       expiresAt,
       normalizedClientRequestId,
     );
-    return { id, deduped: false };
-  } catch (error) {
-    if (!normalizedClientRequestId) {
-      throw error;
+    if (rawId && typeof rawId.then === "function") {
+      return rawId.then((id) => ({ id, deduped: false }));
     }
-    const existingId = findMessageIdByClientRequestId(
+    return { id: rawId, deduped: false };
+  };
+
+  if (normalizedClientRequestId) {
+    const rawExisting = findMessageIdByClientRequestId(
       chatId,
       userId,
       normalizedClientRequestId,
     );
-    if (existingId) {
-      return { id: existingId, deduped: true };
+    if (rawExisting && typeof rawExisting.then === "function") {
+      return rawExisting.then((existingId) => {
+        if (existingId) return { id: existingId, deduped: true };
+        return createAndWrap();
+      });
+    }
+    if (rawExisting) {
+      return { id: rawExisting, deduped: true };
+    }
+  }
+
+  try {
+    return createAndWrap();
+  } catch (error) {
+    if (!normalizedClientRequestId) {
+      throw error;
+    }
+    const rawFallback = findMessageIdByClientRequestId(
+      chatId,
+      userId,
+      normalizedClientRequestId,
+    );
+    if (rawFallback && typeof rawFallback.then === "function") {
+      return rawFallback.then((existingId) => {
+        if (existingId) return { id: existingId, deduped: true };
+        throw error;
+      });
+    }
+    if (rawFallback) {
+      return { id: rawFallback, deduped: true };
     }
     throw error;
   }

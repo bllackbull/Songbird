@@ -899,7 +899,7 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
           listChatMembersForChats: () => Promise.resolve(new Map([[1, [{ ...alice, role: "owner" }]]])),
           listChatsForUser: () => Promise.resolve([groupChat]),
           findChatById: () => Promise.resolve(groupChat),
-          findChatByGroupUsername: () => Promise.resolve(groupChat),
+          findChatByGroupUsername: (name) => Promise.resolve(name === groupChat?.group_username ? groupChat : null),
           findChatByInviteToken: () => Promise.resolve(groupChat),
           findDmChat: () => Promise.resolve(1),
           getMessages: () => Promise.resolve({ messages: [], hasMore: false }),
@@ -1488,6 +1488,34 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
           .set("Cookie", ["sid=valid_alice_session"])
           .send({ filename: "test.png", mimeType: "image/png", sizeBytes: 100 });
         expect(res.status).not.toBe(500);
+      });
+
+      test("POST /api/chats/group under Postgres Promise DB mode creates group without spurious 409 or member undefined errors", async () => {
+        const res = await request(app)
+          .post("/api/chats/group")
+          .set("Cookie", ["sid=valid_alice_session"])
+          .send({
+            type: "group",
+            nickname: "My New Group",
+            username: "new_group_handle_123",
+            creator: "alice",
+            members: ["bob"],
+          });
+        expect(res.status).toBe(200);
+        expect(res.body).toHaveProperty("id");
+      });
+
+      test("POST /api/messages under Postgres Promise DB mode creates text message successfully without throwing Unable to create message error", async () => {
+        const res = await request(app)
+          .post("/api/messages")
+          .set("Cookie", ["sid=valid_alice_session"])
+          .send({
+            chatId: 1,
+            username: "alice",
+            body: "Hello from Postgres mode test",
+          });
+        expect(res.status).toBe(200);
+        expect(res.body).toHaveProperty("id");
       });
 
       test("POST /api/uploads/complete under Postgres Promise DB mode", async () => {

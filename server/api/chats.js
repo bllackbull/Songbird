@@ -286,22 +286,32 @@ function registerChatRoutes(app, deps) {
     return findChatByInviteToken(target) || findPublicChatByInviteUsername(target);
   };
   const emitChatListChangedToChatParticipants = (chatId, extraUsernames = []) => {
-    const memberUsernames = listChatMembers(Number(chatId))
-      .map((member) => String(member?.username || "").toLowerCase())
-      .filter(Boolean);
-    const targets = new Set([
-      ...memberUsernames,
-      ...(Array.isArray(extraUsernames) ? extraUsernames : [])
-        .map((value) => String(value || "").toLowerCase())
-        .filter(Boolean),
-    ]);
-    targets.forEach((targetUsername) => {
-      try {
-        emitSseEvent(targetUsername, { type: "chat_list_changed", chatId });
-      } catch {
-        // ignore realtime list errors
-      }
-    });
+    const rawMembers = listChatMembers(Number(chatId));
+    const processMembers = (members) => {
+      const memberList = Array.isArray(members) ? members : [];
+      const memberUsernames = memberList
+        .map((member) => String(member?.username || "").toLowerCase())
+        .filter(Boolean);
+      const targets = new Set([
+        ...memberUsernames,
+        ...(Array.isArray(extraUsernames) ? extraUsernames : [])
+          .map((value) => String(value || "").toLowerCase())
+          .filter(Boolean),
+      ]);
+      targets.forEach((targetUsername) => {
+        try {
+          emitSseEvent(targetUsername, { type: "chat_list_changed", chatId });
+        } catch {
+          // ignore realtime list errors
+        }
+      });
+    };
+
+    if (rawMembers && typeof rawMembers.then === "function") {
+      rawMembers.then(processMembers).catch(() => {});
+    } else {
+      processMembers(rawMembers);
+    }
   };
 
   app.get("/api/chats", async (req, res) => {
@@ -495,27 +505,32 @@ function registerChatRoutes(app, deps) {
 
     if (!requireSessionUsernameMatch(res, session, creator)) return;
 
-    const creatorUser = findUserByUsername(creator.toLowerCase());
+    const rawCreatorUser = findUserByUsername(creator.toLowerCase());
+    const creatorUser = rawCreatorUser && typeof rawCreatorUser.then === "function" ? await rawCreatorUser : rawCreatorUser;
     if (!creatorUser) {
       return res.status(404).json({ error: "Creator not found." });
     }
 
     const normalizedType = type === "channel" ? "channel" : "group";
-    const chatId = createChat(name || "Untitled", normalizedType);
+    const rawChatId = createChat(name || "Untitled", normalizedType);
+    const chatId = Number(rawChatId && typeof rawChatId.then === "function" ? await rawChatId : rawChatId);
 
-    addChatMember(chatId, creatorUser.id, "owner");
+    const m1 = addChatMember(chatId, creatorUser.id, "owner");
+    if (m1 && typeof m1.then === "function") await m1;
 
     const memberSet = new Set(
       members.map((value) => value.toString().toLowerCase()),
     );
     memberSet.delete(creatorUser.username);
 
-    memberSet.forEach((username) => {
-      const member = findUserByUsername(username);
+    for (const username of memberSet) {
+      const rawMember = findUserByUsername(username);
+      const member = rawMember && typeof rawMember.then === "function" ? await rawMember : rawMember;
       if (member) {
-        addChatMember(chatId, member.id, "member");
+        const m = addChatMember(chatId, member.id, "member");
+        if (m && typeof m.then === "function") await m;
       }
-    });
+    }
 
     res.json({ id: chatId });
   });
@@ -542,7 +557,8 @@ function registerChatRoutes(app, deps) {
     }
     if (!requireSessionUsernameMatch(res, session, creator)) return;
 
-    const creatorUser = findUserByUsername(String(creator).toLowerCase());
+    const rawCreatorUser = findUserByUsername(String(creator).toLowerCase());
+    const creatorUser = rawCreatorUser && typeof rawCreatorUser.then === "function" ? await rawCreatorUser : rawCreatorUser;
     if (!creatorUser) {
       return res.status(404).json({ error: "Creator not found." });
     }
@@ -572,11 +588,15 @@ function registerChatRoutes(app, deps) {
       });
     }
 
-    if (findUserByUsername(groupUsername)) {
+    const rawExistingUser = findUserByUsername(groupUsername);
+    const existingUser = rawExistingUser && typeof rawExistingUser.then === "function" ? await rawExistingUser : rawExistingUser;
+    if (existingUser) {
       return res.status(409).json({ error: `${label} username already exists.` });
     }
 
-    if (findChatByGroupUsername(groupUsername)) {
+    const rawExistingGroup = findChatByGroupUsername(groupUsername);
+    const existingGroup = rawExistingGroup && typeof rawExistingGroup.then === "function" ? await rawExistingGroup : rawExistingGroup;
+    if (existingGroup) {
       return res.status(409).json({ error: `${label} username already exists.` });
     }
 
@@ -602,7 +622,7 @@ function registerChatRoutes(app, deps) {
       ? suppliedGroupColor
       : "";
     const inviteToken = createInviteToken(crypto);
-    const chatId = createChat(groupNickname, normalizedType, {
+    const rawChatId = createChat(groupNickname, normalizedType, {
       groupUsername,
       groupVisibility: normalizedVisibility,
       inviteToken,
@@ -610,22 +630,29 @@ function registerChatRoutes(app, deps) {
       groupColor: normalizedGroupColor,
       allowMemberInvites: Boolean(allowMemberInvites),
     });
+    const chatId = Number(rawChatId && typeof rawChatId.then === "function" ? await rawChatId : rawChatId);
 
     if (!chatId) {
       return res.status(500).json({ error: `Failed to create ${label.toLowerCase()}.` });
     }
 
-    addChatMember(chatId, creatorUser.id, "owner");
+    const mOwner = addChatMember(chatId, creatorUser.id, "owner");
+    if (mOwner && typeof mOwner.then === "function") await mOwner;
+
     const memberSet = new Set(
       (Array.isArray(members) ? members : [])
         .map((value) => String(value || "").toLowerCase())
         .filter(Boolean),
     );
     memberSet.delete(String(creatorUser.username || "").toLowerCase());
-    memberSet.forEach((memberUsername) => {
-      const member = findUserByUsername(memberUsername);
-      if (member) addChatMember(chatId, member.id, "member");
-    });
+    for (const memberUsername of memberSet) {
+      const rawMember = findUserByUsername(memberUsername);
+      const member = rawMember && typeof rawMember.then === "function" ? await rawMember : rawMember;
+      if (member) {
+        const m = addChatMember(chatId, member.id, "member");
+        if (m && typeof m.then === "function") await m;
+      }
+    }
 
     if (remoteChannelConfig.shouldSave) {
       let remoteSource = null;
@@ -1043,22 +1070,26 @@ function registerChatRoutes(app, deps) {
       });
     }
 
-    if (findUserByUsername(normalizedGroupUsername)) {
+    const rawExistingUser = findUserByUsername(normalizedGroupUsername);
+    const existingUser = rawExistingUser && typeof rawExistingUser.then === "function" ? await rawExistingUser : rawExistingUser;
+    if (existingUser) {
       return res.status(409).json({ error: `${label} username already exists.` });
     }
 
-    const existing = findChatByGroupUsername(normalizedGroupUsername);
-    if (existing && Number(existing.id) !== chatId) {
+    const rawExistingGroup = findChatByGroupUsername(normalizedGroupUsername);
+    const existingGroup = rawExistingGroup && typeof rawExistingGroup.then === "function" ? await rawExistingGroup : rawExistingGroup;
+    if (existingGroup && Number(existingGroup.id) !== chatId) {
       return res.status(409).json({ error: `${label} username already exists.` });
     }
 
     const updateFn = chat.type === "channel" ? updateChannelChat : updateGroupChat;
-    updateFn(chatId, {
+    const resUpdate = updateFn(chatId, {
       name: normalizedNickname,
       groupUsername: normalizedGroupUsername,
       groupVisibility: visibility,
       allowMemberInvites: Boolean(allowMemberInvites),
     });
+    if (resUpdate && typeof resUpdate.then === "function") await resUpdate;
 
     const nextMembers = new Set(
       (Array.isArray(memberUsernames) ? memberUsernames : [])
@@ -1066,17 +1097,25 @@ function registerChatRoutes(app, deps) {
         .filter(Boolean),
     );
     nextMembers.delete(String(user.username || "").toLowerCase());
-    nextMembers.forEach((memberUsername) => {
-      const member = findUserByUsername(memberUsername);
-      if (!member) return;
-      if (isMember(chatId, member.id)) {
-        unhideChat(member.id, chatId);
-        return;
+    for (const memberUsername of nextMembers) {
+      const rawMember = findUserByUsername(memberUsername);
+      const member = rawMember && typeof rawMember.then === "function" ? await rawMember : rawMember;
+      if (!member) continue;
+      const rawIsMem = isMember(chatId, member.id);
+      const isMem = rawIsMem && typeof rawIsMem.then === "function" ? await rawIsMem : rawIsMem;
+      if (isMem) {
+        const u = unhideChat(member.id, chatId);
+        if (u && typeof u.then === "function") await u;
+        continue;
       }
-      clearChatMemberLeft(chatId, member.id);
-      clearGroupMemberRemoved(chatId, member.id);
-      unhideChat(member.id, chatId);
-      addChatMember(chatId, member.id, "member");
+      const c1 = clearChatMemberLeft(chatId, member.id);
+      if (c1 && typeof c1.then === "function") await c1;
+      const c2 = clearGroupMemberRemoved(chatId, member.id);
+      if (c2 && typeof c2.then === "function") await c2;
+      const u = unhideChat(member.id, chatId);
+      if (u && typeof u.then === "function") await u;
+      const a = addChatMember(chatId, member.id, "member");
+      if (a && typeof a.then === "function") await a;
       if (chat.type === "group") {
         createMessage(
           chatId,
@@ -1099,7 +1138,7 @@ function registerChatRoutes(app, deps) {
       } catch {
         // ignore realtime list errors
       }
-    });
+    }
 
     const updated = findChatById(chatId);
     const baseOrigin = resolveClientBaseOrigin(req);
