@@ -29,6 +29,22 @@ describe("openDatabase Admin Utility", () => {
     expect(Number(row?.count)).toBe(1);
   });
 
+  test("opens in-memory database when inMemory: true", async () => {
+    activeDb = await openDatabase({ inMemory: true });
+    expect(activeDb).toBeDefined();
+    expect(typeof activeDb.getRow).toBe("function");
+    expect(activeDb.getSchemaVersion()).toBeGreaterThan(0);
+
+    const row = activeDb.getRow("SELECT 1 AS count");
+    expect(Number(row?.count)).toBe(1);
+  });
+
+  test("opens unmigrated in-memory database when skipMigrations: true", async () => {
+    activeDb = await openDatabase({ inMemory: true, skipMigrations: true });
+    expect(activeDb).toBeDefined();
+    expect(activeDb.getSchemaVersion()).toBe(0);
+  });
+
   test("supports DB_CLIENT=postgres mode", async () => {
     const mockKnex = {
       raw: vi.fn(async (sql, params) => {
