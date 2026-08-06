@@ -1,8 +1,8 @@
 function registerPresenceRoutes(app, deps) {
   const { getUserPresence, requireSession, requireSessionUsernameMatch, isConnected } = deps;
 
-  app.get("/api/presence", (req, res) => {
-    const session = requireSession(req, res);
+  app.get("/api/presence", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const username = req.query.username?.toString();
@@ -10,7 +10,8 @@ function registerPresenceRoutes(app, deps) {
       return res.status(400).json({ error: "Username is required." });
     }
 
-    const user = getUserPresence(username.toLowerCase());
+    const rawUser = getUserPresence(username.toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }

@@ -305,7 +305,7 @@ function registerChatRoutes(app, deps) {
   };
 
   app.get("/api/chats", async (req, res) => {
-    const session = requireSession(req, res);
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const username = req.query.username?.toString();
@@ -410,8 +410,8 @@ function registerChatRoutes(app, deps) {
     res.json({ chats: enrichedChats });
   });
 
-  app.get("/api/chats/saved", (req, res) => {
-    const session = requireSession(req, res);
+  app.get("/api/chats/saved", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const username = req.query.username?.toString();
@@ -434,8 +434,8 @@ function registerChatRoutes(app, deps) {
     return res.json({ id: Number(savedChat.id) });
   });
 
-  app.post("/api/chats/dm", (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/chats/dm", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const { from, to } = req.body || {};
@@ -471,8 +471,8 @@ function registerChatRoutes(app, deps) {
     res.json({ id: chatId });
   });
 
-  app.post("/api/chats", (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/chats", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const { name, type, members = [], creator } = req.body || {};
@@ -508,7 +508,7 @@ function registerChatRoutes(app, deps) {
   });
 
   app.post("/api/chats/group", async (req, res) => {
-    const session = requireSession(req, res);
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const {
@@ -662,8 +662,8 @@ function registerChatRoutes(app, deps) {
     });
   });
 
-  app.get("/api/groups/invite/:token", (req, res) => {
-    const session = requireSession(req, res);
+  app.get("/api/groups/invite/:token", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const target = String(req.params?.token || "").trim();
@@ -704,8 +704,8 @@ function registerChatRoutes(app, deps) {
     });
   });
 
-  app.post("/api/groups/invite/:token/join", (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/groups/invite/:token/join", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const target = String(req.params?.token || "").trim();
@@ -757,7 +757,7 @@ function registerChatRoutes(app, deps) {
   // Public unauthenticated metadata endpoint used by remote Songbird servers
   // to sync channel name and avatar when "Sync Channel Metadata" is enabled.
   // Only works for public channels on servers with SIGN_UP enabled.
-  app.get("/api/channels/:username/meta", (req, res) => {
+  app.get("/api/channels/:username/meta", async (req, res) => {
     if (!getSetting("SIGN_UP")) {
       // Private server — refuse to expose channel metadata to remote servers.
       return res.status(403).json({ error: "This server is private." });
@@ -789,7 +789,7 @@ function registerChatRoutes(app, deps) {
   });
 
   // Public unauthenticated messages endpoint used by remote Songbird servers
-  app.get("/api/channels/:username/messages", (req, res) => {
+  app.get("/api/channels/:username/messages", async (req, res) => {
     if (!getSetting("SIGN_UP")) {
       return res.status(403).json({ error: "This server is private." });
     }
@@ -833,8 +833,8 @@ function registerChatRoutes(app, deps) {
     });
   });
 
-  app.get("/api/chats/:chatId/preview", (req, res) => {
-    const session = requireSession(req, res);
+  app.get("/api/chats/:chatId/preview", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const chatId = Number(req.params?.chatId || 0);
@@ -874,8 +874,8 @@ function registerChatRoutes(app, deps) {
     });
   });
 
-  app.get("/api/chats/group/:chatId/invite-link", (req, res) => {
-    const session = requireSession(req, res);
+  app.get("/api/chats/group/:chatId/invite-link", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const chatId = Number(req.params?.chatId || 0);
@@ -920,8 +920,8 @@ function registerChatRoutes(app, deps) {
     });
   });
 
-  app.post("/api/chats/group/:chatId/regenerate-invite", (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/chats/group/:chatId/regenerate-invite", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const chatId = Number(req.params?.chatId || 0);
@@ -962,8 +962,8 @@ function registerChatRoutes(app, deps) {
     });
   });
 
-  app.put("/api/chats/group/:chatId", (req, res) => {
-    const session = requireSession(req, res);
+  app.put("/api/chats/group/:chatId", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const chatId = Number(req.params?.chatId || 0);
@@ -1095,8 +1095,8 @@ function registerChatRoutes(app, deps) {
     });
   });
 
-  app.post("/api/chats/group/:chatId/leave", (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/chats/group/:chatId/leave", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const chatId = Number(req.params?.chatId || 0);
@@ -1166,8 +1166,8 @@ function registerChatRoutes(app, deps) {
     return res.json({ ok: true });
   });
 
-  app.post("/api/chats/group/:chatId/delete", (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/chats/group/:chatId/delete", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const chatId = Number(req.params?.chatId || 0);
@@ -1218,8 +1218,8 @@ function registerChatRoutes(app, deps) {
     return res.json({ ok: true, deleted: true });
   });
 
-  app.post("/api/chats/group/:chatId/remove-member", (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/chats/group/:chatId/remove-member", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const chatId = Number(req.params?.chatId || 0);
@@ -1284,8 +1284,8 @@ function registerChatRoutes(app, deps) {
   app.post(
     "/api/chats/group/:chatId/avatar",
     uploadAvatar.single("avatar"),
-    (req, res) => {
-      const session = requireSession(req, res);
+    async (req, res) => {
+      const session = await requireSession(req, res);
       if (!session) {
         removeUploadedFiles(req.file ? [req.file] : [], avatarUploadRootDir);
         return;
@@ -1371,8 +1371,8 @@ function registerChatRoutes(app, deps) {
     },
   );
 
-  app.delete("/api/chats/group/:chatId/avatar", (req, res) => {
-    const session = requireSession(req, res);
+  app.delete("/api/chats/group/:chatId/avatar", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const chatId = Number(req.params?.chatId || 0);
@@ -1424,8 +1424,8 @@ function registerChatRoutes(app, deps) {
     });
   });
 
-  app.put("/api/chats/:chatId/mute", (req, res) => {
-    const session = requireSession(req, res);
+  app.put("/api/chats/:chatId/mute", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const chatId = Number(req.params?.chatId || 0);
@@ -1453,8 +1453,8 @@ function registerChatRoutes(app, deps) {
     return res.json({ ok: true, chatId, muted });
   });
 
-  app.post("/api/chats/hide", (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/chats/hide", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const { username, chatIds = [] } = req.body || {};
@@ -1476,8 +1476,8 @@ function registerChatRoutes(app, deps) {
     res.json({ ok: true });
   });
 
-  app.post("/api/chats/group/:chatId/join-public", (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/chats/group/:chatId/join-public", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const chatId = Number(req.params?.chatId || 0);
@@ -1537,8 +1537,8 @@ function registerChatRoutes(app, deps) {
     });
   });
 
-  app.get("/api/users", (req, res) => {
-    const session = requireSession(req, res);
+  app.get("/api/users", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const exclude = req.query.exclude?.toString();
@@ -1559,8 +1559,8 @@ function registerChatRoutes(app, deps) {
     res.json({ users });
   });
 
-  app.post("/api/mentions/resolve", (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/mentions/resolve", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const username = req.body?.username?.toString();
@@ -1621,8 +1621,8 @@ function registerChatRoutes(app, deps) {
     return res.json({ mentions: results });
   });
 
-  app.get("/api/discover", (req, res) => {
-    const session = requireSession(req, res);
+  app.get("/api/discover", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const username = req.query.username?.toString();

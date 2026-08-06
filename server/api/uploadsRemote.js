@@ -32,9 +32,9 @@ export function registerRemoteUploadRoutes(app, deps) {
     return list;
   };
 
-  const authenticateSession = (req, res) => {
+  const authenticateSession = async (req, res) => {
     if (typeof requireSession === "function") {
-      return requireSession(req, res);
+      return await requireSession(req, res);
     }
     let session = null;
     if (typeof getSessionFromRequest === "function") {

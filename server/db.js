@@ -1474,12 +1474,13 @@ export function clearChatMemberLeft(chatId, userId) {
   ]);
 }
 
-export function hasChatMemberLeft(chatId, userId) {
+export async function hasChatMemberLeft(chatId, userId) {
   const row = getRow(
     "SELECT 1 AS left_chat FROM chat_left_members WHERE chat_id = ? AND user_id = ?",
     [Number(chatId), Number(userId)],
   );
-  return Boolean(row);
+  const resolved = row && typeof row.then === "function" ? await row : row;
+  return Boolean(resolved);
 }
 
 export function markGroupMemberRemoved(chatId, userId, removedByUserId) {
@@ -1500,12 +1501,13 @@ export function clearGroupMemberRemoved(chatId, userId) {
   ]);
 }
 
-export function isGroupMemberRemoved(chatId, userId) {
+export async function isGroupMemberRemoved(chatId, userId) {
   const row = getRow(
     "SELECT 1 AS removed FROM group_removed_members WHERE chat_id = ? AND user_id = ?",
     [Number(chatId), Number(userId)],
   );
-  return Boolean(row);
+  const resolved = row && typeof row.then === "function" ? await row : row;
+  return Boolean(resolved);
 }
 
 export function findChatByGroupUsername(groupUsername) {
@@ -1619,12 +1621,13 @@ export function regenerateGroupInviteToken(chatId, inviteToken) {
   );
 }
 
-export function isMember(chatId, userId) {
+export async function isMember(chatId, userId) {
   const row = getRow(
     "SELECT chat_id FROM chat_members WHERE chat_id = ? AND user_id = ?",
     [chatId, userId],
   );
-  return Boolean(row);
+  const resolved = row && typeof row.then === "function" ? await row : row;
+  return Boolean(resolved);
 }
 
 export function listChatMembers(chatId) {
@@ -1680,12 +1683,13 @@ export function listChatMembersForChats(chatIds = []) {
   return map;
 }
 
-export function getChatMemberRole(chatId, userId) {
+export async function getChatMemberRole(chatId, userId) {
   const row = getRow(
     "SELECT role FROM chat_members WHERE chat_id = ? AND user_id = ?",
     [Number(chatId), Number(userId)],
   );
-  return String(row?.role || "");
+  const resolved = row && typeof row.then === "function" ? await row : row;
+  return String(resolved?.role || "");
 }
 
 export function setChatMemberRole(chatId, userId, role = "member") {
@@ -2905,30 +2909,34 @@ export function setUserRole(userId, role) {
   return run("UPDATE users SET role = ? WHERE id = ?", [role, userId]);
 }
 
-export function getUserRole(userId) {
+export async function getUserRole(userId) {
   const row = getRow("SELECT role FROM users WHERE id = ?", [userId]);
-  return row?.role || "user";
+  const resolved = row && typeof row.then === "function" ? await row : row;
+  return resolved?.role || "user";
 }
 
-export function isUserAdmin(userId) {
-  const role = getUserRole(userId);
+export async function isUserAdmin(userId) {
+  const role = await getUserRole(userId);
   return role === "admin" || role === "owner";
 }
 
-export function isUserOwner(userId) {
-  return getUserRole(userId) === "owner";
+export async function isUserOwner(userId) {
+  const role = await getUserRole(userId);
+  return (await getUserRole(userId)) === "owner";
 }
 
-export function getOwnerUser() {
-  return getRow("SELECT id, username FROM users WHERE role = 'owner' LIMIT 1");
+export async function getOwnerUser() {
+  const row = getRow("SELECT id, username FROM users WHERE role = 'owner' LIMIT 1");
+  return row && typeof row.then === "function" ? await row : row;
 }
 
-export function bootstrapAdminUsers(adminUsernames) {
+export async function bootstrapAdminUsers(adminUsernames) {
   if (!adminUsernames || !adminUsernames.length) return;
   for (const username of adminUsernames) {
-    const user = getRow("SELECT id, role FROM users WHERE username = ?", [username.toLowerCase()]);
+    const rawUser = getRow("SELECT id, role FROM users WHERE username = ?", [username.toLowerCase()]);
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (user && user.role !== "admin" && user.role !== "owner") {
-      run("UPDATE users SET role = 'admin' WHERE id = ?", [user.id]);
+      await run("UPDATE users SET role = 'admin' WHERE id = ?", [user.id]);
     }
   }
 }

@@ -64,8 +64,8 @@ function registerProfileRoutes(app, deps) {
     });
   };
 
-  app.get("/api/profile", (req, res) => {
-    const session = requireSession(req, res);
+  app.get("/api/profile", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const username = req.query.username?.toString();
@@ -73,7 +73,8 @@ function registerProfileRoutes(app, deps) {
       return res.status(400).json({ error: "Username is required." });
     }
 
-    const user = findUserByUsername(username.toLowerCase());
+    const rawUser = findUserByUsername(username.toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
@@ -90,8 +91,8 @@ function registerProfileRoutes(app, deps) {
     });
   });
 
-  app.put("/api/profile", (req, res) => {
-    const session = requireSession(req, res);
+  app.put("/api/profile", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const { currentUsername, username, nickname, avatarUrl } = req.body || {};
@@ -101,7 +102,8 @@ function registerProfileRoutes(app, deps) {
         .json({ error: "Current username and new username are required." });
     }
 
-    const currentUser = findUserByUsername(currentUsername.toLowerCase());
+    const rawCurrentUser = findUserByUsername(currentUsername.toLowerCase());
+    const currentUser = rawCurrentUser && typeof rawCurrentUser.then === "function" ? await rawCurrentUser : rawCurrentUser;
     if (!currentUser) {
       return res.status(404).json({ error: "User not found." });
     }
@@ -136,12 +138,17 @@ function registerProfileRoutes(app, deps) {
     }
 
     if (trimmed !== currentUser.username) {
-      const existing = findUserByUsername(trimmed);
+      const rawExisting = findUserByUsername(trimmed);
+      const existing = rawExisting && typeof rawExisting.then === "function" ? await rawExisting : rawExisting;
       if (existing) {
         return res.status(409).json({ error: "Username already exists." });
       }
-      if (findChatByGroupUsername && findChatByGroupUsername(trimmed)) {
-        return res.status(409).json({ error: "Username already exists." });
+      if (findChatByGroupUsername) {
+        const rawGroup = findChatByGroupUsername(trimmed);
+        const group = rawGroup && typeof rawGroup.then === "function" ? await rawGroup : rawGroup;
+        if (group) {
+          return res.status(409).json({ error: "Username already exists." });
+        }
       }
     }
 
@@ -151,14 +158,15 @@ function registerProfileRoutes(app, deps) {
       removeAvatarByUrl(currentAvatarUrl);
     }
 
-    updateUserProfile(
+    await updateUserProfile(
       currentUser.id,
       trimmed,
       nickname?.trim() || null,
       nextAvatarUrl,
     );
 
-    const updated = findUserById(currentUser.id);
+    const rawUpdated = findUserById(currentUser.id);
+    const updated = rawUpdated && typeof rawUpdated.then === "function" ? await rawUpdated : rawUpdated;
     emitProfileUpdate(updated, {
       previousUsername: currentUser.username,
     });
@@ -173,8 +181,8 @@ function registerProfileRoutes(app, deps) {
     });
   });
 
-  app.post("/api/profile/avatar", uploadAvatar.single("avatar"), (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/profile/avatar", uploadAvatar.single("avatar"), async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) {
       removeUploadedFiles(req.file ? [req.file] : [], avatarUploadRootDir);
       return;
@@ -202,7 +210,8 @@ function registerProfileRoutes(app, deps) {
       return;
     }
 
-    const user = findUserByUsername(currentUsername);
+    const rawUser = findUserByUsername(currentUsername);
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) {
       removeUploadedFiles(file ? [file] : [], avatarUploadRootDir);
       return res.status(404).json({ error: "User not found." });
@@ -242,14 +251,15 @@ function registerProfileRoutes(app, deps) {
       removeAvatarByUrl(user.avatar_url);
     }
 
-    updateUserProfile(
+    await updateUserProfile(
       user.id,
       user.username,
       user.nickname || null,
       avatarUrl,
     );
 
-    const updated = findUserById(user.id);
+    const rawUpdated = findUserById(user.id);
+    const updated = rawUpdated && typeof rawUpdated.then === "function" ? await rawUpdated : rawUpdated;
     emitProfileUpdate(updated, {
       previousUsername: user.username,
     });
@@ -261,8 +271,8 @@ function registerProfileRoutes(app, deps) {
     });
   });
 
-  app.put("/api/password", (req, res) => {
-    const session = requireSession(req, res);
+  app.put("/api/password", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const { username, currentPassword, newPassword } = req.body || {};
@@ -280,19 +290,20 @@ function registerProfileRoutes(app, deps) {
 
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
-    const user = findUserByUsername(username.toLowerCase());
-    if (!user || !bcrypt.compareSync(currentPassword, user.password_hash)) {
+    const rawUser = findUserByUsername(username.toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
+    if (!user || !user.password_hash || !bcrypt.compareSync(currentPassword, user.password_hash)) {
       return res.status(401).json({ error: "Invalid credentials." });
     }
 
     const passwordHash = bcrypt.hashSync(newPassword, 10);
-    updateUserPassword(user.id, passwordHash);
+    await updateUserPassword(user.id, passwordHash);
 
     res.json({ ok: true });
   });
 
-  app.put("/api/status", (req, res) => {
-    const session = requireSession(req, res);
+  app.put("/api/status", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const { username, status } = req.body || {};
@@ -307,19 +318,20 @@ function registerProfileRoutes(app, deps) {
 
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
-    const user = findUserByUsername(username.toLowerCase());
+    const rawUser = findUserByUsername(username.toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    updateUserStatus(user.id, status);
+    await updateUserStatus(user.id, status);
     broadcastPresence(String(user.username || "").toLowerCase());
 
     res.json({ ok: true, status });
   });
 
-  app.post("/api/profile/delete", (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/profile/delete", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const { username, password } = req.body || {};
@@ -328,8 +340,9 @@ function registerProfileRoutes(app, deps) {
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
-    const user = findUserByUsername(String(username || "").toLowerCase());
-    if (!user || !bcrypt.compareSync(String(password || ""), user.password_hash)) {
+    const rawUser = findUserByUsername(String(username || "").toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
+    if (!user || !user.password_hash || !bcrypt.compareSync(String(password || ""), user.password_hash)) {
       return res.status(401).json({ error: "Invalid credentials." });
     }
 
@@ -337,13 +350,14 @@ function registerProfileRoutes(app, deps) {
       removeAvatarByUrl(user.avatar_url);
     }
 
-    const memberChats = listChatsForUser(Number(user.id || 0));
-    memberChats.forEach((chat) => {
+    const rawChats = listChatsForUser(Number(user.id || 0));
+    const memberChats = Array.isArray(rawChats) ? rawChats : (await rawChats) || [];
+    for (const chat of memberChats) {
       const chatId = Number(chat?.id || 0);
-      if (!chatId) return;
+      if (!chatId) continue;
       const label = user.nickname || user.username;
       if (String(chat?.type || "").toLowerCase() === "group") {
-        createMessage(
+        await createMessage(
           chatId,
           user.id,
           `[[system:left:${label}]]`,
@@ -359,7 +373,8 @@ function registerProfileRoutes(app, deps) {
           body: `[[system:left:${label}]]`,
         });
       }
-      const members = listChatMembers(chatId);
+      const rawMembers = listChatMembers(chatId);
+      const members = Array.isArray(rawMembers) ? rawMembers : (await rawMembers) || [];
       members.forEach((member) => {
         const memberUsername = String(member?.username || "").toLowerCase();
         if (!memberUsername || memberUsername === String(user.username || "").toLowerCase())
@@ -370,9 +385,10 @@ function registerProfileRoutes(app, deps) {
           // ignore realtime list errors
         }
       });
-    });
+    }
 
-    const { storedNames } = deleteUserById(Number(user.id));
+    const rawDel = deleteUserById(Number(user.id));
+    const { storedNames } = rawDel && typeof rawDel.then === "function" ? await rawDel : rawDel;
     if (Array.isArray(storedNames) && storedNames.length) {
       removeStoredFileNames(storedNames);
     }

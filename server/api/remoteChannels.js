@@ -27,8 +27,8 @@ function registerRemoteChannelRoutes(app, deps) {
   const isRemoteChannelAvailable = () =>
     isTelegramAvailable() || isSongbirdAvailable();
 
-  const requireChannelOwner = (req, res) => {
-    const session = requireSession(req, res);
+  const requireChannelOwner = async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return null;
 
     const chatId = Number(req.params?.chatId || 0);
@@ -42,24 +42,30 @@ function registerRemoteChannelRoutes(app, deps) {
     }
     if (!requireSessionUsernameMatch(res, session, username)) return null;
 
-    const user = findUserByUsername(username.toLowerCase());
+    const rawUser = findUserByUsername(username.toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) {
       res.status(404).json({ error: "User not found." });
       return null;
     }
 
-    const chat = findChatById(chatId);
+    const rawChat = findChatById(chatId);
+    const chat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
     if (!chat || String(chat.type || "").toLowerCase() !== "channel") {
       res.status(404).json({ error: "Channel not found." });
       return null;
     }
 
-    if (!isMember(chatId, user.id)) {
+    const rawIsMem = isMember(chatId, user.id);
+    const isMem = typeof rawIsMem?.then === "function" ? await rawIsMem : rawIsMem;
+    if (!isMem) {
       res.status(403).json({ error: "Not a member of this channel." });
       return null;
     }
 
-    const isOwner = listChatMembers(chatId).some(
+    const rawMembers = listChatMembers(chatId);
+    const members = Array.isArray(rawMembers) ? rawMembers : (await rawMembers) || [];
+    const isOwner = members.some(
       (member) =>
         Number(member.id) === Number(user.id) &&
         String(member.role || "").toLowerCase() === "owner",
@@ -99,10 +105,10 @@ function registerRemoteChannelRoutes(app, deps) {
     };
   };
 
-  app.get("/api/chats/:chatId/remote-channel", (req, res) => {
+  app.get("/api/chats/:chatId/remote-channel", async (req, res) => {
     // Any channel member can view the connection status.
     // Queue details are only included for the channel owner.
-    const session = requireSession(req, res);
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const chatId = Number(req.params?.chatId || 0);
@@ -113,25 +119,32 @@ function registerRemoteChannelRoutes(app, deps) {
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
-    const user = findUserByUsername(username.toLowerCase());
+    const rawUser = findUserByUsername(username.toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) return res.status(404).json({ error: "User not found." });
 
-    const chat = findChatById(chatId);
+    const rawChat = findChatById(chatId);
+    const chat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
     if (!chat || String(chat.type || "").toLowerCase() !== "channel") {
       return res.status(404).json({ error: "Channel not found." });
     }
 
-    if (!isMember(chatId, user.id)) {
+    const rawIsMem = isMember(chatId, user.id);
+    const isMem = typeof rawIsMem?.then === "function" ? await rawIsMem : rawIsMem;
+    if (!isMem) {
       return res.status(403).json({ error: "Not a member of this channel." });
     }
 
-    const isOwner = listChatMembers(chatId).some(
+    const rawMembers = listChatMembers(chatId);
+    const members = Array.isArray(rawMembers) ? rawMembers : (await rawMembers) || [];
+    const isOwner = members.some(
       (member) =>
         Number(member.id) === Number(user.id) &&
         String(member.role || "").toLowerCase() === "owner",
     );
 
-    const source = getRemoteChannelSourceByChatId(chatId);
+    const rawSource = getRemoteChannelSourceByChatId(chatId);
+    const source = rawSource && typeof rawSource.then === "function" ? await rawSource : rawSource;
     const serialized = serializeSource(source);
 
     // Strip queue details for non-owners
@@ -149,7 +162,7 @@ function registerRemoteChannelRoutes(app, deps) {
   });
 
   app.put("/api/chats/:chatId/remote-channel", async (req, res) => {
-    const context = requireChannelOwner(req, res);
+    const context = await requireChannelOwner(req, res);
     if (!context) return;
 
     if (!isRemoteChannelAvailable()) {
@@ -256,16 +269,17 @@ function registerRemoteChannelRoutes(app, deps) {
   });
 
   // Pause remote channel mirroring
-  app.post("/api/chats/:chatId/remote-channel/pause", (req, res) => {
-    const context = requireChannelOwner(req, res);
+  app.post("/api/chats/:chatId/remote-channel/pause", async (req, res) => {
+    const context = await requireChannelOwner(req, res);
     if (!context) return;
 
-    const source = getRemoteChannelSourceByChatId(context.chatId);
+    const rawSource = getRemoteChannelSourceByChatId(context.chatId);
+    const source = rawSource && typeof rawSource.then === "function" ? await rawSource : rawSource;
     if (!source) {
       return res.status(404).json({ error: "Remote channel not found." });
     }
 
-    updateRemoteChannelSourcePaused(source.id, true);
+    await updateRemoteChannelSourcePaused(source.id, true);
 
     return res.json({
       ok: true,
@@ -274,16 +288,17 @@ function registerRemoteChannelRoutes(app, deps) {
   });
 
   // Resume remote channel mirroring
-  app.post("/api/chats/:chatId/remote-channel/resume", (req, res) => {
-    const context = requireChannelOwner(req, res);
+  app.post("/api/chats/:chatId/remote-channel/resume", async (req, res) => {
+    const context = await requireChannelOwner(req, res);
     if (!context) return;
 
-    const source = getRemoteChannelSourceByChatId(context.chatId);
+    const rawSource = getRemoteChannelSourceByChatId(context.chatId);
+    const source = rawSource && typeof rawSource.then === "function" ? await rawSource : rawSource;
     if (!source) {
       return res.status(404).json({ error: "Remote channel not found." });
     }
 
-    updateRemoteChannelSourcePaused(source.id, false);
+    await updateRemoteChannelSourcePaused(source.id, false);
 
     return res.json({
       ok: true,
@@ -292,11 +307,12 @@ function registerRemoteChannelRoutes(app, deps) {
   });
 
   // Skip current queue item
-  app.post("/api/chats/:chatId/remote-channel/skip", (req, res) => {
-    const context = requireChannelOwner(req, res);
+  app.post("/api/chats/:chatId/remote-channel/skip", async (req, res) => {
+    const context = await requireChannelOwner(req, res);
     if (!context) return;
 
-    const source = getRemoteChannelSourceByChatId(context.chatId);
+    const rawSource = getRemoteChannelSourceByChatId(context.chatId);
+    const source = rawSource && typeof rawSource.then === "function" ? await rawSource : rawSource;
     if (!source) {
       return res.status(404).json({ error: "Remote channel not found." });
     }
@@ -305,8 +321,8 @@ function registerRemoteChannelRoutes(app, deps) {
     // interrupted via the in-memory abort set.
     const skipped =
       typeof remoteChannelManager?.abortQueueItem === "function"
-        ? remoteChannelManager.abortQueueItem(source.id)
-        : skipCurrentRemoteChannelQueueItem(source.id);
+        ? await remoteChannelManager.abortQueueItem(source.id)
+        : await skipCurrentRemoteChannelQueueItem(source.id);
 
     return res.json({
       ok: true,
@@ -316,11 +332,12 @@ function registerRemoteChannelRoutes(app, deps) {
   });
 
   // Skip all queue items
-  app.post("/api/chats/:chatId/remote-channel/skip-all", (req, res) => {
-    const context = requireChannelOwner(req, res);
+  app.post("/api/chats/:chatId/remote-channel/skip-all", async (req, res) => {
+    const context = await requireChannelOwner(req, res);
     if (!context) return;
 
-    const source = getRemoteChannelSourceByChatId(context.chatId);
+    const rawSource = getRemoteChannelSourceByChatId(context.chatId);
+    const source = rawSource && typeof rawSource.then === "function" ? await rawSource : rawSource;
     if (!source) {
       return res.status(404).json({ error: "Remote channel not found." });
     }
@@ -329,8 +346,8 @@ function registerRemoteChannelRoutes(app, deps) {
     // interrupted via the in-memory abort set.
     const skipped =
       typeof remoteChannelManager?.abortAllQueueItems === "function"
-        ? remoteChannelManager.abortAllQueueItems(source.id)
-        : skipAllRemoteChannelQueueItems(source.id);
+        ? await remoteChannelManager.abortAllQueueItems(source.id)
+        : await skipAllRemoteChannelQueueItems(source.id);
 
     return res.json({
       ok: true,
@@ -341,10 +358,11 @@ function registerRemoteChannelRoutes(app, deps) {
 
   // Test connection to remote channel
   app.post("/api/chats/:chatId/remote-channel/test", async (req, res) => {
-    const context = requireChannelOwner(req, res);
+    const context = await requireChannelOwner(req, res);
     if (!context) return;
 
-    const source = getRemoteChannelSourceByChatId(context.chatId);
+    const rawSource = getRemoteChannelSourceByChatId(context.chatId);
+    const source = rawSource && typeof rawSource.then === "function" ? await rawSource : rawSource;
     if (!source) {
       return res.status(404).json({ error: "Remote channel not found." });
     }

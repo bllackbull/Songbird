@@ -10,8 +10,8 @@ function registerPushRoutes(app, deps) {
     listPushSubscriptionsByUserIds,
   } = deps;
 
-  app.get("/api/push/public-key", (req, res) => {
-    const session = requireSession(req, res);
+  app.get("/api/push/public-key", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
     if (!VAPID_PUBLIC_KEY) {
       return res.status(503).json({ error: "Push is not configured." });
@@ -19,8 +19,8 @@ function registerPushRoutes(app, deps) {
     return res.json({ publicKey: VAPID_PUBLIC_KEY });
   });
 
-  app.post("/api/push/subscribe", (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/push/subscribe", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
     const { username, subscription, messagePreview } = req.body || {};
     if (!username || !subscription?.endpoint) {
@@ -47,8 +47,8 @@ function registerPushRoutes(app, deps) {
     }
   });
 
-  app.post("/api/push/unsubscribe", (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/push/unsubscribe", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
     const { username, endpoint } = req.body || {};
     if (!username || !endpoint) {
@@ -62,7 +62,7 @@ function registerPushRoutes(app, deps) {
   });
 
   app.post("/api/push/test", async (req, res) => {
-    const session = requireSession(req, res);
+    const session = await requireSession(req, res);
     if (!session) return;
     const { username } = req.body || {};
     if (!username) {
@@ -92,8 +92,8 @@ function registerPushRoutes(app, deps) {
     }
   });
 
-  app.get("/api/push/debug", (req, res) => {
-    const session = requireSession(req, res);
+  app.get("/api/push/debug", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
     const username = req.query?.username?.toString();
     if (!username) {

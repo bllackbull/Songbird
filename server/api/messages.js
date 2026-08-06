@@ -201,7 +201,7 @@ function registerMessageRoutes(app, deps) {
   };
 
   app.get("/api/messages", async (req, res) => {
-    const session = requireSession(req, res);
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const chatId = Number(req.query.chatId);
@@ -418,8 +418,8 @@ function registerMessageRoutes(app, deps) {
     res.json({ chatId, messages: enriched, hasMore });
   });
 
-  app.get("/api/messages/first-unread", (req, res) => {
-    const session = requireSession(req, res);
+  app.get("/api/messages/first-unread", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const chatId = Number(req.query.chatId);
@@ -443,8 +443,8 @@ function registerMessageRoutes(app, deps) {
     res.json({ firstUnread: firstUnread || null });
   });
 
-  app.post("/api/messages/read", (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/messages/read", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const { chatId, username } = req.body || {};
@@ -474,8 +474,8 @@ function registerMessageRoutes(app, deps) {
     res.json({ ok: true });
   });
 
-  app.post("/api/messages/read-one", (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/messages/read-one", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const { chatId, username, messageId } = req.body || {};
@@ -513,8 +513,8 @@ function registerMessageRoutes(app, deps) {
     res.json({ ok: true });
   });
 
-  app.post("/api/messages/read-counts", (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/messages/read-counts", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const { chatId, username, messageIds = [] } = req.body || {};
@@ -564,8 +564,8 @@ function registerMessageRoutes(app, deps) {
     res.json({ ok: true, counts });
   });
 
-  app.post("/api/messages/typing", (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/messages/typing", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const { chatId, username, isTyping } = req.body || {};
@@ -618,7 +618,7 @@ function registerMessageRoutes(app, deps) {
     messageUploadLimiter,
     uploadFiles.array("files", MESSAGE_FILE_LIMITS.maxFiles),
     async (req, res) => {
-      const session = requireSession(req, res);
+      const session = await requireSession(req, res);
       if (!session) {
         removeUploadedFiles(req.files || []);
         return;
@@ -1086,7 +1086,7 @@ function registerMessageRoutes(app, deps) {
   );
 
   app.post("/api/messages", async (req, res) => {
-    const session = requireSession(req, res);
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const { chatId, username, body, replyToMessageId } = req.body || {};
@@ -1202,7 +1202,7 @@ function registerMessageRoutes(app, deps) {
   });
 
   app.post("/api/messages/edit", messageEditLimiter, async (req, res) => {
-    const session = requireSession(req, res);
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const { chatId, username, messageId, body } = req.body || {};
@@ -1266,7 +1266,7 @@ function registerMessageRoutes(app, deps) {
   });
 
   app.post("/api/messages/delete", async (req, res) => {
-    const session = requireSession(req, res);
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const { chatId, username, messageId, scope } = req.body || {};
@@ -1322,7 +1322,7 @@ function registerMessageRoutes(app, deps) {
   });
 
   app.post("/api/messages/forward", async (req, res) => {
-    const session = requireSession(req, res);
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const {
