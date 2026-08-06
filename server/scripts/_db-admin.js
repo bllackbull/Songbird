@@ -43,8 +43,12 @@ async function getSql() {
   return sqlSingleton
 }
 
-export async function openDatabase() {
-  if (!fs.existsSync(dataDir)) {
+export async function openDatabase(options = {}) {
+  const { inMemory = false, dbPath: customDbPath = null, skipMigrations = false } = options
+  const isInMemory = Boolean(inMemory || customDbPath === ':memory:')
+  const targetDbPath = isInMemory ? ':memory:' : customDbPath || dbPath
+
+  if (!isInMemory && !fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true })
   }
 
@@ -56,18 +60,18 @@ export async function openDatabase() {
     db = createKnexInstance()
   } else {
     try {
-      db = new Database(dbPath)
+      db = new Database(targetDbPath)
       db.pragma('journal_mode = WAL')
       isBetter = true
     } catch (err) {
       const SQL = await getSql()
-      const fileExists = fs.existsSync(dbPath)
-      const fileBuffer = fileExists ? fs.readFileSync(dbPath) : null
+      const fileExists = isInMemory ? false : fs.existsSync(targetDbPath)
+      const fileBuffer = !isInMemory && fileExists ? fs.readFileSync(targetDbPath) : null
       db = fileBuffer ? new SQL.Database(fileBuffer) : new SQL.Database()
     }
   }
 
-  const fileExists = fs.existsSync(dbPath)
+  const fileExists = isInMemory ? false : fs.existsSync(targetDbPath)
 
   const getRow = (sql, params = []) => {
     if (isPostgres) {
@@ -212,7 +216,7 @@ export async function openDatabase() {
   }
 
   const createPreMigrationBackup = (fromVersion, toVersion) => {
-    if (isPostgres || !fileExists || !fs.existsSync(dbPath)) return
+    if (isPostgres || isInMemory || !fileExists || !fs.existsSync(targetDbPath)) return
     if (!fs.existsSync(backupDir)) {
       fs.mkdirSync(backupDir, { recursive: true })
     }
@@ -221,7 +225,7 @@ export async function openDatabase() {
       backupDir,
       `songbird-pre-migration-v${fromVersion}-to-v${toVersion}-${stamp}.db`,
     )
-    fs.copyFileSync(dbPath, backupPath)
+    fs.copyFileSync(targetDbPath, backupPath)
   }
 
   const schemaVersionBeforeMigrations = await getSchemaVersion()
@@ -244,35 +248,38 @@ export async function openDatabase() {
     getRandomUserColor,
     setUserColor: getRandomUserColor,
   }
-  const orderedMigrations = [...migrations].sort((a, b) => a.version - b.version)
-  const latestVersion = orderedMigrations.length
-    ? Math.max(...orderedMigrations.map((migration) => Number(migration.version) || 0))
-    : 0
-  if (schemaVersionBeforeMigrations < latestVersion) {
-    createPreMigrationBackup(schemaVersionBeforeMigrations, latestVersion)
-  }
-  for (const migration of orderedMigrations) {
-    const currentVersion = await getSchemaVersion()
-    if (currentVersion >= migration.version) continue
-    await migration.up(migrationContext)
-    setSchemaVersion(migration.version)
-  }
-  for (const migration of orderedMigrations) {
-    await migration.up(migrationContext)
-  }
-  if ((await getSchemaVersion()) < latestVersion) {
-    setSchemaVersion(latestVersion)
-  }
 
-  const save = () => {
-    if (isPostgres || isBetter) return
-    if (typeof db?.export === 'function') {
-      const data = db.export()
-      fs.writeFileSync(dbPath, Buffer.from(data))
+  if (!skipMigrations) {
+    const orderedMigrations = [...migrations].sort((a, b) => a.version - b.version)
+    const latestVersion = orderedMigrations.length
+      ? Math.max(...orderedMigrations.map((migration) => Number(migration.version) || 0))
+      : 0
+    if (!isInMemory && schemaVersionBeforeMigrations < latestVersion) {
+      createPreMigrationBackup(schemaVersionBeforeMigrations, latestVersion)
+    }
+    for (const migration of orderedMigrations) {
+      const currentVersion = await getSchemaVersion()
+      if (currentVersion >= migration.version) continue
+      await migration.up(migrationContext)
+      setSchemaVersion(migration.version)
+    }
+    for (const migration of orderedMigrations) {
+      await migration.up(migrationContext)
+    }
+    if ((await getSchemaVersion()) < latestVersion) {
+      setSchemaVersion(latestVersion)
     }
   }
 
-  if ((await getSchemaVersion()) !== schemaVersionBeforeMigrations) {
+  const save = () => {
+    if (isPostgres || isBetter || isInMemory) return
+    if (typeof db?.export === 'function') {
+      const data = db.export()
+      fs.writeFileSync(targetDbPath, Buffer.from(data))
+    }
+  }
+
+  if (!isInMemory && (await getSchemaVersion()) !== schemaVersionBeforeMigrations) {
     save()
   }
 
@@ -290,7 +297,20 @@ export async function openDatabase() {
     }
   }
 
-  return { db, getRow, getAll, run, save, close, fileExists }
+  return {
+    db,
+    getRow,
+    getAll,
+    run,
+    save,
+    close,
+    fileExists,
+    tableExists,
+    hasColumn,
+    getSchemaVersion,
+    setSchemaVersion,
+    migrationContext,
+  }
 }
 
 export function removeStoredFiles(storedNames = []) {
