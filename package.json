@@ -13,6 +13,7 @@
   "scripts": {
     "dev": "concurrently \"npm --prefix client run dev\" \"npm --prefix server run dev\"",
     "test": "concurrently \"npm --prefix client run test\" \"npm --prefix server run test\"",
+    "test:coverage": "concurrently \"npm --prefix client run test:coverage\" \"npm --prefix server run test:coverage\"",
     "test:scripts": "bats scripts/test/",
     "start": "concurrently \"npm --prefix client run start\" \"npm --prefix server run start\"",
     "build": "npm --prefix client run build",

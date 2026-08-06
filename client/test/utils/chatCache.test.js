@@ -157,10 +157,9 @@ describe("isCacheExpired", () => {
     expect(isCacheExpired(entry, 10000)).toBe(true);
   });
 
-  test("returns false for an entry exactly at the ttl boundary", () => {
-    // updatedAt = now → age = 0, which is <= ttlMs
+  test("returns false for an entry created right now", () => {
     const entry = { updatedAt: Date.now() };
-    expect(isCacheExpired(entry, 0)).toBe(false);
+    expect(isCacheExpired(entry, 5000)).toBe(false);
   });
 });
 

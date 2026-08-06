@@ -1,5 +1,7 @@
 ﻿# Node
 node_modules/
+coverage/
+**/coverage/
 
 # Client build
 client/dist/
