@@ -20,12 +20,23 @@ export function createSseHub({ listChatMembers }) {
     if (entry && entry.expiresAt > Date.now()) {
       return entry.members;
     }
-    const members = listChatMembers(chatId);
+    const rawMembers = listChatMembers(chatId);
+    if (rawMembers && typeof rawMembers.then === "function") {
+      return rawMembers.then((members) => {
+        const list = Array.isArray(members) ? members : [];
+        memberCache.set(chatId, {
+          members: list,
+          expiresAt: Date.now() + MEMBER_CACHE_TTL_MS,
+        });
+        return list;
+      });
+    }
+    const list = Array.isArray(rawMembers) ? rawMembers : [];
     memberCache.set(chatId, {
-      members,
+      members: list,
       expiresAt: Date.now() + MEMBER_CACHE_TTL_MS,
     });
-    return members;
+    return list;
   }
 
   function addSseClient(username, res) {
@@ -64,11 +75,21 @@ export function createSseHub({ listChatMembers }) {
   }
 
   function emitChatEvent(chatId, payload) {
-    const members = getCachedMembers(Number(chatId));
-    members.forEach((member) => {
-      if (!member?.username) return;
-      emitSseEvent(member.username, payload);
-    });
+    const rawMembers = getCachedMembers(Number(chatId));
+    const processMembers = (members) => {
+      const memberList = Array.isArray(members) ? members : [];
+      memberList.forEach((member) => {
+        if (!member?.username) return;
+        emitSseEvent(member.username, payload);
+      });
+    };
+
+    if (rawMembers && typeof rawMembers.then === "function") {
+      rawMembers.then(processMembers).catch(() => {});
+    } else {
+      processMembers(rawMembers);
+    }
+
     listeners.forEach((listener) => {
       try {
         listener(chatId, payload);

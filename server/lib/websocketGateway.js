@@ -22,10 +22,17 @@ export function createWebSocketGateway({
           if (broadcast) {
             broadcastLocal(payload);
           } else if (chatId && sseHub) {
-            const members = sseHub.getCachedMembers(Number(chatId));
-            members.forEach((m) => {
-              if (m?.username) sendToUsernameLocal(m.username, payload);
-            });
+            const rawMembers = sseHub.getCachedMembers(Number(chatId));
+            const processMembers = (members) => {
+              (members || []).forEach((m) => {
+                if (m?.username) sendToUsernameLocal(m.username, payload);
+              });
+            };
+            if (rawMembers && typeof rawMembers.then === "function") {
+              rawMembers.then(processMembers).catch(() => {});
+            } else {
+              processMembers(rawMembers);
+            }
           } else if (username) {
             sendToUsernameLocal(username, payload);
           }
@@ -73,10 +80,17 @@ export function createWebSocketGateway({
 
   function sendChatEvent(chatId, payload) {
     if (sseHub) {
-      const members = sseHub.getCachedMembers(Number(chatId));
-      members.forEach((member) => {
-        if (member?.username) sendToUsernameLocal(member.username, payload);
-      });
+      const rawMembers = sseHub.getCachedMembers(Number(chatId));
+      const processMembers = (members) => {
+        (members || []).forEach((member) => {
+          if (member?.username) sendToUsernameLocal(member.username, payload);
+        });
+      };
+      if (rawMembers && typeof rawMembers.then === "function") {
+        rawMembers.then(processMembers).catch(() => {});
+      } else {
+        processMembers(rawMembers);
+      }
     }
     if (redisClient) {
       redisClient.publish(
