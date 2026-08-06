@@ -25,26 +25,43 @@ export function createMessagePublicationService(dbApi) {
    * Helper to calculate push recipients for a chat.
    */
   function calculatePushRecipients(chatId, senderUserId, isUserConnectedFn) {
-    const members = listChatMembers(Number(chatId)) || [];
-    const mutedRows = listMutedUserIdsForChat(Number(chatId)) || [];
-    const mutedIds = new Set(
-      mutedRows.map((row) => Number(row?.user_id || row || 0)).filter(Boolean),
-    );
+    const rawMembers = listChatMembers(Number(chatId));
+    const rawMutedRows = listMutedUserIdsForChat(Number(chatId));
 
-    return members
-      .filter((member) => Number(member.id) !== Number(senderUserId))
-      .filter((member) =>
-        typeof isUserConnectedFn === "function"
-          ? !isUserConnectedFn(member.username)
-          : true,
-      )
-      .map((member) => Number(member.id))
-      .filter(
-        (memberId) =>
-          Number.isFinite(memberId) &&
-          memberId > 0 &&
-          !mutedIds.has(Number(memberId)),
+    const buildPush = (members, mutedRows) => {
+      const memberList = members || [];
+      const mutedList = mutedRows || [];
+      const mutedIds = new Set(
+        mutedList.map((row) => Number(row?.user_id || row || 0)).filter(Boolean),
       );
+
+      return memberList
+        .filter((member) => Number(member.id) !== Number(senderUserId))
+        .filter((member) =>
+          typeof isUserConnectedFn === "function"
+            ? !isUserConnectedFn(member.username)
+            : true,
+        )
+        .map((member) => Number(member.id))
+        .filter(
+          (memberId) =>
+            Number.isFinite(memberId) &&
+            memberId > 0 &&
+            !mutedIds.has(Number(memberId)),
+        );
+    };
+
+    if (
+      (rawMembers && typeof rawMembers.then === "function") ||
+      (rawMutedRows && typeof rawMutedRows.then === "function")
+    ) {
+      return Promise.all([
+        rawMembers && typeof rawMembers.then === "function" ? rawMembers : Promise.resolve(rawMembers),
+        rawMutedRows && typeof rawMutedRows.then === "function" ? rawMutedRows : Promise.resolve(rawMutedRows),
+      ]).then(([m, r]) => buildPush(m, r));
+    }
+
+    return buildPush(rawMembers, rawMutedRows);
   }
 
   /**
@@ -60,57 +77,79 @@ export function createMessagePublicationService(dbApi) {
     username = "",
     isUserConnectedFn = null,
   }) {
-    const chat = findChatById(Number(chatId));
-    if (!chat) throw new Error("Chat not found");
+    const rawChat = findChatById(Number(chatId));
 
-    const created = createOrReuseMessage(
-      Number(chatId),
-      Number(userId),
-      body,
-      replyToMessageId,
-      expiresAt,
-      clientRequestId,
-    );
+    const processPub = (chat) => {
+      if (!chat) throw new Error("Chat not found");
 
-    const messageId = Number(created?.id || 0);
-    if (!messageId) throw new Error("Unable to create message.");
+      const rawCreated = createOrReuseMessage(
+        Number(chatId),
+        Number(userId),
+        body,
+        replyToMessageId,
+        expiresAt,
+        clientRequestId,
+      );
 
-    const deduped = Boolean(created?.deduped);
+      const processCreated = (created) => {
+        const messageId = Number(created?.id || 0);
+        if (!messageId) throw new Error("Unable to create message.");
 
-    if (
-      chat.type === "saved" &&
-      !deduped &&
-      typeof markMessageRead === "function"
-    ) {
-      markMessageRead(messageId, Number(userId));
-    }
+        const deduped = Boolean(created?.deduped);
 
-    const sseEvents = [];
-    const pushRecipients = deduped
-      ? []
-      : calculatePushRecipients(chatId, userId, isUserConnectedFn);
+        if (
+          chat.type === "saved" &&
+          !deduped &&
+          typeof markMessageRead === "function"
+        ) {
+          markMessageRead(messageId, Number(userId));
+        }
 
-    if (!deduped) {
-      sseEvents.push({
-        chatId: Number(chatId),
-        payload: {
-          type: "chat_message",
-          chatId: Number(chatId),
-          messageId,
-          username,
-          body,
-          replyToMessageId,
-        },
-      });
-    }
+        const rawPushRecipients = deduped
+          ? []
+          : calculatePushRecipients(chatId, userId, isUserConnectedFn);
 
-    return {
-      success: true,
-      messageId,
-      deduped,
-      sseEvents,
-      pushRecipients,
+        const processPush = (pushRecipients) => {
+          const sseEvents = [];
+          if (!deduped) {
+            sseEvents.push({
+              chatId: Number(chatId),
+              payload: {
+                type: "chat_message",
+                chatId: Number(chatId),
+                messageId,
+                username,
+                body,
+                replyToMessageId,
+              },
+            });
+          }
+
+          return {
+            success: true,
+            messageId,
+            deduped,
+            sseEvents,
+            pushRecipients: pushRecipients || [],
+          };
+        };
+
+        if (rawPushRecipients && typeof rawPushRecipients.then === "function") {
+          return rawPushRecipients.then(processPush);
+        }
+        return processPush(rawPushRecipients);
+      };
+
+      if (rawCreated && typeof rawCreated.then === "function") {
+        return rawCreated.then(processCreated);
+      }
+      return processCreated(rawCreated);
     };
+
+    if (rawChat && typeof rawChat.then === "function") {
+      return rawChat.then(processPub);
+    }
+    return processPub(rawChat);
   }
 
   /**

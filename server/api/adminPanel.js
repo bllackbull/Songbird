@@ -264,7 +264,7 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Users — list ────────────────────────────────────────────────────────────
 
-  app.get("/api/admin/users", (req, res) => {
+  app.get("/api/admin/users", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     const limit  = Number(req.query.limit  || 200);
     const offset = Number(req.query.offset || 0);
@@ -274,7 +274,8 @@ function registerAdminPanelRoutes(app, deps) {
     const sortDir   = String(req.query.sortDir || "").toLowerCase() === "asc" ? "ASC" : "DESC";
     const roleFilter = ["user", "admin", "owner", "banned"].includes(req.query.role) ? req.query.role : null;
     const statusFilter = ["online", "offline"].includes(req.query.status) ? req.query.status : null;
-    const { users, total } = adminListUsers({ limit, offset, search, sortBy, sortDir, roleFilter, statusFilter });
+    const rawResult = adminListUsers({ limit, offset, search, sortBy, sortDir, roleFilter, statusFilter });
+    const { users, total } = (rawResult && typeof rawResult.then === "function" ? await rawResult : rawResult) || { users: [], total: 0 };
     users.forEach((u) => {
       u.online =
         isConnected(u.username) && String(u.status || "").toLowerCase() === "online" ? 1 : 0;

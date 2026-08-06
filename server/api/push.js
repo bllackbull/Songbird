@@ -100,9 +100,11 @@ function registerPushRoutes(app, deps) {
       return res.status(400).json({ error: "Username is required." });
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
-    const user = findUserByUsername(String(username || "").toLowerCase());
+    const rawUser = findUserByUsername(String(username || "").toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) return res.status(404).json({ error: "User not found." });
-    const subs = listPushSubscriptionsByUserIds([user.id]);
+    const rawSubs = listPushSubscriptionsByUserIds([user.id]);
+    const subs = (rawSubs && typeof rawSubs.then === "function" ? await rawSubs : rawSubs) || [];
     return res.json({
       ok: true,
       configured: Boolean(VAPID_PUBLIC_KEY),

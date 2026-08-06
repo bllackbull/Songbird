@@ -661,12 +661,15 @@ export function findDmChat(userId, otherUserId) {
     WHERE c.type = 'dm'
     ORDER BY
       (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) DESC,
-      (SELECT id FROM chat_messages WHERE chat_id = c.id ORDER BY julianday(created_at) DESC, id DESC LIMIT 1) DESC,
+      (SELECT id FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC, id DESC LIMIT 1) DESC,
       c.id DESC
     LIMIT 1
   `,
     [userId, otherUserId],
   );
+  if (row && typeof row.then === "function") {
+    return row.then((r) => r?.id || null);
+  }
   return row?.id || null;
 }
 
@@ -1559,12 +1562,16 @@ export function findChatByInviteToken(inviteToken) {
 }
 
 export function findChatById(chatId) {
-  return getRow(
+  const row = getRow(
     `SELECT id, name, type, group_username, group_visibility, invite_token, group_color,
             allow_member_invites, group_avatar_url, created_by_user_id, verified
      FROM chats WHERE id = ?`,
     [Number(chatId)],
   );
+  if (row && typeof row.then === "function") {
+    return row.then((r) => r || null);
+  }
+  return row || null;
 }
 
 export function updateGroupChat(chatId, payload = {}) {
@@ -1658,7 +1665,7 @@ export async function isMember(chatId, userId) {
 }
 
 export function listChatMembers(chatId) {
-  return getAll(
+  const rawRows = getAll(
     `
     SELECT users.id, users.username, users.nickname, users.avatar_url, users.color,
            users.verified AS user_verified,
@@ -1672,6 +1679,10 @@ export function listChatMembers(chatId) {
   `,
     [chatId],
   );
+  if (rawRows && typeof rawRows.then === "function") {
+    return rawRows.then((rows) => rows || []);
+  }
+  return rawRows || [];
 }
 
 /**
@@ -1684,9 +1695,11 @@ export function listChatMembers(chatId) {
  */
 export function listChatMembersForChats(chatIds = []) {
   const ids = chatIds.map(Number).filter((id) => Number.isFinite(id) && id > 0);
-  if (!ids.length) return new Map();
+  if (!ids.length) {
+    return isPostgresMode() ? Promise.resolve(new Map()) : new Map();
+  }
   const placeholders = ids.map(() => "?").join(", ");
-  const rows = getAll(
+  const rawRows = getAll(
     `
     SELECT chat_members.chat_id,
            users.id, users.username, users.nickname, users.avatar_url, users.color,
@@ -1701,13 +1714,21 @@ export function listChatMembersForChats(chatIds = []) {
     `,
     ids,
   );
-  const map = new Map();
-  for (const row of rows) {
-    const cid = Number(row.chat_id);
-    if (!map.has(cid)) map.set(cid, []);
-    map.get(cid).push(row);
+
+  const buildMap = (rows) => {
+    const map = new Map();
+    for (const row of rows || []) {
+      const cid = Number(row.chat_id);
+      if (!map.has(cid)) map.set(cid, []);
+      map.get(cid).push(row);
+    }
+    return map;
+  };
+
+  if (rawRows && typeof rawRows.then === "function") {
+    return rawRows.then(buildMap);
   }
-  return map;
+  return buildMap(rawRows);
 }
 
 export async function getChatMemberRole(chatId, userId) {
@@ -2211,47 +2232,80 @@ export function markMessageRead(messageId, readerId) {
 }
 
 export function findSavedChatByUserId(userId) {
-  return getRow(
+  const row = getRow(
     `SELECT id, name, type, group_username, group_visibility, invite_token, group_color,
             allow_member_invites, group_avatar_url, created_by_user_id
      FROM chats WHERE type = 'saved' AND created_by_user_id = ?`,
     [Number(userId)],
   );
+  if (row && typeof row.then === "function") {
+    return row.then((r) => r || null);
+  }
+  return row || null;
 }
 
 export function ensureSavedChatForUser(userId) {
-  const existing = findSavedChatByUserId(userId);
-  if (existing?.id) {
-    if (!isMember(existing.id, Number(userId))) {
-      addChatMember(existing.id, Number(userId), "owner");
+  const rawExisting = findSavedChatByUserId(userId);
+
+  const processExisting = (existing) => {
+    if (existing?.id) {
+      const memRes = isMember(existing.id, Number(userId));
+      const handleMem = (isMem) => {
+        if (!isMem) {
+          addChatMember(existing.id, Number(userId), "owner");
+        }
+        if (String(existing.group_visibility || "").toLowerCase() !== "private") {
+          run("UPDATE chats SET group_visibility = 'private' WHERE id = ?", [
+            Number(existing.id),
+          ]);
+        }
+        return existing;
+      };
+      if (memRes && typeof memRes.then === "function") {
+        return memRes.then(handleMem);
+      }
+      return handleMem(memRes);
     }
-    if (String(existing.group_visibility || "").toLowerCase() !== "private") {
-      run("UPDATE chats SET group_visibility = 'private' WHERE id = ?", [
-        Number(existing.id),
-      ]);
+    const rawChatId = createChat("Saved messages", "saved", {
+      createdByUserId: Number(userId),
+    });
+
+    const handleChatId = (chatId) => {
+      if (!chatId) return null;
+      const addRes = addChatMember(chatId, Number(userId), "owner");
+      const handleAdd = () => findChatById(chatId);
+      if (addRes && typeof addRes.then === "function") {
+        return addRes.then(handleAdd);
+      }
+      return handleAdd();
+    };
+
+    if (rawChatId && typeof rawChatId.then === "function") {
+      return rawChatId.then(handleChatId);
     }
-    return existing;
+    return handleChatId(rawChatId);
+  };
+
+  if (rawExisting && typeof rawExisting.then === "function") {
+    return rawExisting.then(processExisting);
   }
-  const chatId = createChat("Saved messages", "saved", {
-    createdByUserId: Number(userId),
-  });
-  if (!chatId) return null;
-  addChatMember(chatId, Number(userId), "owner");
-  return findChatById(chatId);
+  return processExisting(rawExisting);
 }
 
 export function findMessageById(messageId) {
-  return decryptMessageRow(
-    getRow(
-      `SELECT id, chat_id, user_id, body, edited, edited_body, hidden_everyone_at,
-              forwarded_from_chat_id, forwarded_from_label, forwarded_from_user_id,
-              forwarded_from_username, forwarded_from_avatar_url, forwarded_from_color,
-              created_at, expires_at
-       FROM chat_messages
-       WHERE id = ?`,
-      [messageId],
-    ),
+  const rawRow = getRow(
+    `SELECT id, chat_id, user_id, body, edited, edited_body, hidden_everyone_at,
+            forwarded_from_chat_id, forwarded_from_label, forwarded_from_user_id,
+            forwarded_from_username, forwarded_from_avatar_url, forwarded_from_color,
+            created_at, expires_at
+     FROM chat_messages
+     WHERE id = ?`,
+    [messageId],
   );
+  if (rawRow && typeof rawRow.then === "function") {
+    return rawRow.then(decryptMessageRow);
+  }
+  return decryptMessageRow(rawRow);
 }
 
 export function setMessageExpiresAt(messageId, expiresAt = null) {
@@ -2454,7 +2508,7 @@ export function getMessages(chatId, options = {}) {
     ? "ORDER BY chat_messages.created_at ASC, chat_messages.id ASC"
     : "ORDER BY chat_messages.created_at DESC, chat_messages.id DESC";
 
-  const rowsRaw = getAll(
+  const rawRows = getAll(
     `
     SELECT chat_messages.id,
       COALESCE(chat_messages.edited_body, chat_messages.body) AS body,
@@ -2502,16 +2556,23 @@ export function getMessages(chatId, options = {}) {
     params,
   );
 
-  const hasMore = rowsRaw.length > limit;
-  // For the afterId path rows are already ASC; for the beforeId path reverse DESC→ASC.
-  const rows = hasAfter
-    ? rowsRaw.slice(0, limit)
-    : rowsRaw.slice(0, limit).reverse();
+  const processRows = (rowsRaw) => {
+    const list = rowsRaw || [];
+    const hasMore = list.length > limit;
+    const rows = hasAfter
+      ? list.slice(0, limit)
+      : list.slice(0, limit).reverse();
 
-  return {
-    messages: rows.map(decryptMessageRow),
-    hasMore,
+    return {
+      messages: rows.map(decryptMessageRow),
+      hasMore,
+    };
   };
+
+  if (rawRows && typeof rawRows.then === "function") {
+    return rawRows.then(processRows);
+  }
+  return processRows(rawRows);
 }
 
 /**
@@ -3128,17 +3189,25 @@ export function adminListUsers({ limit = 200, offset = 0, search = "", sortBy = 
   params.push(safeLimit, safeOffset);
   // COUNT(*) OVER() computes the filtered total in the same pass as the page
   // rows, eliminating the separate adminCountUsers query.
-  const rows = getAll(
+  const rawRows = getAll(
     `SELECT id, username, nickname, avatar_url, color, status, role, banned, verified, created_at, last_seen,
             CASE WHEN status = 'online' THEN 1 ELSE 0 END AS online,
             COUNT(*) OVER() AS _total
      FROM users ${where} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
     params,
   );
-  const total = rows.length > 0 ? Number(rows[0]._total || 0) : 0;
-  // Strip the internal _total column before returning to callers.
-  const users = rows.map(({ _total, ...u }) => u);
-  return { users, total };
+
+  const processUserRows = (rows) => {
+    const list = rows || [];
+    const total = list.length > 0 ? Number(list[0]._total || 0) : 0;
+    const users = list.map(({ _total, ...u }) => u);
+    return { users, total };
+  };
+
+  if (rawRows && typeof rawRows.then === "function") {
+    return rawRows.then(processUserRows);
+  }
+  return processUserRows(rawRows);
 }
 
 // adminCountUsers is kept for any future callers that only need the count,

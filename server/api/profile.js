@@ -53,13 +53,14 @@ function registerProfileRoutes(app, deps) {
     if (previousUsername) targets.add(previousUsername);
     const rawChats = listChatsForUser(Number(user.id || 0));
     const chats = (rawChats && typeof rawChats.then === "function" ? await rawChats : rawChats) || [];
-    chats.forEach((chat) => {
-      const members = listChatMembers(Number(chat?.id || 0));
+    for (const chat of chats) {
+      const rawMembers = listChatMembers(Number(chat?.id || 0));
+      const members = (rawMembers && typeof rawMembers.then === "function" ? await rawMembers : rawMembers) || [];
       members.forEach((member) => {
         const memberUsername = String(member?.username || "").toLowerCase();
         if (memberUsername) targets.add(memberUsername);
       });
-    });
+    }
     targets.forEach((targetUsername) => {
       emitSseEvent(targetUsername, payload);
     });

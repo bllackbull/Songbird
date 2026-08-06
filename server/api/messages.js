@@ -87,11 +87,13 @@ function registerMessageRoutes(app, deps) {
     ).toISOString();
   };
 
-  const canUserPostInChat = (chatId, userId, chat = null) => {
-    const resolvedChat = chat || findChatById(Number(chatId));
+  const canUserPostInChat = async (chatId, userId, chat = null) => {
+    const rawChat = chat || findChatById(Number(chatId));
+    const resolvedChat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
     if (!resolvedChat) return false;
     if (resolvedChat.type !== "channel") return true;
-    const role = String(getChatMemberRole(Number(chatId), Number(userId))).toLowerCase();
+    const rawRole = getChatMemberRole(Number(chatId), Number(userId));
+    const role = String(rawRole && typeof rawRole.then === "function" ? await rawRole : rawRole).toLowerCase();
     return role === "owner";
   };
 
@@ -220,16 +222,19 @@ function registerMessageRoutes(app, deps) {
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
-    const user = findUserByUsername(username.toLowerCase());
+    const rawUser = findUserByUsername(username.toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    if (!isMember(chatId, user.id)) {
+    const rawIsMember = isMember(chatId, user.id);
+    const memberCheck = rawIsMember && typeof rawIsMember.then === "function" ? await rawIsMember : rawIsMember;
+    if (!memberCheck) {
       return res.status(403).json({ error: "Not a member of this chat." });
     }
 
-    let { messages, hasMore } = getMessages(chatId, {
+    const rawMsgData = getMessages(chatId, {
       beforeId: beforeId > 0 ? beforeId : null,
       beforeCreatedAt: beforeCreatedAt || null,
       afterId: afterId > 0 ? afterId : null,
@@ -237,6 +242,7 @@ function registerMessageRoutes(app, deps) {
       limit,
       viewerUserId: user.id,
     });
+    let { messages, hasMore } = (rawMsgData && typeof rawMsgData.then === "function" ? await rawMsgData : rawMsgData) || { messages: [], hasMore: false };
 
     // Run the missing-file cleanup in the background so it doesn't block the
     // response. If files are found missing the next fetch will reflect the
@@ -285,13 +291,14 @@ function registerMessageRoutes(app, deps) {
     const messageIds = normalizedMessages
       .map((message) => Number(message.id))
       .filter(Boolean);
-    const readRows = getMessageReadByUser(messageIds, user.id);
+    const rawReadRows = getMessageReadByUser(messageIds, user.id);
+    const readRows = (rawReadRows && typeof rawReadRows.then === "function" ? await rawReadRows : rawReadRows) || [];
     const readByMe = new Set(
       readRows.map((row) => Number(row?.message_id || 0)).filter(Boolean),
     );
-    const files = await hydrateMissingVideoMetadata(
-      listMessageFilesByMessageIds(messageIds),
-    );
+    const rawFiles = listMessageFilesByMessageIds(messageIds);
+    const resolvedFiles = (rawFiles && typeof rawFiles.then === "function" ? await rawFiles : rawFiles) || [];
+    const files = await hydrateMissingVideoMetadata(resolvedFiles);
 
     const filesByMessageId = files.reduce((acc, file) => {
       const messageId = Number(file.message_id);
@@ -376,9 +383,11 @@ function registerMessageRoutes(app, deps) {
       });
     }
 
-    const chat = findChatById(chatId);
+    const rawChat = findChatById(chatId);
+    const chat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
     if (chat?.type === "channel" && messageIds.length) {
-      const countRows = getMessageReadCounts(messageIds);
+      const rawCountRows = getMessageReadCounts(messageIds);
+      const countRows = (rawCountRows && typeof rawCountRows.then === "function" ? await rawCountRows : rawCountRows) || [];
       const counts = countRows.reduce((acc, row) => {
         const id = Number(row?.message_id || 0);
         if (!id) return acc;
@@ -687,7 +696,8 @@ function registerMessageRoutes(app, deps) {
           });
         }
 
-        const user = findUserByUsername(username.toLowerCase());
+        const rawUser = findUserByUsername(username.toLowerCase());
+        const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
 
         if (!user) {
           removeUploadedFiles(uploadedFiles);
@@ -695,18 +705,22 @@ function registerMessageRoutes(app, deps) {
           return res.status(404).json({ error: "User not found." });
         }
 
-        if (!isMember(chatId, user.id)) {
+        const rawIsMember = isMember(chatId, user.id);
+        const memberCheck = rawIsMember && typeof rawIsMember.then === "function" ? await rawIsMember : rawIsMember;
+        if (!memberCheck) {
           removeUploadedFiles(uploadedFiles);
 
           return res.status(403).json({ error: "Not a member of this chat." });
         }
-        const chat = findChatById(chatId);
+        const rawChat = findChatById(chatId);
+        const chat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
         if (!chat) {
           removeUploadedFiles(uploadedFiles);
           return res.status(404).json({ error: "Chat not found." });
         }
         if (chat.type === "channel") {
-          const role = String(getChatMemberRole(chatId, user.id)).toLowerCase();
+          const rawRole = getChatMemberRole(chatId, user.id);
+          const role = String(rawRole && typeof rawRole.then === "function" ? await rawRole : rawRole).toLowerCase();
           if (role !== "owner") {
             removeUploadedFiles(uploadedFiles);
             return res
@@ -935,7 +949,7 @@ function registerMessageRoutes(app, deps) {
           setMessageExpiresAt(messageId, null);
           createMessageFiles(messageId, normalizedFiles);
         } else {
-          const created = createOrReuseMessage(
+          const rawCreated = createOrReuseMessage(
             chatId,
             user.id,
             fallbackBody,
@@ -943,6 +957,7 @@ function registerMessageRoutes(app, deps) {
             null,
             clientRequestId,
           );
+          const created = rawCreated && typeof rawCreated.then === "function" ? await rawCreated : rawCreated;
           messageId = Number(created?.id || 0);
           dedupedMessage = Boolean(created?.deduped);
           if (!messageId) {
@@ -1036,8 +1051,10 @@ function registerMessageRoutes(app, deps) {
         if (!editTarget) {
           void (async () => {
             try {
-              const members = listChatMembers(Number(chatId));
-              const mutedRows = listMutedUserIdsForChat(Number(chatId));
+              const rawMembers = listChatMembers(Number(chatId));
+              const members = (rawMembers && typeof rawMembers.then === "function" ? await rawMembers : rawMembers) || [];
+              const rawMuted = listMutedUserIdsForChat(Number(chatId));
+              const mutedRows = (rawMuted && typeof rawMuted.then === "function" ? await rawMuted : rawMuted) || [];
               const mutedIds = new Set(
                 mutedRows.map((row) => Number(row?.user_id || 0)).filter(Boolean),
               );
@@ -1072,6 +1089,7 @@ function registerMessageRoutes(app, deps) {
 
         return;
       } catch (error) {
+        console.error("POST /api/messages ERROR:", error);
         removeUploadedFiles(uploadedFiles);
 
         debugLog("api:messages/upload:error", {
@@ -1114,21 +1132,26 @@ function registerMessageRoutes(app, deps) {
 
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
-    const user = findUserByUsername(username.toLowerCase());
+    const rawUser = findUserByUsername(username.toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    if (!isMember(Number(chatId), user.id)) {
+    const rawIsMem = isMember(Number(chatId), user.id);
+    const memberCheck = rawIsMem && typeof rawIsMem.then === "function" ? await rawIsMem : rawIsMem;
+    if (!memberCheck) {
       return res.status(403).json({ error: "Not a member of this chat." });
     }
 
-    const chat = findChatById(Number(chatId));
+    const rawChat = findChatById(Number(chatId));
+    const chat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
     if (!chat) {
       return res.status(404).json({ error: "Chat not found." });
     }
     if (chat.type === "channel") {
-      const role = String(getChatMemberRole(Number(chatId), user.id)).toLowerCase();
+      const rawRole = getChatMemberRole(Number(chatId), user.id);
+      const role = String(rawRole && typeof rawRole.then === "function" ? await rawRole : rawRole).toLowerCase();
       if (role !== "owner") {
         return res
           .status(403)
@@ -1137,7 +1160,8 @@ function registerMessageRoutes(app, deps) {
     }
 
     if (replyToMessageId) {
-      const replyTarget = findMessageById(Number(replyToMessageId));
+      const rawReplyTarget = findMessageById(Number(replyToMessageId));
+      const replyTarget = rawReplyTarget && typeof rawReplyTarget.then === "function" ? await rawReplyTarget : rawReplyTarget;
       if (!replyTarget || Number(replyTarget.chat_id) !== Number(chatId)) {
         return res
           .status(400)
@@ -1148,7 +1172,7 @@ function registerMessageRoutes(app, deps) {
     const createdAtIso = new Date().toISOString();
     const expiresAt = computeTextExpiryIso(createdAtIso);
     
-    const result = messagePubService.publishTextMessage({
+    const rawResult = messagePubService.publishTextMessage({
       chatId: Number(chatId),
       userId: user.id,
       body: bodyText,
@@ -1158,6 +1182,7 @@ function registerMessageRoutes(app, deps) {
       username: user.username,
       isUserConnectedFn: isUserConnected,
     });
+    const result = rawResult && typeof rawResult.then === "function" ? await rawResult : rawResult;
 
     const id = result.messageId;
 
@@ -1299,9 +1324,10 @@ function registerMessageRoutes(app, deps) {
       if (!chat) {
         return res.status(404).json({ error: "Chat not found." });
       }
-      const role = String(getChatMemberRole(numericChatId, user.id)).toLowerCase();
+      const rawRole = getChatMemberRole(numericChatId, user.id);
+      const role = String(rawRole && typeof rawRole.then === "function" ? await rawRole : rawRole).toLowerCase();
       const canDeleteForEveryone =
-        canUserPostInChat(numericChatId, user.id, chat) &&
+        (await canUserPostInChat(numericChatId, user.id, chat)) &&
         (Number(message.user_id || 0) === Number(user.id) || role === "owner");
       if (!canDeleteForEveryone) {
         return res.status(403).json({
@@ -1390,7 +1416,8 @@ function registerMessageRoutes(app, deps) {
         return res.status(404).json({ error: "One of the selected chats was not found." });
       }
       if (String(targetChat.type || "").toLowerCase() === "channel") {
-        const role = String(getChatMemberRole(targetChatId, user.id)).toLowerCase();
+        const rawRole = getChatMemberRole(targetChatId, user.id);
+        const role = String(rawRole && typeof rawRole.then === "function" ? await rawRole : rawRole).toLowerCase();
         if (role !== "owner") {
           return res.status(403).json({
             error: "You can only forward to channels you own.",

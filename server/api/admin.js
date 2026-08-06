@@ -473,23 +473,26 @@ function registerAdminRoutes(app, deps) {
             .json({ error: "Invalid username. Allowed: lowercase english letters, numbers, ., _" });
         }
 
-        const exists = adminGetRow("SELECT id FROM users WHERE username = ?", [
+        const existsRow = adminGetRow("SELECT id FROM users WHERE username = ?", [
           rawUsername,
         ]);
+        const exists = existsRow && typeof existsRow.then === "function" ? await existsRow : existsRow;
         if (exists?.id) {
           return res.status(409).json({ error: "Username already exists." });
         }
-        const groupExists = adminGetRow(
+        const groupExistsRow = adminGetRow(
           "SELECT id FROM chats WHERE type IN ('group', 'channel') AND group_username = ?",
           [rawUsername],
         );
+        const groupExists = groupExistsRow && typeof groupExistsRow.then === "function" ? await groupExistsRow : groupExistsRow;
         if (groupExists?.id) {
           return res.status(409).json({ error: "Username already exists." });
         }
 
         // Only one owner is allowed
         if (role === "owner") {
-          const existingOwner = adminGetRow("SELECT id FROM users WHERE role = 'owner' LIMIT 1");
+          const ownerRow = adminGetRow("SELECT id FROM users WHERE role = 'owner' LIMIT 1");
+          const existingOwner = ownerRow && typeof ownerRow.then === "function" ? await ownerRow : ownerRow;
           if (existingOwner?.id) {
             return res.status(409).json({ error: "An owner already exists. Reassign the owner role first." });
           }
@@ -497,23 +500,25 @@ function registerAdminRoutes(app, deps) {
 
         const passwordHash = await bcrypt.hash(password, 10);
         const assignedColor = setUserColor ? setUserColor() : null;
-        adminRun(
+        await adminRun(
           `INSERT INTO users (username, nickname, avatar_url, color, status, password_hash, created_at, last_seen)
            VALUES (?, ?, NULL, ?, ?, ?, datetime('now'), datetime('now'))`,
           [rawUsername, nickname, assignedColor, "online", passwordHash],
         );
 
         if (role !== "user") {
-          const newRow = adminGetRow("SELECT id FROM users WHERE username = ?", [rawUsername]);
-          if (newRow?.id) adminRun("UPDATE users SET role = ? WHERE id = ?", [role, Number(newRow.id)]);
+          const newRowResult = adminGetRow("SELECT id FROM users WHERE username = ?", [rawUsername]);
+          const newRow = newRowResult && typeof newRowResult.then === "function" ? await newRowResult : newRowResult;
+          if (newRow?.id) await adminRun("UPDATE users SET role = ? WHERE id = ?", [role, Number(newRow.id)]);
         }
 
         adminSave();
 
-        const row = adminGetRow(
+        const rowResult = adminGetRow(
           "SELECT id, username, nickname FROM users WHERE username = ?",
           [rawUsername],
         );
+        const row = rowResult && typeof rowResult.then === "function" ? await rowResult : rowResult;
 
         return res.json({
           ok: true,
@@ -1148,8 +1153,9 @@ function registerAdminRoutes(app, deps) {
         });
       }
 
-      if (action === "vacuum_db") {
-        adminRun("VACUUM");
+      if (action === "vacuum" || action === "vacuum_db") {
+        const runRes = adminRun("VACUUM");
+        if (runRes && typeof runRes.then === "function") await runRes;
         adminSave();
         return res.json({
           ok: true,

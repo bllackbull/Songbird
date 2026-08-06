@@ -322,7 +322,8 @@ function registerChatRoutes(app, deps) {
 
     const rawConvs = listChatsForUser(user.id);
     const convs = (rawConvs && typeof rawConvs.then === "function" ? await rawConvs : rawConvs) || [];
-    const membersMap = listChatMembersForChats(convs.map((c) => c.id));
+    const rawMembersMap = listChatMembersForChats(convs.map((c) => c.id));
+    const membersMap = (rawMembersMap && typeof rawMembersMap.then === "function" ? await rawMembersMap : rawMembersMap) || new Map();
     const chats = convs.map((conv) => {
       const members = (membersMap.get(Number(conv.id)) || []).map((member) => ({
         ...member,
@@ -371,7 +372,8 @@ function registerChatRoutes(app, deps) {
     }
 
     // Serve stored metadata only — do not await ffprobe on the request path.
-    const lastFiles = listMessageFilesByMessageIds(lastMessageIds);
+    const rawLastFiles = listMessageFilesByMessageIds(lastMessageIds);
+    const lastFiles = (rawLastFiles && typeof rawLastFiles.then === "function" ? await rawLastFiles : rawLastFiles) || [];
 
     const filesByMessageId = lastFiles.reduce((acc, file) => {
       const messageId = Number(file.message_id);
@@ -420,16 +422,19 @@ function registerChatRoutes(app, deps) {
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
-    const user = findUserByUsername(String(username || "").toLowerCase());
+    const rawUser = findUserByUsername(String(username || "").toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    const savedChat = ensureSavedChatForUser(Number(user.id));
+    const rawSavedChat = ensureSavedChatForUser(Number(user.id));
+    const savedChat = rawSavedChat && typeof rawSavedChat.then === "function" ? await rawSavedChat : rawSavedChat;
     if (!savedChat?.id) {
       return res.status(500).json({ error: "Unable to open saved messages." });
     }
-    unhideChat(user.id, Number(savedChat.id));
+    const unhideRes = unhideChat(user.id, Number(savedChat.id));
+    if (unhideRes && typeof unhideRes.then === "function") await unhideRes;
 
     return res.json({ id: Number(savedChat.id) });
   });
@@ -671,17 +676,21 @@ function registerChatRoutes(app, deps) {
       return res.status(400).json({ error: "Invite link is required." });
     }
 
-    const chat = findChatByInviteTarget(target);
+    const rawChat = findChatByInviteTarget(target);
+    const chat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
     if (!chat) {
       return res.status(404).json({ error: "Invite link is invalid." });
     }
 
-    const user = findUserByUsername(String(session.username || "").toLowerCase());
+    const rawUser = findUserByUsername(String(session.username || "").toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    const members = listChatMembers(Number(chat.id)).map((member) => ({
+    const rawMembers = listChatMembers(Number(chat.id));
+    const memberList = (rawMembers && typeof rawMembers.then === "function" ? await rawMembers : rawMembers) || [];
+    const members = memberList.map((member) => ({
       ...member,
       avatar_url: ensureAvatarExists(member.id, member.avatar_url),
     }));
@@ -1545,7 +1554,9 @@ function registerChatRoutes(app, deps) {
     const query = req.query.query?.toString();
     if (exclude && !requireSessionUsernameMatch(res, session, exclude)) return;
 
-    const users = (query ? searchUsers(query.toLowerCase(), exclude) : listUsers(exclude)).map(
+    const rawUsers = query ? searchUsers(query.toLowerCase(), exclude) : listUsers(exclude);
+    const userList = (rawUsers && typeof rawUsers.then === "function" ? await rawUsers : rawUsers) || [];
+    const users = userList.map(
       (item) => ({
         ...item,
         avatar_url: ensureAvatarExists(item.id, item.avatar_url),
@@ -1632,12 +1643,15 @@ function registerChatRoutes(app, deps) {
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
-    const user = findUserByUsername(String(username || "").toLowerCase());
+    const rawUser = findUserByUsername(String(username || "").toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    const users = searchUsers(query.toLowerCase(), username)
+    const rawSearchUsers = searchUsers(query.toLowerCase(), username);
+    const searchUsersList = (rawSearchUsers && typeof rawSearchUsers.then === "function" ? await rawSearchUsers : rawSearchUsers) || [];
+    const users = searchUsersList
       .map((item) => ({
         ...item,
         avatar_url: ensureAvatarExists(item.id, item.avatar_url),
@@ -1648,7 +1662,9 @@ function registerChatRoutes(app, deps) {
       }))
       .slice(0, 20);
 
-    const groups = searchPublicGroups(query.toLowerCase(), user.id, 20).map((group) => ({
+    const rawSearchGroups = searchPublicGroups(query.toLowerCase(), user.id, 20);
+    const searchGroupsList = (rawSearchGroups && typeof rawSearchGroups.then === "function" ? await rawSearchGroups : rawSearchGroups) || [];
+    const groups = searchGroupsList.map((group) => ({
       id: Number(group.id),
       name: group.name || "Group",
       username: group.group_username || "",
@@ -1661,7 +1677,9 @@ function registerChatRoutes(app, deps) {
       type: "group",
     }));
 
-    const channels = searchPublicChannels(query.toLowerCase(), user.id, 20).map((channel) => ({
+    const rawSearchChannels = searchPublicChannels(query.toLowerCase(), user.id, 20);
+    const searchChannelsList = (rawSearchChannels && typeof rawSearchChannels.then === "function" ? await rawSearchChannels : rawSearchChannels) || [];
+    const channels = searchChannelsList.map((channel) => ({
       id: Number(channel.id),
       name: channel.name || "Channel",
       username: channel.group_username || "",
