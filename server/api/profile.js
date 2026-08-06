@@ -32,7 +32,7 @@ function registerProfileRoutes(app, deps) {
     uploadAvatar,
   } = deps;
 
-  const emitProfileUpdate = (user, options = {}) => {
+  const emitProfileUpdate = async (user, options = {}) => {
     if (!user?.id) return;
     const currentUsername = String(user.username || "").toLowerCase();
     const previousUsername = String(options.previousUsername || "")
@@ -51,7 +51,8 @@ function registerProfileRoutes(app, deps) {
     const targets = new Set();
     if (currentUsername) targets.add(currentUsername);
     if (previousUsername) targets.add(previousUsername);
-    const chats = listChatsForUser(Number(user.id || 0));
+    const rawChats = listChatsForUser(Number(user.id || 0));
+    const chats = (rawChats && typeof rawChats.then === "function" ? await rawChats : rawChats) || [];
     chats.forEach((chat) => {
       const members = listChatMembers(Number(chat?.id || 0));
       members.forEach((member) => {

@@ -481,9 +481,9 @@ const { buildInspectSnapshot, hasEnoughFreeDiskSpace } = inspector;
 const redisClient = createRedisClient();
 const redisSessionStore = createRedisSessionStore({ redisClient, dbGetSession: getSession });
 
-function createSessionCombined(userId, token) {
-  createSession(userId, token);
-  redisSessionStore.createSession(userId, token);
+async function createSessionCombined(userId, token) {
+  await createSession(userId, token);
+  await redisSessionStore.createSession(userId, token);
 }
 
 function getSessionCombined(token) {
@@ -492,14 +492,14 @@ function getSessionCombined(token) {
   return getSession(token);
 }
 
-function touchSessionCombined(token) {
-  touchSession(token);
-  redisSessionStore.touchSession(token);
+async function touchSessionCombined(token) {
+  await touchSession(token);
+  await redisSessionStore.touchSession(token);
 }
 
-function deleteSessionCombined(token) {
-  deleteSession(token);
-  redisSessionStore.deleteSession(token);
+async function deleteSessionCombined(token) {
+  await deleteSession(token);
+  await redisSessionStore.deleteSession(token);
 }
 
 const sessionHelpers = createSessionHelpers({

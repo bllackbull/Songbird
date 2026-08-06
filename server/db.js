@@ -285,8 +285,11 @@ function runWithoutSave(sql, params = []) {
 }
 
 function getLastInsertId() {
-  const row = getRow("SELECT last_insert_rowid() AS id");
-  return row?.id;
+  const raw = getRow("SELECT last_insert_rowid() AS id");
+  if (raw && typeof raw.then === "function") {
+    return raw.then((row) => (row?.id ? Number(row.id) : null));
+  }
+  return raw?.id ? Number(raw.id) : null;
 }
 
 function decryptMessageRow(row) {
@@ -636,10 +639,14 @@ export function createUser(
 ) {
   const nextColor = color || setUserColor();
 
-  run(
+  const res = run(
     "INSERT INTO users (username, nickname, avatar_url, color, password_hash, last_seen) VALUES (?, ?, ?, ?, ?, datetime('now'))",
     [username, nickname, avatarUrl, nextColor, passwordHash],
   );
+
+  if (res && typeof res.then === "function") {
+    return res.then(() => getLastInsertId());
+  }
 
   return getLastInsertId();
 }
@@ -701,11 +708,11 @@ export function createChat(name, type = "dm", options = {}) {
       ? String(options.groupAvatarUrl || "").trim() || null
       : null;
 
-  run(
+  const res = run(
     "INSERT INTO chats (name, type, group_username, group_visibility, invite_token, created_by_user_id, group_color, allow_member_invites, group_avatar_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     [
-    normalizedName,
-    normalizedType,
+      normalizedName,
+      normalizedType,
       groupUsername,
       groupVisibility,
       inviteToken,
@@ -716,11 +723,31 @@ export function createChat(name, type = "dm", options = {}) {
     ],
   );
 
-  const id = getLastInsertId();
-  if (id) return id;
+  const getResult = () => {
+    const rawId = getLastInsertId();
+    if (rawId && typeof rawId.then === "function") {
+      return rawId.then((id) => {
+        if (id) return id;
+        const rawFallback = getRow("SELECT id FROM chats ORDER BY id DESC LIMIT 1");
+        if (rawFallback && typeof rawFallback.then === "function") {
+          return rawFallback.then((fb) => fb?.id || null);
+        }
+        return rawFallback?.id || null;
+      });
+    }
+    if (rawId) return rawId;
 
-  const fallback = getRow("SELECT id FROM chats ORDER BY id DESC LIMIT 1");
-  return fallback?.id || null;
+    const rawFallback = getRow("SELECT id FROM chats ORDER BY id DESC LIMIT 1");
+    if (rawFallback && typeof rawFallback.then === "function") {
+      return rawFallback.then((fb) => fb?.id || null);
+    }
+    return rawFallback?.id || null;
+  };
+
+  if (res && typeof res.then === "function") {
+    return res.then(getResult);
+  }
+  return getResult();
 }
 
 export function addChatMember(chatId, userId, role = "member") {
@@ -1902,8 +1929,11 @@ export function deleteUserById(userId) {
 
 export function listChatsForUser(userId) {
   const uid = Number(userId);
+  if (!uid || Number.isNaN(uid)) {
+    return isPostgresMode() ? Promise.resolve([]) : [];
+  }
 
-  return getAll(
+  const rawRows = getAll(
     `
     WITH member_chats AS (
       SELECT
@@ -2027,7 +2057,13 @@ export function listChatsForUser(userId) {
       uid,
       uid,
     ],
-  ).map(decryptMessageRow);
+  );
+
+  if (rawRows && typeof rawRows.then === "function") {
+    return rawRows.then((rows) => (rows || []).map(decryptMessageRow));
+  }
+
+  return (rawRows || []).map(decryptMessageRow);
 }
 
 export function createMessage(
@@ -2042,7 +2078,7 @@ export function createMessage(
   const storedBody = storageEncryption.encryptText(body, {
     allowPlaintextSystemMessage,
   });
-  run(
+  const res = run(
     `INSERT INTO chat_messages (
       chat_id, user_id, body, reply_to_message_id, expires_at, client_request_id
     ) VALUES (?, ?, ?, ?, ?, ?)`,
@@ -2056,14 +2092,37 @@ export function createMessage(
     ],
   );
 
-  const id = getLastInsertId();
-  if (id) return id;
+  const getResult = () => {
+    const rawId = getLastInsertId();
+    if (rawId && typeof rawId.then === "function") {
+      return rawId.then((id) => {
+        if (id) return id;
+        const rawFallback = getRow(
+          "SELECT id FROM chat_messages WHERE chat_id = ? AND user_id = ? ORDER BY id DESC LIMIT 1",
+          [chatId, userId],
+        );
+        if (rawFallback && typeof rawFallback.then === "function") {
+          return rawFallback.then((fb) => fb?.id || null);
+        }
+        return rawFallback?.id || null;
+      });
+    }
+    if (rawId) return rawId;
 
-  const fallback = getRow(
-    "SELECT id FROM chat_messages WHERE chat_id = ? AND user_id = ? ORDER BY id DESC LIMIT 1",
-    [chatId, userId],
-  );
-  return fallback?.id || null;
+    const rawFallback = getRow(
+      "SELECT id FROM chat_messages WHERE chat_id = ? AND user_id = ? ORDER BY id DESC LIMIT 1",
+      [chatId, userId],
+    );
+    if (rawFallback && typeof rawFallback.then === "function") {
+      return rawFallback.then((fb) => fb?.id || null);
+    }
+    return rawFallback?.id || null;
+  };
+
+  if (res && typeof res.then === "function") {
+    return res.then(getResult);
+  }
+  return getResult();
 }
 
 export function findMessageIdByClientRequestId(chatId, userId, clientRequestId) {
@@ -2859,10 +2918,16 @@ export function listMutedUserIdsForChat(chatId) {
 }
 
 export function createSession(userId, token) {
-  run("INSERT INTO sessions (user_id, token) VALUES (?, ?)", [userId, token]);
+  const uid = Number(userId);
+  if (!uid || Number.isNaN(uid) || !token) {
+    const err = new Error(`Invalid session parameters: userId=${userId}, token=${token}`);
+    return isPostgresMode() ? Promise.reject(err) : (() => { throw err; })();
+  }
+  return run("INSERT INTO sessions (user_id, token) VALUES (?, ?)", [uid, token]);
 }
 
 export function getSession(token) {
+  if (!token) return isPostgresMode() ? Promise.resolve(null) : null;
   return getRow(
     `
     SELECT sessions.id AS session_id, sessions.token, users.id, users.username, users.nickname,
@@ -2877,13 +2942,15 @@ export function getSession(token) {
 }
 
 export function touchSession(token) {
-  run("UPDATE sessions SET last_seen = datetime('now') WHERE token = ?", [
+  if (!token) return isPostgresMode() ? Promise.resolve() : undefined;
+  return run("UPDATE sessions SET last_seen = datetime('now') WHERE token = ?", [
     token,
   ]);
 }
 
 export function deleteSession(token) {
-  run("DELETE FROM sessions WHERE token = ?", [token]);
+  if (!token) return isPostgresMode() ? Promise.resolve() : undefined;
+  return run("DELETE FROM sessions WHERE token = ?", [token]);
 }
 
 // Internal admin helpers for server-side DB tooling endpoints.

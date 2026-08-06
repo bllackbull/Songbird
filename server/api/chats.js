@@ -314,26 +314,26 @@ function registerChatRoutes(app, deps) {
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
-    const user = findUserByUsername(username.toLowerCase());
+    const rawUser = findUserByUsername(username.toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    const chats = (() => {
-      const convs = listChatsForUser(user.id);
-      const membersMap = listChatMembersForChats(convs.map((c) => c.id));
-      return convs.map((conv) => {
-        const members = (membersMap.get(Number(conv.id)) || []).map((member) => ({
-          ...member,
-          avatar_url: ensureAvatarExists(member.id, member.avatar_url),
-          status:
-            isConnected(member.username) && String(member.status || "").toLowerCase() === "online"
-              ? "online"
-              : "offline",
-        }));
-        return { ...conv, members };
-      });
-    })();
+    const rawConvs = listChatsForUser(user.id);
+    const convs = (rawConvs && typeof rawConvs.then === "function" ? await rawConvs : rawConvs) || [];
+    const membersMap = listChatMembersForChats(convs.map((c) => c.id));
+    const chats = convs.map((conv) => {
+      const members = (membersMap.get(Number(conv.id)) || []).map((member) => ({
+        ...member,
+        avatar_url: ensureAvatarExists(member.id, member.avatar_url),
+        status:
+          isConnected(member.username) && String(member.status || "").toLowerCase() === "online"
+            ? "online"
+            : "offline",
+      }));
+      return { ...conv, members };
+    });
 
     const lastMessageIds = chats
       .map((chat) => Number(chat.last_message_id || 0))

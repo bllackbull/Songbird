@@ -15,6 +15,10 @@ import {
   isUserAdmin,
   isUserOwner,
   getOwnerUser,
+  createSession,
+  listChatsForUser,
+  run,
+  getAll,
 } from "../../db.js";
 
 describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
@@ -432,6 +436,246 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ ok: true });
       expect(deleteSessionAsync).toHaveBeenCalledWith("active_token");
+    });
+  });
+
+  // 5. Production crash regression tests under PostgreSQL DB driver mode
+  describe("PostgreSQL Driver Crash Regressions (Sessions & Chat Loading)", () => {
+    // 5.1 Issue 1: Undefined binding(s) detected for keys [0] when compiling RAW query: INSERT INTO sessions (user_id, token) VALUES (?, ?)
+    describe("Issue 1: Undefined binding(s) in session creation", () => {
+      test("run and dbRun throw or fail with Undefined binding(s) when userId or token is undefined in Postgres mode", async () => {
+        process.env.DB_CLIENT = "postgres";
+
+        // Calling run with undefined userId
+        let errUserId;
+        try {
+          await run("INSERT INTO sessions (user_id, token) VALUES (?, ?)", [
+            undefined,
+            "valid_token_123",
+          ]);
+        } catch (err) {
+          errUserId = err;
+        }
+        expect(errUserId).toBeDefined();
+        expect(String(errUserId?.message || errUserId)).toMatch(
+          /Undefined binding\(s\) detected/i
+        );
+
+        // Calling run with undefined token
+        let errToken;
+        try {
+          await run("INSERT INTO sessions (user_id, token) VALUES (?, ?)", [
+            42,
+            undefined,
+          ]);
+        } catch (err) {
+          errToken = err;
+        }
+        expect(errToken).toBeDefined();
+        expect(String(errToken?.message || errToken)).toMatch(
+          /Undefined binding\(s\) detected/i
+        );
+      });
+
+      test("POST /api/register handles undefined userId from createUser gracefully or passes valid bindings to createSession", async () => {
+        process.env.DB_CLIENT = "postgres";
+        const createSessionSpy = vi.fn().mockImplementation(async (userId, token) => {
+          if (userId === undefined || token === undefined) {
+            throw new Error(
+              "Undefined binding(s) detected for keys [0] when compiling RAW query: INSERT INTO sessions (user_id, token) VALUES (?, ?)"
+            );
+          }
+        });
+
+        // Case A: createUser returns undefined (e.g. invalid insert or missing ID)
+        const { app: appBrokenUser } = makeApp({
+          deps: {
+            findUserByUsername: () => Promise.resolve(null),
+            createUser: () => Promise.resolve(undefined),
+            createSession: createSessionSpy,
+          },
+        });
+
+        await request(appBrokenUser)
+          .post("/api/register")
+          .send({ username: "testuser", password: "password123" });
+
+        // createSession was called with undefined userId, catching the bug/failure
+        expect(createSessionSpy).toHaveBeenCalledWith(undefined, expect.any(String));
+
+        // Case B: createUser returns valid numeric ID
+        createSessionSpy.mockClear();
+        const { app: appValidUser } = makeApp({
+          deps: {
+            findUserByUsername: () => Promise.resolve(null),
+            createUser: () => Promise.resolve(101),
+            createSession: createSessionSpy,
+          },
+        });
+
+        const resValid = await request(appValidUser)
+          .post("/api/register")
+          .send({ username: "validuser", password: "password123" });
+
+        expect(resValid.status).toBe(200);
+        expect(createSessionSpy).toHaveBeenCalledWith(101, expect.any(String));
+      });
+
+      test("POST /api/login handles undefined user.id gracefully or passes valid non-undefined bindings to createSession", async () => {
+        process.env.DB_CLIENT = "postgres";
+        const hashed = bcrypt.hashSync("password123", 10);
+        const createSessionSpy = vi.fn().mockImplementation(async (userId, token) => {
+          if (userId === undefined || token === undefined) {
+            throw new Error(
+              "Undefined binding(s) detected for keys [0] when compiling RAW query: INSERT INTO sessions (user_id, token) VALUES (?, ?)"
+            );
+          }
+        });
+
+        // Case A: findUserByUsername returns user object without 'id' (userId is undefined)
+        const { app: appNoId } = makeApp({
+          deps: {
+            findUserByUsername: () =>
+              Promise.resolve({
+                username: "noiduser",
+                password_hash: hashed,
+                banned: false,
+              }),
+            createSession: createSessionSpy,
+          },
+        });
+
+        await request(appNoId)
+          .post("/api/login")
+          .send({ username: "noiduser", password: "password123" });
+
+        expect(createSessionSpy).toHaveBeenCalledWith(undefined, expect.any(String));
+
+        // Case B: findUserByUsername returns user with valid id
+        createSessionSpy.mockClear();
+        const { app: appValidId } = makeApp({
+          deps: {
+            findUserByUsername: () =>
+              Promise.resolve({
+                id: 55,
+                username: "valididuser",
+                password_hash: hashed,
+                banned: false,
+              }),
+            createSession: createSessionSpy,
+          },
+        });
+
+        const resValid = await request(appValidId)
+          .post("/api/login")
+          .send({ username: "valididuser", password: "password123" });
+
+        expect(resValid.status).toBe(200);
+        expect(createSessionSpy).toHaveBeenCalledWith(55, expect.any(String));
+      });
+    });
+
+    // 5.2 Issue 2: TypeError: getAll(...).map is not a function at listChatsForUser
+    describe("Issue 2: getAll(...).map is not a function in listChatsForUser", () => {
+      test("listChatsForUser handles Promise returned by getAll under Postgres mode without throwing map is not a function", async () => {
+        process.env.DB_CLIENT = "postgres";
+        vi.spyOn(dbKnex, "raw").mockImplementation(() =>
+          Promise.resolve({ rows: [] })
+        );
+
+        const res = listChatsForUser(1);
+        expect(typeof res?.then).toBe("function");
+        const chats = await res;
+        expect(chats).toEqual([]);
+      });
+
+      test("GET /api/chats handles async listChatsForUser and findUserByUsername returning Promises", async () => {
+        process.env.DB_CLIENT = "postgres";
+        const asyncListChatsForUser = vi.fn().mockImplementation(() => {
+          return Promise.resolve([
+            { id: 1, name: "General", type: "group" },
+          ]);
+        });
+
+        const { app, sessionStore, userStore } = makeApp({
+          deps: {
+            listChatsForUser: asyncListChatsForUser,
+            findUserByUsername: () =>
+              Promise.resolve({ id: 10, username: "alice" }),
+            listChatMembersForChats: () => new Map(),
+          },
+        });
+        userStore.users.set("alice", { id: 10, username: "alice", role: "user" });
+        sessionStore.createSession(10, "valid");
+
+        // Calling GET /api/chats?username=alice
+        const res = await request(app)
+          .get("/api/chats?username=alice")
+          .set("Cookie", ["sid=valid"]);
+
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({
+          chats: [expect.objectContaining({ id: 1, name: "General" })],
+        });
+      });
+    });
+
+    // 5.3 Issue 3: Postgres invalid input syntax for type integer: "NaN" error in listChatsForUser
+    describe("Issue 3: Postgres invalid input syntax for type integer: 'NaN' in listChatsForUser", () => {
+      test("listChatsForUser safely returns empty array without passing NaN bindings to SQL when userId is NaN, undefined, or non-numeric", async () => {
+        process.env.DB_CLIENT = "postgres";
+        let capturedParams = null;
+        vi.spyOn(dbKnex, "raw").mockImplementation((sql, params) => {
+          capturedParams = params;
+          return Promise.resolve({ rows: [] });
+        });
+
+        // 1. listChatsForUser with NaN
+        const resNaN = await listChatsForUser(NaN);
+        expect(resNaN).toEqual([]);
+        expect(capturedParams).toBeNull(); // No query should be executed for NaN
+
+        // 2. listChatsForUser with undefined
+        const resUndef = await listChatsForUser(undefined);
+        expect(resUndef).toEqual([]);
+        expect(capturedParams).toBeNull(); // No query should be executed for undefined
+
+        // 3. listChatsForUser with invalid string
+        const resStr = await listChatsForUser("not_a_number");
+        expect(resStr).toEqual([]);
+        expect(capturedParams).toBeNull(); // No query should be executed for invalid string
+      });
+
+      test("GET /api/chats safely handles invalid or missing user.id without passing NaN to listChatsForUser", async () => {
+        process.env.DB_CLIENT = "postgres";
+        const listChatsForUserMock = vi.fn().mockImplementation((userId) => {
+          const uid = Number(userId);
+          if (Number.isNaN(uid)) {
+            const err = new Error('invalid input syntax for type integer: "NaN"');
+            err.code = "22P02";
+            throw err;
+          }
+          return [];
+        });
+
+        const { app, sessionStore, userStore } = makeApp({
+          deps: {
+            listChatsForUser: listChatsForUserMock,
+            findUserByUsername: () =>
+              Promise.resolve({ id: 10, username: "validuser" }),
+            listChatMembersForChats: () => new Map(),
+          },
+        });
+        userStore.users.set("validuser", { id: 10, username: "validuser", role: "user" });
+        sessionStore.createSession(10, "valid");
+
+        const res = await request(app)
+          .get("/api/chats?username=validuser")
+          .set("Cookie", ["sid=valid"]);
+
+        expect(res.status).toBe(200);
+        expect(listChatsForUserMock).toHaveBeenCalledWith(10);
+      });
     });
   });
 });
