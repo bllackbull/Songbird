@@ -1511,9 +1511,14 @@ export function clearChatMemberLeft(chatId, userId) {
 }
 
 export async function hasChatMemberLeft(chatId, userId) {
+  const cid = Number(chatId);
+  const uid = Number(userId);
+  if (!cid || Number.isNaN(cid) || !uid || Number.isNaN(uid)) {
+    return false;
+  }
   const row = getRow(
     "SELECT 1 AS left_chat FROM chat_left_members WHERE chat_id = ? AND user_id = ?",
-    [Number(chatId), Number(userId)],
+    [cid, uid],
   );
   const resolved = row && typeof row.then === "function" ? await row : row;
   return Boolean(resolved);
@@ -1538,9 +1543,14 @@ export function clearGroupMemberRemoved(chatId, userId) {
 }
 
 export async function isGroupMemberRemoved(chatId, userId) {
+  const cid = Number(chatId);
+  const uid = Number(userId);
+  if (!cid || Number.isNaN(cid) || !uid || Number.isNaN(uid)) {
+    return false;
+  }
   const row = getRow(
     "SELECT 1 AS removed FROM group_removed_members WHERE chat_id = ? AND user_id = ?",
-    [Number(chatId), Number(userId)],
+    [cid, uid],
   );
   const resolved = row && typeof row.then === "function" ? await row : row;
   return Boolean(resolved);
@@ -1662,9 +1672,14 @@ export function regenerateGroupInviteToken(chatId, inviteToken) {
 }
 
 export async function isMember(chatId, userId) {
+  const cid = Number(chatId);
+  const uid = Number(userId);
+  if (!cid || Number.isNaN(cid) || !uid || Number.isNaN(uid)) {
+    return false;
+  }
   const row = getRow(
     "SELECT chat_id FROM chat_members WHERE chat_id = ? AND user_id = ?",
-    [chatId, userId],
+    [cid, uid],
   );
   const resolved = row && typeof row.then === "function" ? await row : row;
   return Boolean(resolved);
@@ -1738,9 +1753,14 @@ export function listChatMembersForChats(chatIds = []) {
 }
 
 export async function getChatMemberRole(chatId, userId) {
+  const cid = Number(chatId);
+  const uid = Number(userId);
+  if (!cid || Number.isNaN(cid) || !uid || Number.isNaN(uid)) {
+    return "";
+  }
   const row = getRow(
     "SELECT role FROM chat_members WHERE chat_id = ? AND user_id = ?",
-    [Number(chatId), Number(userId)],
+    [cid, uid],
   );
   const resolved = row && typeof row.then === "function" ? await row : row;
   return String(resolved?.role || "");

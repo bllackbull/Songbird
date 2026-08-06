@@ -146,6 +146,11 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
 
       const resPgFalse = await isMember(1, 999);
       expect(resPgFalse).toBe(false);
+
+      // Undefined & NaN parameter safety
+      expect(await isMember(undefined, 2)).toBe(false);
+      expect(await isMember(1, undefined)).toBe(false);
+      expect(await isMember(NaN, NaN)).toBe(false);
     });
 
     test("hasChatMemberLeft resolves booleans correctly under Postgres mode", async () => {
