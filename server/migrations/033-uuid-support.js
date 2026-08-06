@@ -28,24 +28,21 @@ export async function up(knex) {
     });
   }
 
-  // Backfill existing rows with generated UUIDs if empty
-  const usersWithoutUuid = await knex("users").whereNull("uuid").select("id");
-  for (const user of usersWithoutUuid) {
-    await knex("users").where({ id: user.id }).update({ uuid: generateUuid() });
-  }
+  // Backfill existing rows with generated UUIDs in chunked transactions
+  const tables = ["users", "chats", "chat_messages"];
+  const chunkSize = 500;
 
-  const chatsWithoutUuid = await knex("chats").whereNull("uuid").select("id");
-  for (const chat of chatsWithoutUuid) {
-    await knex("chats").where({ id: chat.id }).update({ uuid: generateUuid() });
-  }
+  for (const table of tables) {
+    while (true) {
+      const rows = await knex(table).whereNull("uuid").select("id").limit(chunkSize);
+      if (!rows.length) break;
 
-  const messagesWithoutUuid = await knex("chat_messages")
-    .whereNull("uuid")
-    .select("id");
-  for (const msg of messagesWithoutUuid) {
-    await knex("chat_messages")
-      .where({ id: msg.id })
-      .update({ uuid: generateUuid() });
+      await knex.transaction(async (trx) => {
+        for (const row of rows) {
+          await trx(table).where({ id: row.id }).update({ uuid: generateUuid() });
+        }
+      });
+    }
   }
 }
 
