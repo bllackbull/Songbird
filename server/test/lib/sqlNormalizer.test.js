@@ -31,4 +31,22 @@ describe("normalizeSqlForPostgres", () => {
     );
     expect(sql).toContain("information_schema.tables");
   });
+
+  test("replaces AUTOINCREMENT with SERIAL PRIMARY KEY", () => {
+    const { sql } = normalizeSqlForPostgres(
+      "CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT)"
+    );
+    expect(sql).toContain("SERIAL PRIMARY KEY");
+  });
+
+  test("replaces PRAGMA table_info with information_schema.columns query", () => {
+    const { sql } = normalizeSqlForPostgres("PRAGMA table_info('users')");
+    expect(sql).toContain("information_schema.columns");
+    expect(sql).toContain("users");
+  });
+
+  test("replaces PRAGMA user_version with meta table query", () => {
+    const { sql } = normalizeSqlForPostgres("PRAGMA user_version");
+    expect(sql).toContain("SELECT value AS user_version FROM meta WHERE key = 'user_version'");
+  });
 });

@@ -323,7 +323,63 @@ function getVisibleMessageFilterSql(alias = "chat_messages", viewerClause = "") 
     )`;
 }
 
+function updateSchemaSetsFromSql(sql, tablesSet, columnsSet) {
+  if (!sql || typeof sql !== "string") return;
+
+  const statements = sql.split(";");
+  for (const stmt of statements) {
+    const trimmed = stmt.trim();
+    if (!trimmed) continue;
+
+    const createMatch = trimmed.match(
+      /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["`']?([a-zA-Z0-9_]+)["`']?\s*\(([\s\S]+)\)/i,
+    );
+    if (createMatch) {
+      const tableName = createMatch[1].toLowerCase();
+      tablesSet.add(tableName);
+      const body = createMatch[2];
+      const lines = body.split(",");
+      for (const line of lines) {
+        const colTrimmed = line.trim();
+        if (!colTrimmed) continue;
+        if (
+          /^(PRIMARY\s+KEY|FOREIGN\s+KEY|UNIQUE|CHECK|CONSTRAINT)/i.test(
+            colTrimmed,
+          )
+        ) {
+          continue;
+        }
+        const colMatch = colTrimmed.match(/^["`']?([a-zA-Z0-9_]+)["`']?/);
+        if (colMatch) {
+          const colName = colMatch[1].toLowerCase();
+          columnsSet.add(`${tableName}.${colName}`);
+        }
+      }
+    }
+
+    const alterMatch = trimmed.match(
+      /ALTER\s+TABLE\s+["`']?([a-zA-Z0-9_]+)["`']?\s+ADD\s+(?:COLUMN\s+)?["`']?([a-zA-Z0-9_]+)["`']?/i,
+    );
+    if (alterMatch) {
+      const tableName = alterMatch[1].toLowerCase();
+      const colName = alterMatch[2].toLowerCase();
+      tablesSet.add(tableName);
+      columnsSet.add(`${tableName}.${colName}`);
+    }
+  }
+}
+
 function tableExists(name) {
+  if (isPostgresMode()) {
+    const row = getRow(
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ?",
+      [name],
+    );
+    if (row && typeof row.then === "function") {
+      return row.then((r) => Boolean(r));
+    }
+    return Boolean(row);
+  }
   return Boolean(
     getRow("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", [
       name,
@@ -332,17 +388,42 @@ function tableExists(name) {
 }
 
 function hasColumn(tableName, columnName) {
-  return getAll(`PRAGMA table_info('${tableName}')`).some(
-    (col) => col.name === columnName,
-  );
+  if (isPostgresMode()) {
+    const row = getRow(
+      "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ? AND column_name = ?",
+      [tableName, columnName],
+    );
+    if (row && typeof row.then === "function") {
+      return row.then((r) => Boolean(r));
+    }
+    return Boolean(row);
+  }
+  const rows = getAll(`PRAGMA table_info('${tableName}')`);
+  const safeRows = Array.isArray(rows) ? rows : [];
+  return safeRows.some((col) => col.name === columnName);
 }
 
-function getSchemaVersion() {
+async function getSchemaVersion() {
+  if (isPostgresMode()) {
+    try {
+      const row = await getRow("SELECT value FROM meta WHERE key = 'user_version'");
+      return Number(row?.value || 0);
+    } catch {
+      return 0;
+    }
+  }
   const row = getRow("PRAGMA user_version");
   return Number(row?.user_version || 0);
 }
 
-function setSchemaVersion(version) {
+async function setSchemaVersion(version) {
+  if (isPostgresMode()) {
+    await run(
+      "INSERT INTO meta (key, value) VALUES ('user_version', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+      [String(version)],
+    );
+    return;
+  }
   if (betterDb) {
     betterDb.pragma(`user_version = ${Number(version) || 0}`);
   } else if (db) {
@@ -350,16 +431,76 @@ function setSchemaVersion(version) {
   }
 }
 
-function runDatabaseMigrations() {
+async function runDatabaseMigrations() {
+  const tablesSet = new Set();
+  const columnsSet = new Set();
+
+  if (isPostgresMode()) {
+    try {
+      await dbKnex.raw(`
+        CREATE TABLE IF NOT EXISTS meta (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        );
+      `);
+      const colRes = await dbKnex.raw(`
+        SELECT table_name, column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public';
+      `);
+      const rows = Array.isArray(colRes) ? colRes : colRes?.rows || [];
+      for (const r of rows) {
+        const tName = String(r.table_name || "").toLowerCase();
+        const cName = String(r.column_name || "").toLowerCase();
+        tablesSet.add(tName);
+        columnsSet.add(`${tName}.${cName}`);
+      }
+    } catch (err) {
+      console.error("[db-migrations] Error initializing Postgres schema sets:", err);
+    }
+  }
+
+  function syncTableExists(name) {
+    if (isPostgresMode()) {
+      return tablesSet.has(String(name || "").toLowerCase());
+    }
+    return tableExists(name);
+  }
+
+  function syncHasColumn(tableName, columnName) {
+    if (isPostgresMode()) {
+      return columnsSet.has(
+        `${String(tableName || "").toLowerCase()}.${String(columnName || "").toLowerCase()}`,
+      );
+    }
+    return hasColumn(tableName, columnName);
+  }
+
   const migrationContext = {
     db: {
-      run: (sql, params = []) => run(sql, params),
-      exec: (sql) => (betterDb ? betterDb.exec(sql) : db?.exec(sql)),
+      run: async (sql, params = []) => {
+        const res = await run(sql, params);
+        if (isPostgresMode()) {
+          updateSchemaSetsFromSql(sql, tablesSet, columnsSet);
+        }
+        return res;
+      },
+      exec: async (sql) => {
+        const res = isPostgresMode()
+          ? await dbKnex.raw(sql)
+          : betterDb
+            ? betterDb.exec(sql)
+            : db?.exec(sql);
+        if (isPostgresMode()) {
+          updateSchemaSetsFromSql(sql, tablesSet, columnsSet);
+        }
+        return res;
+      },
       prepare: (sql) => (betterDb ? betterDb.prepare(sql) : db?.prepare(sql)),
     },
     getAll,
-    tableExists,
-    hasColumn,
+    tableExists: syncTableExists,
+    hasColumn: syncHasColumn,
     setUserColor,
   };
 
@@ -371,31 +512,33 @@ function runDatabaseMigrations() {
         ...orderedMigrations.map((migration) => Number(migration.version) || 0),
       )
     : 0;
-  const startingVersion = getSchemaVersion();
+  const startingVersion = await getSchemaVersion();
 
-  if (startingVersion < latestVersion) {
+  if (startingVersion < latestVersion && !isPostgresMode()) {
     createPreMigrationBackup(startingVersion, latestVersion);
   }
 
   let appliedMigration = false;
 
-  orderedMigrations.forEach((migration) => {
-    if (getSchemaVersion() >= migration.version) return;
+  for (const migration of orderedMigrations) {
+    const currentVersion = await getSchemaVersion();
+    if (currentVersion >= migration.version) continue;
 
-    migration.up(migrationContext);
-    setSchemaVersion(migration.version);
+    await migration.up(migrationContext);
+    await setSchemaVersion(migration.version);
     appliedMigration = true;
-  });
+  }
 
   // Self-heal schemas where PRAGMA user_version advanced but tables are missing.
   // All migrations are written to be idempotent (CREATE IF NOT EXISTS / guarded ALTERs),
   // so re-applying ensures critical tables exist.
-  orderedMigrations.forEach((migration) => {
-    migration.up(migrationContext);
-  });
+  for (const migration of orderedMigrations) {
+    await migration.up(migrationContext);
+  }
 
-  if (getSchemaVersion() < latestVersion) {
-    setSchemaVersion(latestVersion);
+  const currentVersion = await getSchemaVersion();
+  if (currentVersion < latestVersion) {
+    await setSchemaVersion(latestVersion);
     appliedMigration = true;
   }
 
@@ -404,7 +547,7 @@ function runDatabaseMigrations() {
   }
 }
 
-runDatabaseMigrations();
+await runDatabaseMigrations();
 
 saveDatabase();
 
