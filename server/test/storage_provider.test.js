@@ -5,7 +5,7 @@ import os from "os";
 import {
   StorageProvider,
   LocalStorageProvider,
-  S3StorageProvider,
+  RemoteStorageProvider,
   createStorageProvider,
 } from "../lib/storage/index.js";
 
@@ -70,17 +70,17 @@ describe("LocalStorageProvider", () => {
   });
 });
 
-describe("S3StorageProvider", () => {
+describe("RemoteStorageProvider", () => {
   const s3Config = {
-    STORAGE_S3_BUCKET: "my-bucket",
-    STORAGE_S3_REGION: "us-east-1",
-    STORAGE_S3_ACCESS_KEY_ID: "key-id",
-    STORAGE_S3_SECRET_ACCESS_KEY: "secret-key",
-    STORAGE_S3_ENDPOINT: "https://s3.example.com",
+    STORAGE_BUCKET: "my-bucket",
+    STORAGE_REGION: "us-east-1",
+    STORAGE_ACCESS_KEY_ID: "key-id",
+    STORAGE_SECRET_ACCESS_KEY: "secret-key",
+    STORAGE_ENDPOINT: "https://s3.example.com",
   };
 
-  it("initializes S3StorageProvider instance", () => {
-    const provider = new S3StorageProvider(s3Config);
+  it("initializes RemoteStorageProvider instance", () => {
+    const provider = new RemoteStorageProvider(s3Config);
     expect(provider).toBeInstanceOf(StorageProvider);
     expect(provider.bucket).toBe("my-bucket");
     expect(provider.region).toBe("us-east-1");
@@ -88,23 +88,23 @@ describe("S3StorageProvider", () => {
   });
 
   it("generates presigned upload URL using PutObjectCommand", async () => {
-    const provider = new S3StorageProvider(s3Config);
+    const provider = new RemoteStorageProvider(s3Config);
     const res = await provider.getUploadUrl({
       key: "uploads/file.png",
       contentType: "image/png",
     });
-    expect(res.type).toBe("s3");
+    expect(res.type).toBe("remote");
     expect(res.uploadUrl).toBeTypeOf("string");
     expect(res.uploadUrl).toContain("my-bucket");
   });
 
   it("generates download URL via presigned GET or publicUrl", async () => {
-    const provider = new S3StorageProvider(s3Config);
+    const provider = new RemoteStorageProvider(s3Config);
     const url = await provider.getDownloadUrl("uploads/file.png");
     expect(url).toBeTypeOf("string");
     expect(url).toContain("my-bucket");
 
-    const cdnProvider = new S3StorageProvider({
+    const cdnProvider = new RemoteStorageProvider({
       ...s3Config,
       publicUrl: "https://cdn.example.com",
     });
@@ -113,14 +113,14 @@ describe("S3StorageProvider", () => {
   });
 
   it("deletes file using DeleteObjectCommand", async () => {
-    const provider = new S3StorageProvider(s3Config);
+    const provider = new RemoteStorageProvider(s3Config);
     const sendSpy = vi.spyOn(provider.client, "send").mockResolvedValue({});
     await provider.deleteFile("uploads/file.png");
     expect(sendSpy).toHaveBeenCalled();
   });
 
   it("checks file existence using HeadObjectCommand", async () => {
-    const provider = new S3StorageProvider(s3Config);
+    const provider = new RemoteStorageProvider(s3Config);
 
     vi.spyOn(provider.client, "send").mockResolvedValueOnce({});
     expect(await provider.exists("uploads/file.png")).toBe(true);
@@ -141,12 +141,12 @@ describe("createStorageProvider", () => {
     expect(providerLocal).toBeInstanceOf(LocalStorageProvider);
   });
 
-  it("creates S3StorageProvider when STORAGE_DRIVER is 's3'", () => {
+  it("creates RemoteStorageProvider when STORAGE_DRIVER is 'remote'", () => {
     const providerS3 = createStorageProvider({
-      STORAGE_DRIVER: "s3",
-      STORAGE_S3_BUCKET: "test-bucket",
+      STORAGE_DRIVER: "remote",
+      STORAGE_BUCKET: "test-bucket",
     });
-    expect(providerS3).toBeInstanceOf(S3StorageProvider);
+    expect(providerS3).toBeInstanceOf(RemoteStorageProvider);
   });
 
   it("throws error for unknown STORAGE_DRIVER", () => {

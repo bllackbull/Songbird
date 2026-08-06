@@ -8,32 +8,35 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { StorageProvider } from "./StorageProvider.js";
 
-export class S3StorageProvider extends StorageProvider {
+export class RemoteStorageProvider extends StorageProvider {
   constructor(config = {}) {
     super();
-    this.bucket = config.bucket || config.STORAGE_S3_BUCKET;
-    this.region = config.region || config.STORAGE_S3_REGION || "us-east-1";
-    this.endpoint = config.endpoint || config.STORAGE_S3_ENDPOINT;
-    this.publicUrl = config.publicUrl || config.STORAGE_S3_PUBLIC_URL;
+    this.bucket = config.bucket || config.STORAGE_BUCKET;
+    this.region = config.region || config.STORAGE_REGION || "us-east-1";
+    this.endpoint = config.endpoint || config.STORAGE_ENDPOINT;
+    this.publicUrl = config.publicUrl || config.STORAGE_PUBLIC_URL;
     this.expiresIn = Number(
-      config.expiresIn || config.STORAGE_S3_EXPIRES_IN || 3600,
+      config.expiresIn || config.STORAGE_EXPIRES_IN || 3600,
     );
 
     const accessKeyId =
       config.accessKeyId ||
-      config.STORAGE_S3_ACCESS_KEY_ID ||
+      config.STORAGE_ACCESS_KEY_ID ||
       config.credentials?.accessKeyId;
     const secretAccessKey =
       config.secretAccessKey ||
-      config.STORAGE_S3_SECRET_ACCESS_KEY ||
+      config.STORAGE_SECRET_ACCESS_KEY ||
       config.credentials?.secretAccessKey;
 
-    const forcePathStyle =
+    const forcePathStyleVal =
       config.forcePathStyle !== undefined
-        ? Boolean(config.forcePathStyle)
-        : config.STORAGE_S3_FORCE_PATH_STYLE !== undefined
-          ? String(config.STORAGE_S3_FORCE_PATH_STYLE) === "true"
-          : true;
+        ? config.forcePathStyle
+        : config.STORAGE_FORCE_PATH_STYLE;
+
+    const forcePathStyle =
+      forcePathStyleVal !== undefined
+        ? String(forcePathStyleVal) === "true" || forcePathStyleVal === true
+        : true;
 
     if (config.s3Client) {
       this.client = config.s3Client;
@@ -86,7 +89,7 @@ export class S3StorageProvider extends StorageProvider {
 
     const uploadUrl = await getSignedUrl(this.client, command, { expiresIn });
     return {
-      type: "s3",
+      type: "remote",
       uploadUrl,
     };
   }

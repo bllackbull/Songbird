@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { storageEncryption as defaultStorageEncryption } from "../lib/storageEncryption.js";
 
-export function registerS3UploadRoutes(app, deps) {
+export function registerRemoteUploadRoutes(app, deps) {
   const {
     storageProvider,
     mediaQueueManager,
@@ -13,6 +13,7 @@ export function registerS3UploadRoutes(app, deps) {
     createMessageFiles,
     findMessageFileById,
     emitChatEvent,
+    storageProcessingMode = "sync",
     s3ProcessingMode = "sync",
     webhookSecret,
     requireSession,
@@ -168,11 +169,9 @@ export function registerS3UploadRoutes(app, deps) {
         fileId,
       });
     } catch (err) {
-      return res
-        .status(500)
-        .json({
-          error: err.message || "Failed to generate presigned upload URL.",
-        });
+      return res.status(500).json({
+        error: err.message || "Failed to generate presigned upload URL.",
+      });
     }
   });
 
@@ -224,7 +223,7 @@ export function registerS3UploadRoutes(app, deps) {
     }
 
     const mode = String(
-      deps.s3ProcessingMode || s3ProcessingMode || "sync",
+      deps.storageProcessingMode || storageProcessingMode || "sync",
     ).toLowerCase();
     const newStatus =
       mode === "webhook" || mode === "remote" || mode === "async"
@@ -438,7 +437,7 @@ export function registerS3UploadRoutes(app, deps) {
     if (!file) return res.status(404).end();
 
     const driver = file.storage_driver || file.storageDriver;
-    if (driver === "s3") {
+    if (driver === "s3" || driver === "remote") {
       if (
         !storageProvider ||
         typeof storageProvider.getDownloadUrl !== "function"

@@ -2,7 +2,7 @@ import { describe, test, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
 import { makeApp } from "./helpers/makeApp.js";
 import { LocalStorageProvider } from "../lib/storage/LocalStorageProvider.js";
-import { S3StorageProvider } from "../lib/storage/S3StorageProvider.js";
+import { RemoteStorageProvider } from "../lib/storage/RemoteStorageProvider.js";
 
 describe("E2E S3 & Local Upload Lifecycle", () => {
   const sessionToken = "e2e-session-token";
@@ -39,7 +39,7 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
       const appObj = makeApp({
         deps: {
           storageProvider: localProvider,
-          s3ProcessingMode: "sync",
+          storageProcessingMode: "sync",
           createMessageFiles: createMessageFilesMock,
           findMessageFileById: (id) =>
             filesStore.find((f) => f.id === Number(id)) || null,
@@ -185,29 +185,29 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
   });
 
   describe("STORAGE_DRIVER=s3 full lifecycle", () => {
-    let mockS3Provider;
+    let mockRemoteProvider;
     let filesStore;
 
     beforeEach(() => {
-      mockS3Provider = new S3StorageProvider({
-        STORAGE_S3_BUCKET: "my-bucket",
-        STORAGE_S3_REGION: "us-west-2",
-        STORAGE_S3_ACCESS_KEY_ID: "key-123",
-        STORAGE_S3_SECRET_ACCESS_KEY: "secret-456",
+      mockRemoteProvider = new RemoteStorageProvider({
+        STORAGE_BUCKET: "my-bucket",
+        STORAGE_REGION: "us-west-2",
+        STORAGE_ACCESS_KEY_ID: "key-123",
+        STORAGE_SECRET_ACCESS_KEY: "secret-456",
       });
 
-      vi.spyOn(mockS3Provider, "getUploadUrl").mockImplementation(
+      vi.spyOn(mockRemoteProvider, "getUploadUrl").mockImplementation(
         async (info) => {
           const key = info?.key || "uploads/test.mp4";
           return {
-            type: "s3",
+            type: "remote",
             uploadUrl: `https://my-bucket.s3.us-west-2.amazonaws.com/${key}?upload=true`,
             storageKey: key,
           };
         },
       );
 
-      vi.spyOn(mockS3Provider, "getDownloadUrl").mockImplementation(
+      vi.spyOn(mockRemoteProvider, "getDownloadUrl").mockImplementation(
         async (key) => {
           return `https://my-bucket.s3.us-west-2.amazonaws.com/${key}?download=true`;
         },
@@ -235,8 +235,8 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
 
       const appObj = makeApp({
         deps: {
-          storageProvider: mockS3Provider,
-          s3ProcessingMode: "webhook",
+          storageProvider: mockRemoteProvider,
+          storageProcessingMode: "webhook",
           webhookSecret: "super-secret-webhook-key",
           createMessageFiles: createMessageFilesMock,
           findMessageFileById: (id) =>
@@ -293,7 +293,7 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
 
       expect(presignRes.status).toBe(200);
       expect(presignRes.body.success).toBe(true);
-      expect(presignRes.body.type).toBe("s3");
+      expect(presignRes.body.type).toBe("remote");
       expect(presignRes.body.uploadUrl).toContain(
         "https://my-bucket.s3.us-west-2.amazonaws.com/",
       );

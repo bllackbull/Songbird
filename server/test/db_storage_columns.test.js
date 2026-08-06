@@ -68,7 +68,7 @@ describe("Database Storage and Media Columns (Migration 035)", () => {
         storedName: "voice_stored.ogg",
         mimeType: "audio/ogg",
         sizeBytes: 2048,
-        storageDriver: "s3",
+        storageDriver: "remote",
         storageKey: "audio/123/voice.ogg",
         processingStatus: "processing",
         blurhash: "L6PZf-ay.ayB",
@@ -81,7 +81,7 @@ describe("Database Storage and Media Columns (Migration 035)", () => {
     const files = listMessageFilesByMessageIds([testMessageId]);
     const file = files.find((f) => f.stored_name === "voice_stored.ogg");
     expect(file).toBeDefined();
-    expect(file.storage_driver).toBe("s3");
+    expect(file.storage_driver).toBe("remote");
     expect(file.storage_key).toBe("audio/123/voice.ogg");
     expect(file.processing_status).toBe("processing");
     expect(file.blurhash).toBe("L6PZf-ay.ayB");
@@ -93,7 +93,7 @@ describe("Database Storage and Media Columns (Migration 035)", () => {
     const fetchedById = findMessageFileById(file.id);
     expect(fetchedById).toBeDefined();
     expect(fetchedById.id).toBe(file.id);
-    expect(fetchedById.storage_driver).toBe("s3");
+    expect(fetchedById.storage_driver).toBe("remote");
     expect(fetchedById.storage_key).toBe("audio/123/voice.ogg");
     expect(fetchedById.processing_status).toBe("processing");
     expect(fetchedById.blurhash).toBe("L6PZf-ay.ayB");

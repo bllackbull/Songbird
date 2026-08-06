@@ -1,37 +1,36 @@
 import { describe, test, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
 import { makeApp } from "./helpers/makeApp.js";
-import { S3StorageProvider } from "../lib/storage/S3StorageProvider.js";
-import { LocalStorageProvider } from "../lib/storage/LocalStorageProvider.js";
+import { RemoteStorageProvider } from "../lib/storage/RemoteStorageProvider.js";
 import { createStorageEncryption } from "../lib/storageEncryption.js";
 
-describe("S3 Uploads & File Management Routes (Task 3)", () => {
+describe("Remote Uploads & File Management Routes", () => {
   let appObj;
-  let mockS3Provider;
-  let sessionToken = "test-session-token-s3";
+  let mockRemoteProvider;
+  let sessionToken = "test-session-token-remote";
   let userId;
 
   beforeEach(() => {
-    mockS3Provider = new S3StorageProvider({
-      STORAGE_S3_BUCKET: "test-bucket",
-      STORAGE_S3_REGION: "us-east-1",
-      STORAGE_S3_ACCESS_KEY_ID: "test-key",
-      STORAGE_S3_SECRET_ACCESS_KEY: "test-secret",
+    mockRemoteProvider = new RemoteStorageProvider({
+      STORAGE_BUCKET: "test-bucket",
+      STORAGE_REGION: "us-east-1",
+      STORAGE_ACCESS_KEY_ID: "test-key",
+      STORAGE_SECRET_ACCESS_KEY: "test-secret",
     });
 
     // Mock getUploadUrl and getDownloadUrl to avoid real AWS calls in test
-    vi.spyOn(mockS3Provider, "getUploadUrl").mockImplementation(
+    vi.spyOn(mockRemoteProvider, "getUploadUrl").mockImplementation(
       async (info) => {
         const key = info?.key || info?.filename || "test-file.png";
         return {
-          type: "s3",
+          type: "remote",
           uploadUrl: `https://test-bucket.s3.amazonaws.com/${key}?presigned=true`,
           storageKey: key,
         };
       },
     );
 
-    vi.spyOn(mockS3Provider, "getDownloadUrl").mockImplementation(
+    vi.spyOn(mockRemoteProvider, "getDownloadUrl").mockImplementation(
       async (key) => {
         return `https://test-bucket.s3.amazonaws.com/${key}?download=true`;
       },
@@ -39,15 +38,15 @@ describe("S3 Uploads & File Management Routes (Task 3)", () => {
 
     appObj = makeApp({
       deps: {
-        storageProvider: mockS3Provider,
-        s3ProcessingMode: "sync",
+        storageProvider: mockRemoteProvider,
+        storageProcessingMode: "sync",
         webhookSecret: "secret-key-123",
         MESSAGE_FILE_LIMITS: { maxFileSizeBytes: 50 * 1024 * 1024 },
       },
     });
 
     userId = appObj.userStore.createUser(
-      "s3user",
+      "remoteuser",
       "hash",
       "S3 User",
       null,
@@ -97,7 +96,7 @@ describe("S3 Uploads & File Management Routes (Task 3)", () => {
 
       const customApp = makeApp({
         deps: {
-          storageProvider: mockS3Provider,
+          storageProvider: mockRemoteProvider,
           createMessageFiles: createMessageFilesMock,
           findMessageFileById: (id) =>
             filesStore.find((f) => f.id === Number(id)) || null,
@@ -134,7 +133,7 @@ describe("S3 Uploads & File Management Routes (Task 3)", () => {
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.type).toBe("s3");
+      expect(res.body.type).toBe("remote");
       expect(res.body.uploadUrl).toContain(
         "https://test-bucket.s3.amazonaws.com/",
       );
@@ -175,8 +174,8 @@ describe("S3 Uploads & File Management Routes (Task 3)", () => {
 
       const customApp = makeApp({
         deps: {
-          storageProvider: mockS3Provider,
-          s3ProcessingMode: "sync",
+          storageProvider: mockRemoteProvider,
+          storageProcessingMode: "sync",
           findMessageFileById: (id) => (Number(id) === 10 ? fileRecord : null),
           adminGetRow: (sql) =>
             sql.includes("chat_message_files") ? fileRecord : null,
@@ -221,8 +220,8 @@ describe("S3 Uploads & File Management Routes (Task 3)", () => {
 
       const customApp = makeApp({
         deps: {
-          storageProvider: mockS3Provider,
-          s3ProcessingMode: "webhook",
+          storageProvider: mockRemoteProvider,
+          storageProcessingMode: "webhook",
           findMessageFileById: (id) => (Number(id) === 11 ? fileRecord : null),
           adminGetRow: (sql) =>
             sql.includes("chat_message_files") ? fileRecord : null,
@@ -290,7 +289,7 @@ describe("S3 Uploads & File Management Routes (Task 3)", () => {
 
       const customApp = makeApp({
         deps: {
-          storageProvider: mockS3Provider,
+          storageProvider: mockRemoteProvider,
           webhookSecret: "secret-key-123",
           findMessageFileById: (id) => (Number(id) === 20 ? fileRecord : null),
           adminGetRow: (sql) => {
@@ -346,7 +345,7 @@ describe("S3 Uploads & File Management Routes (Task 3)", () => {
 
       const customApp = makeApp({
         deps: {
-          storageProvider: mockS3Provider,
+          storageProvider: mockRemoteProvider,
           findMessageFileById: (id) => (Number(id) === 30 ? fileRecord : null),
           adminGetRow: () => fileRecord,
         },
@@ -371,7 +370,7 @@ describe("S3 Uploads & File Management Routes (Task 3)", () => {
 
       const customApp = makeApp({
         deps: {
-          storageProvider: mockS3Provider,
+          storageProvider: mockRemoteProvider,
           findMessageFileById: (id) => (Number(id) === 31 ? fileRecord : null),
           adminGetRow: () => fileRecord,
         },
@@ -414,7 +413,7 @@ describe("S3 Uploads & File Management Routes (Task 3)", () => {
       try {
         const customApp = makeApp({
           deps: {
-            storageProvider: mockS3Provider,
+            storageProvider: mockRemoteProvider,
             storageEncryption: enc,
             findMessageFileById: (id) =>
               Number(id) === 32 ? fileRecord : null,

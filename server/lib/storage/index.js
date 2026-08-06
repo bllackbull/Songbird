@@ -1,8 +1,8 @@
 import { StorageProvider } from "./StorageProvider.js";
 import { LocalStorageProvider } from "./LocalStorageProvider.js";
-import { S3StorageProvider } from "./S3StorageProvider.js";
+import { RemoteStorageProvider } from "./RemoteStorageProvider.js";
 
-export { StorageProvider, LocalStorageProvider, S3StorageProvider };
+export { StorageProvider, LocalStorageProvider, RemoteStorageProvider };
 
 /**
  * Factory to create a storage provider instance based on config.
@@ -20,8 +20,8 @@ export function createStorageProvider(config = {}) {
     return new LocalStorageProvider(config);
   }
 
-  if (driver === "s3") {
-    return new S3StorageProvider(config);
+  if (driver === "remote" || driver === "s3") {
+    return new RemoteStorageProvider(config);
   }
 
   throw new Error(`Unsupported storage driver: ${driver}`);

@@ -617,8 +617,8 @@ const storageProvider = createStorageProvider(process.env);
 
 const apiDeps = {
   storageProvider,
-  s3ProcessingMode: process.env.S3_PROCESSING_MODE || "sync",
-  webhookSecret: process.env.SONGBIRD_WEBHOOK_SECRET || process.env.WEBHOOK_SECRET || null,
+  storageProcessingMode: process.env.STORAGE_PROCESSING_MODE || "sync",
+  webhookSecret: process.env.STORAGE_WEBHOOK_SECRET || null,
   ALLOWED_AVATAR_MIME_TYPES,
   redisClient,
   redisSessionStore,

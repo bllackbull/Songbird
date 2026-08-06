@@ -402,7 +402,11 @@ export async function uploadFile(file) {
     presignRes = null;
   }
 
-  if (presignRes && presignRes.type === "s3" && presignRes.uploadUrl) {
+  if (
+    presignRes &&
+    (presignRes.type === "remote" || presignRes.type === "s3") &&
+    presignRes.uploadUrl
+  ) {
     const uploadRes = await fetch(presignRes.uploadUrl, {
       method: "PUT",
       headers: {

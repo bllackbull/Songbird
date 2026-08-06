@@ -172,7 +172,7 @@ export function makeApp(overrides = {}) {
     avatarUploadRootDir: "/tmp/test-avatars",
     removeUploadedFiles: () => {},
     storageProvider: createStorageProvider({ STORAGE_DRIVER: "local" }),
-    s3ProcessingMode: "sync",
+    storageProcessingMode: "sync",
     webhookSecret: null,
 
     // ── Misc stubs expected by other routes ───────────────────────────────
