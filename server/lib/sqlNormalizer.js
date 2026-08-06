@@ -27,17 +27,20 @@ export function normalizeSqlForPostgres(sql, params = []) {
   // 4. Replace last_insert_rowid() -> LASTVAL()
   normalizedSql = normalizedSql.replace(/last_insert_rowid\(\)/gi, "LASTVAL()");
 
-  // 5. Replace INSERT OR IGNORE INTO -> INSERT INTO ... ON CONFLICT DO NOTHING
+  // 5. Replace julianday(expr) -> expr
+  normalizedSql = normalizedSql.replace(/julianday\(([^)]+)\)/gi, "$1");
+
+  // 6. Replace INSERT OR IGNORE INTO -> INSERT INTO ... ON CONFLICT DO NOTHING
   const isInsertOrIgnore = /INSERT\s+OR\s+IGNORE\s+INTO/gi.test(normalizedSql);
   normalizedSql = normalizedSql.replace(
     /INSERT\s+OR\s+IGNORE\s+INTO/gi,
     "INSERT INTO"
   );
 
-  // 6. Replace datetime('now') -> CURRENT_TIMESTAMP
+  // 7. Replace datetime('now') -> CURRENT_TIMESTAMP
   normalizedSql = normalizedSql.replace(/datetime\('now'\)/gi, "CURRENT_TIMESTAMP");
 
-  // 7. Replace sqlite_master queries -> information_schema.tables
+  // 8. Replace sqlite_master queries -> information_schema.tables
   normalizedSql = normalizedSql.replace(
     /FROM\s+sqlite_master\s+WHERE\s+type\s*=\s*'table'\s+AND\s+name\s*=/gi,
     "FROM information_schema.tables WHERE table_schema = 'public' AND table_name ="

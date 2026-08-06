@@ -313,10 +313,10 @@ function registerAdminPanelRoutes(app, deps) {
     if (USERNAME_REGEX && !USERNAME_REGEX.test(rawUsername)) {
       return res.status(400).json({ error: "Invalid username. Use lowercase letters, numbers, . and _" });
     }
-    if (adminGetRow("SELECT id FROM users WHERE username = ?", [rawUsername])?.id) {
+    if ((await adminGetRow("SELECT id FROM users WHERE username = ?", [rawUsername]))?.id) {
       return res.status(409).json({ error: "Username already exists." });
     }
-    if (adminGetRow("SELECT id FROM chats WHERE type IN ('group','channel') AND group_username = ?", [rawUsername])?.id) {
+    if ((await adminGetRow("SELECT id FROM chats WHERE type IN ('group','channel') AND group_username = ?", [rawUsername]))?.id) {
       return res.status(409).json({ error: "Username already exists." });
     }
     // Only one owner is allowed at a time
@@ -333,18 +333,18 @@ function registerAdminPanelRoutes(app, deps) {
       [rawUsername, nickname, assignedColor, passwordHash],
     );
     if (role !== "user") {
-      const newUser = adminGetRow("SELECT id FROM users WHERE username = ?", [rawUsername]);
+      const newUser = await adminGetRow("SELECT id FROM users WHERE username = ?", [rawUsername]);
       if (newUser?.id) adminRun("UPDATE users SET role = ? WHERE id = ?", [role, Number(newUser.id)]);
     }
     adminSave();
-    const row = adminGetRow("SELECT id, username, nickname, color, role FROM users WHERE username = ?", [rawUsername]);
+    const row = await adminGetRow("SELECT id, username, nickname, color, role FROM users WHERE username = ?", [rawUsername]);
     log(session, "user.create", { targetType: "user", targetLabel: `@${rawUsername}`, details: `role=${role}` });
     res.status(201).json({ ok: true, user: row });
   });
 
   // ─── Users — edit ────────────────────────────────────────────────────────────
 
-  app.patch("/api/admin/users/:id", (req, res) => {
+  app.patch("/api/admin/users/:id", async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
     const userId = Number(req.params.id);
@@ -378,10 +378,10 @@ function registerAdminPanelRoutes(app, deps) {
     if (!["online", "invisible"].includes(nextStatus)) return res.status(400).json({ error: "Invalid status." });
 
     if (nextUsername !== String(user.username || "")) {
-      if (adminGetRow("SELECT id FROM users WHERE username = ? AND id != ?", [nextUsername, userId])?.id) {
+      if ((await adminGetRow("SELECT id FROM users WHERE username = ? AND id != ?", [nextUsername, userId]))?.id) {
         return res.status(409).json({ error: "Username already exists." });
       }
-      if (adminGetRow("SELECT id FROM chats WHERE type IN ('group','channel') AND group_username IN (?,?)", [nextUsername, `@${nextUsername}`])?.id) {
+      if ((await adminGetRow("SELECT id FROM chats WHERE type IN ('group','channel') AND group_username IN (?,?)", [nextUsername, `@${nextUsername}`]))?.id) {
         return res.status(409).json({ error: "Username already exists." });
       }
     }
@@ -577,7 +577,7 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Chats — create ──────────────────────────────────────────────────────────
 
-  app.post("/api/admin/chats", (req, res) => {
+  app.post("/api/admin/chats", async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
     const b = req.body || {};
@@ -596,15 +596,15 @@ function registerAdminPanelRoutes(app, deps) {
       : findUserById(Number(ownerIdOrUsername));
     if (!owner?.id) return res.status(404).json({ error: "Owner user not found." });
 
-    if (adminGetRow("SELECT id FROM users WHERE username = ?", [username])?.id) {
+    if ((await adminGetRow("SELECT id FROM users WHERE username = ?", [username]))?.id) {
       return res.status(409).json({ error: "Username already exists." });
     }
-    if (adminGetRow("SELECT id FROM chats WHERE type IN ('group','channel') AND group_username IN (?,?)", [username, `@${username}`])?.id) {
+    if ((await adminGetRow("SELECT id FROM chats WHERE type IN ('group','channel') AND group_username IN (?,?)", [username, `@${username}`]))?.id) {
       return res.status(409).json({ error: "Username already exists." });
     }
 
     const inviteToken  = createInviteToken(crypto);
-    const ownerColor   = String(adminGetRow("SELECT color FROM users WHERE id = ?", [Number(owner.id)])?.color || "") || "#10b981";
+    const ownerColor   = String((await adminGetRow("SELECT color FROM users WHERE id = ?", [Number(owner.id)]))?.color || "") || "#10b981";
     const groupColor   = normalizeHexColor(String(b.color || "")) || ownerColor;
     const chatId       = createChat(name, type, {
       groupUsername:     username,
@@ -655,7 +655,7 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Chats — edit ────────────────────────────────────────────────────────────
 
-  app.patch("/api/admin/chats/:id", (req, res) => {
+  app.patch("/api/admin/chats/:id", async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
     const chatId = Number(req.params.id);
@@ -673,10 +673,10 @@ function registerAdminPanelRoutes(app, deps) {
     const nextColor      = b.color !== undefined ? (normalizeHexColor(String(b.color || "")) || null) : (chat.group_color || null);
 
     if (nextUsername && nextUsername !== (chat.group_username || "")) {
-      if (adminGetRow("SELECT id FROM users WHERE username = ?", [nextUsername])?.id) {
+      if ((await adminGetRow("SELECT id FROM users WHERE username = ?", [nextUsername]))?.id) {
         return res.status(409).json({ error: "Username already exists." });
       }
-      if (adminGetRow("SELECT id FROM chats WHERE type IN ('group','channel') AND group_username IN (?,?) AND id != ?", [nextUsername, `@${nextUsername}`, chatId])?.id) {
+      if ((await adminGetRow("SELECT id FROM chats WHERE type IN ('group','channel') AND group_username IN (?,?) AND id != ?", [nextUsername, `@${nextUsername}`, chatId]))?.id) {
         return res.status(409).json({ error: "Username already exists." });
       }
     }

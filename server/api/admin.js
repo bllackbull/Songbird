@@ -109,7 +109,8 @@ function registerAdminRoutes(app, deps) {
               error: "Provide chatIds or set all=true to delete every chat.",
             });
           }
-          chatIds = adminGetAll("SELECT id FROM chats ORDER BY id ASC")
+          const rawChatIds = adminGetAll("SELECT id FROM chats ORDER BY id ASC");
+          chatIds = (Array.isArray(rawChatIds) ? rawChatIds : (await rawChatIds) || [])
             .map((row) => Number(row.id))
             .filter((id) => Number.isFinite(id) && id > 0);
         }
@@ -122,13 +123,14 @@ function registerAdminRoutes(app, deps) {
         }
 
         const placeholders = chatIds.map(() => "?").join(", ");
-        const fileRows = adminGetAll(
+        const rawFileRows = adminGetAll(
           `SELECT cmf.stored_name
            FROM chat_message_files cmf
            JOIN chat_messages cm ON cm.id = cmf.message_id
            WHERE cm.chat_id IN (${placeholders})`,
           chatIds,
         );
+        const fileRows = Array.isArray(rawFileRows) ? rawFileRows : (await rawFileRows) || [];
         const storedNames = fileRows.map((row) => row.stored_name);
 
         adminRun("BEGIN");
@@ -214,29 +216,31 @@ function registerAdminRoutes(app, deps) {
 
         let userIds = [];
 
-        selectors.forEach((selector) => {
+        for (const selector of selectors) {
           const raw = String(selector || "").trim();
-          if (!raw) return;
+          if (!raw) continue;
 
           const numeric = Number(raw);
 
           if (Number.isFinite(numeric) && numeric > 0) {
             userIds.push(Math.trunc(numeric));
-            return;
+            continue;
           }
 
-          const groupRow = adminGetRow(
+          const rawGroupRow = adminGetRow(
             "SELECT id FROM chats WHERE type IN ('group', 'channel') AND group_username = ?",
             [raw],
           );
+          const groupRow = rawGroupRow && typeof rawGroupRow.then === "function" ? await rawGroupRow : rawGroupRow;
           if (groupRow?.id) {
             throw new Error(`Cannot delete user. "${raw}" is a group/channel username.`);
           }
 
-          const row = adminGetRow("SELECT id FROM users WHERE username = ?", [raw]);
+          const rawUserRow = adminGetRow("SELECT id FROM users WHERE username = ?", [raw]);
+          const row = rawUserRow && typeof rawUserRow.then === "function" ? await rawUserRow : rawUserRow;
 
           if (row?.id) userIds.push(Number(row.id));
-        });
+        }
 
         if (!userIds.length) {
           if (selectors.length) {
@@ -250,7 +254,8 @@ function registerAdminRoutes(app, deps) {
               error: "Provide selectors or set all=true to delete every user.",
             });
           }
-          userIds = adminGetAll("SELECT id FROM users ORDER BY id ASC")
+          const rawAllUserIds = adminGetAll("SELECT id FROM users ORDER BY id ASC");
+          userIds = (Array.isArray(rawAllUserIds) ? rawAllUserIds : (await rawAllUserIds) || [])
             .map((row) => Number(row.id))
             .filter((id) => Number.isFinite(id) && id > 0);
         }
@@ -265,25 +270,27 @@ function registerAdminRoutes(app, deps) {
         }
 
         const userPlaceholders = userIds.map(() => "?").join(", ");
-        const ownerChatRows = adminGetAll(
+        const rawOwnerChatRows = adminGetAll(
           `SELECT chat_id FROM chat_members WHERE role = 'owner' AND user_id IN (${userPlaceholders})`,
           userIds,
         );
+        const ownerChatRows = Array.isArray(rawOwnerChatRows) ? rawOwnerChatRows : (await rawOwnerChatRows) || [];
         const ownerChatIds = Array.from(
           new Set(ownerChatRows.map((row) => Number(row?.chat_id || 0)).filter(Boolean)),
         );
         const chatIdsToDelete = [];
         const ownershipTransfers = [];
-        ownerChatIds.forEach((chatId) => {
-          const remaining = adminGetAll(
+        for (const chatId of ownerChatIds) {
+          const rawRemaining = adminGetAll(
             `SELECT user_id FROM chat_members WHERE chat_id = ? AND user_id NOT IN (${userPlaceholders})`,
             [Number(chatId), ...userIds],
-          )
+          );
+          const remaining = (Array.isArray(rawRemaining) ? rawRemaining : (await rawRemaining) || [])
             .map((row) => Number(row?.user_id || 0))
             .filter((id) => Number.isFinite(id) && id > 0);
           if (!remaining.length) {
             chatIdsToDelete.push(Number(chatId));
-            return;
+            continue;
           }
           const nextOwnerId =
             remaining[Math.floor(Math.random() * remaining.length)];
@@ -293,12 +300,12 @@ function registerAdminRoutes(app, deps) {
               nextOwnerId: Number(nextOwnerId),
             });
           }
-        });
+        }
         const uniqueChatDeletes = Array.from(
           new Set(chatIdsToDelete.filter((id) => Number.isFinite(id) && id > 0)),
         );
         const chatDeletePlaceholders = uniqueChatDeletes.map(() => "?").join(", ");
-        const chatStoredRows = uniqueChatDeletes.length
+        const rawChatStored = uniqueChatDeletes.length
           ? adminGetAll(
               `SELECT cmf.stored_name
                FROM chat_message_files cmf
@@ -307,6 +314,7 @@ function registerAdminRoutes(app, deps) {
               uniqueChatDeletes,
             )
           : [];
+        const chatStoredRows = Array.isArray(rawChatStored) ? rawChatStored : (await rawChatStored) || [];
         const storedNames = Array.from(
           new Set(
             [...chatStoredRows]

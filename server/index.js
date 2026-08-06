@@ -516,21 +516,22 @@ const {
   requireSessionUsernameMatch,
 } = sessionHelpers;
 
-function backfillStorageEncryption() {
+async function backfillStorageEncryption() {
   if (!storageEncryption.isEnabled()) return;
 
   // Process messages in batches with async yields to avoid blocking the event
   // loop for extended periods on large databases.
   const BATCH_SIZE = 200;
 
-  function encryptMessageBatch(offset) {
-    const batch = adminGetAll(
+  async function encryptMessageBatch(offset) {
+    const rawBatch = adminGetAll(
       `SELECT id, body
        FROM chat_messages
        WHERE body IS NOT NULL AND body != ''
        LIMIT ? OFFSET ?`,
       [BATCH_SIZE, offset],
     );
+    const batch = Array.isArray(rawBatch) ? rawBatch : (await rawBatch) || [];
 
     if (!batch.length) return 0;
 
@@ -559,17 +560,18 @@ function backfillStorageEncryption() {
 
     if (batch.length === BATCH_SIZE) {
       // Schedule next batch without blocking the event loop.
-      setImmediate(() => encryptMessageBatch(offset + BATCH_SIZE));
+      setImmediate(() => { void encryptMessageBatch(offset + BATCH_SIZE); });
     }
     return encryptedInBatch;
   }
 
   try {
     // Start the message encryption batching.
-    encryptMessageBatch(0);
+    await encryptMessageBatch(0);
 
     // Files and avatars are typically fewer in number; process them once.
-    const fileRows = adminGetAll("SELECT stored_name FROM chat_message_files");
+    const rawFileRows = adminGetAll("SELECT stored_name FROM chat_message_files");
+    const fileRows = Array.isArray(rawFileRows) ? rawFileRows : (await rawFileRows) || [];
     let encryptedFiles = 0;
 
     fileRows.forEach((row) => {
@@ -929,12 +931,12 @@ app.use((err, req, res, next) => {
   return next(err);
 });
 
-function cleanupExpiredTextOnlyMessages() {
+async function cleanupExpiredTextOnlyMessages() {
   if (getSetting("MESSAGE_TEXT_RETENTION") <= 0) {
     return { removedMessages: 0 };
   }
 
-  const rows = adminGetAll(
+  const rawRows = adminGetAll(
     `SELECT id, chat_id
      FROM chat_messages
      WHERE expires_at IS NOT NULL
@@ -948,6 +950,7 @@ function cleanupExpiredTextOnlyMessages() {
        )`,
     [new Date().toISOString()],
   );
+  const rows = Array.isArray(rawRows) ? rawRows : (await rawRows) || [];
 
   const messageIds = rows
     .map((row) => Number(row?.id || 0))
@@ -999,11 +1002,11 @@ function cleanupExpiredTextOnlyMessages() {
   return { removedMessages: messageIds.length };
 }
 
-function backfillTextMessageExpiry() {
+async function backfillTextMessageExpiry() {
   const textRetentionDays = getSetting("MESSAGE_TEXT_RETENTION");
   if (textRetentionDays <= 0) return 0;
 
-  const row = adminGetRow(
+  const rawRow = adminGetRow(
     `SELECT COUNT(*) AS n
      FROM chat_messages
      WHERE (expires_at IS NULL OR expires_at = '')
@@ -1017,6 +1020,7 @@ function backfillTextMessageExpiry() {
          WHERE chat_message_files.message_id = chat_messages.id
        )`,
   );
+  const row = rawRow && typeof rawRow.then === "function" ? await rawRow : rawRow;
 
   const pending = Number(row?.n || 0);
   if (!pending) return 0;
@@ -1046,17 +1050,17 @@ function backfillTextMessageExpiry() {
 // server restart.
 try {
   if (getSetting("MESSAGE_FILE_RETENTION") > 0) {
-    backfillMessageFileExpiry();
-    cleanupExpiredMessageFiles();
+    await backfillMessageFileExpiry();
+    await cleanupExpiredMessageFiles();
   }
 } catch (_) {
   // best effort startup cleanup
 }
 
-const expiryCleanupTimer = setInterval(() => {
+const expiryCleanupTimer = setInterval(async () => {
   try {
     if (getSetting("MESSAGE_FILE_RETENTION") > 0) {
-      cleanupExpiredMessageFiles();
+      await cleanupExpiredMessageFiles();
     }
   } catch (_) {
     // keep server alive if cleanup fails
@@ -1069,18 +1073,18 @@ if (typeof expiryCleanupTimer.unref === "function") {
 
 try {
   if (getSetting("MESSAGE_TEXT_RETENTION") > 0) {
-    backfillTextMessageExpiry();
-    cleanupExpiredTextOnlyMessages();
+    await backfillTextMessageExpiry();
+    await cleanupExpiredTextOnlyMessages();
   }
 } catch (_) {
   // best effort startup cleanup
 }
 
-const textCleanupTimer = setInterval(() => {
+const textCleanupTimer = setInterval(async () => {
   try {
     if (getSetting("MESSAGE_TEXT_RETENTION") > 0) {
-      backfillTextMessageExpiry();
-      cleanupExpiredTextOnlyMessages();
+      await backfillTextMessageExpiry();
+      await cleanupExpiredTextOnlyMessages();
     }
   } catch (_) {
     // keep server alive if cleanup fails
