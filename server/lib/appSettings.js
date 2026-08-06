@@ -509,10 +509,11 @@ export function validateSetting(key, raw) {
  * @param {Function} dbGetAll  – the `getAll` function from db.js (passed in to
  *                               avoid a circular import)
  */
-export function loadSettings(dbGetAll) {
-  const rows = dbGetAll("SELECT key, value FROM app_settings");
+export async function loadSettings(dbGetAll) {
+  const rawRows = typeof dbGetAll === "function" ? dbGetAll("SELECT key, value FROM app_settings") : [];
+  const rows = Array.isArray(rawRows) ? rawRows : (await rawRows) || [];
   for (const row of rows) {
-    const def = DEFS_BY_KEY[String(row.key || "")];
+    const def = DEFS_BY_KEY[String(row?.key || "")];
     if (!def) continue;
     // Env var explicitly set → it always wins; skip the DB value.
     if (isEnvExplicitlySet(def)) continue;

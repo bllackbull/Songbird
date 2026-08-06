@@ -165,7 +165,7 @@ dotenv.config({ path: path.join(serverDir, ".env"), override: true, quiet: true 
 
 // Load runtime settings from DB (env vars remain as fallback defaults).
 // Must run after dotenv and after the DB module (which runs migrations).
-loadSettings(dbGetAllSettings);
+await loadSettings(dbGetAllSettings);
 
 const port = process.env.SERVER_PORT || process.env.PORT || 5174;
 const appEnv = process.env.APP_ENV || "production";
