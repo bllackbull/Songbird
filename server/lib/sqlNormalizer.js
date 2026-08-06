@@ -1,5 +1,6 @@
 /**
- * Normalizes SQLite SQL queries and parameter placeholders into PostgreSQL dialect.
+ * Normalizes SQLite SQL queries into PostgreSQL dialect.
+ * Note: Knex.raw handles `?` parameter placeholders natively for PostgreSQL.
  */
 export function normalizeSqlForPostgres(sql, params = []) {
   let normalizedSql = sql;
@@ -41,10 +42,6 @@ export function normalizeSqlForPostgres(sql, params = []) {
     /FROM\s+sqlite_master\s+WHERE\s+type\s*=\s*'table'\s+AND\s+name\s*=/gi,
     "FROM information_schema.tables WHERE table_schema = 'public' AND table_name ="
   );
-
-  // 8. Convert ? placeholders into $1, $2, $3...
-  let paramIndex = 1;
-  normalizedSql = normalizedSql.replace(/\?/g, () => `$${paramIndex++}`);
 
   if (isInsertOrIgnore && !normalizedSql.toLowerCase().includes("on conflict")) {
     normalizedSql = `${normalizedSql} ON CONFLICT DO NOTHING`;

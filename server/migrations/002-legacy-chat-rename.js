@@ -1,6 +1,6 @@
 export const migration002LegacyChatRename = {
   version: 2,
-  up: (context) => {
+  up: async (context) => {
     const { db, hasColumn, getAll, setUserColor, tableExists } = context;
 
     if (tableExists("conversations")) {
@@ -126,9 +126,12 @@ export const migration002LegacyChatRename = {
       );
     }
 
-    const usersMissingColor = getAll(
+    const rawUsersMissingColor = getAll(
       "SELECT id FROM users WHERE color IS NULL OR TRIM(color) = ''",
     );
+    const usersMissingColor = Array.isArray(rawUsersMissingColor)
+      ? rawUsersMissingColor
+      : await rawUsersMissingColor || [];
 
     usersMissingColor.forEach((row) => {
       db.run("UPDATE users SET color = ? WHERE id = ?", [

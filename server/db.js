@@ -476,29 +476,44 @@ async function runDatabaseMigrations() {
     return hasColumn(tableName, columnName);
   }
 
+  let migrationPromiseChain = Promise.resolve();
+
   const migrationContext = {
     db: {
-      run: async (sql, params = []) => {
-        const res = await run(sql, params);
-        if (isPostgresMode()) {
-          updateSchemaSetsFromSql(sql, tablesSet, columnsSet);
+      run: (sql, params = []) => {
+        if (!isPostgresMode()) {
+          return run(sql, params);
         }
-        return res;
+        const p = migrationPromiseChain.then(async () => {
+          const res = await run(sql, params);
+          updateSchemaSetsFromSql(sql, tablesSet, columnsSet);
+          return res;
+        });
+        migrationPromiseChain = p.catch(() => {});
+        return p;
       },
-      exec: async (sql) => {
-        const res = isPostgresMode()
-          ? await dbKnex.raw(sql)
-          : betterDb
-            ? betterDb.exec(sql)
-            : db?.exec(sql);
-        if (isPostgresMode()) {
-          updateSchemaSetsFromSql(sql, tablesSet, columnsSet);
+      exec: (sql) => {
+        if (!isPostgresMode()) {
+          return betterDb ? betterDb.exec(sql) : db?.exec(sql);
         }
-        return res;
+        const p = migrationPromiseChain.then(async () => {
+          const res = await dbKnex.raw(sql);
+          updateSchemaSetsFromSql(sql, tablesSet, columnsSet);
+          return res;
+        });
+        migrationPromiseChain = p.catch(() => {});
+        return p;
       },
       prepare: (sql) => (betterDb ? betterDb.prepare(sql) : db?.prepare(sql)),
     },
-    getAll,
+    getAll: (sql, params = []) => {
+      if (!isPostgresMode()) {
+        return getAll(sql, params);
+      }
+      const p = migrationPromiseChain.then(() => getAll(sql, params));
+      migrationPromiseChain = p.catch(() => {});
+      return p;
+    },
     tableExists: syncTableExists,
     hasColumn: syncHasColumn,
     setUserColor,
@@ -525,6 +540,7 @@ async function runDatabaseMigrations() {
     if (currentVersion >= migration.version) continue;
 
     await migration.up(migrationContext);
+    await migrationPromiseChain;
     await setSchemaVersion(migration.version);
     appliedMigration = true;
   }
@@ -534,6 +550,7 @@ async function runDatabaseMigrations() {
   // so re-applying ensures critical tables exist.
   for (const migration of orderedMigrations) {
     await migration.up(migrationContext);
+    await migrationPromiseChain;
   }
 
   const currentVersion = await getSchemaVersion();

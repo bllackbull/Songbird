@@ -2,12 +2,12 @@ import { describe, expect, test } from "vitest";
 import { normalizeSqlForPostgres } from "../../lib/sqlNormalizer.js";
 
 describe("normalizeSqlForPostgres", () => {
-  test("replaces ? placeholders with $1, $2, $3", () => {
+  test("preserves ? placeholders for knex raw binding substitution", () => {
     const { sql, params } = normalizeSqlForPostgres(
       "SELECT * FROM users WHERE username = ? AND status = ?",
       ["alice", "active"]
     );
-    expect(sql).toBe("SELECT * FROM users WHERE username = $1 AND status = $2");
+    expect(sql).toBe("SELECT * FROM users WHERE username = ? AND status = ?");
     expect(params).toEqual(["alice", "active"]);
   });
 
@@ -15,7 +15,7 @@ describe("normalizeSqlForPostgres", () => {
     const { sql } = normalizeSqlForPostgres(
       "INSERT OR IGNORE INTO users (username) VALUES (?)"
     );
-    expect(sql).toContain("INSERT INTO users (username) VALUES ($1) ON CONFLICT DO NOTHING");
+    expect(sql).toContain("INSERT INTO users (username) VALUES (?) ON CONFLICT DO NOTHING");
   });
 
   test("replaces datetime('now') with CURRENT_TIMESTAMP", () => {
