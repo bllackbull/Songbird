@@ -27,8 +27,9 @@ export function createPresenceTracker({
       : "offline";
   }
 
-  function broadcastStatus(username) {
-    const user = getUserPresence(normalize(username));
+  async function broadcastStatus(username) {
+    const rawUser = getUserPresence(normalize(username));
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user?.username) return;
     const storedStatus = String(user.status || "").toLowerCase();
     const payload = {
@@ -39,33 +40,37 @@ export function createPresenceTracker({
       lastSeen: user.last_seen || null,
     };
     const targets = new Set([normalize(user.username)]);
-    const chats = listChatsForUser(Number(user.id || 0)) || [];
-    chats.forEach((chat) => {
-      const members = listChatMembers(Number(chat?.id || 0)) || [];
+    const rawChats = listChatsForUser(Number(user.id || 0));
+    const chats = (rawChats && typeof rawChats.then === "function" ? await rawChats : rawChats) || [];
+    for (const chat of chats) {
+      const rawMembers = listChatMembers(Number(chat?.id || 0));
+      const members = (rawMembers && typeof rawMembers.then === "function" ? await rawMembers : rawMembers) || [];
       members.forEach((member) => {
         const memberUsername = normalize(member?.username);
         if (memberUsername) targets.add(memberUsername);
       });
-    });
+    }
     targets.forEach((targetUsername) => emitToUser(targetUsername, payload));
   }
 
-  function markConnected(username, ref) {
+  async function markConnected(username, ref) {
     const key = normalize(username);
     if (!key) return;
-    const user = getUserPresence(key);
-    if (!user) return;
+    const rawUser = getUserPresence(key);
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
+    if (!user?.id) return;
     const refs = connectionsByUsername.get(key) || new Set();
     const wasConnected = refs.size > 0;
     refs.add(ref);
     connectionsByUsername.set(key, refs);
     if (!wasConnected) {
-      updateLastSeen(user.id);
-      broadcastStatus(key);
+      const lastSeenRes = updateLastSeen(user.id);
+      if (lastSeenRes && typeof lastSeenRes.then === "function") await lastSeenRes;
+      await broadcastStatus(key);
     }
   }
 
-  function markDisconnected(username, ref) {
+  async function markDisconnected(username, ref) {
     const key = normalize(username);
     if (!key) return;
     const refs = connectionsByUsername.get(key);
@@ -73,10 +78,12 @@ export function createPresenceTracker({
     refs.delete(ref);
     if (refs.size === 0) {
       connectionsByUsername.delete(key);
-      const user = getUserPresence(key);
-      if (user) {
-        updateLastSeen(user.id);
-        broadcastStatus(key);
+      const rawUser = getUserPresence(key);
+      const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
+      if (user?.id) {
+        const lastSeenRes = updateLastSeen(user.id);
+        if (lastSeenRes && typeof lastSeenRes.then === "function") await lastSeenRes;
+        await broadcastStatus(key);
       }
     }
   }

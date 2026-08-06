@@ -652,6 +652,12 @@ export function createUser(
 }
 
 export function findDmChat(userId, otherUserId) {
+  const uid1 = Number(userId);
+  const uid2 = Number(otherUserId);
+  if (!uid1 || Number.isNaN(uid1) || !uid2 || Number.isNaN(uid2)) {
+    return isPostgresMode() ? Promise.resolve(null) : null;
+  }
+
   const row = getRow(
     `
     SELECT c.id
@@ -665,7 +671,7 @@ export function findDmChat(userId, otherUserId) {
       c.id DESC
     LIMIT 1
   `,
-    [userId, otherUserId],
+    [uid1, uid2],
   );
   if (row && typeof row.then === "function") {
     return row.then((r) => r?.id || null);
@@ -2722,14 +2728,24 @@ export function deleteSessionsByUserId(userId) {
 }
 
 export function updateLastSeen(userId) {
-  run("UPDATE users SET last_seen = datetime('now') WHERE id = ?", [userId]);
+  const uid = Number(userId);
+  if (!uid || Number.isNaN(uid)) {
+    return isPostgresMode() ? Promise.resolve() : undefined;
+  }
+  return run("UPDATE users SET last_seen = datetime('now') WHERE id = ?", [uid]);
 }
 
 export function getUserPresence(username) {
-  return getRow(
+  const norm = String(username || "").trim().toLowerCase();
+  if (!norm) return isPostgresMode() ? Promise.resolve(null) : null;
+  const row = getRow(
     "SELECT id, username, status, last_seen FROM users WHERE username = ?",
-    [username],
+    [norm],
   );
+  if (row && typeof row.then === "function") {
+    return row.then((r) => r || null);
+  }
+  return row || null;
 }
 
 export function markMessagesRead(chatId, readerId) {

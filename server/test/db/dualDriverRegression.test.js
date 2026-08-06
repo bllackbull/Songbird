@@ -861,9 +861,16 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
       });
 
       test("findDmChat resolves to ID or null correctly in Postgres mode", async () => {
+        process.env.DB_CLIENT = "postgres";
         const res = findDmChat(1, 2);
         const id = (res && typeof res.then === "function") ? await res : res;
         expect(id).toBe(10);
+
+        // Undefined and NaN parameter safety
+        const resUndef = await findDmChat(undefined, undefined);
+        expect(resUndef).toBeNull();
+        const resNaN = await findDmChat(NaN, 2);
+        expect(resNaN).toBeNull();
       });
     });
 

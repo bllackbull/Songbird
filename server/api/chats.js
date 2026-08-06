@@ -450,28 +450,36 @@ function registerChatRoutes(app, deps) {
 
     if (!requireSessionUsernameMatch(res, session, from)) return;
 
-    const fromUser = findUserByUsername(from.toLowerCase());
-    const toUser = findUserByUsername(to.toLowerCase());
+    const rawFromUser = findUserByUsername(from.toLowerCase());
+    const fromUser = rawFromUser && typeof rawFromUser.then === "function" ? await rawFromUser : rawFromUser;
+    const rawToUser = findUserByUsername(to.toLowerCase());
+    const toUser = rawToUser && typeof rawToUser.then === "function" ? await rawToUser : rawToUser;
     if (!fromUser || !toUser) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    const existingId = findDmChat(fromUser.id, toUser.id);
+    const rawExistingId = findDmChat(fromUser.id, toUser.id);
+    const existingId = rawExistingId && typeof rawExistingId.then === "function" ? await rawExistingId : rawExistingId;
     if (existingId) {
       // Unhide the chat for both users (in case it was previously deleted)
-      unhideChat(fromUser.id, existingId);
-      unhideChat(toUser.id, existingId);
+      const u1 = unhideChat(fromUser.id, existingId);
+      if (u1 && typeof u1.then === "function") await u1;
+      const u2 = unhideChat(toUser.id, existingId);
+      if (u2 && typeof u2.then === "function") await u2;
 
       return res.json({ id: existingId });
     }
 
-    const chatId = createChat(null, "dm");
+    const rawChatId = createChat(null, "dm");
+    const chatId = rawChatId && typeof rawChatId.then === "function" ? await rawChatId : rawChatId;
     if (!chatId) {
       return res.status(500).json({ error: "Failed to create chat." });
     }
 
-    addChatMember(chatId, fromUser.id, "owner");
-    addChatMember(chatId, toUser.id, "member");
+    const m1 = addChatMember(chatId, fromUser.id, "owner");
+    if (m1 && typeof m1.then === "function") await m1;
+    const m2 = addChatMember(chatId, toUser.id, "member");
+    if (m2 && typeof m2.then === "function") await m2;
 
     res.json({ id: chatId });
   });
