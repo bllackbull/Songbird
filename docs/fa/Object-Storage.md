@@ -101,22 +101,22 @@ STORAGE_FORCE_PATH_STYLE=true
 |---|---|---:|---|
 | `STORAGE_PROCESSING_MODE` | `string` | `auto` | استراتژی پردازش رسانه (`auto` ، `remote` یا `local`). |
 | `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `30000` | مهلت زمان Fallback به میلی ثانیه (پیشفرض `30000` میلی ثانیه / ۳۰ ثانیه) قبل از آنکه worker محلی BullMQ در حالت `auto` پردازش را تحویل بگیرد. |
-| `STORAGE_WEBHOOK_SECRET` | `string` | *(تولید خودکار)* | کلید محرمانه برای احراز هویت درخواست های Webhook دریافتی (`X-Songbird-Webhook-Secret`). در صورت عدم وجود، هنگام راه اندازی سرور به طور خودکار تولید شده و در فایل های `.env` و `data/secrets.env` ذخیره میشود. |
+| `WEBHOOK_SECRET` | `string` | *(تولید خودکار)* | کلید محرمانه برای احراز هویت درخواست های Webhook دریافتی (`X-Songbird-Webhook-Secret`). در صورت عدم وجود، هنگام راه اندازی سرور به طور خودکار تولید شده و در فایل های `.env` و `data/secrets.env` ذخیره میشود. |
 
 ### نحوه یافتن و استفاده از کلید محرمانه Webhook
 
 سرویس های پردازش بیرونی (مانند AWS Lambda، Cloudflare Workers یا میکروسرویس های اختصاصی) میتوانند پس از اتمام ترنسکد یا پردازش ریموت، پایان کار را به Songbird اطلاع دهند:
 
-۱. هنگام راه اندازی سرور، اگر `STORAGE_WEBHOOK_SECRET` تنظیم نشده باشد، Songbird به طور خودکار یک توکن محرمانه امن تولید کرده و آن را در فایل های `.env` و `data/secrets.env` ذخیره میکند.
+۱. هنگام راه اندازی سرور، اگر `WEBHOOK_SECRET` تنظیم نشده باشد، Songbird به طور خودکار یک توکن محرمانه امن تولید کرده و آن را در فایل های `.env` و `data/secrets.env` ذخیره میکند.
 
-۲. مدیران سیستم یا پردازنده های ابری میتوانند با مراجعه به فایل `.env` یا `data/secrets.env` مقدار `STORAGE_WEBHOOK_SECRET` تولیدشده را دریافت کنند.
+۲. مدیران سیستم یا پردازنده های ابری میتوانند با مراجعه به فایل `.env` یا `data/secrets.env` مقدار `WEBHOOK_SECRET` تولیدشده را دریافت کنند.
 
-۳. تابع ابری / Lambda یا worker خارجی خود را طوری تنظیم کنید که هنگام ارسال درخواست های Webhook به نقطه پایانی `/api/uploads/webhook/processed` سرور Songbird، توکن را در هدر HTTP با عنوان `x-songbird-webhook-secret: <STORAGE_WEBHOOK_SECRET>` قرار دهد.
+۳. تابع ابری / Lambda یا worker خارجی خود را طوری تنظیم کنید که هنگام ارسال درخواست های Webhook به نقطه پایانی `/api/uploads/webhook/processed` سرور Songbird، توکن را در هدر HTTP با عنوان `x-songbird-webhook-secret: <WEBHOOK_SECRET>` قرار دهد.
 
 #### درخواست به نقطه پایانی Webhook:
 ```http
 POST /api/uploads/webhook/processed
-Header: x-songbird-webhook-secret: <STORAGE_WEBHOOK_SECRET>
+Header: x-songbird-webhook-secret: <WEBHOOK_SECRET>
 Content-Type: application/json
 
 {

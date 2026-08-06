@@ -53,7 +53,7 @@ nano .env
 | `STORAGE_FORCE_PATH_STYLE` | `boolean` | `true` | فعال سازی ساختار URL به روش path-style (مقدار `true` برای MinIO، R2، ArvanCloud توصیه میشود). |
 | `STORAGE_PROCESSING_MODE` | `string` | `auto` | حالت گردش کار پردازش رسانه (`auto`، `remote`، `local`). |
 | `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `30000` | مهلت زمان Fallback به میلی ثانیه قبل از آنکه worker محلی BullMQ در حالت `auto` پردازش را تحویل بگیرد. |
-| `STORAGE_WEBHOOK_SECRET` | `string` | *(تولید خودکار)* | کلید محرمانه برای احراز هویت درخواست های Webhook دریافتی. |
+| `WEBHOOK_SECRET` | `string` | *(تولید خودکار)* | کلید محرمانه برای احراز هویت درخواست های Webhook دریافتی. |
 | `STORAGE_ENCRYPTION_MODE` | `string` | `remote` | استراتژی رمزنگاری ذخیره سازی (`remote` برای سمت ارائه دهنده، `local` برای رمزنگاری سمت اپلیکیشن). |
 | `MESSAGE_FILE_RETENTION` | `integer` | `7` | حذف خودکار فایل‌های پیام آپلودشده پس از N روز (`0` غیرفعال می‌کند). |
 | `MESSAGE_TEXT_RETENTION` | `integer` | `0` | حذف خودکار پیام‌های فقط‌متنی پس از N روز (`0` غیرفعال می‌کند). |

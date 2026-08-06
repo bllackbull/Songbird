@@ -45,9 +45,9 @@ function updateEnvValue(targetPath, key, value, { fsImpl = fs } = {}) {
   fsImpl.writeFileSync(targetPath, `${next.join("\n")}\n`);
 }
 
-// Ensures STORAGE_WEBHOOK_SECRET is set, generating and persisting one to the
+// Ensures WEBHOOK_SECRET is set, generating and persisting one to the
 // project .env and data volume on first boot if missing.
-export function ensureStorageWebhookSecret({
+export function ensureWebhookSecret({
   projectRootDir,
   dataDir,
   fsImpl = fs,
@@ -65,10 +65,10 @@ export function ensureStorageWebhookSecret({
           const match = line.match(/^([A-Z_]+)=(.+)$/);
           if (
             match &&
-            match[1] === "STORAGE_WEBHOOK_SECRET" &&
-            !process.env.STORAGE_WEBHOOK_SECRET
+            match[1] === "WEBHOOK_SECRET" &&
+            !process.env.WEBHOOK_SECRET
           ) {
-            process.env.STORAGE_WEBHOOK_SECRET = match[2];
+            process.env.WEBHOOK_SECRET = match[2];
           }
         }
       }
@@ -77,17 +77,17 @@ export function ensureStorageWebhookSecret({
     }
   }
 
-  const existing = normalizeEnvSecret(process.env.STORAGE_WEBHOOK_SECRET);
+  const existing = normalizeEnvSecret(process.env.WEBHOOK_SECRET);
   if (existing) return existing;
 
   const generated = cryptoImpl.randomBytes(32).toString("hex");
 
   const envPath = pathImpl.join(String(projectRootDir || ""), ".env");
   try {
-    updateEnvValue(envPath, "STORAGE_WEBHOOK_SECRET", generated, { fsImpl });
+    updateEnvValue(envPath, "WEBHOOK_SECRET", generated, { fsImpl });
   } catch (error) {
     console.warn(
-      "[storage-webhook-secret] Unable to update .env with generated storage webhook secret:",
+      "[webhook-secret] Unable to update .env with generated webhook secret:",
       String(error?.message || error),
     );
   }
@@ -95,20 +95,18 @@ export function ensureStorageWebhookSecret({
   if (secretsPath) {
     try {
       fsImpl.mkdirSync(String(dataDir), { recursive: true });
-      updateEnvValue(secretsPath, "STORAGE_WEBHOOK_SECRET", generated, {
+      updateEnvValue(secretsPath, "WEBHOOK_SECRET", generated, {
         fsImpl,
       });
-      console.log(
-        "[storage-webhook-secret] Storage webhook secret persisted to data volume.",
-      );
+      console.log("[webhook-secret] Webhook secret persisted to data volume.");
     } catch (error) {
       console.warn(
-        "[storage-webhook-secret] Unable to persist storage webhook secret to data volume:",
+        "[webhook-secret] Unable to persist webhook secret to data volume:",
         String(error?.message || error),
       );
     }
   }
 
-  process.env.STORAGE_WEBHOOK_SECRET = generated;
+  process.env.WEBHOOK_SECRET = generated;
   return generated;
 }

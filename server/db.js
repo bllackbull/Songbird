@@ -14,7 +14,7 @@ import {
   storageEncryption,
 } from "./lib/storageEncryption.js";
 import { ensureAdminApiToken } from "./lib/adminApiToken.js";
-import { ensureStorageWebhookSecret } from "./lib/storageWebhookSecret.js";
+import { ensureWebhookSecret } from "./lib/webhookSecret.js";
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRootDir = path.resolve(serverDir, "..");
@@ -30,7 +30,7 @@ if (!fs.existsSync(dataDir)) {
 // ones — this ensures keys survive container restarts on ephemeral filesystems.
 ensureStorageEncryptionKey({ projectRootDir, dataDir, fsImpl: fs, pathImpl: path, cryptoImpl: crypto });
 ensureAdminApiToken({ projectRootDir, dataDir, fsImpl: fs, pathImpl: path, cryptoImpl: crypto });
-ensureStorageWebhookSecret({ projectRootDir, dataDir, fsImpl: fs, pathImpl: path, cryptoImpl: crypto });
+ensureWebhookSecret({ projectRootDir, dataDir, fsImpl: fs, pathImpl: path, cryptoImpl: crypto });
 const REMOTE_MESSAGE_CLIENT_REQUEST_SQL =
   "LOWER(COALESCE(client_request_id, '')) LIKE 'remote:%'";
 

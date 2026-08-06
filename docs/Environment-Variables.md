@@ -53,7 +53,7 @@ nano .env
 | `STORAGE_FORCE_PATH_STYLE` | `boolean` | `true` | Enable path-style URL syntax (`true` recommended for MinIO, R2, ArvanCloud, etc.). |
 | `STORAGE_PROCESSING_MODE` | `string` | `auto` | Media processing workflow mode (`auto`, `remote`, `local`). |
 | `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `30000` | Fallback timeout (ms) before local BullMQ worker takes over media processing in `auto` mode. |
-| `STORAGE_WEBHOOK_SECRET` | `string` | *(Auto-generated)* | Secret token to authenticate incoming webhook callback requests.|
+| `WEBHOOK_SECRET` | `string` | *(Auto-generated)* | Secret token to authenticate incoming webhook callback requests.|
 | `STORAGE_ENCRYPTION_MODE` | `string` | `remote` | Storage encryption strategy (`remote` for provider-side SSE-S3, `local` for application-level encryption). |
 | `MESSAGE_FILE_RETENTION` | `integer` | `7` | Auto-delete uploaded message files after N days (`0` disables). |
 | `MESSAGE_TEXT_RETENTION` | `integer` | `0` | Auto-delete text-only messages after N days (`0` disables). |

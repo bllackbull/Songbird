@@ -101,23 +101,23 @@ When uploading media files (such as videos or audio) with `STORAGE_DRIVER=remote
 |---|---|---:|---|
 | `STORAGE_PROCESSING_MODE` | `string` | `auto` | Media processing strategy (`auto`, `remote`, or `local`). |
 | `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `30000` | Fallback timeout in milliseconds (default `30000` ms / 30 seconds) before local BullMQ worker takes over in `auto` mode. |
-| `STORAGE_WEBHOOK_SECRET` | `string` | *(Auto-generated)* | Secret token to authenticate incoming webhook callback requests (`X-Songbird-Webhook-Secret`). Automatically generated on startup if missing and written to `.env` and `data/secrets.env`. |
+| `WEBHOOK_SECRET` | `string` | *(Auto-generated)* | Secret token to authenticate incoming webhook callback requests (`X-Songbird-Webhook-Secret`). Automatically generated on startup if missing and written to `.env` and `data/secrets.env`. |
 
 ### Webhook Callback Endpoint Setup
 
 External compute services (such as AWS Lambda, Cloudflare Workers, or custom microservices) notify Songbird when remote media transcoding or processing completes.
 
 #### How to Locate and Use the Webhook Secret:
-1. On server startup, if `STORAGE_WEBHOOK_SECRET` is missing, Songbird automatically generates a secure secret token and writes it to both `.env` and `data/secrets.env`.
+1. On server startup, if `WEBHOOK_SECRET` is missing, Songbird automatically generates a secure secret token and writes it to both `.env` and `data/secrets.env`.
 
-2. Administrators or cloud workers can inspect `.env` or `data/secrets.env` to locate the generated `STORAGE_WEBHOOK_SECRET`.
+2. Administrators or cloud workers can inspect `.env` or `data/secrets.env` to locate the generated `WEBHOOK_SECRET`.
 
 3. Configure your external cloud worker or serverless function to include this token in the `X-Songbird-Webhook-Secret` HTTP header when making callback requests to your Songbird server endpoint (`/api/uploads/webhook/processed`).
 
 #### Webhook Endpoint Request:
 ```http
 POST /api/uploads/webhook/processed
-Header: x-songbird-webhook-secret: <STORAGE_WEBHOOK_SECRET>
+Header: x-songbird-webhook-secret: <WEBHOOK_SECRET>
 Content-Type: application/json
 
 {
