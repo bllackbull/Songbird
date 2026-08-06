@@ -97,6 +97,18 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
       expect(unknown).toBeNull();
     });
 
+    test("listMutedUserIdsForChat returns Promise resolving to array under Postgres mode", async () => {
+      process.env.DB_CLIENT = "postgres";
+      vi.spyOn(dbKnex, "raw").mockImplementation(async () => {
+        return { rows: [{ user_id: 10 }] };
+      });
+
+      const resPromise = listMutedUserIdsForChat(1);
+      expect(typeof resPromise?.then).toBe("function");
+      const mutedUserIds = await resPromise;
+      expect(mutedUserIds).toEqual([10]);
+    });
+
     test("findChatByGroupUsername returns Promise resolving to chat or null under Postgres mode", async () => {
       process.env.DB_CLIENT = "postgres";
       vi.spyOn(dbKnex, "raw").mockImplementation(async (sql, params) => {

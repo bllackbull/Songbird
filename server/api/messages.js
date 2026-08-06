@@ -558,7 +558,8 @@ function registerMessageRoutes(app, deps) {
       return res.status(403).json({ error: "Not a member of this chat." });
     }
 
-    const authors = getMessageAuthors(messageIds);
+    const rawAuthors = getMessageAuthors(messageIds);
+    const authors = (rawAuthors && typeof rawAuthors.then === "function" ? await rawAuthors : rawAuthors) || [];
     const messages = authors.reduce((acc, row) => {
       const id = Number(row?.id || 0);
       if (!id) return acc;
@@ -566,7 +567,8 @@ function registerMessageRoutes(app, deps) {
       return acc;
     }, {});
     
-    const rows = getMessageReadCounts(messageIds);
+    const rawRows = getMessageReadCounts(messageIds);
+    const rows = (rawRows && typeof rawRows.then === "function" ? await rawRows : rawRows) || [];
     const counts = rows.reduce((acc, row) => {
       const id = Number(row?.message_id || 0);
       if (!id) return acc;

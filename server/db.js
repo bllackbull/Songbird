@@ -2889,31 +2889,38 @@ export function recordMessageReads(messageIds = [], readerId) {
   );
   if (!normalized.length) return;
   const placeholders = normalized.map(() => "?").join(", ");
-  const rows = getAll(
+  const rawRows = getAll(
     `SELECT id, user_id, client_request_id
      FROM chat_messages
      WHERE id IN (${placeholders})`,
     normalized,
   );
-  const toInsert = rows
-    .filter(
-      (row) =>
-        Number(row?.user_id || 0) !== Number(readerId) ||
-        isRemoteMessageRow(row),
-    )
-    .map((row) => Number(row.id))
-    .filter((id) => Number.isFinite(id) && id > 0);
-  if (!toInsert.length) return;
-  const chunkSize = 300;
-  for (let i = 0; i < toInsert.length; i += chunkSize) {
-    const chunk = toInsert.slice(i, i + chunkSize);
-    const valuePlaceholders = chunk.map(() => "(?, ?, datetime('now'))").join(", ");
-    run(
-      `INSERT OR IGNORE INTO chat_message_reads (message_id, user_id, read_at)
-       VALUES ${valuePlaceholders}`,
-      chunk.flatMap((id) => [id, Number(readerId)]),
-    );
+  const processRows = (rows) => {
+    const toInsert = (rows || [])
+      .filter(
+        (row) =>
+          Number(row?.user_id || 0) !== Number(readerId) ||
+          isRemoteMessageRow(row),
+      )
+      .map((row) => Number(row.id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    if (!toInsert.length) return;
+    const chunkSize = 300;
+    for (let i = 0; i < toInsert.length; i += chunkSize) {
+      const chunk = toInsert.slice(i, i + chunkSize);
+      const valuePlaceholders = chunk.map(() => "(?, ?, datetime('now'))").join(", ");
+      run(
+        `INSERT OR IGNORE INTO chat_message_reads (message_id, user_id, read_at)
+         VALUES ${valuePlaceholders}`,
+        chunk.flatMap((id) => [id, Number(readerId)]),
+      );
+    }
+  };
+
+  if (rawRows && typeof rawRows.then === "function") {
+    return rawRows.then(processRows);
   }
+  return processRows(rawRows);
 }
 
 export function hideChatsForUser(userId, chatIds = []) {
@@ -3025,11 +3032,19 @@ export function listPushSubscriptionsByUserIds(userIds = []) {
 
 export function listMutedUserIdsForChat(chatId) {
   const id = Number(chatId || 0);
-  if (!id) return [];
-  return getAll(
+  if (!id) return isPostgresMode() ? Promise.resolve([]) : [];
+  const rawRows = getAll(
     "SELECT user_id FROM chat_mutes WHERE chat_id = ? AND muted = 1",
     [id],
-  )
+  );
+  if (rawRows && typeof rawRows.then === "function") {
+    return rawRows.then((rows) =>
+      (rows || [])
+        .map((row) => Number(row?.user_id || 0))
+        .filter((userId) => Number.isFinite(userId) && userId > 0),
+    );
+  }
+  return (rawRows || [])
     .map((row) => Number(row?.user_id || 0))
     .filter((userId) => Number.isFinite(userId) && userId > 0);
 }
