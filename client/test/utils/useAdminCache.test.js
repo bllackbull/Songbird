@@ -139,12 +139,6 @@ describe("useAdminCache — fix verified: cache survives unmount", () => {
     const entry = cacheAfterRemount.stats;
     const isStale = !entry;
     expect(isStale).toBe(false); // entry exists — no fetch dispatched
-
-    const elapsedAtRemount = Date.now() - fetchedAt;
-    console.log(
-      `Fix verified: After remount, cache.stats.data = ${JSON.stringify(entry.data)}, ` +
-        `elapsed = ${elapsedAtRemount} ms, loading = ${entry.loading}`,
-    );
   });
 
   /**
