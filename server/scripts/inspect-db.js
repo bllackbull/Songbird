@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { getCliArgs, getFlagValue, getPositionalArgs } from "./_cli.js";
 import { dataDir } from "./_cli.js";
 import { openDatabase, runAdminActionViaServer } from "./_db-admin.js";
+import { createInspector } from "../lib/inspect.js";
 
 function getDiskUsageInfo() {
   try {
@@ -107,70 +108,13 @@ if (remote) {
 } else {
   const dbApi = await openDatabase();
   try {
-    const counts = {
-      users: Number((await dbApi.getRow("SELECT COUNT(*) AS n FROM users"))?.n || 0),
-      chats: Number((await dbApi.getRow("SELECT COUNT(*) AS n FROM chats"))?.n || 0),
-      messages: Number((await dbApi.getRow("SELECT COUNT(*) AS n FROM chat_messages"))?.n || 0),
-      files: Number((await dbApi.getRow("SELECT COUNT(*) AS n FROM chat_message_files"))?.n || 0),
-    };
-    const snapshot = {
-      kind,
-      limit,
-      counts,
-      disk: getDiskUsageInfo(),
-    };
-
-    if (kind === "all" || kind === "user") {
-      snapshot.users = await dbApi.getAll(
-        `SELECT id, username, nickname, status, banned, avatar_url, created_at
-         FROM users
-         ORDER BY id ASC
-         LIMIT ?`,
-        [limit],
-      );
-    }
-    if (kind === "all" || kind === "chat") {
-      snapshot.chats = (await dbApi.getAll(
-        `SELECT c.id, c.type, c.name,
-                (SELECT COUNT(*) FROM chat_members cm WHERE cm.chat_id = c.id) AS members,
-                (SELECT GROUP_CONCAT(cm.user_id, ',') FROM chat_members cm WHERE cm.chat_id = c.id ORDER BY cm.user_id ASC) AS member_ids_csv,
-                (SELECT COUNT(*) FROM chat_messages m WHERE m.chat_id = c.id) AS messages,
-                c.created_at
-         FROM chats c
-         ORDER BY c.id ASC
-         LIMIT ?`,
-        [limit],
-      )).map((chat) => ({
-        ...chat,
-        member_ids: String(chat.member_ids_csv || "")
-          .split(",")
-          .map((id) => Number(id))
-          .filter((id) => Number.isFinite(id) && id > 0),
-      }));
-    }
-    if (kind === "all" || kind === "file") {
-      snapshot.messageFiles = await dbApi.getAll(
-        `SELECT cmf.id, cmf.message_id, cm.chat_id, cm.user_id, cmf.kind, cmf.original_name, cmf.stored_name, cmf.mime_type, cmf.size_bytes, cmf.created_at
-         FROM chat_message_files cmf
-         JOIN chat_messages cm ON cm.id = cmf.message_id
-         ORDER BY cmf.id ASC
-         LIMIT ?`,
-        [limit],
-      );
-      snapshot.avatarFiles = await dbApi.getAll(
-        `SELECT id AS user_id, username, nickname, avatar_url
-         FROM users
-         WHERE avatar_url IS NOT NULL AND avatar_url != ''
-         ORDER BY id ASC
-         LIMIT ?`,
-        [limit],
-      );
-      snapshot.fileStorage = {
-        messageFilesBytes: Number(
-          (await dbApi.getRow("SELECT COALESCE(SUM(size_bytes), 0) AS n FROM chat_message_files"))?.n || 0,
-        ),
-      };
-    }
+    const inspector = createInspector({
+      fs,
+      dataDir,
+      adminGetRow: dbApi.getRow,
+      adminGetAll: dbApi.getAll,
+    });
+    const snapshot = await inspector.buildInspectSnapshot(kind, limit);
     printSnapshot(snapshot);
   } finally {
     await dbApi.close();

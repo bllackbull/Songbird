@@ -35,6 +35,11 @@ function isPostgresMode() {
   return client === 'postgres' || client === 'postgresql' || client === 'pg'
 }
 
+function getPostgresRows(result) {
+  const rows = Array.isArray(result) ? result : result?.rows || []
+  return rows.length === 1 && Array.isArray(rows[0]?.rows) ? rows[0].rows : rows
+}
+
 async function getSql() {
   if (sqlSingleton) return sqlSingleton
   sqlSingleton = await initSqlJs({
@@ -80,12 +85,12 @@ export async function openDatabase(options = {}) {
       if (result && typeof result.then === 'function') {
         return result
           .then((res) => {
-            const rows = Array.isArray(res) ? res : res?.rows || []
+            const rows = getPostgresRows(res)
             return rows[0] || null
           })
           .catch(() => null)
       }
-      const rows = Array.isArray(result) ? result : result?.rows || []
+      const rows = getPostgresRows(result)
       return rows[0] || null
     }
 
@@ -107,13 +112,9 @@ export async function openDatabase(options = {}) {
       const { sql: normSql, params: normParams } = normalizeSqlForPostgres(sql, params)
       const result = db.raw(normSql, normParams)
       if (result && typeof result.then === 'function') {
-        return result
-          .then((res) => {
-            return Array.isArray(res) ? res : res?.rows || []
-          })
-          .catch(() => [])
+        return result.then(getPostgresRows).catch(() => [])
       }
-      return Array.isArray(result) ? result : result?.rows || []
+      return getPostgresRows(result)
     }
 
     const normalizedParams = Array.isArray(params) ? params : [params]
@@ -140,13 +141,13 @@ export async function openDatabase(options = {}) {
         return result
           .then((res) => {
             if (typeof res?.rowCount === 'number') return res.rowCount
-            const rows = Array.isArray(res) ? res : res?.rows || []
+            const rows = getPostgresRows(res)
             return rows.length
           })
           .catch(() => 0)
       }
       if (typeof result?.rowCount === 'number') return result.rowCount
-      const rows = Array.isArray(result) ? result : result?.rows || []
+      const rows = getPostgresRows(result)
       return rows.length
     }
 

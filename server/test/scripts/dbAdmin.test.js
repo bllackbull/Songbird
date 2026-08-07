@@ -81,4 +81,38 @@ describe("openDatabase Admin Utility", () => {
       }
     }
   });
+
+  test("unwraps PostgreSQL result wrappers returned in an array", async () => {
+    const mockKnex = {
+      raw: vi.fn(async (sql) => {
+        if (typeof sql === "string" && sql.includes("user_version")) {
+          return [{ rows: [{ user_version: 0 }] }];
+        }
+        if (typeof sql === "string" && sql.includes("SELECT 1 AS count")) {
+          return [{ rows: [{ count: 1 }] }];
+        }
+        return [{ rows: [] }];
+      }),
+      destroy: vi.fn(async () => {}),
+      exec: vi.fn(async () => {}),
+      client: { config: { client: "pg" } },
+    };
+    vi.spyOn(knexModule, "createKnexInstance").mockReturnValue(mockKnex);
+
+    const originalClient = process.env.DB_CLIENT;
+    try {
+      process.env.DB_CLIENT = "postgres";
+      activeDb = await openDatabase({ skipMigrations: true });
+
+      await expect(activeDb.getAll("SELECT 1 AS count")).resolves.toEqual([
+        { count: 1 },
+      ]);
+    } finally {
+      if (originalClient !== undefined) {
+        process.env.DB_CLIENT = originalClient;
+      } else {
+        delete process.env.DB_CLIENT;
+      }
+    }
+  });
 });

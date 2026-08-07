@@ -1531,7 +1531,7 @@ function registerAdminRoutes(app, deps) {
         );
         return res.json({
           ok: true,
-          result: buildInspectSnapshot(kind, limit),
+          result: await buildInspectSnapshot(kind, limit),
         });
       }
 
