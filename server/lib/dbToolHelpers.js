@@ -50,20 +50,21 @@ export function resolveUserRow(dbApi, selector) {
   const raw = String(selector || "").trim();
   if (!raw) return null;
   const numeric = Number(raw);
-  if (Number.isFinite(numeric) && numeric > 0) {
-    return (
-      dbApi.getRow(
-        "SELECT id, username, nickname, avatar_url, color, status, banned, verified FROM users WHERE id = ?",
-        [Math.trunc(numeric)],
-      ) || null
-    );
+  const result =
+    Number.isFinite(numeric) && numeric > 0
+      ? dbApi.getRow(
+          "SELECT id, username, nickname, avatar_url, color, status, banned, verified FROM users WHERE id = ?",
+          [Math.trunc(numeric)],
+        )
+      : dbApi.getRow(
+          "SELECT id, username, nickname, avatar_url, color, status, banned, verified FROM users WHERE username = ?",
+          [raw.toLowerCase()],
+        );
+
+  if (result && typeof result.then === "function") {
+    return result.then((row) => row || null).catch(() => null);
   }
-  return (
-    dbApi.getRow(
-      "SELECT id, username, nickname, avatar_url, color, status, banned, verified FROM users WHERE username = ?",
-      [raw.toLowerCase()],
-    ) || null
-  );
+  return result || null;
 }
 
 export function resolveChatRow(dbApi, selector, options = {}) {
@@ -72,25 +73,27 @@ export function resolveChatRow(dbApi, selector, options = {}) {
   const numeric = Number(raw);
   const groupOnly = options.groupOnly !== false;
   const typeFilter = groupOnly ? " AND type IN ('group', 'channel')" : "";
-  if (Number.isFinite(numeric) && numeric > 0) {
-    return (
-      dbApi.getRow(
-        `SELECT id, name, type, group_username, group_visibility, invite_token, group_color,
-                allow_member_invites, group_avatar_url, created_by_user_id, verified
-         FROM chats
-         WHERE id = ?${typeFilter}`,
-        [Math.trunc(numeric)],
-      ) || null
-    );
-  }
   const normalizedUsername = normalizeGroupUsername(raw);
-  return (
-    dbApi.getRow(
-      `SELECT id, name, type, group_username, group_visibility, invite_token, group_color,
-              allow_member_invites, group_avatar_url, created_by_user_id, verified
-       FROM chats
-       WHERE group_username IN (?, ?)${typeFilter}`,
-      [normalizedUsername, `@${normalizedUsername}`],
-    ) || null
-  );
+
+  const result =
+    Number.isFinite(numeric) && numeric > 0
+      ? dbApi.getRow(
+          `SELECT id, name, type, group_username, group_visibility, invite_token, group_color,
+                  allow_member_invites, group_avatar_url, created_by_user_id, verified
+           FROM chats
+           WHERE id = ?${typeFilter}`,
+          [Math.trunc(numeric)],
+        )
+      : dbApi.getRow(
+          `SELECT id, name, type, group_username, group_visibility, invite_token, group_color,
+                  allow_member_invites, group_avatar_url, created_by_user_id, verified
+           FROM chats
+           WHERE group_username IN (?, ?)${typeFilter}`,
+          [normalizedUsername, `@${normalizedUsername}`],
+        );
+
+  if (result && typeof result.then === "function") {
+    return result.then((row) => row || null).catch(() => null);
+  }
+  return result || null;
 }

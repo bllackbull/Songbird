@@ -108,10 +108,10 @@ if (remote) {
   const dbApi = await openDatabase();
   try {
     const counts = {
-      users: Number(dbApi.getRow("SELECT COUNT(*) AS n FROM users")?.n || 0),
-      chats: Number(dbApi.getRow("SELECT COUNT(*) AS n FROM chats")?.n || 0),
-      messages: Number(dbApi.getRow("SELECT COUNT(*) AS n FROM chat_messages")?.n || 0),
-      files: Number(dbApi.getRow("SELECT COUNT(*) AS n FROM chat_message_files")?.n || 0),
+      users: Number((await dbApi.getRow("SELECT COUNT(*) AS n FROM users"))?.n || 0),
+      chats: Number((await dbApi.getRow("SELECT COUNT(*) AS n FROM chats"))?.n || 0),
+      messages: Number((await dbApi.getRow("SELECT COUNT(*) AS n FROM chat_messages"))?.n || 0),
+      files: Number((await dbApi.getRow("SELECT COUNT(*) AS n FROM chat_message_files"))?.n || 0),
     };
     const snapshot = {
       kind,
@@ -121,7 +121,7 @@ if (remote) {
     };
 
     if (kind === "all" || kind === "user") {
-      snapshot.users = dbApi.getAll(
+      snapshot.users = await dbApi.getAll(
         `SELECT id, username, nickname, status, banned, avatar_url, created_at
          FROM users
          ORDER BY id ASC
@@ -130,7 +130,7 @@ if (remote) {
       );
     }
     if (kind === "all" || kind === "chat") {
-      snapshot.chats = dbApi.getAll(
+      snapshot.chats = (await dbApi.getAll(
         `SELECT c.id, c.type, c.name,
                 (SELECT COUNT(*) FROM chat_members cm WHERE cm.chat_id = c.id) AS members,
                 (SELECT GROUP_CONCAT(cm.user_id, ',') FROM chat_members cm WHERE cm.chat_id = c.id ORDER BY cm.user_id ASC) AS member_ids_csv,
@@ -140,7 +140,7 @@ if (remote) {
          ORDER BY c.id ASC
          LIMIT ?`,
         [limit],
-      ).map((chat) => ({
+      )).map((chat) => ({
         ...chat,
         member_ids: String(chat.member_ids_csv || "")
           .split(",")
@@ -149,7 +149,7 @@ if (remote) {
       }));
     }
     if (kind === "all" || kind === "file") {
-      snapshot.messageFiles = dbApi.getAll(
+      snapshot.messageFiles = await dbApi.getAll(
         `SELECT cmf.id, cmf.message_id, cm.chat_id, cm.user_id, cmf.kind, cmf.original_name, cmf.stored_name, cmf.mime_type, cmf.size_bytes, cmf.created_at
          FROM chat_message_files cmf
          JOIN chat_messages cm ON cm.id = cmf.message_id
@@ -157,7 +157,7 @@ if (remote) {
          LIMIT ?`,
         [limit],
       );
-      snapshot.avatarFiles = dbApi.getAll(
+      snapshot.avatarFiles = await dbApi.getAll(
         `SELECT id AS user_id, username, nickname, avatar_url
          FROM users
          WHERE avatar_url IS NOT NULL AND avatar_url != ''
@@ -167,12 +167,12 @@ if (remote) {
       );
       snapshot.fileStorage = {
         messageFilesBytes: Number(
-          dbApi.getRow("SELECT COALESCE(SUM(size_bytes), 0) AS n FROM chat_message_files")?.n || 0,
+          (await dbApi.getRow("SELECT COALESCE(SUM(size_bytes), 0) AS n FROM chat_message_files"))?.n || 0,
         ),
       };
     }
     printSnapshot(snapshot);
   } finally {
-    dbApi.close();
+    await dbApi.close();
   }
 }

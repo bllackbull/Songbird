@@ -3551,13 +3551,13 @@ resolve_chat_visibility_for_script() {
       const { resolveChatRow } = await import(new URL(\"./server/lib/dbToolHelpers.js\", rootUrl));
       const dbApi = await openDatabase();
       try {
-        const chat = resolveChatRow(dbApi, String(process.env.CHAT_SELECTOR || \"\").trim());
+        const chat = await resolveChatRow(dbApi, String(process.env.CHAT_SELECTOR || \"\").trim());
         if (!chat?.id) {
           process.exit(2);
         }
         process.stdout.write(String(chat.group_visibility || \"public\").trim().toLowerCase() || \"public\");
       } finally {
-        dbApi.close();
+        await dbApi?.close();
       }
     "
   '
@@ -3581,13 +3581,13 @@ check_owner_exists() {
         const { openDatabase } = await import(new URL(\"./server/scripts/_db-admin.js\", rootUrl));
         dbApi = await openDatabase();
         const sql = \"SELECT id FROM users WHERE role = \" + \"'owner'\" + \" LIMIT 1\";
-        const row = dbApi.getRow(sql);
+        const row = await dbApi.getRow(sql);
         process.exit(row && row.id ? 0 : 1);
       } catch (err) {
         process.stderr.write(String(err?.message || err) + \"\\n\");
         process.exit(1);
       } finally {
-        try { dbApi?.close(); } catch (_) {}
+        try { await dbApi?.close(); } catch (_) {}
       }
     "
   '
@@ -3618,6 +3618,8 @@ create_owner_user() {
     --username "$username" \
     --password "$password" \
     --role owner
+
+  apply_ownership
 }
 
 print_db_script_help() {

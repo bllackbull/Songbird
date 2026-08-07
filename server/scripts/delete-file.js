@@ -54,17 +54,17 @@ if (remote) {
     let avatarRows = [];
 
     if (deleteAll) {
-      targetMessageIds = dbApi
-        .getAll("SELECT DISTINCT message_id FROM chat_message_files ORDER BY message_id ASC")
+      targetMessageIds = (await dbApi
+        .getAll("SELECT DISTINCT message_id FROM chat_message_files ORDER BY message_id ASC"))
         .map((row) => Number(row.message_id))
         .filter((id) => Number.isFinite(id) && id > 0);
-      messageStoredNames = dbApi.getAll("SELECT stored_name FROM chat_message_files").map((row) => row.stored_name);
-      avatarRows = dbApi.getAll(
+      messageStoredNames = (await dbApi.getAll("SELECT stored_name FROM chat_message_files")).map((row) => row.stored_name);
+      avatarRows = await dbApi.getAll(
         `SELECT id, avatar_url FROM users WHERE avatar_url LIKE '/uploads/avatars/%'`,
       );
     } else {
       const byIdRows = numericIds.length
-        ? dbApi.getAll(
+        ? await dbApi.getAll(
             `SELECT id, message_id, stored_name FROM chat_message_files WHERE id IN (${numericIds
               .map(() => "?")
               .join(", ")})`,
@@ -72,7 +72,7 @@ if (remote) {
           )
         : [];
       const byNameRows = names.length
-        ? dbApi.getAll(
+        ? await dbApi.getAll(
             `SELECT id, message_id, stored_name FROM chat_message_files WHERE stored_name IN (${names
               .map(() => "?")
               .join(", ")})`,
@@ -88,25 +88,25 @@ if (remote) {
         ),
       );
       if (targetMessageIds.length) {
-        messageStoredNames = dbApi
+        messageStoredNames = (await dbApi
           .getAll(
             `SELECT stored_name FROM chat_message_files WHERE message_id IN (${targetMessageIds
               .map(() => "?")
               .join(", ")})`,
             targetMessageIds,
-          )
+          ))
           .map((row) => row.stored_name);
       }
       if (names.length) {
-        avatarRows = dbApi
-          .getAll(`SELECT id, avatar_url FROM users WHERE avatar_url LIKE '/uploads/avatars/%'`)
+        avatarRows = (await dbApi
+          .getAll(`SELECT id, avatar_url FROM users WHERE avatar_url LIKE '/uploads/avatars/%'`))
           .filter((row) => names.includes(path.basename(String(row.avatar_url || ""))));
       }
     }
 
     if (!targetMessageIds.length && !avatarRows.length) {
       console.log("No matching files found. Nothing to delete.");
-      dbApi.close();
+      await dbApi.close();
       process.exit(0);
     }
 
@@ -121,32 +121,32 @@ if (remote) {
 
     if (!confirmed) {
       console.log("Aborted.");
-      dbApi.close();
+      await dbApi.close();
       process.exit(0);
     }
 
-    dbApi.run("BEGIN");
+    await dbApi.run("BEGIN");
     try {
       if (targetMessageIds.length) {
         const placeholders = targetMessageIds.map(() => "?").join(", ");
-        dbApi.run(
+        await dbApi.run(
           `DELETE FROM chat_message_files WHERE message_id IN (${placeholders})`,
           targetMessageIds,
         );
-        dbApi.run(`DELETE FROM chat_messages WHERE id IN (${placeholders})`, targetMessageIds);
+        await dbApi.run(`DELETE FROM chat_messages WHERE id IN (${placeholders})`, targetMessageIds);
       }
       if (avatarRows.length) {
         const userIds = avatarRows.map((row) => Number(row.id)).filter(Boolean);
         if (userIds.length) {
-          dbApi.run(
+          await dbApi.run(
             `UPDATE users SET avatar_url = NULL WHERE id IN (${userIds.map(() => "?").join(", ")})`,
             userIds,
           );
         }
       }
-      dbApi.run("COMMIT");
+      await dbApi.run("COMMIT");
     } catch (error) {
-      dbApi.run("ROLLBACK");
+      await dbApi.run("ROLLBACK");
       throw error;
     }
 
@@ -154,7 +154,7 @@ if (remote) {
     const avatarCleanup = removeAvatarFiles(
       avatarRows.map((row) => path.basename(String(row.avatar_url || ""))),
     );
-    dbApi.save();
+    await dbApi.save();
 
     console.log(`Message bubbles deleted: ${targetMessageIds.length}`);
     console.log(
@@ -165,6 +165,6 @@ if (remote) {
     );
     console.log(`Avatar assignments cleared: ${avatarRows.length}`);
   } finally {
-    dbApi.close();
+    await dbApi.close();
   }
 }

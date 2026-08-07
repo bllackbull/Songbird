@@ -101,15 +101,15 @@ function parseUserSelector(value) {
   return { by: "username", value: raw };
 }
 
-function resolveUserId(dbApi, selector) {
+async function resolveUserId(dbApi, selector) {
   if (!selector) return null;
   if (selector.by === "id") {
-    const row = dbApi.getRow("SELECT id FROM users WHERE id = ?", [
+    const row = await dbApi.getRow("SELECT id FROM users WHERE id = ?", [
       selector.value,
     ]);
     return row?.id ? Number(row.id) : null;
   }
-  const row = dbApi.getRow("SELECT id FROM users WHERE username = ?", [
+  const row = await dbApi.getRow("SELECT id FROM users WHERE username = ?", [
     selector.value,
   ]);
   return row?.id ? Number(row.id) : null;
@@ -204,7 +204,7 @@ async function main() {
 
   const dbApi = await openDatabase();
   try {
-    const chatRow = dbApi.getRow("SELECT id FROM chats WHERE id = ?", [chatId]);
+    const chatRow = await dbApi.getRow("SELECT id FROM chats WHERE id = ?", [chatId]);
     if (!chatRow?.id) {
       console.error(`Chat not found: ${chatId}`);
       if (remoteErrorMessage) {
@@ -214,8 +214,8 @@ async function main() {
       return;
     }
 
-    const userAId = resolveUserId(dbApi, parseUserSelector(userOneRaw));
-    const userBId = resolveUserId(dbApi, parseUserSelector(userTwoRaw));
+    const userAId = await resolveUserId(dbApi, parseUserSelector(userOneRaw));
+    const userBId = await resolveUserId(dbApi, parseUserSelector(userTwoRaw));
     if (!userAId || !userBId) {
       console.error("One or both users not found.");
       if (remoteErrorMessage) {
@@ -230,13 +230,13 @@ async function main() {
       return;
     }
 
-    dbApi.run("BEGIN");
+    await dbApi.run("BEGIN");
     try {
-      dbApi.run(
+      await dbApi.run(
         "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",
         [chatId, userAId, "member"],
       );
-      dbApi.run(
+      await dbApi.run(
         "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",
         [chatId, userBId, "member"],
       );
@@ -250,7 +250,7 @@ async function main() {
           rawBody.length > MESSAGE_MAX_CHARS
             ? rawBody.slice(0, MESSAGE_MAX_CHARS)
             : rawBody;
-        dbApi.run(
+        await dbApi.run(
           "INSERT INTO chat_messages (chat_id, user_id, body, created_at, read_at, read_by_user_id) VALUES (?, ?, ?, ?, NULL, NULL)",
           [
             chatId,
@@ -261,18 +261,18 @@ async function main() {
         );
       }
 
-      dbApi.run("COMMIT");
+      await dbApi.run("COMMIT");
     } catch (error) {
-      dbApi.run("ROLLBACK");
+      await dbApi.run("ROLLBACK");
       throw error;
     }
 
-    dbApi.save();
+    await dbApi.save();
     console.log(`Generated messages: ${count}`);
     console.log(`Chat: ${chatId}`);
     console.log(`Users: ${userAId}, ${userBId}`);
   } finally {
-    dbApi.close();
+    await dbApi.close();
   }
 }
 

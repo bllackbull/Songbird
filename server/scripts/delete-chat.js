@@ -8,22 +8,22 @@ import {
 } from './_db-admin.js'
 import { resolveChatRow } from '../lib/dbToolHelpers.js'
 
-function resolveChatIds(dbApi, selectors) {
+async function resolveChatIds(dbApi, selectors) {
   const ids = new Set()
   const missing = []
 
-  selectors.forEach((selector) => {
+  for (const selector of selectors) {
     const raw = String(selector || '').trim()
-    if (!raw) return
+    if (!raw) continue
 
-    const chat = resolveChatRow(dbApi, raw, { groupOnly: false })
+    const chat = await resolveChatRow(dbApi, raw, { groupOnly: false })
     if (chat?.id) {
       ids.add(Number(chat.id))
-      return
+      continue
     }
 
     missing.push(raw)
-  })
+  }
 
   return {
     chatIds: Array.from(ids),
@@ -31,10 +31,9 @@ function resolveChatIds(dbApi, selectors) {
   }
 }
 
-function deleteChatsByIds(dbApi, chatIds) {
-  const { getAll, run } = dbApi
+async function deleteChatsByIds(dbApi, chatIds) {
   const placeholders = chatIds.map(() => '?').join(', ')
-  const fileRows = getAll(
+  const fileRows = await dbApi.getAll(
     `
       SELECT cmf.stored_name
       FROM chat_message_files cmf
@@ -45,25 +44,25 @@ function deleteChatsByIds(dbApi, chatIds) {
   )
   const storedNames = fileRows.map((row) => row.stored_name)
 
-  run('BEGIN')
+  await dbApi.run('BEGIN')
   try {
-    chunkArray(chatIds, 500).forEach((chunk) => {
+    for (const chunk of chunkArray(chatIds, 500)) {
       const chunkPlaceholders = chunk.map(() => '?').join(', ')
-      run(
+      await dbApi.run(
         `DELETE FROM chat_message_files WHERE message_id IN (
           SELECT id FROM chat_messages WHERE chat_id IN (${chunkPlaceholders})
         )`,
         chunk,
       )
-      run(`DELETE FROM chat_messages WHERE chat_id IN (${chunkPlaceholders})`, chunk)
-      run(`DELETE FROM chat_members WHERE chat_id IN (${chunkPlaceholders})`, chunk)
-      run(`DELETE FROM chat_left_members WHERE chat_id IN (${chunkPlaceholders})`, chunk)
-      run(`DELETE FROM hidden_chats WHERE chat_id IN (${chunkPlaceholders})`, chunk)
-      run(`DELETE FROM chats WHERE id IN (${chunkPlaceholders})`, chunk)
-    })
-    run('COMMIT')
+      await dbApi.run(`DELETE FROM chat_messages WHERE chat_id IN (${chunkPlaceholders})`, chunk)
+      await dbApi.run(`DELETE FROM chat_members WHERE chat_id IN (${chunkPlaceholders})`, chunk)
+      await dbApi.run(`DELETE FROM chat_left_members WHERE chat_id IN (${chunkPlaceholders})`, chunk)
+      await dbApi.run(`DELETE FROM hidden_chats WHERE chat_id IN (${chunkPlaceholders})`, chunk)
+      await dbApi.run(`DELETE FROM chats WHERE id IN (${chunkPlaceholders})`, chunk)
+    }
+    await dbApi.run('COMMIT')
   } catch (error) {
-    run('ROLLBACK')
+    await dbApi.run('ROLLBACK')
     throw error
   }
 
@@ -83,7 +82,7 @@ async function main() {
 
   const dbApi = await openDatabase()
   try {
-    const resolved = resolveChatIds(dbApi, selectors)
+    const resolved = await resolveChatIds(dbApi, selectors)
     let chatIds = resolved.chatIds
 
     if (resolved.missing.length) {
@@ -98,8 +97,8 @@ async function main() {
         process.exitCode = 1
         return
       }
-      chatIds = dbApi
-        .getAll('SELECT id FROM chats ORDER BY id ASC')
+      const allChats = await dbApi.getAll('SELECT id FROM chats ORDER BY id ASC')
+      chatIds = allChats
         .map((row) => Number(row.id))
         .filter((value) => Number.isFinite(value) && value > 0)
     }
@@ -130,13 +129,13 @@ async function main() {
       return
     }
 
-    const result = deleteChatsByIds(dbApi, chatIds)
-    dbApi.save()
+    const result = await deleteChatsByIds(dbApi, chatIds)
+    await dbApi.save()
     console.log(`Chats deleted: ${result.removedChats}`)
     console.log(`Stored files removed: ${result.removedFiles}`)
     console.log(`Stored files missing on disk: ${result.missingFiles}`)
   } finally {
-    dbApi.close()
+    await dbApi.close()
   }
 }
 

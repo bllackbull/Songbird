@@ -114,13 +114,13 @@ async function main() {
 
   const dbApi = await openDatabase();
   try {
-    const owner = resolveUserRow(dbApi, ownerSelector);
+    const owner = await resolveUserRow(dbApi, ownerSelector);
     if (!owner?.id) {
       console.error("Owner user not found.");
       process.exit(1);
     }
 
-    const userConflict = dbApi.getRow(
+    const userConflict = await dbApi.getRow(
       "SELECT id FROM users WHERE username = ?",
       [username],
     );
@@ -128,7 +128,7 @@ async function main() {
       console.error("Chat username already exists.");
       process.exit(1);
     }
-    const chatConflict = dbApi.getRow(
+    const chatConflict = await dbApi.getRow(
       "SELECT id FROM chats WHERE type IN ('group', 'channel') AND group_username IN (?, ?)",
       [username, `@${username}`],
     );
@@ -138,26 +138,25 @@ async function main() {
     }
 
     const ownerUsername = String(owner.username || "").toLowerCase();
+    const resolvedMembers = [];
+    for (const selector of memberSelectors) {
+      const row = await resolveUserRow(dbApi, selector);
+      if (row?.id) resolvedMembers.push(row);
+    }
     const memberRows = Array.from(
-      new Map(
-        memberSelectors
-          .map((selector) => resolveUserRow(dbApi, selector))
-          .filter((row) => row?.id)
-          .map((row) => [Number(row.id), row]),
-      ).values(),
+      new Map(resolvedMembers.map((row) => [Number(row.id), row])).values(),
     ).filter(
       (row) => String(row.username || "").toLowerCase() !== ownerUsername,
     );
 
     const inviteToken = createInviteToken(crypto);
-    const groupColor =
-      dbApi.getRow("SELECT color FROM users WHERE id = ?", [Number(owner.id)])
-        ?.color || "#10b981";
+    const ownerColorRow = await dbApi.getRow("SELECT color FROM users WHERE id = ?", [Number(owner.id)]);
+    const groupColor = ownerColorRow?.color || "#10b981";
 
-    dbApi.run("BEGIN");
+    await dbApi.run("BEGIN");
     let chatId = 0;
     try {
-      dbApi.run(
+      await dbApi.run(
         `INSERT INTO chats (
           name, type, group_username, group_visibility, invite_token, created_by_user_id, group_color, allow_member_invites, group_avatar_url
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -174,33 +173,34 @@ async function main() {
         ],
       );
 
-      const chatRow = dbApi.getRow(
+      const chatRow = await dbApi.getRow(
         `SELECT id, name, type, group_username, group_visibility, created_by_user_id
          FROM chats
-         WHERE rowid = last_insert_rowid()`,
+         WHERE invite_token = ?`,
+        [inviteToken],
       );
       chatId = Number(chatRow?.id || 0);
       if (!chatId) {
         throw new Error("Failed to create chat.");
       }
 
-      dbApi.run(
+      await dbApi.run(
         "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",
         [chatId, Number(owner.id), "owner"],
       );
-      memberRows.forEach((member) => {
-        dbApi.run(
+      for (const member of memberRows) {
+        await dbApi.run(
           "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",
           [chatId, Number(member.id), "member"],
         );
-      });
-      dbApi.run("COMMIT");
+      }
+      await dbApi.run("COMMIT");
     } catch (error) {
-      dbApi.run("ROLLBACK");
+      await dbApi.run("ROLLBACK");
       throw error;
     }
 
-    dbApi.save();
+    await dbApi.save();
     console.log(`Chat created: id=${chatId} type=${type} name=${name}`);
     console.log(`Owner: ${owner.username}`);
     console.log(`Members added: ${memberRows.length + 1}`);
@@ -216,7 +216,7 @@ async function main() {
       const streamMed = streamMedia ? 1 : 0;
       const sourceVersion = 1;
 
-      dbApi.run(
+      await dbApi.run(
         `INSERT INTO remote_channel_sources (
            chat_id, provider, source_raw, source_chat_id, source_username,
            source_version, sync_metadata, stream_media, enabled, last_error, updated_at
@@ -234,13 +234,13 @@ async function main() {
         ],
       );
 
-      dbApi.save();
+      await dbApi.save();
       console.log(`Remote Channel configured: source=${sourceRaw}`);
       console.log(`Sync metadata: ${syncMetadata ? "yes" : "no"}`);
       console.log(`Stream media: ${streamMedia ? "yes" : "no"}`);
     }
   } finally {
-    dbApi.close();
+    await dbApi.close();
   }
 }
 

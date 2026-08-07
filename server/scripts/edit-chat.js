@@ -122,7 +122,7 @@ async function main() {
 
     const dbApi = await openDatabase();
     try {
-      const chat = resolveChatRow(dbApi, chatSelector);
+      const chat = await resolveChatRow(dbApi, chatSelector);
       if (!chat?.id) {
         console.error("Chat not found. Use a group/channel id or username.");
         process.exit(1);
@@ -143,7 +143,7 @@ async function main() {
         process.exit(1);
       }
 
-      const existing = dbApi.getRow(
+      const existing = await dbApi.getRow(
         "SELECT id, source_raw, source_chat_id, source_username, sync_metadata, stream_media, enabled, paused FROM remote_channel_sources WHERE chat_id = ?",
         [Number(chat.id)],
       );
@@ -157,27 +157,27 @@ async function main() {
 
       // Handle queue management actions
       if (pauseQueue) {
-        dbApi.run(
+        await dbApi.run(
           "UPDATE remote_channel_sources SET paused = 1, updated_at = datetime('now') WHERE chat_id = ?",
           [Number(chat.id)],
         );
-        dbApi.save();
+        await dbApi.save();
         console.log(`Remote Channel queue paused for chat: id=${chat.id}`);
         return;
       }
 
       if (resumeQueue) {
-        dbApi.run(
+        await dbApi.run(
           "UPDATE remote_channel_sources SET paused = 0, updated_at = datetime('now') WHERE chat_id = ?",
           [Number(chat.id)],
         );
-        dbApi.save();
+        await dbApi.save();
         console.log(`Remote Channel queue resumed for chat: id=${chat.id}`);
         return;
       }
 
       if (skipQueue) {
-        const skipped = dbApi.run(
+        const skipped = await dbApi.run(
           `UPDATE remote_channel_queue
            SET status = 'skipped',
                locked_at = NULL,
@@ -193,7 +193,7 @@ async function main() {
            )`,
           [Number(existing.id)],
         );
-        dbApi.save();
+        await dbApi.save();
         console.log(
           skipped > 0
             ? `Skipped current queue item for chat: id=${chat.id}`
@@ -203,7 +203,7 @@ async function main() {
       }
 
       if (skipAllQueue) {
-        const skipped = dbApi.run(
+        const skipped = await dbApi.run(
           `UPDATE remote_channel_queue
            SET status = 'skipped',
                locked_at = NULL,
@@ -214,7 +214,7 @@ async function main() {
              AND status IN ('pending', 'retry')`,
           [Number(existing.id)],
         );
-        dbApi.save();
+        await dbApi.save();
         console.log(`Skipped ${skipped} queue items for chat: id=${chat.id}`);
         return;
       }
@@ -228,11 +228,11 @@ async function main() {
 
       if (disableRemote) {
         if (existing?.id) {
-          dbApi.run(
+          await dbApi.run(
             "UPDATE remote_channel_sources SET enabled = 0, updated_at = datetime('now') WHERE chat_id = ?",
             [Number(chat.id)],
           );
-          dbApi.save();
+          await dbApi.save();
           console.log(`Remote Channel disabled for chat: id=${chat.id}`);
         } else {
           console.log(`No Remote Channel configured for chat: id=${chat.id}`);
@@ -242,11 +242,11 @@ async function main() {
 
       if (enableRemote) {
         if (existing?.id) {
-          dbApi.run(
+          await dbApi.run(
             "UPDATE remote_channel_sources SET enabled = 1, updated_at = datetime('now') WHERE chat_id = ?",
             [Number(chat.id)],
           );
-          dbApi.save();
+          await dbApi.save();
           console.log(`Remote Channel enabled for chat: id=${chat.id}`);
         } else {
           console.error(
@@ -409,7 +409,7 @@ async function main() {
 
   const dbApi = await openDatabase();
   try {
-    const chat = resolveChatRow(dbApi, chatSelector);
+    const chat = await resolveChatRow(dbApi, chatSelector);
     if (!chat?.id) {
       console.error("Chat not found. Use a group/channel id or username.");
       process.exit(1);
@@ -453,7 +453,7 @@ async function main() {
         : 1;
 
     if (nextUsername) {
-      const userConflict = dbApi.getRow(
+      const userConflict = await dbApi.getRow(
         "SELECT id FROM users WHERE username = ?",
         [nextUsername],
       );
@@ -461,7 +461,7 @@ async function main() {
         console.error("Chat username already exists.");
         process.exit(1);
       }
-      const chatConflict = dbApi.getRow(
+      const chatConflict = await dbApi.getRow(
         "SELECT id FROM chats WHERE type IN ('group', 'channel') AND group_username IN (?, ?) AND id != ?",
         [nextUsername, `@${nextUsername}`, Number(chat.id)],
       );
@@ -473,14 +473,14 @@ async function main() {
 
     let nextOwner = null;
     if (ownerValue != null) {
-      nextOwner = resolveUserRow(dbApi, ownerValue);
+      nextOwner = await resolveUserRow(dbApi, ownerValue);
       if (!nextOwner?.id) {
         console.error("New owner user not found.");
         process.exit(1);
       }
     }
 
-    dbApi.run(
+    await dbApi.run(
       `UPDATE chats
        SET name = ?, group_username = ?, group_visibility = ?, group_color = ?, allow_member_invites = ?, created_by_user_id = COALESCE(?, created_by_user_id)
        WHERE id = ? AND type IN ('group', 'channel')`,
@@ -496,22 +496,22 @@ async function main() {
     );
 
     if (nextOwner?.id) {
-      dbApi.run(
+      await dbApi.run(
         "UPDATE chat_members SET role = 'member' WHERE chat_id = ? AND role = 'owner'",
         [Number(chat.id)],
       );
-      dbApi.run(
+      await dbApi.run(
         "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, 'owner')",
         [Number(chat.id), Number(nextOwner.id)],
       );
-      dbApi.run(
+      await dbApi.run(
         "UPDATE chat_members SET role = 'owner' WHERE chat_id = ? AND user_id = ?",
         [Number(chat.id), Number(nextOwner.id)],
       );
     }
 
-    dbApi.save();
-    const updated = resolveChatRow(dbApi, String(chat.id));
+    await dbApi.save();
+    const updated = await resolveChatRow(dbApi, String(chat.id));
     console.log(
       `Chat updated: id=${updated.id} type=${updated.type} name=${updated.name || ""}`,
     );
@@ -519,7 +519,7 @@ async function main() {
       console.log(`Owner changed to: ${nextOwner.username}`);
     }
   } finally {
-    dbApi.close();
+    await dbApi.close();
   }
 }
 

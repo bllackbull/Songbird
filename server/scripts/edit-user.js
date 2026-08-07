@@ -98,7 +98,7 @@ async function main() {
 
   const dbApi = await openDatabase();
   try {
-    const user = resolveUserRow(dbApi, userSelector);
+    const user = await resolveUserRow(dbApi, userSelector);
     if (!user?.id) {
       console.error("User not found.");
       process.exit(1);
@@ -145,7 +145,7 @@ async function main() {
     }
 
     if (nextUsername !== String(user.username || "").toLowerCase()) {
-      const userConflict = dbApi.getRow(
+      const userConflict = await dbApi.getRow(
         "SELECT id FROM users WHERE username = ?",
         [nextUsername],
       );
@@ -153,7 +153,7 @@ async function main() {
         console.error("Username already exists.");
         process.exit(1);
       }
-      const chatConflict = dbApi.getRow(
+      const chatConflict = await dbApi.getRow(
         "SELECT id FROM chats WHERE type IN ('group', 'channel') AND group_username IN (?, ?)",
         [nextUsername, `@${nextUsername}`],
       );
@@ -165,9 +165,9 @@ async function main() {
 
     // Owner uniqueness check
     if (normalizedRole === "owner") {
-      const currentUserRow = dbApi.getRow("SELECT role FROM users WHERE id = ?", [Number(user.id)]);
+      const currentUserRow = await dbApi.getRow("SELECT role FROM users WHERE id = ?", [Number(user.id)]);
       if (currentUserRow?.role !== "owner") {
-        const existingOwner = dbApi.getRow("SELECT id FROM users WHERE role = 'owner' LIMIT 1");
+        const existingOwner = await dbApi.getRow("SELECT id FROM users WHERE role = 'owner' LIMIT 1");
         if (existingOwner?.id) {
           console.error("An owner already exists. Demote them first before assigning the owner role.");
           process.exit(1);
@@ -175,7 +175,7 @@ async function main() {
       }
     }
 
-    dbApi.run(
+    await dbApi.run(
       "UPDATE users SET username = ?, nickname = ?, avatar_url = ?, color = ?, status = ? WHERE id = ?",
       [
         nextUsername,
@@ -188,19 +188,20 @@ async function main() {
     );
 
     if (normalizedRole !== undefined) {
-      dbApi.run("UPDATE users SET role = ? WHERE id = ?", [normalizedRole, Number(user.id)]);
+      await dbApi.run("UPDATE users SET role = ? WHERE id = ?", [normalizedRole, Number(user.id)]);
     }
 
-    dbApi.save();
+    await dbApi.save();
 
-    const updated = resolveUserRow(dbApi, String(user.id));
-    const currentRole = dbApi.getRow("SELECT role FROM users WHERE id = ?", [Number(user.id)])?.role || "user";
+    const updated = await resolveUserRow(dbApi, String(user.id));
+    const roleRow = await dbApi.getRow("SELECT role FROM users WHERE id = ?", [Number(user.id)]);
+    const currentRole = roleRow?.role || "user";
     console.log(`User updated: id=${updated.id} username=${updated.username}`);
     console.log(`Nickname: ${updated.nickname || ""}`);
     console.log(`Color: ${updated.color || ""}`);
     console.log(`Role: ${currentRole}`);
   } finally {
-    dbApi.close();
+    await dbApi.close();
   }
 }
 

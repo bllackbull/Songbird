@@ -42,29 +42,35 @@ async function main() {
 
   const dbApi = await openDatabase();
   try {
-    const chat = resolveChatRow(dbApi, chatSelector);
+    const chat = await resolveChatRow(dbApi, chatSelector);
     if (!chat?.id) {
       console.error("Chat not found. Use a group/channel id or username.");
       process.exit(1);
     }
 
-    const rows = addAllUsers
-      ? dbApi.getAll("SELECT id, username, nickname FROM users ORDER BY id ASC")
-      : Array.from(
-          new Map(
-            userSelectors
-              .flatMap((selector) => parseListValue(selector))
-              .map((selector) => resolveUserRow(dbApi, selector))
-              .filter((row) => row?.id)
-              .map((row) => [Number(row.id), row]),
-          ).values(),
-        );
+    const resolvedUserRows = [];
+    if (addAllUsers) {
+      const allRows = await dbApi.getAll("SELECT id, username, nickname FROM users ORDER BY id ASC");
+      resolvedUserRows.push(...allRows);
+    } else {
+      const selectors = userSelectors.flatMap((selector) => parseListValue(selector));
+      for (const selector of selectors) {
+        const userRow = await resolveUserRow(dbApi, selector);
+        if (userRow?.id) {
+          resolvedUserRows.push(userRow);
+        }
+      }
+    }
+
+    const rows = Array.from(
+      new Map(resolvedUserRows.map((row) => [Number(row.id), row])).values(),
+    );
     if (!rows.length) {
       console.error("No users matched.");
       process.exit(1);
     }
 
-    const { addedCount, skippedLeftCount } = addChatMembers(dbApi, chat, rows, { force });
+    const { addedCount, skippedLeftCount } = await addChatMembers(dbApi, chat, rows, { force });
 
     console.log(`Members added: ${addedCount}`);
     if (skippedLeftCount > 0) {
@@ -76,7 +82,7 @@ async function main() {
       `Chat: id=${chat.id} type=${chat.type} name=${chat.name || ""}`,
     );
   } finally {
-    dbApi.close();
+    await dbApi.close();
   }
 }
 

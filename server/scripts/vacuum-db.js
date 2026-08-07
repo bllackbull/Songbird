@@ -24,11 +24,11 @@ async function main() {
 
   const dbApi = await openDatabase();
   try {
-    dbApi.run("VACUUM");
-    dbApi.save();
+    await dbApi.run("VACUUM");
+    await dbApi.save();
     console.log("Database VACUUM completed.");
   } finally {
-    dbApi.close();
+    await dbApi.close();
   }
 }
 

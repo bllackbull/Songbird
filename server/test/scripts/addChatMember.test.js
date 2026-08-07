@@ -149,9 +149,9 @@ const USERS = [
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe("addChatMembers — normal add", () => {
-  test("adds a new user who has never been in the chat", () => {
+  test("adds a new user who has never been in the chat", async () => {
     const db = makeDb({ users: USERS });
-    const result = addChatMembers(db, CHAT, [USERS[0]], { force: false });
+    const result = await addChatMembers(db, CHAT, [USERS[0]], { force: false });
     expect(result.addedCount).toBe(1);
     expect(result.skippedLeftCount).toBe(0);
     expect(db._insertedMembers).toContainEqual({
@@ -162,10 +162,10 @@ describe("addChatMembers — normal add", () => {
     expect(db._saved).toBe(true);
   });
 
-  test("records a join system message when adding a group member", () => {
+  test("records a join system message when adding a group member", async () => {
     const db = makeDb({ users: USERS });
 
-    addChatMembers(db, CHAT, [USERS[1]], { force: false });
+    await addChatMembers(db, CHAT, [USERS[1]], { force: false });
 
     expect(db._runs).toContainEqual({
       sql: "INSERT INTO chat_messages (chat_id, user_id, body) VALUES (?, ?, ?)",
@@ -173,29 +173,29 @@ describe("addChatMembers — normal add", () => {
     });
   });
 
-  test("skips a user who is already a member", () => {
+  test("skips a user who is already a member", async () => {
     const members = [{ chat_id: 1, user_id: 1, role: "member" }];
     const db = makeDb({ users: USERS, members });
-    const result = addChatMembers(db, CHAT, [USERS[0]], { force: false });
+    const result = await addChatMembers(db, CHAT, [USERS[0]], { force: false });
     expect(result.addedCount).toBe(0);
     expect(result.skippedLeftCount).toBe(0);
   });
 
-  test("preserves owner role when re-adding an existing owner", () => {
+  test("preserves owner role when re-adding an existing owner", async () => {
     const ownerMembers = [{ chat_id: 1, user_id: 1, role: "owner" }];
     // User was previously removed from chat_members but is still in ownerIds
     const db = makeDb({ users: USERS, members: ownerMembers });
     // User 2 is not an owner; add them
-    const result = addChatMembers(db, CHAT, [USERS[1]], { force: false });
+    const result = await addChatMembers(db, CHAT, [USERS[1]], { force: false });
     expect(result.addedCount).toBe(1);
     // The added user should be a member (not owner)
     const added = db._insertedMembers.find((r) => r.user_id === 2);
     expect(added?.role).toBe("member");
   });
 
-  test("adds multiple users at once", () => {
+  test("adds multiple users at once", async () => {
     const db = makeDb({ users: USERS });
-    const result = addChatMembers(db, CHAT, [USERS[0], USERS[1], USERS[2]], {
+    const result = await addChatMembers(db, CHAT, [USERS[0], USERS[1], USERS[2]], {
       force: false,
     });
     expect(result.addedCount).toBe(3);
@@ -204,20 +204,20 @@ describe("addChatMembers — normal add", () => {
 });
 
 describe("addChatMembers — priorLeft: chat_left_members table", () => {
-  test("skips a user who has a chat_left_members row (without --force)", () => {
+  test("skips a user who has a chat_left_members row (without --force)", async () => {
     const leftMembers = [{ chat_id: 1, user_id: 1 }];
     const db = makeDb({ users: USERS, leftMembers });
-    const result = addChatMembers(db, CHAT, [USERS[0]], { force: false });
+    const result = await addChatMembers(db, CHAT, [USERS[0]], { force: false });
     expect(result.addedCount).toBe(0);
     expect(result.skippedLeftCount).toBe(1);
     // No insert was issued
     expect(db._insertedMembers).toHaveLength(0);
   });
 
-  test("--force bypasses chat_left_members and adds the user", () => {
+  test("--force bypasses chat_left_members and adds the user", async () => {
     const leftMembers = [{ chat_id: 1, user_id: 1 }];
     const db = makeDb({ users: USERS, leftMembers });
-    const result = addChatMembers(db, CHAT, [USERS[0]], { force: true });
+    const result = await addChatMembers(db, CHAT, [USERS[0]], { force: true });
     expect(result.addedCount).toBe(1);
     expect(result.skippedLeftCount).toBe(0);
     expect(db._insertedMembers).toContainEqual({
@@ -227,25 +227,25 @@ describe("addChatMembers — priorLeft: chat_left_members table", () => {
     });
   });
 
-  test("--all without --force skips users in chat_left_members", () => {
+  test("--all without --force skips users in chat_left_members", async () => {
     // Users 1 and 2 previously left; user 3 is fresh
     const leftMembers = [
       { chat_id: 1, user_id: 1 },
       { chat_id: 1, user_id: 2 },
     ];
     const db = makeDb({ users: USERS, leftMembers });
-    const result = addChatMembers(db, CHAT, USERS, { force: false });
+    const result = await addChatMembers(db, CHAT, USERS, { force: false });
     expect(result.addedCount).toBe(1); // only carol
     expect(result.skippedLeftCount).toBe(2);
   });
 
-  test("--all --force adds all users including those in chat_left_members", () => {
+  test("--all --force adds all users including those in chat_left_members", async () => {
     const leftMembers = [
       { chat_id: 1, user_id: 1 },
       { chat_id: 1, user_id: 2 },
     ];
     const db = makeDb({ users: USERS, leftMembers });
-    const result = addChatMembers(db, CHAT, USERS, { force: true });
+    const result = await addChatMembers(db, CHAT, USERS, { force: true });
     expect(result.addedCount).toBe(3);
     expect(result.skippedLeftCount).toBe(0);
     expect(db._insertedMembers).toHaveLength(3);
@@ -253,27 +253,27 @@ describe("addChatMembers — priorLeft: chat_left_members table", () => {
 });
 
 describe("addChatMembers — priorLeft: system:left message", () => {
-  test("skips user who has a [[system:left: message body (without --force)", () => {
+  test("skips user who has a [[system:left: message body (without --force)", async () => {
     const messages = [
       { chat_id: 1, user_id: 1, body: "[[system:left:something]]" },
     ];
     const db = makeDb({ users: USERS, messages });
-    const result = addChatMembers(db, CHAT, [USERS[0]], { force: false });
+    const result = await addChatMembers(db, CHAT, [USERS[0]], { force: false });
     expect(result.addedCount).toBe(0);
     expect(result.skippedLeftCount).toBe(1);
   });
 
-  test("--force bypasses system:left message check", () => {
+  test("--force bypasses system:left message check", async () => {
     const messages = [
       { chat_id: 1, user_id: 1, body: "[[system:left:something]]" },
     ];
     const db = makeDb({ users: USERS, messages });
-    const result = addChatMembers(db, CHAT, [USERS[0]], { force: true });
+    const result = await addChatMembers(db, CHAT, [USERS[0]], { force: true });
     expect(result.addedCount).toBe(1);
     expect(result.skippedLeftCount).toBe(0);
   });
 
-  test("does NOT skip a user whose message body merely contains (not starts with) [[system:left:", () => {
+  test("does NOT skip a user whose message body merely contains (not starts with) [[system:left:", async () => {
     const messages = [
       {
         chat_id: 1,
@@ -282,7 +282,7 @@ describe("addChatMembers — priorLeft: system:left message", () => {
       },
     ];
     const db = makeDb({ users: USERS, messages });
-    const result = addChatMembers(db, CHAT, [USERS[0]], { force: false });
+    const result = await addChatMembers(db, CHAT, [USERS[0]], { force: false });
     // body starts with "I saw", not "[[system:left:" — should be added
     expect(result.addedCount).toBe(1);
     expect(result.skippedLeftCount).toBe(0);
@@ -290,24 +290,24 @@ describe("addChatMembers — priorLeft: system:left message", () => {
 });
 
 describe("addChatMembers — edge cases", () => {
-  test("returns zero counts for empty user list", () => {
+  test("returns zero counts for empty user list", async () => {
     const db = makeDb({ users: USERS });
-    const result = addChatMembers(db, CHAT, [], { force: false });
+    const result = await addChatMembers(db, CHAT, [], { force: false });
     expect(result.addedCount).toBe(0);
     expect(result.skippedLeftCount).toBe(0);
   });
 
-  test("saves the database even if no users are added", () => {
+  test("saves the database even if no users are added", async () => {
     const leftMembers = [{ chat_id: 1, user_id: 1 }];
     const db = makeDb({ users: USERS, leftMembers });
-    addChatMembers(db, CHAT, [USERS[0]], { force: false });
+    await addChatMembers(db, CHAT, [USERS[0]], { force: false });
     expect(db._saved).toBe(true);
   });
 
-  test("does not insert the same user twice when called with duplicates", () => {
+  test("does not insert the same user twice when called with duplicates", async () => {
     const db = makeDb({ users: USERS });
     // Pass the same user twice
-    const result = addChatMembers(db, CHAT, [USERS[0], USERS[0]], {
+    const result = await addChatMembers(db, CHAT, [USERS[0], USERS[0]], {
       force: false,
     });
     // The INSERT OR IGNORE guard in the db stub means only one row is stored
