@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# songbird-deploy-version: 0.11.4
+# songbird-deploy-version: 0.12.0-dev.1
 
 set -uo pipefail
 
@@ -3118,6 +3118,7 @@ configure_push_proxy() {
 install_songbird() {
   prompt_source_mode
   collect_install_options
+  prompt_database_choice
   prompt_install_backup_restore
   install_required_packages || return 1
   ensure_nodejs_from_nodesource || return 1
