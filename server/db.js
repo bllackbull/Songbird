@@ -40,26 +40,34 @@ export const isRemoteMessageClientRequestId = (value) =>
 export const isRemoteMessageRow = (row) =>
   isRemoteMessageClientRequestId(row?.client_request_id || row?.clientRequestId);
 
-let betterDb = null;
-try {
-  betterDb = new Database(dbPath);
-  betterDb.pragma("journal_mode = WAL");
-} catch (err) {
-  // fallback to sql.js if better-sqlite3 cannot be initialized
-  betterDb = null;
+function isPostgresMode() {
+  const client = (process.env.DB_CLIENT || "sqlite3").toLowerCase();
+  return client === "postgres" || client === "postgresql" || client === "pg";
 }
 
+let betterDb = null;
 let SQL = null;
 let db = null;
-if (!betterDb) {
-  SQL = await initSqlJs({
-    locateFile: (file) =>
-      path.resolve(serverDir, "node_modules", "sql.js", "dist", file),
-  });
 
-  const fileExists = fs.existsSync(dbPath);
-  const fileBuffer = fileExists ? fs.readFileSync(dbPath) : null;
-  db = fileBuffer ? new SQL.Database(fileBuffer) : new SQL.Database();
+if (!isPostgresMode()) {
+  try {
+    betterDb = new Database(dbPath);
+    betterDb.pragma("journal_mode = WAL");
+  } catch (err) {
+    // fallback to sql.js if better-sqlite3 cannot be initialized
+    betterDb = null;
+  }
+
+  if (!betterDb) {
+    SQL = await initSqlJs({
+      locateFile: (file) =>
+        path.resolve(serverDir, "node_modules", "sql.js", "dist", file),
+    });
+
+    const fileExists = fs.existsSync(dbPath);
+    const fileBuffer = fileExists ? fs.readFileSync(dbPath) : null;
+    db = fileBuffer ? new SQL.Database(fileBuffer) : new SQL.Database();
+  }
 }
 
 const fileExists = fs.existsSync(dbPath);
@@ -69,11 +77,6 @@ const DB_SAVE_DEBOUNCE_MS = Math.max(
 );
 let pendingSaveTimer = null;
 let databaseDirty = false;
-
-function isPostgresMode() {
-  const client = (process.env.DB_CLIENT || "sqlite3").toLowerCase();
-  return client === "postgres" || client === "postgresql" || client === "pg";
-}
 
 function writeDatabaseToDisk() {
   if (db && typeof db.export === "function") {

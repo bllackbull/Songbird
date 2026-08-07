@@ -2,8 +2,14 @@ import knex from "knex";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
+import dotenv from "dotenv";
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
+const projectRootDir = path.resolve(serverDir, "..", "..");
+const serverRootDir = path.resolve(serverDir, "..");
+dotenv.config({ path: path.join(projectRootDir, ".env"), override: true, quiet: true });
+dotenv.config({ path: path.join(serverRootDir, ".env"), override: true, quiet: true });
+
 const dataDir = path.resolve(
   process.env.DATA_DIR || path.resolve(serverDir, "..", "data"),
 );
