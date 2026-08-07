@@ -682,3 +682,32 @@ make_valid_source_dir() {
   run have_cmd totally_fake_command_xyz_123
   [ "$status" -ne 0 ]
 }
+
+# ===========================================================================
+# ensure_local_postgres_setup & systemd env configuration
+# ===========================================================================
+
+@test "ensure_local_postgres_setup: returns 0 when DB_CLIENT is sqlite3" {
+  DB_CLIENT="sqlite3"
+  run ensure_local_postgres_setup
+  [ "$status" -eq 0 ]
+}
+
+@test "ensure_local_postgres_setup: returns 0 when POSTGRES_HOST is remote" {
+  DB_CLIENT="postgres"
+  POSTGRES_HOST="remote.db.example.com"
+  run ensure_local_postgres_setup
+  [ "$status" -eq 0 ]
+}
+
+@test "configure_systemd_service: writes EnvironmentFile to systemd unit" {
+  INSTALL_DIR="$TEST_DIR"
+  SERVICE_FILE="$TEST_DIR/songbird.service"
+  NODE_EXEC_PATH="/usr/bin/node"
+  SERVICE_USER="songbird"
+  SERVICE_GROUP="songbird"
+  run configure_systemd_service
+  [ "$status" -eq 0 ]
+  [ -f "$SERVICE_FILE" ]
+  grep -q "EnvironmentFile=$TEST_DIR/\.env" "$SERVICE_FILE"
+}

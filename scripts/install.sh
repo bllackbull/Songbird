@@ -1042,7 +1042,7 @@ install_required_packages() {
     zip
     unzip
   )
-  if [[ "$DB_CLIENT" == "postgres" && ( "$POSTGRES_HOST" == "127.0.0.1" || "$POSTGRES_HOST" == "localhost" ) ]]; then
+  if [[ "$DB_CLIENT" == "postgres" && ( "$POSTGRES_HOST" == "127.0.0.1" || "$POSTGRES_HOST" != "0.0.0.0" || "$POSTGRES_HOST" == "localhost" ) ]]; then
     required_pkgs+=(postgresql postgresql-contrib)
   fi
   if [[ "$CERT_MODE" == "certbot" && "$DEPLOY_MODE" == "domain" ]]; then
@@ -1847,7 +1847,64 @@ sync_values_from_env() {
   RETENTION_DAYS="$(get_existing_env_value "MESSAGE_FILE_RETENTION" "$DEFAULT_RETENTION_DAYS")"
   TEXT_RETENTION_DAYS="$(get_existing_env_value "MESSAGE_TEXT_RETENTION" "$DEFAULT_TEXT_RETENTION_DAYS")"
   ACCOUNT_CREATION="$(get_existing_env_value_with_fallback "SIGN_UP" "ACCOUNT_CREATION" "$DEFAULT_SIGN_UP")"
+  DB_CLIENT="$(get_existing_env_value "DB_CLIENT" "$DEFAULT_DB_CLIENT")"
+  POSTGRES_HOST="$(get_existing_env_value "POSTGRES_HOST" "$DEFAULT_POSTGRES_HOST")"
+  POSTGRES_PORT="$(get_existing_env_value "POSTGRES_PORT" "$DEFAULT_POSTGRES_PORT")"
+  POSTGRES_DB="$(get_existing_env_value "POSTGRES_DB" "$DEFAULT_POSTGRES_DB")"
+  POSTGRES_USER="$(get_existing_env_value "POSTGRES_USER" "$DEFAULT_POSTGRES_USER")"
+  POSTGRES_PASSWORD="$(get_existing_env_value "POSTGRES_PASSWORD" "$DEFAULT_POSTGRES_PASSWORD")"
   CURRENT_ENV_FILE="$env_file"
+}
+
+ensure_local_postgres_setup() {
+  sync_values_from_env
+  if [[ "$DB_CLIENT" != "postgres" && "$DB_CLIENT" != "postgresql" && "$DB_CLIENT" != "pg" ]]; then
+    return 0
+  fi
+  if [[ "$POSTGRES_HOST" != "127.0.0.1" && "$POSTGRES_HOST" != "0.0.0.0" && "$POSTGRES_HOST" != "localhost" ]]; then
+    return 0
+  fi
+
+  log "Enabling local PostgreSQL service and database configuration..."
+  if have_cmd systemctl; then
+    run_as_root systemctl enable --now postgresql || true
+  fi
+
+  local pg_ready=false
+  local i
+  for (( i=1; i<=10; i++ )); do
+    if run_as_root sudo -u postgres psql -c '\q' >/dev/null 2>&1; then
+      pg_ready=true
+      break
+    fi
+    sleep 1
+  done
+
+  if [[ "$pg_ready" != "true" ]]; then
+    warn "Local PostgreSQL server is not responding to psql."
+    return 1
+  fi
+
+  run_as_root sudo -u postgres psql -v ON_ERROR_STOP=1 \
+    -v pg_user="$POSTGRES_USER" \
+    -v pg_pass="$POSTGRES_PASSWORD" \
+    -v pg_db="$POSTGRES_DB" -c "
+    DO \$\$
+    BEGIN
+      IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = :'pg_user') THEN
+        EXECUTE 'CREATE ROLE ' || quote_ident(:'pg_user') || ' WITH LOGIN PASSWORD ' || quote_literal(:'pg_pass');
+      ELSE
+        EXECUTE 'ALTER ROLE ' || quote_ident(:'pg_user') || ' WITH LOGIN PASSWORD ' || quote_literal(:'pg_pass');
+      END IF;
+      IF NOT EXISTS (SELECT FROM pg_database WHERE datname = :'pg_db') THEN
+        EXECUTE 'CREATE DATABASE ' || quote_ident(:'pg_db') || ' OWNER ' || quote_ident(:'pg_user');
+      END IF;
+      EXECUTE 'GRANT ALL PRIVILEGES ON DATABASE ' || quote_ident(:'pg_db') || ' TO ' || quote_ident(:'pg_user');
+    END
+    \$\$;
+  " || return 1
+
+  log "Local PostgreSQL database '${POSTGRES_DB}' and user '${POSTGRES_USER}' configured."
 }
 
 parse_domain_input() {
@@ -2091,6 +2148,7 @@ After=network.target
 Type=simple
 User=${SERVICE_USER}
 Group=${SERVICE_GROUP}
+EnvironmentFile=${INSTALL_DIR}/.env
 WorkingDirectory=${INSTALL_DIR}/server
 ExecStart=${NODE_EXEC_PATH} ${INSTALL_DIR}/server/index.js
 Restart=on-failure
@@ -2987,6 +3045,7 @@ edit_settings() {
   fi
 
   log "Changes detected. Applying updates..."
+  ensure_local_postgres_setup || return 1
   rebuild_and_restart_after_settings_change "$needs_nginx"
   log "Settings applied."
   press_enter_to_continue
@@ -3135,6 +3194,7 @@ install_songbird() {
   fi
   ensure_log_dir || return 1
   write_full_env_with_defaults || return 1
+  ensure_local_postgres_setup || return 1
   RESTORE_BACKUP_QUIET="yes"
   if ! restore_backup_if_provided; then
     RESTORE_BACKUP_QUIET="no"
