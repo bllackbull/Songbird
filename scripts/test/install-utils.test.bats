@@ -700,6 +700,16 @@ make_valid_source_dir() {
   [ "$status" -eq 0 ]
 }
 
+@test "ensure_local_postgres_setup: treats 0.0.0.0 as local PostgreSQL" {
+  DB_CLIENT="postgres"
+  POSTGRES_HOST="0.0.0.0"
+  sudo() { return 0; }
+  psql() { return 0; }
+  export -f sudo psql
+  run ensure_local_postgres_setup
+  [ "$status" -eq 0 ]
+}
+
 @test "configure_systemd_service: writes EnvironmentFile to systemd unit" {
   INSTALL_DIR="$TEST_DIR"
   SERVICE_FILE="$TEST_DIR/songbird.service"

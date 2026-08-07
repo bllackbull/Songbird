@@ -1885,24 +1885,30 @@ ensure_local_postgres_setup() {
     return 1
   fi
 
-  run_as_root sudo -u postgres psql -v ON_ERROR_STOP=1 \
-    -v pg_user="$POSTGRES_USER" \
-    -v pg_pass="$POSTGRES_PASSWORD" \
-    -v pg_db="$POSTGRES_DB" -c "
-    DO \$\$
-    BEGIN
-      IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = :'pg_user') THEN
-        EXECUTE 'CREATE ROLE ' || quote_ident(:'pg_user') || ' WITH LOGIN PASSWORD ' || quote_literal(:'pg_pass');
-      ELSE
-        EXECUTE 'ALTER ROLE ' || quote_ident(:'pg_user') || ' WITH LOGIN PASSWORD ' || quote_literal(:'pg_pass');
-      END IF;
-      IF NOT EXISTS (SELECT FROM pg_database WHERE datname = :'pg_db') THEN
-        EXECUTE 'CREATE DATABASE ' || quote_ident(:'pg_db') || ' OWNER ' || quote_ident(:'pg_user');
-      END IF;
-      EXECUTE 'GRANT ALL PRIVILEGES ON DATABASE ' || quote_ident(:'pg_db') || ' TO ' || quote_ident(:'pg_user');
-    END
-    \$\$;
-  " || return 1
+  local safe_user safe_pass safe_db safe_user_literal safe_db_literal
+  safe_user="$(printf '%s' "$POSTGRES_USER" | sed 's/"/""/g')"
+  safe_pass="$(printf '%s' "$POSTGRES_PASSWORD" | sed "s/'/''/g")"
+  safe_db="$(printf '%s' "$POSTGRES_DB" | sed 's/"/""/g')"
+  safe_user_literal="$(printf '%s' "$POSTGRES_USER" | sed "s/'/''/g")"
+  safe_db_literal="$(printf '%s' "$POSTGRES_DB" | sed "s/'/''/g")"
+
+  # Create role if it does not exist
+  run_as_root sudo -u postgres psql -t -A -v ON_ERROR_STOP=1 -c \
+    "SELECT 'CREATE ROLE \"${safe_user}\" WITH LOGIN PASSWORD ''${safe_pass}'';' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${safe_user_literal}');" | \
+    run_as_root sudo -u postgres psql -v ON_ERROR_STOP=1 || return 1
+
+  # Ensure password is set / updated for role
+  run_as_root sudo -u postgres psql -v ON_ERROR_STOP=1 -c \
+    "ALTER ROLE \"${safe_user}\" WITH LOGIN PASSWORD '${safe_pass}';" || return 1
+
+  # Create database if it does not exist
+  run_as_root sudo -u postgres psql -t -A -v ON_ERROR_STOP=1 -c \
+    "SELECT 'CREATE DATABASE \"${safe_db}\" OWNER \"${safe_user}\";' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${safe_db_literal}');" | \
+    run_as_root sudo -u postgres psql -v ON_ERROR_STOP=1 || return 1
+
+  # Grant privileges on database to role
+  run_as_root sudo -u postgres psql -v ON_ERROR_STOP=1 -c \
+    "GRANT ALL PRIVILEGES ON DATABASE \"${safe_db}\" TO \"${safe_user}\";" || return 1
 
   log "Local PostgreSQL database '${POSTGRES_DB}' and user '${POSTGRES_USER}' configured."
 }
