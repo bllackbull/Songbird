@@ -1867,13 +1867,13 @@ ensure_local_postgres_setup() {
 
   log "Enabling local PostgreSQL service and database configuration..."
   if have_cmd systemctl; then
-    run_as_root systemctl enable --now postgresql || true
+    run_silent run_as_root systemctl enable --now postgresql || true
   fi
 
   local pg_ready=false
   local i
   for (( i=1; i<=10; i++ )); do
-    if run_as_root sudo -u postgres psql -c '\q' >/dev/null 2>&1; then
+    if run_silent run_as_root sudo -u postgres psql -c '\q' >/dev/null 2>&1; then
       pg_ready=true
       break
     fi
@@ -1893,21 +1893,21 @@ ensure_local_postgres_setup() {
   safe_db_literal="$(printf '%s' "$POSTGRES_DB" | sed "s/'/''/g")"
 
   # Create role if it does not exist
-  run_as_root sudo -u postgres psql -t -A -v ON_ERROR_STOP=1 -c \
+  run_silent run_as_root sudo -u postgres psql -t -A -v ON_ERROR_STOP=1 -c \
     "SELECT 'CREATE ROLE \"${safe_user}\" WITH LOGIN PASSWORD ''${safe_pass}'';' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${safe_user_literal}');" | \
-    run_as_root sudo -u postgres psql -v ON_ERROR_STOP=1 || return 1
+    run_silent run_as_root sudo -u postgres psql -v ON_ERROR_STOP=1 || return 1
 
   # Ensure password is set / updated for role
-  run_as_root sudo -u postgres psql -v ON_ERROR_STOP=1 -c \
+  run_silent run_as_root sudo -u postgres psql -v ON_ERROR_STOP=1 -c \
     "ALTER ROLE \"${safe_user}\" WITH LOGIN PASSWORD '${safe_pass}';" || return 1
 
   # Create database if it does not exist
-  run_as_root sudo -u postgres psql -t -A -v ON_ERROR_STOP=1 -c \
+  run_silent run_as_root sudo -u postgres psql -t -A -v ON_ERROR_STOP=1 -c \
     "SELECT 'CREATE DATABASE \"${safe_db}\" OWNER \"${safe_user}\";' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${safe_db_literal}');" | \
-    run_as_root sudo -u postgres psql -v ON_ERROR_STOP=1 || return 1
+    run_silent run_as_root sudo -u postgres psql -v ON_ERROR_STOP=1 || return 1
 
   # Grant privileges on database to role
-  run_as_root sudo -u postgres psql -v ON_ERROR_STOP=1 -c \
+  run_silent run_as_root sudo -u postgres psql -v ON_ERROR_STOP=1 -c \
     "GRANT ALL PRIVILEGES ON DATABASE \"${safe_db}\" TO \"${safe_user}\";" || return 1
 
   log "Local PostgreSQL database '${POSTGRES_DB}' and user '${POSTGRES_USER}' configured."
@@ -2134,8 +2134,7 @@ write_full_env_with_defaults() {
 }
 
 apply_ownership() {
-  log "Ensuring service user configuration and file ownership..."
-  ensure_service_user_exists || return 1
+  log "Ensuring service user file ownership..."
   run_silent run_as_root chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "$INSTALL_DIR" || return 1
   run_silent run_as_root git config --global --add safe.directory "$INSTALL_DIR" || return 1
 }
@@ -2906,6 +2905,7 @@ update_songbird() {
     log "Synchronizing database schema with latest version..."
     run_migrations || return 1
 
+    ensure_service_user_exists || return 1
     apply_ownership || return 1
     if install_global_command_from_path "$INSTALL_DIR/scripts/install.sh"; then
       log "Global command synchronized from updated install script."
@@ -2980,6 +2980,7 @@ update_songbird() {
   log "Synchronizing database schema with latest version..."
   run_migrations || return 1
 
+  ensure_service_user_exists || return 1
   apply_ownership || return 1
   if install_global_command_from_path "$INSTALL_DIR/scripts/install.sh"; then
     log "Global command synchronized from updated install script."
@@ -3211,7 +3212,6 @@ install_songbird() {
   RESTORE_BACKUP_QUIET="no"
   install_songbird_dependencies || return 1
   ensure_vapid_keys || return 1
-  apply_ownership || return 1
   configure_systemd_service || return 1
   log "Starting nginx setup..."
   configure_nginx || return 1
@@ -3223,6 +3223,8 @@ install_songbird() {
   else
     warn "Failed to synchronize global command after install. You can retry from the menu."
   fi
+  apply_ownership || return 1
+
   show_deployment_success_frame "install"
 
   create_owner_user
