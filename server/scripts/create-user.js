@@ -116,7 +116,7 @@ async function main() {
     const passwordHash = await bcrypt.hash(password, 10);
     const assignedColor = setUserColor();
     await dbApi.run(
-      'INSERT INTO users (username, nickname, avatar_url, color, status, password_hash, created_at, last_seen) VALUES (?, ?, NULL, ?, ?, ?, datetime("now"), datetime("now"))',
+      "INSERT INTO users (username, nickname, avatar_url, color, status, password_hash, created_at, last_seen) VALUES (?, ?, NULL, ?, ?, ?, datetime('now'), datetime('now'))",
       [username, nickname, assignedColor, "online", passwordHash],
     );
 

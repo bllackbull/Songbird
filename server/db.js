@@ -274,8 +274,7 @@ export function run(sql, params = []) {
 
 function runWithoutSave(sql, params = []) {
   if (isPostgresMode()) {
-    run(sql, params);
-    return;
+    return run(sql, params);
   }
   const normalizedParams = Array.isArray(params) ? params : [params];
   if (betterDb) {
@@ -3101,7 +3100,7 @@ export function adminGetAll(sql, params = []) {
 }
 
 export function adminRun(sql, params = []) {
-  runWithoutSave(sql, params);
+  return runWithoutSave(sql, params);
 }
 
 export function adminSave() {
