@@ -571,13 +571,25 @@ describe("GET /api/messages — replyTo shape", () => {
       .query({ chatId, username: "alice" });
   }
 
-  test("replyTo is null when message has no reply", async () => {
+  test("serializes PostgreSQL-style timestamp values without changing their date contract", async () => {
     const { app } = makeGetMessagesApp({
-      rawMessages: [makeRawMessage()],
+      rawMessages: [
+        makeRawMessage({
+          created_at: "2024-06-15 10:30:00+00:00",
+          reply_id: 1,
+          reply_created_at: "2024-06-15 09:30:00+00:00",
+          reply_username: "bob",
+        }),
+      ],
     });
+
     const res = await getMessages(app);
+
     expect(res.status).toBe(200);
-    expect(res.body.messages[0].replyTo).toBeNull();
+    expect(res.body.messages[0].created_at).toBe("2024-06-15 10:30:00+00:00");
+    expect(res.body.messages[0].replyTo.created_at).toBe(
+      "2024-06-15 09:30:00+00:00",
+    );
   });
 
   test("replyTo includes id, body, username, nickname, color, avatar_url", async () => {

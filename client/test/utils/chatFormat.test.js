@@ -39,6 +39,27 @@ describe("parseServerDate", () => {
     expect(d.toISOString()).toBe("2024-06-15T10:30:00.000Z");
   });
 
+  test("parses PostgreSQL timestamps with an explicit UTC offset", () => {
+    const d = parseServerDate("2024-06-15 10:30:00+00:00");
+    expect(d).toBeInstanceOf(Date);
+    expect(Number.isFinite(d.getTime())).toBe(true);
+    expect(d.toISOString()).toBe("2024-06-15T10:30:00.000Z");
+  });
+
+  test("parses PostgreSQL timestamps with a compact UTC offset", () => {
+    const d = parseServerDate("2024-06-15 10:30:00+0000");
+    expect(d).toBeInstanceOf(Date);
+    expect(Number.isFinite(d.getTime())).toBe(true);
+    expect(d.toISOString()).toBe("2024-06-15T10:30:00.000Z");
+  });
+
+  test("parses PostgreSQL timestamps with a short UTC offset", () => {
+    const d = parseServerDate("2024-06-15 10:30:00+00");
+    expect(d).toBeInstanceOf(Date);
+    expect(Number.isFinite(d.getTime())).toBe(true);
+    expect(d.toISOString()).toBe("2024-06-15T10:30:00.000Z");
+  });
+
   test("returns a Date instance for a Date object input", () => {
     const input = new Date("2024-01-01T00:00:00Z");
     const d = parseServerDate(input);
