@@ -110,6 +110,29 @@ docker compose restart nginx
 
 :::
 
+## Runtime User and Persistent Data
+
+Docker deployments do not use `songbird.service`. Songbird runs as the user configured for the container (root in the current image unless Compose `user:` overrides it), and database commands run as that same container UID/GID:
+
+```bash
+docker compose exec songbird npm --prefix /app/server run db:inspect
+```
+
+To run the container as a specific non-root UID/GID, configure `user:` in your Compose service:
+
+```yaml
+services:
+  songbird:
+    user: "songbird:songbird"
+```
+
+When using a bind mount instead of the default named volume, make the host directory writable by that same UID:GID before starting Songbird. Songbird does not change host bind-mount ownership automatically:
+
+```bash
+mkdir -p ./data
+sudo chown -R songbird:songbird ./data
+```
+
 ## Admin panel service control
 
 The admin panel's **Restart service** and **Stop service** actions work in Docker deployments by calling the Docker Engine API through the mounted socket (`/var/run/docker.sock`). The compose file sets `SONGBIRD_CONTAINER_NAME=songbird` so the app knows which container to target.

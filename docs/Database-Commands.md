@@ -24,6 +24,24 @@ A few rules apply across all commands:
 | `--all` | Bulk delete commands refuse to run without an explicit `--all` when no selector is given. |
 | Built-in help | Run `npm run db:help` for a condensed cheat sheet of every command. |
 
+### Data directory ownership
+
+Supported database commands use a pre-Node launcher and follow Songbird's runtime account:
+
+- **Docker:** The command runs as the container's current UID/GID. Docker does not use `songbird.service`.
+- **systemd:** The command follows the effective `User=` and `Group=` of `songbird.service`, including systemd overrides. A missing `Group=` uses the service user's primary group. When root invokes a command for a non-root service account, the launcher repairs only this installation's `data/` directory and then switches to that configured account.
+- **Manual/no-systemd:** The command uses the caller's current account. It does not create an account or attempt ownership repair.
+
+If `User=` is missing or `User=root`, the systemd command remains root: it does not run `chown` or change users. An explicit `Group=` is still preserved, so `User=root` and `Group=appgroup` executes as `root:appgroup`. For safety, the root/non-root-systemd repair path accepts only the deployed instance's own `data/` directory next to the launcher (`/opt/songbird/data` in the standard installation); it rejects an overridden `DATA_DIR` rather than recursively changing an arbitrary path.
+
+`DATA_DIR` contains Songbird-managed SQLite data, uploads, and backups. PostgreSQL server data is managed externally by PostgreSQL and is not stored in, or changed by, this directory.
+
+:::warning
+
+Do not run individual scripts with `sudo node` or `sudo npm`. Those direct invocations bypass the launcher and are unsupported. Use the documented `npm run db:*` commands instead.
+
+:::
+
 ## Quick reference
 
 | Command | Purpose |
