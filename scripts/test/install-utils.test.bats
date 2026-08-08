@@ -735,6 +735,66 @@ EOF
   chmod +x "$DATA_COMMAND_LAUNCHER"
 }
 
+@test "run_data_command restores execute permission on an existing deployed launcher" {
+  INSTALL_DIR="$TEST_DIR/install"
+  DATA_COMMAND_LAUNCHER="$INSTALL_DIR/scripts/run-data-command.sh"
+  mkdir -p "$INSTALL_DIR/scripts"
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'printf "%s\n" "$*" > "$TEST_DIR/launcher-args"' > "$DATA_COMMAND_LAUNCHER"
+  chmod 644 "$DATA_COMMAND_LAUNCHER"
+  export TEST_DIR
+
+  run_data_command true --example
+
+  [ "$?" -eq 0 ]
+  [ "$(stat -c '%a' "$DATA_COMMAND_LAUNCHER")" = "755" ]
+  [ "$(cat "$TEST_DIR/launcher-args")" = "true --example" ]
+}
+
+@test "run_data_command restores launcher permission through sudo before execution" {
+  INSTALL_DIR="$TEST_DIR/install"
+  DATA_COMMAND_LAUNCHER="$INSTALL_DIR/scripts/run-data-command.sh"
+  mkdir -p "$INSTALL_DIR/scripts"
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'printf "%s\n" "$*" > "$TEST_DIR/launcher-args"' > "$DATA_COMMAND_LAUNCHER"
+  chmod 644 "$DATA_COMMAND_LAUNCHER"
+  sudo() {
+    printf '%s\n' "$*" >> "$TEST_DIR/sudo-calls"
+    "$@"
+  }
+  SUDO="sudo"
+  export TEST_DIR
+
+  run_data_command true --example
+
+  [ "$(cat "$TEST_DIR/sudo-calls")" = $'chmod 755 '"$DATA_COMMAND_LAUNCHER"$'\n'"$DATA_COMMAND_LAUNCHER"' true --example' ]
+  [ "$(stat -c '%a' "$DATA_COMMAND_LAUNCHER")" = "755" ]
+  [ "$(cat "$TEST_DIR/launcher-args")" = "true --example" ]
+}
+
+@test "run_data_command rejects a symlinked launcher before privilege repair" {
+  INSTALL_DIR="$TEST_DIR/install"
+  DATA_COMMAND_LAUNCHER="$INSTALL_DIR/scripts/run-data-command.sh"
+  local target="$TEST_DIR/untrusted-launcher"
+  mkdir -p "$INSTALL_DIR/scripts"
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 99' > "$target"
+  chmod 644 "$target"
+  ln -s "$target" "$DATA_COMMAND_LAUNCHER"
+  sudo() {
+    touch "$TEST_DIR/sudo-ran"
+    "$@"
+  }
+  SUDO="sudo"
+
+  run run_data_command true
+
+  [ "$status" -ne 0 ]
+  [ ! -e "$TEST_DIR/sudo-ran" ]
+  [ "$(stat -c '%a' "$target")" = "644" ]
+}
+
 @test "run_data_command bootstraps a missing deployed launcher from the installer source" {
   INSTALL_DIR="$TEST_DIR/install"
   DATA_COMMAND_LAUNCHER="$INSTALL_DIR/scripts/run-data-command.sh"

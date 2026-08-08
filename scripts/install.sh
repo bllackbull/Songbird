@@ -591,11 +591,24 @@ bootstrap_data_command_launcher() {
 }
 
 run_data_command() {
+  if [[ -L "$DATA_COMMAND_LAUNCHER" ]]; then
+    warn "Data command launcher must not be a symlink: ${DATA_COMMAND_LAUNCHER}"
+    return 1
+  fi
+
   if [[ ! -x "$DATA_COMMAND_LAUNCHER" ]]; then
-    bootstrap_data_command_launcher || {
-      warn "Data command launcher not found or not executable: ${DATA_COMMAND_LAUNCHER}"
-      return 1
-    }
+    if [[ -f "$DATA_COMMAND_LAUNCHER" ]]; then
+      log "Restoring execute permission on data command launcher..."
+      run_silent run_as_root chmod 755 "$DATA_COMMAND_LAUNCHER" || {
+        warn "Data command launcher is not executable: ${DATA_COMMAND_LAUNCHER}"
+        return 1
+      }
+    else
+      bootstrap_data_command_launcher || {
+        warn "Data command launcher not found or not executable: ${DATA_COMMAND_LAUNCHER}"
+        return 1
+      }
+    fi
   fi
 
   if [[ -n "$SUDO" ]]; then
