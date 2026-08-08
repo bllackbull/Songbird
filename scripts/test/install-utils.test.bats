@@ -721,3 +721,58 @@ make_valid_source_dir() {
   [ -f "$SERVICE_FILE" ]
   grep -q "EnvironmentFile=$TEST_DIR/\.env" "$SERVICE_FILE"
 }
+
+make_data_command_launcher() {
+  DATA_COMMAND_LAUNCHER="$TEST_DIR/run-data-command"
+  LAUNCHER_CALLS="$TEST_DIR/launcher-calls"
+  LAUNCHER_MARKER="$TEST_DIR/launcher-marker"
+  export LAUNCHER_CALLS LAUNCHER_MARKER
+  cat > "$DATA_COMMAND_LAUNCHER" <<'EOF'
+#!/usr/bin/env bash
+printf 'call\n' >> "$LAUNCHER_MARKER"
+printf '%s\n' "$*" >> "$LAUNCHER_CALLS"
+EOF
+  chmod +x "$DATA_COMMAND_LAUNCHER"
+}
+
+@test "installer database helpers use the shared data command launcher" {
+  make_data_command_launcher
+
+  run_db_command true --example
+  [ "$?" -eq 0 ]
+  run_db_command_interactive true --example
+  [ "$?" -eq 0 ]
+  run_db_command_logged_quiet true --example
+  [ "$?" -eq 0 ]
+  check_owner_exists
+  [ "$?" -eq 0 ]
+  resolve_chat_visibility_for_script chat-123
+  [ "$?" -eq 0 ]
+
+  check_owner_exists() { return 1; }
+  prompt_yes_no() { printf 'yes'; }
+  prompt_non_empty() { printf '%s' "$1"; }
+  prompt_secret() { printf 'secret'; }
+  create_owner_user
+  [ "$?" -eq 0 ]
+
+  [ "$(wc -l < "$LAUNCHER_MARKER")" -eq 6 ]
+  [ "$(grep -Fc 'true --example' "$LAUNCHER_CALLS")" -eq 3 ]
+  grep -Fq "SELECT id FROM users" "$LAUNCHER_CALLS"
+  grep -Fq "resolveChatRow" "$LAUNCHER_CALLS"
+  grep -Fq "db:user:create" "$LAUNCHER_CALLS"
+}
+
+@test "run_data_command invokes the launcher through sudo when configured" {
+  make_data_command_launcher
+  sudo() {
+    printf '%s\n' "$*" > "$TEST_DIR/sudo-calls"
+    "$@"
+  }
+  SUDO="sudo"
+
+  run_data_command launcher-target
+
+  [ "$(cat "$TEST_DIR/sudo-calls")" = "$DATA_COMMAND_LAUNCHER launcher-target" ]
+  [ "$(cat "$LAUNCHER_CALLS")" = "launcher-target" ]
+}

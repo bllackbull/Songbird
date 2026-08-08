@@ -43,6 +43,7 @@ trap 'handle_exit' EXIT
 APP_NAME="songbird"
 INSTALL_DIR="/opt/songbird"
 LOG_FILE="/opt/songbird/logs/install.log"
+DATA_COMMAND_LAUNCHER="${DATA_COMMAND_LAUNCHER:-${INSTALL_DIR}/scripts/run-data-command.sh}"
 REPO_URL="${REPO_URL:-https://github.com/bllackbull/Songbird.git}"
 SERVICE_USER="songbird"
 SERVICE_GROUP="songbird"
@@ -540,6 +541,19 @@ run_as_root_output() {
     $SUDO "$@"
   else
     "$@"
+  fi
+}
+
+run_data_command() {
+  if [[ ! -x "$DATA_COMMAND_LAUNCHER" ]]; then
+    warn "Data command launcher not found or not executable: ${DATA_COMMAND_LAUNCHER}"
+    return 1
+  fi
+
+  if [[ -n "$SUDO" ]]; then
+    $SUDO "$DATA_COMMAND_LAUNCHER" "$@"
+  else
+    "$DATA_COMMAND_LAUNCHER" "$@"
   fi
 }
 
@@ -3227,7 +3241,7 @@ install_songbird() {
 
   show_deployment_success_frame "install"
 
-  create_owner_user
+  create_owner_user || return 1
 
   press_enter_to_continue
 }
@@ -3452,7 +3466,9 @@ show_logs_menu() {
   done
 }
 
-run_db_command() {
+run_db_command_with_runner() {
+  local command_runner="$1"
+  shift
   local args=("$@")
   local escaped=""
   local part=""
@@ -3472,7 +3488,11 @@ run_db_command() {
   for part in "${args[@]}"; do
     escaped+=" $(printf '%q' "$part")"
   done
-  run_as_root bash -lc "cd '$INSTALL_DIR' && ${path_export}${escaped:1} </dev/null"
+  "$command_runner" bash -lc "cd '$INSTALL_DIR' && ${path_export}${escaped:1} </dev/null"
+}
+
+run_db_command() {
+  run_db_command_with_runner run_data_command "$@"
 }
 
 run_db_command_interactive() {
@@ -3495,7 +3515,7 @@ run_db_command_interactive() {
   for part in "${args[@]}"; do
     escaped+=" $(printf '%q' "$part")"
   done
-  run_as_root bash -lc "cd '$INSTALL_DIR' && ${path_export}${escaped:1} </dev/tty >/dev/tty 2>&1"
+  run_data_command bash -lc "cd '$INSTALL_DIR' && ${path_export}${escaped:1} </dev/tty >/dev/tty 2>&1"
 }
 
 run_db_command_logged_quiet() {
@@ -3518,7 +3538,7 @@ run_db_command_logged_quiet() {
   for part in "${args[@]}"; do
     escaped+=" $(printf '%q' "$part")"
   done
-  run_logged_quiet run_as_root bash -lc "cd '$INSTALL_DIR' && ${path_export}${escaped:1} </dev/null"
+  run_logged_quiet run_data_command bash -lc "cd '$INSTALL_DIR' && ${path_export}${escaped:1} </dev/null"
 }
 
 split_db_selector_input() {
@@ -3541,7 +3561,7 @@ resolve_chat_visibility_for_script() {
   local path_prefix=""
   path_prefix="$(node_tools_path_prefix)"
 
-  run_as_root env INSTALL_DIR="$INSTALL_DIR" CHAT_SELECTOR="$chat_selector" NODE_TOOLS_PATH_PREFIX="$path_prefix" bash -lc '
+  run_data_command env INSTALL_DIR="$INSTALL_DIR" CHAT_SELECTOR="$chat_selector" NODE_TOOLS_PATH_PREFIX="$path_prefix" bash -lc '
     if [[ -n "$NODE_TOOLS_PATH_PREFIX" ]]; then
       export PATH="$NODE_TOOLS_PATH_PREFIX:$PATH"
     fi
@@ -3570,7 +3590,7 @@ resolve_chat_visibility_for_script() {
 check_owner_exists() {
   local path_prefix=""
   path_prefix="$(node_tools_path_prefix)"
-  run_as_root env INSTALL_DIR="$INSTALL_DIR" NODE_TOOLS_PATH_PREFIX="$path_prefix" bash -lc '
+  run_data_command env INSTALL_DIR="$INSTALL_DIR" NODE_TOOLS_PATH_PREFIX="$path_prefix" bash -lc '
     if [[ -n "$NODE_TOOLS_PATH_PREFIX" ]]; then
       export PATH="$NODE_TOOLS_PATH_PREFIX:$PATH"
     fi
@@ -3619,9 +3639,7 @@ create_owner_user() {
     --nickname "$nickname" \
     --username "$username" \
     --password "$password" \
-    --role owner
-
-  apply_ownership
+    --role owner || return 1
 }
 
 print_db_script_help() {

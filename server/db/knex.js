@@ -1,6 +1,5 @@
 import knex from "knex";
 import path from "node:path";
-import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 
@@ -14,10 +13,6 @@ const dataDir = path.resolve(
   process.env.DATA_DIR || path.resolve(serverDir, "..", "data"),
 );
 const dbPath = path.join(dataDir, "songbird.db");
-
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-}
 
 export function createKnexInstance() {
   const dbClient = (process.env.DB_CLIENT || "sqlite3").toLowerCase();
