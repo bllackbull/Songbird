@@ -64,7 +64,12 @@ export function createMembershipService(dbApi) {
   /**
    * Helper to collect system messages & SSE payloads for members.
    */
-  function buildEffects(chatId, systemMsgBody, updatedMemberUsernames = []) {
+  function buildEffects(
+    chatId,
+    systemMsgBody,
+    updatedMemberUsernames = [],
+    systemMessageUserId = null,
+  ) {
     const chat = getChatById(Number(chatId));
     const members = listChatMembers(Number(chatId)) || [];
     const memberUsernames = members.map((m) =>
@@ -99,7 +104,11 @@ export function createMembershipService(dbApi) {
       chat.type === "group" &&
       typeof addSystemMessage === "function"
     ) {
-      systemMessageResult = addSystemMessage(Number(chatId), systemMsgBody);
+      systemMessageResult = addSystemMessage(
+        Number(chatId),
+        systemMsgBody,
+        Number(systemMessageUserId),
+      );
     }
 
     return {
@@ -125,6 +134,7 @@ export function createMembershipService(dbApi) {
 
     let addedCount = 0;
     let skippedCount = 0;
+    let systemMessageUserId = null;
     const addedUsernames = [];
 
     const existingMembers = listChatMembers(Number(chatId)) || [];
@@ -149,6 +159,7 @@ export function createMembershipService(dbApi) {
       const user = findUserById(numUserId);
       if (user?.username) {
         addedUsernames.push(user.username);
+        if (systemMessageUserId === null) systemMessageUserId = numUserId;
       }
     }
 
@@ -158,6 +169,7 @@ export function createMembershipService(dbApi) {
         ? `[[system:joined:${addedUsernames[0]}]]`
         : null,
       addedUsernames,
+      systemMessageUserId,
     );
 
     return {
@@ -168,27 +180,121 @@ export function createMembershipService(dbApi) {
     };
   }
 
+  async function buildEffectsAsync(
+    chatId,
+    systemMsgBody,
+    updatedMemberUsernames = [],
+    systemMessageUserId = null,
+  ) {
+    const rawChat = getChatById(Number(chatId));
+    const chat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
+    const rawMembers = listChatMembers(Number(chatId));
+    const members = (rawMembers && typeof rawMembers.then === "function" ? await rawMembers : rawMembers) || [];
+    const memberUsernames = members.map((m) =>
+      String(m.username || "").toLowerCase(),
+    );
+
+    const sseEvents = [];
+    const sseTargets = new Set([
+      ...memberUsernames,
+      ...updatedMemberUsernames.map((u) => String(u).toLowerCase()),
+    ]);
+    sseTargets.forEach((username) => {
+      if (username) {
+        sseEvents.push({
+          targetUsername: username,
+          payload: { type: "chat_updated", chatId: Number(chatId) },
+        });
+        sseEvents.push({
+          targetUsername: username,
+          payload: { type: "chat_list_changed", chatId: Number(chatId) },
+        });
+      }
+    });
+
+    let systemMessageResult = null;
+    if (
+      systemMsgBody &&
+      chat &&
+      chat.type === "group" &&
+      typeof addSystemMessage === "function"
+    ) {
+      const rawResult = addSystemMessage(
+        Number(chatId),
+        systemMsgBody,
+        Number(systemMessageUserId),
+      );
+      systemMessageResult =
+        rawResult && typeof rawResult.then === "function"
+          ? await rawResult
+          : rawResult;
+    }
+
+    return {
+      chat,
+      members,
+      systemMessage: systemMessageResult,
+      sseEvents,
+      pushRecipients: members.map((m) => Number(m.id)),
+    };
+  }
+
   /**
    * Join group via invite token.
    */
   function joinByInvite({ inviteToken, userId }) {
-    const chat = findGroupByInviteToken(inviteToken);
-    if (!chat) throw new Error("Invalid invite token");
+    const rawChat = findGroupByInviteToken(inviteToken);
+    const rawUser = findUserById(Number(userId));
+    const hasAsyncDependency =
+      rawChat && typeof rawChat.then === "function" ||
+      rawUser && typeof rawUser.then === "function";
 
-    const user = findUserById(Number(userId));
-    if (!user) throw new Error("User not found");
+    const join = async () => {
+      const chat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
+      if (!chat) throw new Error("Invalid invite token");
 
-    clearPriorLeft(chat.id, user.id);
-    addChatMember(Number(chat.id), Number(user.id), "member");
+      const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
+      if (!user) throw new Error("User not found");
 
-    const nickname = user.nickname || user.username;
-    const effects = buildEffects(chat.id, `[[system:joined:${nickname}]]`, [
-      user.username,
-    ]);
+      const rawClear = clearPriorLeft(chat.id, user.id);
+      if (rawClear && typeof rawClear.then === "function") await rawClear;
+      const rawAdd = addChatMember(Number(chat.id), Number(user.id), "member");
+      if (rawAdd && typeof rawAdd.then === "function") await rawAdd;
+
+      const nickname = user.nickname || user.username;
+      const effects = await buildEffectsAsync(
+        chat.id,
+        `[[system:joined:${nickname}]]`,
+        [user.username],
+        user.id,
+      );
+
+      return {
+        success: true,
+        chat,
+        ...effects,
+      };
+    };
+
+    if (hasAsyncDependency) return join();
+
+    if (!rawChat) throw new Error("Invalid invite token");
+    if (!rawUser) throw new Error("User not found");
+
+    clearPriorLeft(rawChat.id, rawUser.id);
+    addChatMember(Number(rawChat.id), Number(rawUser.id), "member");
+
+    const nickname = rawUser.nickname || rawUser.username;
+    const effects = buildEffects(
+      rawChat.id,
+      `[[system:joined:${nickname}]]`,
+      [rawUser.username],
+      rawUser.id,
+    );
 
     return {
       success: true,
-      chat,
+      chat: rawChat,
       ...effects,
     };
   }
@@ -208,7 +314,7 @@ export function createMembershipService(dbApi) {
     const nickname = user.nickname || user.username;
     const effects = buildEffects(chatId, `[[system:left:${nickname}]]`, [
       user.username,
-    ]);
+    ], user.id);
 
     return {
       success: true,
@@ -232,7 +338,7 @@ export function createMembershipService(dbApi) {
     const nickname = targetUser.nickname || targetUser.username;
     const effects = buildEffects(chatId, `[[system:removed:${nickname}]]`, [
       targetUser.username,
-    ]);
+    ], targetUser.id);
 
     return {
       success: true,

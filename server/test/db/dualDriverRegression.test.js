@@ -1034,11 +1034,18 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
         expect(res.status).not.toBe(500);
       });
 
-      test("GET /api/chats/:chatId/preview under Postgres Promise DB mode", async () => {
+      test("GET /api/chats/:chatId/preview resolves async user, chat, membership, and member lookups", async () => {
         const res = await request(app)
           .get("/api/chats/1/preview?username=alice")
           .set("Cookie", ["sid=valid_alice_session"]);
-        expect(res.status).not.toBe(500);
+        expect(res.status).toBe(200);
+        expect(res.body).toMatchObject({
+          id: 1,
+          type: "group",
+          name: "General",
+          membersCount: 2,
+          isMember: true,
+        });
       });
 
       test("GET /api/chats/group/:chatId/invite-link under Postgres Promise DB mode", async () => {

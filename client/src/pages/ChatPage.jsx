@@ -2613,8 +2613,16 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           const res = await getChatPreview({
             chatId,
             username: user.username,
+            allowMissing: true,
           });
           const data = await res.json().catch(() => ({}));
+          if (data?.missing) {
+            setForwardedChatPreviewById((prev) => ({
+              ...prev,
+              [chatId]: { status: "missing" },
+            }));
+            return;
+          }
           if (res.ok) {
             const nextChat = {
               id: Number(data?.id || chatId),
@@ -3667,9 +3675,25 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         const res = await getChatPreview({
           chatId,
           username: user.username,
+          allowMissing: true,
         });
         const data = await res.json().catch(() => ({}));
         if (!isActive) return;
+        if (data?.missing) {
+          setMentionProfile((prev) => {
+            if (!prev || prev.kind === "user" || Number(prev.chatId || 0) !== chatId) {
+              return prev;
+            }
+            const visibility = String(prev.visibility || "private").toLowerCase();
+            const nextActionState = visibility === "public" ? "join" : "none";
+            return {
+              ...prev,
+              isMember: false,
+              _actionState: nextActionState,
+            };
+          });
+          return;
+        }
         if (res.ok) {
           setMentionProfile((prev) => {
             if (!prev || prev.kind === "user" || Number(prev.chatId || 0) !== chatId) {

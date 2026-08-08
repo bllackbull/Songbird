@@ -50,9 +50,10 @@ describe("membershipService", () => {
         (tok) =>
           [...chatsMap.values()].find((c) => c.invite_token === tok) || null,
       ),
-      addSystemMessage: vi.fn((chatId, body) => ({
+      addSystemMessage: vi.fn((chatId, body, userId) => ({
         id: 99,
         chat_id: chatId,
+        user_id: userId,
         body,
       })),
       getRow: vi.fn(),
@@ -72,6 +73,7 @@ describe("membershipService", () => {
     expect(db.addSystemMessage).toHaveBeenCalledWith(
       1,
       "[[system:joined:bob]]",
+      20,
     );
     expect(res.sseEvents.length).toBeGreaterThan(0);
   });
@@ -87,6 +89,7 @@ describe("membershipService", () => {
     expect(db.addSystemMessage).toHaveBeenCalledWith(
       1,
       "[[system:joined:Bob]]",
+      20,
     );
   });
 
@@ -100,6 +103,7 @@ describe("membershipService", () => {
     expect(db.addSystemMessage).toHaveBeenCalledWith(
       1,
       "[[system:left:Alice]]",
+      10,
     );
   });
 
@@ -117,6 +121,7 @@ describe("membershipService", () => {
     expect(db.addSystemMessage).toHaveBeenCalledWith(
       1,
       "[[system:removed:Alice]]",
+      10,
     );
   });
 

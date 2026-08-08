@@ -225,11 +225,11 @@ export const joinPublicGroup = (chatId, payload) =>
     body: JSON.stringify(payload),
   });
 
-export const getChatPreview = ({ chatId, username }) =>
+export const getChatPreview = ({ chatId, username, allowMissing = false }) =>
   apiFetch(
     `${API_BASE}/api/chats/${encodeURIComponent(chatId)}/preview?username=${encodeURIComponent(
       username,
-    )}`,
+    )}${allowMissing ? "&allowMissing=1" : ""}`,
   );
 
 export const uploadGroupAvatar = (chatId, payload) =>

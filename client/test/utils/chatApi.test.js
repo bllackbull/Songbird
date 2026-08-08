@@ -1,10 +1,10 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
-import { uploadFile } from "./chatApi.js";
-import * as mediaPreprocess from "../utils/mediaPreprocess.js";
+import { getChatPreview, uploadFile } from "../../src/api/chatApi.js";
+import * as mediaPreprocess from "../../src/utils/mediaPreprocess.js";
+
+const originalFetch = globalThis.fetch;
 
 describe("chatApi.uploadFile", () => {
-  const originalFetch = globalThis.fetch;
-
   beforeEach(() => {
     vi.spyOn(
       mediaPreprocess,
@@ -125,7 +125,7 @@ describe("chatApi.uploadFile", () => {
   test("falls back to POST /api/uploads when presign fails", async () => {
     const file = new File(["audio data"], "voice.webm", { type: "audio/webm" });
 
-    const fetchMock = vi.fn(async (url, options = {}) => {
+    const fetchMock = vi.fn(async (url, _options = {}) => {
       if (url === "/api/uploads/presign") {
         return {
           ok: false,
@@ -155,5 +155,40 @@ describe("chatApi.uploadFile", () => {
 
     expect(result.fileId).toBe(105);
     expect(result.url).toBe("/api/uploads/file/105");
+  });
+});
+
+describe("chatApi.getChatPreview", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    globalThis.fetch = originalFetch;
+  });
+
+  test("adds allowMissing for background preview lookups", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    globalThis.fetch = fetchMock;
+
+    await getChatPreview({
+      chatId: 19,
+      username: "blackbull",
+      allowMissing: true,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/chats/19/preview?username=blackbull&allowMissing=1",
+      { credentials: "include" },
+    );
+  });
+
+  test("does not add allowMissing for interactive previews", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    globalThis.fetch = fetchMock;
+
+    await getChatPreview({ chatId: 19, username: "blackbull" });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/chats/19/preview?username=blackbull",
+      { credentials: "include" },
+    );
   });
 });
