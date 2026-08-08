@@ -544,10 +544,58 @@ run_as_root_output() {
   fi
 }
 
+bootstrap_data_command_launcher() {
+  local launcher_dir=""
+  local launcher_source=""
+  local remote_script_url=""
+  local remote_launcher_url=""
+  local temporary_launcher=""
+
+  launcher_dir="$(dirname "$DATA_COMMAND_LAUNCHER")"
+  if [[ -n "$CURRENT_SCRIPT_PATH" ]]; then
+    launcher_source="$(dirname "$CURRENT_SCRIPT_PATH")/run-data-command.sh"
+  fi
+
+  if [[ -f "$launcher_source" ]]; then
+    log "Installing missing data command launcher..."
+    run_silent run_as_root mkdir -p "$launcher_dir" || return 1
+    run_silent run_as_root install -m 755 "$launcher_source" "$DATA_COMMAND_LAUNCHER" || return 1
+    return 0
+  fi
+
+  remote_script_url="${SCRIPT_REMOTE_URL%%\?*}"
+  remote_script_url="${remote_script_url%%\#*}"
+  remote_launcher_url="${remote_script_url%/*}/run-data-command.sh"
+  temporary_launcher="$(mktemp)" || return 1
+  if ! curl -fsSL "$remote_launcher_url" > "$temporary_launcher"; then
+    rm -f "$temporary_launcher"
+    warn "Data command launcher source is unavailable: ${remote_launcher_url}"
+    return 1
+  fi
+  if [[ ! -s "$temporary_launcher" ]] || ! /bin/bash -n "$temporary_launcher"; then
+    rm -f "$temporary_launcher"
+    warn "Downloaded data command launcher is invalid: ${remote_launcher_url}"
+    return 1
+  fi
+
+  log "Installing missing data command launcher..."
+  run_silent run_as_root mkdir -p "$launcher_dir" || {
+    rm -f "$temporary_launcher"
+    return 1
+  }
+  run_silent run_as_root install -m 755 "$temporary_launcher" "$DATA_COMMAND_LAUNCHER" || {
+    rm -f "$temporary_launcher"
+    return 1
+  }
+  rm -f "$temporary_launcher"
+}
+
 run_data_command() {
   if [[ ! -x "$DATA_COMMAND_LAUNCHER" ]]; then
-    warn "Data command launcher not found or not executable: ${DATA_COMMAND_LAUNCHER}"
-    return 1
+    bootstrap_data_command_launcher || {
+      warn "Data command launcher not found or not executable: ${DATA_COMMAND_LAUNCHER}"
+      return 1
+    }
   fi
 
   if [[ -n "$SUDO" ]]; then

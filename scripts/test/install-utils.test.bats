@@ -735,6 +735,71 @@ EOF
   chmod +x "$DATA_COMMAND_LAUNCHER"
 }
 
+@test "run_data_command bootstraps a missing deployed launcher from the installer source" {
+  INSTALL_DIR="$TEST_DIR/install"
+  DATA_COMMAND_LAUNCHER="$INSTALL_DIR/scripts/run-data-command.sh"
+  local installer_source_dir="$TEST_DIR/installer-source"
+  local installer_source="$installer_source_dir/install.sh"
+  mkdir -p "$INSTALL_DIR/scripts" "$installer_source_dir"
+  printf '%s\n' '#!/usr/bin/env bash' > "$installer_source"
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'printf "%s\n" "$*" > "$TEST_DIR/launcher-args"' > "$installer_source_dir/run-data-command.sh"
+  chmod 644 "$installer_source_dir/run-data-command.sh"
+  CURRENT_SCRIPT_PATH="$installer_source"
+  export TEST_DIR
+
+  run_data_command true --example
+
+  [ "$?" -eq 0 ]
+  [ -x "$DATA_COMMAND_LAUNCHER" ]
+  [ "$(stat -c '%a' "$DATA_COMMAND_LAUNCHER")" = "755" ]
+  [ "$(cat "$TEST_DIR/launcher-args")" = "true --example" ]
+}
+
+@test "run_data_command bootstraps a missing launcher from a versioned remote installer URL" {
+  INSTALL_DIR="$TEST_DIR/install"
+  DATA_COMMAND_LAUNCHER="$INSTALL_DIR/scripts/run-data-command.sh"
+  CURRENT_SCRIPT_PATH="$TEST_DIR/songbird-deploy"
+  SCRIPT_REMOTE_URL="https://example.test/releases/v1/deploy.sh?channel=stable"
+  local remote_launcher="$TEST_DIR/remote-run-data-command.sh"
+  mkdir -p "$INSTALL_DIR/scripts"
+  printf '%s\n' \
+    '#!/bin/bash -p' \
+    'printf "%s\n" "$*" > "$TEST_DIR/launcher-args"' > "$remote_launcher"
+  chmod 644 "$remote_launcher"
+  curl() {
+    [[ "$1" == "-fsSL" && "$2" == "https://example.test/releases/v1/run-data-command.sh" ]] || return 1
+    cat "$remote_launcher"
+  }
+  export TEST_DIR remote_launcher
+  export -f curl
+
+  run_data_command true --example
+
+  [ "$?" -eq 0 ]
+  [ -x "$DATA_COMMAND_LAUNCHER" ]
+  [ "$(stat -c '%a' "$DATA_COMMAND_LAUNCHER")" = "755" ]
+  [ "$(cat "$TEST_DIR/launcher-args")" = "true --example" ]
+}
+
+@test "run_data_command rejects an invalid remote launcher download" {
+  INSTALL_DIR="$TEST_DIR/install"
+  DATA_COMMAND_LAUNCHER="$INSTALL_DIR/scripts/run-data-command.sh"
+  CURRENT_SCRIPT_PATH="$TEST_DIR/songbird-deploy"
+  SCRIPT_REMOTE_URL="https://example.test/releases/v1/deploy.sh"
+  mkdir -p "$INSTALL_DIR/scripts"
+  curl() {
+    printf '%s\n' '<html>unexpected response</html>'
+  }
+  export -f curl
+
+  run run_data_command true
+
+  [ "$status" -ne 0 ]
+  [ ! -e "$DATA_COMMAND_LAUNCHER" ]
+}
+
 @test "installer database helpers use the shared data command launcher" {
   make_data_command_launcher
 
