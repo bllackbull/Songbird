@@ -1,10 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
+import dotenv from "dotenv";
 import { serverDir, dataDir } from "./_cli.js";
 import { readDbConfig } from "../settings/env.js";
 import { createPostgresMaintenance } from "../lib/postgresMaintenance.js";
 
 const projectRootDir = path.resolve(serverDir, "..");
+dotenv.config({ path: path.join(projectRootDir, ".env"), quiet: true });
+dotenv.config({ path: path.join(serverDir, ".env"), override: true, quiet: true });
+
 const dbPath = path.join(dataDir, "songbird.db");
 const backupDir = path.join(dataDir, "backups");
 

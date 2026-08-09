@@ -90,6 +90,27 @@ describe("postgresMaintenance", () => {
     );
   });
 
+  test("verifyArchive passes the archive path positionally, not via --file", async () => {
+    // pg_restore's --file flag is the OUTPUT destination for the TOC listing, not the
+    // input archive to read. The archive must be the trailing positional argument.
+    // Passing it as --file=<path> means pg_restore reads no archive argument at all
+    // and falls back to reading from stdin, which hangs indefinitely (the "stuck on
+    // restoring..." symptom) instead of erroring out.
+    const calls = [];
+    const maintenance = createPostgresMaintenance({
+      config,
+      execute: async (tool, args) => {
+        calls.push({ tool, args });
+      },
+    });
+
+    await maintenance.verifyArchive("/tmp/songbird.dump");
+
+    const listCall = calls.find((call) => call.args.includes("--list"));
+    expect(listCall.args).toContain("/tmp/songbird.dump");
+    expect(listCall.args).not.toContain("--file=/tmp/songbird.dump");
+  });
+
   test("rejects unsafe system databases and redacts native tool failures", async () => {
     expect(() =>
       resolvePostgresCliConfig({

@@ -120,7 +120,7 @@ export function createPostgresMaintenance({ config, execute = execFile } = {}) {
     },
     async verifyArchive(archivePath) {
       const source = assertArchivePath(archivePath);
-      await run("pg_restore", ["--list", `--file=${source}`]);
+      await run("pg_restore", ["--list", source]);
       return source;
     },
     async restore(archivePath) {
