@@ -1224,7 +1224,7 @@ function registerChatRoutes(app, deps) {
         (member) => Number(member.id) !== Number(user.id),
       );
       if (remainingMembers.length === 0) {
-        const result = deletionService.deleteChat({ chatId });
+        const result = await deletionService.deleteChat({ chatId });
         if (Array.isArray(result.storedFilesToRemove) && result.storedFilesToRemove.length > 0) {
           removeStoredFileNames(result.storedFilesToRemove);
         }
@@ -1275,17 +1275,17 @@ function registerChatRoutes(app, deps) {
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
-    const user = findUserByUsername(String(username || "").toLowerCase());
-    if (!user || !bcrypt.compareSync(String(password || ""), user.password_hash)) {
+    const user = await resolveMaybePromise(findUserByUsername(String(username || "").toLowerCase()));
+    if (!user || !(await resolveMaybePromise(bcrypt.compare(String(password || ""), user.password_hash)))) {
       return res.status(401).json({ error: "Invalid credentials." });
     }
 
-    const chat = findChatById(chatId);
+    const chat = await resolveMaybePromise(findChatById(chatId));
     if (!chat || (chat.type !== "group" && chat.type !== "channel")) {
       return res.status(404).json({ error: "Chat not found." });
     }
 
-    const members = listChatMembers(chatId);
+    const members = (await resolveMaybePromise(listChatMembers(chatId))) || [];
     const owner = members.find(
       (member) =>
         Number(member.id) === Number(user.id) &&
@@ -1301,7 +1301,7 @@ function registerChatRoutes(app, deps) {
       .map((member) => String(member?.username || "").toLowerCase())
       .filter(Boolean);
 
-    const result = deletionService.deleteChat({ chatId });
+    const result = await deletionService.deleteChat({ chatId });
     if (Array.isArray(result.storedFilesToRemove) && result.storedFilesToRemove.length > 0) {
       removeStoredFileNames(result.storedFilesToRemove);
     }

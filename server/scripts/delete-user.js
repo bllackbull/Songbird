@@ -152,67 +152,51 @@ async function main() {
       ),
     )
 
-    await dbApi.run('BEGIN')
-    try {
+    const execute = async (dbLike) => {
+      const queryRun = (sql, params = []) => dbLike.raw(sql, params)
       if (uniqueChatDeletes.length) {
         for (const chunk of chunkArray(uniqueChatDeletes, 500)) {
           const chunkPlaceholders = chunk.map(() => '?').join(', ')
-          await dbApi.run(
-            `DELETE FROM chat_message_reads WHERE message_id IN (
-              SELECT id FROM chat_messages WHERE chat_id IN (${chunkPlaceholders})
-            )`,
-            chunk,
-          )
-          await dbApi.run(
-            `DELETE FROM chat_message_files WHERE message_id IN (
-              SELECT id FROM chat_messages WHERE chat_id IN (${chunkPlaceholders})
-            )`,
-            chunk,
-          )
-          await dbApi.run(
-            `DELETE FROM chat_messages WHERE chat_id IN (${chunkPlaceholders})`,
-            chunk,
-          )
-          await dbApi.run(`DELETE FROM chat_members WHERE chat_id IN (${chunkPlaceholders})`, chunk)
-          await dbApi.run(
-            `DELETE FROM chat_left_members WHERE chat_id IN (${chunkPlaceholders})`,
-            chunk,
-          )
-          await dbApi.run(`DELETE FROM chat_mutes WHERE chat_id IN (${chunkPlaceholders})`, chunk)
-          await dbApi.run(
-            `DELETE FROM group_removed_members WHERE chat_id IN (${chunkPlaceholders})`,
-            chunk,
-          )
-          await dbApi.run(`DELETE FROM hidden_chats WHERE chat_id IN (${chunkPlaceholders})`, chunk)
-          await dbApi.run(`DELETE FROM chats WHERE id IN (${chunkPlaceholders})`, chunk)
+          await queryRun(`DELETE FROM chat_message_reads WHERE message_id IN (SELECT id FROM chat_messages WHERE chat_id IN (${chunkPlaceholders}))`, chunk)
+          await queryRun(`DELETE FROM chat_message_files WHERE message_id IN (SELECT id FROM chat_messages WHERE chat_id IN (${chunkPlaceholders}))`, chunk)
+          await queryRun(`DELETE FROM chat_messages WHERE chat_id IN (${chunkPlaceholders})`, chunk)
+          await queryRun(`DELETE FROM chat_members WHERE chat_id IN (${chunkPlaceholders})`, chunk)
+          await queryRun(`DELETE FROM chat_left_members WHERE chat_id IN (${chunkPlaceholders})`, chunk)
+          await queryRun(`DELETE FROM chat_mutes WHERE chat_id IN (${chunkPlaceholders})`, chunk)
+          await queryRun(`DELETE FROM group_removed_members WHERE chat_id IN (${chunkPlaceholders})`, chunk)
+          await queryRun(`DELETE FROM hidden_chats WHERE chat_id IN (${chunkPlaceholders})`, chunk)
+          await queryRun(`DELETE FROM chats WHERE id IN (${chunkPlaceholders})`, chunk)
         }
       }
       for (const transfer of ownershipTransfers) {
-        if (
-          uniqueChatDeletes.includes(Number(transfer.chatId)) ||
-          !transfer.chatId ||
-          !transfer.nextOwnerId
-        ) {
-          continue
-        }
-        await dbApi.run('UPDATE chat_members SET role = ? WHERE chat_id = ? AND user_id = ?', [
-          'owner',
-          Number(transfer.chatId),
-          Number(transfer.nextOwnerId),
-        ])
+        if (uniqueChatDeletes.includes(Number(transfer.chatId)) || !transfer.chatId || !transfer.nextOwnerId) continue
+        await queryRun('UPDATE chat_members SET role = ? WHERE chat_id = ? AND user_id = ?', ['owner', Number(transfer.chatId), Number(transfer.nextOwnerId)])
       }
       for (const chunk of chunkArray(userIds, 500)) {
         const chunkPlaceholders = chunk.map(() => '?').join(', ')
-        await dbApi.run(`DELETE FROM sessions WHERE user_id IN (${chunkPlaceholders})`, chunk)
-        await dbApi.run(`DELETE FROM hidden_chats WHERE user_id IN (${chunkPlaceholders})`, chunk)
-        await dbApi.run(`DELETE FROM chat_message_reads WHERE user_id IN (${chunkPlaceholders})`, chunk)
-        await dbApi.run(`UPDATE chat_messages SET read_by_user_id = NULL WHERE read_by_user_id IN (${chunkPlaceholders})`, chunk)
-        await dbApi.run(`DELETE FROM chat_left_members WHERE user_id IN (${chunkPlaceholders})`, chunk)
-        await dbApi.run(`DELETE FROM chat_members WHERE user_id IN (${chunkPlaceholders})`, chunk)
-        await dbApi.run(`DELETE FROM users WHERE id IN (${chunkPlaceholders})`, chunk)
+        await queryRun(`DELETE FROM sessions WHERE user_id IN (${chunkPlaceholders})`, chunk)
+        await queryRun(`DELETE FROM hidden_chats WHERE user_id IN (${chunkPlaceholders})`, chunk)
+        await queryRun(`DELETE FROM chat_message_reads WHERE user_id IN (${chunkPlaceholders})`, chunk)
+        await queryRun(`UPDATE chat_messages SET read_by_user_id = NULL WHERE read_by_user_id IN (${chunkPlaceholders})`, chunk)
+        await queryRun(`DELETE FROM chat_left_members WHERE user_id IN (${chunkPlaceholders})`, chunk)
+        await queryRun(`DELETE FROM chat_members WHERE user_id IN (${chunkPlaceholders})`, chunk)
+        await queryRun(`DELETE FROM users WHERE id IN (${chunkPlaceholders})`, chunk)
       }
+    }
 
-      await dbApi.run('COMMIT')
+    try {
+      if (typeof dbApi.transaction === 'function' && process.env.DB_CLIENT?.toLowerCase() === 'postgres') {
+        await dbApi.transaction(execute)
+      } else {
+        await dbApi.run('BEGIN')
+        try {
+          await execute({ raw: dbApi.run })
+          await dbApi.run('COMMIT')
+        } catch (error) {
+          await dbApi.run('ROLLBACK')
+          throw error
+        }
+      }
 
       const fileCleanup = removeStoredFiles(storedNames)
       await dbApi.save()
@@ -221,7 +205,6 @@ async function main() {
       console.log(`Stored files removed: ${fileCleanup.removed}`)
       console.log(`Stored files missing on disk: ${fileCleanup.missing}`)
     } catch (error) {
-      await dbApi.run('ROLLBACK')
       throw error
     }
   } finally {

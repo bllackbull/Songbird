@@ -175,8 +175,9 @@ export function makeApp(overrides = {}) {
     storageProcessingMode: "sync",
     webhookSecret: null,
 
-    // ── Misc stubs expected by other routes ───────────────────────────────
-    debugLog: () => {},
+    removeStoredFileNames: () => {},
+    removeAllMessageUploads: () => {},
+    isLoopbackRequest: () => false,
     chunkArray: (arr) => [arr],
     decodeOriginalFilename: (name) => name,
     computeExpiryIso: () => null,
@@ -271,6 +272,7 @@ export function makeApp(overrides = {}) {
     adminGetAll: () => [],
     adminGetRow: () => null,
     adminRun: () => {},
+    adminTransaction: async (callback) => callback(async () => {}),
     adminSave: () => {},
     isUserAdmin: () => false,
     isUserOwner: () => false,

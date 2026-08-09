@@ -32,12 +32,13 @@ import { USERNAME_REGEX } from "./lib/validation.js";
 import { USER_COLORS, setUserColor } from "./settings/colors.js";
 import { readEnvInt } from "./settings/env.js";
 import {
-  addChatMember,
   addAllEligibleChatMembers,
+  addChatMember,
   adminGetAll,
   adminGetRow,
   adminRun,
   adminSave,
+  adminTransaction,
   ensureSavedChatForUser,
   clearChatMemberLeft,
   clearGroupMemberRemoved,
@@ -650,6 +651,7 @@ const apiDeps = {
   adminGetRow,
   adminRun,
   adminSave,
+  adminTransaction,
   ensureSavedChatForUser,
   avatarUploadRootDir,
   bcrypt,

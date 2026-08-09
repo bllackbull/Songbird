@@ -1846,7 +1846,124 @@ export function deleteChatById(chatId) {
   return { storedNames };
 }
 
+async function deleteUserByIdPostgres(userId) {
+  const targetUserId = Number(userId);
+  if (!targetUserId) {
+    return { storedNames: [], deletedChatIds: [], transferredChatIds: [] };
+  }
+
+  const result = await dbKnex.transaction(async (trx) => {
+    const queryAll = async (sql, params = []) => {
+      const { sql: normalizedSql, params: normalizedParams } =
+        normalizeSqlForPostgres(sql, params);
+      const response = await trx.raw(normalizedSql, normalizedParams);
+      return getPostgresRows(response);
+    };
+    const queryRun = async (sql, params = []) => {
+      const { sql: normalizedSql, params: normalizedParams } =
+        normalizeSqlForPostgres(sql, params);
+      return trx.raw(normalizedSql, normalizedParams);
+    };
+
+    const ownerChatRows = await queryAll(
+      "SELECT chat_id FROM chat_members WHERE role = 'owner' AND user_id = ?",
+      [targetUserId],
+    );
+    const ownerChatIds = Array.from(
+      new Set(ownerChatRows.map((row) => Number(row?.chat_id || 0)).filter(Boolean)),
+    );
+    const chatIdsToDelete = [];
+    const ownershipTransfers = [];
+
+    for (const chatId of ownerChatIds) {
+      const remaining = (await queryAll(
+        "SELECT user_id FROM chat_members WHERE chat_id = ? AND user_id != ?",
+        [Number(chatId), targetUserId],
+      ))
+        .map((row) => Number(row?.user_id || 0))
+        .filter((id) => Number.isFinite(id) && id > 0);
+      if (!remaining.length) {
+        chatIdsToDelete.push(Number(chatId));
+        continue;
+      }
+      const nextOwnerId = remaining[Math.floor(Math.random() * remaining.length)];
+      if (nextOwnerId) ownershipTransfers.push({ chatId: Number(chatId), nextOwnerId });
+    }
+
+    const uniqueChatDeletes = Array.from(
+      new Set(chatIdsToDelete.filter((id) => Number.isFinite(id) && id > 0)),
+    );
+    const storedNames = new Set();
+    if (uniqueChatDeletes.length) {
+      const placeholders = uniqueChatDeletes.map(() => "?").join(", ");
+      const fileRows = await queryAll(
+        `SELECT cmf.stored_name
+         FROM chat_message_files cmf
+         JOIN chat_messages cm ON cm.id = cmf.message_id
+         WHERE cm.chat_id IN (${placeholders})`,
+        uniqueChatDeletes,
+      );
+      fileRows.forEach((row) => {
+        const name = String(row?.stored_name || "").trim();
+        if (name) storedNames.add(name);
+      });
+    }
+
+    for (const chatId of uniqueChatDeletes) {
+      await queryRun(
+        "DELETE FROM chat_message_reads WHERE message_id IN (SELECT id FROM chat_messages WHERE chat_id = ?)",
+        [chatId],
+      );
+      await queryRun(
+        "DELETE FROM chat_message_files WHERE message_id IN (SELECT id FROM chat_messages WHERE chat_id = ?)",
+        [chatId],
+      );
+      await queryRun("DELETE FROM chat_messages WHERE chat_id = ?", [chatId]);
+      await queryRun("DELETE FROM chat_members WHERE chat_id = ?", [chatId]);
+      await queryRun("DELETE FROM chat_mutes WHERE chat_id = ?", [chatId]);
+      await queryRun("DELETE FROM chat_left_members WHERE chat_id = ?", [chatId]);
+      await queryRun("DELETE FROM group_removed_members WHERE chat_id = ?", [chatId]);
+      await queryRun("DELETE FROM hidden_chats WHERE chat_id = ?", [chatId]);
+      await queryRun("DELETE FROM chats WHERE id = ?", [chatId]);
+    }
+
+    for (const transfer of ownershipTransfers) {
+      if (uniqueChatDeletes.includes(transfer.chatId)) continue;
+      await queryRun(
+        "UPDATE chat_members SET role = ? WHERE chat_id = ? AND user_id = ?",
+        ["owner", transfer.chatId, transfer.nextOwnerId],
+      );
+    }
+
+    await queryRun("DELETE FROM sessions WHERE user_id = ?", [targetUserId]);
+    await queryRun("DELETE FROM hidden_chats WHERE user_id = ?", [targetUserId]);
+    await queryRun("DELETE FROM hidden_chat_messages WHERE user_id = ?", [targetUserId]);
+    await queryRun("DELETE FROM chat_message_reads WHERE user_id = ?", [targetUserId]);
+    await queryRun("DELETE FROM push_subscriptions WHERE user_id = ?", [targetUserId]);
+    await queryRun(
+      "UPDATE chat_messages SET read_by_user_id = NULL WHERE read_by_user_id = ?",
+      [targetUserId],
+    );
+    await queryRun("DELETE FROM chat_left_members WHERE user_id = ?", [targetUserId]);
+    await queryRun("DELETE FROM chat_members WHERE user_id = ?", [targetUserId]);
+    await queryRun("DELETE FROM users WHERE id = ?", [targetUserId]);
+
+    return {
+      storedNames: Array.from(storedNames),
+      deletedChatIds: uniqueChatDeletes,
+      transferredChatIds: ownershipTransfers.map((transfer) => Number(transfer.chatId || 0)),
+    };
+  });
+
+  return result;
+}
+
 export function deleteUserById(userId) {
+  if (isPostgresMode()) return deleteUserByIdPostgres(userId);
+  return deleteUserByIdSqlite(userId);
+}
+
+function deleteUserByIdSqlite(userId) {
   const targetUserId = Number(userId);
   if (!targetUserId) {
     return { storedNames: [], deletedChatIds: [], transferredChatIds: [] };
@@ -2130,20 +2247,31 @@ export function createMessage(
   const storedBody = storageEncryption.encryptText(body, {
     allowPlaintextSystemMessage,
   });
-  const res = run(
-    `INSERT INTO chat_messages (
+  const params = [
+    chatId,
+    userId,
+    storedBody,
+    replyToMessageId || null,
+    expiresAt || null,
+    clientRequestId || null,
+  ];
+  const insertSql = `INSERT INTO chat_messages (
       chat_id, user_id, body, reply_to_message_id, expires_at, client_request_id
-    ) VALUES (?, ?, ?, ?, ?, ?)`,
-    [
-      chatId,
-      userId,
-      storedBody,
-      replyToMessageId || null,
-      expiresAt || null,
-      clientRequestId || null,
-    ],
-  );
+    ) VALUES (?, ?, ?, ?, ?, ?)`;
 
+  // LASTVAL() is connection-local. A separate pool checkout between INSERT and
+  // LASTVAL() can return another message ID (or no ID at all), which is unsafe
+  // for forwarding and can result in an UPDATE using NaN. PostgreSQL must get
+  // the generated ID from the same INSERT statement.
+  if (isPostgresMode()) {
+    const { sql: normalizedSql, params: normalizedParams } =
+      normalizeSqlForPostgres(`${insertSql} RETURNING id`, params);
+    return dbKnex
+      .raw(normalizedSql, normalizedParams)
+      .then((result) => Number(getPostgresRows(result)[0]?.id || 0) || null);
+  }
+
+  const res = run(insertSql, params);
   const getResult = () => {
     const rawId = getLastInsertId();
     if (rawId && typeof rawId.then === "function") {
@@ -2395,7 +2523,7 @@ export function hideMessageForEveryone(messageId) {
 }
 
 export function setMessageForwardOrigin(messageId, payload = {}) {
-  run(
+  return run(
     `UPDATE chat_messages
      SET forwarded_from_chat_id = ?,
          forwarded_from_label = ?,
@@ -3107,6 +3235,29 @@ export function adminSave() {
   saveDatabase();
 }
 
+export async function adminTransaction(callback) {
+  if (isPostgresMode()) {
+    return dbKnex.transaction(async (trx) => {
+      const queryRun = (sql, params = []) => {
+        const { sql: normalizedSql, params: normalizedParams } =
+          normalizeSqlForPostgres(sql, params);
+        return trx.raw(normalizedSql, normalizedParams);
+      };
+      return callback(queryRun);
+    });
+  }
+
+  run("BEGIN");
+  try {
+    const result = await callback((sql, params = []) => runWithoutSave(sql, params));
+    run("COMMIT");
+    return result;
+  } catch (error) {
+    run("ROLLBACK");
+    throw error;
+  }
+}
+
 // ─── Admin Panel ─────────────────────────────────────────────────────────────
 
 export function setUserRole(userId, role) {
@@ -3356,7 +3507,7 @@ export function adminListChats({ limit = 200, offset = 0, search = "", sortBy = 
   params.push(safeLimit, safeOffset);
   // COUNT(*) OVER() computes the filtered total in the same pass as the page
   // rows, eliminating the separate adminCountChats query.
-  const rows = getAll(
+  const rawRows = getAll(
     `SELECT c.id, c.name, c.type, c.group_username, c.group_visibility, c.group_color, c.group_avatar_url, c.created_at, c.verified,
             (SELECT COUNT(*) FROM chat_members WHERE chat_id = c.id) AS member_count,
             (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) AS message_count,
@@ -3371,10 +3522,16 @@ export function adminListChats({ limit = 200, offset = 0, search = "", sortBy = 
      ${where} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
     params,
   );
-  const total = rows.length > 0 ? Number(rows[0]._total || 0) : 0;
-  // Strip the internal _total column before returning to callers.
-  const chats = rows.map(({ _total, ...c }) => c);
-  return { chats, total };
+  const processChatRows = (rows) => {
+    const list = rows || [];
+    const total = list.length > 0 ? Number(list[0]._total || 0) : 0;
+    const chats = list.map(({ _total, ...chat }) => chat);
+    return { chats, total };
+  };
+  if (rawRows && typeof rawRows.then === "function") {
+    return rawRows.then(processChatRows);
+  }
+  return processChatRows(rawRows);
 }
 
 // adminCountChats is kept for any future callers that only need the count,

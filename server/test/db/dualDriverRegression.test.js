@@ -57,6 +57,8 @@ import {
   run,
   getAll,
   getRow,
+  createMessage,
+  setMessageForwardOrigin,
 } from "../../db.js";
 
 describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
@@ -77,6 +79,25 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
 
   // 1. Dual-engine behavior under SQLite and Postgres modes
   describe("DB helper functions under Postgres vs SQLite modes", () => {
+    test("createMessage uses the PostgreSQL INSERT result instead of connection-local LASTVAL", async () => {
+      process.env.DB_CLIENT = "postgres";
+      const raw = vi.spyOn(dbKnex, "raw").mockImplementation(async (sql) => {
+        expect(sql).toMatch(/INSERT INTO chat_messages[\s\S]*RETURNING id/);
+        return { rows: [{ id: 321 }], rowCount: 1 };
+      });
+
+      await expect(createMessage(7, 1, "hello")).resolves.toBe(321);
+      expect(raw).toHaveBeenCalledTimes(1);
+    });
+
+    test("setMessageForwardOrigin returns PostgreSQL write failures to its caller", async () => {
+      process.env.DB_CLIENT = "postgres";
+      const error = new Error("forward origin write failed");
+      vi.spyOn(dbKnex, "raw").mockRejectedValue(error);
+
+      await expect(setMessageForwardOrigin(321, { label: "Source" })).rejects.toBe(error);
+    });
+
     test("findUserByUsername returns Promise resolving to user or null under Postgres mode", async () => {
       process.env.DB_CLIENT = "postgres";
       vi.spyOn(dbKnex, "raw").mockImplementation(async (sql, params) => {

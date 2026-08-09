@@ -132,7 +132,7 @@ function registerMessageRoutes(app, deps) {
     return String(normalized || "").trim() || null;
   };
 
-  const deriveForwardOrigin = (sourceMessage, sourceChat) => {
+  const deriveForwardOrigin = async (sourceMessage, sourceChat) => {
     if (String(sourceChat?.type || "").toLowerCase() === "channel") {
       const label =
         String(sourceChat?.name || "").trim() ||
@@ -148,7 +148,10 @@ function registerMessageRoutes(app, deps) {
       };
     }
 
-    const sourceUser = findUserById(Number(sourceMessage?.user_id || 0));
+    const sourceUserRaw = findUserById(Number(sourceMessage?.user_id || 0));
+    const sourceUser = sourceUserRaw && typeof sourceUserRaw.then === "function"
+      ? await sourceUserRaw
+      : sourceUserRaw;
     const sourceUserId = Number(sourceUser?.id || sourceMessage?.user_id || 0) || null;
     const sourceUsername = String(sourceUser?.username || "").trim() || null;
     const label =
@@ -168,9 +171,12 @@ function registerMessageRoutes(app, deps) {
     };
   };
 
-  const reuseMessageFilesForForward = (sourceMessageId, targetMessageId) => {
-    const sourceFiles = listMessageFilesByMessageIds([Number(sourceMessageId)]);
-    if (!sourceFiles.length) return [];
+  const reuseMessageFilesForForward = async (sourceMessageId, targetMessageId) => {
+    const rawSourceFiles = listMessageFilesByMessageIds([Number(sourceMessageId)]);
+    const sourceFiles = rawSourceFiles && typeof rawSourceFiles.then === "function"
+      ? await rawSourceFiles
+      : rawSourceFiles;
+    if (!sourceFiles?.length) return [];
 
     const reusedFiles = sourceFiles.flatMap((file) => {
       const storedName = path.basename(String(file?.stored_name || "").trim());
@@ -196,7 +202,10 @@ function registerMessageRoutes(app, deps) {
     });
 
     if (reusedFiles.length) {
-      createMessageFiles(Number(targetMessageId), reusedFiles);
+      const rawCreatedFiles = createMessageFiles(Number(targetMessageId), reusedFiles);
+      if (rawCreatedFiles && typeof rawCreatedFiles.then === "function") {
+        await rawCreatedFiles;
+      }
     }
 
     return reusedFiles;
@@ -1418,11 +1427,14 @@ function registerMessageRoutes(app, deps) {
     if (!memberCheck) {
       return res.status(403).json({ error: "You cannot forward from this chat." });
     }
-    const sourceChat = findChatById(Number(sourceMessage.chat_id));
+    const rawSourceChat = findChatById(Number(sourceMessage.chat_id));
+    const sourceChat = rawSourceChat && typeof rawSourceChat.then === "function"
+      ? await rawSourceChat
+      : rawSourceChat;
     if (!sourceChat) {
       return res.status(404).json({ error: "Source chat not found." });
     }
-    const forwardOrigin = deriveForwardOrigin(sourceMessage, sourceChat);
+    const forwardOrigin = await deriveForwardOrigin(sourceMessage, sourceChat);
 
     const forwardBody = String(body || "");
     if (!forwardBody.trim()) {
@@ -1440,17 +1452,27 @@ function registerMessageRoutes(app, deps) {
       return res.status(400).json({ error: "Choose at least one target chat." });
     }
 
-    const sourceFiles = listMessageFilesByMessageIds([Number(sourceMessage.id)]);
-    const forwardExpiresAt = sourceFiles.length
+    const rawSourceFiles = listMessageFilesByMessageIds([Number(sourceMessage.id)]);
+    const sourceFiles = rawSourceFiles && typeof rawSourceFiles.then === "function"
+      ? await rawSourceFiles
+      : rawSourceFiles;
+    const forwardExpiresAt = sourceFiles?.length
       ? null
       : computeTextExpiryIso(new Date().toISOString());
 
     const forwardedIds = [];
     for (const targetChatId of uniqueTargetChatIds) {
-      if (!isMember(targetChatId, user.id)) {
+      const rawMemberCheck = isMember(targetChatId, user.id);
+      const targetMemberCheck = rawMemberCheck && typeof rawMemberCheck.then === "function"
+        ? await rawMemberCheck
+        : rawMemberCheck;
+      if (!targetMemberCheck) {
         return res.status(403).json({ error: "Cannot send to one or more selected chats." });
       }
-      const targetChat = findChatById(targetChatId);
+      const rawTargetChat = findChatById(targetChatId);
+      const targetChat = rawTargetChat && typeof rawTargetChat.then === "function"
+        ? await rawTargetChat
+        : rawTargetChat;
       if (!targetChat) {
         return res.status(404).json({ error: "One of the selected chats was not found." });
       }
@@ -1464,17 +1486,21 @@ function registerMessageRoutes(app, deps) {
         }
       }
 
-      const nextMessageId = createMessage(
+      const rawNextMessageId = createMessage(
         targetChatId,
         user.id,
         forwardBody,
         null,
         forwardExpiresAt,
       );
-      if (!nextMessageId) {
+      const nextMessageId = rawNextMessageId && typeof rawNextMessageId.then === "function"
+        ? await rawNextMessageId
+        : rawNextMessageId;
+      const numericNextMessageId = Number(nextMessageId);
+      if (!Number.isSafeInteger(numericNextMessageId) || numericNextMessageId <= 0) {
         return res.status(500).json({ error: "Unable to forward message." });
       }
-      setMessageForwardOrigin(nextMessageId, {
+      await setMessageForwardOrigin(numericNextMessageId, {
         sourceChatId: forwardOrigin.sourceChatId,
         label: forwardOrigin.label,
         sourceUserId: forwardOrigin.sourceUserId,
@@ -1482,21 +1508,23 @@ function registerMessageRoutes(app, deps) {
         sourceAvatarUrl: forwardOrigin.sourceAvatarUrl,
         sourceColor: forwardOrigin.sourceColor,
       });
-      reuseMessageFilesForForward(sourceMessage.id, nextMessageId);
+      await reuseMessageFilesForForward(sourceMessage.id, numericNextMessageId);
       if (String(targetChat.type || "").toLowerCase() === "saved") {
-        markMessageRead(nextMessageId, user.id);
-        unhideChat(user.id, targetChatId);
+        const rawRead = markMessageRead(numericNextMessageId, user.id);
+        if (rawRead && typeof rawRead.then === "function") await rawRead;
+        const rawUnhide = unhideChat(user.id, targetChatId);
+        if (rawUnhide && typeof rawUnhide.then === "function") await rawUnhide;
       }
 
       emitChatEvent(targetChatId, {
         type: "chat_message",
         chatId: targetChatId,
-        messageId: Number(nextMessageId),
+        messageId: numericNextMessageId,
         username: user.username,
         body: forwardBody,
         replyToMessageId: null,
       });
-      forwardedIds.push(Number(nextMessageId));
+      forwardedIds.push(numericNextMessageId);
     }
 
     return res.json({ ok: true, ids: forwardedIds });

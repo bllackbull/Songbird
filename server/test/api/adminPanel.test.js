@@ -96,6 +96,22 @@ describe("POST /api/admin/chats/:id/members", () => {
   });
 });
 
+describe("async PostgreSQL admin dependencies", () => {
+  test("/api/admin/chats awaits the async chat list result", async () => {
+    const chats = [{ id: 9, name: "Async Group", type: "group" }];
+    const { app } = makeAdminApp({
+      adminListChats: vi.fn().mockResolvedValue({ chats, total: 1 }),
+    });
+
+    const res = await request(app)
+      .get("/api/admin/chats")
+      .set("Cookie", "sid=admin-session");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ chats, total: 1 });
+  });
+});
+
 describe("admin presence overlays", () => {
   test("/api/admin/users marks connected online users with online: 1", async () => {
     const { app } = makeAdminApp({

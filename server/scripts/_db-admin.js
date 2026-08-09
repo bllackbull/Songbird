@@ -40,6 +40,38 @@ function getPostgresRows(result) {
   return rows.length === 1 && Array.isArray(rows[0]?.rows) ? rows[0].rows : rows
 }
 
+function updateSchemaSetsFromSql(sql, tablesSet, columnsSet) {
+  if (!sql || typeof sql !== 'string') return
+
+  for (const statement of sql.split(';')) {
+    const trimmed = statement.trim()
+    if (!trimmed) continue
+
+    const createMatch = trimmed.match(
+      /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["`']?([a-zA-Z0-9_]+)["`']?\s*\(([\s\S]+)\)/i,
+    )
+    if (createMatch) {
+      const tableName = createMatch[1].toLowerCase()
+      tablesSet.add(tableName)
+      for (const column of createMatch[2].split(',')) {
+        const columnMatch = column.trim().match(/^(["`']?)([a-zA-Z0-9_]+)\1/)
+        if (columnMatch && !/^(PRIMARY|FOREIGN|UNIQUE|CHECK|CONSTRAINT)$/i.test(columnMatch[2])) {
+          columnsSet.add(`${tableName}.${columnMatch[2].toLowerCase()}`)
+        }
+      }
+    }
+
+    const alterMatch = trimmed.match(
+      /ALTER\s+TABLE\s+["`']?([a-zA-Z0-9_]+)["`']?\s+ADD\s+(?:COLUMN\s+)?["`']?([a-zA-Z0-9_]+)["`']?/i,
+    )
+    if (alterMatch) {
+      const tableName = alterMatch[1].toLowerCase()
+      tablesSet.add(tableName)
+      columnsSet.add(`${tableName}.${alterMatch[2].toLowerCase()}`)
+    }
+  }
+}
+
 async function getSql() {
   if (sqlSingleton) return sqlSingleton
   sqlSingleton = await initSqlJs({
@@ -88,7 +120,6 @@ export async function openDatabase(options = {}) {
             const rows = getPostgresRows(res)
             return rows[0] || null
           })
-          .catch(() => null)
       }
       const rows = getPostgresRows(result)
       return rows[0] || null
@@ -112,7 +143,7 @@ export async function openDatabase(options = {}) {
       const { sql: normSql, params: normParams } = normalizeSqlForPostgres(sql, params)
       const result = db.raw(normSql, normParams)
       if (result && typeof result.then === 'function') {
-        return result.then(getPostgresRows).catch(() => [])
+        return result.then(getPostgresRows)
       }
       return getPostgresRows(result)
     }
@@ -144,7 +175,6 @@ export async function openDatabase(options = {}) {
             const rows = getPostgresRows(res)
             return rows.length
           })
-          .catch(() => 0)
       }
       if (typeof result?.rowCount === 'number') return result.rowCount
       const rows = getPostgresRows(result)
@@ -167,7 +197,7 @@ export async function openDatabase(options = {}) {
   const tableExists = (name) => {
     const res = getRow("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", [name])
     if (res && typeof res.then === 'function') {
-      return res.then((row) => Boolean(row)).catch(() => false)
+      return res.then((row) => Boolean(row))
     }
     return Boolean(res)
   }
@@ -179,22 +209,22 @@ export async function openDatabase(options = {}) {
         [tableName],
       )
       if (res && typeof res.then === 'function') {
-        return res
-          .then((rows) => Array.isArray(rows) && rows.some((col) => col.name === columnName))
-          .catch(() => false)
+        return res.then((rows) => Array.isArray(rows) && rows.some((col) => col.name === columnName))
       }
       return Array.isArray(res) && res.some((col) => col.name === columnName)
     }
     const res = getAll(`PRAGMA table_info('${tableName}')`)
     if (res && typeof res.then === 'function') {
-      return res
-        .then((rows) => Array.isArray(rows) && rows.some((col) => col.name === columnName))
-        .catch(() => false)
+      return res.then((rows) => Array.isArray(rows) && rows.some((col) => col.name === columnName))
     }
     return Array.isArray(res) && res.some((col) => col.name === columnName)
   }
 
   const getSchemaVersion = () => {
+    if (isPostgres) {
+      return getRow("SELECT value AS user_version FROM meta WHERE key = 'user_version'")
+        .then((row) => Number(row?.user_version || 0))
+    }
     const res = getRow('PRAGMA user_version')
     if (res && typeof res.then === 'function') {
       return res.then((row) => Number(row?.user_version || 0)).catch(() => 0)
@@ -202,8 +232,14 @@ export async function openDatabase(options = {}) {
     return Number(res?.user_version || 0)
   }
 
-  const setSchemaVersion = (version) => {
-    if (isPostgres) return
+  const setSchemaVersion = async (version) => {
+    if (isPostgres) {
+      await run(
+        "INSERT INTO meta (key, value) VALUES ('user_version', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+        [String(Number(version) || 0)],
+      )
+      return
+    }
     if (isBetter) {
       db.pragma(`user_version = ${Number(version) || 0}`)
     } else {
@@ -229,23 +265,64 @@ export async function openDatabase(options = {}) {
     fs.copyFileSync(targetDbPath, backupPath)
   }
 
-  const schemaVersionBeforeMigrations = await getSchemaVersion()
+  const schemaVersionBeforeMigrations = isPostgres
+    ? await db.raw(`
+        CREATE TABLE IF NOT EXISTS meta (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        )
+      `).then(() => getSchemaVersion())
+    : await getSchemaVersion()
+  const tablesSet = new Set()
+  const columnsSet = new Set()
+  if (isPostgres) {
+    const schemaResult = await db.raw(`
+      SELECT table_name, column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+    `)
+    for (const row of getPostgresRows(schemaResult)) {
+      const tableName = String(row.table_name || '').toLowerCase()
+      const columnName = String(row.column_name || '').toLowerCase()
+      tablesSet.add(tableName)
+      columnsSet.add(`${tableName}.${columnName}`)
+    }
+  }
+  const migrationPromiseChain = { current: Promise.resolve() }
   const migrationContext = {
     db: {
-      run: (sql, params = []) => run(sql, params),
-      exec: (sql) => (isBetter ? db.exec(sql) : isPostgres ? db.raw(sql) : db?.exec(sql)),
-      prepare: (sql) => (isBetter ? db.prepare(sql) : isPostgres ? null : db?.prepare(sql)),
+      run: (sql, params = []) => {
+        if (!isPostgres) return run(sql, params)
+        const operation = migrationPromiseChain.current.then(async () => {
+          const result = await run(sql, params)
+          updateSchemaSetsFromSql(sql, tablesSet, columnsSet)
+          return result
+        })
+        migrationPromiseChain.current = operation.catch(() => {})
+        return operation
+      },
+      exec: (sql) => {
+        if (!isPostgres) return isBetter ? db.exec(sql) : db?.exec(sql)
+        const operation = migrationPromiseChain.current.then(async () => {
+          const result = await db.raw(sql)
+          updateSchemaSetsFromSql(sql, tablesSet, columnsSet)
+          return result
+        })
+        migrationPromiseChain.current = operation.catch(() => {})
+        return operation
+      },
+      prepare: (sql) => (isBetter ? db.prepare(sql) : null),
     },
     getAll: (sql, params = []) => {
-      const res = getAll(sql, params)
-      if (res && typeof res.then === 'function') {
-        res.catch(() => [])
-        return []
-      }
-      return Array.isArray(res) ? res : []
+      if (!isPostgres) return getAll(sql, params)
+      const operation = migrationPromiseChain.current.then(() => getAll(sql, params))
+      migrationPromiseChain.current = operation.catch(() => {})
+      return operation
     },
-    tableExists,
-    hasColumn,
+    tableExists: (name) => isPostgres ? tablesSet.has(String(name || '').toLowerCase()) : tableExists(name),
+    hasColumn: (tableName, columnName) => isPostgres
+      ? columnsSet.has(`${String(tableName || '').toLowerCase()}.${String(columnName || '').toLowerCase()}`)
+      : hasColumn(tableName, columnName),
     getRandomUserColor,
     setUserColor: getRandomUserColor,
   }
@@ -262,14 +339,27 @@ export async function openDatabase(options = {}) {
       const currentVersion = await getSchemaVersion()
       if (currentVersion >= migration.version) continue
       await migration.up(migrationContext)
-      setSchemaVersion(migration.version)
+      await migrationPromiseChain.current
+      await setSchemaVersion(migration.version)
     }
     for (const migration of orderedMigrations) {
       await migration.up(migrationContext)
     }
     if ((await getSchemaVersion()) < latestVersion) {
-      setSchemaVersion(latestVersion)
+      await setSchemaVersion(latestVersion)
     }
+  }
+
+  const transaction = async (callback) => {
+    if (!isPostgres) {
+      throw new Error("Connection-bound transactions are only available in PostgreSQL mode")
+    }
+    return db.transaction(async (trx) => callback({
+      raw: (sql, params = []) => {
+        const { sql: normSql, params: normParams } = normalizeSqlForPostgres(sql, params)
+        return trx.raw(normSql, normParams)
+      },
+    }))
   }
 
   const save = () => {
@@ -284,10 +374,10 @@ export async function openDatabase(options = {}) {
     save()
   }
 
-  const close = () => {
+  const close = async () => {
     if (isPostgres) {
       if (typeof db?.destroy === 'function') {
-        db.destroy()
+        await db.destroy()
       }
     } else if (isBetter) {
       if (typeof db?.close === 'function') {
@@ -304,6 +394,7 @@ export async function openDatabase(options = {}) {
     getAll,
     run,
     save,
+    transaction,
     close,
     fileExists,
     tableExists,

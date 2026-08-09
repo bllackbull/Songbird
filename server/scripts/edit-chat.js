@@ -299,7 +299,7 @@ async function main() {
       const nextEnabled = Number(existing?.enabled || 1);
 
       if (remoteChannelValue) {
-        dbApi.run(
+        await dbApi.run(
           `INSERT INTO remote_channel_sources (
              chat_id, provider, source_raw, source_chat_id, source_username,
              source_version, sync_metadata, stream_media, enabled, last_error, updated_at
@@ -350,7 +350,7 @@ async function main() {
         );
 
         if (existing?.id && sourceVersion > Number(existing.source_version || 1)) {
-          dbApi.run(
+          await dbApi.run(
             `UPDATE remote_channel_queue
              SET status = 'skipped',
                  locked_at = NULL,
@@ -364,13 +364,13 @@ async function main() {
         }
       } else {
         // Only update flags
-        dbApi.run(
+        await dbApi.run(
           "UPDATE remote_channel_sources SET sync_metadata = ?, stream_media = ?, updated_at = datetime('now') WHERE chat_id = ?",
           [nextSyncMetadata, nextStreamMedia, Number(chat.id)],
         );
       }
 
-      dbApi.save();
+      await dbApi.save();
       console.log(`Remote Channel updated: chat=${chat.id}`);
       if (remoteChannelValue) {
         console.log(`Source: ${sourceRaw}`);
@@ -378,7 +378,7 @@ async function main() {
       console.log(`Sync metadata: ${nextSyncMetadata ? "yes" : "no"}`);
       console.log(`Stream media: ${nextStreamMedia ? "yes" : "no"}`);
     } finally {
-      dbApi.close();
+      await dbApi.close();
     }
     return;
   }
