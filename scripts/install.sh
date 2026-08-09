@@ -990,10 +990,20 @@ prompt_cert_mode() {
   done
 }
 
-prompt_backup_db_path() {
+database_backup_extension() {
+  if [[ "$DB_CLIENT" == "postgres" || "$DB_CLIENT" == "postgresql" || "$DB_CLIENT" == "pg" ]]; then
+    printf ".dump"
+    return 0
+  fi
+  printf ".db"
+}
+
+prompt_backup_path() {
+  local extension=""
   local backup_input=""
+  extension="$(database_backup_extension)"
   while true; do
-    prompt_read "Enter the full path to the backup .db file: " backup_input
+    prompt_read "Enter the full path to the backup ${extension} file: " backup_input
     if [[ -z "$backup_input" ]]; then
       printf "Please provide a file path.\n"
       continue
@@ -1004,8 +1014,8 @@ prompt_backup_db_path() {
       printf "File not found. Tried: %s\n" "$backup_input"
       continue
     fi
-    if [[ "${resolved,,}" != *.db ]]; then
-      printf "Backup file must be a .db file.\n"
+    if [[ "${resolved,,}" != *"${extension}" ]]; then
+      printf "Backup file must be a %s file.\n" "$extension"
       continue
     fi
     printf "%s" "$resolved"
@@ -1013,10 +1023,10 @@ prompt_backup_db_path() {
   done
 }
 
-select_backup_db_path() {
+select_backup_path() {
   local use_detected=""
   local detected=""
-  detected="$(find_restore_backup_db)" || detected=""
+  detected="$(find_restore_backup_path)" || detected=""
   if [[ -n "$detected" ]]; then
     use_detected="$(prompt_yes_no "Use detected backup ${detected}?" "yes")"
     if [[ "$use_detected" == "yes" ]]; then
@@ -1025,7 +1035,7 @@ select_backup_db_path() {
     fi
   fi
 
-  prompt_backup_db_path
+  prompt_backup_path
 }
 
 prompt_database_choice() {
@@ -1073,12 +1083,14 @@ prompt_database_choice() {
 }
 
 prompt_install_backup_restore() {
+  local extension=""
   DB_BACKUP_PATH=""
-  if [[ "$(prompt_yes_no "Restore database from a backup .db file during installation?" "no")" != "yes" ]]; then
+  extension="$(database_backup_extension)"
+  if [[ "$(prompt_yes_no "Restore database from a backup ${extension} file during installation?" "no")" != "yes" ]]; then
     return 0
   fi
 
-  DB_BACKUP_PATH="$(select_backup_db_path)"
+  DB_BACKUP_PATH="$(select_backup_path)"
   return 0
 }
 
@@ -1117,6 +1129,9 @@ install_required_packages() {
     zip
     unzip
   )
+  if [[ "$DB_CLIENT" == "postgres" || "$DB_CLIENT" == "postgresql" || "$DB_CLIENT" == "pg" ]]; then
+    required_pkgs+=(postgresql-client)
+  fi
   if [[ "$DB_CLIENT" == "postgres" && ( "$POSTGRES_HOST" == "127.0.0.1" || "$POSTGRES_HOST" != "0.0.0.0" || "$POSTGRES_HOST" == "localhost" ) ]]; then
     required_pkgs+=(postgresql postgresql-contrib)
   fi
@@ -1502,7 +1517,9 @@ find_offline_source_zip() {
   return 1
 }
 
-find_restore_backup_db() {
+find_restore_backup_path() {
+  local extension=""
+  extension="$(database_backup_extension)"
   local candidates=(
     "/opt/songbird/data/backups"
     "/root"
@@ -1510,7 +1527,7 @@ find_restore_backup_db() {
   local dir=""
   for dir in "${candidates[@]}"; do
     local found=""
-    found="$(run_as_root_output bash -lc "find '$dir' -maxdepth 1 -type f -name 'songbird-backup-*.db' -printf '%T@\t%p\n' 2>/dev/null | sort -nr | head -1 | cut -f2-" | tr -d '\r\n')" || found=""
+    found="$(run_as_root_output bash -lc "find '$dir' -maxdepth 1 -type f -name 'songbird-backup-*${extension}' -printf '%T@\t%p\n' 2>/dev/null | sort -nr | head -1 | cut -f2-" | tr -d '\r\n')" || found=""
     if [[ -n "$found" && -f "$found" ]]; then
       printf "%s" "$found"
       return 0
@@ -3277,6 +3294,7 @@ install_songbird() {
   ensure_log_dir || return 1
   write_full_env_with_defaults || return 1
   ensure_local_postgres_setup || return 1
+  install_songbird_dependencies || return 1
   RESTORE_BACKUP_QUIET="yes"
   if ! restore_backup_if_provided; then
     RESTORE_BACKUP_QUIET="no"
@@ -3285,7 +3303,6 @@ install_songbird() {
     return 1
   fi
   RESTORE_BACKUP_QUIET="no"
-  install_songbird_dependencies || return 1
   ensure_vapid_keys || return 1
   configure_systemd_service || return 1
   log "Starting nginx setup..."
@@ -3721,7 +3738,7 @@ Backup & repair:
         Prompts: none
         Passes: (no arguments)
   6     Restore backup
-        Prompts: backup .db path, restore confirmation
+        Prompts: backup .db (SQLite) or .dump (PostgreSQL) path, restore confirmation
         Passes: -y --file
   7     Vacuum database
         Prompts: confirmation
@@ -3788,8 +3805,8 @@ Notes:
   - "Verify/unverify user" is a toggle: run it again to remove verification.
   - "Verify/unverify chat" is a toggle: run it again to remove verification.
   - Public chats always allow member invites. Invite settings only apply to private chats.
-  - Backups are plain .db copies saved to data/backups/ with a timestamp filename.
-  - Restore replaces the live database with the selected .db file.
+  - Backups are timestamped .db copies for SQLite or .dump archives for PostgreSQL, saved to data/backups/.
+  - Restore replaces the active database with the selected backup format.
 EOF
 }
 
@@ -3820,7 +3837,7 @@ db_vacuum() {
 db_restore() {
   local backup_path=""
 
-  backup_path="$(select_backup_db_path)"
+  backup_path="$(select_backup_path)"
   if [[ "$(prompt_yes_no "This will replace the current database with ${backup_path}. Continue?" "yes")" != "yes" ]]; then
     log "Restore canceled."
     press_enter_to_continue
@@ -4376,7 +4393,7 @@ db_remote_configure() {
 
 db_restore_backup() {
   local resolved=""
-  resolved="$(select_backup_db_path)"
+  resolved="$(select_backup_path)"
 
   if [[ "$(prompt_yes_no "This will replace the current database with ${resolved}. Continue?" "no")" != "yes" ]]; then
     log "Restore canceled."
@@ -4401,6 +4418,7 @@ db_user_verify() {
 }
 
 show_db_menu() {
+  sync_values_from_env
   while true; do
     clear
     show_banner
