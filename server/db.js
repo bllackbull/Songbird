@@ -3572,8 +3572,8 @@ export function adminDeleteChat(chatId) {
 
 // ─── Admin Maintenance ─────────────────────────────────────────────────────────
 
-export function vacuumDatabase() {
-  run("VACUUM");
+export async function vacuumDatabase() {
+  await run("VACUUM");
   saveDatabase();
 }
 
@@ -3583,12 +3583,27 @@ export function reloadDatabase() {
 
 // Wipe all messages and their file records (keeps users, chats, memberships).
 // Returns the storedNames of files to remove from disk.
-export function adminClearAllMessages() {
+export async function adminClearAllMessages() {
+  if (isPostgresMode()) {
+    return dbKnex.transaction(async (trx) => {
+      const fileResult = await trx.raw("SELECT stored_name FROM chat_message_files");
+      const storedNames = getPostgresRows(fileResult)
+        .map((row) => row.stored_name)
+        .filter(Boolean);
+      await trx.raw("DELETE FROM chat_message_reads");
+      await trx.raw("DELETE FROM hidden_chat_messages");
+      await trx.raw("DELETE FROM chat_message_files");
+      await trx.raw("DELETE FROM chat_messages");
+      return { storedNames };
+    });
+  }
+
   const fileRows = getAll("SELECT stored_name FROM chat_message_files");
-  const storedNames = fileRows.map((r) => r.stored_name).filter(Boolean);
+  const storedNames = fileRows.map((row) => row.stored_name).filter(Boolean);
   run("BEGIN");
   try {
     run("DELETE FROM chat_message_reads");
+    run("DELETE FROM hidden_chat_messages");
     run("DELETE FROM chat_message_files");
     run("DELETE FROM chat_messages");
     run("COMMIT");
@@ -3600,21 +3615,44 @@ export function adminClearAllMessages() {
   return { storedNames };
 }
 
+const RESET_TABLES = [
+  "chat_message_reads",
+  "hidden_chat_messages",
+  "chat_message_files",
+  "chat_messages",
+  "hidden_chats",
+  "chat_mutes",
+  "chat_members",
+  "chat_left_members",
+  "group_removed_members",
+  "remote_channel_queue",
+  "remote_channel_sources",
+  "remote_channel_provider_state",
+  "push_subscriptions",
+  "sessions",
+  "chats",
+  "users",
+];
+
 // Full reset: wipe all user-generated data (users, chats, messages, sessions).
-// Schema is preserved. Returns storedNames for disk cleanup.
-export function adminResetDatabase() {
+// Schema and runtime settings are preserved. Returns storedNames for disk cleanup.
+export async function adminResetDatabase() {
+  if (isPostgresMode()) {
+    return dbKnex.transaction(async (trx) => {
+      const fileResult = await trx.raw("SELECT stored_name FROM chat_message_files");
+      const storedNames = getPostgresRows(fileResult)
+        .map((row) => row.stored_name)
+        .filter(Boolean);
+      await trx.raw(`TRUNCATE TABLE ${RESET_TABLES.join(", ")} RESTART IDENTITY CASCADE`);
+      return { storedNames };
+    });
+  }
+
   const fileRows = getAll("SELECT stored_name FROM chat_message_files");
-  const storedNames = fileRows.map((r) => r.stored_name).filter(Boolean);
+  const storedNames = fileRows.map((row) => row.stored_name).filter(Boolean);
   run("BEGIN");
   try {
-    run("DELETE FROM chat_message_reads");
-    run("DELETE FROM chat_message_files");
-    run("DELETE FROM chat_messages");
-    run("DELETE FROM hidden_chats");
-    run("DELETE FROM chat_members");
-    run("DELETE FROM chats");
-    run("DELETE FROM sessions");
-    run("DELETE FROM users");
+    RESET_TABLES.forEach((table) => run(`DELETE FROM ${table}`));
     run("COMMIT");
   } catch (error) {
     run("ROLLBACK");

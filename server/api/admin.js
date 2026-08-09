@@ -61,6 +61,7 @@ function registerAdminRoutes(app, deps) {
     isLoopbackRequest,
     removeAllMessageUploads,
     removeStoredFileNames,
+    adminResetDatabase,
     buildInspectSnapshot,
     buildTimestampSchedule,
     avatarUploadRootDir,
@@ -2021,7 +2022,20 @@ function registerAdminRoutes(app, deps) {
         return res.status(400).json({ error: "No remote channel changes specified." });
       }
 
-      if (action === "reset_db" || action === "delete_db") {
+      if (action === "reset_db") {
+        // This is the online reset path used by db:reset. In PostgreSQL it
+        // delegates to the same schema-preserving TRUNCATE as the Admin Panel;
+        // in SQLite it performs the equivalent transactional row cleanup.
+        const resetResult = await adminResetDatabase();
+        removeAllMessageUploads();
+        adminSave();
+        return res.json({
+          ok: true,
+          result: { cleared: true, filesRemoved: resetResult?.storedNames?.length || 0 },
+        });
+      }
+
+      if (action === "delete_db") {
         adminRun("BEGIN");
 
         try {

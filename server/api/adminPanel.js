@@ -118,6 +118,8 @@ function registerAdminPanelRoutes(app, deps) {
     reloadDatabase,
     adminClearAllMessages,
     adminResetDatabase,
+    dbConfig,
+    postgresMaintenance,
     projectRootDir,
     dataDir: adminDataDir,
     path: nodePath,
@@ -1010,57 +1012,83 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Maintenance ─────────────────────────────────────────────────────────────
 
-  app.post("/api/admin/maintenance/vacuum", (req, res) => {
+  app.get("/api/admin/maintenance/info", (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const postgres = dbConfig?.client === "postgres";
+    res.json({
+      engine: postgres ? "postgres" : "sqlite",
+      backupExtension: postgres ? ".dump" : ".db",
+      restoreAccept: postgres ? ".dump,application/octet-stream" : ".db,application/x-sqlite3,application/vnd.sqlite3",
+      deleteAvailable: postgres,
+      offlineRestoreRequired: postgres,
+      offlineDeleteRequired: postgres,
+    });
+  });
+
+  app.post("/api/admin/maintenance/vacuum", async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
     try {
-      vacuumDatabase();
+      if (dbConfig?.client === "postgres") await postgresMaintenance.vacuum();
+      else await resolveMaybePromise(vacuumDatabase());
       log(session, "db.vacuum", { targetType: "system" });
       res.json({ ok: true });
     } catch (err) {
-      log(session, "db.vacuum", { targetType: "system", status: "error", details: String(err?.message || err) });
+      log(session, "db.vacuum", { targetType: "system", status: "error", details: "maintenance command failed" });
       res.status(500).json({ error: "Vacuum failed." });
     }
   });
 
   // Danger zone — clear all messages & their files (keeps users and chats).
-  app.post("/api/admin/maintenance/clear-messages", (req, res) => {
+  app.post("/api/admin/maintenance/clear-messages", async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
     if (req.body?.confirm !== "clear messages") {
       return res.status(400).json({ error: "Confirmation phrase required." });
     }
     try {
-      const { storedNames } = adminClearAllMessages() || {};
+      const { storedNames } = (await resolveMaybePromise(adminClearAllMessages())) || {};
       if (Array.isArray(storedNames) && storedNames.length > 0) removeStoredFileNames(storedNames);
       log(session, "db.clear_messages", { targetType: "system", details: `${storedNames?.length || 0} files removed` });
       // Notify all connected clients so chat windows refresh their message list.
       broadcastAll({ type: "chat_list_changed" });
       res.json({ ok: true });
     } catch (err) {
-      log(session, "db.clear_messages", { targetType: "system", status: "error", details: String(err?.message || err) });
+      log(session, "db.clear_messages", { targetType: "system", status: "error", details: "maintenance command failed" });
       res.status(500).json({ error: "Failed to clear messages." });
     }
   });
 
   // Danger zone — full reset: wipes users, chats, messages, sessions.
-  app.post("/api/admin/maintenance/reset", (req, res) => {
+  app.post("/api/admin/maintenance/reset", async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
     if (req.body?.confirm !== "reset everything") {
       return res.status(400).json({ error: "Confirmation phrase required." });
     }
     try {
-      const { storedNames } = adminResetDatabase() || {};
+      const { storedNames } = (await resolveMaybePromise(adminResetDatabase())) || {};
       if (Array.isArray(storedNames) && storedNames.length > 0) removeStoredFileNames(storedNames);
       log(session, "db.reset", { targetType: "system", details: `${storedNames?.length || 0} files removed` });
-      // Force every connected client to log out immediately.
       broadcastAll({ type: "session_revoked" });
       res.json({ ok: true });
     } catch (err) {
-      log(session, "db.reset", { targetType: "system", status: "error", details: String(err?.message || err) });
+      log(session, "db.reset", { targetType: "system", status: "error", details: "maintenance command failed" });
       res.status(500).json({ error: "Reset failed." });
     }
+  });
+
+  app.post("/api/admin/maintenance/delete", async (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    if (dbConfig?.client !== "postgres") {
+      return res.status(400).json({ error: "Database deletion is only available in PostgreSQL mode." });
+    }
+    // dropdb --force terminates this server's own pool. Run it only after the
+    // process has stopped, using the CLI command that enforces that condition.
+    return res.status(409).json({
+      error: "Stop Songbird, then run npm run db:delete -- -y to delete a PostgreSQL database.",
+    });
   });
 
   // ─── Service control ─────────────────────────────────────────────────────────
@@ -1284,17 +1312,36 @@ function registerAdminPanelRoutes(app, deps) {
   });
 
   // Download the live database file directly to the admin's device.
-  app.get("/api/admin/maintenance/download-db", (req, res) => {
+  app.get("/api/admin/maintenance/download-db", async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+
+    if (dbConfig?.client === "postgres") {
+      const effectiveDataDir = adminDataDir || nodePath.join(projectRootDir, "data");
+      const backupDir = nodePath.join(effectiveDataDir, "backups");
+      const backupPath = nodePath.join(backupDir, `songbird-backup-${stamp}.dump`);
+      try {
+        if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+        await postgresMaintenance.backup(backupPath);
+        log(session, "db.backup", { targetType: "system", targetLabel: nodePath.basename(backupPath) });
+        res.download(backupPath, nodePath.basename(backupPath), () => {
+          try { fs.rmSync(backupPath, { force: true }); } catch {}
+        });
+      } catch (error) {
+        try { fs.rmSync(backupPath, { force: true }); } catch {}
+        log(session, "db.backup", { targetType: "system", status: "error", details: "maintenance command failed" });
+        if (!res.headersSent) res.status(500).json({ error: "Backup failed." });
+      }
+      return;
+    }
+
     const effectiveDataDir = adminDataDir || nodePath.join(projectRootDir, "data");
     const dbPath = nodePath.join(effectiveDataDir, "songbird.db");
     if (!fs.existsSync(dbPath)) {
       return res.status(404).json({ error: "Database file not found." });
     }
-    // Flush any pending in-memory writes so the downloaded file is current.
-    try { vacuumDatabase(); } catch {}
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    try { await resolveMaybePromise(vacuumDatabase()); } catch {}
     const downloadName = `songbird-backup-${stamp}.db`;
     log(session, "db.backup", { targetType: "system", targetLabel: downloadName });
     res.download(dbPath, downloadName, (err) => {
@@ -1311,10 +1358,20 @@ function registerAdminPanelRoutes(app, deps) {
 
   app.post(
     "/api/admin/maintenance/restore",
-    // Gate auth before multer buffers the upload
-    (req, res, next) => { if (!requireAdmin(req, res)) return; next(); },
+    // Gate auth before multer buffers the upload.
+    (req, res, next) => {
+      if (!requireAdmin(req, res)) return;
+      // pg_restore --clean cannot safely run through the process that owns live
+      // database connections. The offline CLI detects a running server first.
+      if (dbConfig?.client === "postgres") {
+        return res.status(409).json({
+          error: "Stop Songbird, then run npm run db:restore -- -y --file <backup.dump>.",
+        });
+      }
+      next();
+    },
     dbUpload.single("database"),
-    (req, res) => {
+    async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
 
@@ -1323,7 +1380,6 @@ function registerAdminPanelRoutes(app, deps) {
       return res.status(400).json({ error: "No database file uploaded." });
     }
 
-    // Validate it's a real SQLite database: header is "SQLite format 3\0".
     const header = file.buffer.subarray(0, 16).toString("latin1");
     if (header !== "SQLite format 3\0") {
       log(session, "db.restore", { targetType: "system", status: "error", details: "Not a valid SQLite file" });
@@ -1335,17 +1391,11 @@ function registerAdminPanelRoutes(app, deps) {
 
     try {
       if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-      // Write atomically: temp file then rename over the live db.
       const tmpPath = nodePath.join(dataDir, `.restore-${Date.now()}.db`);
       fs.writeFileSync(tmpPath, file.buffer);
       fs.renameSync(tmpPath, dbPath);
-
-      // Hot-reload the in-memory DB from the restored file.
       reloadDatabase();
-
-      // Force every connected client to log out and re-authenticate against the restored database.
       broadcastAll({ type: "session_revoked" });
-
       log(session, "db.restore", { targetType: "system", targetLabel: file.originalname || "uploaded.db" });
       res.json({ ok: true });
     } catch (e) {

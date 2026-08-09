@@ -47,9 +47,9 @@ cd /opt/songbird/server
 | دستور | هدف |
 |---|---|
 | `npm run db:help` | چاپ راهنمای داخلی دستورها. |
-| [`npm run db:backup`](#db-backup) | ایجاد یک فایل zip پشتیبان رمزنگاریشده از `.env` و `data/`. |
-| [`npm run db:restore`](#db-restore) | بازیابی پایگاه داده و آپلودها از یک فایل zip پشتیبان. |
-| [`npm run db:vacuum`](#db-vacuum) | فشردهسازی فایل پایگاه داده SQLite. |
+| [`npm run db:backup`](#db-backup) | ایجاد پشتیبان سازگار با موتور پایگاه داده. |
+| [`npm run db:restore`](#db-restore) | بازیابی پشتیبان سازگار با موتور پایگاه داده. |
+| [`npm run db:vacuum`](#db-vacuum) | فشرده‌سازی SQLite یا اجرای `VACUUM ANALYZE` در PostgreSQL. |
 | [`npm run db:convert`](#db-convert) | تبدیل یک پایگاه داده SQLite موجود به PostgreSQL. |
 | [`npm run db:migrate`](#db-migrate) | اعمال migrationهای در انتظار پایگاه داده. |
 | [`npm run db:reset`](#db-reset) | پاککردن محتوای پایگاه داده و فایلهای پیام آپلودشده. |
@@ -77,50 +77,41 @@ cd /opt/songbird/server
 
 ### `db:backup`
 
-فایل `data/backups/songbird-backup-<timestamp>.zip` را که شامل `.env` و پوشه `data/` است ایجاد می‌کند. آرشیو با رمز عبور محافظت می‌شود.
+یک پشتیبان زمان‌دار و سازگار با موتور را در `data/backups/` ایجاد می‌کند:
 
-| پرچم | موردنیاز | توضیح |
-|---|---|---|
-| `--password <value>` | خیر | رمز عبور آرشیو. اگر حذف شود، به‌صورت تعاملی از شما پرسیده می‌شود. |
+- **SQLite:** از `songbird.db` در `songbird-backup-<timestamp>.db` کپی می‌گیرد.
+- **PostgreSQL:** با `pg_dump --format=custom` یک آرشیو `songbird-backup-<timestamp>.dump` ایجاد می‌کند.
 
 ```bash
-npm run db:backup -- --password "backup-password"
+# SQLite یا PostgreSQL؛ پسوند از DB_CLIENT انتخاب می‌شود
+npm run db:backup
 ```
 
 :::info
 
-به باینری `zip` نیاز دارد. در صورت نیاز آن را با متغیر محیطی `ZIP_BIN` بازنویسی کنید.
+پشتیبان فقط محتوای پایگاه داده را دارد و شامل `.env`، آپلودهای محلی یا اشیای ذخیره‌سازی راه‌دور نیست؛ آن‌ها را جداگانه مدیریت کنید.
+
+ابزارهای PostgreSQL شامل `pg_dump`، `pg_restore`، `vacuumdb`، `dropdb` و `createdb` باید در `PATH` باشند و کاربر پیکربندی‌شده پایگاه داده به مجوزهای متناظر PostgreSQL نیاز دارد.
 
 :::
 
 ### `db:restore`
 
-`.env`، `songbird.db` و `uploads/` را از یک فایل zip پشتیبان بازیابی می‌کند. هنگام اجرا به‌عنوان root روی یک نصب systemd، همچنین مالکیت را اصلاح کرده و `songbird.service` را راه‌اندازی مجدد می‌کند.
+جدیدترین پشتیبان سازگار یا فایل انتخاب‌شده را بازیابی می‌کند. SQLite فایل‌های `.db` و PostgreSQL آرشیوهای بومی `.dump` را می‌پذیرند؛ PostgreSQL پیش از بازیابی فایل را با `pg_restore --list` اعتبارسنجی می‌کند.
 
 | آرگومان / پرچم | موردنیاز | توضیح |
 |---|---|---|
-| `--file <path>` | خیر | مسیر فایل zip پشتیبان. اگر حذف شود، جدیدترین پشتیبان در `data/backups/` یا `/root` به‌طور خودکار شناسایی می‌شود، در غیر این صورت از شما پرسیده می‌شود. |
-| `--password <value>` | خیر | رمز عبور آرشیو. در صورت نیاز به‌صورت تعاملی پرسیده می‌شود. |
+| `--file <path>` | خیر | مسیر پشتیبان `.db` در حالت SQLite یا آرشیو `.dump` در حالت PostgreSQL. |
 | `-y`، `--yes` | خیر | رد شدن از پرسش تأیید. |
 
 ```bash
-npm run db:restore -- -y
-npm run db:restore -- --file /path/to/songbird-backup.zip --password "backup-password" -y
+npm run db:restore -- -y --file /path/to/songbird-backup.db
+npm run db:restore -- -y --file /path/to/songbird-backup.dump
 ```
 
-چیدمان آرشیو پشتیبان:
+:::warning PostgreSQL باید آفلاین باشد
 
-```text
-songbird-backup-YYYY-MM-DDTHH-MM-SS-sssZ.zip
-|- .env
-`- data/
-   |- songbird.db
-   `- uploads/
-```
-
-:::info
-
-پشتیبان‌های قدیمی که `songbird.db` و `uploads/` را در ریشه zip دارند نیز پذیرفته می‌شوند.
+پیش از اجرای `db:restore` برای PostgreSQL، Songbird را متوقف کنید. دستور بومی `pg_restore --clean` اشیای پایگاه داده را جایگزین می‌کند و نمی‌تواند با اطمینان از طریق فرآیند زنده Songbird اجرا شود. Songbird را فقط پس از موفقیت دستور شروع یا ریستارت کنید.
 
 :::
 
@@ -129,7 +120,7 @@ songbird-backup-YYYY-MM-DDTHH-MM-SS-sssZ.zip
 
 ### `db:vacuum`
 
-فایل پایگاه داده را برای بازپس‌گیری فضا فشرده می‌کند.
+SQLite را با `VACUUM` فشرده می‌کند؛ در حالت PostgreSQL ابزار بومی `vacuumdb --analyze` (`VACUUM ANALYZE`) را اجرا می‌کند.
 
 | پرچم | موردنیاز | توضیح |
 |---|---|---|
@@ -166,7 +157,7 @@ npm run db:migrate
 
 ### `db:reset`
 
-محتوای پایگاه داده و فایل‌های پیام آپلودشده را پاک می‌کند.
+محتوای پایگاه داده و فایل‌های پیام آپلودشده محلی را پاک می‌کند.
 
 | پرچم | موردنیاز | توضیح |
 |---|---|---|
@@ -179,9 +170,16 @@ npm run db:reset -- -y --recreate
 npm run db:reset -- -y --no-recreate
 ```
 
+:::info رفتار آنلاین دربرابر آفلاین
+
+وقتی Songbird در حال اجرا است، دستور به سرور محلی احرازشده واگذار می‌شود و بازنشانی حفظ‌کننده schema را انجام می‌دهد. وقتی Songbird متوقف است، SQLite فایل پایگاه داده را حذف می‌کند و PostgreSQL پایگاه داده را drop می‌کند؛ سپس هر موتور را می‌توان دوباره ایجاد و migrate کرد.
+
+
+:::
+
 ### `db:delete`
 
-فایل پایگاه داده را به‌کلی حذف می‌کند.
+فایل پایگاه داده SQLite را حذف می‌کند یا در حالت PostgreSQL با ابزار بومی `dropdb` پایگاه داده PostgreSQL را حذف می‌کند.
 
 | پرچم | موردنیاز | توضیح |
 |---|---|---|
@@ -190,6 +188,12 @@ npm run db:reset -- -y --no-recreate
 ```bash
 npm run db:delete -- -y
 ```
+
+:::warning PostgreSQL باید آفلاین باشد
+
+پیش از `db:delete` در PostgreSQL، Songbird را متوقف کنید؛ `dropdb --force` اتصال‌های فعال PostgreSQL را قطع می‌کند. آپلودهای محلی پیام نیز حذف می‌شوند، اما اگر storage راه‌دور پیکربندی شده باشد باید جداگانه پاک‌سازی شود.
+
+:::
 
 
 ## بازرسی

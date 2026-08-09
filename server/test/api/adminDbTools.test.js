@@ -27,6 +27,7 @@ function makeAdminDbToolsApp({
   adminGetRow,
   adminRun = vi.fn(async () => 1),
   adminTransaction,
+  adminResetDatabase,
 } = {}) {
   process.env.ADMIN_API_TOKEN = "test-admin-token";
   const transaction =
@@ -49,6 +50,7 @@ function makeAdminDbToolsApp({
       adminGetAll: vi.fn(async () => []),
       adminRun,
       adminTransaction: transaction,
+      adminResetDatabase: adminResetDatabase || vi.fn(async () => ({ storedNames: [] })),
       adminSave: vi.fn(),
     },
   }).app;
@@ -274,6 +276,20 @@ describe("POST /api/admin/db-tools database edits", () => {
       "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",
       [chat.id, user.id, "member"],
     );
+  });
+
+  test("uses the schema-preserving reset implementation for a running PostgreSQL server", async () => {
+    const reset = vi.fn(async () => ({ storedNames: ["message.bin"] }));
+    const app = makeAdminDbToolsApp({ adminResetDatabase: reset });
+
+    const res = await request(app)
+      .post("/api/admin/db-tools")
+      .set("x-songbird-admin-token", "test-admin-token")
+      .send({ action: "reset_db" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.result).toEqual({ cleared: true, filesRemoved: 1 });
+    expect(reset).toHaveBeenCalledTimes(1);
   });
 
   test("generates users when PostgreSQL collection reads return promises", async () => {

@@ -156,15 +156,17 @@ Perform system administration tasks:
 ### Database Operations
 
 **Backup**
-- Download a timestamped backup of the database
+- Download a timestamped engine-native database backup
+- SQLite downloads a `.db` file; PostgreSQL downloads a native `.dump` archive created with `pg_dump`
 
 **Restore**
-- Upload and restore from a backup file
+- SQLite backups can be uploaded and restored while the service is running
+- PostgreSQL restore is deliberately offline-only: stop Songbird, then use `npm run db:restore -- -y --file <backup.dump>`
 
 **Vacuum**
-- Optimize database file (VACUUM operation)
-- Reclaims unused space
-- Recommended periodically for large databases
+- SQLite compacts the database file with `VACUUM`
+- PostgreSQL runs native `VACUUM ANALYZE`
+- Reclaims unused space and is recommended periodically for large databases
 
 ### System Control
 
@@ -200,11 +202,8 @@ Service control (restart/stop) requires the right setup depending on deployment:
 - Irreversible operation
 
 **Reset Database**
-- Delete entire database and all data
-- Removes all users, chats, and messages
-- Keeps uploaded files (manual cleanup needed)
+- Clears users, chats, messages, sessions, and stored message files while preserving the schema and runtime settings
 - Irreversible operation
-- Requires service restart
 
 :::danger Irreversible Actions
 

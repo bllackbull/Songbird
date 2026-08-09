@@ -47,9 +47,9 @@ Do not run individual scripts with `sudo node` or `sudo npm`. Those direct invoc
 | Command | Purpose |
 |---|---|
 | `npm run db:help` | Print the built-in command guide. |
-| [`npm run db:backup`](#db-backup) | Create an encrypted backup zip of `.env` and `data/`. |
-| [`npm run db:restore`](#db-restore) | Restore the database and uploads from a backup zip. |
-| [`npm run db:vacuum`](#db-vacuum) | Compact the SQLite database file. |
+| [`npm run db:backup`](#db-backup) | Create an engine-native database backup. |
+| [`npm run db:restore`](#db-restore) | Restore an engine-native database backup. |
+| [`npm run db:vacuum`](#db-vacuum) | Compact SQLite or run PostgreSQL `VACUUM ANALYZE`. |
 | [`npm run db:convert`](#db-convert) | Convert an existing SQLite database to PostgreSQL. |
 | [`npm run db:migrate`](#db-migrate) | Apply pending database migrations. |
 | [`npm run db:reset`](#db-reset) | Wipe database content and uploaded message files. |
@@ -78,50 +78,41 @@ Do not run individual scripts with `sudo node` or `sudo npm`. Those direct invoc
 
 ### `db:backup`
 
-Creates `data/backups/songbird-backup-<timestamp>.zip` containing `.env` and the `data/` directory. The archive is password-protected.
+Creates a timestamped, engine-native backup in `data/backups/`:
 
-| Flag | Required | Description |
-|---|---|---|
-| `--password <value>` | No | Archive password. If omitted, you are prompted for it interactively. |
+- **SQLite:** copies `songbird.db` to `songbird-backup-<timestamp>.db`.
+- **PostgreSQL:** creates `songbird-backup-<timestamp>.dump` with `pg_dump --format=custom`.
 
 ```bash
-npm run db:backup -- --password "backup-password"
+# SQLite or PostgreSQL; the extension is selected from DB_CLIENT
+npm run db:backup
 ```
 
 :::info
 
-Requires the `zip` binary. Override it with the `ZIP_BIN` environment variable if needed.
+Backups contain database content only. They do **not** include `.env`, local uploads, or objects in remote storage; manage those separately. 
+
+The PostgreSQL client tools `pg_dump`, `pg_restore`, `vacuumdb`, `dropdb`, and `createdb` must be available in `PATH`, and the configured database user needs the corresponding PostgreSQL permissions.
 
 :::
 
 ### `db:restore`
 
-Restores `.env`, `songbird.db`, and `uploads/` from a backup zip. When run as root on a systemd install, it also fixes ownership and restarts `songbird.service`.
+Restores the newest matching backup or an explicitly selected file. SQLite accepts `.db` files; PostgreSQL accepts native `.dump` archives and validates them with `pg_restore --list` before restoring.
 
 | Argument / Flag | Required | Description |
 |---|---|---|
-| `--file <path>` | No | Path to the backup zip. If omitted, the newest backup in `data/backups/` or `/root` is auto-detected, otherwise you are prompted. |
-| `--password <value>` | No | Archive password. Prompted interactively if needed. |
+| `--file <path>` | No | Path to a `.db` backup in SQLite mode or a `.dump` archive in PostgreSQL mode. |
 | `-y`, `--yes` | No | Skip the confirmation prompt. |
 
 ```bash
-npm run db:restore -- -y
-npm run db:restore -- --file /path/to/songbird-backup.zip --password "backup-password" -y
+npm run db:restore -- -y --file /path/to/songbird-backup.db
+npm run db:restore -- -y --file /path/to/songbird-backup.dump
 ```
 
-The backup archive layout:
+:::warning PostgreSQL must be offline
 
-```text
-songbird-backup-YYYY-MM-DDTHH-MM-SS-sssZ.zip
-|- .env
-`- data/
-   |- songbird.db
-   `- uploads/
-```
-
-:::info
-
-Legacy backups with `songbird.db` and `uploads/` at the zip root are also accepted.
+Stop Songbird before running PostgreSQL `db:restore`. Native `pg_restore --clean` replaces database objects and cannot safely run through the live Songbird process. Start or restart Songbird only after the command succeeds.
 
 :::
 
@@ -130,7 +121,7 @@ Legacy backups with `songbird.db` and `uploads/` at the zip root are also accept
 
 ### `db:vacuum`
 
-Compacts the database file to reclaim space.
+Compacts SQLite with `VACUUM`; in PostgreSQL mode it runs native `vacuumdb --analyze` (`VACUUM ANALYZE`).
 
 | Flag | Required | Description |
 |---|---|---|
@@ -166,7 +157,7 @@ npm run db:migrate
 
 ### `db:reset`
 
-Wipes database content and uploaded message files.
+Wipes database content and local uploaded message files.
 
 | Flag | Required | Description |
 |---|---|---|
@@ -179,9 +170,15 @@ npm run db:reset -- -y --recreate
 npm run db:reset -- -y --no-recreate
 ```
 
+:::info Online vs. Offline behavior
+
+When Songbird is running, the command delegates to the authenticated local server and performs an schema-preserving reset. When Songbird is stopped, SQLite removes its database file and PostgreSQL drops the database; either engine can then be recreated and migrated.
+
+:::
+
 ### `db:delete`
 
-Deletes the database file outright.
+Deletes the SQLite database file or, in PostgreSQL mode, drops the PostgreSQL database with native `dropdb`.
 
 | Flag | Required | Description |
 |---|---|---|
@@ -190,6 +187,12 @@ Deletes the database file outright.
 ```bash
 npm run db:delete -- -y
 ```
+
+:::warning PostgreSQL must be offline
+
+Stop Songbird before PostgreSQL `db:delete`; `dropdb --force` terminates active PostgreSQL connections. Local message uploads are also removed, but remote object storage must be cleaned separately if configured.
+
+:::
 
 
 ## Inspection

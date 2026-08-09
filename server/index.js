@@ -30,7 +30,8 @@ import { buildTimestampSchedule } from "./lib/timeUtils.js";
 import { isLoopbackRequest, parseUploadFileMetadata } from "./lib/requestUtils.js";
 import { USERNAME_REGEX } from "./lib/validation.js";
 import { USER_COLORS, setUserColor } from "./settings/colors.js";
-import { readEnvInt } from "./settings/env.js";
+import { readEnvInt, readDbConfig } from "./settings/env.js";
+import { createPostgresMaintenance } from "./lib/postgresMaintenance.js";
 import {
   addAllEligibleChatMembers,
   addChatMember,
@@ -619,6 +620,8 @@ registerUploadRoutes(app, { adminGetRow });
 const storageProvider = createStorageProvider(process.env);
 
 const apiDeps = {
+  dbConfig: readDbConfig(),
+  postgresMaintenance: null,
   storageProvider,
   storageProcessingMode: process.env.STORAGE_PROCESSING_MODE || "sync",
   webhookSecret: process.env.WEBHOOK_SECRET || null,
@@ -817,6 +820,10 @@ const apiDeps = {
   dbRun: adminRun,
   dbSave: adminSave,
 };
+
+apiDeps.postgresMaintenance = apiDeps.dbConfig.client === "postgres"
+  ? createPostgresMaintenance({ config: apiDeps.dbConfig })
+  : null;
 
 const remoteChannelManager = createRemoteChannelManager({
   config: REMOTE_CHANNEL_CONFIG,

@@ -5,6 +5,7 @@ Core:
   npm run db:help
   npm run db:backup
   npm run db:restore -- -y --file /path/to/songbird-backup-<timestamp>.db
+  npm run db:restore -- -y --file /path/to/songbird-backup-<timestamp>.dump  # PostgreSQL (service stopped)
   npm run db:migrate
   npm run db:vacuum -- -y
   npm run db:inspect -- --limit 25
@@ -59,8 +60,10 @@ Notes:
   - db:user:verify is a toggle: run it again to remove the user's verified status.
   - db:chat:verify is a toggle: run it again to remove the chat's verified status.
   - db:user:create/edit accept --role user|admin|owner. Only one user can hold the owner role at a time. The owner cannot be demoted, banned, or deleted via the admin panel.
-  - db:backup copies songbird.db to data/backups/ with a timestamp filename.
-  - db:restore replaces the live database with a given .db file and restarts the service if running as root.
+  - SQLite backup/restore use timestamped .db files in data/backups/.
+  - PostgreSQL backup/restore use native .dump archives and require pg_dump/pg_restore in PATH.
+  - Stop Songbird before PostgreSQL db:restore, db:reset, or db:delete; those commands use native PostgreSQL tools.
+  - db:restore replaces the SQLite database with a given .db file and restarts the service if running as root.
 `;
 
 console.log(helpText.trim());

@@ -152,6 +152,14 @@ function CheckUpdateRow({ appInfo }) {
 
 const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
   const [appInfo, setAppInfo] = useState(null);
+  const [maintenanceInfo, setMaintenanceInfo] = useState({
+    engine: "sqlite",
+    backupExtension: ".db",
+    restoreAccept: ".db,application/x-sqlite3,application/vnd.sqlite3",
+    deleteAvailable: false,
+    offlineRestoreRequired: false,
+    offlineDeleteRequired: false,
+  });
   const [rowStatus, setRowStatus] = useState({});
   const statusTimers = useRef({});
   const serviceAvailable = serviceStatus ? Boolean(serviceStatus.available) : null;
@@ -191,9 +199,15 @@ const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
       .catch(() => {});
   }, []);
 
-  useEffect(() => { loadAppInfo(); }, [loadAppInfo]);
+  const loadMaintenanceInfo = useCallback(() => {
+    api.get("/api/admin/maintenance/info")
+      .then((info) => setMaintenanceInfo((current) => ({ ...current, ...info })))
+      .catch(() => {});
+  }, []);
 
-  useImperativeHandle(ref, () => ({ refresh: loadAppInfo }), [loadAppInfo]);
+  useEffect(() => { loadAppInfo(); loadMaintenanceInfo(); }, [loadAppInfo, loadMaintenanceInfo]);
+
+  useImperativeHandle(ref, () => ({ refresh: () => { loadAppInfo(); loadMaintenanceInfo(); } }), [loadAppInfo, loadMaintenanceInfo]);
 
   const confirmVacuum = async () => {
     flashStatus("vacuum", "busy", "Vacuuming…");
@@ -317,7 +331,7 @@ const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
             icon={HardDriveDownload}
             iconAnim="icon-anim-drop"
             label="Backup database"
-            description="Download the database file to your device."
+            description={maintenanceInfo.engine === "postgres" ? "Create and download a native PostgreSQL backup archive." : "Download the database file to your device."}
             onClick={downloadDb}
             status={rowStatus.backup}
           />
@@ -325,14 +339,15 @@ const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
             icon={HardDriveUpload}
             iconAnim="icon-anim-lift"
             label="Restore database"
-            description="Replace the current database by uploading a backup file."
+            description={maintenanceInfo.offlineRestoreRequired ? "PostgreSQL restores require Songbird to be stopped; use the db:restore CLI command." : "Replace the current database by uploading a backup file."}
             onClick={() => fileRef.current?.click()}
             status={rowStatus.restore}
+            disabled={maintenanceInfo.offlineRestoreRequired}
           />
           <input
             ref={fileRef}
             type="file"
-            accept=".db,application/x-sqlite3,application/vnd.sqlite3"
+            accept={maintenanceInfo.restoreAccept}
             onChange={onFilePicked}
             className="hidden"
           />
@@ -340,7 +355,7 @@ const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
             icon={Brush}
             iconAnim="icon-anim-wiggle"
             label="Vacuum database"
-            description="Reclaim unused space and defragment the DB file."
+            description={maintenanceInfo.engine === "postgres" ? "Run PostgreSQL VACUUM ANALYZE." : "Reclaim unused space and defragment the DB file."}
             onClick={() => setVacuumConfirmOpen(true)}
             status={rowStatus.vacuum}
           />
@@ -375,13 +390,12 @@ const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
             icon={Trash}
             iconAnim="icon-anim-slide"
             label="Reset database"
-            description="Wipe everything — all users, chats, messages, sessions, and files. The schema is kept."
+            description="Wipe users, chats, messages, sessions, and files while keeping the schema."
             onClick={() =>
               setDanger({
                 key: "resetDb",
                 title: "Reset database",
-                message:
-                  "This permanently deletes ALL users, chats, messages, sessions, and files. The app will be empty afterwards. This cannot be undone.",
+                message: "This permanently deletes all users, chats, messages, sessions, and files. The schema is kept.",
                 phrase: "reset everything",
                 endpoint: "/api/admin/maintenance/reset",
                 busyLabel: "Resetting…",
@@ -391,13 +405,35 @@ const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
             status={rowStatus.resetDb}
             danger
           />
+          {maintenanceInfo.deleteAvailable && (
+            <ActionRow
+              icon={Trash}
+              iconAnim="icon-anim-slide"
+              label="Delete PostgreSQL database"
+              description={maintenanceInfo.offlineDeleteRequired ? "Requires Songbird to be stopped; use the db:delete CLI command." : "Drop the entire PostgreSQL database. Songbird will stop working until it is recreated."}
+              onClick={() =>
+                setDanger({
+                  key: "deleteDb",
+                  title: "Delete PostgreSQL database",
+                  message: "This permanently drops the PostgreSQL database. All Songbird data will be unavailable until a new database is created and migrated.",
+                  phrase: "delete postgres database",
+                  endpoint: "/api/admin/maintenance/delete",
+                  busyLabel: "Deleting…",
+                  doneLabel: "Deleted",
+                })
+              }
+              status={rowStatus.deleteDb}
+              disabled={maintenanceInfo.offlineDeleteRequired}
+              danger
+            />
+          )}
         </div>
       </div>
 
       <ConfirmModal
         open={vacuumConfirmOpen}
         title="Vacuum database"
-        message="Run VACUUM now? This rewrites the database file to reclaim space."
+        message={maintenanceInfo.engine === "postgres" ? "Run PostgreSQL VACUUM ANALYZE now?" : "Run VACUUM now? This rewrites the database file to reclaim space."}
         confirmLabel={rowStatus.vacuum?.type === "busy" ? "Vacuuming…" : "Vacuum"}
         busy={rowStatus.vacuum?.type === "busy"}
         onConfirm={confirmVacuum}
