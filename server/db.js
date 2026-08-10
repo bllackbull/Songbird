@@ -18,8 +18,8 @@ import { ensureWebhookSecret } from "./lib/webhookSecret.js";
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRootDir = path.resolve(serverDir, "..");
-dotenv.config({ path: path.join(projectRootDir, ".env"), override: true, quiet: true });
-dotenv.config({ path: path.join(serverDir, ".env"), override: true, quiet: true });
+dotenv.config({ path: path.join(projectRootDir, ".env"), quiet: true });
+dotenv.config({ path: path.join(serverDir, ".env"), quiet: true });
 const dataDir = path.resolve(process.env.DATA_DIR || path.resolve(serverDir, "..", "data"));
 const dbPath = path.join(dataDir, "songbird.db");
 const backupDir = path.join(dataDir, "backups");

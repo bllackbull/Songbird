@@ -2,6 +2,9 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
+    env: {
+      DB_CLIENT: "sqlite3",
+    },
     environment: "node",
     include: ["test/**/*.test.{js,mjs,cjs}"],
     reporters: ["default"],

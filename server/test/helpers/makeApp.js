@@ -106,6 +106,12 @@ export function makeApp(overrides = {}) {
     crypto,
     bcrypt,
 
+    // ── Debug logging (no-op unless APP_DEBUG is set) ─────────────────────────
+    debugLog: () => {},
+
+    // ── Push notifications ────────────────────────────────────────────────────
+    sendPushNotificationToUsers: async () => {},
+
     // ── User helpers ──────────────────────────────────────────────────────────
     USER_COLORS,
     USERNAME_REGEX: /^(?=.*[a-z0-9])[a-z0-9._]+$/,
