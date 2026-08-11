@@ -9,6 +9,7 @@ import {
 } from "../lib/dbToolHelpers.js";
 import { createInviteToken } from "../lib/inviteTokens.js";
 import { storageEncryption } from "../lib/storageEncryption.js";
+import { generateUuid } from "../lib/uuidUtils.js";
 import crypto from "crypto";
 
 function normalizeTelegramSource(value) {
@@ -278,33 +279,33 @@ function registerAdminRoutes(app, deps) {
         );
         const ownerChatRows = Array.isArray(rawOwnerChatRows) ? rawOwnerChatRows : (await rawOwnerChatRows) || [];
         const ownerChatIds = Array.from(
-          new Set(ownerChatRows.map((row) => Number(row?.chat_id || 0)).filter(Boolean)),
+          new Set(ownerChatRows.map((row) => row?.chat_id).filter(Boolean)),
         );
         const chatIdsToDelete = [];
         const ownershipTransfers = [];
         for (const chatId of ownerChatIds) {
           const rawRemaining = adminGetAll(
             `SELECT user_id FROM chat_members WHERE chat_id = ? AND user_id NOT IN (${userPlaceholders})`,
-            [Number(chatId), ...userIds],
+            [chatId, ...userIds],
           );
           const remaining = (Array.isArray(rawRemaining) ? rawRemaining : (await rawRemaining) || [])
-            .map((row) => Number(row?.user_id || 0))
-            .filter((id) => Number.isFinite(id) && id > 0);
+            .map((row) => row?.user_id)
+            .filter(Boolean);
           if (!remaining.length) {
-            chatIdsToDelete.push(Number(chatId));
+            chatIdsToDelete.push(chatId);
             continue;
           }
           const nextOwnerId =
             remaining[Math.floor(Math.random() * remaining.length)];
           if (nextOwnerId) {
             ownershipTransfers.push({
-              chatId: Number(chatId),
-              nextOwnerId: Number(nextOwnerId),
+              chatId: chatId,
+              nextOwnerId: nextOwnerId,
             });
           }
         }
         const uniqueChatDeletes = Array.from(
-          new Set(chatIdsToDelete.filter((id) => Number.isFinite(id) && id > 0)),
+          new Set(chatIdsToDelete.filter(Boolean)),
         );
         const chatDeletePlaceholders = uniqueChatDeletes.map(() => "?").join(", ");
         const rawChatStored = uniqueChatDeletes.length
@@ -374,7 +375,7 @@ function registerAdminRoutes(app, deps) {
 
           for (const transfer of ownershipTransfers) {
             if (
-              uniqueChatDeletes.includes(Number(transfer.chatId)) ||
+              uniqueChatDeletes.includes(transfer.chatId) ||
               !transfer.chatId ||
               !transfer.nextOwnerId
             ) {
@@ -382,7 +383,7 @@ function registerAdminRoutes(app, deps) {
             }
             await transactionRun(
               `UPDATE chat_members SET role = 'owner' WHERE chat_id = ? AND user_id = ?`,
-              [Number(transfer.chatId), Number(transfer.nextOwnerId)],
+              [transfer.chatId, transfer.nextOwnerId],
             );
           }
 
@@ -779,9 +780,9 @@ function registerAdminRoutes(app, deps) {
         adminSave();
 
         for (const event of joinEvents) {
-          emitChatEvent(Number(chat.id), {
+          emitChatEvent(chat.id, {
             type: "chat_message",
-            chatId: Number(chat.id),
+            chatId: chat.id,
             username: event.username,
             body: event.body,
           });
@@ -1064,9 +1065,9 @@ function registerAdminRoutes(app, deps) {
           Number(chat.id),
         ]);
         adminSave();
-        emitChatEvent(Number(chat.id), {
+        emitChatEvent(chat.id, {
           type: "chat_updated",
-          chatId: Number(chat.id),
+          chatId: chat.id,
         });
 
         return res.json({
@@ -1258,7 +1259,7 @@ function registerAdminRoutes(app, deps) {
       }
 
       if (action === "generate_chat_messages") {
-        const chatId = Number(payload.chatId || 0);
+        const chatId = String(payload.chatId || "").trim();
         const userA = String(payload.userA || "").trim();
         const userB = String(payload.userB || "").trim();
         const count = Math.max(1, Math.min(10000, Number(payload.count || 0) || 0));
@@ -1277,15 +1278,16 @@ function registerAdminRoutes(app, deps) {
         }
 
         const resolveUserId = (raw) => {
-          const numeric = Number(raw);
-          if (Number.isFinite(numeric) && numeric > 0) {
-            const row = adminGetRow("SELECT id FROM users WHERE id = ?", [numeric]);
-            return row?.id ? Number(row.id) : null;
-          }
+          const str = String(raw || "").trim();
+          if (!str) return null;
+          // Try by ID directly (UUID string)
+          const byId = adminGetRow("SELECT id FROM users WHERE id = ?", [str]);
+          if (byId?.id) return byId.id;
+          // Try by username
           const row = adminGetRow("SELECT id FROM users WHERE username = ?", [
-            String(raw || "").toLowerCase(),
+            str.toLowerCase(),
           ]);
-          return row?.id ? Number(row.id) : null;
+          return row?.id || null;
         };
 
         const userAId = resolveUserId(userA);
@@ -1389,8 +1391,9 @@ function registerAdminRoutes(app, deps) {
                 ? rawBody.slice(0, maxMessageChars)
                 : rawBody;
             adminRun(
-              "INSERT INTO chat_messages (chat_id, user_id, body, created_at, read_at, read_by_user_id) VALUES (?, ?, ?, ?, NULL, NULL)",
+              "INSERT INTO chat_messages (id, chat_id, user_id, body, created_at, read_at, read_by_user_id) VALUES (?, ?, ?, ?, ?, NULL, NULL)",
               [
+                generateUuid(),
                 chatId,
                 senderId,
                 storageEncryption.encryptText(body),
@@ -1410,7 +1413,7 @@ function registerAdminRoutes(app, deps) {
       }
 
       if (action === "create_demo") {
-        const payloadChatId = Number(payload.chatId || 0);
+        const payloadChatId = String(payload.chatId || "").trim() || null;
         const count = Number(payload.count || 15);
         const daysBack = Number(payload.daysBack || 5);
         const allowRecreate = Boolean(payload.allowRecreate);
@@ -1420,17 +1423,16 @@ function registerAdminRoutes(app, deps) {
           ["demo"],
         );
 
-        let userId = Number(userRow?.id || 0);
+        let userId = userRow?.id || null;
         if (!userId) {
+          const newUserId = generateUuid();
           adminRun(
-            `INSERT INTO users (username, password_hash, nickname, status, color, created_at)
-             VALUES (?, ?, ?, ?, ?, datetime('now'))`,
-            ["demo", "demo", "Demo User", "online", "#10b981"],
+            `INSERT INTO users (id, username, password_hash, nickname, status, color, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
+            [newUserId, "demo", "demo", "Demo User", "online", "#10b981"],
           );
-          userId = Number(
-            adminGetRow("SELECT id FROM users WHERE username = ?", ["demo"])
-              ?.id || 0,
-          );
+          userId = adminGetRow("SELECT id FROM users WHERE username = ?", ["demo"])
+              ?.id || null;
         }
 
         let chatId = payloadChatId;
@@ -1439,29 +1441,28 @@ function registerAdminRoutes(app, deps) {
             `SELECT id FROM chats WHERE name = ? ORDER BY id ASC LIMIT 1`,
             ["Songbird Demo"],
           );
-          chatId = Number(row?.id || 0);
+          chatId = row?.id || null;
         }
 
         if (!chatId) {
+          const newChatId = generateUuid();
           adminRun(
-            `INSERT INTO chats (name, type, created_at)
-             VALUES (?, ?, datetime('now'))`,
-            ["Songbird Demo", "group"],
+            `INSERT INTO chats (id, name, type, created_at)
+             VALUES (?, ?, ?, datetime('now'))`,
+            [newChatId, "Songbird Demo", "group"],
           );
 
-          chatId = Number(
-            adminGetRow("SELECT id FROM chats WHERE name = ?", [
+          chatId = adminGetRow("SELECT id FROM chats WHERE name = ?", [
               "Songbird Demo",
-            ])?.id || 0,
-          );
+            ])?.id || null;
         }
 
         const memberRow = adminGetRow(
-          `SELECT id FROM chat_members WHERE chat_id = ? AND user_id = ?`,
+          `SELECT chat_id FROM chat_members WHERE chat_id = ? AND user_id = ?`,
           [chatId, userId],
         );
 
-        if (!memberRow?.id) {
+        if (!memberRow) {
           adminRun(
             `INSERT INTO chat_members (chat_id, user_id, role)
              VALUES (?, ?, ?)`,
@@ -1493,9 +1494,10 @@ function registerAdminRoutes(app, deps) {
         try {
           timestampSchedule.forEach((stamp, index) => {
             adminRun(
-              `INSERT INTO chat_messages (chat_id, user_id, body, created_at)
-               VALUES (?, ?, ?, ?)`,
+              `INSERT INTO chat_messages (id, chat_id, user_id, body, created_at)
+               VALUES (?, ?, ?, ?, ?)`,
               [
+                generateUuid(),
                 chatId,
                 userId,
                 storageEncryption.encryptText(`Demo message ${index + 1}`),
@@ -1550,8 +1552,8 @@ function registerAdminRoutes(app, deps) {
           targetMessageIds = adminGetAll(
             "SELECT DISTINCT message_id FROM chat_message_files ORDER BY message_id ASC",
           )
-            .map((row) => Number(row.message_id))
-            .filter((id) => Number.isFinite(id) && id > 0);
+            .map((row) => row.message_id)
+            .filter(Boolean);
 
           if (targetMessageIds.length) {
             messageChatPairs = adminGetAll(
@@ -1560,8 +1562,8 @@ function registerAdminRoutes(app, deps) {
                 .join(", ")})`,
               targetMessageIds,
             ).map((row) => ({
-              id: Number(row.id),
-              chatId: Number(row.chat_id),
+              id: row.id,
+              chatId: row.chat_id,
             }));
           }
 
@@ -1606,8 +1608,8 @@ function registerAdminRoutes(app, deps) {
           targetMessageIds = Array.from(
             new Set(
               fileRows
-                .map((row) => Number(row.message_id))
-                .filter((id) => Number.isFinite(id) && id > 0),
+                .map((row) => row.message_id)
+                .filter(Boolean),
             ),
           );
 
@@ -1618,8 +1620,8 @@ function registerAdminRoutes(app, deps) {
                 .join(", ")})`,
               targetMessageIds,
             ).map((row) => ({
-              id: Number(row.id),
-              chatId: Number(row.chat_id),
+              id: row.id,
+              chatId: row.chat_id,
             }));
             messageStoredNames = adminGetAll(
               `SELECT stored_name FROM chat_message_files WHERE message_id IN (${targetMessageIds
@@ -1699,15 +1701,15 @@ function registerAdminRoutes(app, deps) {
         if (messageChatPairs.length) {
           const chatToMessageIds = new Map();
           messageChatPairs.forEach((pair) => {
-            if (!Number.isFinite(pair.chatId) || !Number.isFinite(pair.id)) return;
+            if (!pair.chatId || !pair.id) return;
             const list = chatToMessageIds.get(pair.chatId) || [];
             list.push(pair.id);
             chatToMessageIds.set(pair.chatId, list);
           });
           chatToMessageIds.forEach((messageIds, chatId) => {
-            emitChatEvent(Number(chatId), {
+            emitChatEvent(chatId, {
               type: "chat_message_deleted",
-              chatId: Number(chatId),
+              chatId: chatId,
               messageIds,
             });
           });

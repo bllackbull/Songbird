@@ -2,6 +2,7 @@ import { createInviteToken } from "../lib/inviteTokens.js";
 import { createMembershipService } from "../lib/services/membershipService.js";
 import { createDeletionService } from "../lib/services/deletionService.js";
 import { normalizeSongbirdSource, normalizeTelegramSource, resolveSongbirdSource } from "../lib/remoteChannels.js";
+import { validateUuidParams, validateUuidBody } from "../lib/uuidMiddleware.js";
 
 function registerChatRoutes(app, deps) {
   const {
@@ -293,7 +294,7 @@ function registerChatRoutes(app, deps) {
     return chat || findPublicChatByInviteUsername(target);
   };
   const emitChatListChangedToChatParticipants = (chatId, extraUsernames = []) => {
-    const rawMembers = listChatMembers(Number(chatId));
+    const rawMembers = listChatMembers(chatId);
     const processMembers = (members) => {
       const memberList = Array.isArray(members) ? members : [];
       const memberUsernames = memberList
@@ -342,7 +343,7 @@ function registerChatRoutes(app, deps) {
     const rawMembersMap = listChatMembersForChats(convs.map((c) => c.id));
     const membersMap = (rawMembersMap && typeof rawMembersMap.then === "function" ? await rawMembersMap : rawMembersMap) || new Map();
     const chats = convs.map((conv) => {
-      const members = (membersMap.get(Number(conv.id)) || []).map((member) => ({
+      const members = (membersMap.get(conv.id) || []).map((member) => ({
         ...member,
         avatar_url: ensureAvatarExists(member.id, member.avatar_url),
         status:
@@ -354,7 +355,7 @@ function registerChatRoutes(app, deps) {
     });
 
     const lastMessageIds = chats
-      .map((chat) => Number(chat.last_message_id || 0))
+      .map((chat) => chat.last_message_id)
       .filter(Boolean);
 
     // Missing-file cleanup + ffprobe hydration used to run inline (and could
@@ -367,9 +368,9 @@ function registerChatRoutes(app, deps) {
           const cleanup = cleanupMissingMessageFiles(lastMessageIds);
           if (cleanup.changed && cleanup.deletedByChat?.size) {
             cleanup.deletedByChat.forEach((messageIds, chatId) => {
-              emitChatEvent(Number(chatId), {
+              emitChatEvent(chatId, {
                 type: "chat_message_deleted",
-                chatId: Number(chatId),
+                chatId,
                 messageIds,
               });
             });
@@ -393,12 +394,12 @@ function registerChatRoutes(app, deps) {
     const lastFiles = (rawLastFiles && typeof rawLastFiles.then === "function" ? await rawLastFiles : rawLastFiles) || [];
 
     const filesByMessageId = lastFiles.reduce((acc, file) => {
-      const messageId = Number(file.message_id);
+      const messageId = file.message_id;
 
       if (!acc[messageId]) acc[messageId] = [];
 
       acc[messageId].push({
-        id: Number(file.id),
+        id: file.id,
         kind: file.kind,
         name: file.original_name,
         mimeType: file.mime_type,
@@ -423,7 +424,7 @@ function registerChatRoutes(app, deps) {
     const enrichedChats = chats.map((chat) => ({
       ...chat,
       last_message_files:
-        filesByMessageId[Number(chat.last_message_id || 0)] || [],
+        filesByMessageId[chat.last_message_id] || [],
     }));
 
     res.json({ chats: enrichedChats });
@@ -445,15 +446,15 @@ function registerChatRoutes(app, deps) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    const rawSavedChat = ensureSavedChatForUser(Number(user.id));
+    const rawSavedChat = ensureSavedChatForUser(user.id);
     const savedChat = rawSavedChat && typeof rawSavedChat.then === "function" ? await rawSavedChat : rawSavedChat;
     if (!savedChat?.id) {
       return res.status(500).json({ error: "Unable to open saved messages." });
     }
-    const unhideRes = unhideChat(user.id, Number(savedChat.id));
+    const unhideRes = unhideChat(user.id, savedChat.id);
     if (unhideRes && typeof unhideRes.then === "function") await unhideRes;
 
-    return res.json({ id: Number(savedChat.id) });
+    return res.json({ id: savedChat.id });
   });
 
   app.post("/api/chats/dm", async (req, res) => {
@@ -520,7 +521,7 @@ function registerChatRoutes(app, deps) {
 
     const normalizedType = type === "channel" ? "channel" : "group";
     const rawChatId = createChat(name || "Untitled", normalizedType);
-    const chatId = Number(rawChatId && typeof rawChatId.then === "function" ? await rawChatId : rawChatId);
+    const chatId = rawChatId && typeof rawChatId.then === "function" ? await rawChatId : rawChatId;
 
     const m1 = addChatMember(chatId, creatorUser.id, "owner");
     if (m1 && typeof m1.then === "function") await m1;
@@ -637,7 +638,7 @@ function registerChatRoutes(app, deps) {
       groupColor: normalizedGroupColor,
       allowMemberInvites: Boolean(allowMemberInvites),
     });
-    const chatId = Number(rawChatId && typeof rawChatId.then === "function" ? await rawChatId : rawChatId);
+    const chatId = rawChatId && typeof rawChatId.then === "function" ? await rawChatId : rawChatId;
 
     if (!chatId) {
       return res.status(500).json({ error: `Failed to create ${label.toLowerCase()}.` });
@@ -701,7 +702,7 @@ function registerChatRoutes(app, deps) {
     const baseOrigin = resolveClientBaseOrigin(req);
     const inviteLink = buildGroupInviteLink(baseOrigin, createdChat, inviteToken);
     return res.json({
-      id: Number(chatId),
+      id: chatId,
       inviteToken,
       inviteLink,
       color: createdChat?.group_color || normalizedGroupColor || "#10b981",
@@ -730,7 +731,7 @@ function registerChatRoutes(app, deps) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    const rawMembers = listChatMembers(Number(chat.id));
+    const rawMembers = listChatMembers(chat.id);
     const memberList = (rawMembers && typeof rawMembers.then === "function" ? await rawMembers : rawMembers) || [];
     const members = memberList.map((member) => ({
       ...member,
@@ -738,11 +739,11 @@ function registerChatRoutes(app, deps) {
     }));
     const label = chat.type === "channel" ? "Channel" : "Group";
 
-    const rawMemberCheck = isMember(Number(chat.id), Number(user.id));
+    const rawMemberCheck = isMember(chat.id, user.id);
 
     return res.json({
       group: {
-        id: Number(chat.id),
+        id: chat.id,
         name: chat.name || label,
         type: chat.type || "group",
         username: chat.group_username || "",
@@ -784,7 +785,7 @@ function registerChatRoutes(app, deps) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    const chatId = Number(chat.id);
+    const chatId = chat.id;
     // Re-show chats that were previously hidden from this user's list.
     const rawUnhide = unhideChat(user.id, chatId);
     if (rawUnhide && typeof rawUnhide.then === "function") await rawUnhide;
@@ -870,19 +871,19 @@ function registerChatRoutes(app, deps) {
       return res.status(404).json({ error: "Channel not found." });
     }
 
-    const afterId = Number(req.query.afterId || 0) || 0;
+    const afterId = req.query.afterId || null;
     const limitRaw = Number(req.query.limit || 50);
     const limit = Math.max(1, Math.min(100, Number.isFinite(limitRaw) ? limitRaw : 50));
 
-    const { messages } = getMessages(Number(chat.id), {
-      afterId: afterId > 0 ? afterId : null,
+    const { messages } = getMessages(chat.id, {
+      afterId: afterId || null,
       limit,
       viewerUserId: null,
     });
 
     // Return only the fields the remote poller needs — no auth-sensitive data.
     const publicMessages = messages.map((msg) => ({
-      id: Number(msg.id),
+      id: msg.id,
       body: String(msg.body || "").trim(),
       createdAt: msg.created_at || null,
       clientRequestId: msg.client_request_id || null,
@@ -895,7 +896,7 @@ function registerChatRoutes(app, deps) {
     });
   });
 
-  app.get("/api/chats/:chatId/preview", async (req, res) => {
+  app.get("/api/chats/:chatId/preview", validateUuidParams("chatId"), async (req, res) => {
     const missingPreview = String(req.query.allowMissing || "").toLowerCase() === "true" ||
       String(req.query.allowMissing || "") === "1";
     const respondChatNotFound = () =>
@@ -906,9 +907,9 @@ function registerChatRoutes(app, deps) {
     const session = await requireSession(req, res);
     if (!session) return;
 
-    const chatId = Number(req.params?.chatId || 0);
+    const chatId = req.params.chatId;
     const username = String(req.query.username || "").trim();
-    if (!chatId || !username) {
+    if (!username) {
       return res.status(400).json({ error: "Chat id and username are required." });
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
@@ -936,7 +937,7 @@ function registerChatRoutes(app, deps) {
     const members = (rawMembers && typeof rawMembers.then === "function" ? await rawMembers : rawMembers) || [];
 
     return res.json({
-      id: Number(chat.id),
+      id: chat.id,
       type: chat.type === "channel" ? "channel" : "group",
       name: chat.name || (chat.type === "channel" ? "Channel" : "Group"),
       username: chat.group_username || "",
@@ -949,14 +950,11 @@ function registerChatRoutes(app, deps) {
     });
   });
 
-  app.get("/api/chats/group/:chatId/invite-link", async (req, res) => {
+  app.get("/api/chats/group/:chatId/invite-link", validateUuidParams("chatId"), async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
 
-    const chatId = Number(req.params?.chatId || 0);
-    if (!chatId) {
-      return res.status(400).json({ error: "Chat id is required." });
-    }
+    const chatId = req.params.chatId;
 
     const chat = await resolveMaybePromise(findChatById(chatId));
     if (!chat || (chat.type !== "group" && chat.type !== "channel")) {
@@ -977,7 +975,7 @@ function registerChatRoutes(app, deps) {
     const label = chat.type === "channel" ? "channel" : "group";
     const isOwner = members.some(
       (member) =>
-        Number(member.id) === Number(user.id) &&
+        member.id === user.id &&
         String(member.role || "").toLowerCase() === "owner",
     );
     const allowMemberInvites = Boolean(Number(chat.allow_member_invites || 0));
@@ -997,13 +995,13 @@ function registerChatRoutes(app, deps) {
     });
   });
 
-  app.post("/api/chats/group/:chatId/regenerate-invite", async (req, res) => {
+  app.post("/api/chats/group/:chatId/regenerate-invite", validateUuidParams("chatId"), async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
 
-    const chatId = Number(req.params?.chatId || 0);
+    const chatId = req.params.chatId;
     const username = req.body?.username?.toString();
-    if (!chatId || !username) {
+    if (!username) {
       return res.status(400).json({ error: "Chat id and username are required." });
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
@@ -1022,7 +1020,7 @@ function registerChatRoutes(app, deps) {
     const label = chat.type === "channel" ? "channel" : "group";
     const isOwner = members.some(
       (member) =>
-        Number(member.id) === Number(user.id) &&
+        member.id === user.id &&
         String(member.role || "").toLowerCase() === "owner",
     );
     if (!isOwner) {
@@ -1041,14 +1039,11 @@ function registerChatRoutes(app, deps) {
     });
   });
 
-  app.put("/api/chats/group/:chatId", async (req, res) => {
+  app.put("/api/chats/group/:chatId", validateUuidParams("chatId"), async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
 
-    const chatId = Number(req.params?.chatId || 0);
-    if (!chatId) {
-      return res.status(400).json({ error: "Group chat id is required." });
-    }
+    const chatId = req.params.chatId;
 
     const {
       username,
@@ -1079,7 +1074,7 @@ function registerChatRoutes(app, deps) {
     const label = chat.type === "channel" ? "Channel" : "Group";
     const isOwner = chatMembers.some(
       (member) =>
-        Number(member.id) === Number(user.id) &&
+        member.id === user.id &&
         String(member.role || "").toLowerCase() === "owner",
     );
     if (!isOwner) {
@@ -1115,7 +1110,7 @@ function registerChatRoutes(app, deps) {
 
     const rawExistingGroup = findChatByGroupUsername(normalizedGroupUsername);
     const existingGroup = rawExistingGroup && typeof rawExistingGroup.then === "function" ? await rawExistingGroup : rawExistingGroup;
-    if (existingGroup && Number(existingGroup.id) !== chatId) {
+    if (existingGroup && existingGroup.id !== chatId) {
       return res.status(409).json({ error: `${label} username already exists.` });
     }
 
@@ -1189,13 +1184,13 @@ function registerChatRoutes(app, deps) {
     });
   });
 
-  app.post("/api/chats/group/:chatId/leave", async (req, res) => {
+  app.post("/api/chats/group/:chatId/leave", validateUuidParams("chatId"), async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
 
-    const chatId = Number(req.params?.chatId || 0);
+    const chatId = req.params.chatId;
     const username = req.body?.username?.toString();
-    if (!chatId || !username) {
+    if (!username) {
       return res.status(400).json({ error: "Chat id and username are required." });
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
@@ -1216,12 +1211,12 @@ function registerChatRoutes(app, deps) {
     const members = (await resolveMaybePromise(listChatMembers(chatId))) || [];
     const isOwner = members.some(
       (member) =>
-        Number(member.id) === Number(user.id) &&
+        member.id === user.id &&
         String(member.role || "").toLowerCase() === "owner",
     );
     if (isOwner) {
       const remainingMembers = members.filter(
-        (member) => Number(member.id) !== Number(user.id),
+        (member) => member.id !== user.id,
       );
       if (remainingMembers.length === 0) {
         const result = await deletionService.deleteChat({ chatId });
@@ -1233,7 +1228,7 @@ function registerChatRoutes(app, deps) {
       const nextOwner =
         remainingMembers[Math.floor(Math.random() * remainingMembers.length)];
       if (nextOwner?.id) {
-        await resolveMaybePromise(setChatMemberRole(chatId, Number(nextOwner.id), "owner"));
+        await resolveMaybePromise(setChatMemberRole(chatId, nextOwner.id, "owner"));
       }
     }
 
@@ -1241,7 +1236,7 @@ function registerChatRoutes(app, deps) {
     await resolveMaybePromise(markChatMemberLeft(chatId, user.id));
     if (chat.type === "group") {
       const body = `[[system:left:${user.nickname || user.username}]]`;
-      await resolveMaybePromise(createMessage(
+      const messageId = await resolveMaybePromise(createMessage(
         chatId,
         user.id,
         body,
@@ -1253,7 +1248,9 @@ function registerChatRoutes(app, deps) {
       emitChatEvent(chatId, {
         type: "chat_message",
         chatId,
+        messageId,
         username: user.username,
+        userId: user.id,
         body,
       });
     }
@@ -1261,14 +1258,14 @@ function registerChatRoutes(app, deps) {
     return res.json({ ok: true });
   });
 
-  app.post("/api/chats/group/:chatId/delete", async (req, res) => {
+  app.post("/api/chats/group/:chatId/delete", validateUuidParams("chatId"), async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
 
-    const chatId = Number(req.params?.chatId || 0);
+    const chatId = req.params.chatId;
     const username = req.body?.username?.toString();
     const password = req.body?.password?.toString();
-    if (!chatId || !username || !password) {
+    if (!username || !password) {
       return res.status(400).json({
         error: "Chat id, username, and password are required.",
       });
@@ -1288,7 +1285,7 @@ function registerChatRoutes(app, deps) {
     const members = (await resolveMaybePromise(listChatMembers(chatId))) || [];
     const owner = members.find(
       (member) =>
-        Number(member.id) === Number(user.id) &&
+        member.id === user.id &&
         String(member.role || "").toLowerCase() === "owner",
     );
     if (!owner) {
@@ -1313,14 +1310,14 @@ function registerChatRoutes(app, deps) {
     return res.json({ ok: true, deleted: true });
   });
 
-  app.post("/api/chats/group/:chatId/remove-member", async (req, res) => {
+  app.post("/api/chats/group/:chatId/remove-member", validateUuidParams("chatId"), async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
 
-    const chatId = Number(req.params?.chatId || 0);
+    const chatId = req.params.chatId;
     const username = req.body?.username?.toString();
     const targetUsername = req.body?.targetUsername?.toString();
-    if (!chatId || !username || !targetUsername) {
+    if (!username || !targetUsername) {
       return res.status(400).json({
         error: "Chat id, username, and targetUsername are required.",
       });
@@ -1339,13 +1336,13 @@ function registerChatRoutes(app, deps) {
 
     const members = (await resolveMaybePromise(listChatMembers(chatId))) || [];
     const label = chat.type === "channel" ? "channel" : "group";
-    const actorMember = members.find((member) => Number(member.id) === Number(actor.id));
+    const actorMember = members.find((member) => member.id === actor.id);
     if (!actorMember || String(actorMember.role || "").toLowerCase() !== "owner") {
       return res
         .status(403)
         .json({ error: `Only ${label} owner can remove members.` });
     }
-    const targetMember = members.find((member) => Number(member.id) === Number(target.id));
+    const targetMember = members.find((member) => member.id === target.id);
     if (!targetMember) {
       return res.status(400).json({ error: "Target user is not a group member." });
     }
@@ -1357,7 +1354,7 @@ function registerChatRoutes(app, deps) {
     await resolveMaybePromise(markGroupMemberRemoved(chatId, target.id, actor.id));
     if (chat.type === "group") {
       const body = `[[system:removed:${target.nickname || target.username}]]`;
-      await resolveMaybePromise(createMessage(
+      const messageId = await resolveMaybePromise(createMessage(
         chatId,
         actor.id,
         body,
@@ -1369,7 +1366,9 @@ function registerChatRoutes(app, deps) {
       emitChatEvent(chatId, {
         type: "chat_message",
         chatId,
+        messageId,
         username: actor.username,
+        userId: actor.id,
         body,
       });
     }
@@ -1379,6 +1378,7 @@ function registerChatRoutes(app, deps) {
 
   app.post(
     "/api/chats/group/:chatId/avatar",
+    validateUuidParams("chatId"),
     uploadAvatar.single("avatar"),
     async (req, res) => {
       const session = await requireSession(req, res);
@@ -1387,10 +1387,10 @@ function registerChatRoutes(app, deps) {
         return;
       }
 
-      const chatId = Number(req.params?.chatId || 0);
+      const chatId = req.params.chatId;
       const username = req.body?.username?.toString();
       const file = req.file;
-      if (!chatId || !username) {
+      if (!username) {
         removeUploadedFiles(file ? [file] : [], avatarUploadRootDir);
         return res
           .status(400)
@@ -1425,7 +1425,7 @@ function registerChatRoutes(app, deps) {
       const label = chat.type === "channel" ? "channel" : "group";
       const isOwner = members.some(
         (member) =>
-          Number(member.id) === Number(user.id) &&
+          member.id === user.id &&
           String(member.role || "").toLowerCase() === "owner",
       );
       if (!isOwner) {
@@ -1467,13 +1467,13 @@ function registerChatRoutes(app, deps) {
     },
   );
 
-  app.delete("/api/chats/group/:chatId/avatar", async (req, res) => {
+  app.delete("/api/chats/group/:chatId/avatar", validateUuidParams("chatId"), async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
 
-    const chatId = Number(req.params?.chatId || 0);
+    const chatId = req.params.chatId;
     const username = req.body?.username?.toString();
-    if (!chatId || !username) {
+    if (!username) {
       return res
         .status(400)
         .json({ error: "Group chat id and username are required." });
@@ -1492,7 +1492,7 @@ function registerChatRoutes(app, deps) {
     const label = chat.type === "channel" ? "channel" : "group";
     const isOwner = members.some(
       (member) =>
-        Number(member.id) === Number(user.id) &&
+        member.id === user.id &&
         String(member.role || "").toLowerCase() === "owner",
     );
     if (!isOwner) {
@@ -1520,14 +1520,14 @@ function registerChatRoutes(app, deps) {
     });
   });
 
-  app.put("/api/chats/:chatId/mute", async (req, res) => {
+  app.put("/api/chats/:chatId/mute", validateUuidParams("chatId"), async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
 
-    const chatId = Number(req.params?.chatId || 0);
+    const chatId = req.params.chatId;
     const username = req.body?.username?.toString();
     const muted = Boolean(req.body?.muted);
-    if (!chatId || !username) {
+    if (!username) {
       return res.status(400).json({ error: "Chat id and username are required." });
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
@@ -1567,18 +1567,18 @@ function registerChatRoutes(app, deps) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    hideChatsForUser(user.id, chatIds.map((id) => Number(id)).filter(Boolean));
+    hideChatsForUser(user.id, chatIds.filter(Boolean));
 
     res.json({ ok: true });
   });
 
-  app.post("/api/chats/group/:chatId/join-public", async (req, res) => {
+  app.post("/api/chats/group/:chatId/join-public", validateUuidParams("chatId"), async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
 
-    const chatId = Number(req.params?.chatId || 0);
+    const chatId = req.params.chatId;
     const username = req.body?.username?.toString();
-    if (!chatId || !username) {
+    if (!username) {
       return res.status(400).json({ error: "Group chat id and username are required." });
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
@@ -1708,7 +1708,7 @@ function registerChatRoutes(app, deps) {
       const membersCount = listChatMembers(chat.id).length;
       results.push({
         kind: chat.type === "channel" ? "channel" : "group",
-        chatId: Number(chat.id),
+        chatId: chat.id,
         username: chat.group_username || mention,
         name: chat.name || (chat.type === "channel" ? "Channel" : "Group"),
         avatarUrl: normalizeGroupAvatarUrl(chat.group_avatar_url),
@@ -1756,7 +1756,7 @@ function registerChatRoutes(app, deps) {
     const rawSearchGroups = searchPublicGroups(query.toLowerCase(), user.id, 20);
     const searchGroupsList = (rawSearchGroups && typeof rawSearchGroups.then === "function" ? await rawSearchGroups : rawSearchGroups) || [];
     const groups = searchGroupsList.map((group) => ({
-      id: Number(group.id),
+      id: group.id,
       name: group.name || "Group",
       username: group.group_username || "",
       color: group.group_color || "#10b981",
@@ -1771,7 +1771,7 @@ function registerChatRoutes(app, deps) {
     const rawSearchChannels = searchPublicChannels(query.toLowerCase(), user.id, 20);
     const searchChannelsList = (rawSearchChannels && typeof rawSearchChannels.then === "function" ? await rawSearchChannels : rawSearchChannels) || [];
     const channels = searchChannelsList.map((channel) => ({
-      id: Number(channel.id),
+      id: channel.id,
       name: channel.name || "Channel",
       username: channel.group_username || "",
       color: channel.group_color || "#10b981",

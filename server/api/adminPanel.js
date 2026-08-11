@@ -1,5 +1,7 @@
 import { normalizeHexColor, normalizeGroupUsername, normalizeVisibility, normalizeChatType } from "../lib/dbToolHelpers.js";
 import { createInviteToken } from "../lib/inviteTokens.js";
+import { validateUuidParams } from "../lib/uuidMiddleware.js";
+import { isValidUuid } from "../lib/uuidUtils.js";
 import { writeAdminLog, readAdminLog, clearAdminLog } from "../lib/adminLog.js";
 import { readInstallerLog, readNginxLog, readServiceLog, probeLogSources } from "../lib/systemLogs.js";
 import os from "node:os";
@@ -206,8 +208,9 @@ function registerAdminPanelRoutes(app, deps) {
     emitChatEvent(chatId, {
       type: "chat_message",
       chatId,
-      username: session.username,
-      body,
+          username: session.username,
+          userId: session.id,
+          body,
     });
   };
 
@@ -376,7 +379,7 @@ function registerAdminPanelRoutes(app, deps) {
     ));
     if (role !== "user") {
       const newUser = await adminGetRow("SELECT id FROM users WHERE username = ?", [rawUsername]);
-      if (newUser?.id) await resolveMaybePromise(adminRun("UPDATE users SET role = ? WHERE id = ?", [role, Number(newUser.id)]));
+      if (newUser?.id) await resolveMaybePromise(adminRun("UPDATE users SET role = ? WHERE id = ?", [role, newUser.id]));
     }
     adminSave();
     const row = await adminGetRow("SELECT id, username, nickname, color, role FROM users WHERE username = ?", [rawUsername]);
@@ -386,11 +389,10 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Users — edit ────────────────────────────────────────────────────────────
 
-  app.patch("/api/admin/users/:id", async (req, res) => {
+  app.patch("/api/admin/users/:id", validateUuidParams("id"), async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const userId = Number(req.params.id);
-    if (!userId) return res.status(400).json({ error: "Invalid user ID" });
+    const userId = req.params.id;
     const user = await resolveMaybePromise(findUserById(userId));
     if (!user) return res.status(404).json({ error: "User not found" });
 
@@ -442,11 +444,10 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Users — ban/unban ───────────────────────────────────────────────────────
 
-  app.post("/api/admin/users/:id/ban", async (req, res) => {
+  app.post("/api/admin/users/:id/ban", validateUuidParams("id"), async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const userId = Number(req.params.id);
-    if (!userId) return res.status(400).json({ error: "Invalid user ID" });
+    const userId = req.params.id;
     const user = await resolveMaybePromise(findUserById(userId));
     if (!user) return res.status(404).json({ error: "User not found" });
 
@@ -467,12 +468,11 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Users — change role ─────────────────────────────────────────────────────
 
-  app.post("/api/admin/users/:id/role", async (req, res) => {
+  app.post("/api/admin/users/:id/role", validateUuidParams("id"), async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const userId = Number(req.params.id);
+    const userId = req.params.id;
     const { role } = req.body || {};
-    if (!userId) return res.status(400).json({ error: "Invalid user ID" });
 
     // Only the owner can assign/revoke the owner role; admins can only use user/admin
     const allowedRoles = (await actorIsOwner(session)) ? ["user", "admin", "owner"] : ["user", "admin"];
@@ -504,12 +504,11 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Users — reset password ──────────────────────────────────────────────────
 
-  app.post("/api/admin/users/:id/reset-password", async (req, res) => {
+  app.post("/api/admin/users/:id/reset-password", validateUuidParams("id"), async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const userId = Number(req.params.id);
+    const userId = req.params.id;
     const newPassword = String(req.body?.password || "").trim();
-    if (!userId) return res.status(400).json({ error: "Invalid user ID" });
     if (!newPassword || newPassword.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters." });
     const user = await resolveMaybePromise(findUserById(userId));
     if (!user) return res.status(404).json({ error: "User not found" });
@@ -529,19 +528,15 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Users — avatar upload (admin, bypasses ownership check) ─────────────────
 
-  app.post("/api/admin/users/:id/avatar", uploadAvatar.single("avatar"), async (req, res) => {
+  app.post("/api/admin/users/:id/avatar", validateUuidParams("id"), uploadAvatar.single("avatar"), async (req, res) => {
     const session = await resolveMaybePromise(getSessionFromRequest(req));
     const isAdmin = session ? await resolveMaybePromise(isUserAdmin(session.id)) : false;
     if (!session || !isAdmin) {
       removeUploadedFiles(req.file ? [req.file] : [], avatarUploadRootDir);
       return res.status(session ? 403 : 401).json({ error: session ? "Admin access required" : "Not authenticated" });
     }
-    const userId = Number(req.params.id);
+    const userId = req.params.id;
     const file = req.file;
-    if (!userId) {
-      removeUploadedFiles(file ? [file] : [], avatarUploadRootDir);
-      return res.status(400).json({ error: "Invalid user ID" });
-    }
     if (!file) return res.status(400).json({ error: "Avatar file is required." });
     const mime = String(file.mimetype || "").toLowerCase();
     if (!ALLOWED_AVATAR_MIME_TYPES.has(mime)) {
@@ -568,11 +563,10 @@ function registerAdminPanelRoutes(app, deps) {
     res.json({ ok: true, avatarUrl });
   });
 
-  app.delete("/api/admin/users/:id/avatar", async (req, res) => {
+  app.delete("/api/admin/users/:id/avatar", validateUuidParams("id"), async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const userId = Number(req.params.id);
-    if (!userId) return res.status(400).json({ error: "Invalid user ID" });
+    const userId = req.params.id;
     const user = await resolveMaybePromise(findUserById(userId));
     if (!user) return res.status(404).json({ error: "User not found." });
     if (String(user.avatar_url || "").trim()) removeAvatarByUrl(user.avatar_url);
@@ -583,11 +577,10 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Users — delete ──────────────────────────────────────────────────────────
 
-  app.delete("/api/admin/users/:id", async (req, res) => {
+  app.delete("/api/admin/users/:id", validateUuidParams("id"), async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const userId = Number(req.params.id);
-    if (!userId) return res.status(400).json({ error: "Invalid user ID" });
+    const userId = req.params.id;
     if (userId === session.id) return res.status(400).json({ error: "Cannot delete yourself" });
     const user = await resolveMaybePromise(findUserById(userId));
     if (!user) return res.status(404).json({ error: "User not found" });
@@ -640,9 +633,9 @@ function registerAdminPanelRoutes(app, deps) {
       return res.status(400).json({ error: "Name, username, and owner are required." });
     }
 
-    const owner = isNaN(Number(ownerIdOrUsername))
-      ? await resolveMaybePromise(findUserByUsername(ownerIdOrUsername.toLowerCase()))
-      : await resolveMaybePromise(findUserById(Number(ownerIdOrUsername)));
+    const owner = isValidUuid(ownerIdOrUsername)
+      ? await resolveMaybePromise(findUserById(ownerIdOrUsername))
+      : await resolveMaybePromise(findUserByUsername(ownerIdOrUsername.toLowerCase()));
     if (!owner?.id) return res.status(404).json({ error: "Owner user not found." });
 
     if ((await adminGetRow("SELECT id FROM users WHERE username = ?", [username]))?.id) {
@@ -653,24 +646,24 @@ function registerAdminPanelRoutes(app, deps) {
     }
 
     const inviteToken  = createInviteToken(crypto);
-    const ownerColor   = String((await adminGetRow("SELECT color FROM users WHERE id = ?", [Number(owner.id)]))?.color || "") || "#10b981";
+    const ownerColor   = String((await adminGetRow("SELECT color FROM users WHERE id = ?", [owner.id]))?.color || "") || "#10b981";
     const groupColor   = normalizeHexColor(String(b.color || "")) || ownerColor;
     const chatId = await resolveMaybePromise(createChat(name, type, {
       groupUsername:     username,
       groupVisibility:   visibility,
       inviteToken,
-      createdByUserId:   Number(owner.id),
+      createdByUserId:   owner.id,
       groupColor,
     }));
 
     if (!chatId) return res.status(500).json({ error: "Failed to create chat." });
 
-    await resolveMaybePromise(addChatMember(chatId, Number(owner.id), "owner"));
+    await resolveMaybePromise(addChatMember(chatId, owner.id, "owner"));
 
-    const memberIds = Array.isArray(b.memberIds) ? b.memberIds.map(Number).filter(Boolean) : [];
+    const memberIds = Array.isArray(b.memberIds) ? b.memberIds.filter(Boolean) : [];
     const addAllEligibleMembers = Boolean(b.addAllEligibleMembers);
     for (const mid of memberIds) {
-      if (mid !== Number(owner.id)) await resolveMaybePromise(addChatMember(chatId, mid, "member"));
+      if (mid !== owner.id) await resolveMaybePromise(addChatMember(chatId, mid, "member"));
     }
     const bulkMembers = addAllEligibleMembers
       ? (await resolveMaybePromise(addAllEligibleChatMembers(chatId))) || { addedUsers: [], skippedLeftCount: 0 }
@@ -684,12 +677,12 @@ function registerAdminPanelRoutes(app, deps) {
     emitSseEvent(String(owner.username || ""), { type: "chat_list_changed" });
     // Also notify any additional members.
     for (const mid of memberIds) {
-      if (mid === Number(owner.id)) continue;
+      if (mid === owner.id) continue;
       const member = await resolveMaybePromise(findUserById(mid));
       if (member?.username) emitSseEvent(String(member.username), { type: "chat_list_changed" });
     }
     for (const member of bulkMembers.addedUsers) {
-      if (Number(member.id) !== Number(owner.id)) {
+      if (member.id !== owner.id) {
         emitSseEvent(String(member.username), { type: "chat_list_changed" });
       }
     }
@@ -704,11 +697,10 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Chats — edit ────────────────────────────────────────────────────────────
 
-  app.patch("/api/admin/chats/:id", async (req, res) => {
+  app.patch("/api/admin/chats/:id", validateUuidParams("id"), async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const chatId = Number(req.params.id);
-    if (!chatId) return res.status(400).json({ error: "Invalid chat ID" });
+    const chatId = req.params.id;
     const chat = await resolveMaybePromise(findChatById(chatId));
     if (!chat) return res.status(404).json({ error: "Chat not found" });
     if (!["group", "channel"].includes(chat.type)) {
@@ -732,13 +724,13 @@ function registerAdminPanelRoutes(app, deps) {
 
     let newOwnerUsername = null;
     if (b.owner !== undefined) {
-      const newOwner = isNaN(Number(b.owner))
-        ? await resolveMaybePromise(findUserByUsername(String(b.owner).toLowerCase()))
-        : await resolveMaybePromise(findUserById(Number(b.owner)));
+      const newOwner = isValidUuid(String(b.owner))
+        ? await resolveMaybePromise(findUserById(b.owner))
+        : await resolveMaybePromise(findUserByUsername(String(b.owner).toLowerCase()));
       if (!newOwner?.id) return res.status(404).json({ error: "New owner not found." });
       await resolveMaybePromise(adminRun("UPDATE chat_members SET role = 'member' WHERE chat_id = ? AND role = 'owner'", [chatId]));
-      await resolveMaybePromise(adminRun("INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, 'owner')", [chatId, Number(newOwner.id)]));
-      await resolveMaybePromise(adminRun("UPDATE chat_members SET role = 'owner' WHERE chat_id = ? AND user_id = ?", [chatId, Number(newOwner.id)]));
+      await resolveMaybePromise(adminRun("INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, 'owner')", [chatId, newOwner.id]));
+      await resolveMaybePromise(adminRun("UPDATE chat_members SET role = 'owner' WHERE chat_id = ? AND user_id = ?", [chatId, newOwner.id]));
       newOwnerUsername = String(newOwner.username || "");
     }
 
@@ -766,19 +758,15 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Chats — avatar upload (admin, bypasses owner check) ─────────────────────
 
-  app.post("/api/admin/chats/:id/avatar", uploadAvatar.single("avatar"), async (req, res) => {
+  app.post("/api/admin/chats/:id/avatar", validateUuidParams("id"), uploadAvatar.single("avatar"), async (req, res) => {
     const session = await resolveMaybePromise(getSessionFromRequest(req));
     const isAdmin = session ? await resolveMaybePromise(isUserAdmin(session.id)) : false;
     if (!session || !isAdmin) {
       removeUploadedFiles(req.file ? [req.file] : [], avatarUploadRootDir);
       return res.status(session ? 403 : 401).json({ error: session ? "Admin access required" : "Not authenticated" });
     }
-    const chatId = Number(req.params.id);
+    const chatId = req.params.id;
     const file = req.file;
-    if (!chatId) {
-      removeUploadedFiles(file ? [file] : [], avatarUploadRootDir);
-      return res.status(400).json({ error: "Invalid chat ID" });
-    }
     if (!file) return res.status(400).json({ error: "Avatar file is required." });
 
     const mime = String(file.mimetype || "").toLowerCase();
@@ -819,11 +807,10 @@ function registerAdminPanelRoutes(app, deps) {
     res.json({ ok: true, avatarUrl });
   });
 
-  app.delete("/api/admin/chats/:id/avatar", async (req, res) => {
+  app.delete("/api/admin/chats/:id/avatar", validateUuidParams("id"), async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const chatId = Number(req.params.id);
-    if (!chatId) return res.status(400).json({ error: "Invalid chat ID" });
+    const chatId = req.params.id;
     const chat = await resolveMaybePromise(findChatById(chatId));
     if (!chat || (chat.type !== "group" && chat.type !== "channel")) {
       return res.status(404).json({ error: "Chat not found." });
@@ -846,21 +833,19 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Chats — members list ────────────────────────────────────────────────────
 
-  app.get("/api/admin/chats/:id/members", async (req, res) => {
+  app.get("/api/admin/chats/:id/members", validateUuidParams("id"), async (req, res) => {
     if (!requireAdmin(req, res)) return;
-    const chatId = Number(req.params.id);
-    if (!chatId) return res.status(400).json({ error: "Invalid chat ID" });
+    const chatId = req.params.id;
     const members = (await resolveMaybePromise(listChatMembers(chatId))) || [];
     res.json({ members });
   });
 
   // ─── Chats — add member ──────────────────────────────────────────────────────
 
-  app.post("/api/admin/chats/:id/members", async (req, res) => {
+  app.post("/api/admin/chats/:id/members", validateUuidParams("id"), async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const chatId = Number(req.params.id);
-    if (!chatId) return res.status(400).json({ error: "Invalid chat ID" });
+    const chatId = req.params.id;
     const chat = await resolveMaybePromise(findChatById(chatId));
     if (!chat) return res.status(404).json({ error: "Chat not found" });
     if (!["group", "channel"].includes(chat.type)) {
@@ -889,8 +874,9 @@ function registerAdminPanelRoutes(app, deps) {
       });
     }
 
-    const userId = Number(req.body?.userId);
+    const userId = req.body?.userId;
     if (!userId) return res.status(400).json({ error: "userId required" });
+    if (!isValidUuid(userId)) return res.status(400).json({ error: "Field 'userId' is not a valid UUID." });
     const user = await resolveMaybePromise(findUserById(userId));
     if (!user) return res.status(404).json({ error: "User not found" });
     const added = (await resolveMaybePromise(addChatMember(chatId, userId, "member"))) > 0;
@@ -908,12 +894,11 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Chats — remove member ───────────────────────────────────────────────────
 
-  app.delete("/api/admin/chats/:id/members/:userId", async (req, res) => {
+  app.delete("/api/admin/chats/:id/members/:userId", validateUuidParams("id", "userId"), async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const chatId = Number(req.params.id);
-    const userId = Number(req.params.userId);
-    if (!chatId || !userId) return res.status(400).json({ error: "Invalid IDs" });
+    const chatId = req.params.id;
+    const userId = req.params.userId;
     const chat = await resolveMaybePromise(findChatById(chatId));
     const user = await resolveMaybePromise(findUserById(userId));
     await resolveMaybePromise(removeChatMember(chatId, userId));
@@ -922,19 +907,18 @@ function registerAdminPanelRoutes(app, deps) {
     if (user?.username) emitSseEvent(String(user.username), { type: "chat_list_changed" });
     // Notify remaining members that the member list changed.
     emitChatEvent(chatId, { type: "chat_updated", chatId });
-    log(session, "chat.member_remove", { targetType: "chat", targetLabel: chat?.name || `Chat #${chatId}`, details: user ? `-@${user.username}` : `-#${userId}` });
+    log(session, "chat.member_remove", { targetType: "chat", targetLabel: chat?.name || `Chat #${chatId}`, details: user ? `-@${user.username}` : `-${userId}` });
     res.json({ ok: true });
   });
 
   // ─── Chats — set member role ─────────────────────────────────────────────────
 
-  app.patch("/api/admin/chats/:id/members/:userId", async (req, res) => {
+  app.patch("/api/admin/chats/:id/members/:userId", validateUuidParams("id", "userId"), async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const chatId = Number(req.params.id);
-    const userId = Number(req.params.userId);
+    const chatId = req.params.id;
+    const userId = req.params.userId;
     const { role } = req.body || {};
-    if (!chatId || !userId) return res.status(400).json({ error: "Invalid IDs" });
     if (!["owner", "admin", "member"].includes(role)) return res.status(400).json({ error: "Invalid role" });
     const chat = await resolveMaybePromise(findChatById(chatId));
     const user = await resolveMaybePromise(findUserById(userId));
@@ -948,11 +932,10 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Chats — delete ──────────────────────────────────────────────────────────
 
-  app.delete("/api/admin/chats/:id", async (req, res) => {
+  app.delete("/api/admin/chats/:id", validateUuidParams("id"), async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const chatId = Number(req.params.id);
-    if (!chatId) return res.status(400).json({ error: "Invalid chat ID" });
+    const chatId = req.params.id;
     const chat = await resolveMaybePromise(findChatById(chatId));
     const deletion = await resolveMaybePromise(adminDeleteChat(chatId));
     const { storedNames } = deletion || {};

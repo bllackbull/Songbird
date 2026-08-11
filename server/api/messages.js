@@ -1,4 +1,5 @@
 import rateLimit from "express-rate-limit";
+import { validateUuidParams, validateUuidBody } from "../lib/uuidMiddleware.js";
 import { createMessagePublicationService } from "../lib/services/messagePublicationService.js";
 
 function registerMessageRoutes(app, deps) {
@@ -88,11 +89,11 @@ function registerMessageRoutes(app, deps) {
   };
 
   const canUserPostInChat = async (chatId, userId, chat = null) => {
-    const rawChat = chat || findChatById(Number(chatId));
+    const rawChat = chat || findChatById(chatId);
     const resolvedChat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
     if (!resolvedChat) return false;
     if (resolvedChat.type !== "channel") return true;
-    const rawRole = getChatMemberRole(Number(chatId), Number(userId));
+    const rawRole = getChatMemberRole(chatId, userId);
     const role = String(rawRole && typeof rawRole.then === "function" ? await rawRole : rawRole).toLowerCase();
     return role === "owner";
   };
@@ -124,7 +125,7 @@ function registerMessageRoutes(app, deps) {
     );
 
   const isMessageAuthoredByUser = (message, userId) =>
-    Number(message?.user_id || 0) === Number(userId) &&
+    String(message?.user_id || "") === String(userId) &&
     !isRemoteChannelMessage(message);
 
   const normalizeForwardOriginAvatarUrl = (userId, avatarUrl) => {
@@ -139,7 +140,7 @@ function registerMessageRoutes(app, deps) {
         String(sourceChat?.group_username || "").trim() ||
         "Channel";
       return {
-        sourceChatId: Number(sourceChat?.id || 0) || null,
+        sourceChatId: sourceChat?.id || null,
         label,
         sourceUserId: null,
         sourceUsername: null,
@@ -148,11 +149,11 @@ function registerMessageRoutes(app, deps) {
       };
     }
 
-    const sourceUserRaw = findUserById(Number(sourceMessage?.user_id || 0));
+    const sourceUserRaw = findUserById(sourceMessage?.user_id);
     const sourceUser = sourceUserRaw && typeof sourceUserRaw.then === "function"
       ? await sourceUserRaw
       : sourceUserRaw;
-    const sourceUserId = Number(sourceUser?.id || sourceMessage?.user_id || 0) || null;
+    const sourceUserId = sourceUser?.id || sourceMessage?.user_id || null;
     const sourceUsername = String(sourceUser?.username || "").trim() || null;
     const label =
       String(sourceUser?.nickname || "").trim() ||
@@ -172,7 +173,7 @@ function registerMessageRoutes(app, deps) {
   };
 
   const reuseMessageFilesForForward = async (sourceMessageId, targetMessageId) => {
-    const rawSourceFiles = listMessageFilesByMessageIds([Number(sourceMessageId)]);
+    const rawSourceFiles = listMessageFilesByMessageIds([sourceMessageId]);
     const sourceFiles = rawSourceFiles && typeof rawSourceFiles.then === "function"
       ? await rawSourceFiles
       : rawSourceFiles;
@@ -202,7 +203,7 @@ function registerMessageRoutes(app, deps) {
     });
 
     if (reusedFiles.length) {
-      const rawCreatedFiles = createMessageFiles(Number(targetMessageId), reusedFiles);
+      const rawCreatedFiles = createMessageFiles(targetMessageId, reusedFiles);
       if (rawCreatedFiles && typeof rawCreatedFiles.then === "function") {
         await rawCreatedFiles;
       }
@@ -215,11 +216,11 @@ function registerMessageRoutes(app, deps) {
     const session = await requireSession(req, res);
     if (!session) return;
 
-    const chatId = Number(req.query.chatId);
+    const chatId = req.query.chatId?.toString() || "";
     const username = req.query.username?.toString();
-    const beforeId = Number(req.query.beforeId || 0);
+    const beforeId = req.query.beforeId?.toString() || "";
     const beforeCreatedAt = req.query.beforeCreatedAt?.toString() || "";
-    const afterId = Number(req.query.afterId || 0);
+    const afterId = req.query.afterId?.toString() || "";
     const afterCreatedAt = req.query.afterCreatedAt?.toString() || "";
     const limitRaw = Number(req.query.limit || 50);
     const limit = Number.isFinite(limitRaw)
@@ -244,9 +245,9 @@ function registerMessageRoutes(app, deps) {
     }
 
     const rawMsgData = getMessages(chatId, {
-      beforeId: beforeId > 0 ? beforeId : null,
+      beforeId: beforeId || null,
       beforeCreatedAt: beforeCreatedAt || null,
-      afterId: afterId > 0 ? afterId : null,
+      afterId: afterId || null,
       afterCreatedAt: afterCreatedAt || null,
       limit,
       viewerUserId: user.id,
@@ -259,13 +260,13 @@ function registerMessageRoutes(app, deps) {
     setImmediate(() => {
       try {
         const cleanup = cleanupMissingMessageFiles(
-          messages.map((message) => Number(message.id)).filter(Boolean),
+          messages.map((message) => message.id).filter(Boolean),
         );
         if (cleanup.changed && cleanup.deletedByChat?.size) {
           cleanup.deletedByChat.forEach((messageIds, deletedChatId) => {
-            emitChatEvent(Number(deletedChatId), {
+            emitChatEvent(deletedChatId, {
               type: "chat_message_deleted",
-              chatId: Number(deletedChatId),
+              chatId: deletedChatId,
               messageIds,
             });
           });
@@ -279,9 +280,9 @@ function registerMessageRoutes(app, deps) {
       ...message,
       avatar_url: ensureAvatarExists(message.user_id, message.avatar_url),
       replyTo:
-        Number(message?.reply_id || 0) > 0
+        message?.reply_id
           ? {
-              id: Number(message.reply_id),
+              id: message.reply_id,
               body: message.reply_body || "",
               created_at: message.reply_created_at || null,
               username: message.reply_username || "",
@@ -298,24 +299,24 @@ function registerMessageRoutes(app, deps) {
     }));
 
     const messageIds = normalizedMessages
-      .map((message) => Number(message.id))
+      .map((message) => message.id)
       .filter(Boolean);
     const rawReadRows = getMessageReadByUser(messageIds, user.id);
     const readRows = (rawReadRows && typeof rawReadRows.then === "function" ? await rawReadRows : rawReadRows) || [];
     const readByMe = new Set(
-      readRows.map((row) => Number(row?.message_id || 0)).filter(Boolean),
+      readRows.map((row) => row?.message_id).filter(Boolean),
     );
     const rawFiles = listMessageFilesByMessageIds(messageIds);
     const resolvedFiles = (rawFiles && typeof rawFiles.then === "function" ? await rawFiles : rawFiles) || [];
     const files = await hydrateMissingVideoMetadata(resolvedFiles);
 
     const filesByMessageId = files.reduce((acc, file) => {
-      const messageId = Number(file.message_id);
+      const messageId = file.message_id;
 
       if (!acc[messageId]) acc[messageId] = [];
 
       acc[messageId].push({
-        id: Number(file.id),
+        id: file.id,
         kind: file.kind,
         name: file.original_name,
         mimeType: file.mime_type,
@@ -343,8 +344,8 @@ function registerMessageRoutes(app, deps) {
         clientRequestId: message.client_request_id || null,
         read_by_me:
           isMessageAuthoredByUser(message, user.id) ||
-          readByMe.has(Number(message.id)),
-        files: filesByMessageId[Number(message.id)] || [],
+          readByMe.has(message.id),
+        files: filesByMessageId[message.id] || [],
         expiresAt: null,
       }))
       .map((message) => ({
@@ -376,8 +377,8 @@ function registerMessageRoutes(app, deps) {
 
         files.forEach((file) => {
           processingRows.push({
-            messageId: Number(message?.id || 0),
-            fileId: Number(file?.id || 0),
+            messageId: message?.id || null,
+            fileId: file?.id || null,
             mimeType: String(file?.mimeType || ""),
             url: String(file?.url || ""),
             processing: Boolean(file?.processing),
@@ -398,7 +399,7 @@ function registerMessageRoutes(app, deps) {
       const rawCountRows = getMessageReadCounts(messageIds);
       const countRows = (rawCountRows && typeof rawCountRows.then === "function" ? await rawCountRows : rawCountRows) || [];
       const counts = countRows.reduce((acc, row) => {
-        const id = Number(row?.message_id || 0);
+        const id = row?.message_id;
         if (!id) return acc;
         acc[id] = Number(row?.count || 0);
         return acc;
@@ -407,7 +408,7 @@ function registerMessageRoutes(app, deps) {
       // For regular messages (not remote), add +1 for the author
       // For remote messages, don't add the author count (starts at 0)
       enriched.forEach((msg) => {
-        const id = Number(msg?.id || 0);
+        const id = msg?.id;
         if (!id) return;
         const isRemote = isRemoteChannelMessage(msg);
         if (!isRemote) {
@@ -416,7 +417,7 @@ function registerMessageRoutes(app, deps) {
       });
       
       enriched.forEach((msg) => {
-        const id = Number(msg?.id || 0);
+        const id = msg?.id;
         if (!id) return;
         // Remote messages start at 0 views, regular messages start at 1
         const isRemote = isRemoteChannelMessage(msg);
@@ -440,7 +441,7 @@ function registerMessageRoutes(app, deps) {
     const session = await requireSession(req, res);
     if (!session) return;
 
-    const chatId = Number(req.query.chatId);
+    const chatId = req.query.chatId?.toString() || "";
     const username = req.query.username?.toString();
 
     if (!chatId || !username) {
@@ -465,7 +466,7 @@ function registerMessageRoutes(app, deps) {
     res.json({ firstUnread: firstUnread || null });
   });
 
-  app.post("/api/messages/read", async (req, res) => {
+  app.post("/api/messages/read", validateUuidBody([{ field: "chatId", required: true }]), async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
 
@@ -482,25 +483,25 @@ function registerMessageRoutes(app, deps) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    const rawIsMem = isMember(Number(chatId), user.id);
+    const rawIsMem = isMember(chatId, user.id);
     const memberCheck = rawIsMem && typeof rawIsMem.then === "function" ? await rawIsMem : rawIsMem;
     if (!memberCheck) {
       return res.status(403).json({ error: "Not a member of this chat." });
     }
 
-    const m = markMessagesRead(Number(chatId), user.id);
+    const m = markMessagesRead(chatId, user.id);
     if (m && typeof m.then === "function") await m;
 
-    emitChatEvent(Number(chatId), {
+    emitChatEvent(chatId, {
       type: "chat_read",
-      chatId: Number(chatId),
+      chatId,
       username: user.username,
     });
 
     res.json({ ok: true });
   });
 
-  app.post("/api/messages/read-one", async (req, res) => {
+  app.post("/api/messages/read-one", validateUuidBody([{ field: "chatId", required: true }, { field: "messageId", required: true }]), async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
 
@@ -519,32 +520,32 @@ function registerMessageRoutes(app, deps) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    const rawIsMem = isMember(Number(chatId), user.id);
+    const rawIsMem = isMember(chatId, user.id);
     const memberCheck = rawIsMem && typeof rawIsMem.then === "function" ? await rawIsMem : rawIsMem;
     if (!memberCheck) {
       return res.status(403).json({ error: "Not a member of this chat." });
     }
 
-    const rawMessage = findMessageById(Number(messageId));
+    const rawMessage = findMessageById(messageId);
     const message = rawMessage && typeof rawMessage.then === "function" ? await rawMessage : rawMessage;
-    if (!message || Number(message.chat_id) !== Number(chatId)) {
+    if (!message || message.chat_id !== chatId) {
       return res.status(404).json({ error: "Message not found in this chat." });
     }
 
-    const m = markMessageRead(Number(messageId), user.id);
+    const m = markMessageRead(messageId, user.id);
     if (m && typeof m.then === "function") await m;
 
-    emitChatEvent(Number(chatId), {
+    emitChatEvent(chatId, {
       type: "chat_read",
-      chatId: Number(chatId),
-      messageId: Number(messageId),
+      chatId,
+      messageId,
       username: user.username,
     });
 
     res.json({ ok: true });
   });
 
-  app.post("/api/messages/read-counts", async (req, res) => {
+  app.post("/api/messages/read-counts", validateUuidBody([{ field: "chatId", required: true }]), async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
 
@@ -561,7 +562,7 @@ function registerMessageRoutes(app, deps) {
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
-    const rawIsMem = isMember(Number(chatId), user.id);
+    const rawIsMem = isMember(chatId, user.id);
     const memberCheck = rawIsMem && typeof rawIsMem.then === "function" ? await rawIsMem : rawIsMem;
     if (!memberCheck) {
       return res.status(403).json({ error: "Not a member of this chat." });
@@ -570,7 +571,7 @@ function registerMessageRoutes(app, deps) {
     const rawAuthors = getMessageAuthors(messageIds);
     const authors = (rawAuthors && typeof rawAuthors.then === "function" ? await rawAuthors : rawAuthors) || [];
     const messages = authors.reduce((acc, row) => {
-      const id = Number(row?.id || 0);
+      const id = row?.id;
       if (!id) return acc;
       acc[id] = row;
       return acc;
@@ -579,7 +580,7 @@ function registerMessageRoutes(app, deps) {
     const rawRows = getMessageReadCounts(messageIds);
     const rows = (rawRows && typeof rawRows.then === "function" ? await rawRows : rawRows) || [];
     const counts = rows.reduce((acc, row) => {
-      const id = Number(row?.message_id || 0);
+      const id = row?.message_id;
       if (!id) return acc;
       acc[id] = Number(row?.count || 0);
       return acc;
@@ -588,7 +589,7 @@ function registerMessageRoutes(app, deps) {
     // For regular messages (not remote), add +1 for the author
     // For remote messages, don't add the author count (starts at 0)
     Object.keys(messages).forEach((key) => {
-      const id = Number(key);
+      const id = key;
       if (!id) return;
       const msg = messages[id];
       const isRemote = isRemoteChannelMessage(msg);
@@ -600,7 +601,7 @@ function registerMessageRoutes(app, deps) {
     res.json({ ok: true, counts });
   });
 
-  app.post("/api/messages/typing", async (req, res) => {
+  app.post("/api/messages/typing", validateUuidBody([{ field: "chatId", required: true }]), async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
 
@@ -616,12 +617,11 @@ function registerMessageRoutes(app, deps) {
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
-    const numericChatId = Number(chatId);
-    if (!isMember(numericChatId, user.id)) {
+    if (!isMember(chatId, user.id)) {
       return res.status(403).json({ error: "Not a member of this chat." });
     }
 
-    const chat = findChatById(numericChatId);
+    const chat = findChatById(chatId);
     if (!chat) {
       return res.status(404).json({ error: "Chat not found." });
     }
@@ -637,9 +637,9 @@ function registerMessageRoutes(app, deps) {
       return res.json({ ok: true, skipped: true });
     }
 
-    emitChatEvent(numericChatId, {
+    emitChatEvent(chatId, {
       type: "chat_typing",
-      chatId: numericChatId,
+      chatId,
       username: user.username,
       nickname: user.nickname || user.username,
       isTyping: Boolean(isTyping),
@@ -674,14 +674,14 @@ function registerMessageRoutes(app, deps) {
             .json({ error: "File uploads are disabled on this server." });
         }
 
-        const chatId = Number(req.body?.chatId);
+        const chatId = req.body?.chatId?.toString() || "";
         const username = req.body?.username?.toString();
         const uploadType = req.body?.uploadType?.toString();
         const fileMeta = parseUploadFileMetadata(req.body?.fileMeta);
         const body = req.body?.body?.toString() || "";
         const trimmedBody = body.trim();
-        const replyToMessageId = Number(req.body?.replyToMessageId || 0) || null;
-        const editMessageId = Number(req.body?.editMessageId || 0) || null;
+        const replyToMessageId = req.body?.replyToMessageId?.toString() || null;
+        const editMessageId = req.body?.editMessageId?.toString() || null;
         const clientRequestIdRaw = String(
           req.body?.clientRequestId || "",
         ).trim();
@@ -763,7 +763,7 @@ function registerMessageRoutes(app, deps) {
         }
         if (replyToMessageId) {
           const replyTarget = findMessageById(replyToMessageId);
-          if (!replyTarget || Number(replyTarget.chat_id) !== Number(chatId)) {
+          if (!replyTarget || replyTarget.chat_id !== chatId) {
             removeUploadedFiles(uploadedFiles);
             return res
               .status(400)
@@ -773,7 +773,7 @@ function registerMessageRoutes(app, deps) {
         let editTarget = null;
         if (editMessageId) {
           editTarget = findMessageById(editMessageId);
-          if (!editTarget || Number(editTarget.chat_id) !== Number(chatId)) {
+          if (!editTarget || editTarget.chat_id !== chatId) {
             removeUploadedFiles(uploadedFiles);
             return res.status(400).json({
               error: "Edit target is not available in this chat.",
@@ -816,7 +816,7 @@ function registerMessageRoutes(app, deps) {
           );
           if (existingId) {
             removeUploadedFiles(uploadedFiles);
-            return res.json({ id: Number(existingId), deduped: true });
+            return res.json({ id: existingId, deduped: true });
           }
         }
 
@@ -964,7 +964,7 @@ function registerMessageRoutes(app, deps) {
           (normalizedFiles.length === 1
             ? `Sent ${normalizedFiles[0].kind === "media" ? "a media file" : "a document"}`
             : `Sent ${normalizedFiles.length} files`);
-        let messageId = Number(editMessageId || 0);
+        let messageId = editMessageId || null;
         let dedupedMessage = false;
         if (editTarget) {
           const editBody =
@@ -985,14 +985,14 @@ function registerMessageRoutes(app, deps) {
             clientRequestId,
           );
           const created = rawCreated && typeof rawCreated.then === "function" ? await rawCreated : rawCreated;
-          messageId = Number(created?.id || 0);
+          messageId = created?.id || null;
           dedupedMessage = Boolean(created?.deduped);
           if (!messageId) {
             throw new Error("Unable to create message.");
           }
           if (dedupedMessage) {
             removeUploadedFiles(uploadedFiles);
-            return res.json({ id: Number(messageId), deduped: true });
+            return res.json({ id: messageId, deduped: true });
           }
           createMessageFiles(messageId, normalizedFiles);
           if (chat.type === "saved") {
@@ -1003,14 +1003,14 @@ function registerMessageRoutes(app, deps) {
         let transcodeJobsQueued = 0;
 
         if (shouldTranscodeVideos && hasVideoFiles) {
-          const insertedRows = listMessageFilesByMessageIds([Number(messageId)]);
+          const insertedRows = listMessageFilesByMessageIds([messageId]);
           const insertedByStoredName = new Map();
 
           insertedRows.forEach((row) => {
             const key = path.basename(String(row?.stored_name || "").trim());
             if (!key) return;
 
-            insertedByStoredName.set(key, Number(row.id));
+            insertedByStoredName.set(key, row.id);
           });
 
           normalizedFiles.forEach((file) => {
@@ -1022,14 +1022,14 @@ function registerMessageRoutes(app, deps) {
             );
             if (!storedName) return;
 
-            const fileId = Number(insertedByStoredName.get(storedName) || 0);
+            const fileId = insertedByStoredName.get(storedName);
             if (!fileId) return;
 
             enqueueVideoTranscodeJob({
               fileId,
               storedName,
               chatId,
-              messageId: Number(messageId),
+              messageId,
               username: user.username,
             });
 
@@ -1041,7 +1041,7 @@ function registerMessageRoutes(app, deps) {
           emitChatEvent(chatId, {
             type: "chat_message_updated",
             chatId,
-            messageId: Number(messageId),
+            messageId,
             username: user.username,
           });
         } else if (shouldTranscodeVideos && hasVideoFiles && transcodeJobsQueued > 0) {
@@ -1049,8 +1049,9 @@ function registerMessageRoutes(app, deps) {
           emitSseEvent(user.username, {
             type: "chat_message",
             chatId,
-            messageId: Number(messageId),
+            messageId,
             username: user.username,
+            userId: user.id,
             body: fallbackBody,
             summaryText: fileSummaryText,
             replyToMessageId,
@@ -1059,8 +1060,9 @@ function registerMessageRoutes(app, deps) {
           emitChatEvent(chatId, {
             type: "chat_message",
             chatId,
-            messageId: Number(messageId),
+            messageId,
             username: user.username,
+            userId: user.id,
             body: fallbackBody,
             summaryText: fileSummaryText,
             replyToMessageId,
@@ -1069,31 +1071,29 @@ function registerMessageRoutes(app, deps) {
 
         debugLog("api:messages/upload:done", {
           chatId,
-          messageId: Number(messageId),
+          messageId,
           fileCount: normalizedFiles.length,
         });
 
-        res.json({ id: Number(messageId), deduped: dedupedMessage });
+        res.json({ id: messageId, deduped: dedupedMessage });
 
         if (!editTarget) {
           void (async () => {
             try {
-              const rawMembers = listChatMembers(Number(chatId));
+              const rawMembers = listChatMembers(chatId);
               const members = (rawMembers && typeof rawMembers.then === "function" ? await rawMembers : rawMembers) || [];
-              const rawMuted = listMutedUserIdsForChat(Number(chatId));
+              const rawMuted = listMutedUserIdsForChat(chatId);
               const mutedRows = (rawMuted && typeof rawMuted.then === "function" ? await rawMuted : rawMuted) || [];
               const mutedIds = new Set(
-                mutedRows.map((row) => Number(row?.user_id || 0)).filter(Boolean),
+                mutedRows.map((row) => row?.user_id).filter(Boolean),
               );
               const recipientIds = members
-                .filter((member) => Number(member.id) !== Number(user.id))
+                .filter((member) => member.id !== user.id)
                 .filter((member) => !isUserConnected(member.username))
-                .map((member) => Number(member.id))
+                .map((member) => member.id)
                 .filter(
                   (memberId) =>
-                    Number.isFinite(memberId) &&
-                    memberId > 0 &&
-                    !mutedIds.has(Number(memberId)),
+                    memberId && !mutedIds.has(memberId),
                 );
               if (recipientIds.length) {
                 const title =
@@ -1130,7 +1130,7 @@ function registerMessageRoutes(app, deps) {
     },
   );
 
-  app.post("/api/messages", async (req, res) => {
+  app.post("/api/messages", validateUuidBody([{ field: "chatId", required: true }, { field: "replyToMessageId", required: false }]), async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
 
@@ -1165,19 +1165,19 @@ function registerMessageRoutes(app, deps) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    const rawIsMem = isMember(Number(chatId), user.id);
+    const rawIsMem = isMember(chatId, user.id);
     const memberCheck = rawIsMem && typeof rawIsMem.then === "function" ? await rawIsMem : rawIsMem;
     if (!memberCheck) {
       return res.status(403).json({ error: "Not a member of this chat." });
     }
 
-    const rawChat = findChatById(Number(chatId));
+    const rawChat = findChatById(chatId);
     const chat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
     if (!chat) {
       return res.status(404).json({ error: "Chat not found." });
     }
     if (chat.type === "channel") {
-      const rawRole = getChatMemberRole(Number(chatId), user.id);
+      const rawRole = getChatMemberRole(chatId, user.id);
       const role = String(rawRole && typeof rawRole.then === "function" ? await rawRole : rawRole).toLowerCase();
       if (role !== "owner") {
         return res
@@ -1187,9 +1187,9 @@ function registerMessageRoutes(app, deps) {
     }
 
     if (replyToMessageId) {
-      const rawReplyTarget = findMessageById(Number(replyToMessageId));
+      const rawReplyTarget = findMessageById(replyToMessageId);
       const replyTarget = rawReplyTarget && typeof rawReplyTarget.then === "function" ? await rawReplyTarget : rawReplyTarget;
-      if (!replyTarget || Number(replyTarget.chat_id) !== Number(chatId)) {
+      if (!replyTarget || replyTarget.chat_id !== chatId) {
         return res
           .status(400)
           .json({ error: "Reply target is not available in this chat." });
@@ -1200,7 +1200,7 @@ function registerMessageRoutes(app, deps) {
     const expiresAt = computeTextExpiryIso(createdAtIso);
     
     const rawResult = messagePubService.publishTextMessage({
-      chatId: Number(chatId),
+      chatId,
       userId: user.id,
       body: bodyText,
       replyToMessageId,
@@ -1214,9 +1214,9 @@ function registerMessageRoutes(app, deps) {
     const id = result.messageId;
 
     debugLog("api:messages/send", {
-      chatId: Number(chatId),
+      chatId,
       username: user.username,
-      messageId: Number(id),
+      messageId: id,
       bodyLength: String(body || "").length,
     });
 
@@ -1246,14 +1246,14 @@ function registerMessageRoutes(app, deps) {
           await sendPushNotificationToUsers(result.pushRecipients, {
             title,
             body: notifyBody,
-            data: { chatId: Number(chatId) },
+            data: { chatId },
           });
         } catch (_) {}
       })();
     }
   });
 
-  app.post("/api/messages/edit", messageEditLimiter, async (req, res) => {
+  app.post("/api/messages/edit", messageEditLimiter, validateUuidBody([{ field: "chatId", required: true }, { field: "messageId", required: true }]), async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
 
@@ -1285,23 +1285,22 @@ function registerMessageRoutes(app, deps) {
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
-    const numericChatId = Number(chatId);
-    const rawIsMem = isMember(numericChatId, user.id);
+    const rawIsMem = isMember(chatId, user.id);
     const memberCheck = rawIsMem && typeof rawIsMem.then === "function" ? await rawIsMem : rawIsMem;
     if (!memberCheck) {
       return res.status(403).json({ error: "Not a member of this chat." });
     }
-    const rawMessage = findMessageById(Number(messageId));
+    const rawMessage = findMessageById(messageId);
     const message = rawMessage && typeof rawMessage.then === "function" ? await rawMessage : rawMessage;
-    if (!message || Number(message.chat_id) !== numericChatId) {
+    if (!message || message.chat_id !== chatId) {
       return res.status(404).json({ error: "Message not found." });
     }
-    const rawChat = findChatById(numericChatId);
+    const rawChat = findChatById(chatId);
     const chat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
     if (!chat) {
       return res.status(404).json({ error: "Chat not found." });
     }
-    const rawCanPost = canUserPostInChat(numericChatId, user.id, chat);
+    const rawCanPost = canUserPostInChat(chatId, user.id, chat);
     const canPost = rawCanPost && typeof rawCanPost.then === "function" ? await rawCanPost : rawCanPost;
     if (!canPost) {
       return res
@@ -1315,17 +1314,17 @@ function registerMessageRoutes(app, deps) {
     const editRes = editMessage(messageId, trimmedBody);
     if (editRes && typeof editRes.then === "function") await editRes;
 
-    emitChatEvent(numericChatId, {
+    emitChatEvent(chatId, {
       type: "chat_message_updated",
-      chatId: numericChatId,
-      messageId: Number(messageId),
+      chatId,
+      messageId,
       username: user.username,
     });
 
-    res.json({ ok: true, id: Number(messageId) });
+    res.json({ ok: true, id: messageId });
   });
 
-  app.post("/api/messages/delete", async (req, res) => {
+  app.post("/api/messages/delete", validateUuidBody([{ field: "chatId", required: true }, { field: "messageId", required: true }]), async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
 
@@ -1342,15 +1341,14 @@ function registerMessageRoutes(app, deps) {
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
-    const numericChatId = Number(chatId);
-    const rawIsMem = isMember(numericChatId, user.id);
+    const rawIsMem = isMember(chatId, user.id);
     const memberCheck = rawIsMem && typeof rawIsMem.then === "function" ? await rawIsMem : rawIsMem;
     if (!memberCheck) {
       return res.status(403).json({ error: "Not a member of this chat." });
     }
-    const rawMessage = findMessageById(Number(messageId));
+    const rawMessage = findMessageById(messageId);
     const message = rawMessage && typeof rawMessage.then === "function" ? await rawMessage : rawMessage;
-    if (!message || Number(message.chat_id) !== numericChatId) {
+    if (!message || message.chat_id !== chatId) {
       return res.status(404).json({ error: "Message not found." });
     }
 
@@ -1359,18 +1357,18 @@ function registerMessageRoutes(app, deps) {
       : "self";
 
     if (deleteScope === "everyone") {
-      const rawChat = findChatById(numericChatId);
+      const rawChat = findChatById(chatId);
       const chat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
       if (!chat) {
         return res.status(404).json({ error: "Chat not found." });
       }
-      const rawRole = getChatMemberRole(numericChatId, user.id);
+      const rawRole = getChatMemberRole(chatId, user.id);
       const role = String(rawRole && typeof rawRole.then === "function" ? await rawRole : rawRole).toLowerCase();
-      const rawCanPost = canUserPostInChat(numericChatId, user.id, chat);
+      const rawCanPost = canUserPostInChat(chatId, user.id, chat);
       const canPost = rawCanPost && typeof rawCanPost.then === "function" ? await rawCanPost : rawCanPost;
       const canDeleteForEveryone =
         canPost &&
-        (Number(message.user_id || 0) === Number(user.id) || role === "owner");
+        (message.user_id === user.id || role === "owner");
       if (!canDeleteForEveryone) {
         return res.status(403).json({
           error: "You cannot delete this message for everyone.",
@@ -1378,20 +1376,20 @@ function registerMessageRoutes(app, deps) {
       }
       const h = hideMessageForEveryone(message.id);
       if (h && typeof h.then === "function") await h;
-      emitChatEvent(numericChatId, {
+      emitChatEvent(chatId, {
         type: "chat_message_deleted",
-        chatId: numericChatId,
-        messageIds: [Number(message.id)],
+        chatId,
+        messageIds: [message.id],
       });
-      return res.json({ ok: true, scope: "everyone", id: Number(message.id) });
+      return res.json({ ok: true, scope: "everyone", id: message.id });
     }
 
     const hSelf = hideMessageForUser(message.id, user.id);
     if (hSelf && typeof hSelf.then === "function") await hSelf;
-    return res.json({ ok: true, scope: "self", id: Number(message.id) });
+    return res.json({ ok: true, scope: "self", id: message.id });
   });
 
-  app.post("/api/messages/forward", async (req, res) => {
+  app.post("/api/messages/forward", validateUuidBody([{ field: "sourceMessageId", required: true }]), async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
 
@@ -1414,7 +1412,7 @@ function registerMessageRoutes(app, deps) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    const rawSourceMessage = findMessageById(Number(sourceMessageId));
+    const rawSourceMessage = findMessageById(sourceMessageId);
     const sourceMessage = rawSourceMessage && typeof rawSourceMessage.then === "function" ? await rawSourceMessage : rawSourceMessage;
     if (!sourceMessage) {
       return res.status(404).json({ error: "Source message not found." });
@@ -1422,12 +1420,12 @@ function registerMessageRoutes(app, deps) {
     if (sourceMessage.hidden_everyone_at) {
       return res.status(410).json({ error: "Source message is no longer available." });
     }
-    const rawIsMem = isMember(Number(sourceMessage.chat_id), user.id);
+    const rawIsMem = isMember(sourceMessage.chat_id, user.id);
     const memberCheck = rawIsMem && typeof rawIsMem.then === "function" ? await rawIsMem : rawIsMem;
     if (!memberCheck) {
       return res.status(403).json({ error: "You cannot forward from this chat." });
     }
-    const rawSourceChat = findChatById(Number(sourceMessage.chat_id));
+    const rawSourceChat = findChatById(sourceMessage.chat_id);
     const sourceChat = rawSourceChat && typeof rawSourceChat.then === "function"
       ? await rawSourceChat
       : rawSourceChat;
@@ -1444,15 +1442,15 @@ function registerMessageRoutes(app, deps) {
     const uniqueTargetChatIds = Array.from(
       new Set(
         targetChatIds
-          .map((id) => Number(id))
-          .filter((id) => Number.isFinite(id) && id > 0),
+          .map((id) => String(id || "").trim())
+          .filter(Boolean),
       ),
     );
     if (!uniqueTargetChatIds.length) {
       return res.status(400).json({ error: "Choose at least one target chat." });
     }
 
-    const rawSourceFiles = listMessageFilesByMessageIds([Number(sourceMessage.id)]);
+    const rawSourceFiles = listMessageFilesByMessageIds([sourceMessage.id]);
     const sourceFiles = rawSourceFiles && typeof rawSourceFiles.then === "function"
       ? await rawSourceFiles
       : rawSourceFiles;
@@ -1496,11 +1494,10 @@ function registerMessageRoutes(app, deps) {
       const nextMessageId = rawNextMessageId && typeof rawNextMessageId.then === "function"
         ? await rawNextMessageId
         : rawNextMessageId;
-      const numericNextMessageId = Number(nextMessageId);
-      if (!Number.isSafeInteger(numericNextMessageId) || numericNextMessageId <= 0) {
+      if (!nextMessageId) {
         return res.status(500).json({ error: "Unable to forward message." });
       }
-      await setMessageForwardOrigin(numericNextMessageId, {
+      await setMessageForwardOrigin(nextMessageId, {
         sourceChatId: forwardOrigin.sourceChatId,
         label: forwardOrigin.label,
         sourceUserId: forwardOrigin.sourceUserId,
@@ -1508,9 +1505,9 @@ function registerMessageRoutes(app, deps) {
         sourceAvatarUrl: forwardOrigin.sourceAvatarUrl,
         sourceColor: forwardOrigin.sourceColor,
       });
-      await reuseMessageFilesForForward(sourceMessage.id, numericNextMessageId);
+      await reuseMessageFilesForForward(sourceMessage.id, nextMessageId);
       if (String(targetChat.type || "").toLowerCase() === "saved") {
-        const rawRead = markMessageRead(numericNextMessageId, user.id);
+        const rawRead = markMessageRead(nextMessageId, user.id);
         if (rawRead && typeof rawRead.then === "function") await rawRead;
         const rawUnhide = unhideChat(user.id, targetChatId);
         if (rawUnhide && typeof rawUnhide.then === "function") await rawUnhide;
@@ -1519,12 +1516,13 @@ function registerMessageRoutes(app, deps) {
       emitChatEvent(targetChatId, {
         type: "chat_message",
         chatId: targetChatId,
-        messageId: numericNextMessageId,
+        messageId: nextMessageId,
         username: user.username,
+        userId: user.id,
         body: forwardBody,
         replyToMessageId: null,
       });
-      forwardedIds.push(numericNextMessageId);
+      forwardedIds.push(nextMessageId);
     }
 
     return res.json({ ok: true, ids: forwardedIds });

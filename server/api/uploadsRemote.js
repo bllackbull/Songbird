@@ -146,7 +146,7 @@ export function registerRemoteUploadRoutes(app, deps) {
           "remote",
       };
 
-      const targetMsgId = Number(messageId) || 0;
+      const targetMsgId = messageId || null;
       let inserted = null;
       if (typeof createMessageFiles === "function") {
         inserted = createMessageFiles(targetMsgId, [fileObj]);
@@ -309,13 +309,13 @@ export function registerRemoteUploadRoutes(app, deps) {
       mediaQueueManager.cancelFallbackCheck(Number(fileId));
     }
 
-    let chatId = 0;
+    let chatId = null;
     if (file.message_id && typeof adminGetRow === "function") {
       const msg = adminGetRow(
         "SELECT chat_id FROM chat_messages WHERE id = ?",
         [file.message_id],
       );
-      chatId = Number(msg?.chat_id || 0);
+      chatId = msg?.chat_id || null;
     }
 
     if (typeof emitChatEvent === "function") {

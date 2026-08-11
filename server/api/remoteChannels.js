@@ -1,4 +1,5 @@
 import { normalizeSongbirdSource, normalizeTelegramSource, resolveSongbirdSource } from "../lib/remoteChannels.js";
+import { validateUuidParams } from "../lib/uuidMiddleware.js";
 
 function registerRemoteChannelRoutes(app, deps) {
   const {
@@ -31,7 +32,7 @@ function registerRemoteChannelRoutes(app, deps) {
     const session = await requireSession(req, res);
     if (!session) return null;
 
-    const chatId = Number(req.params?.chatId || 0);
+    const chatId = req.params?.chatId;
     const username = String(
       req.body?.username || req.query?.username || session.username || "",
     ).trim();
@@ -67,7 +68,7 @@ function registerRemoteChannelRoutes(app, deps) {
     const members = Array.isArray(rawMembers) ? rawMembers : (await rawMembers) || [];
     const isOwner = members.some(
       (member) =>
-        Number(member.id) === Number(user.id) &&
+        member.id === user.id &&
         String(member.role || "").toLowerCase() === "owner",
     );
 
@@ -105,13 +106,13 @@ function registerRemoteChannelRoutes(app, deps) {
     };
   };
 
-  app.get("/api/chats/:chatId/remote-channel", async (req, res) => {
+  app.get("/api/chats/:chatId/remote-channel", validateUuidParams('chatId'), async (req, res) => {
     // Any channel member can view the connection status.
     // Queue details are only included for the channel owner.
     const session = await requireSession(req, res);
     if (!session) return;
 
-    const chatId = Number(req.params?.chatId || 0);
+    const chatId = req.params.chatId;
     const username = String(req.query?.username || session.username || "").trim();
 
     if (!chatId || !username) {
@@ -139,7 +140,7 @@ function registerRemoteChannelRoutes(app, deps) {
     const members = Array.isArray(rawMembers) ? rawMembers : (await rawMembers) || [];
     const isOwner = members.some(
       (member) =>
-        Number(member.id) === Number(user.id) &&
+        member.id === user.id &&
         String(member.role || "").toLowerCase() === "owner",
     );
 
@@ -161,7 +162,7 @@ function registerRemoteChannelRoutes(app, deps) {
     });
   });
 
-  app.put("/api/chats/:chatId/remote-channel", async (req, res) => {
+  app.put("/api/chats/:chatId/remote-channel", validateUuidParams('chatId'), async (req, res) => {
     const context = await requireChannelOwner(req, res);
     if (!context) return;
 
@@ -269,7 +270,7 @@ function registerRemoteChannelRoutes(app, deps) {
   });
 
   // Pause remote channel mirroring
-  app.post("/api/chats/:chatId/remote-channel/pause", async (req, res) => {
+  app.post("/api/chats/:chatId/remote-channel/pause", validateUuidParams('chatId'), async (req, res) => {
     const context = await requireChannelOwner(req, res);
     if (!context) return;
 
@@ -288,7 +289,7 @@ function registerRemoteChannelRoutes(app, deps) {
   });
 
   // Resume remote channel mirroring
-  app.post("/api/chats/:chatId/remote-channel/resume", async (req, res) => {
+  app.post("/api/chats/:chatId/remote-channel/resume", validateUuidParams('chatId'), async (req, res) => {
     const context = await requireChannelOwner(req, res);
     if (!context) return;
 
@@ -307,7 +308,7 @@ function registerRemoteChannelRoutes(app, deps) {
   });
 
   // Skip current queue item
-  app.post("/api/chats/:chatId/remote-channel/skip", async (req, res) => {
+  app.post("/api/chats/:chatId/remote-channel/skip", validateUuidParams('chatId'), async (req, res) => {
     const context = await requireChannelOwner(req, res);
     if (!context) return;
 
@@ -332,7 +333,7 @@ function registerRemoteChannelRoutes(app, deps) {
   });
 
   // Skip all queue items
-  app.post("/api/chats/:chatId/remote-channel/skip-all", async (req, res) => {
+  app.post("/api/chats/:chatId/remote-channel/skip-all", validateUuidParams('chatId'), async (req, res) => {
     const context = await requireChannelOwner(req, res);
     if (!context) return;
 
@@ -357,7 +358,7 @@ function registerRemoteChannelRoutes(app, deps) {
   });
 
   // Test connection to remote channel
-  app.post("/api/chats/:chatId/remote-channel/test", async (req, res) => {
+  app.post("/api/chats/:chatId/remote-channel/test", validateUuidParams('chatId'), async (req, res) => {
     const context = await requireChannelOwner(req, res);
     if (!context) return;
 

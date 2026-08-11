@@ -40,7 +40,7 @@ function registerProfileRoutes(app, deps) {
       .toLowerCase();
     const payload = {
       type: "profile_updated",
-      userId: Number(user.id || 0) || null,
+      userId: user.id,
       username: currentUsername,
       previousUsername: previousUsername || null,
       nickname: user.nickname || null,
@@ -51,10 +51,10 @@ function registerProfileRoutes(app, deps) {
     const targets = new Set();
     if (currentUsername) targets.add(currentUsername);
     if (previousUsername) targets.add(previousUsername);
-    const rawChats = listChatsForUser(Number(user.id || 0));
+    const rawChats = listChatsForUser(user.id);
     const chats = (rawChats && typeof rawChats.then === "function" ? await rawChats : rawChats) || [];
     for (const chat of chats) {
-      const rawMembers = listChatMembers(Number(chat?.id || 0));
+      const rawMembers = listChatMembers(chat.id);
       const members = (rawMembers && typeof rawMembers.then === "function" ? await rawMembers : rawMembers) || [];
       members.forEach((member) => {
         const memberUsername = String(member?.username || "").toLowerCase();
@@ -352,10 +352,10 @@ function registerProfileRoutes(app, deps) {
       removeAvatarByUrl(user.avatar_url);
     }
 
-    const rawChats = listChatsForUser(Number(user.id || 0));
+    const rawChats = listChatsForUser(user.id);
     const memberChats = Array.isArray(rawChats) ? rawChats : (await rawChats) || [];
     for (const chat of memberChats) {
-      const chatId = Number(chat?.id || 0);
+      const chatId = chat?.id;
       if (!chatId) continue;
       const label = user.nickname || user.username;
       if (String(chat?.type || "").toLowerCase() === "group") {
@@ -389,7 +389,7 @@ function registerProfileRoutes(app, deps) {
       });
     }
 
-    const rawDel = deleteUserById(Number(user.id));
+    const rawDel = deleteUserById(user.id);
     const { storedNames } = rawDel && typeof rawDel.then === "function" ? await rawDel : rawDel;
     if (Array.isArray(storedNames) && storedNames.length) {
       removeStoredFileNames(storedNames);
