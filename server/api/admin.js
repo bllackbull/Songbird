@@ -492,16 +492,18 @@ function registerAdminRoutes(app, deps) {
 
         const passwordHash = await bcrypt.hash(password, 10);
         const assignedColor = setUserColor ? setUserColor() : null;
+        const verified = payload.verified !== undefined ? (payload.verified ? 1 : 0) : 0;
+        const newUserId = generateUuid();
         await adminRun(
-          `INSERT INTO users (username, nickname, avatar_url, color, status, password_hash, created_at, last_seen)
-           VALUES (?, ?, NULL, ?, ?, ?, datetime('now'), datetime('now'))`,
-          [rawUsername, nickname, assignedColor, "online", passwordHash],
+          `INSERT INTO users (id, username, nickname, avatar_url, color, status, password_hash, created_at, last_seen, verified)
+           VALUES (?, ?, ?, NULL, ?, ?, ?, datetime('now'), datetime('now'), ?)`,
+          [newUserId, rawUsername, nickname, assignedColor, "online", passwordHash, verified],
         );
 
         if (role !== "user") {
           const newRowResult = adminGetRow("SELECT id FROM users WHERE username = ?", [rawUsername]);
           const newRow = newRowResult && typeof newRowResult.then === "function" ? await newRowResult : newRowResult;
-          if (newRow?.id) await adminRun("UPDATE users SET role = ? WHERE id = ?", [role, Number(newRow.id)]);
+          if (newRow?.id) await adminRun("UPDATE users SET role = ? WHERE id = ?", [role, newRow.id]);
         }
 
         adminSave();
@@ -585,17 +587,19 @@ function registerAdminRoutes(app, deps) {
         let row = null;
         await adminRun("BEGIN");
         try {
+          const newChatId = generateUuid();
           await adminRun(
             `INSERT INTO chats (
-              name, type, group_username, group_visibility, invite_token, created_by_user_id, group_color, allow_member_invites, group_avatar_url
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              id, name, type, group_username, group_visibility, invite_token, created_by_user_id, group_color, allow_member_invites, group_avatar_url
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
+              newChatId,
               name,
               type,
               username || null,
               visibility,
               inviteToken,
-              Number(owner.id),
+              owner.id,
               fallbackColor,
               1,
               null,
@@ -614,12 +618,12 @@ function registerAdminRoutes(app, deps) {
           }
           await adminRun(
             "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",
-            [Number(row.id), Number(owner.id), "owner"],
+            [row.id, owner.id, "owner"],
           );
           for (const member of members) {
             await adminRun(
               "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",
-              [Number(row.id), Number(member.id), "member"],
+              [row.id, member.id, "member"],
             );
           }
           await adminRun("COMMIT");
@@ -665,7 +669,7 @@ function registerAdminRoutes(app, deps) {
              )
              VALUES (?, 'telegram', ?, ?, ?, ?, ?, ?, ?, NULL, datetime('now'))`,
             [
-              Number(row.id),
+              row.id,
               remoteChannelValue,
               sourceChatId,
               sourceUsername,
@@ -681,7 +685,7 @@ function registerAdminRoutes(app, deps) {
         return res.json({
           ok: true,
           result: {
-            id: Number(row.id),
+            id: row.id,
             type: row.type,
             name: row.name || "",
             addedMembers: members.length + 1,
@@ -733,7 +737,7 @@ function registerAdminRoutes(app, deps) {
           for (const user of users) {
             const exists = await adminGetRow(
               "SELECT 1 AS member FROM chat_members WHERE chat_id = ? AND user_id = ?",
-              [Number(chat.id), Number(user.id)],
+              [chat.id, user.id],
             );
             if (exists?.member) continue;
             if (!force) {
@@ -747,10 +751,10 @@ function registerAdminRoutes(app, deps) {
                  WHERE chat_id = ? AND user_id = ? AND body LIKE ?
                  LIMIT 1`,
                 [
-                  Number(chat.id),
-                  Number(user.id),
-                  Number(chat.id),
-                  Number(user.id),
+                  chat.id,
+                  user.id,
+                  chat.id,
+                  user.id,
                   "[[system:left:%",
                 ],
               );
@@ -761,13 +765,13 @@ function registerAdminRoutes(app, deps) {
             }
             await transactionRun(
               "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",
-              [Number(chat.id), Number(user.id), "member"],
+              [chat.id, user.id, "member"],
             );
             if (chat.type === "group") {
               const body = `[[system:joined:${user.nickname || user.username}]]`;
               await transactionRun(
-                "INSERT INTO chat_messages (chat_id, user_id, body) VALUES (?, ?, ?)",
-                [Number(chat.id), Number(user.id), body],
+                "INSERT INTO chat_messages (id, chat_id, user_id, body) VALUES (?, ?, ?, ?)",
+                [generateUuid(), chat.id, user.id, body],
               );
               joinEvents.push({
                 username: String(user.username || ""),
@@ -790,7 +794,7 @@ function registerAdminRoutes(app, deps) {
 
         return res.json({
           ok: true,
-          result: { chatId: Number(chat.id), addedCount, skippedLeftCount },
+          result: { chatId: chat.id, addedCount, skippedLeftCount },
         });
       }
 
@@ -1247,8 +1251,8 @@ function registerAdminRoutes(app, deps) {
                 : rawNickname;
             const assignedColor = setUserColor ? setUserColor() : null;
             await transactionRun(
-              "INSERT INTO users (username, nickname, avatar_url, color, status, password_hash, created_at, last_seen) VALUES (?, ?, NULL, ?, ?, ?, datetime('now'), datetime('now'))",
-              [username, nickname, assignedColor, "online", passwordHash],
+              "INSERT INTO users (id, username, nickname, avatar_url, color, status, password_hash, created_at, last_seen) VALUES (?, ?, ?, NULL, ?, ?, ?, datetime('now'), datetime('now'))",
+              [generateUuid(), username, nickname, assignedColor, "online", passwordHash],
             );
             created += 1;
           }

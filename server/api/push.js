@@ -29,7 +29,8 @@ function registerPushRoutes(app, deps) {
         .json({ error: "Username and subscription are required." });
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
-    const user = findUserByUsername(String(username || "").toLowerCase());
+    const rawUser = findUserByUsername(String(username || "").toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) return res.status(404).json({ error: "User not found." });
     try {
       upsertPushSubscription(
@@ -72,9 +73,11 @@ function registerPushRoutes(app, deps) {
     if (!VAPID_PUBLIC_KEY) {
       return res.status(503).json({ error: "Push is not configured." });
     }
-    const user = findUserByUsername(String(username || "").toLowerCase());
+    const rawUser = findUserByUsername(String(username || "").toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) return res.status(404).json({ error: "User not found." });
-    const subs = listPushSubscriptionsByUserIds([user.id]);
+    const rawSubs = listPushSubscriptionsByUserIds([user.id]);
+    const subs = (rawSubs && typeof rawSubs.then === "function" ? await rawSubs : rawSubs) || [];
     if (!subs.length) {
       return res.status(400).json({ error: "No push subscription found." });
     }

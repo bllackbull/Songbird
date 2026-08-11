@@ -37,8 +37,18 @@ export function normalizeSqlForPostgres(sql, params = []) {
     "INSERT INTO"
   );
 
-  // 7. Replace datetime('now', '<offset>') -> text-cast interval expression for TEXT columns
-  //    and plain datetime('now') -> CURRENT_TIMESTAMP cast to text
+  // 7. Replace datetime(created_at, '+' || ? || ' days') -> PG interval addition
+  normalizedSql = normalizedSql.replace(
+    /datetime\(([^,]+),\s*'\+'\s*\|\|\s*(.*?)\s*\|\|\s*' days'\)/gi,
+    "($1::timestamptz + ($2 || ' days')::interval)::text"
+  );
+  normalizedSql = normalizedSql.replace(
+    /datetime\(([^,]+),\s*'-'\s*\|\|\s*(.*?)\s*\|\|\s*' days'\)/gi,
+    "($1::timestamptz - ($2 || ' days')::interval)::text"
+  );
+
+  // Replace datetime('now', '<offset>') -> text-cast interval expression for TEXT columns
+  // and plain datetime('now') -> CURRENT_TIMESTAMP cast to text
   normalizedSql = normalizedSql.replace(
     /datetime\('now',\s*'([^']+)'\)/gi,
     (_, offset) => {

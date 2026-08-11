@@ -3983,9 +3983,17 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             String(file?.mimeType || "").toLowerCase().startsWith("video/"),
           );
           const keepPendingUntilServerEcho = hasFiles && uploadType === "media" && hasMediaVideo;
-          const serverId = Number(data.id) || null;
+          const serverId = Number(data?.id) || data?.id || null;
           const awaitingServerEcho = Boolean(serverId);
-          const index = prev.findIndex((msg) => msg?._clientId === clientId);
+          const responseFiles = Array.isArray(data?.files) && data.files.length > 0 ? data.files : null;
+          const calculatedExpiresAt = data?.expiresAt || null;
+          const index = prev.findIndex(
+            (msg) =>
+              (msg?._clientId && String(msg._clientId) === String(clientId)) ||
+              (msg?.client_request_id && String(msg.client_request_id) === String(clientId)) ||
+              (msg?.id && String(msg.id) === String(clientId)) ||
+              (serverId && String(msg?._serverId || msg?.id) === String(serverId)),
+          );
           if (index >= 0) {
             return prev.map((msg, msgIndex) =>
               msgIndex === index
@@ -3999,10 +4007,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                       keepPendingUntilServerEcho || Boolean(msg?._processingPending),
                     _awaitingServerEcho: awaitingServerEcho,
                     _uploadProgress: keepPendingUntilServerEcho ? 100 : null,
-                    expiresAt:
-                      hasFiles
-                        ? msg.expiresAt
-                        : data?.expiresAt || msg.expiresAt || null,
+                    expiresAt: calculatedExpiresAt || msg.expiresAt || null,
+                    files: responseFiles
+                      ? responseFiles
+                      : (msg.files || []).map((file) => ({
+                          ...file,
+                          expiresAt: calculatedExpiresAt || file?.expiresAt || file?.expires_at || null,
+                          expires_at: calculatedExpiresAt || file?.expiresAt || file?.expires_at || null,
+                        })),
                     read_at:
                       isSavedChat && !msg.read_at
                         ? msg.created_at || new Date().toISOString()
@@ -4019,22 +4031,24 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           const pendingDate = parseServerDate(createdAt);
           const pendingDayKey = `${pendingDate.getFullYear()}-${pendingDate.getMonth()}-${pendingDate.getDate()}`;
           const pendingBody = String(pendingMessage?.body || "").trim();
-          const messageFiles = files.map((file) => ({
+          const messageFiles = (responseFiles || files).map((file) => ({
             id: file.id,
             _localId: file._localId || file.id,
             kind: file.kind,
-            name: file.name,
-            mimeType: file.mimeType,
-            sizeBytes: file.sizeBytes,
-            width: Number.isFinite(Number(file.width)) ? Number(file.width) : null,
-            height: Number.isFinite(Number(file.height)) ? Number(file.height) : null,
-            durationSeconds: Number.isFinite(Number(file.durationSeconds))
-              ? Number(file.durationSeconds)
+            name: file.name || file.original_name || file.originalName || "",
+            mimeType: file.mimeType || file.mime_type || "",
+            sizeBytes: file.sizeBytes || file.size_bytes || 0,
+            width: Number.isFinite(Number(file.width ?? file.width_px)) ? Number(file.width ?? file.width_px) : null,
+            height: Number.isFinite(Number(file.height ?? file.height_px)) ? Number(file.height ?? file.height_px) : null,
+            durationSeconds: Number.isFinite(Number(file.durationSeconds ?? file.duration_seconds))
+              ? Number(file.durationSeconds ?? file.duration_seconds)
               : null,
+            expiresAt: file.expiresAt || file.expires_at || calculatedExpiresAt || null,
+            expires_at: file.expiresAt || file.expires_at || calculatedExpiresAt || null,
             url: file.url || null,
             processing:
               keepPendingUntilServerEcho &&
-              String(file?.mimeType || "").toLowerCase().startsWith("video/"),
+              String(file?.mimeType || file?.mime_type || "").toLowerCase().startsWith("video/"),
           }));
           return [
             ...prev,
@@ -4059,7 +4073,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               _awaitingServerEcho: awaitingServerEcho,
               _processingPending: keepPendingUntilServerEcho,
               _serverId: serverId,
-              expiresAt: hasFiles ? null : data?.expiresAt || null,
+              expiresAt: calculatedExpiresAt || null,
               replyTo: pendingMessage.replyTo || null,
               files: messageFiles,
             },

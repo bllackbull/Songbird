@@ -290,6 +290,34 @@ export function useChatEvents({
           scheduleLoadChats();
           onMessageDeletedRef.current?.(payload);
         }
+        if (isUpdateEvent) {
+          scheduleLoadChats();
+          const payloadMsgId = normalizeUuid(payload?.messageId) || null;
+          const previewBody = String(
+            payload?.summaryText || payload?.body || "",
+          ).trim();
+          if (payloadChatId) {
+            setChats((prev) =>
+              prev.map((chat) => {
+                if (!chat?.id) return chat;
+                const matches =
+                  String(chat.id).toLowerCase() === String(payloadChatId).toLowerCase();
+                if (!matches) return chat;
+                const isLastMsg =
+                  !payloadMsgId ||
+                  !chat?.last_message_id ||
+                  String(chat.last_message_id).toLowerCase() === String(payloadMsgId).toLowerCase();
+                if (isLastMsg && previewBody) {
+                  return {
+                    ...chat,
+                    last_message: previewBody,
+                  };
+                }
+                return chat;
+              }),
+            );
+          }
+        }
         if (isIncomingMessage) {
           onIncomingMessageRef.current?.(payload, {
             isActiveChat: isReadableActiveChat,
@@ -410,9 +438,6 @@ export function useChatEvents({
             // (and channel seen-counts refresh via onChatRead). No message
             // content changed, so skip the full-window refetch entirely.
             return;
-          }
-          if (isUpdateEvent) {
-            scheduleLoadChats();
           }
           scheduleMessageRefreshRef.current?.(currentActiveId, {
             preserveHistory: true,

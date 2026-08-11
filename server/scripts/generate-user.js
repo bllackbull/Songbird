@@ -3,6 +3,7 @@ import crypto from 'node:crypto'
 import { getCliArgs, getPositionalArgs, getFlagValue } from './_cli.js'
 import { openDatabase, runAdminActionViaServer } from './_db-admin.js'
 import { setUserColor } from '../settings/colors.js'
+import { generateUuid } from '../lib/uuidUtils.js'
 
 const clampEnvInt = (value, fallback, { min, max } = {}) => {
   const parsed = Number(value)
@@ -87,8 +88,8 @@ try {
         rawNickname.length > maxNickname ? rawNickname.slice(0, maxNickname) : rawNickname
       const assignedColor = setUserColor()
       await dbApi.run(
-        'INSERT INTO users (username, nickname, avatar_url, color, status, password_hash, created_at, last_seen) VALUES (?, ?, NULL, ?, ?, ?, datetime("now"), datetime("now"))',
-        [username, nickname, assignedColor, 'online', passwordHash],
+        'INSERT INTO users (id, username, nickname, avatar_url, color, status, password_hash, created_at, last_seen) VALUES (?, ?, ?, NULL, ?, ?, ?, datetime("now"), datetime("now"))',
+        [generateUuid(), username, nickname, assignedColor, 'online', passwordHash],
       )
       created += 1
     }

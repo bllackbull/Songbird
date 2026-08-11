@@ -643,13 +643,17 @@ export function createUser(
   nickname = null,
   avatarUrl = null,
   color = null,
+  options = {},
 ) {
   const id = generateUuid();
   const nextColor = color || setUserColor();
+  const role = typeof options === "string" ? options : (options?.role || "user");
+  const verified = typeof options === "object" && options?.verified ? 1 : 0;
+  const status = (typeof options === "object" && options?.status) || "online";
 
   const res = run(
-    "INSERT INTO users (id, username, nickname, avatar_url, color, password_hash, last_seen) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
-    [id, username, nickname, avatarUrl, nextColor, passwordHash],
+    "INSERT INTO users (id, username, nickname, avatar_url, color, password_hash, role, verified, status, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+    [id, username, nickname, avatarUrl, nextColor, passwordHash, role, verified, status],
   );
 
   if (res && typeof res.then === "function") {
@@ -673,7 +677,7 @@ export function findDmChat(userId, otherUserId) {
     WHERE c.type = 'dm'
     ORDER BY
       (SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) DESC,
-      (SELECT id FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC, id DESC LIMIT 1) DESC,
+      (SELECT created_at FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC, id DESC LIMIT 1) DESC,
       c.id DESC
     LIMIT 1
   `,
@@ -723,9 +727,10 @@ export function createChat(name, type = "dm", options = {}) {
     normalizedType === "group" || normalizedType === "channel"
       ? String(options.groupAvatarUrl || "").trim() || null
       : null;
+  const verified = options.verified ? 1 : 0;
 
   const res = run(
-    "INSERT INTO chats (id, name, type, group_username, group_visibility, invite_token, created_by_user_id, group_color, allow_member_invites, group_avatar_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO chats (id, name, type, group_username, group_visibility, invite_token, created_by_user_id, group_color, allow_member_invites, group_avatar_url, verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     [
       id,
       normalizedName,
@@ -737,6 +742,7 @@ export function createChat(name, type = "dm", options = {}) {
       groupColor,
       allowMemberInvites,
       groupAvatarUrl,
+      verified,
     ],
   );
 
@@ -760,7 +766,7 @@ export function addChatMember(chatId, userId, role = "member") {
  */
 export function addAllEligibleChatMembers(chatId) {
   const leftMessagePattern = "[[system:left:%";
-  const addedUsers = getAll(
+  const rawAddedUsers = getAll(
     `
     SELECT users.id, users.username, users.nickname
     FROM users
@@ -787,7 +793,8 @@ export function addAllEligibleChatMembers(chatId) {
       leftMessagePattern,
     ],
   );
-  const skippedLeftRow = getRow(
+
+  const rawSkippedLeftRow = getRow(
     `
     SELECT COUNT(*) AS count
     FROM users
@@ -816,13 +823,30 @@ export function addAllEligibleChatMembers(chatId) {
     ],
   );
 
+  if (rawAddedUsers && typeof rawAddedUsers.then === "function") {
+    return Promise.all([rawAddedUsers, rawSkippedLeftRow]).then(
+      async ([addedUsers, skippedLeftRow]) => {
+        const users = addedUsers || [];
+        for (const user of users) {
+          const res = addChatMember(chatId, user.id, "member");
+          if (res && typeof res.then === "function") await res;
+        }
+        return {
+          addedUsers: users,
+          skippedLeftCount: Number(skippedLeftRow?.count || 0),
+        };
+      },
+    );
+  }
+
+  const addedUsers = rawAddedUsers || [];
   addedUsers.forEach((user) => {
     addChatMember(chatId, user.id, "member");
   });
 
   return {
     addedUsers,
-    skippedLeftCount: Number(skippedLeftRow?.count || 0),
+    skippedLeftCount: Number(rawSkippedLeftRow?.count || 0),
   };
 }
 
@@ -1332,18 +1356,25 @@ export function enqueueRemoteChannelQueueItem(payload = {}) {
 }
 
 export function getRemoteChannelQueueSummary(sourceId) {
-  const rows = getAll(
+  const rawRows = getAll(
     `SELECT status, COUNT(*) AS count
      FROM remote_channel_queue
      WHERE source_id = ?
      GROUP BY status`,
     [Number(sourceId)],
   );
-  return rows.reduce((acc, row) => {
-    const status = String(row?.status || "").trim() || "unknown";
-    acc[status] = Number(row?.count || 0);
-    return acc;
-  }, {});
+
+  const summarize = (rows) =>
+    (rows || []).reduce((acc, row) => {
+      const status = String(row?.status || "").trim() || "unknown";
+      acc[status] = Number(row?.count || 0);
+      return acc;
+    }, {});
+
+  if (rawRows && typeof rawRows.then === "function") {
+    return rawRows.then(summarize);
+  }
+  return summarize(rawRows);
 }
 
 export function releaseStaleRemoteChannelQueueItems(staleBeforeIso) {
@@ -1753,6 +1784,77 @@ export function setChatMemberRole(chatId, userId, role = "member") {
 }
 
 export function deleteChatById(chatId) {
+  if (isPostgresMode()) return deleteChatByIdPostgres(chatId);
+  return deleteChatByIdSqlite(chatId);
+}
+
+async function deleteChatByIdPostgres(chatId) {
+  if (!chatId) return { storedNames: [] };
+
+  return await dbKnex.transaction(async (trx) => {
+    const queryAll = async (sql, params = []) => {
+      const { sql: normalizedSql, params: normalizedParams } =
+        normalizeSqlForPostgres(sql, params);
+      const response = await trx.raw(normalizedSql, normalizedParams);
+      return getPostgresRows(response);
+    };
+    const queryRun = async (sql, params = []) => {
+      const { sql: normalizedSql, params: normalizedParams } =
+        normalizeSqlForPostgres(sql, params);
+      return trx.raw(normalizedSql, normalizedParams);
+    };
+
+    const fileRows = await queryAll(
+      `
+        SELECT cmf.stored_name
+        FROM chat_message_files cmf
+        JOIN chat_messages cm ON cm.id = cmf.message_id
+        WHERE cm.chat_id = ?
+      `,
+      [chatId],
+    );
+    const storedNames = fileRows
+      .map((row) => String(row?.stored_name || "").trim())
+      .filter(Boolean);
+
+    await queryRun(
+      `DELETE FROM chat_message_reads
+       WHERE message_id IN (SELECT id FROM chat_messages WHERE chat_id = ?)`,
+      [chatId],
+    );
+    await queryRun(
+      `DELETE FROM hidden_chat_messages
+       WHERE message_id IN (SELECT id FROM chat_messages WHERE chat_id = ?)`,
+      [chatId],
+    );
+    await queryRun(
+      `DELETE FROM chat_message_files
+       WHERE message_id IN (SELECT id FROM chat_messages WHERE chat_id = ?)`,
+      [chatId],
+    );
+    await queryRun("DELETE FROM chat_messages WHERE chat_id = ?", [chatId]);
+    await queryRun("DELETE FROM chat_members WHERE chat_id = ?", [chatId]);
+    await queryRun("DELETE FROM hidden_chats WHERE chat_id = ?", [chatId]);
+    await queryRun("DELETE FROM chat_mutes WHERE chat_id = ?", [chatId]);
+    await queryRun("DELETE FROM chat_left_members WHERE chat_id = ?", [chatId]);
+    await queryRun("DELETE FROM group_removed_members WHERE chat_id = ?", [chatId]);
+    await queryRun(
+      `DELETE FROM remote_channel_queue
+       WHERE source_id IN (
+         SELECT id FROM remote_channel_sources WHERE chat_id = ?
+       )`,
+      [chatId],
+    );
+    await queryRun("DELETE FROM remote_channel_sources WHERE chat_id = ?", [
+      chatId,
+    ]);
+    await queryRun("DELETE FROM chats WHERE id = ?", [chatId]);
+
+    return { storedNames };
+  });
+}
+
+function deleteChatByIdSqlite(chatId) {
   if (!chatId) return { storedNames: [] };
 
   const fileRows = getAll(
@@ -2162,7 +2264,7 @@ export function listChatsForUser(userId) {
           WHERE last_hcm.user_id = ?
             AND last_hcm.message_id = last_cm.id
         )
-      ORDER BY last_cm.id DESC
+      ORDER BY last_cm.created_at DESC, last_cm.id DESC
       LIMIT 1
     )
     LEFT JOIN users last_user ON last_user.id = last_vm.user_id
@@ -2180,11 +2282,11 @@ export function listChatsForUser(userId) {
           WHERE outgoing_hcm.user_id = ?
             AND outgoing_hcm.message_id = outgoing_cm.id
         )
-      ORDER BY outgoing_cm.id DESC
+      ORDER BY outgoing_cm.created_at DESC, outgoing_cm.id DESC
       LIMIT 1
     )
     LEFT JOIN remote_channel_sources rcs ON rcs.chat_id = mc.id AND rcs.enabled = 1
-    ORDER BY last_vm.id DESC, mc.created_at DESC
+    ORDER BY last_vm.created_at DESC, last_vm.id DESC, mc.created_at DESC
   `,
     [
       userId,
@@ -2248,15 +2350,18 @@ export function createMessage(
 
 export function findMessageIdByClientRequestId(chatId, userId, clientRequestId) {
   const normalized = String(clientRequestId || "").trim();
-  if (!normalized) return null;
+  if (!normalized) return isPostgresMode() ? Promise.resolve(null) : null;
   const row = getRow(
     `SELECT id
      FROM chat_messages
      WHERE chat_id = ? AND user_id = ? AND client_request_id = ?
-     ORDER BY id DESC
+     ORDER BY created_at DESC, id DESC
      LIMIT 1`,
     [chatId, userId, normalized],
   );
+  if (row && typeof row.then === "function") {
+    return row.then((r) => r?.id || null);
+  }
   return row?.id || null;
 }
 
@@ -3389,7 +3494,11 @@ export function adminCountUsers({ search = "", roleFilter = null, statusFilter =
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-  return Number(getRow(`SELECT COUNT(*) AS count FROM users ${where}`, params)?.count || 0);
+  const rawRow = getRow(`SELECT COUNT(*) AS count FROM users ${where}`, params);
+  if (rawRow && typeof rawRow.then === "function") {
+    return rawRow.then((row) => Number(row?.count || 0));
+  }
+  return Number(rawRow?.count || 0);
 }
 
 export function adminListChats({ limit = 200, offset = 0, search = "", sortBy = "id", sortDir = "DESC", typeFilter = null }) {
@@ -3477,7 +3586,11 @@ export function adminCountChats({ search = "", typeFilter = null } = {}) {
   }
 
   const where = `WHERE ${conditions.join(" AND ")}`;
-  return Number(getRow(`SELECT COUNT(*) AS count FROM chats c ${where}`, params)?.count || 0);
+  const rawRow = getRow(`SELECT COUNT(*) AS count FROM chats c ${where}`, params);
+  if (rawRow && typeof rawRow.then === "function") {
+    return rawRow.then((row) => Number(row?.count || 0));
+  }
+  return Number(rawRow?.count || 0);
 }
 
 export function adminBanUser(userId, banned) {

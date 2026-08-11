@@ -82,8 +82,11 @@ function registerRemoteChannelRoutes(app, deps) {
     return { chat, chatId, user };
   };
 
-  const serializeSource = (source) => {
+  const serializeSource = async (source) => {
     if (!source?.id) return null;
+
+    const rawQueue = getRemoteChannelQueueSummary(source.id);
+    const queue = rawQueue && typeof rawQueue.then === "function" ? await rawQueue : rawQueue;
 
     return {
       id: Number(source.id),
@@ -101,7 +104,7 @@ function registerRemoteChannelRoutes(app, deps) {
       streamMedia: Boolean(getSetting("FILE_UPLOAD") && Number(source.stream_media || 0)),
       lastError: source.last_error || "",
       lastSeenAt: source.last_seen_at || null,
-      queue: getRemoteChannelQueueSummary(source.id),
+      queue,
       updatedAt: source.updated_at || null,
     };
   };
@@ -146,7 +149,7 @@ function registerRemoteChannelRoutes(app, deps) {
 
     const rawSource = getRemoteChannelSourceByChatId(chatId);
     const source = rawSource && typeof rawSource.then === "function" ? await rawSource : rawSource;
-    const serialized = serializeSource(source);
+    const serialized = await serializeSource(source);
 
     // Strip queue details for non-owners
     if (serialized && !isOwner) {
@@ -265,7 +268,7 @@ function registerRemoteChannelRoutes(app, deps) {
     return res.json({
       ok: true,
       available: true,
-      source: serializeSource(source),
+      source: await serializeSource(source),
     });
   });
 

@@ -59,6 +59,7 @@ import {
   getRow,
   createMessage,
   setMessageForwardOrigin,
+  deleteChatById,
 } from "../../db.js";
 
 describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
@@ -214,6 +215,50 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
 
       expect(await isGroupMemberRemoved(1, 5)).toBe(true);
       expect(await isGroupMemberRemoved(1, 99)).toBe(false);
+    });
+
+    test("addAllEligibleChatMembers resolves Promise without throwing addedUsers.forEach is not a function under Postgres mode", async () => {
+      process.env.DB_CLIENT = "postgres";
+      vi.spyOn(dbKnex, "raw").mockImplementation(async (sql) => {
+        if (sql.includes("FROM users")) {
+          if (sql.includes("COUNT(*)")) return { rows: [{ count: 0 }] };
+          return { rows: [{ id: "u1", username: "user1", nickname: "User 1" }] };
+        }
+        return { rows: [], rowCount: 1 };
+      });
+
+      const resultPromise = addAllEligibleChatMembers("c100");
+      expect(typeof resultPromise?.then).toBe("function");
+      const res = await resultPromise;
+      expect(res).toEqual({
+        addedUsers: [{ id: "u1", username: "user1", nickname: "User 1" }],
+        skippedLeftCount: 0,
+      });
+    });
+
+    test("deleteChatById resolves Promise without throwing fileRows.map is not a function under Postgres mode", async () => {
+      process.env.DB_CLIENT = "postgres";
+      vi.spyOn(dbKnex, "raw").mockImplementation(async (sql) => {
+        if (sql.includes("SELECT cmf.stored_name")) {
+          return { rows: [{ stored_name: "file1.png" }] };
+        }
+        return { rows: [], rowCount: 1 };
+      });
+      vi.spyOn(dbKnex, "transaction").mockImplementation(async (cb) => {
+        return cb({
+          raw: async (sql) => {
+            if (sql.includes("SELECT cmf.stored_name")) {
+              return { rows: [{ stored_name: "file1.png" }] };
+            }
+            return { rows: [], rowCount: 1 };
+          },
+        });
+      });
+
+      const resultPromise = deleteChatById("c100");
+      expect(typeof resultPromise?.then).toBe("function");
+      const res = await resultPromise;
+      expect(res).toEqual({ storedNames: ["file1.png"] });
     });
 
     test("getUserRole, isUserAdmin, isUserOwner, getOwnerUser resolve properly under Postgres mode", async () => {

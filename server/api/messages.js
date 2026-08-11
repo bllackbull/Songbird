@@ -613,15 +613,19 @@ function registerMessageRoutes(app, deps) {
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
-    const user = findUserByUsername(String(username || "").toLowerCase());
+    const rawUser = findUserByUsername(String(username || "").toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
-    if (!isMember(chatId, user.id)) {
+    const rawMember = isMember(chatId, user.id);
+    const isMem = rawMember && typeof rawMember.then === "function" ? await rawMember : rawMember;
+    if (!isMem) {
       return res.status(403).json({ error: "Not a member of this chat." });
     }
 
-    const chat = findChatById(chatId);
+    const rawChat = findChatById(chatId);
+    const chat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
     if (!chat) {
       return res.status(404).json({ error: "Chat not found." });
     }
@@ -809,11 +813,12 @@ function registerMessageRoutes(app, deps) {
         }
 
         if (!editMessageId && clientRequestId) {
-          const existingId = findMessageIdByClientRequestId(
+          const rawExistingId = findMessageIdByClientRequestId(
             chatId,
             user.id,
             clientRequestId,
           );
+          const existingId = rawExistingId && typeof rawExistingId.then === "function" ? await rawExistingId : rawExistingId;
           if (existingId) {
             removeUploadedFiles(uploadedFiles);
             return res.json({ id: existingId, deduped: true });
@@ -1037,12 +1042,47 @@ function registerMessageRoutes(app, deps) {
           });
         }
 
+        const rawInsertedFiles = listMessageFilesByMessageIds([messageId]);
+        const insertedFiles = (rawInsertedFiles && typeof rawInsertedFiles.then === "function" ? await rawInsertedFiles : rawInsertedFiles) || [];
+        const hydratedFiles = typeof hydrateMissingVideoMetadata === "function"
+          ? await hydrateMissingVideoMetadata(insertedFiles)
+          : insertedFiles;
+        const sourceFilesForResponse = hydratedFiles.length ? hydratedFiles : normalizedFiles;
+        const responseFiles = sourceFilesForResponse.map((file, idx) => {
+          const storedName = file.stored_name || file.storedName || "";
+          const expiresAtVal = file.expires_at || file.expiresAt || expiresAtIso || null;
+          return {
+            id: file.id || (idx + 1),
+            kind: file.kind,
+            name: file.original_name || file.originalName || "",
+            mimeType: file.mime_type || file.mimeType || "",
+            processing: typeof isVideoFileProcessing === "function" ? isVideoFileProcessing(file) : false,
+            sizeBytes: Number(file.size_bytes || file.sizeBytes || 0),
+            width: Number.isFinite(Number(file.width_px ?? file.widthPx))
+              ? Number(file.width_px ?? file.widthPx)
+              : null,
+            height: Number.isFinite(Number(file.height_px ?? file.heightPx))
+              ? Number(file.height_px ?? file.heightPx)
+              : null,
+            durationSeconds: Number.isFinite(Number(file.duration_seconds ?? file.durationSeconds))
+              ? Number(file.duration_seconds ?? file.durationSeconds)
+              : null,
+            expiresAt: expiresAtVal,
+            expires_at: expiresAtVal,
+            url: storedName ? `/api/uploads/messages/${storedName}` : null,
+          };
+        });
+        const fileExpiresAt = responseFiles.find((f) => f.expiresAt)?.expiresAt || null;
+
         if (editTarget) {
           emitChatEvent(chatId, {
             type: "chat_message_updated",
             chatId,
             messageId,
             username: user.username,
+            files: responseFiles,
+            expiresAt: fileExpiresAt,
+            expires_at: fileExpiresAt,
           });
         } else if (shouldTranscodeVideos && hasVideoFiles && transcodeJobsQueued > 0) {
           // Only show pending-conversion videos to the uploader.
@@ -1055,6 +1095,9 @@ function registerMessageRoutes(app, deps) {
             body: fallbackBody,
             summaryText: fileSummaryText,
             replyToMessageId,
+            files: responseFiles,
+            expiresAt: fileExpiresAt,
+            expires_at: fileExpiresAt,
           });
         } else {
           emitChatEvent(chatId, {
@@ -1066,6 +1109,9 @@ function registerMessageRoutes(app, deps) {
             body: fallbackBody,
             summaryText: fileSummaryText,
             replyToMessageId,
+            files: responseFiles,
+            expiresAt: fileExpiresAt,
+            expires_at: fileExpiresAt,
           });
         }
 
@@ -1075,7 +1121,12 @@ function registerMessageRoutes(app, deps) {
           fileCount: normalizedFiles.length,
         });
 
-        res.json({ id: messageId, deduped: dedupedMessage });
+        res.json({
+          id: messageId,
+          deduped: dedupedMessage,
+          expiresAt: fileExpiresAt,
+          files: responseFiles,
+        });
 
         if (!editTarget) {
           void (async () => {
@@ -1319,6 +1370,8 @@ function registerMessageRoutes(app, deps) {
       chatId,
       messageId,
       username: user.username,
+      body: trimmedBody,
+      summaryText: trimmedBody,
     });
 
     res.json({ ok: true, id: messageId });

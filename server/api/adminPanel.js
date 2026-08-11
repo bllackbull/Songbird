@@ -1,7 +1,7 @@
 import { normalizeHexColor, normalizeGroupUsername, normalizeVisibility, normalizeChatType } from "../lib/dbToolHelpers.js";
 import { createInviteToken } from "../lib/inviteTokens.js";
 import { validateUuidParams } from "../lib/uuidMiddleware.js";
-import { isValidUuid } from "../lib/uuidUtils.js";
+import { isValidUuid, generateUuid } from "../lib/uuidUtils.js";
 import { writeAdminLog, readAdminLog, clearAdminLog } from "../lib/adminLog.js";
 import { readInstallerLog, readNginxLog, readServiceLog, probeLogSources } from "../lib/systemLogs.js";
 import os from "node:os";
@@ -372,17 +372,19 @@ function registerAdminPanelRoutes(app, deps) {
     const passwordHash   = await bcrypt.hash(password, 10);
     const suppliedColor  = normalizeHexColor(String(req.body?.color || ""));
     const assignedColor  = suppliedColor || setUserColor();
+    const verified       = req.body?.verified !== undefined ? (req.body.verified ? 1 : 0) : 0;
+    const newUserId = generateUuid();
     await resolveMaybePromise(adminRun(
-      `INSERT INTO users (username, nickname, avatar_url, color, status, password_hash, created_at, last_seen)
-       VALUES (?, ?, NULL, ?, 'online', ?, datetime('now'), datetime('now'))`,
-      [rawUsername, nickname, assignedColor, passwordHash],
+      `INSERT INTO users (id, username, nickname, avatar_url, color, status, password_hash, created_at, last_seen, verified)
+       VALUES (?, ?, ?, NULL, ?, 'online', ?, datetime('now'), datetime('now'), ?)`,
+      [newUserId, rawUsername, nickname, assignedColor, passwordHash, verified],
     ));
     if (role !== "user") {
       const newUser = await adminGetRow("SELECT id FROM users WHERE username = ?", [rawUsername]);
       if (newUser?.id) await resolveMaybePromise(adminRun("UPDATE users SET role = ? WHERE id = ?", [role, newUser.id]));
     }
     adminSave();
-    const row = await adminGetRow("SELECT id, username, nickname, color, role FROM users WHERE username = ?", [rawUsername]);
+    const row = await adminGetRow("SELECT id, username, nickname, color, role, verified FROM users WHERE username = ?", [rawUsername]);
     log(session, "user.create", { targetType: "user", targetLabel: `@${rawUsername}`, details: `role=${role}` });
     res.status(201).json({ ok: true, user: row });
   });
@@ -654,6 +656,7 @@ function registerAdminPanelRoutes(app, deps) {
       inviteToken,
       createdByUserId:   owner.id,
       groupColor,
+      verified:          Boolean(b.verified),
     }));
 
     if (!chatId) return res.status(500).json({ error: "Failed to create chat." });
