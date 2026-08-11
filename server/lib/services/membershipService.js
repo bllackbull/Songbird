@@ -37,10 +37,10 @@ export function createMembershipService(dbApi) {
          WHERE chat_id = ? AND user_id = ? AND body LIKE ?
          LIMIT 1`,
         [
-          Number(chatId),
-          Number(userId),
-          Number(chatId),
-          Number(userId),
+          chatId,
+          userId,
+          chatId,
+          userId,
           "[[system:left:%",
         ],
       );
@@ -55,8 +55,8 @@ export function createMembershipService(dbApi) {
   function clearPriorLeft(chatId, userId) {
     if (typeof run === "function") {
       run("DELETE FROM chat_left_members WHERE chat_id = ? AND user_id = ?", [
-        Number(chatId),
-        Number(userId),
+        chatId,
+        userId,
       ]);
     }
   }
@@ -70,8 +70,8 @@ export function createMembershipService(dbApi) {
     updatedMemberUsernames = [],
     systemMessageUserId = null,
   ) {
-    const chat = getChatById(Number(chatId));
-    const members = listChatMembers(Number(chatId)) || [];
+    const chat = getChatById(chatId);
+    const members = listChatMembers(chatId) || [];
     const memberUsernames = members.map((m) =>
       String(m.username || "").toLowerCase(),
     );
@@ -88,11 +88,11 @@ export function createMembershipService(dbApi) {
       if (username) {
         sseEvents.push({
           targetUsername: username,
-          payload: { type: "chat_updated", chatId: Number(chatId) },
+          payload: { type: "chat_updated", chatId },
         });
         sseEvents.push({
           targetUsername: username,
-          payload: { type: "chat_list_changed", chatId: Number(chatId) },
+          payload: { type: "chat_list_changed", chatId },
         });
       }
     });
@@ -105,9 +105,9 @@ export function createMembershipService(dbApi) {
       typeof addSystemMessage === "function"
     ) {
       systemMessageResult = addSystemMessage(
-        Number(chatId),
+        chatId,
         systemMsgBody,
-        Number(systemMessageUserId),
+        systemMessageUserId,
       );
     }
 
@@ -116,7 +116,7 @@ export function createMembershipService(dbApi) {
       members,
       systemMessage: systemMessageResult,
       sseEvents,
-      pushRecipients: members.map((m) => Number(m.id)),
+      pushRecipients: members.map((m) => m.id),
     };
   }
 
@@ -129,7 +129,7 @@ export function createMembershipService(dbApi) {
     role = "member",
     force = false,
   }) {
-    const chat = getChatById(Number(chatId));
+    const chat = getChatById(chatId);
     if (!chat) throw new Error("Chat not found");
 
     let addedCount = 0;
@@ -137,29 +137,28 @@ export function createMembershipService(dbApi) {
     let systemMessageUserId = null;
     const addedUsernames = [];
 
-    const existingMembers = listChatMembers(Number(chatId)) || [];
-    const existingUserIds = new Set(existingMembers.map((m) => Number(m.id)));
+    const existingMembers = listChatMembers(chatId) || [];
+    const existingUserIds = new Set(existingMembers.map((m) => m.id));
 
     for (const userId of targetUserIds) {
-      const numUserId = Number(userId);
-      if (existingUserIds.has(numUserId)) {
+      if (existingUserIds.has(userId)) {
         skippedCount++;
         continue;
       }
 
-      if (!force && isUserPriorLeft(chatId, numUserId)) {
+      if (!force && isUserPriorLeft(chatId, userId)) {
         skippedCount++;
         continue;
       }
 
-      clearPriorLeft(chatId, numUserId);
-      addChatMember(Number(chatId), numUserId, role);
+      clearPriorLeft(chatId, userId);
+      addChatMember(chatId, userId, role);
       addedCount++;
 
-      const user = findUserById(numUserId);
+      const user = findUserById(userId);
       if (user?.username) {
         addedUsernames.push(user.username);
-        if (systemMessageUserId === null) systemMessageUserId = numUserId;
+        if (systemMessageUserId === null) systemMessageUserId = userId;
       }
     }
 
@@ -186,9 +185,9 @@ export function createMembershipService(dbApi) {
     updatedMemberUsernames = [],
     systemMessageUserId = null,
   ) {
-    const rawChat = getChatById(Number(chatId));
+    const rawChat = getChatById(chatId);
     const chat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
-    const rawMembers = listChatMembers(Number(chatId));
+    const rawMembers = listChatMembers(chatId);
     const members = (rawMembers && typeof rawMembers.then === "function" ? await rawMembers : rawMembers) || [];
     const memberUsernames = members.map((m) =>
       String(m.username || "").toLowerCase(),
@@ -203,11 +202,11 @@ export function createMembershipService(dbApi) {
       if (username) {
         sseEvents.push({
           targetUsername: username,
-          payload: { type: "chat_updated", chatId: Number(chatId) },
+          payload: { type: "chat_updated", chatId },
         });
         sseEvents.push({
           targetUsername: username,
-          payload: { type: "chat_list_changed", chatId: Number(chatId) },
+          payload: { type: "chat_list_changed", chatId },
         });
       }
     });
@@ -220,9 +219,9 @@ export function createMembershipService(dbApi) {
       typeof addSystemMessage === "function"
     ) {
       const rawResult = addSystemMessage(
-        Number(chatId),
+        chatId,
         systemMsgBody,
-        Number(systemMessageUserId),
+        systemMessageUserId,
       );
       systemMessageResult =
         rawResult && typeof rawResult.then === "function"
@@ -235,7 +234,7 @@ export function createMembershipService(dbApi) {
       members,
       systemMessage: systemMessageResult,
       sseEvents,
-      pushRecipients: members.map((m) => Number(m.id)),
+      pushRecipients: members.map((m) => m.id),
     };
   }
 
@@ -244,7 +243,7 @@ export function createMembershipService(dbApi) {
    */
   function joinByInvite({ inviteToken, userId }) {
     const rawChat = findGroupByInviteToken(inviteToken);
-    const rawUser = findUserById(Number(userId));
+    const rawUser = findUserById(userId);
     const hasAsyncDependency =
       rawChat && typeof rawChat.then === "function" ||
       rawUser && typeof rawUser.then === "function";
@@ -258,7 +257,7 @@ export function createMembershipService(dbApi) {
 
       const rawClear = clearPriorLeft(chat.id, user.id);
       if (rawClear && typeof rawClear.then === "function") await rawClear;
-      const rawAdd = addChatMember(Number(chat.id), Number(user.id), "member");
+      const rawAdd = addChatMember(chat.id, user.id, "member");
       if (rawAdd && typeof rawAdd.then === "function") await rawAdd;
 
       const nickname = user.nickname || user.username;
@@ -282,7 +281,7 @@ export function createMembershipService(dbApi) {
     if (!rawUser) throw new Error("User not found");
 
     clearPriorLeft(rawChat.id, rawUser.id);
-    addChatMember(Number(rawChat.id), Number(rawUser.id), "member");
+    addChatMember(rawChat.id, rawUser.id, "member");
 
     const nickname = rawUser.nickname || rawUser.username;
     const effects = buildEffects(
@@ -303,13 +302,13 @@ export function createMembershipService(dbApi) {
    * Leave a chat.
    */
   function leaveChat({ chatId, userId }) {
-    const chat = getChatById(Number(chatId));
+    const chat = getChatById(chatId);
     if (!chat) throw new Error("Chat not found");
 
-    const user = findUserById(Number(userId));
+    const user = findUserById(userId);
     if (!user) throw new Error("User not found");
 
-    removeChatMember(Number(chatId), Number(userId));
+    removeChatMember(chatId, userId);
 
     const nickname = user.nickname || user.username;
     const effects = buildEffects(chatId, `[[system:left:${nickname}]]`, [
@@ -327,13 +326,13 @@ export function createMembershipService(dbApi) {
    * Remove a member from a chat.
    */
   function removeMember({ chatId, targetUserId, removedByUserId }) {
-    const chat = getChatById(Number(chatId));
+    const chat = getChatById(chatId);
     if (!chat) throw new Error("Chat not found");
 
-    const targetUser = findUserById(Number(targetUserId));
+    const targetUser = findUserById(targetUserId);
     if (!targetUser) throw new Error("User not found");
 
-    removeChatMember(Number(chatId), Number(targetUserId));
+    removeChatMember(chatId, targetUserId);
 
     const nickname = targetUser.nickname || targetUser.username;
     const effects = buildEffects(chatId, `[[system:removed:${nickname}]]`, [
@@ -351,13 +350,13 @@ export function createMembershipService(dbApi) {
    * Update member role.
    */
   function updateMemberRole({ chatId, targetUserId, newRole }) {
-    const chat = getChatById(Number(chatId));
+    const chat = getChatById(chatId);
     if (!chat) throw new Error("Chat not found");
 
-    const targetUser = findUserById(Number(targetUserId));
+    const targetUser = findUserById(targetUserId);
     if (!targetUser) throw new Error("User not found");
 
-    updateChatMemberRole(Number(chatId), Number(targetUserId), newRole);
+    updateChatMemberRole(chatId, targetUserId, newRole);
     const effects = buildEffects(chatId, null, [targetUser.username]);
 
     return {

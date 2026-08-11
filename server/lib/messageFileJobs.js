@@ -39,9 +39,7 @@ export function createMessageFileJobs({
       normalized,
     );
     const processRows = (rows) =>
-      (rows || [])
-        .map((row) => Number(row?.message_id || 0))
-        .filter((id) => Number.isFinite(id) && id > 0);
+      (rows || []).map((row) => row?.message_id).filter(Boolean);
 
     return rawRes && typeof rawRes.then === "function"
       ? rawRes.then(processRows)
@@ -50,11 +48,7 @@ export function createMessageFileJobs({
 
   const cleanupMissingMessageFiles = (messageIds = []) => {
     const normalized = Array.from(
-      new Set(
-        (Array.isArray(messageIds) ? messageIds : [])
-          .map((id) => Number(id))
-          .filter((id) => Number.isFinite(id) && id > 0),
-      ),
+      new Set((Array.isArray(messageIds) ? messageIds : []).filter(Boolean)),
     );
 
     if (!normalized.length)
@@ -83,7 +77,7 @@ export function createMessageFileJobs({
         const filePath = path.join(uploadRootDir, stored);
 
         if (!fs.existsSync(filePath)) {
-          missingMessageIds.add(Number(row.message_id));
+          missingMessageIds.add(row.message_id);
         }
       });
 
@@ -114,8 +108,8 @@ export function createMessageFileJobs({
           const processPairs = (messageChatPairs) => {
             const deletedByChat = new Map();
             (messageChatPairs || []).forEach((row) => {
-              const chatId = Number(row?.chat_id || 0);
-              const messageId = Number(row?.id || 0);
+              const chatId = row?.chat_id;
+              const messageId = row?.id;
               if (!chatId || !messageId) return;
               const list = deletedByChat.get(chatId) || [];
               list.push(messageId);

@@ -22,7 +22,7 @@ export function createWebSocketGateway({
           if (broadcast) {
             broadcastLocal(payload);
           } else if (chatId && sseHub) {
-            const rawMembers = sseHub.getCachedMembers(Number(chatId));
+            const rawMembers = sseHub.getCachedMembers(chatId);
             const processMembers = (members) => {
               (members || []).forEach((m) => {
                 if (m?.username) sendToUsernameLocal(m.username, payload);
@@ -80,7 +80,7 @@ export function createWebSocketGateway({
 
   function sendChatEvent(chatId, payload) {
     if (sseHub) {
-      const rawMembers = sseHub.getCachedMembers(Number(chatId));
+      const rawMembers = sseHub.getCachedMembers(chatId);
       const processMembers = (members) => {
         (members || []).forEach((member) => {
           if (member?.username) sendToUsernameLocal(member.username, payload);

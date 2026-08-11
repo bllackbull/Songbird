@@ -5,6 +5,8 @@ import { StringSession } from "telegram/sessions/index.js";
 import { ProxyAgent } from "undici";
 import { getSetting } from "./appSettings.js";
 
+import { isValidUuid } from "./uuidUtils.js";
+
 // ─── Songbird outbound proxy ──────────────────────────────────────────────────
 // Applied per-fetch-call (no persistent connection to bake it into), so this
 // reads the live setting on every call instead of a value captured at startup.
@@ -801,7 +803,7 @@ function groupTelegramMessagesForQueue(messages = []) {
   return groups;
 }
 
-function createRemoteChannelManager(deps = {}) {
+export function createRemoteChannelManager(deps = {}) {
   const {
     config = {},
     computeExpiryIso,
@@ -1155,7 +1157,7 @@ function createRemoteChannelManager(deps = {}) {
   ) {
     const nextResolved =
       resolved || await resolveSource(activeClient, source, { forceRefresh: true });
-    const targetChat = await resolveMaybePromise(findChatById(Number(source.chat_id || 0)));
+    const targetChat = await resolveMaybePromise(findChatById(source.chat_id || null));
     if (
       targetChat &&
       Boolean(Number(source.sync_metadata || 0)) &&
@@ -1167,7 +1169,7 @@ function createRemoteChannelManager(deps = {}) {
         String(nextName || "") !== String(targetChat.name || "") ||
         String(nextAvatarUrl || "") !== String(targetChat.group_avatar_url || "");
       if (metadataChanged) {
-        await resolveMaybePromise(updateChannelChat(Number(targetChat.id), {
+        await resolveMaybePromise(updateChannelChat(targetChat.id, {
           name: nextName,
           groupUsername: targetChat.group_username,
           groupVisibility: targetChat.group_visibility,
@@ -1176,7 +1178,7 @@ function createRemoteChannelManager(deps = {}) {
           ),
           groupAvatarUrl: nextAvatarUrl,
         }));
-        const members = (await resolveMaybePromise(listChatMembers(Number(targetChat.id)))) || [];
+        const members = (await resolveMaybePromise(listChatMembers(targetChat.id))) || [];
         members
           .map((member) => String(member?.username || "").toLowerCase())
           .filter(Boolean)
@@ -1184,7 +1186,7 @@ function createRemoteChannelManager(deps = {}) {
             try {
               emitSseEvent?.(memberUsername, {
                 type: "chat_list_changed",
-                chatId: Number(targetChat.id),
+                chatId: targetChat.id,
               });
             } catch {
               // ignore realtime list errors
@@ -1322,7 +1324,7 @@ function createRemoteChannelManager(deps = {}) {
     }
 
     // Apply to the local channel if sync_metadata is enabled.
-    const targetChat = await resolveMaybePromise(findChatById(Number(source.chat_id || 0)));
+    const targetChat = await resolveMaybePromise(findChatById(source.chat_id || null));
     if (
       targetChat &&
       Boolean(Number(source.sync_metadata || 0)) &&
@@ -1334,7 +1336,7 @@ function createRemoteChannelManager(deps = {}) {
         String(nextName || "") !== String(targetChat.name || "") ||
         String(nextAvatarUrl || "") !== String(targetChat.group_avatar_url || "");
       if (metadataChanged) {
-        await resolveMaybePromise(updateChannelChat(Number(targetChat.id), {
+        await resolveMaybePromise(updateChannelChat(targetChat.id, {
           name: nextName,
           groupUsername: targetChat.group_username,
           groupVisibility: targetChat.group_visibility,
@@ -1343,7 +1345,7 @@ function createRemoteChannelManager(deps = {}) {
           ),
           groupAvatarUrl: nextAvatarUrl,
         }));
-        const members = (await resolveMaybePromise(listChatMembers(Number(targetChat.id)))) || [];
+        const members = (await resolveMaybePromise(listChatMembers(targetChat.id))) || [];
         members
           .map((member) => String(member?.username || "").toLowerCase())
           .filter(Boolean)
@@ -1351,7 +1353,7 @@ function createRemoteChannelManager(deps = {}) {
             try {
               emitSseEvent?.(memberUsername, {
                 type: "chat_list_changed",
-                chatId: Number(targetChat.id),
+                chatId: targetChat.id,
               });
             } catch {
               // ignore realtime list errors
@@ -1678,39 +1680,39 @@ function createRemoteChannelManager(deps = {}) {
   }
 
   async function resolveAuthorUserId(chat) {
-    const createdByUserId = Number(chat?.created_by_user_id || 0);
-    if (createdByUserId > 0) return createdByUserId;
-    const members = (await resolveMaybePromise(listChatMembers(Number(chat?.id || 0)))) || [];
+    const createdByUserId = chat?.created_by_user_id || null;
+    if (createdByUserId) return createdByUserId;
+    const members = (await resolveMaybePromise(listChatMembers(chat?.id || null))) || [];
     const owner = members.find(
       (member) => String(member?.role || "").toLowerCase() === "owner",
     );
-    return Number(owner?.id || 0) || null;
+    return owner?.id || null;
   }
 
   async function sendPushForMirroredPost({ chat, authorId, body }) {
     try {
-      const members = (await resolveMaybePromise(listChatMembers(Number(chat.id)))) || [];
-      const mutedRows = (await resolveMaybePromise(listMutedUserIdsForChat(Number(chat.id)))) || [];
+      const members = (await resolveMaybePromise(listChatMembers(chat.id))) || [];
+      const mutedRows = (await resolveMaybePromise(listMutedUserIdsForChat(chat.id))) || [];
       const mutedIds = new Set(
-        mutedRows.map((row) => Number(row?.user_id || 0)).filter(Boolean),
+        mutedRows.map((row) => row?.user_id).filter(Boolean),
       );
       const recipientIds = members
-        .map((member) => Number(member?.id || 0))
+        .map((member) => member?.id)
         .filter(
           (memberId) =>
-            memberId > 0 &&
-            Number(memberId) !== Number(authorId) &&
+            memberId &&
+            String(memberId) !== String(authorId) &&
             !mutedIds.has(memberId),
         )
         .filter((memberId) => {
-          const member = members.find((m) => Number(m?.id || 0) === memberId);
+          const member = members.find((m) => m?.id === memberId);
           return !isUserConnected(member?.username);
         });
       if (!recipientIds.length) return;
       await sendPushNotificationToUsers(recipientIds, {
         title: chat.name || "Channel",
         body: String(body || "").trim() || "New message",
-        data: { url: "/", chatId: Number(chat.id) },
+        data: { url: "/", chatId: chat.id },
       });
     } catch {
       // Push should never block queue progress.
@@ -1894,7 +1896,7 @@ function createRemoteChannelManager(deps = {}) {
     if (typeof listMessageFilesByMessageIds !== "function" || !messageId) {
       return { count: 0, totalBytes: 0, names: new Set() };
     }
-    const rows = (await resolveMaybePromise(listMessageFilesByMessageIds([Number(messageId)]))) || [];
+    const rows = (await resolveMaybePromise(listMessageFilesByMessageIds([messageId]))) || [];
     return rows.reduce(
       (stats, row) => {
         stats.count += 1;
@@ -2023,14 +2025,14 @@ function createRemoteChannelManager(deps = {}) {
         await ensureFfmpegAvailable();
       } catch (error) {
         log("media:transcode-skip", {
-          messageId: Number(messageId),
+          messageId,
           error: errorMessage(error),
         });
         return;
       }
     }
 
-    const rows = (await resolveMaybePromise(listMessageFilesByMessageIds([Number(messageId)]))) || [];
+    const rows = (await resolveMaybePromise(listMessageFilesByMessageIds([messageId]))) || [];
     const inserted = rows.find(
       (row) => path.basename(String(row?.stored_name || "")) === file.storedName,
     );
@@ -2040,8 +2042,8 @@ function createRemoteChannelManager(deps = {}) {
     enqueueVideoTranscodeJob({
       fileId,
       storedName: file.storedName,
-      chatId: Number(chat.id),
-      messageId: Number(messageId),
+      chatId: chat.id,
+      messageId,
       username: author.username,
     });
   }
@@ -2093,7 +2095,7 @@ function createRemoteChannelManager(deps = {}) {
       );
       if (!downloaded?.file) continue;
 
-      let targetMessageId = 0;
+      let targetMessageId = null;
       try {
         const summaryText = summarizeMediaFiles([downloaded.file]);
         targetMessageId = await ensureMessage(summaryText || "Sent a media file", {
@@ -2110,22 +2112,23 @@ function createRemoteChannelManager(deps = {}) {
           continue;
         }
 
-        await resolveMaybePromise(createMessageFiles(Number(targetMessageId), [downloaded.file]));
-        await resolveMaybePromise(setMessageExpiresAt?.(Number(targetMessageId), null));
+        await resolveMaybePromise(createMessageFiles(targetMessageId, [downloaded.file]));
+        await resolveMaybePromise(setMessageExpiresAt?.(targetMessageId, null));
         attached += 1;
 
         await maybeEnqueueRemoteVideoTranscode({
           chat,
-          messageId: Number(targetMessageId),
+          messageId: targetMessageId,
           author,
           file: downloaded.file,
         });
 
-        emitChatEvent(Number(chat.id), {
+        emitChatEvent(chat.id, {
           type: "chat_message_updated",
-          chatId: Number(chat.id),
-          messageId: Number(targetMessageId),
+          chatId: chat.id,
+          messageId: targetMessageId,
           username: author.username,
+          userId: author.id,
         });
       } catch (error) {
         safeUnlink(downloaded.filePath);
@@ -2186,7 +2189,7 @@ function createRemoteChannelManager(deps = {}) {
         return;
       }
 
-      const chat = await resolveMaybePromise(findChatById(Number(item.chat_id)));
+      const chat = await resolveMaybePromise(findChatById(item.chat_id));
       if (!chat || String(chat.type || "").toLowerCase() !== "channel") {
         throw new Error("Target channel is no longer available.");
       }
@@ -2206,8 +2209,8 @@ function createRemoteChannelManager(deps = {}) {
       };
 
       const expiresAt = computeTextExpiryIso(messageTextRetentionDays);
-      const created = await resolveMaybePromise(createOrReuseMessage(Number(chat.id), authorId, body, null, expiresAt, clientRequestId));
-      const msgId = Number(created?.id || 0);
+      const created = await resolveMaybePromise(createOrReuseMessage(chat.id, authorId, body, null, expiresAt, clientRequestId));
+      const msgId = created?.id || null;
       if (!msgId) throw new Error("Unable to create mirrored message.");
 
       if (!created?.deduped) {
@@ -2219,9 +2222,9 @@ function createRemoteChannelManager(deps = {}) {
           sourceAvatarUrl: currentSource.source_avatar_url || null,
           sourceColor: "#10b981",
         });
-        emitChatEvent(Number(chat.id), {
+        emitChatEvent(chat.id, {
           type: "chat_message",
-          chatId: Number(chat.id),
+          chatId: chat.id,
           messageId: msgId,
           username: author.username,
           clientRequestId,
@@ -2261,7 +2264,7 @@ function createRemoteChannelManager(deps = {}) {
       return;
     }
 
-    const chat = await resolveMaybePromise(findChatById(Number(item.chat_id)));
+    const chat = await resolveMaybePromise(findChatById(item.chat_id));
     if (!chat || String(chat.type || "").toLowerCase() !== "channel") {
       throw new Error("Target channel is no longer available.");
     }
@@ -2287,7 +2290,7 @@ function createRemoteChannelManager(deps = {}) {
       source_title: item.source_title || "",
       source_username: item.source_username || "",
     };
-    let messageId = 0;
+    let messageId = null;
     let messageBody = "";
     let initialMessageDeduped = false;
     let initialMessageEmitted = false;
@@ -2309,16 +2312,19 @@ function createRemoteChannelManager(deps = {}) {
         ? null
         : computeTextExpiryIso(messageTextRetentionDays);
       const created = await resolveMaybePromise(createOrReuseMessage(
-        Number(chat.id),
+        chat.id,
         authorId,
         messageBody,
         null,
         expiresAt,
         clientRequestId,
       ));
-      messageId = Number(created?.id || 0);
+      messageId = created?.id || null;
       initialMessageDeduped = Boolean(created?.deduped);
-      if (!messageId) throw new Error("Unable to create mirrored message.");
+          if (!messageId) throw new Error("Unable to create mirrored message.");
+      if (!isValidUuid(String(author?.id || authorId || ""))) {
+        throw new Error("Mirrored message author UUID is unavailable.");
+      }
 
       if (!created?.deduped) {
         await setMessageForwardOrigin(messageId, {
@@ -2330,9 +2336,9 @@ function createRemoteChannelManager(deps = {}) {
             envelope?.source?.avatarUrl || item.source_avatar_url || null,
           sourceColor: "#10b981",
         });
-        emitChatEvent(Number(chat.id), {
+        emitChatEvent(chat.id, {
           type: "chat_message",
-          chatId: Number(chat.id),
+          chatId: chat.id,
           messageId,
           username: author.username,
           clientRequestId,
@@ -2638,7 +2644,6 @@ function createRemoteChannelManager(deps = {}) {
 }
 
 export {
-  createRemoteChannelManager,
   getTelegramClientConnectionOptions,
   normalizeSongbirdSource,
   normalizeTelegramSource,

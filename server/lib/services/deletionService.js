@@ -19,27 +19,26 @@ export function createDeletionService(dbApi) {
    * Deletes a chat (group, channel, DM, saved) and returns post-commit cleanup & notification targets.
    */
   async function deleteChat({ chatId }) {
-    const numChatId = Number(chatId);
-    const chat = findChatById ? await findChatById(numChatId) : null;
-    const members = listChatMembers ? (await listChatMembers(numChatId)) || [] : [];
+    const chat = findChatById ? await findChatById(chatId) : null;
+    const members = listChatMembers ? (await listChatMembers(chatId)) || [] : [];
     const memberUsernames = members
       .map((m) => String(m?.username || "").toLowerCase())
       .filter(Boolean);
 
-    const deletion = deleteChatById ? await deleteChatById(numChatId) : {};
+    const deletion = deleteChatById ? await deleteChatById(chatId) : {};
     const { storedNames = [] } = deletion || {};
 
     const sseEvents = memberUsernames.map((username) => ({
       targetUsername: username,
       payload: {
         type: "chat_deleted",
-        chatId: numChatId,
+        chatId,
       },
     }));
 
     return {
       success: true,
-      chatId: numChatId,
+      chatId,
       chat,
       storedFilesToRemove: storedNames,
       sseEvents,
@@ -50,12 +49,11 @@ export function createDeletionService(dbApi) {
    * Deletes a user account and returns post-commit disk cleanup and affected chat notification targets.
    */
   async function deleteUser({ targetUserId }) {
-    const numUserId = Number(targetUserId);
-    const user = findUserById ? await findUserById(numUserId) : null;
-    const userChats = listChatsForUser ? (await listChatsForUser(numUserId)) || [] : [];
-    const affectedChatIds = userChats.map((c) => Number(c.id));
+    const user = findUserById ? await findUserById(targetUserId) : null;
+    const userChats = listChatsForUser ? (await listChatsForUser(targetUserId)) || [] : [];
+    const affectedChatIds = userChats.map((c) => c.id);
 
-    const deletion = deleteUserById ? await deleteUserById(numUserId) : {};
+    const deletion = deleteUserById ? await deleteUserById(targetUserId) : {};
     const { storedNames = [], avatarUrl = null } = deletion || {};
 
     const sseEvents = [];
@@ -77,7 +75,7 @@ export function createDeletionService(dbApi) {
 
     return {
       success: true,
-      userId: numUserId,
+      userId: targetUserId,
       user,
       storedFilesToRemove: storedNames,
       avatarFileToRemove: avatarUrl,

@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import crypto from "node:crypto";
 import { getCliArgs, getPositionalArgs, getFlagValue } from "./_cli.js";
 import { openDatabase, runAdminActionViaServer } from "./_db-admin.js";
 import { setUserColor } from "../settings/colors.js";
@@ -115,14 +116,15 @@ async function main() {
 
     const passwordHash = await bcrypt.hash(password, 10);
     const assignedColor = setUserColor();
+    const id = crypto.randomUUID();
     await dbApi.run(
-      "INSERT INTO users (username, nickname, avatar_url, color, status, password_hash, created_at, last_seen) VALUES (?, ?, NULL, ?, ?, ?, datetime('now'), datetime('now'))",
-      [username, nickname, assignedColor, "online", passwordHash],
+      "INSERT INTO users (id, username, nickname, avatar_url, color, status, password_hash, created_at, last_seen) VALUES (?, ?, ?, NULL, ?, ?, ?, datetime('now'), datetime('now'))",
+      [id, username, nickname, assignedColor, "online", passwordHash],
     );
 
     if (normalizedRole !== "user") {
       const newRow = await dbApi.getRow("SELECT id FROM users WHERE username = ?", [username]);
-      if (newRow?.id) await dbApi.run("UPDATE users SET role = ? WHERE id = ?", [normalizedRole, Number(newRow.id)]);
+      if (newRow?.id) await dbApi.run("UPDATE users SET role = ? WHERE id = ?", [normalizedRole, newRow.id]);
     }
 
     const row = await dbApi.getRow(

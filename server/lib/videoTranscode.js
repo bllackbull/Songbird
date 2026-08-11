@@ -237,8 +237,8 @@ export function createVideoTranscodeManager({
     try {
       debugLog("video-transcode:start", {
         fileId,
-        messageId: Number(job?.messageId || 0) || null,
-        chatId: Number(job?.chatId || 0) || null,
+        messageId: job?.messageId || null,
+        chatId: job?.chatId || null,
         inputStoredName,
       });
 
@@ -304,8 +304,8 @@ export function createVideoTranscodeManager({
         sizeBytes: Number(outputStat.size || 0),
       });
 
-      const chatId = Number(job?.chatId || 0);
-      const messageId = Number(job?.messageId || 0);
+      const chatId = job?.chatId || null;
+      const messageId = job?.messageId || null;
       const messageRow = messageId
         ? adminGetRow("SELECT body FROM chat_messages WHERE id = ?", [
             messageId,
@@ -319,12 +319,17 @@ export function createVideoTranscodeManager({
         : [];
       const summaryText = summarizeMessageFiles(filesForMessage);
 
-      if (chatId > 0) {
+      if (chatId) {
+        const userId = job?.userId || null;
+        if (!isValidUuid(String(chatId)) || !isValidUuid(String(messageId || "")) || !isValidUuid(String(userId || ""))) {
+          return;
+        }
         emitChatEvent(chatId, {
           type: "chat_message",
           chatId,
           messageId: messageId || null,
           username: String(job?.username || ""),
+          userId,
           body: messageBody,
           summaryText,
         });

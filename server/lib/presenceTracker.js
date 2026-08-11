@@ -34,16 +34,17 @@ export function createPresenceTracker({
     const storedStatus = String(user.status || "").toLowerCase();
     const payload = {
       type: "presence_update",
+      userId: user.id,
       username: normalize(user.username),
       status: effectiveStatus(user),
       rawStatus: storedStatus,
       lastSeen: user.last_seen || null,
     };
     const targets = new Set([normalize(user.username)]);
-    const rawChats = listChatsForUser(Number(user.id || 0));
+    const rawChats = listChatsForUser(user.id);
     const chats = (rawChats && typeof rawChats.then === "function" ? await rawChats : rawChats) || [];
     for (const chat of chats) {
-      const rawMembers = listChatMembers(Number(chat?.id || 0));
+      const rawMembers = listChatMembers(chat?.id);
       const members = (rawMembers && typeof rawMembers.then === "function" ? await rawMembers : rawMembers) || [];
       members.forEach((member) => {
         const memberUsername = normalize(member?.username);

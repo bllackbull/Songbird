@@ -31,7 +31,7 @@ export function createChatProvisioningService(dbApi) {
     groupUsername = null,
     allowMemberInvites = false,
   }) {
-    const creator = findUserById(Number(creatorUserId));
+    const creator = findUserById(creatorUserId);
     if (!creator) throw new Error("Creator user not found");
 
     const normalizedType = type === "channel" ? "channel" : "group";
@@ -44,11 +44,10 @@ export function createChatProvisioningService(dbApi) {
       inviteToken,
     });
 
-    const numChatId = Number(chatId);
-    if (!numChatId) throw new Error("Failed to create chat");
+    if (!chatId) throw new Error("Failed to create chat");
 
     // Add creator as owner
-    addChatMember(numChatId, creator.id, "owner");
+    addChatMember(chatId, creator.id, "owner");
 
     // Add initial members
     const memberSet = new Set(
@@ -60,7 +59,7 @@ export function createChatProvisioningService(dbApi) {
     memberSet.forEach((username) => {
       const member = findUserByUsername(username);
       if (member) {
-        addChatMember(numChatId, member.id, "member");
+        addChatMember(chatId, member.id, "member");
         addedUsernames.push(member.username);
       }
     });
@@ -69,13 +68,13 @@ export function createChatProvisioningService(dbApi) {
       targetUsername: username,
       payload: {
         type: "chat_list_changed",
-        chatId: numChatId,
+        chatId,
       },
     }));
 
     return {
       success: true,
-      chatId: numChatId,
+      chatId,
       inviteToken,
       addedUsernames,
       sseEvents,

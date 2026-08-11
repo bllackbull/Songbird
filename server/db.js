@@ -9,6 +9,7 @@ import { dbKnex } from "./db/knex.js";
 import { normalizeSqlForPostgres } from "./lib/sqlNormalizer.js";
 import { migrations } from "./migrations/index.js";
 import { setUserColor } from "./settings/colors.js";
+import { generateUuid } from "./lib/uuidUtils.js";
 import {
   ensureStorageEncryptionKey,
   storageEncryption,
@@ -642,24 +643,23 @@ export function createUser(
   avatarUrl = null,
   color = null,
 ) {
+  const id = generateUuid();
   const nextColor = color || setUserColor();
 
   const res = run(
-    "INSERT INTO users (username, nickname, avatar_url, color, password_hash, last_seen) VALUES (?, ?, ?, ?, ?, datetime('now'))",
-    [username, nickname, avatarUrl, nextColor, passwordHash],
+    "INSERT INTO users (id, username, nickname, avatar_url, color, password_hash, last_seen) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
+    [id, username, nickname, avatarUrl, nextColor, passwordHash],
   );
 
   if (res && typeof res.then === "function") {
-    return res.then(() => getLastInsertId());
+    return res.then(() => id);
   }
 
-  return getLastInsertId();
+  return id;
 }
 
 export function findDmChat(userId, otherUserId) {
-  const uid1 = Number(userId);
-  const uid2 = Number(otherUserId);
-  if (!uid1 || Number.isNaN(uid1) || !uid2 || Number.isNaN(uid2)) {
+  if (!userId || !otherUserId) {
     return isPostgresMode() ? Promise.resolve(null) : null;
   }
 
@@ -676,7 +676,7 @@ export function findDmChat(userId, otherUserId) {
       c.id DESC
     LIMIT 1
   `,
-    [uid1, uid2],
+    [userId, otherUserId],
   );
   if (row && typeof row.then === "function") {
     return row.then((r) => r?.id || null);
@@ -685,6 +685,7 @@ export function findDmChat(userId, otherUserId) {
 }
 
 export function createChat(name, type = "dm", options = {}) {
+  const id = generateUuid();
   const normalizedType = String(type || "dm");
   const normalizedName =
     normalizedType === "dm"
@@ -707,7 +708,7 @@ export function createChat(name, type = "dm", options = {}) {
     normalizedType === "group" || normalizedType === "channel"
       ? String(options.inviteToken || "").trim() || null
       : null;
-  const createdByUserId = Number(options.createdByUserId || 0) || null;
+  const createdByUserId = options.createdByUserId || null;
   const groupColor =
     normalizedType === "group" || normalizedType === "channel"
       ? String(options.groupColor || "").trim() || setUserColor()
@@ -723,8 +724,9 @@ export function createChat(name, type = "dm", options = {}) {
       : null;
 
   const res = run(
-    "INSERT INTO chats (name, type, group_username, group_visibility, invite_token, created_by_user_id, group_color, allow_member_invites, group_avatar_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO chats (id, name, type, group_username, group_visibility, invite_token, created_by_user_id, group_color, allow_member_invites, group_avatar_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     [
+      id,
       normalizedName,
       normalizedType,
       groupUsername,
@@ -737,31 +739,10 @@ export function createChat(name, type = "dm", options = {}) {
     ],
   );
 
-  const getResult = () => {
-    const rawId = getLastInsertId();
-    if (rawId && typeof rawId.then === "function") {
-      return rawId.then((id) => {
-        if (id) return id;
-        const rawFallback = getRow("SELECT id FROM chats ORDER BY id DESC LIMIT 1");
-        if (rawFallback && typeof rawFallback.then === "function") {
-          return rawFallback.then((fb) => fb?.id || null);
-        }
-        return rawFallback?.id || null;
-      });
-    }
-    if (rawId) return rawId;
-
-    const rawFallback = getRow("SELECT id FROM chats ORDER BY id DESC LIMIT 1");
-    if (rawFallback && typeof rawFallback.then === "function") {
-      return rawFallback.then((fb) => fb?.id || null);
-    }
-    return rawFallback?.id || null;
-  };
-
   if (res && typeof res.then === "function") {
-    return res.then(getResult);
+    return res.then(() => id);
   }
-  return getResult();
+  return id;
 }
 
 export function addChatMember(chatId, userId, role = "member") {
@@ -777,7 +758,6 @@ export function addChatMember(chatId, userId, role = "member") {
  * with either persisted or legacy left-chat markers are excluded.
  */
 export function addAllEligibleChatMembers(chatId) {
-  const normalizedChatId = Number(chatId);
   const leftMessagePattern = "[[system:left:%";
   const addedUsers = getAll(
     `
@@ -800,9 +780,9 @@ export function addAllEligibleChatMembers(chatId) {
     ORDER BY users.id ASC
     `,
     [
-      normalizedChatId,
-      normalizedChatId,
-      normalizedChatId,
+      chatId,
+      chatId,
+      chatId,
       leftMessagePattern,
     ],
   );
@@ -828,15 +808,15 @@ export function addAllEligibleChatMembers(chatId) {
       )
     `,
     [
-      normalizedChatId,
-      normalizedChatId,
-      normalizedChatId,
+      chatId,
+      chatId,
+      chatId,
       leftMessagePattern,
     ],
   );
 
   addedUsers.forEach((user) => {
-    addChatMember(normalizedChatId, Number(user.id), "member");
+    addChatMember(chatId, user.id, "member");
   });
 
   return {
@@ -873,7 +853,7 @@ export function searchPublicGroups(query, viewerUserId, limit = 20) {
        END,
        c.name ASC
      LIMIT ?`,
-    [Number(viewerUserId), Number(viewerUserId), like, like, like, safeLimit],
+    [viewerUserId, viewerUserId, like, like, like, safeLimit],
   );
 }
 
@@ -905,7 +885,7 @@ export function searchPublicChannels(query, viewerUserId, limit = 20) {
        END,
        c.name ASC
      LIMIT ?`,
-    [Number(viewerUserId), Number(viewerUserId), like, like, like, safeLimit],
+    [viewerUserId, viewerUserId, like, like, like, safeLimit],
   );
 }
 
@@ -928,7 +908,7 @@ export function getRemoteChannelSourceByChatId(chatId) {
             last_error, last_seen_at, created_at, updated_at
      FROM remote_channel_sources
      WHERE chat_id = ?`,
-    [Number(chatId)],
+    [chatId],
   );
 }
 
@@ -945,7 +925,7 @@ export function getRemoteChannelSourceById(sourceId) {
 }
 
 export function upsertRemoteChannelSource(payload = {}) {
-  const chatId = Number(payload.chatId || 0);
+  const chatId = payload.chatId || null;
   if (!chatId) return null;
 
   const provider = String(payload.provider || "telegram").toLowerCase();
@@ -1439,7 +1419,7 @@ export function markRemoteChannelQueueItemDone(id, messageId) {
          created_message_id = ?,
          processed_at = datetime('now')
      WHERE id = ?`,
-    [Number(messageId) || null, Number(id)],
+    [messageId || null, Number(id)],
   );
 }
 
@@ -1493,8 +1473,8 @@ export function purgeOldRemoteChannelQueueItems(olderThanIso) {
 
 export function removeChatMember(chatId, userId) {
   run("DELETE FROM chat_members WHERE chat_id = ? AND user_id = ?", [
-    Number(chatId),
-    Number(userId),
+    chatId,
+    userId,
   ]);
 }
 
@@ -1504,26 +1484,24 @@ export function markChatMemberLeft(chatId, userId) {
      VALUES (?, ?, datetime('now'))
      ON CONFLICT(chat_id, user_id) DO UPDATE SET
        left_at = datetime('now')`,
-    [Number(chatId), Number(userId)],
+    [chatId, userId],
   );
 }
 
 export function clearChatMemberLeft(chatId, userId) {
   run("DELETE FROM chat_left_members WHERE chat_id = ? AND user_id = ?", [
-    Number(chatId),
-    Number(userId),
+    chatId,
+    userId,
   ]);
 }
 
 export async function hasChatMemberLeft(chatId, userId) {
-  const cid = Number(chatId);
-  const uid = Number(userId);
-  if (!cid || Number.isNaN(cid) || !uid || Number.isNaN(uid)) {
+  if (!chatId || !userId) {
     return false;
   }
   const row = getRow(
     "SELECT 1 AS left_chat FROM chat_left_members WHERE chat_id = ? AND user_id = ?",
-    [cid, uid],
+    [chatId, userId],
   );
   const resolved = row && typeof row.then === "function" ? await row : row;
   return Boolean(resolved);
@@ -1536,26 +1514,24 @@ export function markGroupMemberRemoved(chatId, userId, removedByUserId) {
      ON CONFLICT(chat_id, user_id) DO UPDATE SET
        removed_by_user_id = excluded.removed_by_user_id,
        removed_at = datetime('now')`,
-    [Number(chatId), Number(userId), Number(removedByUserId)],
+    [chatId, userId, removedByUserId],
   );
 }
 
 export function clearGroupMemberRemoved(chatId, userId) {
   run("DELETE FROM group_removed_members WHERE chat_id = ? AND user_id = ?", [
-    Number(chatId),
-    Number(userId),
+    chatId,
+    userId,
   ]);
 }
 
 export async function isGroupMemberRemoved(chatId, userId) {
-  const cid = Number(chatId);
-  const uid = Number(userId);
-  if (!cid || Number.isNaN(cid) || !uid || Number.isNaN(uid)) {
+  if (!chatId || !userId) {
     return false;
   }
   const row = getRow(
     "SELECT 1 AS removed FROM group_removed_members WHERE chat_id = ? AND user_id = ?",
-    [cid, uid],
+    [chatId, userId],
   );
   const resolved = row && typeof row.then === "function" ? await row : row;
   return Boolean(resolved);
@@ -1587,7 +1563,7 @@ export function findChatById(chatId) {
     `SELECT id, name, type, group_username, group_visibility, invite_token, group_color,
             allow_member_invites, group_avatar_url, created_by_user_id, verified
      FROM chats WHERE id = ?`,
-    [Number(chatId)],
+    [chatId],
   );
   if (row && typeof row.then === "function") {
     return row.then((r) => r || null);
@@ -1627,7 +1603,7 @@ export function updateGroupChat(chatId, payload = {}) {
       allowMemberInvites,
       hasGroupAvatarUrl ? 1 : 0,
       groupAvatarUrl,
-      Number(chatId),
+      chatId,
     ],
   );
 }
@@ -1664,7 +1640,7 @@ export function updateChannelChat(chatId, payload = {}) {
       allowMemberInvites,
       hasGroupAvatarUrl ? 1 : 0,
       groupAvatarUrl,
-      Number(chatId),
+      chatId,
     ],
   );
 }
@@ -1672,19 +1648,17 @@ export function updateChannelChat(chatId, payload = {}) {
 export function regenerateGroupInviteToken(chatId, inviteToken) {
   run(
     "UPDATE chats SET invite_token = ? WHERE id = ? AND type IN ('group', 'channel')",
-    [String(inviteToken || "").trim(), Number(chatId)],
+    [String(inviteToken || "").trim(), chatId],
   );
 }
 
 export async function isMember(chatId, userId) {
-  const cid = Number(chatId);
-  const uid = Number(userId);
-  if (!cid || Number.isNaN(cid) || !uid || Number.isNaN(uid)) {
+  if (!chatId || !userId) {
     return false;
   }
   const row = getRow(
     "SELECT chat_id FROM chat_members WHERE chat_id = ? AND user_id = ?",
-    [cid, uid],
+    [chatId, userId],
   );
   const resolved = row && typeof row.then === "function" ? await row : row;
   return Boolean(resolved);
@@ -1716,11 +1690,11 @@ export function listChatMembers(chatId) {
  * a single query instead of one query per chat, eliminating the N+1 pattern
  * in the /api/chats list endpoint.
  *
- * @param {number[]} chatIds
- * @returns {Map<number, Array>} map of chatId → members array
+ * @param {string[]} chatIds
+ * @returns {Map<string, Array>} map of chatId → members array
  */
 export function listChatMembersForChats(chatIds = []) {
-  const ids = chatIds.map(Number).filter((id) => Number.isFinite(id) && id > 0);
+  const ids = (Array.isArray(chatIds) ? chatIds : []).filter((id) => id);
   if (!ids.length) {
     return isPostgresMode() ? Promise.resolve(new Map()) : new Map();
   }
@@ -1744,7 +1718,7 @@ export function listChatMembersForChats(chatIds = []) {
   const buildMap = (rows) => {
     const map = new Map();
     for (const row of rows || []) {
-      const cid = Number(row.chat_id);
+      const cid = row.chat_id;
       if (!map.has(cid)) map.set(cid, []);
       map.get(cid).push(row);
     }
@@ -1758,14 +1732,12 @@ export function listChatMembersForChats(chatIds = []) {
 }
 
 export async function getChatMemberRole(chatId, userId) {
-  const cid = Number(chatId);
-  const uid = Number(userId);
-  if (!cid || Number.isNaN(cid) || !uid || Number.isNaN(uid)) {
+  if (!chatId || !userId) {
     return "";
   }
   const row = getRow(
     "SELECT role FROM chat_members WHERE chat_id = ? AND user_id = ?",
-    [cid, uid],
+    [chatId, userId],
   );
   const resolved = row && typeof row.then === "function" ? await row : row;
   return String(resolved?.role || "");
@@ -1774,14 +1746,13 @@ export async function getChatMemberRole(chatId, userId) {
 export function setChatMemberRole(chatId, userId, role = "member") {
   run("UPDATE chat_members SET role = ? WHERE chat_id = ? AND user_id = ?", [
     String(role || "member"),
-    Number(chatId),
-    Number(userId),
+    chatId,
+    userId,
   ]);
 }
 
 export function deleteChatById(chatId) {
-  const targetChatId = Number(chatId);
-  if (!targetChatId) return { storedNames: [] };
+  if (!chatId) return { storedNames: [] };
 
   const fileRows = getAll(
     `
@@ -1790,47 +1761,47 @@ export function deleteChatById(chatId) {
       JOIN chat_messages cm ON cm.id = cmf.message_id
       WHERE cm.chat_id = ?
     `,
-    [targetChatId],
+    [chatId],
   );
   const storedNames = fileRows
     .map((row) => String(row?.stored_name || "").trim())
     .filter(Boolean);
 
-  const savepoint = `sp_delete_chat_${targetChatId}_${Date.now()}`;
+  const savepoint = `sp_delete_chat_${Date.now()}`;
   runWithoutSave(`SAVEPOINT ${savepoint}`);
   try {
     runWithoutSave(
       `DELETE FROM chat_message_reads
        WHERE message_id IN (SELECT id FROM chat_messages WHERE chat_id = ?)`,
-      [targetChatId],
+      [chatId],
     );
     runWithoutSave(
       `DELETE FROM hidden_chat_messages
        WHERE message_id IN (SELECT id FROM chat_messages WHERE chat_id = ?)`,
-      [targetChatId],
+      [chatId],
     );
     runWithoutSave(
       `DELETE FROM chat_message_files
        WHERE message_id IN (SELECT id FROM chat_messages WHERE chat_id = ?)`,
-      [targetChatId],
+      [chatId],
     );
-    runWithoutSave("DELETE FROM chat_messages WHERE chat_id = ?", [targetChatId]);
-    runWithoutSave("DELETE FROM chat_members WHERE chat_id = ?", [targetChatId]);
-    runWithoutSave("DELETE FROM hidden_chats WHERE chat_id = ?", [targetChatId]);
-    runWithoutSave("DELETE FROM chat_mutes WHERE chat_id = ?", [targetChatId]);
-    runWithoutSave("DELETE FROM chat_left_members WHERE chat_id = ?", [targetChatId]);
-    runWithoutSave("DELETE FROM group_removed_members WHERE chat_id = ?", [targetChatId]);
+    runWithoutSave("DELETE FROM chat_messages WHERE chat_id = ?", [chatId]);
+    runWithoutSave("DELETE FROM chat_members WHERE chat_id = ?", [chatId]);
+    runWithoutSave("DELETE FROM hidden_chats WHERE chat_id = ?", [chatId]);
+    runWithoutSave("DELETE FROM chat_mutes WHERE chat_id = ?", [chatId]);
+    runWithoutSave("DELETE FROM chat_left_members WHERE chat_id = ?", [chatId]);
+    runWithoutSave("DELETE FROM group_removed_members WHERE chat_id = ?", [chatId]);
     runWithoutSave(
       `DELETE FROM remote_channel_queue
        WHERE source_id IN (
          SELECT id FROM remote_channel_sources WHERE chat_id = ?
        )`,
-      [targetChatId],
+      [chatId],
     );
     runWithoutSave("DELETE FROM remote_channel_sources WHERE chat_id = ?", [
-      targetChatId,
+      chatId,
     ]);
-    runWithoutSave("DELETE FROM chats WHERE id = ?", [targetChatId]);
+    runWithoutSave("DELETE FROM chats WHERE id = ?", [chatId]);
     runWithoutSave(`RELEASE ${savepoint}`);
     saveDatabase();
   } catch (error) {
@@ -1847,8 +1818,7 @@ export function deleteChatById(chatId) {
 }
 
 async function deleteUserByIdPostgres(userId) {
-  const targetUserId = Number(userId);
-  if (!targetUserId) {
+  if (!userId) {
     return { storedNames: [], deletedChatIds: [], transferredChatIds: [] };
   }
 
@@ -1867,10 +1837,10 @@ async function deleteUserByIdPostgres(userId) {
 
     const ownerChatRows = await queryAll(
       "SELECT chat_id FROM chat_members WHERE role = 'owner' AND user_id = ?",
-      [targetUserId],
+      [userId],
     );
     const ownerChatIds = Array.from(
-      new Set(ownerChatRows.map((row) => Number(row?.chat_id || 0)).filter(Boolean)),
+      new Set(ownerChatRows.map((row) => row?.chat_id).filter(Boolean)),
     );
     const chatIdsToDelete = [];
     const ownershipTransfers = [];
@@ -1878,20 +1848,20 @@ async function deleteUserByIdPostgres(userId) {
     for (const chatId of ownerChatIds) {
       const remaining = (await queryAll(
         "SELECT user_id FROM chat_members WHERE chat_id = ? AND user_id != ?",
-        [Number(chatId), targetUserId],
+        [chatId, userId],
       ))
-        .map((row) => Number(row?.user_id || 0))
-        .filter((id) => Number.isFinite(id) && id > 0);
+        .map((row) => row?.user_id)
+        .filter(Boolean);
       if (!remaining.length) {
-        chatIdsToDelete.push(Number(chatId));
+        chatIdsToDelete.push(chatId);
         continue;
       }
       const nextOwnerId = remaining[Math.floor(Math.random() * remaining.length)];
-      if (nextOwnerId) ownershipTransfers.push({ chatId: Number(chatId), nextOwnerId });
+      if (nextOwnerId) ownershipTransfers.push({ chatId, nextOwnerId });
     }
 
     const uniqueChatDeletes = Array.from(
-      new Set(chatIdsToDelete.filter((id) => Number.isFinite(id) && id > 0)),
+      new Set(chatIdsToDelete.filter(Boolean)),
     );
     const storedNames = new Set();
     if (uniqueChatDeletes.length) {
@@ -1935,23 +1905,23 @@ async function deleteUserByIdPostgres(userId) {
       );
     }
 
-    await queryRun("DELETE FROM sessions WHERE user_id = ?", [targetUserId]);
-    await queryRun("DELETE FROM hidden_chats WHERE user_id = ?", [targetUserId]);
-    await queryRun("DELETE FROM hidden_chat_messages WHERE user_id = ?", [targetUserId]);
-    await queryRun("DELETE FROM chat_message_reads WHERE user_id = ?", [targetUserId]);
-    await queryRun("DELETE FROM push_subscriptions WHERE user_id = ?", [targetUserId]);
+    await queryRun("DELETE FROM sessions WHERE user_id = ?", [userId]);
+    await queryRun("DELETE FROM hidden_chats WHERE user_id = ?", [userId]);
+    await queryRun("DELETE FROM hidden_chat_messages WHERE user_id = ?", [userId]);
+    await queryRun("DELETE FROM chat_message_reads WHERE user_id = ?", [userId]);
+    await queryRun("DELETE FROM push_subscriptions WHERE user_id = ?", [userId]);
     await queryRun(
       "UPDATE chat_messages SET read_by_user_id = NULL WHERE read_by_user_id = ?",
-      [targetUserId],
+      [userId],
     );
-    await queryRun("DELETE FROM chat_left_members WHERE user_id = ?", [targetUserId]);
-    await queryRun("DELETE FROM chat_members WHERE user_id = ?", [targetUserId]);
-    await queryRun("DELETE FROM users WHERE id = ?", [targetUserId]);
+    await queryRun("DELETE FROM chat_left_members WHERE user_id = ?", [userId]);
+    await queryRun("DELETE FROM chat_members WHERE user_id = ?", [userId]);
+    await queryRun("DELETE FROM users WHERE id = ?", [userId]);
 
     return {
       storedNames: Array.from(storedNames),
       deletedChatIds: uniqueChatDeletes,
-      transferredChatIds: ownershipTransfers.map((transfer) => Number(transfer.chatId || 0)),
+      transferredChatIds: ownershipTransfers.map((transfer) => transfer.chatId),
     };
   });
 
@@ -1964,17 +1934,16 @@ export function deleteUserById(userId) {
 }
 
 function deleteUserByIdSqlite(userId) {
-  const targetUserId = Number(userId);
-  if (!targetUserId) {
+  if (!userId) {
     return { storedNames: [], deletedChatIds: [], transferredChatIds: [] };
   }
 
   const ownerChatRows = getAll(
     "SELECT chat_id FROM chat_members WHERE role = 'owner' AND user_id = ?",
-    [targetUserId],
+    [userId],
   );
   const ownerChatIds = Array.from(
-    new Set(ownerChatRows.map((row) => Number(row?.chat_id || 0)).filter(Boolean)),
+    new Set(ownerChatRows.map((row) => row?.chat_id).filter(Boolean)),
   );
 
   const chatIdsToDelete = [];
@@ -1983,27 +1952,27 @@ function deleteUserByIdSqlite(userId) {
   ownerChatIds.forEach((chatId) => {
     const remaining = getAll(
       "SELECT user_id FROM chat_members WHERE chat_id = ? AND user_id != ?",
-      [Number(chatId), targetUserId],
+      [chatId, userId],
     )
-      .map((row) => Number(row?.user_id || 0))
-      .filter((id) => Number.isFinite(id) && id > 0);
+      .map((row) => row?.user_id)
+      .filter(Boolean);
 
     if (!remaining.length) {
-      chatIdsToDelete.push(Number(chatId));
+      chatIdsToDelete.push(chatId);
       return;
     }
 
     const nextOwnerId = remaining[Math.floor(Math.random() * remaining.length)];
     if (nextOwnerId) {
       ownershipTransfers.push({
-        chatId: Number(chatId),
-        nextOwnerId: Number(nextOwnerId),
+        chatId,
+        nextOwnerId,
       });
     }
   });
 
   const uniqueChatDeletes = Array.from(
-    new Set(chatIdsToDelete.filter((id) => Number.isFinite(id) && id > 0)),
+    new Set(chatIdsToDelete.filter(Boolean)),
   );
 
   const storedNames = new Set();
@@ -2023,7 +1992,7 @@ function deleteUserByIdSqlite(userId) {
     });
   }
 
-  const savepoint = `sp_delete_user_${targetUserId}_${Date.now()}`;
+  const savepoint = `sp_delete_user_${Date.now()}`;
   runWithoutSave(`SAVEPOINT ${savepoint}`);
   try {
     if (uniqueChatDeletes.length) {
@@ -2050,7 +2019,7 @@ function deleteUserByIdSqlite(userId) {
 
     ownershipTransfers.forEach((transfer) => {
       if (
-        uniqueChatDeletes.includes(Number(transfer.chatId)) ||
+        uniqueChatDeletes.includes(transfer.chatId) ||
         !transfer.chatId ||
         !transfer.nextOwnerId
       ) {
@@ -2058,25 +2027,25 @@ function deleteUserByIdSqlite(userId) {
       }
       runWithoutSave("UPDATE chat_members SET role = ? WHERE chat_id = ? AND user_id = ?", [
         "owner",
-        Number(transfer.chatId),
-        Number(transfer.nextOwnerId),
+        transfer.chatId,
+        transfer.nextOwnerId,
       ]);
     });
 
-    runWithoutSave("DELETE FROM sessions WHERE user_id = ?", [targetUserId]);
-    runWithoutSave("DELETE FROM hidden_chats WHERE user_id = ?", [targetUserId]);
+    runWithoutSave("DELETE FROM sessions WHERE user_id = ?", [userId]);
+    runWithoutSave("DELETE FROM hidden_chats WHERE user_id = ?", [userId]);
     runWithoutSave("DELETE FROM hidden_chat_messages WHERE user_id = ?", [
-      targetUserId,
+      userId,
     ]);
-    runWithoutSave("DELETE FROM chat_message_reads WHERE user_id = ?", [targetUserId]);
-    runWithoutSave("DELETE FROM push_subscriptions WHERE user_id = ?", [targetUserId]);
+    runWithoutSave("DELETE FROM chat_message_reads WHERE user_id = ?", [userId]);
+    runWithoutSave("DELETE FROM push_subscriptions WHERE user_id = ?", [userId]);
     runWithoutSave(
       "UPDATE chat_messages SET read_by_user_id = NULL WHERE read_by_user_id = ?",
-      [targetUserId],
+      [userId],
     );
-    runWithoutSave("DELETE FROM chat_left_members WHERE user_id = ?", [targetUserId]);
-    runWithoutSave("DELETE FROM chat_members WHERE user_id = ?", [targetUserId]);
-    runWithoutSave("DELETE FROM users WHERE id = ?", [targetUserId]);
+    runWithoutSave("DELETE FROM chat_left_members WHERE user_id = ?", [userId]);
+    runWithoutSave("DELETE FROM chat_members WHERE user_id = ?", [userId]);
+    runWithoutSave("DELETE FROM users WHERE id = ?", [userId]);
     runWithoutSave(`RELEASE ${savepoint}`);
     saveDatabase();
   } catch (error) {
@@ -2092,13 +2061,12 @@ function deleteUserByIdSqlite(userId) {
   return {
     storedNames: Array.from(storedNames),
     deletedChatIds: uniqueChatDeletes,
-    transferredChatIds: ownershipTransfers.map((t) => Number(t.chatId || 0)),
+    transferredChatIds: ownershipTransfers.map((t) => t.chatId),
   };
 }
 
 export function listChatsForUser(userId) {
-  const uid = Number(userId);
-  if (!uid || Number.isNaN(uid)) {
+  if (!userId) {
     return isPostgresMode() ? Promise.resolve([]) : [];
   }
 
@@ -2218,13 +2186,13 @@ export function listChatsForUser(userId) {
     ORDER BY last_vm.id DESC, mc.created_at DESC
   `,
     [
-      uid,
-      uid,
-      uid,
-      uid,
-      uid,
-      uid,
-      uid,
+      userId,
+      userId,
+      userId,
+      userId,
+      userId,
+      userId,
+      userId,
     ],
   );
 
@@ -2244,10 +2212,12 @@ export function createMessage(
   clientRequestId = null,
   { allowPlaintextSystemMessage = false } = {},
 ) {
+  const id = generateUuid();
   const storedBody = storageEncryption.encryptText(body, {
     allowPlaintextSystemMessage,
   });
   const params = [
+    id,
     chatId,
     userId,
     storedBody,
@@ -2256,53 +2226,23 @@ export function createMessage(
     clientRequestId || null,
   ];
   const insertSql = `INSERT INTO chat_messages (
-      chat_id, user_id, body, reply_to_message_id, expires_at, client_request_id
-    ) VALUES (?, ?, ?, ?, ?, ?)`;
+      id, chat_id, user_id, body, reply_to_message_id, expires_at, client_request_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)`;
 
-  // LASTVAL() is connection-local. A separate pool checkout between INSERT and
-  // LASTVAL() can return another message ID (or no ID at all), which is unsafe
-  // for forwarding and can result in an UPDATE using NaN. PostgreSQL must get
-  // the generated ID from the same INSERT statement.
   if (isPostgresMode()) {
     const { sql: normalizedSql, params: normalizedParams } =
-      normalizeSqlForPostgres(`${insertSql} RETURNING id`, params);
+      normalizeSqlForPostgres(insertSql, params);
     return dbKnex
       .raw(normalizedSql, normalizedParams)
-      .then((result) => Number(getPostgresRows(result)[0]?.id || 0) || null);
+      .then(() => id);
   }
 
   const res = run(insertSql, params);
-  const getResult = () => {
-    const rawId = getLastInsertId();
-    if (rawId && typeof rawId.then === "function") {
-      return rawId.then((id) => {
-        if (id) return id;
-        const rawFallback = getRow(
-          "SELECT id FROM chat_messages WHERE chat_id = ? AND user_id = ? ORDER BY id DESC LIMIT 1",
-          [chatId, userId],
-        );
-        if (rawFallback && typeof rawFallback.then === "function") {
-          return rawFallback.then((fb) => fb?.id || null);
-        }
-        return rawFallback?.id || null;
-      });
-    }
-    if (rawId) return rawId;
-
-    const rawFallback = getRow(
-      "SELECT id FROM chat_messages WHERE chat_id = ? AND user_id = ? ORDER BY id DESC LIMIT 1",
-      [chatId, userId],
-    );
-    if (rawFallback && typeof rawFallback.then === "function") {
-      return rawFallback.then((fb) => fb?.id || null);
-    }
-    return rawFallback?.id || null;
-  };
 
   if (res && typeof res.then === "function") {
-    return res.then(getResult);
+    return res.then(() => id);
   }
-  return getResult();
+  return id;
 }
 
 export function findMessageIdByClientRequestId(chatId, userId, clientRequestId) {
@@ -2314,10 +2254,9 @@ export function findMessageIdByClientRequestId(chatId, userId, clientRequestId) 
      WHERE chat_id = ? AND user_id = ? AND client_request_id = ?
      ORDER BY id DESC
      LIMIT 1`,
-    [Number(chatId), Number(userId), normalized],
+    [chatId, userId, normalized],
   );
-  const id = Number(row?.id || 0);
-  return Number.isFinite(id) && id > 0 ? id : null;
+  return row?.id || null;
 }
 
 export function createOrReuseMessage(
@@ -2391,14 +2330,14 @@ export function markMessageRead(messageId, readerId) {
     `UPDATE chat_messages
      SET read_at = datetime('now'), read_by_user_id = ?
      WHERE id = ?`,
-    [Number(readerId), Number(messageId)],
+    [readerId, messageId],
   );
   const row = getRow(
     "SELECT user_id, client_request_id FROM chat_messages WHERE id = ?",
-    [Number(messageId)],
+    [messageId],
   );
   if (
-    Number(row?.user_id || 0) === Number(readerId) &&
+    row?.user_id === readerId &&
     !isRemoteMessageRow(row)
   ) {
     return;
@@ -2406,7 +2345,7 @@ export function markMessageRead(messageId, readerId) {
   run(
     `INSERT OR IGNORE INTO chat_message_reads (message_id, user_id, read_at)
      VALUES (?, ?, datetime('now'))`,
-    [Number(messageId), Number(readerId)],
+    [messageId, readerId],
   );
 }
 
@@ -2415,7 +2354,7 @@ export function findSavedChatByUserId(userId) {
     `SELECT id, name, type, group_username, group_visibility, invite_token, group_color,
             allow_member_invites, group_avatar_url, created_by_user_id
      FROM chats WHERE type = 'saved' AND created_by_user_id = ?`,
-    [Number(userId)],
+    [userId],
   );
   if (row && typeof row.then === "function") {
     return row.then((r) => r || null);
@@ -2428,14 +2367,14 @@ export function ensureSavedChatForUser(userId) {
 
   const processExisting = (existing) => {
     if (existing?.id) {
-      const memRes = isMember(existing.id, Number(userId));
+      const memRes = isMember(existing.id, userId);
       const handleMem = (isMem) => {
         if (!isMem) {
-          addChatMember(existing.id, Number(userId), "owner");
+          addChatMember(existing.id, userId, "owner");
         }
         if (String(existing.group_visibility || "").toLowerCase() !== "private") {
           run("UPDATE chats SET group_visibility = 'private' WHERE id = ?", [
-            Number(existing.id),
+            existing.id,
           ]);
         }
         return existing;
@@ -2446,12 +2385,12 @@ export function ensureSavedChatForUser(userId) {
       return handleMem(memRes);
     }
     const rawChatId = createChat("Saved messages", "saved", {
-      createdByUserId: Number(userId),
+      createdByUserId: userId,
     });
 
     const handleChatId = (chatId) => {
       if (!chatId) return null;
-      const addRes = addChatMember(chatId, Number(userId), "owner");
+      const addRes = addChatMember(chatId, userId, "owner");
       const handleAdd = () => findChatById(chatId);
       if (addRes && typeof addRes.then === "function") {
         return addRes.then(handleAdd);
@@ -2490,7 +2429,7 @@ export function findMessageById(messageId) {
 export function setMessageExpiresAt(messageId, expiresAt = null) {
   run("UPDATE chat_messages SET expires_at = ? WHERE id = ?", [
     expiresAt || null,
-    Number(messageId),
+    messageId,
   ]);
 }
 
@@ -2500,7 +2439,7 @@ export function editMessage(messageId, editedBody) {
      SET edited = 1,
          edited_body = ?
      WHERE id = ?`,
-    [storageEncryption.encryptText(String(editedBody || "")), Number(messageId)],
+    [storageEncryption.encryptText(String(editedBody || "")), messageId],
   );
 }
 
@@ -2509,7 +2448,7 @@ export function hideMessageForUser(messageId, userId) {
     `INSERT INTO hidden_chat_messages (message_id, user_id, hidden_at)
      VALUES (?, ?, datetime('now'))
      ON CONFLICT(user_id, message_id) DO UPDATE SET hidden_at = datetime('now')`,
-    [Number(messageId), Number(userId)],
+    [messageId, userId],
   );
 }
 
@@ -2518,7 +2457,7 @@ export function hideMessageForEveryone(messageId) {
     `UPDATE chat_messages
      SET hidden_everyone_at = datetime('now')
      WHERE id = ?`,
-    [Number(messageId)],
+    [messageId],
   );
 }
 
@@ -2533,13 +2472,13 @@ export function setMessageForwardOrigin(messageId, payload = {}) {
          forwarded_from_color = ?
      WHERE id = ?`,
     [
-      Number(payload.sourceChatId) || null,
+      payload.sourceChatId || null,
       String(payload.label || "").trim() || null,
-      Number(payload.sourceUserId) || null,
+      payload.sourceUserId || null,
       String(payload.sourceUsername || "").trim() || null,
       String(payload.sourceAvatarUrl || "").trim() || null,
       String(payload.sourceColor || "").trim() || null,
-      Number(messageId),
+      messageId,
     ],
   );
 }
@@ -2609,16 +2548,16 @@ export function getMessages(chatId, options = {}) {
   const limit = Number.isFinite(limitRaw)
     ? Math.max(1, Math.min(10000, limitRaw))
     : 50;
-  const beforeIdRaw = Number(options.beforeId || 0);
+  const beforeIdRaw = String(options.beforeId || "").trim();
   const beforeCreatedAtRaw = String(options.beforeCreatedAt || "").trim();
-  const afterIdRaw = Number(options.afterId || 0);
+  const afterIdRaw = String(options.afterId || "").trim();
   const afterCreatedAtRaw = String(options.afterCreatedAt || "").trim();
-  const viewerUserIdRaw = Number(options.viewerUserId || 0);
-  const hasViewerUserId = Number.isFinite(viewerUserIdRaw) && viewerUserIdRaw > 0;
-  const hasBeforeId = Number.isFinite(beforeIdRaw) && beforeIdRaw > 0;
+  const viewerUserIdRaw = String(options.viewerUserId || "").trim();
+  const hasViewerUserId = Boolean(viewerUserIdRaw);
+  const hasBeforeId = Boolean(beforeIdRaw);
   const hasBeforeCreatedAt = Boolean(beforeCreatedAtRaw);
   const hasBefore = hasBeforeId && hasBeforeCreatedAt;
-  const hasAfterId = Number.isFinite(afterIdRaw) && afterIdRaw > 0;
+  const hasAfterId = Boolean(afterIdRaw);
   const hasAfterCreatedAt = Boolean(afterCreatedAtRaw);
   // afterId anchor: fetch messages at or after this message (inclusive), ascending
   const hasAfter = hasAfterId && hasAfterCreatedAt;
@@ -2760,9 +2699,7 @@ export function getMessages(chatId, options = {}) {
  * Returns null if there are no unread messages.
  */
 export function getFirstUnreadMessage(chatId, viewerUserId) {
-  const cid = Number(chatId);
-  const uid = Number(viewerUserId);
-  if (!cid || !uid) return null;
+  if (!chatId || !viewerUserId) return null;
 
   const row = getRow(
     `
@@ -2788,11 +2725,11 @@ export function getFirstUnreadMessage(chatId, viewerUserId) {
     ORDER BY julianday(cm.created_at) ASC, cm.id ASC
     LIMIT 1
     `,
-    [cid, uid, uid, uid],
+    [chatId, viewerUserId, viewerUserId, viewerUserId],
   );
 
   if (!row) return null;
-  return { id: Number(row.id), created_at: row.created_at };
+  return { id: row.id, created_at: row.created_at };
 }
 
 export function findMessageFileById(id) {
@@ -2893,19 +2830,18 @@ export function updateUserStatus(userId, status) {
 }
 
 export function setUserBanned(userId, banned) {
-  run("UPDATE users SET banned = ? WHERE id = ?", [banned ? 1 : 0, Number(userId)]);
+  run("UPDATE users SET banned = ? WHERE id = ?", [banned ? 1 : 0, userId]);
 }
 
 export function deleteSessionsByUserId(userId) {
-  run("DELETE FROM sessions WHERE user_id = ?", [Number(userId)]);
+  run("DELETE FROM sessions WHERE user_id = ?", [userId]);
 }
 
 export function updateLastSeen(userId) {
-  const uid = Number(userId);
-  if (!uid || Number.isNaN(uid)) {
+  if (!userId) {
     return isPostgresMode() ? Promise.resolve() : undefined;
   }
-  return run("UPDATE users SET last_seen = datetime('now') WHERE id = ?", [uid]);
+  return run("UPDATE users SET last_seen = datetime('now') WHERE id = ?", [userId]);
 }
 
 export function getUserPresence(username) {
@@ -2922,9 +2858,7 @@ export function getUserPresence(username) {
 }
 
 export function markMessagesRead(chatId, readerId) {
-  const cid = Number(chatId);
-  const uid = Number(readerId);
-  if (!cid || !uid) return;
+  if (!chatId || !readerId) return;
 
   const inserted = run(
     `INSERT OR IGNORE INTO chat_message_reads (message_id, user_id, read_at)
@@ -2941,7 +2875,7 @@ export function markMessagesRead(chatId, readerId) {
          WHERE cmr.message_id = cm.id
            AND cmr.user_id = ?
        )`,
-    [uid, cid, uid, uid],
+    [readerId, chatId, readerId, readerId],
   );
   if (!inserted) return;
 
@@ -2956,7 +2890,7 @@ export function markMessagesRead(chatId, readerId) {
       )
       AND read_at IS NULL
   `,
-    [uid, cid, uid],
+    [readerId, chatId, readerId],
   );
 }
 
@@ -2964,8 +2898,7 @@ export function getMessageReadCounts(messageIds = []) {
   const normalized = Array.from(
     new Set(
       (Array.isArray(messageIds) ? messageIds : [])
-        .map((id) => Number(id))
-        .filter((id) => Number.isFinite(id) && id > 0),
+        .filter(Boolean),
     ),
   );
   if (!normalized.length) return [];
@@ -2983,8 +2916,7 @@ export function getMessageAuthors(messageIds = []) {
   const normalized = Array.from(
     new Set(
       (Array.isArray(messageIds) ? messageIds : [])
-        .map((id) => Number(id))
-        .filter((id) => Number.isFinite(id) && id > 0),
+        .filter(Boolean),
     ),
   );
   if (!normalized.length) return [];
@@ -2999,8 +2931,7 @@ export function getMessageReadByUser(messageIds = [], userId) {
   const normalized = Array.from(
     new Set(
       (Array.isArray(messageIds) ? messageIds : [])
-        .map((id) => Number(id))
-        .filter((id) => Number.isFinite(id) && id > 0),
+        .filter(Boolean),
     ),
   );
   if (!normalized.length) return [];
@@ -3008,7 +2939,7 @@ export function getMessageReadByUser(messageIds = [], userId) {
   return getAll(
     `SELECT message_id FROM chat_message_reads
      WHERE user_id = ? AND message_id IN (${placeholders})`,
-    [Number(userId), ...normalized],
+    [userId, ...normalized],
   );
 }
 
@@ -3016,8 +2947,7 @@ export function recordMessageReads(messageIds = [], readerId) {
   const normalized = Array.from(
     new Set(
       (Array.isArray(messageIds) ? messageIds : [])
-        .map((id) => Number(id))
-        .filter((id) => Number.isFinite(id) && id > 0),
+        .filter(Boolean),
     ),
   );
   if (!normalized.length) return;
@@ -3032,11 +2962,11 @@ export function recordMessageReads(messageIds = [], readerId) {
     const toInsert = (rows || [])
       .filter(
         (row) =>
-          Number(row?.user_id || 0) !== Number(readerId) ||
+          row?.user_id !== readerId ||
           isRemoteMessageRow(row),
       )
-      .map((row) => Number(row.id))
-      .filter((id) => Number.isFinite(id) && id > 0);
+      .map((row) => row.id)
+      .filter(Boolean);
     if (!toInsert.length) return;
     const chunkSize = 300;
     for (let i = 0; i < toInsert.length; i += chunkSize) {
@@ -3045,7 +2975,7 @@ export function recordMessageReads(messageIds = [], readerId) {
       run(
         `INSERT OR IGNORE INTO chat_message_reads (message_id, user_id, read_at)
          VALUES ${valuePlaceholders}`,
-        chunk.flatMap((id) => [id, Number(readerId)]),
+        chunk.flatMap((id) => [id, readerId]),
       );
     }
   };
@@ -3080,21 +3010,20 @@ export function setChatMuted(userId, chatId, muted) {
        ON CONFLICT(user_id, chat_id) DO UPDATE SET
          muted = 1,
          updated_at = datetime('now')`,
-      [Number(userId), Number(chatId)],
+      [userId, chatId],
     );
     return;
   }
 
   run("DELETE FROM chat_mutes WHERE user_id = ? AND chat_id = ?", [
-    Number(userId),
-    Number(chatId),
+    userId,
+    chatId,
   ]);
 }
 
 export function upsertPushSubscription(userId, endpoint, p256dh, auth, messagePreview = 1) {
-  const uid = Number(userId || 0);
   const safeEndpoint = String(endpoint || "").trim();
-  if (!uid || !safeEndpoint) return;
+  if (!userId || !safeEndpoint) return;
   const preview = messagePreview === false || messagePreview === 0 ? 0 : 1;
   run(
     `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, message_preview, updated_at)
@@ -3105,7 +3034,7 @@ export function upsertPushSubscription(userId, endpoint, p256dh, auth, messagePr
        auth = excluded.auth,
        message_preview = excluded.message_preview,
        updated_at = datetime('now')`,
-    [uid, safeEndpoint, String(p256dh || ""), String(auth || ""), preview],
+    [userId, safeEndpoint, String(p256dh || ""), String(auth || ""), preview],
   );
 }
 
@@ -3116,8 +3045,7 @@ export function deletePushSubscription(endpoint) {
 }
 
 export function getTotalUnreadCount(userId) {
-  const uid = Number(userId || 0);
-  if (!uid) return 0;
+  if (!userId) return 0;
   const row = getRow(
     `SELECT COUNT(*) AS total
      FROM (
@@ -3140,7 +3068,7 @@ export function getTotalUnreadCount(userId) {
          OR LOWER(COALESCE(cm.client_request_id, '')) LIKE 'remote:%'
        )
        AND cmr.message_id IS NULL`,
-    [uid, uid, uid, uid, uid, uid],
+    [userId, userId, userId, userId, userId, userId],
   );
   return Number(row?.total || 0);
 }
@@ -3149,8 +3077,7 @@ export function listPushSubscriptionsByUserIds(userIds = []) {
   const ids = Array.from(
     new Set(
       (Array.isArray(userIds) ? userIds : [])
-        .map((id) => Number(id))
-        .filter((id) => Number.isFinite(id) && id > 0),
+        .filter(Boolean),
     ),
   );
   if (!ids.length) return [];
@@ -3164,31 +3091,29 @@ export function listPushSubscriptionsByUserIds(userIds = []) {
 }
 
 export function listMutedUserIdsForChat(chatId) {
-  const id = Number(chatId || 0);
-  if (!id) return isPostgresMode() ? Promise.resolve([]) : [];
+  if (!chatId) return isPostgresMode() ? Promise.resolve([]) : [];
   const rawRows = getAll(
     "SELECT user_id FROM chat_mutes WHERE chat_id = ? AND muted = 1",
-    [id],
+    [chatId],
   );
   if (rawRows && typeof rawRows.then === "function") {
     return rawRows.then((rows) =>
       (rows || [])
-        .map((row) => Number(row?.user_id || 0))
-        .filter((userId) => Number.isFinite(userId) && userId > 0),
+        .map((row) => row?.user_id)
+        .filter(Boolean),
     );
   }
   return (rawRows || [])
-    .map((row) => Number(row?.user_id || 0))
-    .filter((userId) => Number.isFinite(userId) && userId > 0);
+    .map((row) => row?.user_id)
+    .filter(Boolean);
 }
 
 export function createSession(userId, token) {
-  const uid = Number(userId);
-  if (!uid || Number.isNaN(uid) || !token) {
+  if (!userId || !token) {
     const err = new Error(`Invalid session parameters: userId=${userId}, token=${token}`);
     return isPostgresMode() ? Promise.reject(err) : (() => { throw err; })();
   }
-  return run("INSERT INTO sessions (user_id, token) VALUES (?, ?)", [uid, token]);
+  return run("INSERT INTO sessions (user_id, token) VALUES (?, ?)", [userId, token]);
 }
 
 export function getSession(token) {

@@ -961,9 +961,7 @@ async function cleanupExpiredTextOnlyMessages() {
   );
   const rows = Array.isArray(rawRows) ? rawRows : (await rawRows) || [];
 
-  const messageIds = rows
-    .map((row) => Number(row?.id || 0))
-    .filter((id) => Number.isFinite(id) && id > 0);
+  const messageIds = rows.map((row) => row?.id).filter(Boolean);
 
   if (!messageIds.length) {
     return { removedMessages: 0 };
@@ -971,8 +969,8 @@ async function cleanupExpiredTextOnlyMessages() {
 
   const deletedByChat = new Map();
   rows.forEach((row) => {
-    const chatId = Number(row?.chat_id || 0);
-    const messageId = Number(row?.id || 0);
+    const chatId = row?.chat_id;
+    const messageId = row?.id;
     if (!chatId || !messageId) return;
     const list = deletedByChat.get(chatId) || [];
     list.push(messageId);
@@ -1001,9 +999,9 @@ async function cleanupExpiredTextOnlyMessages() {
 
   adminSave();
   deletedByChat.forEach((ids, chatId) => {
-    emitChatEvent(Number(chatId), {
+    emitChatEvent(chatId, {
       type: "chat_message_deleted",
-      chatId: Number(chatId),
+      chatId: chatId,
       messageIds: ids,
     });
   });

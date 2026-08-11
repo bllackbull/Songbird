@@ -1,3 +1,47 @@
+import { isValidUuid } from "./uuidUtils.js";
+
+const UUID_EVENT_TYPES = new Set([
+  "chat_message",
+  "chat_message_updated",
+  "chat_message_deleted",
+  "chat_read",
+  "chat_typing",
+  "chat_updated",
+  "chat_deleted",
+  "chat_list_changed",
+  "presence_update",
+  "profile_updated",
+  "user_profile_updated",
+]);
+
+function hasValidUuidReferences(payload = {}) {
+  const type = String(payload?.type || "");
+  if (!UUID_EVENT_TYPES.has(type)) return true;
+
+  const uuidFields = ["chatId", "messageId", "userId", "replyToMessageId", "sourceChatId", "sourceUserId"];
+  for (const field of uuidFields) {
+    if (payload[field] !== undefined && payload[field] !== null && !isValidUuid(String(payload[field]))) {
+      return false;
+    }
+  }
+
+  if (Array.isArray(payload.messageIds) && payload.messageIds.some((id) => !isValidUuid(String(id)))) {
+    return false;
+  }
+
+  if (["chat_message", "chat_message_updated", "chat_message_deleted", "chat_read", "chat_typing", "chat_updated", "chat_deleted"].includes(type) && !isValidUuid(String(payload.chatId || ""))) {
+    return false;
+  }
+  if (type === "presence_update" && !isValidUuid(String(payload.userId || ""))) {
+    return false;
+  }
+  if ((type === "profile_updated" || type === "user_profile_updated") && !isValidUuid(String(payload.userId || ""))) {
+    return false;
+  }
+
+  return true;
+}
+
 export function createSseHub({ listChatMembers }) {
   const sseClientsByUsername = new Map();
   // Short-lived cache for chat member lists to avoid repeated DB queries on
@@ -59,6 +103,7 @@ export function createSseHub({ listChatMembers }) {
   }
 
   function emitSseEvent(username, payload) {
+    if (!hasValidUuidReferences(payload)) return;
     const key = String(username || "").toLowerCase();
     if (!key) return;
     const clients = sseClientsByUsername.get(key);
@@ -75,7 +120,8 @@ export function createSseHub({ listChatMembers }) {
   }
 
   function emitChatEvent(chatId, payload) {
-    const rawMembers = getCachedMembers(Number(chatId));
+    if (!isValidUuid(String(chatId || "")) || !hasValidUuidReferences(payload)) return;
+    const rawMembers = getCachedMembers(chatId);
     const processMembers = (members) => {
       const memberList = Array.isArray(members) ? members : [];
       memberList.forEach((member) => {

@@ -18,18 +18,18 @@ export function createProfileService(dbApi) {
    * Updates user identity details (nickname, status message, etc.) and calculates target chat participants to notify.
    */
   function updateProfile({ userId, updates }) {
-    const user = findUserById(Number(userId));
+    const user = findUserById(userId);
     if (!user) throw new Error("User not found");
 
     if (typeof updateUserProfile === "function") {
-      updateUserProfile(Number(userId), updates);
+      updateUserProfile(userId, updates);
     }
 
-    const chats = listChatsForUser ? listChatsForUser(Number(userId)) : [];
+    const chats = listChatsForUser ? listChatsForUser(userId) : [];
     const affectedUsernames = new Set();
 
     chats.forEach((chat) => {
-      const members = listChatMembers ? listChatMembers(Number(chat.id)) : [];
+      const members = listChatMembers ? listChatMembers(chat.id) : [];
       members.forEach((member) => {
         const username = String(member?.username || "").toLowerCase();
         if (username) affectedUsernames.add(username);
@@ -40,13 +40,13 @@ export function createProfileService(dbApi) {
       targetUsername,
       payload: {
         type: "user_profile_updated",
-        userId: Number(userId),
+        userId,
       },
     }));
 
     return {
       success: true,
-      userId: Number(userId),
+      userId,
       sseEvents,
     };
   }
