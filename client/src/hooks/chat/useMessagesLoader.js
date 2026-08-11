@@ -59,7 +59,7 @@ export function useMessagesLoader({
   const lastSilentFetchByChatRef = useRef(new Map());
 
   const markSilentFetchAt = (chatId, timestamp) => {
-    const key = Number(chatId || 0);
+    const key = String(chatId || "").trim();
     if (!key) return;
     const map = lastSilentFetchByChatRef.current;
     map.set(key, Number(timestamp || Date.now()));
@@ -116,7 +116,7 @@ export function useMessagesLoader({
 
   const queueSilentMessageRefresh = (chatId, options = {}, delayMs = 0) => {
     queuedSilentMessageRefreshRef.current = {
-      chatId: Number(chatId),
+      chatId: String(chatId || ""),
       options: { ...options, silent: true },
     };
     if (!messageFetchInFlightRef.current) {
@@ -125,7 +125,7 @@ export function useMessagesLoader({
   };
 
   async function loadMessages(chatId, options = {}) {
-    const requestChatId = Number(chatId);
+    const requestChatId = String(chatId || "");
     const isSilentRefresh = Boolean(options.silent);
     if (isSilentRefresh) {
       const now = Date.now();
@@ -201,7 +201,7 @@ export function useMessagesLoader({
       if (!res.ok) {
         throw new Error(data?.error || "Failed to load messages.");
       }
-      if (activeChatIdRef.current !== requestChatId) {
+      if (String(activeChatIdRef.current || "") !== requestChatId) {
         return;
       }
       // When loading with afterId (unread anchor), hasMore means there are newer
@@ -224,7 +224,7 @@ export function useMessagesLoader({
                 : Boolean(data?.hasMore),
       );
       const chatType =
-        chats.find((chat) => Number(chat.id) === Number(requestChatId))?.type ||
+        chats.find((chat) => String(chat.id) === String(requestChatId))?.type ||
         activeChatTypeRef.current ||
         null;
       const allowSystemEvents =
@@ -305,23 +305,23 @@ export function useMessagesLoader({
       const replyIconByMessageId = new Map(
         nextMessages
           .map((message) => [
-            Number(message?.id || 0),
+            String(message?.id || ""),
             resolveReplyPreview(message).icon || null,
           ])
           .filter(
-            ([id, icon]) => Number.isFinite(id) && id > 0 && Boolean(icon),
+            ([id, icon]) => Boolean(id) && Boolean(icon),
           ),
       );
       const replyColorByMessageId = new Map(
         nextMessages
-          .map((message) => [Number(message?.id || 0), message?.color || null])
+          .map((message) => [String(message?.id || ""), message?.color || null])
           .filter(
-            ([id, color]) => Number.isFinite(id) && id > 0 && Boolean(color),
+            ([id, color]) => Boolean(id) && Boolean(color),
           ),
       );
       const nextMessagesWithReplyIcons = nextMessages.map((message) => {
         if (!message?.replyTo) return message;
-        const replyId = Number(message.replyTo.id || 0);
+        const replyId = String(message.replyTo.id || "");
         if (!replyId) return message;
         const resolvedIcon = replyIconByMessageId.get(replyId) || null;
         const resolvedColor = replyColorByMessageId.get(replyId) || null;
@@ -337,20 +337,20 @@ export function useMessagesLoader({
       });
       if (options.prepend) {
         setMessages((prev) => {
-          if (activeChatIdRef.current !== requestChatId) return prev;
-          const seen = new Set(prev.map((msg) => Number(msg.id)));
+          if (String(activeChatIdRef.current || "") !== requestChatId) return prev;
+          const seen = new Set(prev.map((msg) => String(msg.id || "")));
           const older = nextMessagesWithReplyIcons.filter(
-            (msg) => !seen.has(Number(msg.id)),
+            (msg) => !seen.has(String(msg.id || "")),
           );
           return older.length ? [...older, ...prev] : prev;
         });
         return;
       }
       setMessages((prev) => {
-        if (activeChatIdRef.current !== requestChatId) return prev;
+        if (String(activeChatIdRef.current || "") !== requestChatId) return prev;
         if (isActiveChannelChat) {
           const nextCounts = nextMessagesWithReplyIcons.reduce((acc, msg) => {
-            const id = Number(msg?.id || 0);
+            const id = String(msg?.id || "");
             if (!id) return acc;
             if (Number.isFinite(Number(msg?.seenCount))) {
               acc[id] = Math.max(1, Number(msg.seenCount));
@@ -368,14 +368,14 @@ export function useMessagesLoader({
         if (options.pruneMissing) {
           const serverIds = new Set(
             nextMessagesWithReplyIcons
-              .map((msg) => Number(msg?.id || 0))
-              .filter((id) => Number.isFinite(id) && id > 0),
+              .map((msg) => String(msg?.id || ""))
+              .filter((id) => Boolean(id)),
           );
           basePrev = prev.filter((msg) => {
             if (msg?._delivery === "sending" || msg?._delivery === "failed")
               return true;
             if (msg?._clientId) return true;
-            const serverId = Number(msg?._serverId || msg?.id || 0);
+            const serverId = String(msg?._serverId || msg?.id || "");
             return serverIds.has(serverId);
           });
         }
@@ -387,8 +387,8 @@ export function useMessagesLoader({
         }, 0);
         const prevByServerId = new Map(
           basePrev
-            .filter((msg) => Number.isFinite(Number(msg._serverId || msg.id)))
-            .map((msg) => [Number(msg._serverId || msg.id), msg]),
+            .filter((msg) => Boolean(String(msg._serverId || msg.id || "").trim()))
+            .map((msg) => [String(msg._serverId || msg.id), msg]),
         );
         const normalizeBody = (value) => normalizeMessageBody(value).trim();
         const isGenericFileSummaryBody = (value) => {
@@ -428,7 +428,7 @@ export function useMessagesLoader({
         );
         const nextMessagesWithLocalIdentity = nextMessagesWithReplyIcons.map(
           (serverMsg) => {
-            let existingLocal = prevByServerId.get(Number(serverMsg.id));
+            let existingLocal = prevByServerId.get(String(serverMsg.id || ""));
             const serverClientRequestId = String(
               serverMsg?.client_request_id || "",
             ).trim();
@@ -508,7 +508,7 @@ export function useMessagesLoader({
               _clientId: existingLocal._clientId,
               client_request_id:
                 serverMsg?.client_request_id || existingLocal?._clientId || null,
-              _serverId: Number(serverMsg.id),
+              _serverId: String(serverMsg.id || ""),
               _chatId: existingLocal._chatId,
               _delivery: undefined,
               _awaitingServerEcho: false,
@@ -558,7 +558,7 @@ export function useMessagesLoader({
         if (
           nextMessages.length === 0 &&
           basePrev.some((msg) => {
-            if (Number(msg._chatId || chatId) !== Number(chatId)) return false;
+            if (String(msg._chatId || chatId) !== String(chatId)) return false;
             return Boolean(
               msg._clientId || msg._awaitingServerEcho || msg._delivery,
             );
@@ -585,10 +585,10 @@ export function useMessagesLoader({
           ) {
             return true;
           }
-          const pendingServerId = Number(pending?._serverId || 0);
+          const pendingServerId = String(pending?._serverId || "");
           if (
             pendingServerId &&
-            serverMessages.some((serverMsg) => Number(serverMsg.id) === pendingServerId)
+            serverMessages.some((serverMsg) => String(serverMsg.id) === pendingServerId)
           ) {
             return true;
           }
@@ -683,12 +683,12 @@ export function useMessagesLoader({
         const pendingLocal = basePrev.filter(
           (msg) =>
             (msg._delivery === "sending" || msg._delivery === "failed") &&
-            Number(msg._chatId || chatId) === Number(chatId) &&
+            String(msg._chatId || chatId) === String(chatId) &&
             !isPendingMessageAcknowledged(msg, nextMessages),
         );
         const optimisticSentLocal = basePrev.filter((msg) => {
           if (!msg?._awaitingServerEcho) return false;
-          if (Number(msg._chatId || chatId) !== Number(chatId)) return false;
+          if (String(msg._chatId || chatId) !== String(chatId)) return false;
           const localClientRequestId = String(
             msg?._clientId || msg?.client_request_id || "",
           ).trim();
@@ -700,7 +700,7 @@ export function useMessagesLoader({
           }
           return !nextMessagesWithVisibility.some(
             (serverMsg) =>
-              Number(serverMsg.id) === Number(msg._serverId || msg.id),
+              String(serverMsg.id) === String(msg._serverId || msg.id),
           );
         });
         const nextMessagesVisible = nextMessagesWithVisibility.filter(
@@ -722,15 +722,6 @@ export function useMessagesLoader({
               return leftQueuedAt - rightQueuedAt;
             }
           }
-          const leftServerId = Number(left?._serverId || left?.id);
-          const rightServerId = Number(right?._serverId || right?.id);
-          const leftHasServerId =
-            Number.isFinite(leftServerId) && leftServerId > 0;
-          const rightHasServerId =
-            Number.isFinite(rightServerId) && rightServerId > 0;
-          if (leftHasServerId && rightHasServerId) {
-            return leftServerId - rightServerId;
-          }
           const leftTime = Number(
             left?._visibilityTime ||
               parseServerDate(left?.created_at).getTime(),
@@ -742,12 +733,10 @@ export function useMessagesLoader({
           if (leftTime !== rightTime) {
             return leftTime - rightTime;
           }
-          const leftId = Number(left?.id);
-          const rightId = Number(right?.id);
-          const leftHasNumericId = Number.isFinite(leftId);
-          const rightHasNumericId = Number.isFinite(rightId);
-          if (leftHasNumericId && rightHasNumericId) {
-            return leftId - rightId;
+          const leftId = String(left?._serverId || left?.id || "");
+          const rightId = String(right?._serverId || right?.id || "");
+          if (leftId && rightId) {
+            return leftId.localeCompare(rightId);
           }
           return String(left?._clientId || "").localeCompare(
             String(right?._clientId || ""),
@@ -763,18 +752,18 @@ export function useMessagesLoader({
         const nowMs = Date.now();
         const rescuedOptimistic = basePrev.filter((msg) => {
           if (!msg?._clientId) return false;
-          if (Number(msg._chatId || chatId) !== Number(chatId)) return false;
+          if (String(msg._chatId || chatId) !== String(chatId)) return false;
           const queuedAt = Number(msg?._queuedAt || 0);
           if (!queuedAt || nowMs - queuedAt > 2 * 60 * 1000) return false;
           const hasClientMatch = mergedNext.some(
             (item) => String(item?._clientId || "") === String(msg._clientId),
           );
           if (hasClientMatch) return false;
-          const optimisticServerId = Number(msg?._serverId || 0);
+          const optimisticServerId = String(msg?._serverId || "");
           if (optimisticServerId) {
             const hasServerMatch = mergedNext.some(
               (item) =>
-                Number(item?._serverId || item?.id || 0) === optimisticServerId,
+                String(item?._serverId || item?.id || "") === optimisticServerId,
             );
             if (hasServerMatch) return false;
           }
@@ -795,8 +784,8 @@ export function useMessagesLoader({
         const clientIdentityMap = new Map();
         const requestIdentityMap = new Map();
         const getMessageIdentity = (msg) => {
-          const serverId = Number(msg?._serverId || msg?.id || 0);
-          const hasServerId = Number.isFinite(serverId) && serverId > 0;
+          const serverId = String(msg?._serverId || msg?.id || "");
+          const hasServerId = Boolean(serverId);
           const clientId = String(msg?._clientId || "").trim();
           const requestId = String(
             msg?.client_request_id || msg?._clientId || "",
@@ -811,11 +800,10 @@ export function useMessagesLoader({
         const choosePreferredMessage = (existing, next) => {
           if (!existing) return next;
           if (!next) return existing;
-          const existingServerId = Number(existing?._serverId || existing?.id || 0);
-          const nextServerId = Number(next?._serverId || next?.id || 0);
-          const existingHasServerId =
-            Number.isFinite(existingServerId) && existingServerId > 0;
-          const nextHasServerId = Number.isFinite(nextServerId) && nextServerId > 0;
+          const existingServerId = String(existing?._serverId || existing?.id || "");
+          const nextServerId = String(next?._serverId || next?.id || "");
+          const existingHasServerId = Boolean(existingServerId);
+          const nextHasServerId = Boolean(nextServerId);
           if (existingHasServerId !== nextHasServerId) {
             return nextHasServerId ? next : existing;
           }
@@ -895,14 +883,14 @@ export function useMessagesLoader({
         if (options.preserveHistory) {
           const mergedById = new Map();
           mergedNext.forEach((msg) => {
-            const key = Number(msg?._serverId || msg?.id);
-            if (Number.isFinite(key)) {
+            const key = String(msg?._serverId || msg?.id || "");
+            if (key) {
               mergedById.set(key, msg);
             }
           });
           const carriedOlder = prev.filter((msg) => {
-            const key = Number(msg?._serverId || msg?.id);
-            if (!Number.isFinite(key)) return false;
+            const key = String(msg?._serverId || msg?.id || "");
+            if (!key) return false;
             return !mergedById.has(key);
           });
           if (carriedOlder.length) {
@@ -946,9 +934,9 @@ export function useMessagesLoader({
                 { chatId, username: user.username },
                 { cache: "no-store" },
               );
-              if (activeChatIdRef.current !== requestChatId) return;
+              if (String(activeChatIdRef.current || "") !== requestChatId) return;
               const anchorData = await anchorRes.json();
-              if (activeChatIdRef.current !== requestChatId) return;
+              if (String(activeChatIdRef.current || "") !== requestChatId) return;
               const anchor = anchorData?.firstUnread;
               if (anchor?.id && anchor?.created_at) {
                 // Load messageFetchLimit messages starting from the first unread
@@ -987,7 +975,7 @@ export function useMessagesLoader({
 
         if (firstUnreadMessage?.id) {
           shouldAutoMarkReadRef.current = false;
-          const unreadId = Number(firstUnreadMessage.id);
+          const unreadId = String(firstUnreadMessage.id);
           setUnreadMarkerId(unreadId);
           unreadMarkerIdRef.current = unreadId;
           pendingScrollToUnreadRef.current = unreadId;
@@ -1073,7 +1061,7 @@ export function useMessagesLoader({
       }
       messageFetchInFlightRef.current = false;
       if (queuedSilentMessageRefreshRef.current) {
-        const queuedChatId = Number(queuedSilentMessageRefreshRef.current.chatId || 0);
+        const queuedChatId = String(queuedSilentMessageRefreshRef.current.chatId || "");
         const lastAt = Number(lastSilentFetchByChatRef.current.get(queuedChatId) || 0);
         const remainingMs = lastAt
           ? Math.max(0, SILENT_FETCH_MIN_INTERVAL_MS - (Date.now() - lastAt))
