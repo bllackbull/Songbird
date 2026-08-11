@@ -79,14 +79,18 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
 
   // 1. Dual-engine behavior under SQLite and Postgres modes
   describe("DB helper functions under Postgres vs SQLite modes", () => {
-    test("createMessage uses the PostgreSQL INSERT result instead of connection-local LASTVAL", async () => {
+    test("createMessage generates UUID and returns it directly without RETURNING in PostgreSQL mode", async () => {
       process.env.DB_CLIENT = "postgres";
+      let capturedSql = null;
       const raw = vi.spyOn(dbKnex, "raw").mockImplementation(async (sql) => {
-        expect(sql).toMatch(/INSERT INTO chat_messages[\s\S]*RETURNING id/);
-        return { rows: [{ id: 321 }], rowCount: 1 };
+        capturedSql = sql;
+        return { rows: [], rowCount: 1 };
       });
 
-      await expect(createMessage(7, 1, "hello")).resolves.toBe(321);
+      const result = await createMessage("cccccccc-cccc-4ccc-8ccc-cccccccccccc", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "hello");
+      expect(typeof result).toBe("string");
+      expect(result).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+      expect(capturedSql).not.toMatch(/RETURNING/i);
       expect(raw).toHaveBeenCalledTimes(1);
     });
 
@@ -659,7 +663,7 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
           Promise.resolve({ rows: [] })
         );
 
-        const res = listChatsForUser(1);
+        const res = listChatsForUser("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
         expect(typeof res?.then).toBe("function");
         const chats = await res;
         expect(chats).toEqual([]);
@@ -669,7 +673,7 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
         process.env.DB_CLIENT = "postgres";
         const asyncListChatsForUser = vi.fn().mockImplementation(() => {
           return Promise.resolve([
-            { id: 1, name: "General", type: "group" },
+            { id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", name: "General", type: "group" },
           ]);
         });
 
@@ -677,12 +681,12 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
           deps: {
             listChatsForUser: asyncListChatsForUser,
             findUserByUsername: () =>
-              Promise.resolve({ id: 10, username: "alice" }),
+              Promise.resolve({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", username: "alice" }),
             listChatMembersForChats: () => new Map(),
           },
         });
-        userStore.users.set("alice", { id: 10, username: "alice", role: "user" });
-        sessionStore.createSession(10, "valid");
+        userStore.users.set("alice", { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", username: "alice", role: "user" });
+        sessionStore.createSession("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "valid");
 
         // Calling GET /api/chats?username=alice
         const res = await request(app)
@@ -691,14 +695,14 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
 
         expect(res.status).toBe(200);
         expect(res.body).toEqual({
-          chats: [expect.objectContaining({ id: 1, name: "General" })],
+          chats: [expect.objectContaining({ id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", name: "General" })],
         });
       });
     });
 
     // 5.3 Issue 3: Postgres invalid input syntax for type integer: "NaN" error in listChatsForUser
     describe("Issue 3: Postgres invalid input syntax for type integer: 'NaN' in listChatsForUser", () => {
-      test("listChatsForUser safely returns empty array without passing NaN bindings to SQL when userId is NaN, undefined, or non-numeric", async () => {
+      test("listChatsForUser safely returns empty array without querying when userId is NaN or undefined, and returns empty for non-matching UUID strings", async () => {
         process.env.DB_CLIENT = "postgres";
         let capturedParams = null;
         vi.spyOn(dbKnex, "raw").mockImplementation((sql, params) => {
@@ -716,18 +720,16 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
         expect(resUndef).toEqual([]);
         expect(capturedParams).toBeNull(); // No query should be executed for undefined
 
-        // 3. listChatsForUser with invalid string
-        const resStr = await listChatsForUser("not_a_number");
+        // 3. listChatsForUser with a valid UUID string that has no data returns empty array from query
+        const resStr = await listChatsForUser("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
         expect(resStr).toEqual([]);
-        expect(capturedParams).toBeNull(); // No query should be executed for invalid string
       });
 
       test("GET /api/chats safely handles invalid or missing user.id without passing NaN to listChatsForUser", async () => {
         process.env.DB_CLIENT = "postgres";
         const listChatsForUserMock = vi.fn().mockImplementation((userId) => {
-          const uid = Number(userId);
-          if (Number.isNaN(uid)) {
-            const err = new Error('invalid input syntax for type integer: "NaN"');
+          if (!userId || typeof userId !== "string") {
+            const err = new Error('invalid input syntax for type uuid');
             err.code = "22P02";
             throw err;
           }
@@ -738,19 +740,19 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
           deps: {
             listChatsForUser: listChatsForUserMock,
             findUserByUsername: () =>
-              Promise.resolve({ id: 10, username: "validuser" }),
+              Promise.resolve({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", username: "validuser" }),
             listChatMembersForChats: () => new Map(),
           },
         });
-        userStore.users.set("validuser", { id: 10, username: "validuser", role: "user" });
-        sessionStore.createSession(10, "valid");
+        userStore.users.set("validuser", { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", username: "validuser", role: "user" });
+        sessionStore.createSession("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "valid");
 
         const res = await request(app)
           .get("/api/chats?username=validuser")
           .set("Cookie", ["sid=valid"]);
 
         expect(res.status).toBe(200);
-        expect(listChatsForUserMock).toHaveBeenCalledWith(10);
+        expect(listChatsForUserMock).toHaveBeenCalledWith("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
       });
     });
 
@@ -915,26 +917,26 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
     // 7. Comprehensive Audit of API Routes with Promise-Returning DB Helpers
     describe("API Endpoints Audit under PostgreSQL Mode (Promise-returning DB Helpers)", () => {
       let app, userStore, sessionStore;
-      const alice = { id: 10, username: "alice", role: "admin", status: "online", color: "#10b981", avatar_url: null, banned: false, verified: true };
-      const bob = { id: 20, username: "bob", role: "user", status: "online", color: "#10b981", avatar_url: null, banned: false, verified: false };
-      const groupChat = { id: 1, name: "General", type: "group", group_username: "general", group_color: "#10b981", invite_token: "token123", group_visibility: "public" };
+      const alice = { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", username: "alice", role: "admin", status: "online", color: "#10b981", avatar_url: null, banned: false, verified: true };
+      const bob = { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", username: "bob", role: "user", status: "online", color: "#10b981", avatar_url: null, banned: false, verified: false };
+      const groupChat = { id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", name: "General", type: "group", group_username: "general", group_color: "#10b981", invite_token: "token123", group_visibility: "public" };
 
       beforeEach(() => {
         process.env.DB_CLIENT = "postgres";
         const asyncDeps = {
           findUserByUsername: (u) => Promise.resolve(u === "alice" ? alice : u === "bob" ? bob : null),
-          findUserById: (id) => Promise.resolve(id === 10 ? alice : id === 20 ? bob : null),
+          findUserById: (id) => Promise.resolve(id === "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" ? alice : id === "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" ? bob : null),
           listUsers: () => Promise.resolve([alice, bob]),
           searchUsers: () => Promise.resolve([bob]),
           searchPublicGroups: () => Promise.resolve([groupChat]),
           searchPublicChannels: () => Promise.resolve([]),
           listChatMembers: () => Promise.resolve([{ ...alice, role: "owner" }, { ...bob, role: "member" }]),
-          listChatMembersForChats: () => Promise.resolve(new Map([[1, [{ ...alice, role: "owner" }]]])),
+          listChatMembersForChats: () => Promise.resolve(new Map([["cccccccc-cccc-4ccc-8ccc-cccccccccccc", [{ ...alice, role: "owner" }]]])),
           listChatsForUser: () => Promise.resolve([groupChat]),
           findChatById: () => Promise.resolve(groupChat),
           findChatByGroupUsername: (name) => Promise.resolve(name === groupChat?.group_username ? groupChat : null),
           findChatByInviteToken: () => Promise.resolve(groupChat),
-          findDmChat: () => Promise.resolve(1),
+          findDmChat: () => Promise.resolve("cccccccc-cccc-4ccc-8ccc-cccccccccccc"),
           getMessages: () => Promise.resolve({ messages: [], hasMore: false }),
           getFirstUnreadMessage: () => Promise.resolve(null),
           getChatMemberRole: () => Promise.resolve("owner"),
@@ -946,18 +948,18 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
           getRemoteChannelSourceById: () => Promise.resolve(null),
           listPushSubscriptionsByUserIds: () => Promise.resolve([]),
           listMutedUserIdsForChat: () => Promise.resolve([]),
-          ensureSavedChatForUser: () => Promise.resolve({ id: 99, name: "Saved messages", type: "saved" }),
+          ensureSavedChatForUser: () => Promise.resolve({ id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", name: "Saved messages", type: "saved" }),
           unhideChat: () => Promise.resolve(),
           listMessageFilesByMessageIds: () => Promise.resolve([]),
           getMessageReadByUser: () => Promise.resolve([]),
           getMessageReadCounts: () => Promise.resolve([]),
           isLoopbackRequest: () => true,
-          createMessage: () => Promise.resolve(100),
+          createMessage: () => Promise.resolve("dddddddd-dddd-4ddd-8ddd-dddddddddddd"),
           getMessageAuthors: () => Promise.resolve([]),
           getMessageReadByUser: () => Promise.resolve(false),
           getTotalUnreadCount: () => Promise.resolve(0),
           getUserPresence: () => Promise.resolve({ status: "online", lastSeen: null }),
-          createChat: () => Promise.resolve(1),
+          createChat: () => Promise.resolve("cccccccc-cccc-4ccc-8ccc-cccccccccccc"),
           addChatMember: () => Promise.resolve(true),
           addAllEligibleChatMembers: () => Promise.resolve({ addedUsers: [], skippedLeftCount: 0 }),
           isUserAdmin: () => Promise.resolve(true),
@@ -982,7 +984,7 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
 
         userStore.users.set("alice", alice);
         userStore.users.set("bob", bob);
-        sessionStore.createSession(10, "valid_alice_session");
+        sessionStore.createSession("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "valid_alice_session");
       });
 
       test("GET /api/discover under Postgres Promise DB mode", async () => {
@@ -1057,11 +1059,11 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
 
       test("GET /api/chats/:chatId/preview resolves async user, chat, membership, and member lookups", async () => {
         const res = await request(app)
-          .get("/api/chats/1/preview?username=alice")
+          .get("/api/chats/cccccccc-cccc-4ccc-8ccc-cccccccccccc/preview?username=alice")
           .set("Cookie", ["sid=valid_alice_session"]);
         expect(res.status).toBe(200);
         expect(res.body).toMatchObject({
-          id: 1,
+          id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
           type: "group",
           name: "General",
           membersCount: 2,
@@ -1071,14 +1073,14 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
 
       test("GET /api/chats/group/:chatId/invite-link under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .get("/api/chats/group/1/invite-link?username=alice")
+          .get("/api/chats/group/cccccccc-cccc-4ccc-8ccc-cccccccccccc/invite-link?username=alice")
           .set("Cookie", ["sid=valid_alice_session"]);
         expect(res.status).not.toBe(500);
       });
 
       test("POST /api/chats/group/:chatId/regenerate-invite under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .post("/api/chats/group/1/regenerate-invite")
+          .post("/api/chats/group/cccccccc-cccc-4ccc-8ccc-cccccccccccc/regenerate-invite")
           .set("Cookie", ["sid=valid_alice_session"])
           .send({ username: "alice" });
         expect(res.status).not.toBe(500);
@@ -1086,7 +1088,7 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
 
       test("PUT /api/chats/group/:chatId under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .put("/api/chats/group/1")
+          .put("/api/chats/group/cccccccc-cccc-4ccc-8ccc-cccccccccccc")
           .set("Cookie", ["sid=valid_alice_session"])
           .send({ username: "alice", name: "Renamed Group" });
         expect(res.status).not.toBe(500);
@@ -1094,7 +1096,7 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
 
       test("POST /api/chats/group/:chatId/leave under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .post("/api/chats/group/1/leave")
+          .post("/api/chats/group/cccccccc-cccc-4ccc-8ccc-cccccccccccc/leave")
           .set("Cookie", ["sid=valid_alice_session"])
           .send({ username: "alice" });
         expect(res.status).not.toBe(500);
@@ -1102,7 +1104,7 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
 
       test("POST /api/chats/group/:chatId/delete under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .post("/api/chats/group/1/delete")
+          .post("/api/chats/group/cccccccc-cccc-4ccc-8ccc-cccccccccccc/delete")
           .set("Cookie", ["sid=valid_alice_session"])
           .send({ username: "alice" });
         expect(res.status).not.toBe(500);
@@ -1110,15 +1112,15 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
 
       test("POST /api/chats/group/:chatId/remove-member under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .post("/api/chats/group/1/remove-member")
+          .post("/api/chats/group/cccccccc-cccc-4ccc-8ccc-cccccccccccc/remove-member")
           .set("Cookie", ["sid=valid_alice_session"])
-          .send({ username: "alice", targetUserId: 20 });
+          .send({ username: "alice", targetUserId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" });
         expect(res.status).not.toBe(500);
       });
 
       test("DELETE /api/chats/group/:chatId/avatar under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .delete("/api/chats/group/1/avatar")
+          .delete("/api/chats/group/cccccccc-cccc-4ccc-8ccc-cccccccccccc/avatar")
           .set("Cookie", ["sid=valid_alice_session"])
           .send({ username: "alice" });
         expect(res.status).not.toBe(500);
@@ -1126,7 +1128,7 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
 
       test("PUT /api/chats/:chatId/mute under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .put("/api/chats/1/mute")
+          .put("/api/chats/cccccccc-cccc-4ccc-8ccc-cccccccccccc/mute")
           .set("Cookie", ["sid=valid_alice_session"])
           .send({ username: "alice", muted: true });
         expect(res.status).not.toBe(500);
@@ -1136,13 +1138,13 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
         const res = await request(app)
           .post("/api/chats/hide")
           .set("Cookie", ["sid=valid_alice_session"])
-          .send({ username: "alice", chatId: 1 });
+          .send({ username: "alice", chatId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" });
         expect(res.status).not.toBe(500);
       });
 
       test("POST /api/chats/group/:chatId/join-public under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .post("/api/chats/group/1/join-public")
+          .post("/api/chats/group/cccccccc-cccc-4ccc-8ccc-cccccccccccc/join-public")
           .set("Cookie", ["sid=valid_alice_session"])
           .send({ username: "alice" });
         expect(res.status).not.toBe(500);
@@ -1159,20 +1161,20 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
         const res = await request(app)
           .post("/api/mentions/resolve")
           .set("Cookie", ["sid=valid_alice_session"])
-          .send({ usernames: ["alice", "bob"], chatId: 1, currentUsername: "alice" });
+          .send({ usernames: ["alice", "bob"], chatId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", currentUsername: "alice" });
         expect(res.status).not.toBe(500);
       });
 
       test("GET /api/messages under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .get("/api/messages?chatId=1&username=alice")
+          .get("/api/messages?chatId=cccccccc-cccc-4ccc-8ccc-cccccccccccc&username=alice")
           .set("Cookie", ["sid=valid_alice_session"]);
         expect(res.status).not.toBe(500);
       });
 
       test("GET /api/messages/first-unread under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .get("/api/messages/first-unread?chatId=1&username=alice")
+          .get("/api/messages/first-unread?chatId=cccccccc-cccc-4ccc-8ccc-cccccccccccc&username=alice")
           .set("Cookie", ["sid=valid_alice_session"]);
         expect(res.status).not.toBe(500);
       });
@@ -1181,7 +1183,7 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
         const res = await request(app)
           .post("/api/messages/read")
           .set("Cookie", ["sid=valid_alice_session"])
-          .send({ chatId: 1, username: "alice" });
+          .send({ chatId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", username: "alice" });
         expect(res.status).not.toBe(500);
       });
 
@@ -1189,7 +1191,7 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
         const res = await request(app)
           .post("/api/messages/read-one")
           .set("Cookie", ["sid=valid_alice_session"])
-          .send({ messageId: 100, username: "alice" });
+          .send({ messageId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", username: "alice" });
         expect(res.status).not.toBe(500);
       });
 
@@ -1197,7 +1199,7 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
         const res = await request(app)
           .post("/api/messages/read-counts")
           .set("Cookie", ["sid=valid_alice_session"])
-          .send({ username: "alice", messageIds: [100] });
+          .send({ username: "alice", messageIds: ["dddddddd-dddd-4ddd-8ddd-dddddddddddd"] });
         expect(res.status).not.toBe(500);
       });
 
@@ -1205,7 +1207,7 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
         const res = await request(app)
           .post("/api/messages/typing")
           .set("Cookie", ["sid=valid_alice_session"])
-          .send({ chatId: 1, username: "alice" });
+          .send({ chatId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", username: "alice" });
         expect(res.status).not.toBe(500);
       });
 
@@ -1213,7 +1215,7 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
         const res = await request(app)
           .post("/api/messages")
           .set("Cookie", ["sid=valid_alice_session"])
-          .send({ chatId: 1, username: "alice", body: "Hello world" });
+          .send({ chatId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", username: "alice", body: "Hello world" });
         expect(res.status).not.toBe(500);
       });
 
@@ -1221,7 +1223,7 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
         const res = await request(app)
           .post("/api/messages/edit")
           .set("Cookie", ["sid=valid_alice_session"])
-          .send({ messageId: 100, username: "alice", editedBody: "Updated message" });
+          .send({ messageId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", chatId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", username: "alice", editedBody: "Updated message" });
         expect(res.status).not.toBe(500);
       });
 
@@ -1229,7 +1231,7 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
         const res = await request(app)
           .post("/api/messages/delete")
           .set("Cookie", ["sid=valid_alice_session"])
-          .send({ messageId: 100, username: "alice" });
+          .send({ messageId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", chatId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", username: "alice" });
         expect(res.status).not.toBe(500);
       });
 
@@ -1237,7 +1239,7 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
         const res = await request(app)
           .post("/api/messages/forward")
           .set("Cookie", ["sid=valid_alice_session"])
-          .send({ sourceMessageId: 100, targetChatIds: [1], username: "alice" });
+          .send({ sourceMessageId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", targetChatIds: ["cccccccc-cccc-4ccc-8ccc-cccccccccccc"], username: "alice" });
         expect(res.status).not.toBe(500);
       });
 
@@ -1303,7 +1305,7 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
 
       test("PATCH /api/admin/users/:id under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .patch("/api/admin/users/20")
+          .patch("/api/admin/users/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
           .set("Cookie", ["sid=valid_alice_session"])
           .send({ nickname: "Bob Updated" });
         expect(res.status).not.toBe(500);
@@ -1311,7 +1313,7 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
 
       test("POST /api/admin/users/:id/ban under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .post("/api/admin/users/20/ban")
+          .post("/api/admin/users/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/ban")
           .set("Cookie", ["sid=valid_alice_session"])
           .send({ banned: true });
         expect(res.status).not.toBe(500);
@@ -1319,7 +1321,7 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
 
       test("POST /api/admin/users/:id/role under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .post("/api/admin/users/20/role")
+          .post("/api/admin/users/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/role")
           .set("Cookie", ["sid=valid_alice_session"])
           .send({ role: "admin" });
         expect(res.status).not.toBe(500);
@@ -1327,7 +1329,7 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
 
       test("POST /api/admin/users/:id/reset-password under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .post("/api/admin/users/20/reset-password")
+          .post("/api/admin/users/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/reset-password")
           .set("Cookie", ["sid=valid_alice_session"])
           .send({ newPassword: "password123" });
         expect(res.status).not.toBe(500);
@@ -1335,7 +1337,7 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
 
       test("DELETE /api/admin/users/:id under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .delete("/api/admin/users/20")
+          .delete("/api/admin/users/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
           .set("Cookie", ["sid=valid_alice_session"]);
         expect(res.status).not.toBe(500);
       });
@@ -1357,7 +1359,7 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
 
       test("PATCH /api/admin/chats/:id under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .patch("/api/admin/chats/1")
+          .patch("/api/admin/chats/cccccccc-cccc-4ccc-8ccc-cccccccccccc")
           .set("Cookie", ["sid=valid_alice_session"])
           .send({ name: "Admin Group Renamed" });
         expect(res.status).not.toBe(500);
@@ -1365,29 +1367,29 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
 
       test("GET /api/admin/chats/:id/members under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .get("/api/admin/chats/1/members")
+          .get("/api/admin/chats/cccccccc-cccc-4ccc-8ccc-cccccccccccc/members")
           .set("Cookie", ["sid=valid_alice_session"]);
         expect(res.status).not.toBe(500);
       });
 
       test("POST /api/admin/chats/:id/members under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .post("/api/admin/chats/1/members")
+          .post("/api/admin/chats/cccccccc-cccc-4ccc-8ccc-cccccccccccc/members")
           .set("Cookie", ["sid=valid_alice_session"])
-          .send({ userId: 20 });
+          .send({ userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" });
         expect(res.status).not.toBe(500);
       });
 
       test("DELETE /api/admin/chats/:id/members/:userId under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .delete("/api/admin/chats/1/members/20")
+          .delete("/api/admin/chats/cccccccc-cccc-4ccc-8ccc-cccccccccccc/members/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
           .set("Cookie", ["sid=valid_alice_session"]);
         expect(res.status).not.toBe(500);
       });
 
       test("PATCH /api/admin/chats/:id/members/:userId under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .patch("/api/admin/chats/1/members/20")
+          .patch("/api/admin/chats/cccccccc-cccc-4ccc-8ccc-cccccccccccc/members/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
           .set("Cookie", ["sid=valid_alice_session"])
           .send({ role: "admin" });
         expect(res.status).not.toBe(500);
@@ -1395,7 +1397,7 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
 
       test("DELETE /api/admin/chats/:id under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .delete("/api/admin/chats/1")
+          .delete("/api/admin/chats/cccccccc-cccc-4ccc-8ccc-cccccccccccc")
           .set("Cookie", ["sid=valid_alice_session"]);
         expect(res.status).not.toBe(500);
       });
@@ -1474,14 +1476,14 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
 
       test("GET /api/chats/:chatId/remote-channel under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .get("/api/chats/1/remote-channel")
+          .get("/api/chats/cccccccc-cccc-4ccc-8ccc-cccccccccccc/remote-channel")
           .set("Cookie", ["sid=valid_alice_session"]);
         expect(res.status).not.toBe(500);
       });
 
       test("PUT /api/chats/:chatId/remote-channel under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .put("/api/chats/1/remote-channel")
+          .put("/api/chats/cccccccc-cccc-4ccc-8ccc-cccccccccccc/remote-channel")
           .set("Cookie", ["sid=valid_alice_session"])
           .send({ provider: "telegram", source_chat_id: "123" });
         expect(res.status).not.toBe(500);
@@ -1489,35 +1491,35 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
 
       test("POST /api/chats/:chatId/remote-channel/pause under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .post("/api/chats/1/remote-channel/pause")
+          .post("/api/chats/cccccccc-cccc-4ccc-8ccc-cccccccccccc/remote-channel/pause")
           .set("Cookie", ["sid=valid_alice_session"]);
         expect(res.status).not.toBe(500);
       });
 
       test("POST /api/chats/:chatId/remote-channel/resume under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .post("/api/chats/1/remote-channel/resume")
+          .post("/api/chats/cccccccc-cccc-4ccc-8ccc-cccccccccccc/remote-channel/resume")
           .set("Cookie", ["sid=valid_alice_session"]);
         expect(res.status).not.toBe(500);
       });
 
       test("POST /api/chats/:chatId/remote-channel/skip under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .post("/api/chats/1/remote-channel/skip")
+          .post("/api/chats/cccccccc-cccc-4ccc-8ccc-cccccccccccc/remote-channel/skip")
           .set("Cookie", ["sid=valid_alice_session"]);
         expect(res.status).not.toBe(500);
       });
 
       test("POST /api/chats/:chatId/remote-channel/skip-all under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .post("/api/chats/1/remote-channel/skip-all")
+          .post("/api/chats/cccccccc-cccc-4ccc-8ccc-cccccccccccc/remote-channel/skip-all")
           .set("Cookie", ["sid=valid_alice_session"]);
         expect(res.status).not.toBe(500);
       });
 
       test("POST /api/chats/:chatId/remote-channel/test under Postgres Promise DB mode", async () => {
         const res = await request(app)
-          .post("/api/chats/1/remote-channel/test")
+          .post("/api/chats/cccccccc-cccc-4ccc-8ccc-cccccccccccc/remote-channel/test")
           .set("Cookie", ["sid=valid_alice_session"]);
         expect(res.status).not.toBe(500);
       });
@@ -1550,7 +1552,7 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
           .post("/api/messages")
           .set("Cookie", ["sid=valid_alice_session"])
           .send({
-            chatId: 1,
+            chatId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
             username: "alice",
             body: "Hello from Postgres mode test",
           });

@@ -13,6 +13,7 @@ import { registerApiRoutes } from "../../api/index.js";
 import { createSessionHelpers } from "../../lib/sessions.js";
 import { USER_COLORS } from "../../settings/colors.js";
 import { createStorageProvider } from "../../lib/storage/index.js";
+import { generateUuid } from "../../lib/uuidUtils.js";
 
 // ─── Minimal in-memory session store ─────────────────────────────────────────
 
@@ -35,11 +36,10 @@ export function makeSessionStore() {
 
 export function makeUserStore(initialUsers = []) {
   const users = new Map(initialUsers.map((u) => [u.username, u]));
-  let nextId = initialUsers.length + 1;
   return {
     users,
     createUser: (username, passwordHash, nickname, avatarUrl, color) => {
-      const id = nextId++;
+      const id = generateUuid();
       users.set(username, {
         id,
         username,

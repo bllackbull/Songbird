@@ -44,9 +44,10 @@ describe("WebSocket Gateway", () => {
 
     gateway.clientsByUsername.set("alice", new Set([wsAlice]));
 
-    realSseHub.emitChatEvent(10, { type: "chat_message", text: "hello" });
+    const chatId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    realSseHub.emitChatEvent(chatId, { type: "chat_message", chatId, text: "hello" });
 
-    expect(wsAlice.send).toHaveBeenCalledWith(JSON.stringify({ type: "chat_message", text: "hello" }));
+    expect(wsAlice.send).toHaveBeenCalledWith(JSON.stringify({ type: "chat_message", chatId, text: "hello" }));
 
     gateway.close();
   });
@@ -66,11 +67,12 @@ describe("WebSocket Gateway", () => {
     gateway.clientsByUsername.set("alice", new Set([wsAlice]));
     gateway.clientsByUsername.set("bob", new Set([wsBob]));
 
-    gateway.sendChatEvent(10, { type: "chat_message", text: "hello" });
+    const chatId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    gateway.sendChatEvent(chatId, { type: "chat_message", chatId, text: "hello" });
 
-    expect(getCachedMembers).toHaveBeenCalledWith(10);
-    expect(wsAlice.send).toHaveBeenCalledWith(JSON.stringify({ type: "chat_message", text: "hello" }));
-    expect(wsBob.send).toHaveBeenCalledWith(JSON.stringify({ type: "chat_message", text: "hello" }));
+    expect(getCachedMembers).toHaveBeenCalledWith(chatId);
+    expect(wsAlice.send).toHaveBeenCalledWith(JSON.stringify({ type: "chat_message", chatId, text: "hello" }));
+    expect(wsBob.send).toHaveBeenCalledWith(JSON.stringify({ type: "chat_message", chatId, text: "hello" }));
 
     gateway.close();
   });

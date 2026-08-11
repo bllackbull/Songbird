@@ -3,13 +3,22 @@ import request from "supertest";
 import bcrypt from "bcryptjs";
 import { makeApp, makeUserStore } from "../helpers/makeApp.js";
 
+// ─── UUID constants for tests ─────────────────────────────────────────────────
+
+const ALICE_ID = "a0a0a0a0-b1b1-4c2c-8d3d-e4e4e4e4e4e4";
+const BOB_ID = "b0b0b0b0-c1c1-4d2d-9e3e-f5f5f5f5f5f5";
+const CHAT_ID = "c0c0c0c0-d1d1-4e2e-af3f-060606060606";
+const MSG_ID = "d0d0d0d0-e1e1-4f2f-b040-171717171717";
+const MSG_ID_2 = "e0e0e0e0-f1f1-4020-c151-282828282828";
+const OTHER_USER_ID = "f0f0f0f0-0101-4131-d262-393939393939";
+
 // ─── Shared setup helpers ─────────────────────────────────────────────────────
 
 function makeAppWithUser(username = "alice", password = "secret123") {
   const hash = bcrypt.hashSync(password, 4);
   const userStore = makeUserStore([
     {
-      id: 1,
+      id: ALICE_ID,
       username,
       password_hash: hash,
       nickname: "Alice",
@@ -40,7 +49,7 @@ describe("POST /api/messages", () => {
   test("returns 401 when not authenticated", async () => {
     const { app } = makeAppWithUser();
     const res = await request(app).post("/api/messages").send({
-      chatId: 1,
+      chatId: CHAT_ID,
       username: "alice",
       body: "Hello",
     });
@@ -64,7 +73,7 @@ describe("POST /api/messages", () => {
     const res = await request(app)
       .post("/api/messages")
       .set("Cookie", cookie)
-      .send({ chatId: 1, username: "alice" });
+      .send({ chatId: CHAT_ID, username: "alice" });
     expect(res.status).toBe(400);
   });
 
@@ -74,7 +83,7 @@ describe("POST /api/messages", () => {
     const res = await request(app)
       .post("/api/messages")
       .set("Cookie", cookie)
-      .send({ chatId: 1, username: "alice", body: "[object Object]" });
+      .send({ chatId: CHAT_ID, username: "alice", body: "[object Object]" });
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/invalid message body/i);
   });
@@ -86,7 +95,7 @@ describe("POST /api/messages", () => {
     const res = await request(app)
       .post("/api/messages")
       .set("Cookie", cookie)
-      .send({ chatId: 1, username: "alice", body: longBody });
+      .send({ chatId: CHAT_ID, username: "alice", body: longBody });
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/at most/i);
   });
@@ -97,7 +106,7 @@ describe("POST /api/messages", () => {
     const res = await request(app)
       .post("/api/messages")
       .set("Cookie", cookie)
-      .send({ chatId: 1, username: "bob", body: "Hello" });
+      .send({ chatId: CHAT_ID, username: "bob", body: "Hello" });
     expect(res.status).toBe(403);
   });
 
@@ -105,7 +114,7 @@ describe("POST /api/messages", () => {
     const hash = bcrypt.hashSync("secret123", 4);
     const userStore = makeUserStore([
       {
-        id: 1,
+        id: ALICE_ID,
         username: "alice",
         password_hash: hash,
         nickname: null,
@@ -120,7 +129,7 @@ describe("POST /api/messages", () => {
       userStore,
       deps: {
         isMember: () => false,
-        findChatById: () => ({ id: 1, type: "group", name: "Test" }),
+        findChatById: () => ({ id: CHAT_ID, type: "group", name: "Test" }),
       },
     });
     const cookie = (
@@ -131,7 +140,7 @@ describe("POST /api/messages", () => {
     const res = await request(app)
       .post("/api/messages")
       .set("Cookie", cookie)
-      .send({ chatId: 1, username: "alice", body: "Hello" });
+      .send({ chatId: CHAT_ID, username: "alice", body: "Hello" });
     expect(res.status).toBe(403);
     expect(res.body.error).toMatch(/not a member/i);
   });
@@ -140,7 +149,7 @@ describe("POST /api/messages", () => {
     const hash = bcrypt.hashSync("secret123", 4);
     const userStore = makeUserStore([
       {
-        id: 1,
+        id: ALICE_ID,
         username: "alice",
         password_hash: hash,
         nickname: null,
@@ -155,7 +164,7 @@ describe("POST /api/messages", () => {
       userStore,
       deps: {
         isMember: () => true,
-        findChatById: () => ({ id: 1, type: "channel", name: "My Channel" }),
+        findChatById: () => ({ id: CHAT_ID, type: "channel", name: "My Channel" }),
         getChatMemberRole: () => "member", // not owner
       },
     });
@@ -167,7 +176,7 @@ describe("POST /api/messages", () => {
     const res = await request(app)
       .post("/api/messages")
       .set("Cookie", cookie)
-      .send({ chatId: 1, username: "alice", body: "Hello" });
+      .send({ chatId: CHAT_ID, username: "alice", body: "Hello" });
     expect(res.status).toBe(403);
     expect(res.body.error).toMatch(/owner/i);
   });
@@ -176,7 +185,7 @@ describe("POST /api/messages", () => {
     const hash = bcrypt.hashSync("secret123", 4);
     const userStore = makeUserStore([
       {
-        id: 1,
+        id: ALICE_ID,
         username: "alice",
         password_hash: hash,
         nickname: null,
@@ -191,8 +200,8 @@ describe("POST /api/messages", () => {
       userStore,
       deps: {
         isMember: () => true,
-        findChatById: () => ({ id: 1, type: "group", name: "Test" }),
-        createOrReuseMessage: () => ({ id: 42, deduped: false }),
+        findChatById: () => ({ id: CHAT_ID, type: "group", name: "Test" }),
+        createOrReuseMessage: () => ({ id: MSG_ID, deduped: false }),
         markMessageRead: () => {},
         listChatMembers: () => [],
         listMutedUserIdsForChat: () => [],
@@ -207,9 +216,9 @@ describe("POST /api/messages", () => {
     const res = await request(app)
       .post("/api/messages")
       .set("Cookie", cookie)
-      .send({ chatId: 1, username: "alice", body: "Hello!" });
+      .send({ chatId: CHAT_ID, username: "alice", body: "Hello!" });
     expect(res.status).toBe(200);
-    expect(res.body.id).toBe(42);
+    expect(res.body.id).toBe(MSG_ID);
     expect(res.body.deduped).toBe(false);
   });
 
@@ -217,7 +226,7 @@ describe("POST /api/messages", () => {
     const hash = bcrypt.hashSync("secret123", 4);
     const userStore = makeUserStore([
       {
-        id: 1,
+        id: ALICE_ID,
         username: "alice",
         password_hash: hash,
         nickname: null,
@@ -232,8 +241,8 @@ describe("POST /api/messages", () => {
       userStore,
       deps: {
         isMember: () => true,
-        findChatById: () => ({ id: 1, type: "group", name: "Test" }),
-        createOrReuseMessage: () => ({ id: 99, deduped: true }),
+        findChatById: () => ({ id: CHAT_ID, type: "group", name: "Test" }),
+        createOrReuseMessage: () => ({ id: MSG_ID, deduped: true }),
         computeExpiryIso: () => null,
       },
     });
@@ -246,7 +255,7 @@ describe("POST /api/messages", () => {
       .post("/api/messages")
       .set("Cookie", cookie)
       .send({
-        chatId: 1,
+        chatId: CHAT_ID,
         username: "alice",
         body: "Hello!",
         clientRequestId: "req-001",
@@ -263,7 +272,7 @@ describe("POST /api/messages/edit", () => {
     const hash = bcrypt.hashSync("secret123", 4);
     const userStore = makeUserStore([
       {
-        id: 1,
+        id: ALICE_ID,
         username: "alice",
         password_hash: hash,
         nickname: null,
@@ -275,9 +284,9 @@ describe("POST /api/messages/edit", () => {
       },
     ]);
     const message = {
-      id: 5,
-      chat_id: 1,
-      user_id: 1,
+      id: MSG_ID,
+      chat_id: CHAT_ID,
+      user_id: ALICE_ID,
       body: "Old body",
       ...messageOverride,
     };
@@ -285,7 +294,7 @@ describe("POST /api/messages/edit", () => {
       userStore,
       deps: {
         isMember: () => true,
-        findChatById: () => ({ id: 1, type: "group", name: "Test" }),
+        findChatById: () => ({ id: CHAT_ID, type: "group", name: "Test" }),
         findMessageById: () => message,
         getChatMemberRole: () => "member",
         editMessage: () => {},
@@ -303,7 +312,7 @@ describe("POST /api/messages/edit", () => {
     const res = await request(app)
       .post("/api/messages/edit")
       .set("Cookie", cookie)
-      .send({ chatId: 1, username: "alice", messageId: 5, body: "   " });
+      .send({ chatId: CHAT_ID, username: "alice", messageId: MSG_ID, body: "   " });
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/empty/i);
   });
@@ -312,7 +321,7 @@ describe("POST /api/messages/edit", () => {
     const hash = bcrypt.hashSync("secret123", 4);
     const userStore = makeUserStore([
       {
-        id: 1,
+        id: ALICE_ID,
         username: "alice",
         password_hash: hash,
         nickname: null,
@@ -323,16 +332,16 @@ describe("POST /api/messages/edit", () => {
         banned: false,
       },
     ]);
-    // Message authored by user_id: 99, not alice (id: 1)
+    // Message authored by OTHER_USER_ID, not alice
     const { app } = makeApp({
       userStore,
       deps: {
         isMember: () => true,
-        findChatById: () => ({ id: 1, type: "group", name: "Test" }),
+        findChatById: () => ({ id: CHAT_ID, type: "group", name: "Test" }),
         findMessageById: () => ({
-          id: 5,
-          chat_id: 1,
-          user_id: 99,
+          id: MSG_ID,
+          chat_id: CHAT_ID,
+          user_id: OTHER_USER_ID,
           body: "Old",
         }),
         getChatMemberRole: () => "member",
@@ -346,7 +355,7 @@ describe("POST /api/messages/edit", () => {
     const res = await request(app)
       .post("/api/messages/edit")
       .set("Cookie", cookie)
-      .send({ chatId: 1, username: "alice", messageId: 5, body: "New body" });
+      .send({ chatId: CHAT_ID, username: "alice", messageId: MSG_ID, body: "New body" });
     expect(res.status).toBe(403);
     expect(res.body.error).toMatch(/author/i);
   });
@@ -362,14 +371,14 @@ describe("POST /api/messages/edit", () => {
       .post("/api/messages/edit")
       .set("Cookie", cookie)
       .send({
-        chatId: 1,
+        chatId: CHAT_ID,
         username: "alice",
-        messageId: 5,
+        messageId: MSG_ID,
         body: "Updated body",
       });
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
-    expect(res.body.id).toBe(5);
+    expect(res.body.id).toBe(MSG_ID);
   });
 });
 
@@ -380,7 +389,7 @@ describe("POST /api/messages/delete", () => {
     const hash = bcrypt.hashSync("secret123", 4);
     const userStore = makeUserStore([
       {
-        id: 1,
+        id: ALICE_ID,
         username: "alice",
         password_hash: hash,
         nickname: null,
@@ -391,12 +400,12 @@ describe("POST /api/messages/delete", () => {
         banned: false,
       },
     ]);
-    const message = { id: 7, chat_id: 1, user_id: 1, ...messageOverride };
+    const message = { id: MSG_ID, chat_id: CHAT_ID, user_id: ALICE_ID, ...messageOverride };
     return makeApp({
       userStore,
       deps: {
         isMember: () => true,
-        findChatById: () => ({ id: 1, type: "group", name: "Test" }),
+        findChatById: () => ({ id: CHAT_ID, type: "group", name: "Test" }),
         findMessageById: () => message,
         getChatMemberRole: () => "member",
         hideMessageForUser: () => {},
@@ -415,7 +424,7 @@ describe("POST /api/messages/delete", () => {
     const res = await request(app)
       .post("/api/messages/delete")
       .set("Cookie", cookie)
-      .send({ chatId: 1, username: "alice" });
+      .send({ chatId: CHAT_ID, username: "alice" });
     expect(res.status).toBe(400);
   });
 
@@ -429,7 +438,7 @@ describe("POST /api/messages/delete", () => {
     const res = await request(app)
       .post("/api/messages/delete")
       .set("Cookie", cookie)
-      .send({ chatId: 1, username: "alice", messageId: 7 });
+      .send({ chatId: CHAT_ID, username: "alice", messageId: MSG_ID });
     expect(res.status).toBe(200);
     expect(res.body.scope).toBe("self");
   });
@@ -444,7 +453,7 @@ describe("POST /api/messages/delete", () => {
     const res = await request(app)
       .post("/api/messages/delete")
       .set("Cookie", cookie)
-      .send({ chatId: 1, username: "alice", messageId: 7, scope: "everyone" });
+      .send({ chatId: CHAT_ID, username: "alice", messageId: MSG_ID, scope: "everyone" });
     expect(res.status).toBe(200);
     expect(res.body.scope).toBe("everyone");
   });
@@ -453,7 +462,7 @@ describe("POST /api/messages/delete", () => {
     const hash = bcrypt.hashSync("secret123", 4);
     const userStore = makeUserStore([
       {
-        id: 1,
+        id: ALICE_ID,
         username: "alice",
         password_hash: hash,
         nickname: null,
@@ -469,8 +478,8 @@ describe("POST /api/messages/delete", () => {
       userStore,
       deps: {
         isMember: () => true,
-        findChatById: () => ({ id: 1, type: "group", name: "Test" }),
-        findMessageById: () => ({ id: 7, chat_id: 1, user_id: 99 }),
+        findChatById: () => ({ id: CHAT_ID, type: "group", name: "Test" }),
+        findMessageById: () => ({ id: MSG_ID, chat_id: CHAT_ID, user_id: OTHER_USER_ID }),
         getChatMemberRole: () => "member",
       },
     });
@@ -482,7 +491,7 @@ describe("POST /api/messages/delete", () => {
     const res = await request(app)
       .post("/api/messages/delete")
       .set("Cookie", cookie)
-      .send({ chatId: 1, username: "alice", messageId: 7, scope: "everyone" });
+      .send({ chatId: CHAT_ID, username: "alice", messageId: MSG_ID, scope: "everyone" });
     expect(res.status).toBe(403);
   });
 });
@@ -494,9 +503,9 @@ describe("GET /api/messages — replyTo shape", () => {
   // Mirrors what db.js produces after the LEFT JOIN with reply_user.
   function makeRawMessage(overrides = {}) {
     return {
-      id: 1,
-      chat_id: 10,
-      user_id: 1,
+      id: MSG_ID,
+      chat_id: CHAT_ID,
+      user_id: ALICE_ID,
       username: "alice",
       nickname: "Alice",
       avatar_url: null,
@@ -533,7 +542,7 @@ describe("GET /api/messages — replyTo shape", () => {
     const hash = bcrypt.hashSync("secret123", 4);
     const userStore = makeUserStore([
       {
-        id: 1,
+        id: ALICE_ID,
         username: "alice",
         password_hash: hash,
         nickname: "Alice",
@@ -548,7 +557,7 @@ describe("GET /api/messages — replyTo shape", () => {
       userStore,
       deps: {
         isMember: () => true,
-        findChatById: () => ({ id: 10, type: chatType, name: "Test Group" }),
+        findChatById: () => ({ id: CHAT_ID, type: chatType, name: "Test Group" }),
         getMessages: () => ({ messages: rawMessages, hasMore: false }),
         getMessageReadByUser: () => [],
         getMessageReadCounts: () => [],
@@ -558,7 +567,7 @@ describe("GET /api/messages — replyTo shape", () => {
     });
   }
 
-  async function getMessages(app, chatId = 10) {
+  async function getMessages(app, chatId = CHAT_ID) {
     const hash = bcrypt.hashSync("secret123", 4);
     // Login first
     const loginRes = await request(app)
@@ -596,13 +605,13 @@ describe("GET /api/messages — replyTo shape", () => {
     const { app } = makeGetMessagesApp({
       rawMessages: [
         makeRawMessage({
-          id: 2,
-          // This message (id:2) is a reply to message id:1, authored by bob
-          reply_to_message_id: 1,
-          reply_id: 1,
+          id: MSG_ID_2,
+          // This message is a reply to MSG_ID, authored by bob
+          reply_to_message_id: MSG_ID,
+          reply_id: MSG_ID,
           reply_body: "Hey there",
           reply_created_at: new Date().toISOString(),
-          reply_user_id: 2,
+          reply_user_id: BOB_ID,
           reply_username: "bob",
           reply_nickname: "Bob",
           reply_avatar_url: null,
@@ -615,7 +624,7 @@ describe("GET /api/messages — replyTo shape", () => {
 
     const replyTo = res.body.messages[0].replyTo;
     expect(replyTo).not.toBeNull();
-    expect(replyTo.id).toBe(1);
+    expect(replyTo.id).toBe(MSG_ID);
     expect(replyTo.body).toBe("Hey there");
     expect(replyTo.username).toBe("bob");
     expect(replyTo.nickname).toBe("Bob");
@@ -627,12 +636,12 @@ describe("GET /api/messages — replyTo shape", () => {
     const { app } = makeGetMessagesApp({
       rawMessages: [
         makeRawMessage({
-          id: 3,
-          reply_to_message_id: 1,
-          reply_id: 1,
+          id: MSG_ID_2,
+          reply_to_message_id: MSG_ID,
+          reply_id: MSG_ID,
           reply_body: "Some message",
           reply_created_at: new Date().toISOString(),
-          reply_user_id: 2,
+          reply_user_id: BOB_ID,
           reply_username: "bob",
           reply_nickname: "Bob",
           reply_avatar_url: null,
@@ -652,10 +661,10 @@ describe("GET /api/messages — replyTo shape", () => {
       rawMessages: [
         makeRawMessage({
           color: "#10b981", // alice — the message sender
-          reply_to_message_id: 1,
-          reply_id: 1,
+          reply_to_message_id: MSG_ID,
+          reply_id: MSG_ID,
           reply_body: "Original",
-          reply_user_id: 2,
+          reply_user_id: BOB_ID,
           reply_username: "bob",
           reply_nickname: "Bob",
           reply_avatar_url: null,

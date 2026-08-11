@@ -6,7 +6,7 @@ function setup() {
     [
       "alice",
       {
-        id: 1,
+        id: "11111111-1111-4111-8111-111111111111",
         username: "alice",
         status: "online",
         last_seen: "2026-08-04 10:00:00",
@@ -15,7 +15,7 @@ function setup() {
     [
       "bob",
       {
-        id: 2,
+        id: "22222222-2222-4222-8222-222222222222",
         username: "bob",
         status: "online",
         last_seen: "2026-08-04 10:00:00",
@@ -24,7 +24,7 @@ function setup() {
     [
       "carol",
       {
-        id: 3,
+        id: "33333333-3333-4333-8333-333333333333",
         username: "carol",
         status: "invisible",
         last_seen: "2026-08-04 10:00:00",
@@ -36,10 +36,12 @@ function setup() {
     (username) => users.get(String(username || "").toLowerCase()) ?? null,
   );
   const listChatsForUser = vi.fn((userId) =>
-    userId === 1 || userId === 3 ? [{ id: 10 }] : [],
+    userId === "11111111-1111-4111-8111-111111111111" || userId === "33333333-3333-4333-8333-333333333333"
+      ? [{ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }]
+      : [],
   );
   const listChatMembers = vi.fn((chatId) =>
-    chatId === 10
+    chatId === "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
       ? [{ username: "alice" }, { username: "bob" }, { username: "carol" }]
       : [],
   );
@@ -66,12 +68,14 @@ const onlinePayload = (username) =>
     type: "presence_update",
     username,
     status: "online",
+    userId: "11111111-1111-4111-8111-111111111111",
   });
 const offlinePayload = (username) =>
   expect.objectContaining({
     type: "presence_update",
     username,
     status: "offline",
+    userId: "11111111-1111-4111-8111-111111111111",
   });
 
 describe("presenceTracker", () => {
@@ -79,8 +83,12 @@ describe("presenceTracker", () => {
     const { tracker, updateLastSeen, emitToUser } = setup();
     const sse1 = { ref: "sse-1" };
     tracker.markConnected("alice", sse1);
-    expect(updateLastSeen).toHaveBeenCalledWith(1);
-    expect(emitToUser).toHaveBeenCalledWith("alice", onlinePayload("alice"));
+    expect(updateLastSeen).toHaveBeenCalledWith("11111111-1111-4111-8111-111111111111");
+    expect(emitToUser.mock.calls[0][1]).toEqual(
+      expect.objectContaining({
+        userId: "11111111-1111-4111-8111-111111111111",
+      }),
+    );
     expect(emitToUser).toHaveBeenCalledWith("bob", onlinePayload("alice"));
     expect(emitToUser).toHaveBeenCalledWith("carol", onlinePayload("alice"));
   });
@@ -118,7 +126,7 @@ describe("presenceTracker", () => {
     updateLastSeen.mockClear();
     tracker.markDisconnected("alice", sse1);
     expect(tracker.isConnected("alice")).toBe(false);
-    expect(updateLastSeen).toHaveBeenCalledWith(1);
+    expect(updateLastSeen).toHaveBeenCalledWith("11111111-1111-4111-8111-111111111111");
     expect(emitToUser).toHaveBeenCalledWith("alice", offlinePayload("alice"));
     expect(emitToUser).toHaveBeenCalledWith("bob", offlinePayload("alice"));
   });

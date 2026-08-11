@@ -9,12 +9,12 @@ import {
 describe("async admin-panel mutations", () => {
   test("waits for user deletion before responding", async () => {
     const admin = {
-      id: 1,
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       username: "admin",
       nickname: "Admin",
       role: "admin",
     };
-    const target = { id: 2, username: "bob", nickname: "Bob", role: "user" };
+    const target = { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", username: "bob", nickname: "Bob", role: "user" };
     const sessionStore = makeSessionStore();
     sessionStore.createSession(admin.id, "admin-session");
     const events = [];
@@ -31,19 +31,19 @@ describe("async admin-panel mutations", () => {
       sessionStore,
       userStore: makeUserStore([admin, target]),
       deps: {
-        isUserAdmin: (userId) => Number(userId) === admin.id,
+        isUserAdmin: (userId) => userId === admin.id,
         findUserById: (userId) =>
-          Number(userId) === target.id ? target : admin,
+          userId === target.id ? target : admin,
         adminDeleteUser,
       },
     });
 
     const response = await request(app)
-      .delete("/api/admin/users/2")
+      .delete("/api/admin/users/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
       .set("Cookie", "sid=admin-session");
 
     expect(response.status).toBe(200);
     expect(events).toEqual(["deleted"]);
-    expect(adminDeleteUser).toHaveBeenCalledWith(2);
+    expect(adminDeleteUser).toHaveBeenCalledWith("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
   });
 });
