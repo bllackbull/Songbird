@@ -98,20 +98,20 @@ describe("buildChatListCacheKey", () => {
 
 describe("buildMessagesCacheKey", () => {
   test("includes both username and chatId", () => {
-    expect(buildMessagesCacheKey("Alice", 5)).toBe(
-      "songbird-chat-messages-cache:alice:5",
+    expect(buildMessagesCacheKey("Alice", "550e8400-e29b-41d4-a716-446655440000")).toBe(
+      "songbird-chat-messages-cache:alice:550e8400-e29b-41d4-a716-446655440000",
     );
   });
 
-  test("coerces chatId to a number", () => {
+  test("uses chatId as-is (string UUID)", () => {
     expect(buildMessagesCacheKey("alice", "10")).toBe(
       "songbird-chat-messages-cache:alice:10",
     );
   });
 
-  test("defaults chatId to 0 for falsy values", () => {
+  test("defaults chatId to empty string for falsy values", () => {
     expect(buildMessagesCacheKey("alice", null)).toBe(
-      "songbird-chat-messages-cache:alice:0",
+      "songbird-chat-messages-cache:alice:",
     );
   });
 });
@@ -166,7 +166,7 @@ describe("isCacheExpired", () => {
 // ─── isCacheableMessage ───────────────────────────────────────────────────────
 
 describe("isCacheableMessage", () => {
-  const validMessage = { id: 1, body: "hi", files: [] };
+  const validMessage = { id: "550e8400-e29b-41d4-a716-446655440000", body: "hi", files: [] };
 
   test("returns true for a valid cacheable message", () => {
     expect(isCacheableMessage(validMessage)).toBe(true);
@@ -180,8 +180,10 @@ describe("isCacheableMessage", () => {
     expect(isCacheableMessage({ id: 0 })).toBe(false);
   });
 
-  test("returns false when id is negative", () => {
-    expect(isCacheableMessage({ id: -1 })).toBe(false);
+  test("returns true when id is a truthy non-UUID value (non-integer IDs are opaque strings now)", () => {
+    // With UUID primary keys, any truthy id is treated as cacheable by isCacheableMessage
+    // (format validation is done at the API boundary, not in the cache layer)
+    expect(isCacheableMessage({ id: -1 })).toBe(true);
   });
 
   test('returns false when _delivery is "sending"', () => {
@@ -322,14 +324,15 @@ describe("pruneMessagesIndex", () => {
   });
 
   test("filters out entries with invalid chatId", () => {
+    const validUuid = "550e8400-e29b-41d4-a716-446655440005";
     const index = [
-      { chatId: 0, updatedAt: 100 },
-      { chatId: 5, updatedAt: 200 },
-      { chatId: -1, updatedAt: 300 },
+      { chatId: null, updatedAt: 100 },
+      { chatId: validUuid, updatedAt: 200 },
+      { chatId: "", updatedAt: 300 },
     ];
     const result = pruneMessagesIndex("alice", index);
     expect(result).toHaveLength(1);
-    expect(result[0].chatId).toBe(5);
+    expect(result[0].chatId).toBe(validUuid);
   });
 
   test("filters out entries with non-finite updatedAt", () => {

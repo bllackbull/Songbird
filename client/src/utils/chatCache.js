@@ -115,13 +115,13 @@ export const buildChatListCacheKey = (username) =>
   `${CHAT_LIST_CACHE_KEY}:${String(username || "").toLowerCase()}`;
 
 export const buildMessagesCacheKey = (username, chatId) =>
-  `${CHAT_MESSAGES_CACHE_KEY}:${String(username || "").toLowerCase()}:${Number(chatId || 0)}`;
+  `${CHAT_MESSAGES_CACHE_KEY}:${String(username || "").toLowerCase()}:${String(chatId || "")}`;
 
 export const buildMessagesIndexKey = (username) =>
   `${CHAT_MESSAGES_INDEX_KEY}:${String(username || "").toLowerCase()}`;
 
 export const buildChannelSeenCacheKey = (username, chatId) =>
-  `${CHANNEL_SEEN_CACHE_KEY}:${String(username || "").toLowerCase()}:${Number(chatId || 0)}`;
+  `${CHANNEL_SEEN_CACHE_KEY}:${String(username || "").toLowerCase()}:${String(chatId || "")}`;
 
 export const isCacheExpired = (entry, ttlMs) => {
   if (!entry || typeof entry !== "object") return true;
@@ -159,8 +159,8 @@ export const readMessagesCacheAsync = async (username, chatId) => {
   }
   if (Array.isArray(cached.messages)) {
     cached.messages = cached.messages.filter((msg) => {
-      const id = Number(msg?.id || msg?._serverId || 0);
-      return Number.isFinite(id) && id > 0;
+      const id = msg?.id || msg?._serverId || "";
+      return typeof id === "string" ? id.length > 0 : Boolean(id);
     });
   }
   return cached;
@@ -197,14 +197,10 @@ export const writeChannelSeenCacheAsync = async (
 ) => {
   if (!username || !chatId || typeof counts !== "object") return;
   const entries = Object.entries(counts)
-    .map(([key, value]) => [Number(key), Number(value)])
-    .filter(
-      ([id, value]) => Number.isFinite(id) && id > 0 && Number.isFinite(value),
-    );
+    .filter(([key, value]) => key && Number.isFinite(Number(value)));
   if (!entries.length) return;
-  entries.sort((a, b) => b[0] - a[0]);
   const trimmed = entries.slice(0, 300).reduce((acc, [id, value]) => {
-    acc[id] = value;
+    acc[id] = Number(value);
     return acc;
   }, {});
   await writeIdbCache(
@@ -230,14 +226,14 @@ export const pruneMessagesIndex = (username, index) => {
   const trimmed = index
     .filter(
       (entry) =>
-        Number(entry?.chatId) > 0 && Number.isFinite(Number(entry?.updatedAt)),
+        Boolean(entry?.chatId) && Number.isFinite(Number(entry?.updatedAt)),
     )
     .sort((a, b) => Number(b.updatedAt) - Number(a.updatedAt))
     .slice(0, CHAT_MESSAGES_INDEX_LIMIT);
-  const keepIds = new Set(trimmed.map((entry) => Number(entry.chatId)));
+  const keepIds = new Set(trimmed.map((entry) => String(entry.chatId)));
   index.forEach((entry) => {
-    const chatId = Number(entry?.chatId);
-    if (!chatId || keepIds.has(chatId)) return;
+    const chatId = entry?.chatId;
+    if (!chatId || keepIds.has(String(chatId))) return;
     void deleteIdbCache(
       CACHE_STORES.messages,
       buildMessagesCacheKey(username, chatId),
@@ -250,10 +246,10 @@ export const updateMessagesIndex = async (username, chatId, updatedAt) => {
   if (!username || !chatId) return;
   const index = await readMessagesIndexAsync(username);
   const next = index.filter(
-    (entry) => Number(entry?.chatId) !== Number(chatId),
+    (entry) => String(entry?.chatId || "") !== String(chatId),
   );
   next.push({
-    chatId: Number(chatId),
+    chatId: String(chatId),
     updatedAt: Number(updatedAt) || Date.now(),
   });
   const trimmed = pruneMessagesIndex(username, next);
@@ -265,11 +261,11 @@ export const evictOldestMessageCaches = async (username, maxToRemove = 3) => {
   const index = await readMessagesIndexAsync(username);
   if (!index.length) return;
   const sorted = index
-    .filter((entry) => Number(entry?.chatId) > 0)
+    .filter((entry) => Boolean(entry?.chatId))
     .sort((a, b) => Number(a.updatedAt || 0) - Number(b.updatedAt || 0));
   const toRemove = sorted.slice(0, maxToRemove);
   if (!toRemove.length) return;
-  const removeIds = new Set(toRemove.map((entry) => Number(entry.chatId)));
+  const removeIds = new Set(toRemove.map((entry) => String(entry.chatId)));
   removeIds.forEach((chatId) => {
     void deleteIdbCache(
       CACHE_STORES.messages,
@@ -277,7 +273,7 @@ export const evictOldestMessageCaches = async (username, maxToRemove = 3) => {
     );
   });
   const remaining = index.filter(
-    (entry) => !removeIds.has(Number(entry?.chatId)),
+    (entry) => !removeIds.has(String(entry?.chatId)),
   );
   await writeMessagesIndex(username, remaining);
 };
@@ -385,8 +381,8 @@ export const migrateLocalCacheToIdb = async (username) => {
 
 export const isCacheableMessage = (message) => {
   if (!message || typeof message !== "object") return false;
-  const id = Number(message.id || message._serverId || 0);
-  if (!Number.isFinite(id) || id <= 0) return false;
+  const id = message.id || message._serverId || "";
+  if (!id) return false;
   if (message._delivery === "sending") return false;
   if (message._awaitingServerEcho) return false;
   if (message._processingPending) return false;

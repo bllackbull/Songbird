@@ -255,7 +255,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
   const handleOwnerChange = useCallback((next) => {
     setOwner(next);
     if (next?.id) {
-      setMembers((prev) => prev.filter((m) => Number(m.id) !== Number(next.id)));
+      setMembers((prev) => prev.filter((m) => String(m.id) !== String(next.id)));
     }
   }, []);
 
@@ -289,7 +289,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
         if (!r.ok) { const d = await r.json(); setError(d.error || "Failed"); setBusy(false); return; }
         for (const member of members) {
           const memberResponse = await api.post(`/api/admin/chats/${chat.id}/members`, {
-            userId: Number(member.id),
+            userId: member.id,
           });
           if (!memberResponse.ok) {
             const data = await memberResponse.json().catch(() => ({}));
@@ -322,7 +322,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
           owner: owner.id,
           color: form.groupColor,
           verified,
-          memberIds: members.map((m) => Number(m.id)).filter(Boolean),
+          memberIds: members.map((m) => m.id).filter(Boolean),
           addAllEligibleMembers,
         };
         const r = await api.post("/api/admin/chats", payload);

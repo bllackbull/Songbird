@@ -204,7 +204,7 @@ export default function ChatsListPanel({
                 const initials = getAvatarInitials(label);
                 const dmChatId = resolveDmChatId(member.username);
                 const isActive =
-                  dmChatId && Number(activeChatId) === Number(dmChatId);
+                  dmChatId && String(activeChatId) === String(dmChatId);
                 const showOnlineBadge =
                   String(member.status || "").toLowerCase() === "online";
                 return (
@@ -282,7 +282,7 @@ export default function ChatsListPanel({
               {discoverGroups.map((group) => {
                 const label = group.name || "Group";
                 const initials = getAvatarInitials(label);
-                const isActive = Number(activeChatId) === Number(group.id);
+                const isActive = String(activeChatId || "") === String(group.id || "");
                 return (
                   <button
                     key={`discover-group-${group.id}`}
@@ -350,7 +350,7 @@ export default function ChatsListPanel({
               {discoverChannels.map((channel) => {
                 const label = channel.name || "Channel";
                 const initials = getAvatarInitials(label);
-                const isActive = Number(activeChatId) === Number(channel.id);
+                const isActive = String(activeChatId || "") === String(channel.id || "");
                 return (
                   <button
                     key={`discover-channel-${channel.id}`}
@@ -488,7 +488,7 @@ export default function ChatsListPanel({
             isChannel &&
             members.some(
               (member) =>
-                Number(member?.id || 0) === Number(user?.id || 0) &&
+                String(member?.id || "") === String(user?.id || "") &&
                 String(member?.role || "").toLowerCase() === "owner",
             );
           const name =
@@ -798,7 +798,7 @@ export default function ChatsListPanel({
                 aria-label={`${name}${conv.unread_count > 0 ? `, ${conv.unread_count} unread` : ""}`}
                 onClick={() => {
                   if (editMode) return;
-                  setActiveChatId(Number(conv.id));
+                  setActiveChatId(conv.id);
                   const nextOther =
                     conv.type === "dm"
                       ? conv.members?.find(

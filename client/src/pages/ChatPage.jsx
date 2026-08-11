@@ -64,6 +64,7 @@ import {
   isMessageFromOtherUser,
   isRemoteChannelMessage,
 } from "../utils/messageOwnership.js";
+import { normalizeUuid, isValidUuid } from "../utils/uuidUtils.js";
 import {
   createDmChat,
   discoverUsersAndGroups,
@@ -205,8 +206,8 @@ const normalizeMessagesCachePayloadForMemory = (payload) => {
   const trimmedMessages = pruneMessagesForMemory(payload.messages);
   if (trimmedMessages === payload.messages) return payload;
   const nextLastMessageId = trimmedMessages.length
-    ? Number(trimmedMessages[trimmedMessages.length - 1]?.id || 0)
-    : 0;
+    ? (trimmedMessages[trimmedMessages.length - 1]?.id || null)
+    : null;
   return {
     ...payload,
     messages: trimmedMessages,
@@ -217,23 +218,23 @@ const normalizeMessagesCachePayloadForMemory = (payload) => {
 };
 
 const readMessagesCacheMemory = (cacheMap, chatId) => {
-  const numericChatId = Number(chatId || 0);
-  if (!numericChatId || !cacheMap?.has(numericChatId)) return null;
-  const value = cacheMap.get(numericChatId);
-  cacheMap.delete(numericChatId);
-  cacheMap.set(numericChatId, value);
+  const cacheKey = String(chatId || "");
+  if (!cacheKey || !cacheMap?.has(cacheKey)) return null;
+  const value = cacheMap.get(cacheKey);
+  cacheMap.delete(cacheKey);
+  cacheMap.set(cacheKey, value);
   return value;
 };
 
 const pruneMessagesCacheMemory = (cacheMap, activeChatId = null) => {
   if (!cacheMap || !cacheMap.size) return;
-  const activeId = Number(activeChatId || 0);
+  const activeId = String(activeChatId || "");
   const now = Date.now();
   const staleKeys = [];
   cacheMap.forEach((value, key) => {
     const updatedAt = Number(value?.updatedAt || 0);
     if (!updatedAt) return;
-    if (activeId && Number(key) === activeId) return;
+    if (activeId && String(key) === activeId) return;
     if (now - updatedAt > IN_MEMORY_MESSAGES_CACHE_STALE_MS) {
       staleKeys.push(key);
     }
@@ -242,7 +243,7 @@ const pruneMessagesCacheMemory = (cacheMap, activeChatId = null) => {
   while (cacheMap.size > IN_MEMORY_MESSAGES_CACHE_MAX_CHATS) {
     const oldestKey = cacheMap.keys().next().value;
     if (oldestKey === undefined) break;
-    if (activeId && Number(oldestKey) === activeId && cacheMap.size > 1) {
+    if (activeId && String(oldestKey) === activeId && cacheMap.size > 1) {
       const activeValue = cacheMap.get(oldestKey);
       cacheMap.delete(oldestKey);
       cacheMap.set(oldestKey, activeValue);
@@ -253,22 +254,22 @@ const pruneMessagesCacheMemory = (cacheMap, activeChatId = null) => {
 };
 
 const writeMessagesCacheMemory = (cacheMap, chatId, payload, activeChatId = null) => {
-  const numericChatId = Number(chatId || 0);
-  if (!numericChatId || !payload || !cacheMap) return;
+  const cacheKey = String(chatId || "");
+  if (!cacheKey || !payload || !cacheMap) return;
   const normalized = normalizeMessagesCachePayloadForMemory(payload);
-  cacheMap.set(numericChatId, normalized);
+  cacheMap.set(cacheKey, normalized);
   if (cacheMap.size > 1) {
-    const current = cacheMap.get(numericChatId);
-    cacheMap.delete(numericChatId);
-    cacheMap.set(numericChatId, current);
+    const current = cacheMap.get(cacheKey);
+    cacheMap.delete(cacheKey);
+    cacheMap.set(cacheKey, current);
   }
-  pruneMessagesCacheMemory(cacheMap, activeChatId || numericChatId);
+  pruneMessagesCacheMemory(cacheMap, activeChatId || cacheKey);
 };
 
 const patchChatAndMoveToFront = (chats, chatId, updateChat) => {
-  const targetChatId = Number(chatId || 0);
+  const targetChatId = String(chatId || "");
   if (!targetChatId) return chats;
-  const index = chats.findIndex((chat) => Number(chat?.id) === targetChatId);
+  const index = chats.findIndex((chat) => String(chat?.id || "") === targetChatId);
   if (index < 0) return chats;
   const currentChat = chats[index];
   const nextChat = updateChat(currentChat);
@@ -825,7 +826,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const TYPING_REMOTE_TTL_MS = 5000;
 
   const clearTypingExpiryTimer = useCallback((chatId, username) => {
-    const key = `${Number(chatId || 0)}:${String(username || "").toLowerCase()}`;
+    const key = `${String(chatId || "")}:${String(username || "").toLowerCase()}`;
     const timer = typingExpiryTimersRef.current.get(key);
     if (timer) {
       window.clearTimeout(timer);
@@ -835,21 +836,21 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const removeTypingUser = useCallback((chatId, username) => {
     const normalizedUsername = String(username || "").toLowerCase();
-    const numericChatId = Number(chatId || 0);
-    if (!numericChatId || !normalizedUsername) return;
+    const chatKey = String(chatId || "");
+    if (!chatKey || !normalizedUsername) return;
     setTypingByChat((prev) => {
-      const chatTyping = prev?.[numericChatId];
+      const chatTyping = prev?.[chatKey];
       if (!chatTyping || !chatTyping[normalizedUsername]) return prev;
       const nextChatTyping = { ...chatTyping };
       delete nextChatTyping[normalizedUsername];
       if (!Object.keys(nextChatTyping).length) {
         const next = { ...prev };
-        delete next[numericChatId];
+        delete next[chatKey];
         return next;
       }
       return {
         ...prev,
-        [numericChatId]: nextChatTyping,
+        [chatKey]: nextChatTyping,
       };
     });
   }, []);
@@ -857,10 +858,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const setTypingUser = useCallback(
     (chatId, username, nickname = "") => {
       const normalizedUsername = String(username || "").toLowerCase();
-      const numericChatId = Number(chatId || 0);
-      if (!numericChatId || !normalizedUsername) return;
+      const chatKey = String(chatId || "");
+      if (!chatKey || !normalizedUsername) return;
       setTypingByChat((prev) => {
-        const chatTyping = prev?.[numericChatId] || {};
+        const chatTyping = prev?.[chatKey] || {};
         const nextChatTyping = {
           ...chatTyping,
           [normalizedUsername]: {
@@ -871,7 +872,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         };
         return {
           ...prev,
-          [numericChatId]: nextChatTyping,
+          [chatKey]: nextChatTyping,
         };
       });
     },
@@ -881,13 +882,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const scheduleTypingExpiry = useCallback(
     (chatId, username) => {
       const normalizedUsername = String(username || "").toLowerCase();
-      const numericChatId = Number(chatId || 0);
-      if (!numericChatId || !normalizedUsername) return;
-      clearTypingExpiryTimer(numericChatId, normalizedUsername);
-      const key = `${numericChatId}:${normalizedUsername}`;
+      const chatKey = String(chatId || "");
+      if (!chatKey || !normalizedUsername) return;
+      clearTypingExpiryTimer(chatKey, normalizedUsername);
+      const key = `${chatKey}:${normalizedUsername}`;
       const timer = window.setTimeout(() => {
         typingExpiryTimersRef.current.delete(key);
-        removeTypingUser(numericChatId, normalizedUsername);
+        removeTypingUser(chatKey, normalizedUsername);
       }, TYPING_REMOTE_TTL_MS);
       typingExpiryTimersRef.current.set(key, timer);
     },
@@ -896,16 +897,16 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const sendTypingSignal = useCallback(
     (chatId, isTyping) => {
-      const numericChatId = Number(chatId || 0);
+      const chatKey = String(chatId || "");
       const currentUsername = String(usernameRef.current || "").toLowerCase();
-      if (!numericChatId || !currentUsername) return;
+      if (!chatKey || !currentUsername) return;
       const activeChatType = String(activeChatTypeRef.current || "").toLowerCase();
       if (Boolean(isTyping) && activeChatType === "channel") return;
       const canBroadcastTyping =
         String(user?.status || "").toLowerCase() === "online";
       if (!canBroadcastTyping && Boolean(isTyping)) return;
       sendTypingIndicator({
-        chatId: numericChatId,
+        chatId: chatKey,
         username: currentUsername,
         isTyping: Boolean(isTyping),
       }).catch(() => null);
@@ -923,8 +924,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const stopTypingIndicator = useCallback(
     (chatIdOverride = null) => {
       const targetChatId =
-        Number(chatIdOverride || 0) ||
-        Number(typingStateRef.current.chatId || activeChatIdRef.current || 0);
+        chatIdOverride ||
+        typingStateRef.current.chatId || activeChatIdRef.current || null;
       if (!targetChatId) return;
       clearLocalTypingStopTimer();
       if (typingStateRef.current.isTyping) {
@@ -941,7 +942,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const handleStartReply = (msg) => {
     if (!msg) return;
-    const targetId = Number(msg.id || msg._serverId || 0);
+    const targetId = msg.id || msg._serverId || null;
     if (!targetId) return;
     setEditTarget(null);
     // In channel chats, show the channel name instead of the message author's name
@@ -973,7 +974,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const handleStartEdit = (msg) => {
     if (!msg) return;
-    const targetId = Number(msg.id || msg._serverId || 0);
+    const targetId = msg.id || msg._serverId || null;
     if (!targetId) return;
     setReplyTarget(null);
     setEditTarget({
@@ -1000,9 +1001,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         if (!savedChat) {
           const res = await getSavedMessagesChat(user.username);
           const data = await res.json();
-          if (res.ok && Number(data?.id || 0)) {
+          if (res.ok && data?.id) {
             savedChat = {
-              id: Number(data.id),
+              id: data.id,
               type: "saved",
               name: "Saved messages",
               members: [],
@@ -1036,7 +1037,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
     if (target.kind === "user") {
       const fallbackMember = {
-        id: Number(target.userId || 0) || null,
+        id: target.userId || null,
         username: target.username || "",
         nickname: target.nickname || "",
         avatar_url: target.avatar_url || "",
@@ -1626,7 +1627,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   useEffect(() => {
     if (user && activeChatId) {
-      const openedChatId = Number(activeChatId);
+      const openedChatId = activeChatId;
       const openedChat = chats.find((chat) => chat.id === openedChatId);
       let cached = readMessagesCacheMemory(messagesCacheRef.current, openedChatId) || null;
       // IDB async load below will hydrate if needed.
@@ -1639,7 +1640,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       setMessages(hasCachedMessages ? normalizeMessagesForRender(cached.messages) : []);
       setHasOlderMessages(Boolean(cached?.hasOlderMessages));
       setLoadingOlderMessages(false);
-      lastMessageIdRef.current = Number(cached?.lastMessageId || 0) || null;
+      lastMessageIdRef.current = cached?.lastMessageId || null;
       setUnreadInChat(0);
       userScrolledUpRef.current = false;
       setUserScrolledUp(false);
@@ -1673,7 +1674,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         void (async () => {
           const idbCached = await readMessagesCacheAsync(user.username, activeId);
           if (!idbCached || !Array.isArray(idbCached.messages)) return;
-          if (Number(activeChatIdRef.current) !== activeId) return;
+          if (activeChatIdRef.current !== activeId) return;
           writeMessagesCacheMemory(
             messagesCacheRef.current,
             activeId,
@@ -1774,7 +1775,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   useEffect(() => {
     const currentState = typingStateRef.current;
-    const currentChatId = Number(activeChatId || 0);
+    const currentChatId = activeChatId || null;
     if (!currentState.isTyping) return;
     if (!currentState.chatId || currentState.chatId === currentChatId) return;
     sendTypingSignal(currentState.chatId, false);
@@ -1897,7 +1898,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const containerRect = chatScrollRef.current.getBoundingClientRect();
     const ids = [];
     messages.forEach((msg) => {
-      const messageId = Number(msg?._serverId || msg?.id || 0);
+      const messageId = normalizeUuid(msg?._serverId || msg?.id) || null;
       if (!messageId) return;
       const element = document.getElementById(`message-${messageId}`);
       if (!element) return;
@@ -1914,7 +1915,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (channelSeenActiveRef.current) return;
     const nextId = channelSeenQueueRef.current.shift();
     if (!nextId) return;
-    const activeId = Number(activeChatIdRef.current || 0);
+    const activeId = activeChatIdRef.current || null;
     if (!activeId) return;
     channelSeenActiveRef.current = true;
     getMessageReadCounts({
@@ -2145,7 +2146,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
   };
   const applyProfileUpdate = useCallback((payload = {}) => {
-    const userId = Number(payload?.userId || 0) || null;
+    const rawUserId = payload?.userId;
+    // Req 6.6: if userId is a legacy integer, discard
+    const userId = isValidUuid(rawUserId) ? normalizeUuid(rawUserId) : null;
     const nextUsername = String(payload?.username || "")
       .trim()
       .toLowerCase();
@@ -2161,7 +2164,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const nextStatus = String(payload?.status || "online").trim().toLowerCase() || "online";
     const usernames = new Set([nextUsername, previousUsername].filter(Boolean));
     const matchesUser = (candidateId, candidateUsername) => {
-      const normalizedCandidateId = Number(candidateId || 0) || null;
+      const normalizedCandidateId = isValidUuid(candidateId) ? normalizeUuid(candidateId) : null;
       const normalizedCandidateUsername = String(candidateUsername || "")
         .trim()
         .toLowerCase();
@@ -2840,9 +2843,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }
 
   async function handleForwardMessageSubmit(targetChatIds = []) {
-    const sourceMessageId = Number(
-      forwardMessageTarget?._serverId || forwardMessageTarget?.id || 0,
-    );
+    const sourceMessageId = normalizeUuid(
+      forwardMessageTarget?._serverId || forwardMessageTarget?.id,
+    ) || null;
     if (!sourceMessageId || !user?.username || !activeChatId) return;
 
     const originalAuthorLabel = String(
@@ -2871,11 +2874,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         sourceMessageId,
         targetChatIds,
         body,
-        forwardedFromChatId: isActiveChannelChat ? Number(activeChatId) : null,
+        forwardedFromChatId: isActiveChannelChat ? activeChatId : null,
         forwardedFromLabel: originalForwardLabel,
         forwardedFromUserId: isActiveChannelChat
           ? null
-          : Number(capturedTarget?.user_id || 0) || Number(user?.id || 0) || null,
+          : normalizeUuid(capturedTarget?.user_id) || normalizeUuid(user?.id) || null,
         forwardedFromUsername: isActiveChannelChat
           ? ""
           : String(
@@ -3243,7 +3246,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
     setChats((prev) =>
       prev.map((chat) =>
-        Number(chat?.id) === Number(activeId)
+        chat?.id && activeId && String(chat.id).toLowerCase() === String(activeId).toLowerCase()
           ? { ...chat, unread_count: 0 }
           : chat,
       ),
@@ -3272,15 +3275,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   // It only repositions on the next open of the chat.
   const handleMessageSeen = useCallback(
     (messageId) => {
-      const id = Number(messageId);
+      const id = normalizeUuid(messageId) || null;
       if (!id || !activeChatIdRef.current || !user?.username) return;
       if (!canMarkReadInCurrentView) return;
 
       // Mark the message as read in local state immediately
       setMessages((prev) =>
         prev.map((msg) => {
-          const serverId = Number(msg?._serverId || msg?.id || 0);
-          if (serverId !== id) return msg;
+          const serverId = normalizeUuid(msg?._serverId || msg?.id) || null;
+          if (!serverId || serverId !== id) return msg;
           if (msg._readByMe) return msg;
           return { ...msg, _readByMe: true };
         }),
@@ -3289,7 +3292,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       // Decrement the sidebar unread badge by 1 (floor at 0)
       setChats((prev) =>
         prev.map((chat) => {
-          if (Number(chat?.id) !== Number(activeChatIdRef.current)) return chat;
+          if (!chat?.id || chat.id !== activeChatIdRef.current) return chat;
           const next = Math.max(0, Number(chat?.unread_count || 0) - 1);
           return { ...chat, unread_count: next };
         }),
@@ -3327,15 +3330,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const pruneDeletedMessagesFromCache = useCallback(
     (chatId, messageIds = []) => {
-      const numericChatId = Number(chatId || 0);
+      const normalizedChatId = normalizeUuid(chatId) || null;
       const deletedIds = Array.from(
         new Set(
           (Array.isArray(messageIds) ? messageIds : [])
-            .map((id) => Number(id))
-            .filter((id) => Number.isFinite(id) && id > 0),
+            .map((id) => normalizeUuid(id))
+            .filter(Boolean),
         ),
       );
-      if (!numericChatId || !deletedIds.length) return;
+      if (!normalizedChatId || !deletedIds.length) return;
       const deletedSet = new Set(deletedIds);
 
       const pruneCachePayload = (cached) => {
@@ -3343,8 +3346,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           return { changed: false, value: cached };
         }
         const nextMessages = cached.messages.filter((msg) => {
-          const serverId = Number(msg?._serverId || msg?.id || 0);
-          return !deletedSet.has(serverId);
+          const serverId = normalizeUuid(msg?._serverId || msg?.id) || null;
+          return !serverId || !deletedSet.has(serverId);
         });
         if (nextMessages.length === cached.messages.length) {
           return { changed: false, value: cached };
@@ -3355,8 +3358,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             ...cached,
             messages: nextMessages,
             lastMessageId: nextMessages.length
-              ? Number(nextMessages[nextMessages.length - 1]?.id || 0)
-              : 0,
+              ? (normalizeUuid(nextMessages[nextMessages.length - 1]?.id) || null)
+              : null,
             updatedAt: Date.now(),
           },
         };
@@ -3364,28 +3367,28 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
       const memoryCached = readMessagesCacheMemory(
         messagesCacheRef.current,
-        numericChatId,
+        normalizedChatId,
       );
       const nextMemory = pruneCachePayload(memoryCached);
       if (nextMemory.changed) {
         writeMessagesCacheMemory(
           messagesCacheRef.current,
-          numericChatId,
+          normalizedChatId,
           nextMemory.value,
           activeChatIdRef.current,
         );
       }
 
       if (!user?.username || !canUseIdb()) return;
-      const key = buildMessagesCacheKey(user.username, numericChatId);
+      const key = buildMessagesCacheKey(user.username, normalizedChatId);
       void (async () => {
-        const idbCached = await readMessagesCacheAsync(user.username, numericChatId);
+        const idbCached = await readMessagesCacheAsync(user.username, normalizedChatId);
         const nextIdb = pruneCachePayload(idbCached);
         if (!nextIdb.changed) return;
         await writeIdbCache(CACHE_STORES.messages, key, nextIdb.value);
         await updateMessagesIndex(
           user.username,
-          numericChatId,
+          normalizedChatId,
           Number(nextIdb.value?.updatedAt || Date.now()),
         );
       })();
@@ -3394,7 +3397,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   );
 
   async function performDeleteMessage(message, scope = "self") {
-    const messageId = Number(message?.id || message?._serverId || 0);
+    const messageId = normalizeUuid(message?.id || message?._serverId) || null;
     if (!activeChatId || !messageId || !user?.username) return;
     setMessageDeleteScopeOpen(false);
     setPendingDeleteMessage(null);
@@ -3404,9 +3407,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setMessages((prev) => {
       snapshotMessages = prev;
       return prev
-        .filter((msg) => Number(msg?._serverId || msg?.id || 0) !== messageId)
+        .filter((msg) => (normalizeUuid(msg?._serverId || msg?.id) || null) !== messageId)
         .map((msg) => {
-          const replyId = Number(msg?.replyTo?.id || 0);
+          const replyId = normalizeUuid(msg?.replyTo?.id) || null;
           if (!replyId || replyId !== messageId) return msg;
           return { ...msg, replyTo: null };
         });
@@ -3417,7 +3420,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
     try {
       const res = await deleteMessage({
-        chatId: Number(activeChatId),
+        chatId: activeChatId,
         username: user.username,
         messageId,
         scope,
@@ -4316,15 +4319,21 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (!res.ok) {
         throw new Error(data?.error || "Failed to load chats.");
       }
-      const list = (data.chats || []).map((conv) => ({
-        ...conv,
-        id: Number(conv.id),
-        last_message: normalizeMessageBody(conv.last_message),
-        members: (conv.members || []).map((member) => ({
-          ...member,
-          id: Number(member.id),
-        })),
-      }));
+      const list = (data.chats || []).flatMap((conv) => {
+        const chatId = normalizeUuid(conv.id);
+        // Req 6.6: discard responses with non-UUID (legacy integer) IDs
+        if (!chatId) return [];
+        return [{
+          ...conv,
+          id: chatId,
+          last_message: normalizeMessageBody(conv.last_message),
+          members: (conv.members || []).flatMap((member) => {
+            const memberId = normalizeUuid(member.id);
+            if (!memberId) return [];
+            return [{ ...member, id: memberId }];
+          }),
+        }];
+      });
       list.sort((a, b) => {
         const aTime = a.last_time ? parseServerDate(a.last_time).getTime() : 0;
         const bTime = b.last_time ? parseServerDate(b.last_time).getTime() : 0;
@@ -4350,10 +4359,18 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           dmByPeer.set(peerKey, chat);
           return;
         }
-        const existingLastMessageId = Number(existing.last_message_id || 0);
-        const nextLastMessageId = Number(chat.last_message_id || 0);
+        const existingLastMessageId = existing.last_message_id || null;
+        const nextLastMessageId = chat.last_message_id || null;
         if (nextLastMessageId !== existingLastMessageId) {
-          if (nextLastMessageId > existingLastMessageId) {
+          // With UUIDs we can't compare magnitudes; prefer the chat with the
+          // more recent last_time instead, falling back to keeping existing.
+          const existingTime2 = existing.last_time
+            ? parseServerDate(existing.last_time).getTime()
+            : 0;
+          const nextTime2 = chat.last_time
+            ? parseServerDate(chat.last_time).getTime()
+            : 0;
+          if (nextTime2 > existingTime2) {
             dmByPeer.set(peerKey, chat);
           }
           return;
@@ -4364,7 +4381,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         const nextTime = chat.last_time
           ? parseServerDate(chat.last_time).getTime()
           : 0;
-        if (nextTime > existingTime || (nextTime === existingTime && chat.id > existing.id)) {
+        if (nextTime > existingTime) {
           dmByPeer.set(peerKey, chat);
         }
       });
@@ -4379,7 +4396,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         merged
           .map((chat) => {
             const isActiveChat =
-              Number(activeChatIdRef.current || 0) === Number(chat?.id || 0);
+              activeChatIdRef.current && chat?.id &&
+              String(activeChatIdRef.current).toLowerCase() === String(chat.id).toLowerCase();
             const isReadableNow =
               canMarkReadInCurrentView &&
               typeof document !== "undefined" &&
@@ -4442,19 +4460,19 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                 ...chat,
                 _lastMessagePending: true,
                 last_message_read_at: null,
-                unread_count: resolveUnread(chat?.unread_count, prevChats.find((p) => Number(p.id) === Number(chat.id))),
+                unread_count: resolveUnread(chat?.unread_count, prevChats.find((p) => p.id === chat.id)),
                 _muted: muted,
               };
             }
             if (!hasProcessingVideo || !isFromOther) {
               return {
                 ...chat,
-                unread_count: resolveUnread(chat?.unread_count, prevChats.find((p) => Number(p.id) === Number(chat.id))),
+                unread_count: resolveUnread(chat?.unread_count, prevChats.find((p) => p.id === chat.id)),
                 _muted: muted,
               };
             }
             const previous = prevChats.find(
-              (existing) => Number(existing.id) === Number(chat.id),
+              (existing) => existing.id === chat.id,
             );
             if (!previous) {
               return {
@@ -4496,24 +4514,24 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         chatListPayload,
       );
 
-      const currentActiveChatId = Number(activeChatIdRef.current || 0);
-      if (currentActiveChatId > 0) {
+      const currentActiveChatId = activeChatIdRef.current || null;
+      if (currentActiveChatId) {
         const activeChatStillExists = normalizedPatched.some(
-          (item) => Number(item.id) === currentActiveChatId,
+          (item) => item.id === currentActiveChatId,
         );
         if (!activeChatStillExists) {
           closeChat();
         }
       }
 
-      const pendingOpenChatId = Number(
+      const pendingOpenChatIdRaw =
         typeof window !== "undefined"
           ? window.sessionStorage.getItem(OPEN_CHAT_ID_KEY)
-          : 0,
-      );
-      if (pendingOpenChatId > 0) {
+          : null;
+      const pendingOpenChatId = normalizeUuid(pendingOpenChatIdRaw) || pendingOpenChatIdRaw;
+      if (pendingOpenChatId) {
         const pendingChat = normalizedPatched.find(
-          (item) => Number(item.id) === pendingOpenChatId,
+          (item) => item.id === pendingOpenChatId,
         );
         if (pendingChat) {
           setActiveChatId(pendingOpenChatId);
@@ -5227,7 +5245,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (!data?.id) {
         throw new Error("Server did not return a chat id.");
       }
-      setActiveChatId(Number(data.id));
+      setActiveChatId(data.id);
       setActivePeer(matched);
       setNewChatUsername("");
       setNewChatOpen(false);
@@ -5423,15 +5441,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setNewChatError("");
   };
   const toggleMuteChat = async (chatId) => {
-    const id = Number(chatId || 0);
+    const id = normalizeUuid(chatId) || null;
     if (!id) return;
-    const existing = chats.find((chat) => Number(chat.id) === id);
+    const existing = chats.find((chat) => chat.id === id);
     const previousMuted = Boolean(existing?._muted);
     const nextMuted = !previousMuted;
 
     setChats((prev) =>
       prev.map((chat) =>
-        Number(chat.id) === id ? { ...chat, _muted: nextMuted } : chat,
+        chat.id === id ? { ...chat, _muted: nextMuted } : chat,
       ),
     );
 
@@ -5447,13 +5465,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       const serverMuted = Boolean(data?.muted);
       setChats((prev) =>
         prev.map((chat) =>
-          Number(chat.id) === id ? { ...chat, _muted: serverMuted } : chat,
+          chat.id === id ? { ...chat, _muted: serverMuted } : chat,
         ),
       );
     } catch {
       setChats((prev) =>
         prev.map((chat) =>
-          Number(chat.id) === id ? { ...chat, _muted: previousMuted } : chat,
+          chat.id === id ? { ...chat, _muted: previousMuted } : chat,
         ),
       );
     }
@@ -5518,7 +5536,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const openOwnProfileModal = () => {
     setProfileModalMember({
-      id: Number(user?.id || 0) || null,
+      id: normalizeUuid(user?.id) || user?.id || null,
       username: user?.username || "",
       nickname: user?.nickname || "",
       avatar_url: user?.avatarUrl || "",
@@ -5538,7 +5556,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     // Clear cached remote channel status when switching to a different chat
     setProfileRemoteChannelStatus((prev) => {
       const prevChatId = prev?._chatId;
-      return prevChatId && Number(prevChatId) !== Number(activeChat.id) ? null : prev;
+      return prevChatId && prevChatId !== activeChat.id ? null : prev;
     });
     setProfileModalOpen(true);
     if (activeChat.type === "group" || activeChat.type === "channel") {
@@ -5608,7 +5626,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const handleOpenProfileChat = () => {
     if (mentionProfileChat?.id) {
-      setActiveChatId(Number(mentionProfileChat.id));
+      setActiveChatId(mentionProfileChat.id);
       setActivePeer(null);
       setMobileTab("chat");
       closeProfileModal();
@@ -5635,7 +5653,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   };
 
   const handleLeaveGroupById = async (chatId) => {
-    const id = Number(chatId || 0);
+    const id = normalizeUuid(chatId) || null;
     if (!id) return;
     try {
       const res = await leaveGroupChat(id, { username: user.username });
@@ -5679,14 +5697,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       setShowSettings(false);
       setSettingsPanel(null);
       let savedChat = chats.find((chat) => chat.type === "saved");
-      let chatId = Number(savedChat?.id || 0);
+      let chatId = normalizeUuid(savedChat?.id) || null;
       if (!chatId) {
         const res = await getSavedMessagesChat(user.username);
         const data = await res.json();
         if (!res.ok) {
           throw new Error(data?.error || "Unable to open saved messages.");
         }
-        chatId = Number(data?.id || 0);
+        chatId = normalizeUuid(data?.id) || null;
         await loadChats({ silent: true });
       }
       if (!chatId) return;
@@ -5998,7 +6016,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (!res.ok) {
         throw new Error(data?.error || "Unable to create group.");
       }
-      const nextChatId = Number(data?.id || activeChat?.id || 0);
+      const nextChatId = normalizeUuid(data?.id) || normalizeUuid(activeChat?.id) || null;
       if (!nextChatId) {
         throw new Error("Server did not return a group id.");
       }
@@ -6068,14 +6086,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             String(chatMember?.username || "").toLowerCase() === targetUsername,
         );
       });
-      let nextChatId = Number(existingDm?.id || 0);
+      let nextChatId = normalizeUuid(existingDm?.id) || null;
       if (!nextChatId) {
         const res = await createDmChat({ from: user.username, to: targetUsername });
         const data = await res.json();
         if (!res.ok) {
           throw new Error(data?.error || "Unable to open direct chat.");
         }
-        nextChatId = Number(data?.id || 0);
+        nextChatId = normalizeUuid(data?.id) || null;
       }
 
       if (!nextChatId) {
@@ -6090,7 +6108,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       closeProfileModal();
       await loadChats({ silent: true });
 
-      const refreshedDm = chats.find((chat) => Number(chat.id) === nextChatId);
+      const refreshedDm = chats.find((chat) => chat.id === nextChatId);
       const nextPeer = (refreshedDm?.members || []).find(
         (chatMember) =>
           String(chatMember?.username || "").toLowerCase() === targetUsername,
@@ -6108,13 +6126,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }
 
   async function openDiscoverGroup(group) {
-    const chatId = Number(group?.id || 0);
+    const chatId = normalizeUuid(group?.id) || null;
     const invitePath = buildInvitePathForChat(group);
     const alreadyMember =
       group?.isMember === true ||
       group?.isMember === 1 ||
       String(group?.isMember || "").toLowerCase() === "true";
-    if (alreadyMember && chatId > 0) {
+    if (alreadyMember && chatId) {
       if (typeof window !== "undefined") {
         window.sessionStorage.setItem(OPEN_CHAT_ID_KEY, String(chatId));
       }

@@ -7,6 +7,7 @@ import { setNameLimits } from './utils/nameLimits.js'
 import { setChatPageConfig } from './settings/chatPageConfig.js'
 import InstallBar from './components/pwa/InstallBar.jsx'
 import InstallGuideModal from './components/pwa/InstallGuideModal.jsx'
+import { normalizeUuid } from './utils/uuidUtils.js'
 
 const API_BASE = ''
 const AUTH_REDIRECT_KEY = 'songbird-auth-redirect'
@@ -193,8 +194,12 @@ export default function App() {
 
   function normalizeSessionUser(data) {
     if (!data?.username) return null
+    // Req 6.3: normalize UUID ID on first receipt from API
+    const userId = normalizeUuid(data.id) || null
+    // Req 6.6: if server returns a non-UUID id, treat as missing (but still
+    // accept the session — user just won't have an id in state)
     return {
-      id: data.id,
+      id: userId,
       username: data.username,
       nickname: data.nickname || null,
       avatarUrl: data.avatarUrl || null,
@@ -1067,8 +1072,8 @@ export default function App() {
                   isDark={isDark}
                   onToggleTheme={toggleTheme}
                   onNavigateChat={(chatId = 0) => {
-                    const nextChatId = Number(chatId || 0)
-                    if (nextChatId > 0) {
+                    const nextChatId = chatId || null
+                    if (nextChatId) {
                       window.sessionStorage.setItem(OPEN_CHAT_ID_KEY, String(nextChatId))
                     }
                     navigate('/chat', true)

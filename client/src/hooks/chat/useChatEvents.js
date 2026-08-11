@@ -4,11 +4,15 @@ import {
   isMessageAuthoredByUser,
   isRemoteChannelMessage,
 } from "../../utils/messageOwnership.js";
+import { normalizeUuid, isValidUuid } from "../../utils/uuidUtils.js";
 
 const patchChatAndMoveToFront = (chats, chatId, updateChat) => {
-  const targetChatId = Number(chatId || 0);
+  const targetChatId = normalizeUuid(chatId) || null;
   if (!targetChatId) return { nextChats: chats, found: false };
-  const index = chats.findIndex((chat) => Number(chat?.id) === targetChatId);
+  const index = chats.findIndex((chat) => {
+    if (!chat?.id) return false;
+    return String(chat.id).toLowerCase() === String(targetChatId).toLowerCase();
+  });
   if (index < 0) return { nextChats: chats, found: false };
   const currentChat = chats[index];
   const nextChat = updateChat(currentChat);
@@ -215,7 +219,7 @@ export function useChatEvents({
           onTypingUpdateRef.current?.(payload);
           return;
         }
-        const payloadChatId = Number(payload.chatId || 0);
+        const payloadChatId = normalizeUuid(payload.chatId) || null;
         const currentActiveId = activeChatIdRef.current;
         const payloadUsername = String(payload?.username || "").toLowerCase();
         const currentUsername = String(usernameRef.current || "").toLowerCase();
@@ -231,8 +235,8 @@ export function useChatEvents({
         const isDeleteEvent = payload.type === "chat_message_deleted";
         const isUpdateEvent = payload.type === "chat_message_updated";
         const isSelectedChat =
-          Boolean(currentActiveId) &&
-          Number(payloadChatId) === Number(currentActiveId);
+          Boolean(currentActiveId) && Boolean(payloadChatId) &&
+          String(payloadChatId).toLowerCase() === String(currentActiveId).toLowerCase();
         const isReadableActiveChat =
           isSelectedChat &&
           isDocumentActive() &&
@@ -255,7 +259,7 @@ export function useChatEvents({
                 return {
                   ...chat,
                   last_message_id:
-                    Number(payload?.messageId || 0) || chat?.last_message_id || null,
+                    normalizeUuid(payload?.messageId) || chat?.last_message_id || null,
                   last_message: previewBody || chat?.last_message || "",
                   last_time: eventTime,
                   last_message_client_request_id: clientRequestId || null,
@@ -297,8 +301,10 @@ export function useChatEvents({
         if (payload.type === "chat_read" && !isOwnEvent && payloadChatId) {
           const nowIso = new Date().toISOString();
           setChats((prev) =>
-            prev.map((chat) =>
-              Number(chat?.id) === payloadChatId
+            prev.map((chat) => {
+              if (!chat?.id) return chat;
+              const matches = String(chat.id).toLowerCase() === String(payloadChatId).toLowerCase();
+              return matches
                 ? {
                     ...chat,
                     last_message_read_at: nowIso,
@@ -307,8 +313,8 @@ export function useChatEvents({
                         ? 0
                         : Number(chat?.unread_count || 0),
                   }
-                : chat,
-            ),
+                : chat;
+            }),
           );
         }
         if (isSelectedChat) {
@@ -328,20 +334,21 @@ export function useChatEvents({
                 pendingScrollToBottomRef.current = true;
               }
               setChats((prev) =>
-                prev.map((chat) =>
-                  Number(chat?.id) === Number(payloadChatId)
-                    ? { ...chat, unread_count: 0 }
-                    : chat,
-                ),
+                prev.map((chat) => {
+                  if (!chat?.id) return chat;
+                  const matches = String(chat.id).toLowerCase() === String(payloadChatId).toLowerCase();
+                  return matches ? { ...chat, unread_count: 0 } : chat;
+                }),
               );
               if (!isMarkingReadRef?.current) {
                 isMarkingReadRef.current = true;
+                const payloadMsgId = normalizeUuid(payload?.messageId) || null;
                 const markReadRequest =
-                  Number(payload?.messageId || 0) > 0
+                  payloadMsgId
                     ? markMessageRead({
                         chatId: payloadChatId,
                         username: usernameRef.current,
-                        messageId: Number(payload.messageId),
+                        messageId: payloadMsgId,
                       })
                     : markMessagesRead({
                         chatId: payloadChatId,
@@ -371,19 +378,19 @@ export function useChatEvents({
           if (isDeleteEvent) {
             const messageIds = Array.isArray(payload?.messageIds)
               ? payload.messageIds
-                  .map((id) => Number(id))
-                  .filter((id) => Number.isFinite(id))
+                  .map((id) => normalizeUuid(id))
+                  .filter(Boolean)
               : [];
             if (messageIds.length) {
               const deletedIdSet = new Set(messageIds);
               setMessages((prev) =>
                 prev
                   .filter((msg) => {
-                    const serverId = Number(msg?._serverId || msg?.id || 0);
-                    return !deletedIdSet.has(serverId);
+                    const serverId = normalizeUuid(msg?._serverId || msg?.id) || null;
+                    return !serverId || !deletedIdSet.has(serverId);
                   })
                   .map((msg) => {
-                    const replyId = Number(msg?.replyTo?.id || 0);
+                    const replyId = normalizeUuid(msg?.replyTo?.id) || null;
                     if (!replyId || !deletedIdSet.has(replyId)) return msg;
                     return {
                       ...msg,

@@ -9,7 +9,7 @@ export function useActiveChatState({
   activeChatTypeRef,
   activePeer,
 }) {
-  const activeId = activeChatId ? Number(activeChatId) : null;
+  const activeId = activeChatId || null;
   useEffect(() => {
     activeChatIdRef.current = activeId;
   }, [activeChatIdRef, activeId]);
@@ -59,7 +59,7 @@ export function useActiveChatState({
   const isActiveSavedChat = activeChat?.type === "saved";
   const isActiveOwner = activeMembers.some(
     (member) =>
-      Number(member.id) === Number(user?.id || 0) &&
+      String(member.id || "") === String(user?.id || "") &&
       String(member.role || "").toLowerCase() === "owner",
   );
   const canSendInActiveChat = !isActiveChannelChat || isActiveOwner;

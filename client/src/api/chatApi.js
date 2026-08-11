@@ -305,7 +305,7 @@ export const listMessages = (chatId, params = {}) => {
   const search = new URLSearchParams(params);
   const query = search.toString();
   const suffix = query ? `?${query}` : "";
-  return apiFetch(`${API_BASE}/api/messages/${chatId}${suffix}`);
+  return apiFetch(`${API_BASE}/api/messages/${encodeURIComponent(chatId)}${suffix}`);
 };
 
 export const listMessagesByQuery = (params = {}, options = {}) => {

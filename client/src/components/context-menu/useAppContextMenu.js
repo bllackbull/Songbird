@@ -76,7 +76,7 @@ export function useAppContextMenu({
 
   const handleMarkChatSeen = useCallback(
     async (chat) => {
-      const chatId = Number(chat?.id || 0);
+      const chatId = chat?.id || null;
       if (!chatId) return;
       await onMarkChatSeen?.(chat, {
         activeChatId,
@@ -232,7 +232,7 @@ export function useAppContextMenu({
           label: "Delete",
           icon: Trash,
           danger: true,
-          onSelect: () => onDeleteChats?.([Number(chat?.id || 0)]),
+          onSelect: () => onDeleteChats?.([chat?.id]),
         });
       }
 
@@ -243,7 +243,7 @@ export function useAppContextMenu({
         point,
         items,
         targetEl: targetEl || null,
-        targetChatId: Number(activeChatId || 0) || null,
+        targetChatId: activeChatId || null,
         targetMessageKey: message
           ? String(message?._clientId ?? message?._serverId ?? message?.id ?? "")
           : "",
