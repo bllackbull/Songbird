@@ -13,14 +13,14 @@ describe("Database Migrations Integration", () => {
     }
   });
 
-  test("applies all 35 migrations sequentially from version 0 to 35", async () => {
+  test("applies all 36 migrations sequentially from version 0 to 36", async () => {
     activeDb = await createRawTestDb();
     expect(activeDb.getSchemaVersion()).toBe(0);
 
     const sortedMigrations = [...migrations].sort(
       (a, b) => a.version - b.version,
     );
-    expect(sortedMigrations.length).toBe(35);
+    expect(sortedMigrations.length).toBe(36);
 
     let expectedVersion = 0;
     for (const migration of sortedMigrations) {
@@ -30,13 +30,13 @@ describe("Database Migrations Integration", () => {
       expect(activeDb.getSchemaVersion()).toBe(expectedVersion);
     }
 
-    expect(activeDb.getSchemaVersion()).toBe(35);
+    expect(activeDb.getSchemaVersion()).toBe(36);
   });
 
   test("migration idempotency: running migrations twice on the same DB instance does not fail", async () => {
     activeDb = await createTestDb();
     const initialVersion = activeDb.getSchemaVersion();
-    expect(initialVersion).toBe(35);
+    expect(initialVersion).toBe(36);
 
     const sortedMigrations = [...migrations].sort(
       (a, b) => a.version - b.version,
@@ -47,6 +47,6 @@ describe("Database Migrations Integration", () => {
       await migration.up(activeDb.migrationContext);
     }
 
-    expect(activeDb.getSchemaVersion()).toBe(35);
+    expect(activeDb.getSchemaVersion()).toBe(36);
   });
 });
