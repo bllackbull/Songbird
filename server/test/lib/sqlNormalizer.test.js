@@ -18,11 +18,11 @@ describe("normalizeSqlForPostgres", () => {
     expect(sql).toContain("INSERT INTO users (username) VALUES (?) ON CONFLICT DO NOTHING");
   });
 
-  test("replaces datetime('now') with CURRENT_TIMESTAMP", () => {
+  test("replaces datetime('now') with CURRENT_TIMESTAMP::text", () => {
     const { sql } = normalizeSqlForPostgres(
       "UPDATE users SET updated_at = datetime('now') WHERE id = ?"
     );
-    expect(sql).toContain("CURRENT_TIMESTAMP");
+    expect(sql).toContain("CURRENT_TIMESTAMP::text");
   });
 
   test("replaces sqlite_master table checks with information_schema.tables", () => {
@@ -48,5 +48,21 @@ describe("normalizeSqlForPostgres", () => {
   test("replaces PRAGMA user_version with meta table query", () => {
     const { sql } = normalizeSqlForPostgres("PRAGMA user_version");
     expect(sql).toContain("SELECT value AS user_version FROM meta WHERE key = 'user_version'");
+  });
+
+  test("replaces datetime('now', '-7 days') with text-cast INTERVAL subtraction", () => {
+    const { sql } = normalizeSqlForPostgres(
+      "SELECT COUNT(*) FILTER (WHERE created_at >= datetime('now', '-7 days')) AS newUsers7d FROM users"
+    );
+    expect(sql).toContain("(CURRENT_TIMESTAMP - INTERVAL '7 days')::text");
+    expect(sql).not.toContain("datetime");
+  });
+
+  test("replaces datetime('now', '-1 day') with text-cast INTERVAL subtraction", () => {
+    const { sql } = normalizeSqlForPostgres(
+      "SELECT COUNT(*) FILTER (WHERE created_at >= datetime('now', '-1 day')) AS messagesLast24h FROM chat_messages"
+    );
+    expect(sql).toContain("(CURRENT_TIMESTAMP - INTERVAL '1 day')::text");
+    expect(sql).not.toContain("datetime");
   });
 });

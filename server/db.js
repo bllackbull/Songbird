@@ -3222,43 +3222,43 @@ export async function bootstrapAdminUsers(adminUsernames) {
   }
 }
 
-export function getAdminStats() {
+export async function getAdminStats() {
   // Batch user counts: one pass over the users table instead of four separate queries.
-  const userStats = getRow(
+  const userStats = await getRow(
     `SELECT
-       COUNT(*)                                                                   AS totalUsers,
-       COUNT(*) FILTER (WHERE banned = 1)                                        AS bannedUsers,
-       COUNT(*) FILTER (WHERE created_at >= datetime('now', '-7 days'))          AS newUsers7d,
-       COUNT(*) FILTER (WHERE status = 'online')                                 AS onlineUsers
+       COUNT(*)                                                                   AS "totalUsers",
+       COUNT(*) FILTER (WHERE banned = 1)                                        AS "bannedUsers",
+       COUNT(*) FILTER (WHERE created_at >= datetime('now', '-7 days'))          AS "newUsers7d",
+       COUNT(*) FILTER (WHERE status = 'online')                                 AS "onlineUsers"
      FROM users`,
   ) || {};
 
   // Batch chat counts: one pass over the chats table instead of five queries.
-  const chatStats = getRow(
+  const chatStats = await getRow(
     `SELECT
-       COUNT(*) FILTER (WHERE type IN ('group', 'channel')) AS totalChats,
-       COUNT(*) FILTER (WHERE type = 'dm')                  AS dmChats,
-       COUNT(*) FILTER (WHERE type = 'group')               AS groupChats,
-       COUNT(*) FILTER (WHERE type = 'channel')             AS channelChats
+       COUNT(*) FILTER (WHERE type IN ('group', 'channel')) AS "totalChats",
+       COUNT(*) FILTER (WHERE type = 'dm')                  AS "dmChats",
+       COUNT(*) FILTER (WHERE type = 'group')               AS "groupChats",
+       COUNT(*) FILTER (WHERE type = 'channel')             AS "channelChats"
      FROM chats`,
   ) || {};
 
   // Batch message counts: one pass over chat_messages instead of two queries.
-  const messageStats = getRow(
+  const messageStats = await getRow(
     `SELECT
-       COUNT(*)                                                          AS totalMessages,
-       COUNT(*) FILTER (WHERE created_at >= datetime('now', '-1 day'))  AS messagesLast24h
+       COUNT(*)                                                          AS "totalMessages",
+       COUNT(*) FILTER (WHERE created_at >= datetime('now', '-1 day'))  AS "messagesLast24h"
      FROM chat_messages`,
   ) || {};
 
-  const totalSessions = getRow("SELECT COUNT(*) AS count FROM sessions")?.count || 0;
+  const totalSessions = (await getRow("SELECT COUNT(*) AS count FROM sessions"))?.count || 0;
 
   // Optional tables that may not exist on older schemas — keep as individual
   // try/catch singletons so a missing table never aborts the whole stats call.
   let totalFiles = 0;
-  try { totalFiles = getRow("SELECT COUNT(*) AS count FROM chat_message_files")?.count || 0; } catch { totalFiles = 0; }
+  try { totalFiles = (await getRow("SELECT COUNT(*) AS count FROM chat_message_files"))?.count || 0; } catch { totalFiles = 0; }
   let pushSubscriptions = 0;
-  try { pushSubscriptions = getRow("SELECT COUNT(*) AS count FROM push_subscriptions")?.count || 0; } catch { pushSubscriptions = 0; }
+  try { pushSubscriptions = (await getRow("SELECT COUNT(*) AS count FROM push_subscriptions"))?.count || 0; } catch { pushSubscriptions = 0; }
 
   return {
     totalUsers:     Number(userStats.totalUsers    || 0),
@@ -3271,9 +3271,9 @@ export function getAdminStats() {
     channelChats:   Number(chatStats.channelChats  || 0),
     totalMessages:  Number(messageStats.totalMessages  || 0),
     messagesLast24h:Number(messageStats.messagesLast24h || 0),
-    totalSessions,
-    totalFiles,
-    pushSubscriptions,
+    totalSessions:  Number(totalSessions || 0),
+    totalFiles:     Number(totalFiles || 0),
+    pushSubscriptions: Number(pushSubscriptions || 0),
   };
 }
 

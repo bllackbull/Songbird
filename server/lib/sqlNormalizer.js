@@ -37,8 +37,25 @@ export function normalizeSqlForPostgres(sql, params = []) {
     "INSERT INTO"
   );
 
-  // 7. Replace datetime('now') -> CURRENT_TIMESTAMP
-  normalizedSql = normalizedSql.replace(/datetime\('now'\)/gi, "CURRENT_TIMESTAMP");
+  // 7. Replace datetime('now', '<offset>') -> text-cast interval expression for TEXT columns
+  //    and plain datetime('now') -> CURRENT_TIMESTAMP cast to text
+  normalizedSql = normalizedSql.replace(
+    /datetime\('now',\s*'([^']+)'\)/gi,
+    (_, offset) => {
+      // Convert SQLite offset like '-7 days', '+1 hour', '-1 day' to PG interval
+      const trimmed = offset.trim();
+      const match = trimmed.match(/^([+-]?\d+)\s+(.+)$/);
+      if (match) {
+        const [, num, unit] = match;
+        const sign = num.startsWith("-") ? "-" : "+";
+        const absNum = num.replace(/^[+-]/, "");
+        return `(CURRENT_TIMESTAMP ${sign} INTERVAL '${absNum} ${unit}')::text`;
+      }
+      // Fallback: pass as-is interval string
+      return `(CURRENT_TIMESTAMP + INTERVAL '${trimmed}')::text`;
+    }
+  );
+  normalizedSql = normalizedSql.replace(/datetime\('now'\)/gi, "CURRENT_TIMESTAMP::text");
 
   // 8. Replace sqlite_master queries -> information_schema.tables
   normalizedSql = normalizedSql.replace(
