@@ -488,6 +488,7 @@ async function runDatabaseMigrations() {
   let migrationPromiseChain = Promise.resolve();
 
   const migrationContext = {
+    isPostgres: isPostgresMode(),
     db: {
       run: (sql, params = []) => {
         if (!isPostgresMode()) {
