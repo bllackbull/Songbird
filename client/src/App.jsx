@@ -901,7 +901,8 @@ export default function App() {
     }
   }
 
-  const isAuthRoute = route === 'login' || route === 'signup' || route === 'invite'
+  const isNonAdminClaimRoute = route === 'admin' && user && user.role !== 'admin' && user.role !== 'owner'
+  const isAuthRoute = route === 'login' || route === 'signup' || route === 'invite' || isNonAdminClaimRoute
   const safeAreaKey = `${route}-${isDark ? 'dark' : 'light'}`
   const safeAreaThemeColor = getThemeColor(isDark, route)
   const appShellClass = isAuthRoute
@@ -1063,7 +1064,7 @@ export default function App() {
                 </div>
               ) : null}
               {route === 'admin' && user && adminPanelEnabled ? (
-                <AdminPage user={user} onBack={() => navigate('/chat', true)} />
+                <AdminPage user={user} setUser={setUser} isDark={isDark} onToggleTheme={toggleTheme} onBack={() => navigate('/chat', true)} />
               ) : null}
               {route === 'invite' && user ? (
                 <InvitePage

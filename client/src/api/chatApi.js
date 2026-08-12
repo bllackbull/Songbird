@@ -459,3 +459,12 @@ export async function uploadFile(file) {
 
   return await localRes.json();
 }
+
+export async function claimAdminPrivileges(token) {
+  const res = await apiFetch(`${API_BASE}/api/admin/claim`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+  return res.json();
+}

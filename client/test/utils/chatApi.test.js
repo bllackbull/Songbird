@@ -1,5 +1,5 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
-import { getChatPreview, uploadFile } from "../../src/api/chatApi.js";
+import { getChatPreview, uploadFile, claimAdminPrivileges } from "../../src/api/chatApi.js";
 import * as mediaPreprocess from "../../src/utils/mediaPreprocess.js";
 
 const originalFetch = globalThis.fetch;
@@ -190,5 +190,30 @@ describe("chatApi.getChatPreview", () => {
       "/api/chats/19/preview?username=blackbull",
       { credentials: "include" },
     );
+  });
+});
+
+describe("chatApi.claimAdminPrivileges", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    globalThis.fetch = originalFetch;
+  });
+
+  test("posts token to /api/admin/claim", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, role: "owner" }),
+    });
+    globalThis.fetch = fetchMock;
+
+    const result = await claimAdminPrivileges("secret-token");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/admin/claim", {
+      credentials: "include",
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: "secret-token" }),
+    });
+    expect(result).toEqual({ ok: true, role: "owner" });
   });
 });

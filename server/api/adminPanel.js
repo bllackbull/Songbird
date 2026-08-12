@@ -6,6 +6,7 @@ import { writeAdminLog, readAdminLog, clearAdminLog } from "../lib/adminLog.js";
 import { readInstallerLog, readNginxLog, readServiceLog, probeLogSources } from "../lib/systemLogs.js";
 import { dbKnex } from "../db/knex.js";
 import os from "node:os";
+import crypto from "node:crypto";
 import multer from "multer";
 import { execFile } from "node:child_process";
 
@@ -74,6 +75,7 @@ function registerAdminPanelRoutes(app, deps) {
     isConnected,
     isUserAdmin,
     isUserOwner,
+    isLoopbackRequest,
     getOwnerUser,
     getAdminStats,
     getOnlineCount,
@@ -170,10 +172,60 @@ function registerAdminPanelRoutes(app, deps) {
     next();
   });
 
+  // ─── Emergency Admin Claim ───────────────────────────────────────────────────
+
+  app.post("/api/admin/claim", async (req, res) => {
+    try {
+      // 1. HTTPS / Local loopback check
+      const proto = String(req.headers["x-forwarded-proto"] || "").toLowerCase();
+      const isLoopback = typeof isLoopbackRequest === "function" ? isLoopbackRequest(req) : (req.ip === "127.0.0.1" || req.ip === "::1" || req.ip === "::ffff:127.0.0.1");
+      const isHttps = proto === "https" || req.secure;
+      if (!isLoopback && !isHttps) {
+        return res.status(403).json({ error: "HTTPS connection required." });
+      }
+
+      // 2. Session check
+      const rawSession = getSessionFromRequest(req);
+      const session = rawSession && typeof rawSession.then === "function" ? await rawSession : rawSession;
+      if (!session || !session.id) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      // 3. Token validation
+      const providedToken = String(req.body?.token || "");
+      const expectedToken = String(process.env.ADMIN_API_TOKEN || "");
+      const providedBuf = Buffer.from(providedToken);
+      const expectedBuf = Buffer.from(expectedToken);
+
+      const isValid = expectedToken.length > 0 &&
+        providedBuf.length === expectedBuf.length &&
+        crypto.timingSafeEqual(providedBuf, expectedBuf);
+
+      if (!isValid) {
+        log(session, "admin.claim_failed", { details: "Invalid admin token submitted", status: "failure" });
+        return res.status(401).json({ error: "Invalid admin token" });
+      }
+
+      // 4. Role determination (owner vs admin)
+      const getRow = deps.getRow || deps.adminGetRow || adminGetRow;
+      const existingOwner = await resolveMaybePromise(getRow("SELECT id FROM users WHERE role = 'owner' LIMIT 1"));
+      const targetRole = existingOwner ? "admin" : "owner";
+
+      // 5. Apply role change
+      await resolveMaybePromise(setUserRole(session.id, targetRole));
+
+      log(session, "admin.claim_success", { details: `User promoted to ${targetRole} via admin API token`, targetType: "user", targetLabel: session.username, status: "success" });
+
+      return res.json({ ok: true, role: targetRole });
+    } catch (error) {
+      return res.status(500).json({ error: error.message || "Failed to claim admin privileges" });
+    }
+  });
+
   // ─── Auth middleware ─────────────────────────────────────────────────────────
 
   app.use("/api/admin", async (req, res, next) => {
-    if (req.path === "/db-tools") return next();
+    if (req.path === "/db-tools" || req.path === "/claim") return next();
     try {
       const rawSession = getSessionFromRequest(req);
       const session = rawSession && typeof rawSession.then === "function"
@@ -238,7 +290,8 @@ function registerAdminPanelRoutes(app, deps) {
 
   // Helper to write an audit log entry (to logs/admin.log) tied to the acting admin.
   const log = (session, action, opts = {}) => {
-    writeAdminLog({
+    const writeLog = deps.writeAdminLog || writeAdminLog;
+    writeLog({
       actorUserId:   session?.id ?? null,
       actorUsername: session?.username ?? null,
       action,

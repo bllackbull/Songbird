@@ -16,7 +16,11 @@ Only one user with owner role can exist at a time.
 
 ## Accessing the Admin Panel
 
-1. Create or edit a user and give them the **owner** or **admin** role (prompted on fresh install, or later via the the [Deployment Script](./Deployment-Script.md)):
+There are two primary ways to grant an account **owner** or **admin** privileges:
+
+### Option 1: CLI / Deployment Script (VPS & Shell Deployments)
+
+1. Create or edit a user and give them the **owner** or **admin** role (prompted on fresh install, or later via the [Deployment Script](./Deployment-Script.md)):
 
   ```bash
   songbird-deploy
@@ -36,9 +40,32 @@ Only one user with owner role can exist at a time.
    ```
   :::
 
-2. Log in to your Songbird instance with the promoted account
+2. Log in to your Songbird instance with the promoted account.
 
-3. Click the **Admin Panel** button in the sidebar (accessible only by owner and admins)
+3. Click the **Admin Panel** button in the sidebar (accessible only by owner and admins).
+
+### Option 2: Emergency Admin & Owner Claim (PaaS & Web UI)
+
+For deployments on PaaS providers (such as Render, Railway, or Fly.io) or container platforms where terminal access is unavailable, authenticated users can claim privileges directly via the web UI:
+
+1. Configure `ADMIN_API_TOKEN` in your environment variables (e.g., in your PaaS dashboard settings). If not set, Songbird auto-generates a token on first boot and saves it in `.env`.
+2. Log in to your registered user account.
+3. Open your browser and navigate directly to `/admin`.
+4. Enter the `ADMIN_API_TOKEN` in the Emergency Admin Access prompt.
+5. Click **Claim Privileges**.
+
+:::info Privilege Promotion Rules
+- **First Claim (Owner)**: If no user currently holds the **owner** role, the claiming user is promoted to **owner**.
+- **Subsequent Claims (Admin)**: If an owner already exists, claiming privileges promotes the user to **admin**.
+:::
+
+:::warning HTTPS Required
+Emergency Admin Claim requires a secure connection (HTTPS) or local loopback (`localhost`, `127.0.0.1`, or `::1`). Unencrypted HTTP connections on remote hosts will block the claim feature.
+:::
+
+:::danger Security Caution
+Do not share `ADMIN_API_TOKEN` and keep it private. Anyone can access the admin panel by using this token.
+:::
 
 ## Dashboard Tab
 
@@ -228,9 +255,10 @@ When disabled:
 ## Security Notes
 
 - Admin API uses a separate authentication token (`ADMIN_API_TOKEN`)
-- Auto-generated on first run and saved to `.env`
-- Admin endpoints are localhost-only by design
-- All admin actions are logged for audit trail
+- Auto-generated on first run and saved to `.env` (or configured via environment variables in PaaS hosts like Render)
+- Emergency admin claim endpoint (`/api/admin/claim`) verifies tokens using timing-safe comparisons and enforces HTTPS/localhost security
+- Admin endpoints are localhost-only by default or restricted to authenticated admins
+- All admin actions and emergency claims are logged for audit trail
 - Rate limiting applies (1000 req/15min as of v0.11.1)
 
 ## CLI Alternative
