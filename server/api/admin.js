@@ -10,6 +10,7 @@ import {
 import { createInviteToken } from "../lib/inviteTokens.js";
 import { storageEncryption } from "../lib/storageEncryption.js";
 import { generateUuid } from "../lib/uuidUtils.js";
+import { dbKnex } from "../db/knex.js";
 import crypto from "crypto";
 
 function normalizeTelegramSource(value) {
@@ -71,6 +72,27 @@ function registerAdminRoutes(app, deps) {
     emitChatEvent,
     emitSseEvent,
   } = deps;
+
+  function toSql(builder, p = []) {
+    if (builder && typeof builder.toSQL === "function") {
+      const c = builder.toSQL();
+      return { sql: c.sql, params: c.bindings || [] };
+    }
+    return { sql: builder, params: p };
+  }
+
+  const callAdminGetRow = (builder, p) => {
+    const { sql, params } = toSql(builder, p);
+    return adminGetRow(sql, params);
+  };
+  const callAdminGetAll = (builder, p) => {
+    const { sql, params } = toSql(builder, p);
+    return adminGetAll(sql, params);
+  };
+  const callAdminRun = (builder, p) => {
+    const { sql, params } = toSql(builder, p);
+    return adminRun(sql, params);
+  };
 
   app.post("/api/admin/db-tools", async (req, res) => {
     if (!isLoopbackRequest(req)) {
@@ -581,37 +603,33 @@ function registerAdminRoutes(app, deps) {
 
         const inviteToken = createInviteToken(deps.crypto);
         const fallbackColor =
-          String((await adminGetRow("SELECT color FROM users WHERE id = ?", [Number(owner.id)]))?.color || "")
+          String((await callAdminGetRow(dbKnex("users").select("color").where("id", owner.id).first()))?.color || "")
             .trim() || "#10b981";
 
         let row = null;
         await adminRun("BEGIN");
         try {
           const newChatId = generateUuid();
-          await adminRun(
-            `INSERT INTO chats (
-              id, name, type, group_username, group_visibility, invite_token, created_by_user_id, group_color, allow_member_invites, group_avatar_url
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-              newChatId,
+          await callAdminRun(
+            dbKnex("chats").insert({
+              id: newChatId,
               name,
               type,
-              username || null,
-              visibility,
-              inviteToken,
-              owner.id,
-              fallbackColor,
-              1,
-              null,
-            ],
+              group_username: username || null,
+              group_visibility: visibility,
+              invite_token: inviteToken,
+              created_by_user_id: owner.id,
+              group_color: fallbackColor,
+              allow_member_invites: 1,
+              group_avatar_url: null,
+            }),
           );
-          row = await adminGetRow(
-            `SELECT id, name, type, group_username, group_visibility, created_by_user_id
-             FROM chats
-             WHERE group_username = ?
-             ORDER BY id DESC
-             LIMIT 1`,
-            [username],
+          row = await callAdminGetRow(
+            dbKnex("chats")
+              .select("id", "name", "type", "group_username", "group_visibility", "created_by_user_id")
+              .where("group_username", username)
+              .orderBy("id", "desc")
+              .first(),
           );
           if (!row?.id) {
             throw new Error("Failed to create chat.");

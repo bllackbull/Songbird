@@ -110,9 +110,18 @@ export async function openDatabase(options = {}) {
 
   const fileExists = isInMemory ? false : fs.existsSync(targetDbPath)
 
-  const getRow = (sql, params = []) => {
+  const extractSqlAndParams = (sqlOrBuilder, params = []) => {
+    if (sqlOrBuilder && typeof sqlOrBuilder.toSQL === 'function') {
+      const compiled = sqlOrBuilder.toSQL()
+      return { sql: compiled.sql, params: compiled.bindings || [] }
+    }
+    return { sql: sqlOrBuilder, params }
+  }
+
+  const getRow = (sqlOrBuilder, params = []) => {
+    const { sql, params: normParamsInput } = extractSqlAndParams(sqlOrBuilder, params)
     if (isPostgres) {
-      const { sql: normSql, params: normParams } = normalizeSqlForPostgres(sql, params)
+      const { sql: normSql, params: normParams } = normalizeSqlForPostgres(sql, normParamsInput)
       const result = db.raw(normSql, normParams)
       if (result && typeof result.then === 'function') {
         return result
@@ -125,7 +134,7 @@ export async function openDatabase(options = {}) {
       return rows[0] || null
     }
 
-    const normalizedParams = Array.isArray(params) ? params : [params]
+    const normalizedParams = Array.isArray(normParamsInput) ? normParamsInput : [normParamsInput]
     if (isBetter) {
       const stmt = db.prepare(sql)
       return stmt.get(...normalizedParams) || null
@@ -138,9 +147,10 @@ export async function openDatabase(options = {}) {
     return row
   }
 
-  const getAll = (sql, params = []) => {
+  const getAll = (sqlOrBuilder, params = []) => {
+    const { sql, params: normParamsInput } = extractSqlAndParams(sqlOrBuilder, params)
     if (isPostgres) {
-      const { sql: normSql, params: normParams } = normalizeSqlForPostgres(sql, params)
+      const { sql: normSql, params: normParams } = normalizeSqlForPostgres(sql, normParamsInput)
       const result = db.raw(normSql, normParams)
       if (result && typeof result.then === 'function') {
         return result.then(getPostgresRows)
@@ -148,7 +158,7 @@ export async function openDatabase(options = {}) {
       return getPostgresRows(result)
     }
 
-    const normalizedParams = Array.isArray(params) ? params : [params]
+    const normalizedParams = Array.isArray(normParamsInput) ? normParamsInput : [normParamsInput]
     if (isBetter) {
       const stmt = db.prepare(sql)
       return stmt.all(...normalizedParams)
@@ -164,9 +174,10 @@ export async function openDatabase(options = {}) {
     return rows
   }
 
-  const run = (sql, params = []) => {
+  const run = (sqlOrBuilder, params = []) => {
+    const { sql, params: normParamsInput } = extractSqlAndParams(sqlOrBuilder, params)
     if (isPostgres) {
-      const { sql: normSql, params: normParams } = normalizeSqlForPostgres(sql, params)
+      const { sql: normSql, params: normParams } = normalizeSqlForPostgres(sql, normParamsInput)
       const result = db.raw(normSql, normParams)
       if (result && typeof result.then === 'function') {
         return result
@@ -181,7 +192,7 @@ export async function openDatabase(options = {}) {
       return rows.length
     }
 
-    const normalizedParams = Array.isArray(params) ? params : [params]
+    const normalizedParams = Array.isArray(normParamsInput) ? normParamsInput : [normParamsInput]
     if (isBetter) {
       const stmt = db.prepare(sql)
       const info = stmt.run(...normalizedParams)

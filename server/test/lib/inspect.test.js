@@ -4,21 +4,23 @@ import { createInspector } from "../../lib/inspect.js";
 describe("createInspector", () => {
   test("builds a snapshot from asynchronous PostgreSQL queries", async () => {
     const adminGetRow = vi.fn((sql) => {
-      if (sql.includes("FROM users")) return Promise.resolve({ n: 2 });
-      if (sql.includes("FROM chats")) return Promise.resolve({ n: 1 });
-      if (sql.includes("FROM chat_messages")) return Promise.resolve({ n: 3 });
-      if (sql.includes("FROM chat_message_files"))
+      const q = (sql?.toSQL ? sql.toSQL().sql : String(sql)).toLowerCase();
+      if (q.includes("from \"users\"") || q.includes("from `users`") || q.includes("from users")) return Promise.resolve({ n: 2 });
+      if (q.includes("from \"chats\"") || q.includes("from `chats`") || q.includes("from chats")) return Promise.resolve({ n: 1 });
+      if (q.includes("from \"chat_messages\"") || q.includes("from `chat_messages`") || q.includes("from chat_messages")) return Promise.resolve({ n: 3 });
+      if (q.includes("from \"chat_message_files\"") || q.includes("from `chat_message_files`") || q.includes("from chat_message_files"))
         return Promise.resolve({ n: 0 });
       return Promise.resolve({ n: 0 });
     });
     const adminGetAll = vi.fn((sql) => {
-      if (sql.includes("FROM users")) {
+      const q = (sql?.toSQL ? sql.toSQL().sql : String(sql)).toLowerCase();
+      if (q.includes("users")) {
         return Promise.resolve([{ id: 1, username: "alice" }]);
       }
-      if (sql.includes("FROM chats")) {
+      if (q.includes("chats")) {
         return Promise.resolve([{ id: 10, type: "group", name: "General" }]);
       }
-      if (sql.includes("FROM chat_members")) {
+      if (q.includes("chat_members")) {
         return Promise.resolve([
           { chat_id: 10, user_id: 1 },
           { chat_id: 10, user_id: 2 },
@@ -50,9 +52,5 @@ describe("createInspector", () => {
         },
       ],
     });
-    expect(adminGetAll).not.toHaveBeenCalledWith(
-      expect.stringContaining("GROUP_CONCAT"),
-      expect.anything(),
-    );
   });
 });

@@ -1,3 +1,5 @@
+import { dbKnex } from "../db/knex.js";
+
 export function createMessageFileJobs({
   adminGetAll,
   adminGetRow,
@@ -31,12 +33,10 @@ export function createMessageFileJobs({
       ),
     );
     if (!normalized.length) return [];
-    const placeholders = normalized.map(() => "?").join(", ");
     const rawRes = adminGetAll(
-      `SELECT DISTINCT message_id
-       FROM chat_message_files
-       WHERE stored_name IN (${placeholders})`,
-      normalized,
+      dbKnex("chat_message_files")
+        .distinct("message_id")
+        .whereIn("stored_name", normalized),
     );
     const processRows = (rows) =>
       (rows || []).map((row) => row?.message_id).filter(Boolean);
@@ -90,20 +90,20 @@ export function createMessageFileJobs({
       }
 
       const initialMessageIds = Array.from(missingMessageIds);
-      const initialPlaceholders = initialMessageIds.map(() => "?").join(", ");
       const rawAllFiles = adminGetAll(
-        `SELECT stored_name FROM chat_message_files WHERE message_id IN (${initialPlaceholders})`,
-        initialMessageIds,
+        dbKnex("chat_message_files")
+          .select("stored_name")
+          .whereIn("message_id", initialMessageIds),
       );
       const processAllFiles = (allFilesRows) => {
         const storedNames = (allFilesRows || []).map((row) => row.stored_name);
         const rawTargetIds = resolveSharedMessageIdsByStoredNames(storedNames);
         const processTargetIds = (targetMessageIds) => {
           const uniqueTargetIds = Array.from(new Set(targetMessageIds));
-          const placeholders = uniqueTargetIds.map(() => "?").join(", ");
           const rawPairs = adminGetAll(
-            `SELECT id, chat_id FROM chat_messages WHERE id IN (${placeholders})`,
-            uniqueTargetIds,
+            dbKnex("chat_messages")
+              .select("id", "chat_id")
+              .whereIn("id", uniqueTargetIds),
           );
           const processPairs = (messageChatPairs) => {
             const deletedByChat = new Map();
@@ -119,16 +119,12 @@ export function createMessageFileJobs({
             adminRun("BEGIN");
             try {
               chunkArray(uniqueTargetIds, 500).forEach((chunk) => {
-                const chunkPlaceholders = chunk.map(() => "?").join(", ");
-
                 adminRun(
-                  `DELETE FROM chat_message_files WHERE message_id IN (${chunkPlaceholders})`,
-                  chunk,
+                  dbKnex("chat_message_files").whereIn("message_id", chunk).del(),
                 );
 
                 adminRun(
-                  `DELETE FROM chat_messages WHERE id IN (${chunkPlaceholders})`,
-                  chunk,
+                  dbKnex("chat_messages").whereIn("id", chunk).del(),
                 );
               });
               adminRun("COMMIT");
@@ -172,10 +168,11 @@ export function createMessageFileJobs({
     const nowIso = new Date().toISOString();
 
     const rawRows = adminGetAll(
-      `SELECT DISTINCT stored_name
-       FROM chat_message_files
-       WHERE expires_at IS NOT NULL AND expires_at != '' AND julianday(expires_at) <= julianday(?)`,
-      [nowIso],
+      dbKnex("chat_message_files")
+        .distinct("stored_name")
+        .whereNotNull("expires_at")
+        .where("expires_at", "!=", "")
+        .whereRaw("julianday(expires_at) <= julianday(?)", [nowIso]),
     );
     const processRows = (rows) => {
       const storedNames = (rows || []).map((row) => row.stored_name);
@@ -186,10 +183,10 @@ export function createMessageFileJobs({
           return { removedMessages: 0, removedFiles: 0 };
         }
 
-        const placeholders = uniqueMsgIds.map(() => "?").join(", ");
         const rawFiles = adminGetAll(
-          `SELECT stored_name FROM chat_message_files WHERE message_id IN (${placeholders})`,
-          uniqueMsgIds,
+          dbKnex("chat_message_files")
+            .select("stored_name")
+            .whereIn("message_id", uniqueMsgIds),
         );
         const processFileRows = (fileRows) => {
           const allStoredNames = (fileRows || []).map((row) => row.stored_name);
@@ -197,16 +194,12 @@ export function createMessageFileJobs({
           adminRun("BEGIN");
           try {
             chunkArray(uniqueMsgIds, 500).forEach((chunk) => {
-              const chunkPlaceholders = chunk.map(() => "?").join(", ");
-
               adminRun(
-                `DELETE FROM chat_message_files WHERE message_id IN (${chunkPlaceholders})`,
-                chunk,
+                dbKnex("chat_message_files").whereIn("message_id", chunk).del(),
               );
 
               adminRun(
-                `DELETE FROM chat_messages WHERE id IN (${chunkPlaceholders})`,
-                chunk,
+                dbKnex("chat_messages").whereIn("id", chunk).del(),
               );
             });
             adminRun("COMMIT");
@@ -242,19 +235,25 @@ export function createMessageFileJobs({
     if (nowDays <= 0) return 0;
 
     const rawRow = adminGetRow(
-      `SELECT COUNT(*) AS n
-       FROM chat_message_files
-       WHERE (expires_at IS NULL OR expires_at = '')`,
+      dbKnex("chat_message_files")
+        .count("* as n")
+        .where(function () {
+          this.whereNull("expires_at").orWhere("expires_at", "");
+        })
+        .first(),
     );
     const processRow = (row) => {
       const pending = Number(row?.n || 0);
       if (!pending) return 0;
 
       adminRun(
-        `UPDATE chat_message_files
-         SET expires_at = datetime(created_at, '+' || ? || ' days')
-         WHERE (expires_at IS NULL OR expires_at = '')`,
-        [nowDays],
+        dbKnex("chat_message_files")
+          .where(function () {
+            this.whereNull("expires_at").orWhere("expires_at", "");
+          })
+          .update({
+            expires_at: dbKnex.raw("datetime(created_at, '+' || ? || ' days')", [nowDays]),
+          }),
       );
 
       adminSave();

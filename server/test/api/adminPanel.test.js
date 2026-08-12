@@ -258,10 +258,12 @@ describe("admin presence overlays", () => {
 describe("POST /api/admin/users verified status", () => {
   test("creates user with verified=1 when verified: true is passed", async () => {
     const adminRun = vi.fn();
+    let calls = 0;
     const adminGetRow = vi.fn().mockImplementation((sql) => {
-      if (sql.includes("FROM users WHERE username = ?")) {
-        // First check for existence (returns null), then return inserted user with verified: 1
-        if (adminGetRow.mock.calls.length === 1) return null;
+      const lower = String(sql || "").toLowerCase();
+      if (lower.includes("users")) {
+        calls += 1;
+        if (calls === 1) return null;
         return { id: "u0000000-0000-4000-8000-000000000099", username: "newverified", nickname: "Verified User", color: "#10b981", role: "user", verified: 1 };
       }
       return null;
@@ -285,7 +287,7 @@ describe("POST /api/admin/users verified status", () => {
     expect(res.status).toBe(201);
     expect(res.body.user).toMatchObject({ username: "newverified", verified: 1 });
     expect(adminRun).toHaveBeenCalledWith(
-      expect.stringContaining("INSERT INTO users"),
+      expect.stringMatching(/insert into/i),
       expect.arrayContaining([1]),
     );
   });

@@ -1,6 +1,7 @@
 import { getCliArgs, getPositionalArgs } from "./_cli.js";
 import { openDatabase, runAdminActionViaServer } from "./_db-admin.js";
 import { resolveChatRow } from "../lib/dbToolHelpers.js";
+import { dbKnex } from "../db/knex.js";
 
 async function main() {
   const args = getCliArgs();
@@ -31,10 +32,9 @@ async function main() {
     }
 
     const nextVerified = Number(chat.verified || 0) ? 0 : 1;
-    await dbApi.run("UPDATE chats SET verified = ? WHERE id = ?", [
-      nextVerified,
-      Number(chat.id),
-    ]);
+    await dbApi.run(
+      dbKnex("chats").where("id", chat.id).update({ verified: nextVerified }),
+    );
     await dbApi.save();
 
     console.log(

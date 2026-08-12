@@ -1,4 +1,5 @@
 import { Queue, Worker } from "bullmq";
+import { dbKnex } from "../db/knex.js";
 
 export function createMediaQueueManager({
   redisClient,
@@ -19,14 +20,23 @@ export function createMediaQueueManager({
   const inMemoryQueue = [];
   const activeTimers = new Map();
 
+  function toSql(builder) {
+    if (builder && typeof builder.toSQL === "function") {
+      const c = builder.toSQL();
+      return { sql: c.sql, params: c.bindings || [] };
+    }
+    return { sql: builder, params: [] };
+  }
+
   async function processMediaJob(jobData) {
     const { fileId, storageKey, reason } = jobData;
     if (!fileId) return;
 
     // Check DB status to see if remote provider already processed it
-    const row = adminGetRow
-      ? adminGetRow("SELECT * FROM message_files WHERE id = ?", [fileId])
-      : null;
+    const { sql: checkSql, params: checkParams } = toSql(
+      dbKnex("chat_message_files").where("id", fileId).first(),
+    );
+    const row = adminGetRow ? adminGetRow(checkSql, checkParams) : null;
 
     if (!row) return;
     if (row.processing_status === "ready") return; // Already processed by remote compute
@@ -35,10 +45,10 @@ export function createMediaQueueManager({
       // Execute local fallback processing
       // Update DB status to ready
       if (adminRun) {
-        adminRun(
-          "UPDATE message_files SET processing_status = 'ready' WHERE id = ?",
-          [fileId],
+        const { sql: updateSql, params: updateParams } = toSql(
+          dbKnex("chat_message_files").where("id", fileId).update({ processing_status: "ready" }),
         );
+        adminRun(updateSql, updateParams);
       }
 
       // Broadcast SSE notification
@@ -51,10 +61,10 @@ export function createMediaQueueManager({
       }
     } catch (err) {
       if (adminRun) {
-        adminRun(
-          "UPDATE message_files SET processing_status = 'failed' WHERE id = ?",
-          [fileId],
+        const { sql: failSql, params: failParams } = toSql(
+          dbKnex("chat_message_files").where("id", fileId).update({ processing_status: "failed" }),
         );
+        adminRun(failSql, failParams);
       }
     }
   }

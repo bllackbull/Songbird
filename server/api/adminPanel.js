@@ -4,6 +4,7 @@ import { validateUuidParams } from "../lib/uuidMiddleware.js";
 import { isValidUuid, generateUuid } from "../lib/uuidUtils.js";
 import { writeAdminLog, readAdminLog, clearAdminLog } from "../lib/adminLog.js";
 import { readInstallerLog, readNginxLog, readServiceLog, probeLogSources } from "../lib/systemLogs.js";
+import { dbKnex } from "../db/knex.js";
 import os from "node:os";
 import multer from "multer";
 import { execFile } from "node:child_process";
@@ -130,6 +131,27 @@ function registerAdminPanelRoutes(app, deps) {
 
   const resolveMaybePromise = async (value) =>
     value && typeof value.then === "function" ? await value : value;
+
+  function toSql(builder, p = []) {
+    if (builder && typeof builder.toSQL === "function") {
+      const c = builder.toSQL();
+      return { sql: c.sql, params: c.bindings || [] };
+    }
+    return { sql: builder, params: p };
+  }
+
+  const callAdminGetRow = (builder, p) => {
+    const { sql, params } = toSql(builder, p);
+    return adminGetRow(sql, params);
+  };
+  const callAdminGetAll = (builder, p) => {
+    const { sql, params } = toSql(builder, p);
+    return adminGetAll(sql, params);
+  };
+  const callAdminRun = (builder, p) => {
+    const { sql, params } = toSql(builder, p);
+    return adminRun(sql, params);
+  };
 
   // ─── Admin panel gate ────────────────────────────────────────────────────────
   // When ADMIN_PANEL=false is set in the environment, all /api/admin/* requests
@@ -358,10 +380,10 @@ function registerAdminPanelRoutes(app, deps) {
     if (USERNAME_REGEX && !USERNAME_REGEX.test(rawUsername)) {
       return res.status(400).json({ error: "Invalid username. Use lowercase letters, numbers, . and _" });
     }
-    if ((await adminGetRow("SELECT id FROM users WHERE username = ?", [rawUsername]))?.id) {
+    if ((await callAdminGetRow(dbKnex("users").select("id").where("username", rawUsername).first()))?.id) {
       return res.status(409).json({ error: "Username already exists." });
     }
-    if ((await adminGetRow("SELECT id FROM chats WHERE type IN ('group','channel') AND group_username = ?", [rawUsername]))?.id) {
+    if ((await callAdminGetRow(dbKnex("chats").select("id").whereIn("type", ["group", "channel"]).where("group_username", rawUsername).first()))?.id) {
       return res.status(409).json({ error: "Username already exists." });
     }
     // Only one owner is allowed at a time
@@ -374,17 +396,26 @@ function registerAdminPanelRoutes(app, deps) {
     const assignedColor  = suppliedColor || setUserColor();
     const verified       = req.body?.verified !== undefined ? (req.body.verified ? 1 : 0) : 0;
     const newUserId = generateUuid();
-    await resolveMaybePromise(adminRun(
-      `INSERT INTO users (id, username, nickname, avatar_url, color, status, password_hash, created_at, last_seen, verified)
-       VALUES (?, ?, ?, NULL, ?, 'online', ?, datetime('now'), datetime('now'), ?)`,
-      [newUserId, rawUsername, nickname, assignedColor, passwordHash, verified],
+    await resolveMaybePromise(callAdminRun(
+      dbKnex("users").insert({
+        id: newUserId,
+        username: rawUsername,
+        nickname,
+        avatar_url: null,
+        color: assignedColor,
+        status: "online",
+        password_hash: passwordHash,
+        created_at: dbKnex.raw("datetime('now')"),
+        last_seen: dbKnex.raw("datetime('now')"),
+        verified,
+      }),
     ));
     if (role !== "user") {
-      const newUser = await adminGetRow("SELECT id FROM users WHERE username = ?", [rawUsername]);
-      if (newUser?.id) await resolveMaybePromise(adminRun("UPDATE users SET role = ? WHERE id = ?", [role, newUser.id]));
+      const newUser = await callAdminGetRow(dbKnex("users").select("id").where("username", rawUsername).first());
+      if (newUser?.id) await resolveMaybePromise(callAdminRun(dbKnex("users").where("id", newUser.id).update({ role })));
     }
     adminSave();
-    const row = await adminGetRow("SELECT id, username, nickname, color, role, verified FROM users WHERE username = ?", [rawUsername]);
+    const row = await callAdminGetRow(dbKnex("users").select("id", "username", "nickname", "color", "role", "verified").where("username", rawUsername).first());
     log(session, "user.create", { targetType: "user", targetLabel: `@${rawUsername}`, details: `role=${role}` });
     res.status(201).json({ ok: true, user: row });
   });
@@ -424,19 +455,26 @@ function registerAdminPanelRoutes(app, deps) {
     if (!["online", "invisible"].includes(nextStatus)) return res.status(400).json({ error: "Invalid status." });
 
     if (nextUsername !== String(user.username || "")) {
-      if ((await adminGetRow("SELECT id FROM users WHERE username = ? AND id != ?", [nextUsername, userId]))?.id) {
+      if ((await callAdminGetRow(dbKnex("users").select("id").where("username", nextUsername).where("id", "!=", userId).first()))?.id) {
         return res.status(409).json({ error: "Username already exists." });
       }
-      if ((await adminGetRow("SELECT id FROM chats WHERE type IN ('group','channel') AND group_username IN (?,?)", [nextUsername, `@${nextUsername}`]))?.id) {
+      if ((await callAdminGetRow(dbKnex("chats").select("id").whereIn("type", ["group", "channel"]).whereIn("group_username", [nextUsername, `@${nextUsername}`]).first()))?.id) {
         return res.status(409).json({ error: "Username already exists." });
       }
     }
 
     const nextVerified = b.verified !== undefined ? (b.verified ? 1 : 0) : (user.verified ? 1 : 0);
 
-    await resolveMaybePromise(adminRun(
-      "UPDATE users SET username = ?, nickname = ?, status = ?, color = ?, verified = ? WHERE id = ?",
-      [nextUsername, nextNickname, nextStatus, nextColor, nextVerified, userId],
+    await resolveMaybePromise(callAdminRun(
+      dbKnex("users")
+        .where("id", userId)
+        .update({
+          username: nextUsername,
+          nickname: nextNickname,
+          status: nextStatus,
+          color: nextColor,
+          verified: nextVerified,
+        }),
     ));
     adminSave();
     const updated = await resolveMaybePromise(findUserById(userId));
@@ -462,7 +500,7 @@ function registerAdminPanelRoutes(app, deps) {
     await resolveMaybePromise(adminBanUser(userId, banned));
     // Banning revokes any elevated role; unbanning restores the default user role.
     await resolveMaybePromise(setUserRole(userId, "user"));
-    if (banned) await resolveMaybePromise(adminRun("DELETE FROM sessions WHERE user_id = ?", [userId]));
+    if (banned) await resolveMaybePromise(callAdminRun(dbKnex("sessions").where("user_id", userId).del()));
     adminSave();
     log(session, banned ? "user.ban" : "user.unban", { targetType: "user", targetLabel: `@${user.username}` });
     res.json({ ok: true, banned });
@@ -521,8 +559,8 @@ function registerAdminPanelRoutes(app, deps) {
     }
 
     const hash = await bcrypt.hash(newPassword, 10);
-    await resolveMaybePromise(adminRun("UPDATE users SET password_hash = ? WHERE id = ?", [hash, userId]));
-    await resolveMaybePromise(adminRun("DELETE FROM sessions WHERE user_id = ?", [userId]));
+    await resolveMaybePromise(callAdminRun(dbKnex("users").where("id", userId).update({ password_hash: hash })));
+    await resolveMaybePromise(callAdminRun(dbKnex("sessions").where("user_id", userId).del()));
     adminSave();
     log(session, "user.reset_password", { targetType: "user", targetLabel: `@${user.username}` });
     res.json({ ok: true });
@@ -560,7 +598,7 @@ function registerAdminPanelRoutes(app, deps) {
     if (String(user.avatar_url || "").trim() && user.avatar_url !== avatarUrl) {
       removeAvatarByUrl(user.avatar_url);
     }
-    await resolveMaybePromise(adminRun("UPDATE users SET avatar_url = ? WHERE id = ?", [avatarUrl, userId]));
+    await resolveMaybePromise(callAdminRun(dbKnex("users").where("id", userId).update({ avatar_url: avatarUrl })));
     adminSave();
     res.json({ ok: true, avatarUrl });
   });
@@ -572,7 +610,7 @@ function registerAdminPanelRoutes(app, deps) {
     const user = await resolveMaybePromise(findUserById(userId));
     if (!user) return res.status(404).json({ error: "User not found." });
     if (String(user.avatar_url || "").trim()) removeAvatarByUrl(user.avatar_url);
-    await resolveMaybePromise(adminRun("UPDATE users SET avatar_url = NULL WHERE id = ?", [userId]));
+    await resolveMaybePromise(callAdminRun(dbKnex("users").where("id", userId).update({ avatar_url: null })));
     adminSave();
     res.json({ ok: true, avatarUrl: null });
   });
@@ -640,15 +678,15 @@ function registerAdminPanelRoutes(app, deps) {
       : await resolveMaybePromise(findUserByUsername(ownerIdOrUsername.toLowerCase()));
     if (!owner?.id) return res.status(404).json({ error: "Owner user not found." });
 
-    if ((await adminGetRow("SELECT id FROM users WHERE username = ?", [username]))?.id) {
+    if ((await adminGetRow(dbKnex("users").select("id").where("username", username).first()))?.id) {
       return res.status(409).json({ error: "Username already exists." });
     }
-    if ((await adminGetRow("SELECT id FROM chats WHERE type IN ('group','channel') AND group_username IN (?,?)", [username, `@${username}`]))?.id) {
+    if ((await adminGetRow(dbKnex("chats").select("id").whereIn("type", ["group", "channel"]).whereIn("group_username", [username, `@${username}`]).first()))?.id) {
       return res.status(409).json({ error: "Username already exists." });
     }
 
     const inviteToken  = createInviteToken(crypto);
-    const ownerColor   = String((await adminGetRow("SELECT color FROM users WHERE id = ?", [owner.id]))?.color || "") || "#10b981";
+    const ownerColor   = String((await adminGetRow(dbKnex("users").select("color").where("id", owner.id).first()))?.color || "") || "#10b981";
     const groupColor   = normalizeHexColor(String(b.color || "")) || ownerColor;
     const chatId = await resolveMaybePromise(createChat(name, type, {
       groupUsername:     username,
@@ -672,7 +710,7 @@ function registerAdminPanelRoutes(app, deps) {
       ? (await resolveMaybePromise(addAllEligibleChatMembers(chatId))) || { addedUsers: [], skippedLeftCount: 0 }
       : { addedUsers: [], skippedLeftCount: 0 };
 
-    if (b.verified) await resolveMaybePromise(adminRun("UPDATE chats SET verified = 1 WHERE id = ?", [chatId]));
+    if (b.verified) await resolveMaybePromise(adminRun(dbKnex("chats").where("id", chatId).update({ verified: 1 })));
 
     adminSave();
     const created = await resolveMaybePromise(findChatById(chatId));
@@ -717,10 +755,10 @@ function registerAdminPanelRoutes(app, deps) {
     const nextColor      = b.color !== undefined ? (normalizeHexColor(String(b.color || "")) || null) : (chat.group_color || null);
 
     if (nextUsername && nextUsername !== (chat.group_username || "")) {
-      if ((await adminGetRow("SELECT id FROM users WHERE username = ?", [nextUsername]))?.id) {
+      if ((await adminGetRow(dbKnex("users").select("id").where("username", nextUsername).first()))?.id) {
         return res.status(409).json({ error: "Username already exists." });
       }
-      if ((await adminGetRow("SELECT id FROM chats WHERE type IN ('group','channel') AND group_username IN (?,?) AND id != ?", [nextUsername, `@${nextUsername}`, chatId]))?.id) {
+      if ((await adminGetRow(dbKnex("chats").select("id").whereIn("type", ["group", "channel"]).whereIn("group_username", [nextUsername, `@${nextUsername}`]).where("id", "!=", chatId).first()))?.id) {
         return res.status(409).json({ error: "Username already exists." });
       }
     }
@@ -731,9 +769,9 @@ function registerAdminPanelRoutes(app, deps) {
         ? await resolveMaybePromise(findUserById(b.owner))
         : await resolveMaybePromise(findUserByUsername(String(b.owner).toLowerCase()));
       if (!newOwner?.id) return res.status(404).json({ error: "New owner not found." });
-      await resolveMaybePromise(adminRun("UPDATE chat_members SET role = 'member' WHERE chat_id = ? AND role = 'owner'", [chatId]));
-      await resolveMaybePromise(adminRun("INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, 'owner')", [chatId, newOwner.id]));
-      await resolveMaybePromise(adminRun("UPDATE chat_members SET role = 'owner' WHERE chat_id = ? AND user_id = ?", [chatId, newOwner.id]));
+      await resolveMaybePromise(adminRun(dbKnex("chat_members").where("chat_id", chatId).where("role", "owner").update({ role: "member" })));
+      await resolveMaybePromise(adminRun(dbKnex("chat_members").insert({ chat_id: chatId, user_id: newOwner.id, role: "owner" }).onConflict(["chat_id", "user_id"]).ignore()));
+      await resolveMaybePromise(adminRun(dbKnex("chat_members").where({ chat_id: chatId, user_id: newOwner.id }).update({ role: "owner" })));
       newOwnerUsername = String(newOwner.username || "");
     }
 
@@ -743,8 +781,8 @@ function registerAdminPanelRoutes(app, deps) {
       await resolveMaybePromise(updateChannelChat(chatId, { name: nextName, groupUsername: nextUsername, groupVisibility: nextVisibility }));
     }
 
-    if (nextColor) await resolveMaybePromise(adminRun("UPDATE chats SET group_color = ? WHERE id = ?", [nextColor, chatId]));
-    if (b.verified !== undefined) await resolveMaybePromise(adminRun("UPDATE chats SET verified = ? WHERE id = ?", [b.verified ? 1 : 0, chatId]));
+    if (nextColor) await resolveMaybePromise(adminRun(dbKnex("chats").where("id", chatId).update({ group_color: nextColor })));
+    if (b.verified !== undefined) await resolveMaybePromise(adminRun(dbKnex("chats").where("id", chatId).update({ verified: b.verified ? 1 : 0 })));
     adminSave();
 
     emitChatEvent(chatId, { type: "chat_updated", chatId });

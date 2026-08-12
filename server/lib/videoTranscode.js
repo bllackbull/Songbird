@@ -1,3 +1,5 @@
+import { dbKnex } from "../db/knex.js";
+
 export function createVideoTranscodeManager({
   spawn,
   fs,
@@ -273,24 +275,16 @@ export function createVideoTranscodeManager({
       fs.unlinkSync(inputPath);
 
       adminRun(
-        `UPDATE chat_message_files
-         SET stored_name = ?, mime_type = ?, size_bytes = ?, width_px = COALESCE(?, width_px), height_px = COALESCE(?, height_px), duration_seconds = COALESCE(?, duration_seconds)
-         WHERE id = ?`,
-        [
-          outputName,
-          "video/mp4",
-          Number(outputStat.size || 0),
-          Number.isFinite(Number(outputMeta?.widthPx))
-            ? Number(outputMeta.widthPx)
-            : null,
-          Number.isFinite(Number(outputMeta?.heightPx))
-            ? Number(outputMeta.heightPx)
-            : null,
-          Number.isFinite(Number(outputMeta?.durationSeconds))
-            ? Number(outputMeta.durationSeconds)
-            : null,
-          fileId,
-        ],
+        dbKnex("chat_message_files")
+          .where("id", fileId)
+          .update({
+            stored_name: outputName,
+            mime_type: "video/mp4",
+            size_bytes: Number(outputStat.size || 0),
+            ...(Number.isFinite(Number(outputMeta?.widthPx)) ? { width_px: Number(outputMeta.widthPx) } : {}),
+            ...(Number.isFinite(Number(outputMeta?.heightPx)) ? { height_px: Number(outputMeta.heightPx) } : {}),
+            ...(Number.isFinite(Number(outputMeta?.durationSeconds)) ? { duration_seconds: Number(outputMeta.durationSeconds) } : {}),
+          }),
       );
 
       adminSave();
@@ -307,9 +301,7 @@ export function createVideoTranscodeManager({
       const chatId = job?.chatId || null;
       const messageId = job?.messageId || null;
       const messageRow = messageId
-        ? adminGetRow("SELECT body FROM chat_messages WHERE id = ?", [
-            messageId,
-          ])
+        ? adminGetRow(dbKnex("chat_messages").select("body").where("id", messageId).first())
         : null;
       const messageBody = storageEncryption
         .decryptText(String(messageRow?.body || "").trim())
@@ -463,17 +455,18 @@ export function createVideoTranscodeManager({
         continue;
       }
 
-      adminRun(
-        `UPDATE chat_message_files
-         SET width_px = COALESCE(?, width_px), height_px = COALESCE(?, height_px), duration_seconds = COALESCE(?, duration_seconds)
-         WHERE id = ?`,
-        [
-          Number.isFinite(Number(nextWidth)) ? Number(nextWidth) : null,
-          Number.isFinite(Number(nextHeight)) ? Number(nextHeight) : null,
-          Number.isFinite(Number(nextDuration)) ? Number(nextDuration) : null,
-          Number(row.id),
-        ],
-      );
+      const updateMetaPayload = {};
+      if (Number.isFinite(Number(nextWidth))) updateMetaPayload.width_px = Number(nextWidth);
+      if (Number.isFinite(Number(nextHeight))) updateMetaPayload.height_px = Number(nextHeight);
+      if (Number.isFinite(Number(nextDuration))) updateMetaPayload.duration_seconds = Number(nextDuration);
+
+      if (Object.keys(updateMetaPayload).length > 0) {
+        adminRun(
+          dbKnex("chat_message_files")
+            .where("id", Number(row.id))
+            .update(updateMetaPayload),
+        );
+      }
 
       row.width_px = Number.isFinite(Number(nextWidth))
         ? Number(nextWidth)

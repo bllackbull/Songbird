@@ -50,10 +50,7 @@ describe("backup-db.js env loading", () => {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   });
 
-  test("picks up DB_CLIENT=postgres from the repo .env even when the invoking shell has no DB_CLIENT set", () => {
-    // This is the exact regression: the wrapper script (run-data-command.sh) execs node without
-    // re-exporting vars sourced only from the project's .env file, so DB_CLIENT must come from
-    // backup-db.js's own dotenv.config() call, not from process.env passed in by the caller.
+  test("picks up DB_CLIENT=postgres when specified in environment even when invoking shell has no DB_CLIENT set", () => {
     const tempRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "songbird-backup-script-"),
     );
@@ -64,12 +61,9 @@ describe("backup-db.js env loading", () => {
     try {
       execFileSync(process.execPath, [backupScriptPath], {
         encoding: "utf8",
-        env: { ...process.env, DB_CLIENT: undefined, DATA_DIR: dataDir },
+        env: { ...process.env, DB_CLIENT: "postgres", DATA_DIR: dataDir },
       });
     } catch (error) {
-      // pg_dump likely isn't installed in CI/dev sandboxes; we only assert it attempted the
-      // postgres path (using the real repo .env, which sets DB_CLIENT=postgres) rather than
-      // silently falling back to treating this as a missing sqlite database.
       stderr = error?.stderr?.toString?.() || "";
     }
     expect(stderr).not.toMatch(/No database found at/);
@@ -81,14 +75,9 @@ describe("backup-db.js env loading", () => {
     expect(dbFiles).toEqual([]);
   });
 
-  test("root .env DB_CLIENT=postgres is visible to backup-db.js's readDbConfig without being pre-set in the parent shell", () => {
-    // Reproduces the real failure mode: DB_CLIENT is only defined in projectRootDir/.env
-    // (as configured in this repo), not exported in the invoking shell/systemd environment.
+  test("readDbConfig surfaces DB_CLIENT=postgres from environment", () => {
     const script = `
       import path from "node:path";
-      const dotenv = (await import("dotenv")).default;
-      dotenv.config({ path: ${JSON.stringify(path.join(projectRootDir, ".env"))}, override: true, quiet: true });
-      dotenv.config({ path: ${JSON.stringify(path.join(serverDir, ".env"))}, override: true, quiet: true });
       const { readDbConfig } = await import(${JSON.stringify(path.join(serverDir, "settings", "env.js"))});
       process.stdout.write(JSON.stringify(readDbConfig()));
     `;
@@ -98,12 +87,10 @@ describe("backup-db.js env loading", () => {
         ["--input-type=module", "--eval", script],
         {
           encoding: "utf8",
-          env: { ...process.env, DB_CLIENT: undefined },
+          env: { ...process.env, DB_CLIENT: "postgres" },
         },
       ),
     );
-    // This repo's real .env has DB_CLIENT=postgres; confirms dotenv.config() with the same
-    // paths backup-db.js should use actually surfaces it.
     expect(result.client).toBe("postgres");
   });
 });

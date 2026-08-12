@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import { storageEncryption as defaultStorageEncryption } from "../lib/storageEncryption.js";
+import { dbKnex } from "../db/knex.js";
 
 export function registerRemoteUploadRoutes(app, deps) {
   const {
@@ -20,6 +21,23 @@ export function registerRemoteUploadRoutes(app, deps) {
     getSessionFromRequest,
     storageEncryption = defaultStorageEncryption,
   } = deps;
+
+  function toSql(builder, p = []) {
+    if (builder && typeof builder.toSQL === "function") {
+      const c = builder.toSQL();
+      return { sql: c.sql, params: c.bindings || [] };
+    }
+    return { sql: builder, params: p };
+  }
+
+  const callAdminGetRow = (builder, p) => {
+    const { sql, params } = toSql(builder, p);
+    return adminGetRow(sql, params);
+  };
+  const callAdminRun = (builder, p) => {
+    const { sql, params } = toSql(builder, p);
+    return adminRun(sql, params);
+  };
 
   const parseCookies = (cookieHeader = "") => {
     const list = {};
@@ -158,9 +176,12 @@ export function registerRemoteUploadRoutes(app, deps) {
       } else if (inserted && typeof inserted === "object" && inserted.id) {
         fileId = inserted.id;
       } else if (typeof adminGetRow === "function") {
-        const row = adminGetRow(
-          "SELECT id FROM chat_message_files WHERE storage_key = ? ORDER BY id DESC LIMIT 1",
-          [finalStorageKey],
+        const row = callAdminGetRow(
+          dbKnex("chat_message_files")
+            .select("id")
+            .where("storage_key", finalStorageKey)
+            .orderBy("id", "desc")
+            .first(),
         );
         fileId = row?.id || null;
       }
@@ -194,9 +215,7 @@ export function registerRemoteUploadRoutes(app, deps) {
       file = findMessageFileById(Number(fileId));
     }
     if (!file && typeof adminGetRow === "function") {
-      file = adminGetRow("SELECT * FROM chat_message_files WHERE id = ?", [
-        Number(fileId),
-      ]);
+      file = callAdminGetRow(dbKnex("chat_message_files").where("id", Number(fileId)).first());
     }
 
     if (!file) {
@@ -212,9 +231,8 @@ export function registerRemoteUploadRoutes(app, deps) {
       file.message_id > 0 &&
       typeof adminGetRow === "function"
     ) {
-      const msg = adminGetRow(
-        "SELECT user_id, username FROM chat_messages WHERE id = ?",
-        [file.message_id],
+      const msg = callAdminGetRow(
+        dbKnex("chat_messages").select("user_id", "username").where("id", file.message_id).first(),
       );
       if (
         msg &&
@@ -235,9 +253,8 @@ export function registerRemoteUploadRoutes(app, deps) {
         : "ready";
 
     if (typeof adminRun === "function") {
-      adminRun(
-        "UPDATE chat_message_files SET processing_status = ? WHERE id = ?",
-        [newStatus, Number(fileId)],
+      callAdminRun(
+        dbKnex("chat_message_files").where("id", Number(fileId)).update({ processing_status: newStatus }),
       );
       if (typeof adminSave === "function") adminSave();
     }
@@ -278,9 +295,7 @@ export function registerRemoteUploadRoutes(app, deps) {
       file = findMessageFileById(Number(fileId));
     }
     if (!file && typeof adminGetRow === "function") {
-      file = adminGetRow("SELECT * FROM chat_message_files WHERE id = ?", [
-        Number(fileId),
-      ]);
+      file = callAdminGetRow(dbKnex("chat_message_files").where("id", Number(fileId)).first());
     }
 
     if (!file) {
@@ -289,18 +304,11 @@ export function registerRemoteUploadRoutes(app, deps) {
 
     const finalStatus = status || "ready";
     if (typeof adminRun === "function") {
-      adminRun(
-        `UPDATE chat_message_files
-         SET processing_status = ?,
-             storage_key = COALESCE(?, storage_key),
-             thumb_storage_key = COALESCE(?, thumb_storage_key)
-         WHERE id = ?`,
-        [
-          finalStatus,
-          transcodedStorageKey || null,
-          thumbStorageKey || null,
-          Number(fileId),
-        ],
+      const updatePayload = { processing_status: finalStatus };
+      if (transcodedStorageKey) updatePayload.storage_key = transcodedStorageKey;
+      if (thumbStorageKey) updatePayload.thumb_storage_key = thumbStorageKey;
+      callAdminRun(
+        dbKnex("chat_message_files").where("id", Number(fileId)).update(updatePayload),
       );
       if (typeof adminSave === "function") adminSave();
     }
@@ -311,9 +319,8 @@ export function registerRemoteUploadRoutes(app, deps) {
 
     let chatId = null;
     if (file.message_id && typeof adminGetRow === "function") {
-      const msg = adminGetRow(
-        "SELECT chat_id FROM chat_messages WHERE id = ?",
-        [file.message_id],
+      const msg = callAdminGetRow(
+        dbKnex("chat_messages").select("chat_id").where("id", file.message_id).first(),
       );
       chatId = msg?.chat_id || null;
     }
@@ -401,9 +408,12 @@ export function registerRemoteUploadRoutes(app, deps) {
     } else if (inserted && typeof inserted === "object" && inserted.id) {
       fileId = inserted.id;
     } else if (typeof adminGetRow === "function") {
-      const row = adminGetRow(
-        "SELECT id FROM chat_message_files WHERE storage_key = ? ORDER BY id DESC LIMIT 1",
-        [generatedKey],
+      const row = callAdminGetRow(
+        dbKnex("chat_message_files")
+          .select("id")
+          .where("storage_key", generatedKey)
+          .orderBy("id", "desc")
+          .first(),
       );
       fileId = row?.id || 1;
     } else {
@@ -432,9 +442,12 @@ export function registerRemoteUploadRoutes(app, deps) {
       file = findMessageFileById(Number(idParam));
     }
     if (!file && typeof adminGetRow === "function") {
-      file = adminGetRow(
-        "SELECT * FROM chat_message_files WHERE id = ? OR stored_name = ? OR storage_key = ?",
-        [Number(idParam) || 0, idParam, idParam],
+      file = callAdminGetRow(
+        dbKnex("chat_message_files")
+          .where((builder) => {
+            builder.where("id", Number(idParam) || 0).orWhere("stored_name", idParam).orWhere("storage_key", idParam);
+          })
+          .first(),
       );
     }
 

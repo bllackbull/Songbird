@@ -1,3 +1,5 @@
+import { dbKnex } from "../db/knex.js";
+
 /**
  * Pure business logic for adding members to a chat.
  *
@@ -15,10 +17,10 @@
 export async function addChatMembers(dbApi, chat, rows, { force = false } = {}) {
   const members = await dbApi.getAll(
     "SELECT user_id FROM chat_members WHERE chat_id = ? AND role = 'owner'",
-    [Number(chat.id)],
+    [chat.id],
   );
   const existingOwnerIds = new Set(
-    (Array.isArray(members) ? members : []).map((row) => Number(row.user_id)),
+    (Array.isArray(members) ? members : []).map((row) => row?.user_id),
   );
 
   let addedCount = 0;
@@ -27,7 +29,7 @@ export async function addChatMembers(dbApi, chat, rows, { force = false } = {}) 
   for (const row of rows) {
     const existing = await dbApi.getRow(
       "SELECT role FROM chat_members WHERE chat_id = ? AND user_id = ?",
-      [Number(chat.id), Number(row.id)],
+      [chat.id, row.id],
     );
     if (existing?.role) continue;
 
@@ -42,10 +44,10 @@ export async function addChatMembers(dbApi, chat, rows, { force = false } = {}) 
          WHERE chat_id = ? AND user_id = ? AND body LIKE ?
          LIMIT 1`,
         [
-          Number(chat.id),
-          Number(row.id),
-          Number(chat.id),
-          Number(row.id),
+          chat.id,
+          row.id,
+          chat.id,
+          row.id,
           "[[system:left:%",
         ],
       );
@@ -55,17 +57,17 @@ export async function addChatMembers(dbApi, chat, rows, { force = false } = {}) 
       }
     }
 
-    const role = existingOwnerIds.has(Number(row.id)) ? "owner" : "member";
+    const role = existingOwnerIds.has(row.id) ? "owner" : "member";
     await dbApi.run(
       "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",
-      [Number(chat.id), Number(row.id), role],
+      [chat.id, row.id, role],
     );
     if (chat.type === "group") {
       await dbApi.run(
         "INSERT INTO chat_messages (chat_id, user_id, body) VALUES (?, ?, ?)",
         [
-          Number(chat.id),
-          Number(row.id),
+          chat.id,
+          row.id,
           `[[system:joined:${row.nickname || row.username}]]`,
         ],
       );

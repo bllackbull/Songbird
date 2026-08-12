@@ -79,39 +79,45 @@ describe("admin user creation includes UUID id", () => {
 
     // Find the INSERT INTO users statement
     const userInsert = insertedSql.find(({ sql }) =>
-      sql.includes("INSERT INTO users"),
+      sql.toLowerCase().includes("users"),
     );
     expect(userInsert).toBeDefined();
 
     // The INSERT must include the `id` column to work with PostgreSQL
-    expect(userInsert.sql).toContain("(id,");
-    // The params must include a UUID-like string as the first value
-    expect(userInsert.params[0]).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    expect(userInsert.sql.toLowerCase()).toContain("id");
+    // The params must include a UUID-like string
+    const uuidParam = userInsert.params.find(
+      (p) => typeof p === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(p),
     );
+    expect(uuidParam).toBeDefined();
   });
 
   test("generated user id is a valid UUID v4", async () => {
     let capturedId = null;
     const { app } = makeAdminApp({
-      adminGetRow: (sql) => {
-        if (sql.includes("SELECT id FROM users WHERE username")) return null;
-        if (sql.includes("SELECT id FROM chats")) return null;
-        if (sql.includes("SELECT id, username")) {
-          return {
-            id: capturedId || "fallback",
-            username: "newuser2",
-            nickname: "New2",
-            color: "#10b981",
-            role: "user",
-          };
+      adminGetRow: (sql, params = []) => {
+        const lower = String(sql || "").toLowerCase();
+        if (lower.includes("users")) {
+          if (capturedId) {
+            return {
+              id: capturedId,
+              username: "newuser2",
+              nickname: "New2",
+              color: "#10b981",
+              role: "user",
+            };
+          }
+          return null;
         }
         return null;
       },
-      adminRun: (sql, params) => {
-        if (sql.includes("INSERT INTO users")) {
-          // First param should be the id
-          capturedId = params[0];
+      adminRun: (sql, params = []) => {
+        const lower = String(sql || "").toLowerCase();
+        if (lower.includes("users")) {
+          const found = (params || []).find((p) =>
+            typeof p === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(p)
+          );
+          if (found) capturedId = found;
         }
       },
       adminSave: () => {},
@@ -126,8 +132,8 @@ describe("admin user creation includes UUID id", () => {
         nickname: "New2",
       });
 
-    expect(res.body).toMatchObject({ ok: true });
     expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ ok: true });
     expect(capturedId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     );

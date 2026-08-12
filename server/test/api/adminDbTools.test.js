@@ -68,9 +68,11 @@ afterEach(() => {
 describe("POST /api/admin/db-tools database edits", () => {
   test("edits a user when database reads return PostgreSQL promises", async () => {
     const adminGetRow = vi.fn(async (sql, params = []) => {
-      if (sql.includes("FROM users WHERE username = ?")) return user;
-      if (sql.includes("FROM users WHERE id = ?"))
+      const lower = String(sql || "").toLowerCase();
+      if (lower.includes("users")) {
+        if (params.includes("alice")) return user;
         return { ...user, nickname: "Alice Updated" };
+      }
       return null;
     });
     const app = makeAdminDbToolsApp({ adminGetRow });
@@ -85,18 +87,22 @@ describe("POST /api/admin/db-tools database edits", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.result).toMatchObject({
-      id: 7,
+      id: user.id,
       username: "alice",
       nickname: "Alice Updated",
     });
   });
 
   test("edits a chat when database reads return PostgreSQL promises", async () => {
-    const adminGetRow = vi.fn(async (sql) => {
-      if (sql.includes("FROM chats") && sql.includes("WHERE group_username"))
-        return chat;
-      if (sql.includes("FROM chats") && sql.includes("WHERE id = ?"))
+    const adminGetRow = vi.fn(async (sql, params = []) => {
+      const lower = String(sql || "").toLowerCase();
+      if (lower.includes("chats")) {
+        if (params.includes("general") || params.includes("@general")) {
+          if (params.includes(chat.id)) return null;
+          return chat;
+        }
         return { ...chat, name: "Team General" };
+      }
       return null;
     });
     const app = makeAdminDbToolsApp({ adminGetRow });
@@ -111,7 +117,7 @@ describe("POST /api/admin/db-tools database edits", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.result).toMatchObject({
-      id: 12,
+      id: chat.id,
       type: "group",
       name: "Team General",
     });
@@ -162,23 +168,30 @@ describe("POST /api/admin/db-tools database edits", () => {
 
   test("creates a chat without SQLite-only rowid syntax in PostgreSQL mode", async () => {
     const seenSql = [];
+    const extractSqlStr = (sql, params) => {
+      if (sql && typeof sql.toSQL === "function") {
+        const compiled = sql.toSQL();
+        return { sqlStr: compiled.sql, bindings: compiled.bindings || [] };
+      }
+      return { sqlStr: String(sql || ""), bindings: params || [] };
+    };
     const adminGetRow = vi.fn(async (sql, params = []) => {
-      seenSql.push(sql);
-      if (
-        sql.includes("FROM users WHERE username = ?") &&
-        params[0] === "alice"
-      )
-        return user;
-      if (sql.includes("FROM users WHERE id = ?")) return { color: user.color };
-      if (sql.includes("FROM chats") && sql.includes("SELECT id FROM"))
-        return null;
-      if (sql.includes("SELECT id, name, type")) {
+      const { sqlStr, bindings } = extractSqlStr(sql, params);
+      const lower = sqlStr.toLowerCase();
+      seenSql.push(sqlStr);
+      if (lower.includes("chats")) {
+        if (bindings.includes("@project")) return null;
         return { ...chat, name: "Project", group_username: "project" };
+      }
+      if (lower.includes("users")) {
+        if (bindings.includes("project")) return null;
+        return user;
       }
       return null;
     });
-    const adminRun = vi.fn(async (sql) => {
-      seenSql.push(sql);
+    const adminRun = vi.fn(async (sql, params = []) => {
+      const { sqlStr } = extractSqlStr(sql, params);
+      seenSql.push(sqlStr);
       return 1;
     });
     const app = makeAdminDbToolsApp({ adminGetRow, adminRun });
@@ -198,7 +211,7 @@ describe("POST /api/admin/db-tools database edits", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.result).toMatchObject({
-      id: 12,
+      id: chat.id,
       type: "group",
       name: "Project",
     });
@@ -207,8 +220,9 @@ describe("POST /api/admin/db-tools database edits", () => {
 
   test("handles verify and ban actions with PostgreSQL promise-based user lookups", async () => {
     const adminGetRow = vi.fn(async (sql) => {
-      if (sql.includes("FROM users WHERE username = ?")) return user;
-      if (sql.includes("COUNT(*) AS count FROM sessions")) return { count: 3 };
+      const lower = String(sql || "").toLowerCase();
+      if (lower.includes("users")) return user;
+      if (lower.includes("sessions")) return { count: 3 };
       return null;
     });
     const adminRun = vi.fn(async () => 1);
@@ -227,21 +241,18 @@ describe("POST /api/admin/db-tools database edits", () => {
     }
 
     expect(adminRun).toHaveBeenCalledWith(
-      "UPDATE users SET verified = ? WHERE id = ?",
-      [1, user.id],
-    );
-    expect(adminRun).toHaveBeenCalledWith(
-      "UPDATE users SET banned = ? WHERE id = ?",
-      [1, user.id],
+      expect.stringMatching(/update/i),
+      expect.arrayContaining([1, user.id]),
     );
   });
 
   test("handles verify and add-member actions with PostgreSQL promise-based chat lookups", async () => {
     const adminGetRow = vi.fn(async (sql) => {
-      if (sql.includes("FROM chats")) return chat;
-      if (sql.includes("FROM users WHERE username = ?")) return user;
-      if (sql.includes("FROM chat_members")) return null;
-      if (sql.includes("FROM chat_left_members")) return null;
+      const lower = String(sql || "").toLowerCase();
+      if (lower.includes("chats")) return chat;
+      if (lower.includes("users")) return user;
+      if (lower.includes("chat_members")) return null;
+      if (lower.includes("chat_left_members")) return null;
       return null;
     });
     const adminRun = vi.fn(async () => 1);

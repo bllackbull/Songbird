@@ -1,4 +1,5 @@
 import rateLimit from "express-rate-limit";
+import { dbKnex } from "../db/knex.js";
 
 export function createUploadTools({
   fs,
@@ -212,8 +213,7 @@ export function createUploadTools({
         const fileName = path.basename(String(storedName || "").trim());
         if (!fileName) return;
         const stillReferenced = adminGetRow(
-          "SELECT 1 AS found FROM chat_message_files WHERE stored_name = ? LIMIT 1",
-          [fileName],
+          dbKnex("chat_message_files").select(dbKnex.raw("1 as found")).where("stored_name", fileName).first(),
         );
         if (stillReferenced?.found) return;
 
@@ -288,10 +288,8 @@ export function createUploadTools({
 
     if (fs.existsSync(diskPath)) return normalized || null;
 
-    if (Number.isFinite(Number(userId)) && Number(userId) > 0) {
-      adminRun("UPDATE users SET avatar_url = NULL WHERE id = ?", [
-        Number(userId),
-      ]);
+    if (userId) {
+      adminRun(dbKnex("users").where("id", userId).update({ avatar_url: null }));
       adminSave();
     }
     return null;
@@ -321,8 +319,7 @@ export function createUploadTools({
         if (!fs.existsSync(filePath)) return res.status(404).end();
 
         const row = adminGetRow(
-          "SELECT original_name, mime_type FROM chat_message_files WHERE stored_name = ?",
-          [storedName],
+          dbKnex("chat_message_files").select("original_name", "mime_type").where("stored_name", storedName).first(),
         );
         const originalName = buildDownloadFilename(row?.original_name);
         const fallbackName = buildAsciiFallbackFilename(originalName);

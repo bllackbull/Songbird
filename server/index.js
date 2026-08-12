@@ -32,6 +32,7 @@ import { USERNAME_REGEX } from "./lib/validation.js";
 import { USER_COLORS, setUserColor } from "./settings/colors.js";
 import { readEnvInt, readDbConfig } from "./settings/env.js";
 import { createPostgresMaintenance } from "./lib/postgresMaintenance.js";
+import { dbKnex } from "./db/knex.js";
 import {
   addAllEligibleChatMembers,
   addChatMember,
@@ -527,11 +528,12 @@ async function backfillStorageEncryption() {
 
   async function encryptMessageBatch(offset) {
     const rawBatch = adminGetAll(
-      `SELECT id, body
-       FROM chat_messages
-       WHERE body IS NOT NULL AND body != ''
-       LIMIT ? OFFSET ?`,
-      [BATCH_SIZE, offset],
+      dbKnex("chat_messages")
+        .select("id", "body")
+        .whereNotNull("body")
+        .where("body", "!=", "")
+        .limit(BATCH_SIZE)
+        .offset(offset),
     );
     const batch = Array.isArray(rawBatch) ? rawBatch : (await rawBatch) || [];
 
@@ -551,10 +553,11 @@ async function backfillStorageEncryption() {
 
       const nextBody = storageEncryption.encryptText(body);
       if (nextBody === body) return;
-      adminRun("UPDATE chat_messages SET body = ? WHERE id = ?", [
-        nextBody,
-        Number(row.id),
-      ]);
+      adminRun(
+        dbKnex("chat_messages")
+          .where({ id: Number(row.id) })
+          .update({ body: nextBody }),
+      );
       encryptedInBatch += 1;
     });
 
@@ -572,7 +575,7 @@ async function backfillStorageEncryption() {
     await encryptMessageBatch(0);
 
     // Files and avatars are typically fewer in number; process them once.
-    const rawFileRows = adminGetAll("SELECT stored_name FROM chat_message_files");
+    const rawFileRows = adminGetAll(dbKnex("chat_message_files").select("stored_name"));
     const fileRows = Array.isArray(rawFileRows) ? rawFileRows : (await rawFileRows) || [];
     let encryptedFiles = 0;
 
@@ -946,18 +949,17 @@ async function cleanupExpiredTextOnlyMessages() {
   }
 
   const rawRows = adminGetAll(
-    `SELECT id, chat_id
-     FROM chat_messages
-     WHERE expires_at IS NOT NULL
-       AND expires_at != ''
-       AND hidden_everyone_at IS NULL
-       AND julianday(expires_at) <= julianday(?)
-       AND NOT EXISTS (
-         SELECT 1
-         FROM chat_message_files
-         WHERE chat_message_files.message_id = chat_messages.id
-       )`,
-    [new Date().toISOString()],
+    dbKnex("chat_messages")
+      .select("id", "chat_id")
+      .whereNotNull("expires_at")
+      .where("expires_at", "!=", "")
+      .whereNull("hidden_everyone_at")
+      .whereRaw("julianday(expires_at) <= julianday(?)", [new Date().toISOString()])
+      .whereNotExists(
+        dbKnex("chat_message_files")
+          .select(1)
+          .whereRaw("chat_message_files.message_id = chat_messages.id"),
+      ),
   );
   const rows = Array.isArray(rawRows) ? rawRows : (await rawRows) || [];
 
@@ -980,16 +982,9 @@ async function cleanupExpiredTextOnlyMessages() {
   adminRun("BEGIN");
   try {
     chunkArray(messageIds, 500).forEach((chunk) => {
-      const placeholders = chunk.map(() => "?").join(", ");
-      adminRun(
-        `DELETE FROM chat_message_reads WHERE message_id IN (${placeholders})`,
-        chunk,
-      );
-      adminRun(
-        `DELETE FROM hidden_chat_messages WHERE message_id IN (${placeholders})`,
-        chunk,
-      );
-      adminRun(`DELETE FROM chat_messages WHERE id IN (${placeholders})`, chunk);
+      adminRun(dbKnex("chat_message_reads").whereIn("message_id", chunk).del());
+      adminRun(dbKnex("hidden_chat_messages").whereIn("message_id", chunk).del());
+      adminRun(dbKnex("chat_messages").whereIn("id", chunk).del());
     });
     adminRun("COMMIT");
   } catch (error) {
@@ -1014,18 +1009,21 @@ async function backfillTextMessageExpiry() {
   if (textRetentionDays <= 0) return 0;
 
   const rawRow = adminGetRow(
-    `SELECT COUNT(*) AS n
-     FROM chat_messages
-     WHERE (expires_at IS NULL OR expires_at = '')
-       AND hidden_everyone_at IS NULL
-       AND body IS NOT NULL
-       AND TRIM(body) != ''
-       AND body NOT LIKE '[[system:%]]'
-       AND NOT EXISTS (
-         SELECT 1
-         FROM chat_message_files
-         WHERE chat_message_files.message_id = chat_messages.id
-       )`,
+    dbKnex("chat_messages")
+      .count({ n: "*" })
+      .where((builder) => {
+        builder.whereNull("expires_at").orWhere("expires_at", "");
+      })
+      .whereNull("hidden_everyone_at")
+      .whereNotNull("body")
+      .whereRaw("TRIM(body) != ''")
+      .whereRaw("body NOT LIKE '[[system:%]]'")
+      .whereNotExists(
+        dbKnex("chat_message_files")
+          .select(1)
+          .whereRaw("chat_message_files.message_id = chat_messages.id"),
+      )
+      .first(),
   );
   const row = rawRow && typeof rawRow.then === "function" ? await rawRow : rawRow;
 
@@ -1033,19 +1031,22 @@ async function backfillTextMessageExpiry() {
   if (!pending) return 0;
 
   adminRun(
-    `UPDATE chat_messages
-     SET expires_at = datetime(created_at, '+' || ? || ' days')
-     WHERE (expires_at IS NULL OR expires_at = '')
-       AND hidden_everyone_at IS NULL
-       AND body IS NOT NULL
-       AND TRIM(body) != ''
-       AND body NOT LIKE '[[system:%]]'
-       AND NOT EXISTS (
-         SELECT 1
-         FROM chat_message_files
-         WHERE chat_message_files.message_id = chat_messages.id
-       )`,
-    [textRetentionDays],
+    dbKnex("chat_messages")
+      .where((builder) => {
+        builder.whereNull("expires_at").orWhere("expires_at", "");
+      })
+      .whereNull("hidden_everyone_at")
+      .whereNotNull("body")
+      .whereRaw("TRIM(body) != ''")
+      .whereRaw("body NOT LIKE '[[system:%]]'")
+      .whereNotExists(
+        dbKnex("chat_message_files")
+          .select(1)
+          .whereRaw("chat_message_files.message_id = chat_messages.id"),
+      )
+      .update({
+        expires_at: dbKnex.raw("datetime(created_at, '+' || ? || ' days')", [textRetentionDays]),
+      }),
   );
 
   adminSave();

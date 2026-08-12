@@ -11,7 +11,7 @@ describe("MediaQueueManager (BullMQ / In-Process Fallback)", () => {
       s3ProcessingTimeoutMs: 50,
       adminGetRow: () => ({ id: 10, processing_status: "pending" }),
       adminRun: (sql, params) => {
-        if (sql.includes("processing_status = 'ready'")) {
+        if (sql.includes("processing_status") && (params?.includes("ready") || sql.includes("ready"))) {
           runCalled = true;
         }
       },

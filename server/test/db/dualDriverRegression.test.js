@@ -220,8 +220,9 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
     test("addAllEligibleChatMembers resolves Promise without throwing addedUsers.forEach is not a function under Postgres mode", async () => {
       process.env.DB_CLIENT = "postgres";
       vi.spyOn(dbKnex, "raw").mockImplementation(async (sql) => {
-        if (sql.includes("FROM users")) {
-          if (sql.includes("COUNT(*)")) return { rows: [{ count: 0 }] };
+        const lowerSql = String(sql || "").toLowerCase();
+        if (lowerSql.includes("users")) {
+          if (lowerSql.includes("count")) return { rows: [{ count: 0 }] };
           return { rows: [{ id: "u1", username: "user1", nickname: "User 1" }] };
         }
         return { rows: [], rowCount: 1 };
@@ -245,14 +246,23 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
         return { rows: [], rowCount: 1 };
       });
       vi.spyOn(dbKnex, "transaction").mockImplementation(async (cb) => {
-        return cb({
-          raw: async (sql) => {
-            if (sql.includes("SELECT cmf.stored_name")) {
-              return { rows: [{ stored_name: "file1.png" }] };
+        const trx = (table) => {
+          const qb = dbKnex(table);
+          qb.then = function (resolve, reject) {
+            if (table.includes("chat_message_files")) {
+              return Promise.resolve([{ stored_name: "file1.png" }]).then(resolve, reject);
             }
-            return { rows: [], rowCount: 1 };
-          },
-        });
+            return Promise.resolve([]).then(resolve, reject);
+          };
+          return qb;
+        };
+        trx.raw = async (sql) => {
+          if (sql.includes("SELECT cmf.stored_name")) {
+            return { rows: [{ stored_name: "file1.png" }] };
+          }
+          return { rows: [], rowCount: 1 };
+        };
+        return cb(trx);
       });
 
       const resultPromise = deleteChatById("c100");
@@ -264,15 +274,17 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
     test("getUserRole, isUserAdmin, isUserOwner, getOwnerUser resolve properly under Postgres mode", async () => {
       process.env.DB_CLIENT = "postgres";
       vi.spyOn(dbKnex, "raw").mockImplementation(async (sql, params) => {
-        const query = String(sql || "");
-        if (query.includes("role FROM users WHERE id = ?")) {
-          if (params[0] === 1) return { rows: [{ role: "admin" }] };
-          if (params[0] === 2) return { rows: [{ role: "owner" }] };
-          if (params[0] === 3) return { rows: [{ role: "user" }] };
-          return { rows: [] };
-        }
-        if (query.includes("role = 'owner'")) {
+        const query = String(sql?.sql || sql || "").toLowerCase();
+        const bindings = Array.isArray(params) ? params : (sql?.bindings || []);
+        if (query.includes("role = 'owner'") || query.includes('"role" =') || query.includes("`role` =") || (bindings && (bindings[0] === "owner" || bindings[0] === "'owner'"))) {
           return { rows: [{ id: 2, username: "boss" }] };
+        }
+        if (query.includes("users")) {
+          const val = bindings ? bindings[0] : null;
+          if (val == 1) return { rows: [{ role: "admin" }] };
+          if (val == 2) return { rows: [{ role: "owner" }] };
+          if (val == 3) return { rows: [{ role: "user" }] };
+          return { rows: [] };
         }
         return { rows: [] };
       });

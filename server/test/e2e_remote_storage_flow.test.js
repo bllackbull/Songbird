@@ -252,15 +252,15 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
             return null;
           },
           adminRun: (sql, params) => {
-            if (sql.includes("UPDATE chat_message_files")) {
-              const status = params[0];
-              const fileId = params[params.length - 1];
-              const file = filesStore.find((f) => f.id === Number(fileId));
+            const lower = String(sql || "").toLowerCase();
+            if (lower.includes("chat_message_files")) {
+              const fileId = Number(params[params.length - 1]);
+              const file = filesStore.find((f) => f.id === fileId);
               if (file) {
-                file.processing_status = status;
-                if (sql.includes("storage_key = COALESCE") && params[1]) {
-                  file.storage_key = params[1];
-                }
+                if (params.includes("ready")) file.processing_status = "ready";
+                else if (params.includes("pending")) file.processing_status = "pending";
+                const key = params.find((p) => typeof p === "string" && p.startsWith("transcoded/"));
+                if (key) file.storage_key = key;
               }
             }
           },
