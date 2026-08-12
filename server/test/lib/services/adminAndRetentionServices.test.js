@@ -2,12 +2,14 @@ import { describe, test, expect, vi } from "vitest";
 import { createAdminAccountService } from "../../../lib/services/adminAccountService.js";
 import { createRetentionService } from "../../../lib/services/retentionService.js";
 
+const USER_ID = "50505050-5050-4050-8050-505050505050";
+
 describe("adminAccountService", () => {
   const createMockDb = () => ({
-    createUser: vi.fn(() => 50),
+    createUser: vi.fn(() => USER_ID),
     updateUserRole: vi.fn(),
     setUserBanned: vi.fn(),
-    findUserById: vi.fn((id) => (id === 50 ? { id: 50, username: "charlie" } : null)),
+    findUserById: vi.fn((id) => (id === USER_ID ? { id: USER_ID, username: "charlie" } : null)),
     findUserByUsername: vi.fn((un) => null),
     deleteSessionByUserId: vi.fn(),
   });
@@ -23,20 +25,20 @@ describe("adminAccountService", () => {
     });
 
     expect(res.success).toBe(true);
-    expect(res.userId).toBe(50);
+    expect(res.userId).toBe(USER_ID);
     expect(db.createUser).toHaveBeenCalledWith("charlie", "hash123", undefined, undefined, undefined);
-    expect(db.updateUserRole).toHaveBeenCalledWith(50, "admin");
+    expect(db.updateUserRole).toHaveBeenCalledWith(USER_ID, "admin");
   });
 
   test("setAccountBanStatus sets banned status and revokes sessions when banned", () => {
     const db = createMockDb();
     const service = createAdminAccountService(db);
 
-    const res = service.setAccountBanStatus({ targetUserId: 50, banned: true });
+    const res = service.setAccountBanStatus({ targetUserId: USER_ID, banned: true });
 
     expect(res.success).toBe(true);
-    expect(db.setUserBanned).toHaveBeenCalledWith(50, true, "");
-    expect(db.deleteSessionByUserId).toHaveBeenCalledWith(50);
+    expect(db.setUserBanned).toHaveBeenCalledWith(USER_ID, true, "");
+    expect(db.deleteSessionByUserId).toHaveBeenCalledWith(USER_ID);
   });
 });
 

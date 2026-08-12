@@ -144,29 +144,31 @@ async function main() {
       if (row?.id) resolvedMembers.push(row);
     }
     const memberRows = Array.from(
-      new Map(resolvedMembers.map((row) => [Number(row.id), row])).values(),
+      new Map(resolvedMembers.map((row) => [String(row.id), row])).values(),
     ).filter(
       (row) => String(row.username || "").toLowerCase() !== ownerUsername,
     );
 
     const inviteToken = createInviteToken(crypto);
-    const ownerColorRow = await dbApi.getRow("SELECT color FROM users WHERE id = ?", [Number(owner.id)]);
+    const ownerColorRow = await dbApi.getRow("SELECT color FROM users WHERE id = ?", [owner.id]);
     const groupColor = ownerColorRow?.color || "#10b981";
 
     await dbApi.run("BEGIN");
-    let chatId = 0;
+    let chatId = null;
     try {
+      const newChatId = crypto.randomUUID();
       await dbApi.run(
         `INSERT INTO chats (
-          name, type, group_username, group_visibility, invite_token, created_by_user_id, group_color, allow_member_invites, group_avatar_url
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          id, name, type, group_username, group_visibility, invite_token, created_by_user_id, group_color, allow_member_invites, group_avatar_url
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
+          newChatId,
           name,
           type,
           username || null,
           visibility,
           inviteToken,
-          Number(owner.id),
+          owner.id,
           groupColor,
           1,
           null,
@@ -179,19 +181,19 @@ async function main() {
          WHERE invite_token = ?`,
         [inviteToken],
       );
-      chatId = Number(chatRow?.id || 0);
+      chatId = chatRow?.id;
       if (!chatId) {
         throw new Error("Failed to create chat.");
       }
 
       await dbApi.run(
         "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",
-        [chatId, Number(owner.id), "owner"],
+        [chatId, owner.id, "owner"],
       );
       for (const member of memberRows) {
         await dbApi.run(
           "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",
-          [chatId, Number(member.id), "member"],
+          [chatId, member.id, "member"],
         );
       }
       await dbApi.run("COMMIT");

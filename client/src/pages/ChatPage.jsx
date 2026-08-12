@@ -1058,7 +1058,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         const data = await res.json().catch(() => ({}));
         if (res.ok) {
           openMemberProfileFromList({
-            id: Number(data?.id || fallbackMember.id || 0) || null,
+            id: data?.id || fallbackMember.id || null,
             username: data?.username || fallbackMember.username || "",
             nickname:
               data?.nickname ||
@@ -2443,8 +2443,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       Array.from(
         new Set(
           messages
-            .map((msg) => Number(msg?.forwarded_from_chat_id || 0))
-            .filter((id) => Number.isFinite(id) && id > 0),
+            .map((msg) => String(msg?.forwarded_from_chat_id || "").trim())
+            .filter(Boolean),
         ),
       ),
     [messages],
@@ -2455,7 +2455,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         new Map(
           messages
             .map((msg) => {
-              const userId = Number(msg?.forwarded_from_user_id || 0) || null;
+              const userId = String(msg?.forwarded_from_user_id || "").trim() || null;
               const username = String(msg?.forwarded_from_username || "")
                 .trim()
                 .toLowerCase();
@@ -2473,13 +2473,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const forwardedChatsById = useMemo(() => {
     const next = {};
     chats.forEach((chat) => {
-      const chatId = Number(chat?.id || 0);
+      const chatId = String(chat?.id || "").trim();
       const chatType = String(chat?.type || "").toLowerCase();
       if (!chatId || (chatType !== "group" && chatType !== "channel")) return;
       next[chatId] = chat;
     });
     Object.entries(forwardedChatPreviewById).forEach(([rawId, entry]) => {
-      const chatId = Number(rawId || 0);
+      const chatId = String(rawId || "").trim();
       if (!chatId || next[chatId] || !entry || entry.status !== "ready" || !entry.chat) {
         return;
       }
@@ -2490,13 +2490,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const forwardedChatStatusById = useMemo(() => {
     const next = {};
     chats.forEach((chat) => {
-      const chatId = Number(chat?.id || 0);
+      const chatId = String(chat?.id || "").trim();
       const chatType = String(chat?.type || "").toLowerCase();
       if (!chatId || (chatType !== "group" && chatType !== "channel")) return;
       next[chatId] = "ready";
     });
     Object.entries(forwardedChatPreviewById).forEach(([rawId, entry]) => {
-      const chatId = Number(rawId || 0);
+      const chatId = String(rawId || "").trim();
       if (!chatId || !entry?.status) return;
       next[chatId] = entry.status;
     });
@@ -2504,9 +2504,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, [chats, forwardedChatPreviewById]);
   const forwardedUsersById = useMemo(() => {
     const next = {};
-    if (Number(user?.id || 0) > 0) {
-      next[Number(user.id)] = {
-        id: Number(user.id),
+    if (user?.id) {
+      next[user.id] = {
+        id: user.id,
         username: user.username || "",
         nickname: user.nickname || user.username || "",
         avatar_url: user.avatarUrl || "",
@@ -2516,7 +2516,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
     chats.forEach((chat) => {
       (Array.isArray(chat?.members) ? chat.members : []).forEach((member) => {
-        const memberId = Number(member?.id || 0);
+        const memberId = member?.id;
         if (!memberId) return;
         next[memberId] = {
           id: memberId,
@@ -2529,7 +2529,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       });
     });
     Object.values(forwardedUserPreviewByKey).forEach((entry) => {
-      const memberId = Number(entry?.profile?.id || 0);
+      const memberId = entry?.profile?.id;
       if (!memberId || !entry?.profile || entry.status !== "ready") return;
       next[memberId] = entry.profile;
     });
@@ -2599,7 +2599,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     });
   }, [forwardedUserPreviewByKey, forwardedUserRefs]);
   useEffect(() => {
-    const liveIds = new Set(Object.keys(forwardedChatsById).map((id) => Number(id)));
+    const liveIds = new Set(Object.keys(forwardedChatsById).map((id) => String(id)));
     const now = Date.now();
     forwardedChatIds.forEach((chatId) => {
       if (liveIds.has(chatId)) return;
@@ -2769,7 +2769,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     (isActiveGroupChat || isActiveChannelChat) &&
       activeMembers.some(
         (member) =>
-          Number(member.id) === Number(user?.id || 0) &&
+          String(member.id || "") === String(user?.id || "") &&
           String(member.role || "").toLowerCase() === "owner",
       ),
   );
@@ -3039,7 +3039,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
     setChats((prev) =>
       prev.map((chat) => {
-        if (Number(chat?.id) !== Number(activeChat?.id)) return chat;
+        if (String(chat?.id || "") !== String(activeChat?.id || "")) return chat;
         return {
           ...chat,
           members: (chat.members || []).map((member) => {
@@ -3145,7 +3145,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (!pendingScrollToUnreadRef.current) return;
     if (!unreadMarkerIdRef.current) return;
     if (loadingMessages || messages.length === 0) return;
-    const unreadId = Number(unreadMarkerIdRef.current || 0);
+    const unreadId = String(unreadMarkerIdRef.current || "").trim();
     if (!unreadId) return;
     requestAnimationFrame(() => {
       // Set lock BEFORE scrolling so handleChatScroll sees it immediately.
@@ -3889,7 +3889,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
     const clientId = pendingMessage._clientId;
     const hasFiles = Array.isArray(pendingMessage._files) && pendingMessage._files.length > 0;
-    const isEditingExistingMessage = Number(pendingMessage?._editMessageId || 0) > 0;
+    const isEditingExistingMessage = Boolean(pendingMessage?._editMessageId);
     if (!clientId || sendingClientIdsRef.current.has(clientId)) return;
 
     const maxMessageChars = messageMaxChars;
@@ -3972,7 +3972,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           data?.created_at ||
           data?.createdAt ||
           new Date().toISOString(),
-        messageId: Number(data?.id || 0) || null,
+        messageId: data?.id || null,
       });
 
       if (isTargetActive) {
@@ -3983,7 +3983,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             String(file?.mimeType || "").toLowerCase().startsWith("video/"),
           );
           const keepPendingUntilServerEcho = hasFiles && uploadType === "media" && hasMediaVideo;
-          const serverId = Number(data?.id) || data?.id || null;
+          const serverId = data?.id || null;
           const awaitingServerEcho = Boolean(serverId);
           const responseFiles = Array.isArray(data?.files) && data.files.length > 0 ? data.files : null;
           const calculatedExpiresAt = data?.expiresAt || null;
@@ -4021,7 +4021,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                         : msg.read_at,
                     read_by_user_id:
                       isSavedChat && !msg.read_by_user_id
-                        ? Number(user?.id || 0)
+                        ? user?.id || null
                         : msg.read_by_user_id,
                   }
                 : msg,
@@ -4058,7 +4058,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               body: pendingBody,
               created_at: createdAt,
               read_at: isSavedChat ? createdAt : null,
-              read_by_user_id: isSavedChat ? Number(user?.id || 0) : null,
+              read_by_user_id: isSavedChat ? user?.id || null : null,
               _clientId: clientId,
               client_request_id: clientId,
               _chatId: targetChatId,
@@ -4177,7 +4177,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       (msg) =>
         msg._delivery === "sending" &&
         !msg._awaitingServerEcho &&
-        !Number(msg?._serverId || 0),
+        !msg?._serverId,
     );
     if (!hasPending) return;
     const interval = setInterval(() => {
@@ -4186,7 +4186,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         let changed = false;
         const next = prev.map((msg) => {
           if (msg._delivery !== "sending") return msg;
-          if (msg._awaitingServerEcho || Number(msg?._serverId || 0) > 0) {
+          if (msg._awaitingServerEcho || msg?._serverId) {
             return msg;
           }
           const queuedAt = Number(msg._queuedAt || 0);
@@ -4249,7 +4249,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       version: CHAT_CACHE_VERSION,
       messages,
       hasOlderMessages,
-      lastMessageId: messages.length ? Number(messages[messages.length - 1]?.id || 0) : 0,
+      lastMessageId: messages.length ? String(messages[messages.length - 1]?.id || "") : "",
       updatedAt: Date.now(),
     };
     writeMessagesCacheMemory(
@@ -5002,7 +5002,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     event.preventDefault();
     if (!activeChatId) return;
     stopTypingIndicator(activeChatId);
-    const isEditingMessage = Number(editTarget?.id || 0) > 0;
+    const isEditingMessage = Boolean(editTarget?.id);
     const shouldSnapToBottom = !(isEditingMessage && userScrolledUpRef.current);
     if (shouldSnapToBottom) {
       userScrolledUpRef.current = false;
@@ -5125,7 +5125,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         _chatId: activeChatId,
         _queuedAt: queuedAt,
         _delivery: "sending",
-        _editMessageId: isEditingMessage ? Number(editTarget.id) : null,
+        _editMessageId: isEditingMessage ? String(editTarget.id) : null,
         _uploadType: effectiveUploadType,
         _files: pendingFiles,
         _createdAt: createdAt,
@@ -5133,7 +5133,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         body: trimmedBody || (isEditingMessage ? String(editTarget?.body || "") : ""),
         replyTo: replyPayload,
         read_at: isSavedChat ? createdAt : null,
-        read_by_user_id: isSavedChat ? Number(user?.id || 0) : null,
+        read_by_user_id: isSavedChat ? user?.id || null : null,
       };
       updateOwnLatestChatPreview({
         chatId: activeChatId,
@@ -5158,7 +5158,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         _chatId: activeChatId,
         _queuedAt: queuedAt,
         _delivery: "sending",
-        _editMessageId: Number(editTarget.id),
+        _editMessageId: String(editTarget.id),
         _uploadType: effectiveUploadType,
         _files: pendingFiles,
         body: trimmedBody,
@@ -5177,7 +5177,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         body: trimmedBody,
         created_at: createdAt,
         read_at: isSavedChat ? createdAt : null,
-        read_by_user_id: isSavedChat ? Number(user?.id || 0) : null,
+        read_by_user_id: isSavedChat ? user?.id || null : null,
         _clientId: tempId,
         client_request_id: tempId,
         _chatId: activeChatId,
@@ -5598,7 +5598,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const openMemberProfileFromMessage = (msg) => {
     if (!msg) return;
     const selected = {
-      id: Number(msg.user_id || 0) || null,
+      id: msg.user_id || null,
       username: msg.username || "",
       nickname: msg.nickname || "",
       avatar_url: msg.avatar_url || "",
@@ -5675,7 +5675,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         throw new Error(data?.error || "Unable to leave group.");
       }
       closeProfileModal();
-      if (Number(activeChat?.id || 0) === id) {
+      if (String(activeChat?.id || "") === String(id || "")) {
         closeChat();
       }
       await loadChats();
@@ -6267,7 +6267,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (!activeChatId || loadingMessages || loadingOlderMessages || !hasOlderMessages) return;
     if (!allowStartReachedRef.current) return;
     const oldestMessage = messages[0];
-    const oldestId = Number(oldestMessage?.id || 0);
+    const oldestId = oldestMessage?.id || null;
     const oldestCreatedAt = oldestMessage?.created_at || "";
     if (!oldestId || !oldestCreatedAt) return;
     const scroller = chatScrollRef.current;
@@ -6838,7 +6838,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             membersBatchSize={CHAT_PAGE_CONFIG.newChatSearchMaxResults}
             remoteChannelAvailable={Boolean(
               appInfo?.remoteChannels?.enabled &&
-                !(mentionProfileChat && Number(mentionProfileChat.id) !== Number(activeChat?.id))
+                !(mentionProfileChat && String(mentionProfileChat.id || "") !== String(activeChat?.id || ""))
             )}
             onClose={closeProfileModal}
             onOpenChat={handleOpenProfileChat}
@@ -6851,7 +6851,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             onOpenMember={openMemberProfileFromList}
             onRemoveMember={handleRemoveGroupMember}
             onOpenUserContextMenu={openContextMenu}
-            onEditGroup={mentionProfileChat && Number(mentionProfileChat.id) !== Number(activeChat?.id) ? undefined : openEditGroupFromProfile}
+            onEditGroup={mentionProfileChat && String(mentionProfileChat.id || "") !== String(activeChat?.id || "") ? undefined : openEditGroupFromProfile}
             onEditSelfProfile={openSelfProfileEditor}
           />
         </Suspense>

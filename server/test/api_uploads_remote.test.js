@@ -99,7 +99,7 @@ describe("Remote Uploads & File Management Routes", () => {
           storageProvider: mockRemoteProvider,
           createMessageFiles: createMessageFilesMock,
           findMessageFileById: (id) =>
-            filesStore.find((f) => f.id === Number(id)) || null,
+            filesStore.find((f) => String(f.id) === String(id)) || null,
           adminGetRow: (sql, params) => {
             if (sql.includes("chat_message_files")) {
               return filesStore[filesStore.length - 1] || null;
@@ -164,9 +164,10 @@ describe("Remote Uploads & File Management Routes", () => {
 
     test("updates status to ready in sync mode", async () => {
       let fileStatus = "pending";
+      const uuidFileId = "10000000-0000-4000-8000-000000000010";
       const fileRecord = {
-        id: 10,
-        message_id: 0,
+        id: uuidFileId,
+        message_id: null,
         storage_driver: "s3",
         storage_key: "uploads/file10.mp4",
         processing_status: fileStatus,
@@ -176,7 +177,7 @@ describe("Remote Uploads & File Management Routes", () => {
         deps: {
           storageProvider: mockRemoteProvider,
           storageProcessingMode: "sync",
-          findMessageFileById: (id) => (Number(id) === 10 ? fileRecord : null),
+          findMessageFileById: (id) => (String(id) === uuidFileId ? fileRecord : null),
           adminGetRow: (sql) =>
             sql.includes("chat_message_files") ? fileRecord : null,
           adminRun: (sql, params) => {
@@ -200,19 +201,20 @@ describe("Remote Uploads & File Management Routes", () => {
       const res = await request(customApp.app)
         .post("/api/uploads/complete")
         .set("Cookie", [`sid=${sessionToken}`])
-        .send({ fileId: 10, storageKey: "uploads/file10.mp4" });
+        .send({ fileId: uuidFileId, storageKey: "uploads/file10.mp4" });
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.fileId).toBe(10);
+      expect(res.body.fileId).toBe(uuidFileId);
       expect(res.body.status).toBe("ready");
     });
 
     test("keeps status as pending in webhook mode", async () => {
       let fileStatus = "pending";
+      const uuidFileId = "10000000-0000-4000-8000-000000000011";
       const fileRecord = {
-        id: 11,
-        message_id: 0,
+        id: uuidFileId,
+        message_id: null,
         storage_driver: "s3",
         storage_key: "uploads/file11.mp4",
         processing_status: fileStatus,
@@ -222,7 +224,7 @@ describe("Remote Uploads & File Management Routes", () => {
         deps: {
           storageProvider: mockRemoteProvider,
           storageProcessingMode: "webhook",
-          findMessageFileById: (id) => (Number(id) === 11 ? fileRecord : null),
+          findMessageFileById: (id) => (String(id) === uuidFileId ? fileRecord : null),
           adminGetRow: (sql) =>
             sql.includes("chat_message_files") ? fileRecord : null,
           adminRun: (sql, params) => {
@@ -246,11 +248,11 @@ describe("Remote Uploads & File Management Routes", () => {
       const res = await request(customApp.app)
         .post("/api/uploads/complete")
         .set("Cookie", [`sid=${sessionToken}`])
-        .send({ fileId: 11, storageKey: "uploads/file11.mp4" });
+        .send({ fileId: uuidFileId, storageKey: "uploads/file11.mp4" });
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.fileId).toBe(11);
+      expect(res.body.fileId).toBe(uuidFileId);
       expect(res.body.status).toBe("pending");
     });
   });
@@ -275,9 +277,12 @@ describe("Remote Uploads & File Management Routes", () => {
     });
 
     test("updates file status and emits video:ready SSE event", async () => {
+      const fileUuid = "20000000-0000-4000-8000-000000000020";
+      const messageUuid = "50000000-0000-4000-8000-000000000005";
+      const chatUuid = "42000000-0000-4000-8000-000000000042";
       const fileRecord = {
-        id: 20,
-        message_id: 5,
+        id: fileUuid,
+        message_id: messageUuid,
         storage_driver: "s3",
         storage_key: "uploads/raw.mp4",
         processing_status: "pending",
@@ -291,9 +296,9 @@ describe("Remote Uploads & File Management Routes", () => {
         deps: {
           storageProvider: mockRemoteProvider,
           webhookSecret: "secret-key-123",
-          findMessageFileById: (id) => (Number(id) === 20 ? fileRecord : null),
+          findMessageFileById: (id) => (String(id) === fileUuid ? fileRecord : null),
           adminGetRow: (sql) => {
-            if (sql.includes("chat_messages")) return { chat_id: 42 };
+            if (sql.includes("chat_messages")) return { chat_id: chatUuid };
             if (sql.includes("chat_message_files")) return fileRecord;
             return null;
           },
@@ -310,7 +315,7 @@ describe("Remote Uploads & File Management Routes", () => {
         .post("/api/uploads/webhook/processed")
         .set("x-songbird-webhook-secret", "secret-key-123")
         .send({
-          fileId: 20,
+          fileId: fileUuid,
           status: "ready",
           transcodedStorageKey: "transcoded/video20.mp4",
           thumbStorageKey: "thumbs/thumb20.jpg",
@@ -322,10 +327,10 @@ describe("Remote Uploads & File Management Routes", () => {
       expect(updatedTranscodedKey).toBe("transcoded/video20.mp4");
 
       expect(emitChatEventMock).toHaveBeenCalledWith(
-        42,
+        chatUuid,
         expect.objectContaining({
           type: "video:ready",
-          fileId: 20,
+          fileId: fileUuid,
           status: "ready",
           storageKey: "transcoded/video20.mp4",
         }),
@@ -335,8 +340,9 @@ describe("Remote Uploads & File Management Routes", () => {
 
   describe("GET /api/uploads/file/:id", () => {
     test("redirects 302 to S3 download URL when encryption_type is none", async () => {
+      const fileUuid = "30000000-0000-4000-8000-000000000030";
       const fileRecord = {
-        id: 30,
+        id: fileUuid,
         storage_driver: "s3",
         storage_key: "uploads/public.jpg",
         encryption_type: "none",
@@ -346,12 +352,12 @@ describe("Remote Uploads & File Management Routes", () => {
       const customApp = makeApp({
         deps: {
           storageProvider: mockRemoteProvider,
-          findMessageFileById: (id) => (Number(id) === 30 ? fileRecord : null),
+          findMessageFileById: (id) => (String(id) === fileUuid ? fileRecord : null),
           adminGetRow: () => fileRecord,
         },
       });
 
-      const res = await request(customApp.app).get("/api/uploads/file/30");
+      const res = await request(customApp.app).get(`/api/uploads/file/${fileUuid}`);
 
       expect(res.status).toBe(302);
       expect(res.headers.location).toContain(
@@ -360,8 +366,9 @@ describe("Remote Uploads & File Management Routes", () => {
     });
 
     test("redirects 302 to S3 download URL when encryption_type is provider_sse", async () => {
+      const fileUuid = "30000000-0000-4000-8000-000000000031";
       const fileRecord = {
-        id: 31,
+        id: fileUuid,
         storage_driver: "s3",
         storage_key: "uploads/sse.png",
         encryption_type: "provider_sse",
@@ -371,12 +378,12 @@ describe("Remote Uploads & File Management Routes", () => {
       const customApp = makeApp({
         deps: {
           storageProvider: mockRemoteProvider,
-          findMessageFileById: (id) => (Number(id) === 31 ? fileRecord : null),
+          findMessageFileById: (id) => (String(id) === fileUuid ? fileRecord : null),
           adminGetRow: () => fileRecord,
         },
       });
 
-      const res = await request(customApp.app).get("/api/uploads/file/31");
+      const res = await request(customApp.app).get(`/api/uploads/file/${fileUuid}`);
 
       expect(res.status).toBe(302);
       expect(res.headers.location).toContain(
@@ -390,9 +397,10 @@ describe("Remote Uploads & File Management Routes", () => {
 
       const plainText = "Hello Decrypted S3 Data!";
       const encryptedBuf = enc.encryptBuffer(Buffer.from(plainText));
+      const fileUuid = "30000000-0000-4000-8000-000000000032";
 
       const fileRecord = {
-        id: 32,
+        id: fileUuid,
         storage_driver: "s3",
         storage_key: "uploads/encrypted.txt",
         encryption_type: "aes-256-gcm",
@@ -416,12 +424,12 @@ describe("Remote Uploads & File Management Routes", () => {
             storageProvider: mockRemoteProvider,
             storageEncryption: enc,
             findMessageFileById: (id) =>
-              Number(id) === 32 ? fileRecord : null,
+              String(id) === fileUuid ? fileRecord : null,
             adminGetRow: () => fileRecord,
           },
         });
 
-        const res = await request(customApp.app).get("/api/uploads/file/32");
+        const res = await request(customApp.app).get(`/api/uploads/file/${fileUuid}`);
 
         expect(res.status).toBe(200);
         expect(res.text).toBe(plainText);

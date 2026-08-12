@@ -212,10 +212,10 @@ export function registerRemoteUploadRoutes(app, deps) {
 
     let file = null;
     if (typeof findMessageFileById === "function") {
-      file = findMessageFileById(Number(fileId));
+      file = findMessageFileById(fileId);
     }
     if (!file && typeof adminGetRow === "function") {
-      file = callAdminGetRow(dbKnex("chat_message_files").where("id", Number(fileId)).first());
+      file = callAdminGetRow(dbKnex("chat_message_files").where("id", fileId).first());
     }
 
     if (!file) {
@@ -228,7 +228,6 @@ export function registerRemoteUploadRoutes(app, deps) {
 
     if (
       file.message_id &&
-      file.message_id > 0 &&
       typeof adminGetRow === "function"
     ) {
       const msg = callAdminGetRow(
@@ -254,21 +253,21 @@ export function registerRemoteUploadRoutes(app, deps) {
 
     if (typeof adminRun === "function") {
       callAdminRun(
-        dbKnex("chat_message_files").where("id", Number(fileId)).update({ processing_status: newStatus }),
+        dbKnex("chat_message_files").where("id", fileId).update({ processing_status: newStatus }),
       );
       if (typeof adminSave === "function") adminSave();
     }
 
     if (newStatus === "pending" && mediaQueueManager?.scheduleFallbackCheck) {
       mediaQueueManager.scheduleFallbackCheck({
-        fileId: Number(fileId),
+        fileId,
         storageKey: file.storage_key || storageKey,
       });
     }
 
     return res.json({
       success: true,
-      fileId: Number(fileId),
+      fileId,
       status: newStatus,
     });
   });
@@ -292,10 +291,10 @@ export function registerRemoteUploadRoutes(app, deps) {
 
     let file = null;
     if (typeof findMessageFileById === "function") {
-      file = findMessageFileById(Number(fileId));
+      file = findMessageFileById(fileId);
     }
     if (!file && typeof adminGetRow === "function") {
-      file = callAdminGetRow(dbKnex("chat_message_files").where("id", Number(fileId)).first());
+      file = callAdminGetRow(dbKnex("chat_message_files").where("id", fileId).first());
     }
 
     if (!file) {
@@ -308,13 +307,13 @@ export function registerRemoteUploadRoutes(app, deps) {
       if (transcodedStorageKey) updatePayload.storage_key = transcodedStorageKey;
       if (thumbStorageKey) updatePayload.thumb_storage_key = thumbStorageKey;
       callAdminRun(
-        dbKnex("chat_message_files").where("id", Number(fileId)).update(updatePayload),
+        dbKnex("chat_message_files").where("id", fileId).update(updatePayload),
       );
       if (typeof adminSave === "function") adminSave();
     }
 
     if (mediaQueueManager?.cancelFallbackCheck) {
-      mediaQueueManager.cancelFallbackCheck(Number(fileId));
+      mediaQueueManager.cancelFallbackCheck(fileId);
     }
 
     let chatId = null;
@@ -328,7 +327,7 @@ export function registerRemoteUploadRoutes(app, deps) {
     if (typeof emitChatEvent === "function") {
       emitChatEvent(chatId, {
         type: "video:ready",
-        fileId: Number(fileId),
+        fileId,
         status: finalStatus,
         storageKey: transcodedStorageKey || file.storage_key,
         thumbStorageKey: thumbStorageKey || file.thumb_storage_key,
@@ -438,14 +437,14 @@ export function registerRemoteUploadRoutes(app, deps) {
     if (!idParam) return res.status(404).end();
 
     let file = null;
-    if (typeof findMessageFileById === "function" && !isNaN(Number(idParam))) {
-      file = findMessageFileById(Number(idParam));
+    if (typeof findMessageFileById === "function") {
+      file = findMessageFileById(idParam);
     }
     if (!file && typeof adminGetRow === "function") {
       file = callAdminGetRow(
         dbKnex("chat_message_files")
           .where((builder) => {
-            builder.where("id", Number(idParam) || 0).orWhere("stored_name", idParam).orWhere("storage_key", idParam);
+            builder.where("id", idParam).orWhere("stored_name", idParam).orWhere("storage_key", idParam);
           })
           .first(),
       );

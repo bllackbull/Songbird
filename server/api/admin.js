@@ -9,7 +9,7 @@ import {
 } from "../lib/dbToolHelpers.js";
 import { createInviteToken } from "../lib/inviteTokens.js";
 import { storageEncryption } from "../lib/storageEncryption.js";
-import { generateUuid } from "../lib/uuidUtils.js";
+import { generateUuid, isValidUuid } from "../lib/uuidUtils.js";
 import { dbKnex } from "../db/knex.js";
 import crypto from "crypto";
 
@@ -125,8 +125,8 @@ function registerAdminRoutes(app, deps) {
         const deleteAll = Boolean(payload.all);
         let chatIds = Array.isArray(payload.chatIds)
           ? payload.chatIds
-              .map((id) => Number(id))
-              .filter((id) => Number.isFinite(id) && id > 0)
+              .map((id) => String(id || "").trim())
+              .filter(Boolean)
           : [];
         if (!chatIds.length) {
           if (!deleteAll) {
@@ -136,8 +136,8 @@ function registerAdminRoutes(app, deps) {
           }
           const rawChatIds = adminGetAll("SELECT id FROM chats ORDER BY id ASC");
           chatIds = (Array.isArray(rawChatIds) ? rawChatIds : (await rawChatIds) || [])
-            .map((row) => Number(row.id))
-            .filter((id) => Number.isFinite(id) && id > 0);
+            .map((row) => String(row.id))
+            .filter(Boolean);
         }
 
         if (!chatIds.length) {
@@ -245,26 +245,30 @@ function registerAdminRoutes(app, deps) {
           const raw = String(selector || "").trim();
           if (!raw) continue;
 
-          const numeric = Number(raw);
+          const num = Number(raw);
+          const isIdSelector = isValidUuid(raw) || (Number.isFinite(num) && num > 0);
 
-          if (Number.isFinite(numeric) && numeric > 0) {
-            userIds.push(Math.trunc(numeric));
-            continue;
+          if (!isIdSelector) {
+            const rawGroupRow = adminGetRow(
+              "SELECT id FROM chats WHERE type IN ('group', 'channel') AND group_username = ?",
+              [raw],
+            );
+            const groupRow = rawGroupRow && typeof rawGroupRow.then === "function" ? await rawGroupRow : rawGroupRow;
+            if (groupRow?.id) {
+              throw new Error(`Cannot delete user. "${raw}" is a group/channel username.`);
+            }
           }
 
-          const rawGroupRow = adminGetRow(
-            "SELECT id FROM chats WHERE type IN ('group', 'channel') AND group_username = ?",
-            [raw],
+          const userRow = await resolveUserRow(
+            { getRow: adminGetRow, getAll: adminGetAll },
+            raw,
           );
-          const groupRow = rawGroupRow && typeof rawGroupRow.then === "function" ? await rawGroupRow : rawGroupRow;
-          if (groupRow?.id) {
-            throw new Error(`Cannot delete user. "${raw}" is a group/channel username.`);
+
+          if (userRow?.id) {
+            userIds.push(String(userRow.id));
+          } else if (isIdSelector) {
+            userIds.push(raw);
           }
-
-          const rawUserRow = adminGetRow("SELECT id FROM users WHERE username = ?", [raw]);
-          const row = rawUserRow && typeof rawUserRow.then === "function" ? await rawUserRow : rawUserRow;
-
-          if (row?.id) userIds.push(Number(row.id));
         }
 
         if (!userIds.length) {
@@ -281,8 +285,8 @@ function registerAdminRoutes(app, deps) {
           }
           const rawAllUserIds = adminGetAll("SELECT id FROM users ORDER BY id ASC");
           userIds = (Array.isArray(rawAllUserIds) ? rawAllUserIds : (await rawAllUserIds) || [])
-            .map((row) => Number(row.id))
-            .filter((id) => Number.isFinite(id) && id > 0);
+            .map((row) => String(row.id))
+            .filter(Boolean);
         }
 
         userIds = Array.from(new Set(userIds));
@@ -595,7 +599,7 @@ function registerAdminRoutes(app, deps) {
               )
             )
               .filter((row) => row?.id)
-              .map((row) => [Number(row.id), row]),
+              .map((row) => [String(row.id), row]),
           ).values(),
         ).filter(
           (row) => String(row?.username || "").toLowerCase() !== ownerUsername,
@@ -740,7 +744,7 @@ function registerAdminRoutes(app, deps) {
                     ),
                 ))
                   .filter((row) => row?.id)
-                  .map((row) => [Number(row.id), row]),
+                  .map((row) => [String(row.id), row]),
               ).values(),
             );
 
@@ -878,7 +882,7 @@ function registerAdminRoutes(app, deps) {
           }
           const chatConflict = await adminGetRow(
             "SELECT id FROM chats WHERE type IN ('group', 'channel') AND group_username IN (?, ?) AND id != ?",
-            [nextUsername, `@${nextUsername}`, Number(chat.id)],
+            [nextUsername, `@${nextUsername}`, chat.id],
           );
           if (chatConflict?.id) {
             return res.status(409).json({ error: "Chat username already exists." });
@@ -908,23 +912,23 @@ function registerAdminRoutes(app, deps) {
               nextVisibility,
               nextColor,
               allowMemberInvites,
-              nextOwner?.id ? Number(nextOwner.id) : null,
-              Number(chat.id),
+              nextOwner?.id || null,
+              chat.id,
             ],
           );
 
           if (nextOwner?.id) {
             await adminRun(
               "UPDATE chat_members SET role = 'member' WHERE chat_id = ? AND role = 'owner'",
-              [Number(chat.id)],
+              [chat.id],
             );
             await adminRun(
               "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, 'owner')",
-              [Number(chat.id), Number(nextOwner.id)],
+              [chat.id, nextOwner.id],
             );
             await adminRun(
               "UPDATE chat_members SET role = 'owner' WHERE chat_id = ? AND user_id = ?",
-              [Number(chat.id), Number(nextOwner.id)],
+              [chat.id, nextOwner.id],
             );
           }
           await adminRun("COMMIT");
@@ -941,7 +945,7 @@ function registerAdminRoutes(app, deps) {
         return res.json({
           ok: true,
           result: {
-            id: Number(updated.id),
+            id: updated.id,
             type: updated.type,
             name: updated.name || "",
             owner: nextOwner?.username || null,
@@ -1031,7 +1035,7 @@ function registerAdminRoutes(app, deps) {
             nextAvatarUrl,
             nextColor,
             nextStatus,
-            Number(user.id),
+            user.id,
           ],
         );
 
@@ -1043,7 +1047,7 @@ function registerAdminRoutes(app, deps) {
           }
           // Only one owner allowed — reject if another user already holds the role
           if (requestedRole === "owner") {
-            const currentUser = await adminGetRow("SELECT role FROM users WHERE id = ?", [Number(user.id)]);
+            const currentUser = await adminGetRow("SELECT role FROM users WHERE id = ?", [user.id]);
             if (currentUser?.role !== "owner") {
               const existingOwner = await adminGetRow("SELECT id FROM users WHERE role = 'owner' LIMIT 1");
               if (existingOwner?.id) {
@@ -1051,7 +1055,7 @@ function registerAdminRoutes(app, deps) {
               }
             }
           }
-          await adminRun("UPDATE users SET role = ? WHERE id = ?", [requestedRole, Number(user.id)]);
+          await adminRun("UPDATE users SET role = ? WHERE id = ?", [requestedRole, user.id]);
         }
 
         adminSave();
@@ -1063,7 +1067,7 @@ function registerAdminRoutes(app, deps) {
         return res.json({
           ok: true,
           result: {
-            id: Number(updated.id),
+            id: updated.id,
             username: updated.username,
             nickname: updated.nickname || null,
             color: updated.color || null,
@@ -1084,7 +1088,7 @@ function registerAdminRoutes(app, deps) {
         const nextVerified = Number(chat.verified || 0) ? 0 : 1;
         await adminRun("UPDATE chats SET verified = ? WHERE id = ?", [
           nextVerified,
-          Number(chat.id),
+          chat.id,
         ]);
         adminSave();
         emitChatEvent(chat.id, {
@@ -1095,7 +1099,7 @@ function registerAdminRoutes(app, deps) {
         return res.json({
           ok: true,
           result: {
-            id: Number(chat.id),
+            id: chat.id,
             name: chat.name || "",
             groupUsername: chat.group_username || null,
             verified: Boolean(nextVerified),
@@ -1116,14 +1120,14 @@ function registerAdminRoutes(app, deps) {
         const nextVerified = Number(user.verified || 0) ? 0 : 1;
         await adminRun("UPDATE users SET verified = ? WHERE id = ?", [
           nextVerified,
-          Number(user.id),
+          user.id,
         ]);
         adminSave();
 
         return res.json({
           ok: true,
           result: {
-            id: Number(user.id),
+            id: user.id,
             username: user.username,
             verified: Boolean(nextVerified),
           },
@@ -1143,15 +1147,15 @@ function registerAdminRoutes(app, deps) {
         const nextBanned = Number(user.banned || 0) ? 0 : 1;
         const sessionsRow = await adminGetRow(
           "SELECT COUNT(*) AS count FROM sessions WHERE user_id = ?",
-          [Number(user.id)],
+          [user.id],
         );
 
         await adminTransaction(async (transactionRun) => {
           await transactionRun("UPDATE users SET banned = ? WHERE id = ?", [
             nextBanned,
-            Number(user.id),
+            user.id,
           ]);
-          await transactionRun("DELETE FROM sessions WHERE user_id = ?", [Number(user.id)]);
+          await transactionRun("DELETE FROM sessions WHERE user_id = ?", [user.id]);
         });
         adminSave();
 
@@ -1165,7 +1169,7 @@ function registerAdminRoutes(app, deps) {
         return res.json({
           ok: true,
           result: {
-            id: Number(user.id),
+            id: user.id,
             username: user.username,
             banned: Boolean(nextBanned),
             sessionsExpired: Number(sessionsRow?.count || 0),
@@ -1684,7 +1688,7 @@ function registerAdminRoutes(app, deps) {
           }
           if (targetAvatarUsers.length) {
             chunkArray(
-              targetAvatarUsers.map((row) => Number(row.id)).filter(Boolean),
+              targetAvatarUsers.map((row) => String(row.id)).filter(Boolean),
               500,
             ).forEach((chunk) => {
               const placeholders = chunk.map(() => "?").join(", ");
@@ -1796,7 +1800,7 @@ function registerAdminRoutes(app, deps) {
 
         const existing = adminGetRow(
           "SELECT id, source_raw, source_chat_id, source_username, source_version, sync_metadata, stream_media, enabled, paused FROM remote_channel_sources WHERE chat_id = ?",
-          [Number(chat.id)],
+          [chat.id],
         );
 
         if (
@@ -1819,19 +1823,19 @@ function registerAdminRoutes(app, deps) {
         if (pauseQueue) {
           adminRun(
             "UPDATE remote_channel_sources SET paused = 1, updated_at = datetime('now') WHERE chat_id = ?",
-            [Number(chat.id)],
+            [chat.id],
           );
           adminSave();
-          return res.json({ ok: true, result: { chatId: Number(chat.id), paused: true } });
+          return res.json({ ok: true, result: { chatId: chat.id, paused: true } });
         }
 
         if (resumeQueue) {
           adminRun(
             "UPDATE remote_channel_sources SET paused = 0, updated_at = datetime('now') WHERE chat_id = ?",
-            [Number(chat.id)],
+            [chat.id],
           );
           adminSave();
-          return res.json({ ok: true, result: { chatId: Number(chat.id), paused: false } });
+          return res.json({ ok: true, result: { chatId: chat.id, paused: false } });
         }
 
         if (skipQueue) {
@@ -1849,10 +1853,10 @@ function registerAdminRoutes(app, deps) {
                ORDER BY id ASC
                LIMIT 1
              )`,
-            [Number(existing.id)],
+            [existing.id],
           );
           adminSave();
-          return res.json({ ok: true, result: { chatId: Number(chat.id), skippedOne: true } });
+          return res.json({ ok: true, result: { chatId: chat.id, skippedOne: true } });
         }
 
         if (skipAllQueue) {
@@ -1865,21 +1869,21 @@ function registerAdminRoutes(app, deps) {
                  processed_at = datetime('now')
              WHERE source_id = ?
                AND status IN ('pending', 'retry')`,
-            [Number(existing.id)],
+            [existing.id],
           );
           adminSave();
-          return res.json({ ok: true, result: { chatId: Number(chat.id), skippedAll: true } });
+          return res.json({ ok: true, result: { chatId: chat.id, skippedAll: true } });
         }
 
         if (disableRemote) {
           if (existing?.id) {
             adminRun(
               "UPDATE remote_channel_sources SET enabled = 0, updated_at = datetime('now') WHERE chat_id = ?",
-              [Number(chat.id)],
+              [chat.id],
             );
             adminSave();
           }
-          return res.json({ ok: true, result: { chatId: Number(chat.id), enabled: false } });
+          return res.json({ ok: true, result: { chatId: chat.id, enabled: false } });
         }
 
         if (enableRemote) {
@@ -1890,10 +1894,10 @@ function registerAdminRoutes(app, deps) {
           }
           adminRun(
             "UPDATE remote_channel_sources SET enabled = 1, updated_at = datetime('now') WHERE chat_id = ?",
-            [Number(chat.id)],
+            [chat.id],
           );
           adminSave();
-          return res.json({ ok: true, result: { chatId: Number(chat.id), enabled: true } });
+          return res.json({ ok: true, result: { chatId: chat.id, enabled: true } });
         }
 
         if (remoteChannelValue) {
@@ -1972,7 +1976,7 @@ function registerAdminRoutes(app, deps) {
                last_error = NULL,
                updated_at = datetime('now')`,
             [
-              Number(chat.id),
+              chat.id,
               remoteChannelValue,
               sourceChatId,
               sourceUsername,
@@ -1993,7 +1997,7 @@ function registerAdminRoutes(app, deps) {
                    processed_at = datetime('now')
                WHERE source_id = ?
                  AND status IN ('pending', 'retry', 'processing')`,
-              [Number(existing.id)],
+              [existing.id],
             );
           }
 
@@ -2001,7 +2005,7 @@ function registerAdminRoutes(app, deps) {
           return res.json({
             ok: true,
             result: {
-              chatId: Number(chat.id),
+              chatId: chat.id,
               source: remoteChannelValue,
               syncMetadata: Boolean(nextSyncMetadata),
               streamMedia: Boolean(nextStreamMedia),
@@ -2030,13 +2034,13 @@ function registerAdminRoutes(app, deps) {
                 : Number(existing.stream_media || 0);
           adminRun(
             "UPDATE remote_channel_sources SET sync_metadata = ?, stream_media = ?, updated_at = datetime('now') WHERE chat_id = ?",
-            [nextSyncMetadata, nextStreamMedia, Number(chat.id)],
+            [nextSyncMetadata, nextStreamMedia, chat.id],
           );
           adminSave();
           return res.json({
             ok: true,
             result: {
-              chatId: Number(chat.id),
+              chatId: chat.id,
               syncMetadata: Boolean(nextSyncMetadata),
               streamMedia: Boolean(nextStreamMedia),
             },

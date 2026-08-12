@@ -236,7 +236,10 @@ describe("POST /api/admin/db-tools database edits", () => {
         .post("/api/admin/db-tools")
         .set("x-songbird-admin-token", "test-admin-token")
         .send({ action, payload: { userSelector: "alice" } });
-      expect(res.status).toBe(200);
+    if (res.status !== 200) {
+      console.log("TEST FAILURE ERROR BODY:", res.body);
+    }
+    expect(res.status).toBe(200);
       expect(res.body.result).toMatchObject({ id: user.id, ...expected });
     }
 
@@ -301,6 +304,45 @@ describe("POST /api/admin/db-tools database edits", () => {
     expect(res.status).toBe(200);
     expect(res.body.result).toEqual({ cleared: true, filesRemoved: 1 });
     expect(reset).toHaveBeenCalledTimes(1);
+  });
+
+  test("edits a user with UUID string id without returning id=null or passing NaN", async () => {
+    const uuidUser = {
+      id: "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+      username: "songbird.admin",
+      nickname: "Admin",
+      avatar_url: null,
+      color: "#10b981",
+      status: "online",
+      role: "admin",
+    };
+    const adminRun = vi.fn(async () => 1);
+    const adminGetRow = vi.fn(async (sql, params = []) => {
+      const lower = String(sql || "").toLowerCase();
+      if (lower.includes("users")) {
+        if (params.includes("songbird.admin") || params.includes("f47ac10b-58cc-4372-a567-0e02b2c3d479")) {
+          return uuidUser;
+        }
+      }
+      return null;
+    });
+    const app = makeAdminDbToolsApp({ adminGetRow, adminRun });
+
+    const res = await request(app)
+      .post("/api/admin/db-tools")
+      .set("x-songbird-admin-token", "test-admin-token")
+      .send({
+        action: "edit_user",
+        payload: { userSelector: "songbird.admin", nickname: "Updated Admin", role: "owner" },
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.result.id).toBe("f47ac10b-58cc-4372-a567-0e02b2c3d479");
+    expect(res.body.result.username).toBe("songbird.admin");
+    expect(adminRun).toHaveBeenCalledWith(
+      expect.stringMatching(/UPDATE users/i),
+      expect.arrayContaining(["f47ac10b-58cc-4372-a567-0e02b2c3d479"]),
+    );
   });
 
   test("generates users when PostgreSQL collection reads return promises", async () => {

@@ -35,8 +35,9 @@ describe("Redis In-Process Fallback Client", () => {
 
   test("redis session store operates correctly with fallback", async () => {
     const redis = createRedisClient({ forceInProcess: true });
+    const userUuid = "10000000-0000-4000-8000-000000000010";
     const dbGetSession = vi.fn((token) =>
-      token === "test-token" ? { id: 10, username: "alice" } : null
+      token === "test-token" ? { id: userUuid, username: "alice" } : null
     );
 
     const sessionStore = createRedisSessionStore({
@@ -44,9 +45,9 @@ describe("Redis In-Process Fallback Client", () => {
       dbGetSession,
     });
 
-    await sessionStore.createSession(10, "test-token");
+    await sessionStore.createSession(userUuid, "test-token");
     const session = await sessionStore.getSession("test-token");
-    expect(session).toEqual({ id: 10, username: "alice" });
+    expect(session).toEqual({ id: userUuid, username: "alice" });
 
     await sessionStore.deleteSession("test-token");
     const deletedSession = await sessionStore.getSession("invalid-token");

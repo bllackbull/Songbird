@@ -14,7 +14,7 @@ describe("POST /api/admin/claim", () => {
       getRow: (...args) => deps.onGetRow(...args),
       writeAdminLog: () => {},
     };
-    deps.onGetSession = () => ({ id: 42, username: "testuser" });
+    deps.onGetSession = () => ({ id: "42424242-4242-4242-a242-424242424242", username: "testuser" });
     deps.onSetUserRole = async (id, role) => ({ id, role });
     deps.onGetRow = async (query) => {
       if (
@@ -76,7 +76,7 @@ describe("POST /api/admin/claim", () => {
         typeof query === "string" &&
         query.includes("users WHERE role = 'owner'")
       ) {
-        return { id: 1, username: "existing_owner" };
+        return { id: "11111111-1111-4111-a111-111111111111", username: "existing_owner" };
       }
       return null;
     };

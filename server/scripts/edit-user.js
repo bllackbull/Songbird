@@ -165,7 +165,7 @@ async function main() {
 
     // Owner uniqueness check
     if (normalizedRole === "owner") {
-      const currentUserRow = await dbApi.getRow("SELECT role FROM users WHERE id = ?", [Number(user.id)]);
+      const currentUserRow = await dbApi.getRow("SELECT role FROM users WHERE id = ?", [user.id]);
       if (currentUserRow?.role !== "owner") {
         const existingOwner = await dbApi.getRow("SELECT id FROM users WHERE role = 'owner' LIMIT 1");
         if (existingOwner?.id) {
@@ -183,18 +183,18 @@ async function main() {
         nextAvatarUrl,
         nextColor,
         effectiveStatus,
-        Number(user.id),
+        user.id,
       ],
     );
 
     if (normalizedRole !== undefined) {
-      await dbApi.run("UPDATE users SET role = ? WHERE id = ?", [normalizedRole, Number(user.id)]);
+      await dbApi.run("UPDATE users SET role = ? WHERE id = ?", [normalizedRole, user.id]);
     }
 
     await dbApi.save();
 
     const updated = await resolveUserRow(dbApi, String(user.id));
-    const roleRow = await dbApi.getRow("SELECT role FROM users WHERE id = ?", [Number(user.id)]);
+    const roleRow = await dbApi.getRow("SELECT role FROM users WHERE id = ?", [user.id]);
     const currentRole = roleRow?.role || "user";
     console.log(`User updated: id=${updated.id} username=${updated.username}`);
     console.log(`Nickname: ${updated.nickname || ""}`);

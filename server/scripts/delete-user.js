@@ -6,17 +6,13 @@ import {
   runAdminActionViaServer,
   detectRunningServer,
 } from './_db-admin.js'
+import { resolveUserRow } from '../lib/dbToolHelpers.js'
 
 async function resolveUserIds(dbApi, selectors) {
   const ids = new Set()
   for (const selector of selectors) {
     const raw = String(selector || '').trim()
     if (!raw) continue
-    const numeric = Number(raw)
-    if (Number.isFinite(numeric) && numeric > 0) {
-      ids.add(Math.trunc(numeric))
-      continue
-    }
     const groupRow = await dbApi.getRow(
       "SELECT id FROM chats WHERE type IN ('group', 'channel') AND group_username = ?",
       [raw],
@@ -24,9 +20,9 @@ async function resolveUserIds(dbApi, selectors) {
     if (groupRow?.id) {
       throw new Error(`Cannot delete user. "${raw}" is a group/channel username.`)
     }
-    const row = await dbApi.getRow('SELECT id FROM users WHERE username = ?', [raw])
-    if (row?.id) {
-      ids.add(Number(row.id))
+    const userRow = await resolveUserRow(dbApi, raw)
+    if (userRow?.id) {
+      ids.add(String(userRow.id))
     }
   }
   return Array.from(ids)
@@ -61,8 +57,8 @@ async function main() {
       }
       const allRows = await dbApi.getAll('SELECT id FROM users ORDER BY id ASC')
       userIds = allRows
-        .map((row) => Number(row.id))
-        .filter((value) => Number.isFinite(value) && value > 0)
+        .map((row) => String(row.id))
+        .filter(Boolean)
     }
 
     if (!userIds.length) {
@@ -107,32 +103,32 @@ async function main() {
       userIds,
     )
     const ownerChatIds = Array.from(
-      new Set(ownerChatRows.map((row) => Number(row?.chat_id || 0)).filter(Boolean)),
+      new Set(ownerChatRows.map((row) => String(row?.chat_id || '')).filter(Boolean)),
     )
     const chatIdsToDelete = []
     const ownershipTransfers = []
     for (const chatId of ownerChatIds) {
       const remainingRows = await dbApi.getAll(
         `SELECT user_id FROM chat_members WHERE chat_id = ? AND user_id NOT IN (${placeholders})`,
-        [Number(chatId), ...userIds],
+        [chatId, ...userIds],
       )
       const remaining = remainingRows
-        .map((row) => Number(row?.user_id || 0))
-        .filter((id) => Number.isFinite(id) && id > 0)
+        .map((row) => String(row?.user_id || ''))
+        .filter(Boolean)
       if (!remaining.length) {
-        chatIdsToDelete.push(Number(chatId))
+        chatIdsToDelete.push(chatId)
         continue
       }
       const nextOwnerId = remaining[Math.floor(Math.random() * remaining.length)]
       if (nextOwnerId) {
         ownershipTransfers.push({
-          chatId: Number(chatId),
-          nextOwnerId: Number(nextOwnerId),
+          chatId,
+          nextOwnerId,
         })
       }
     }
     const uniqueChatDeletes = Array.from(
-      new Set(chatIdsToDelete.filter((id) => Number.isFinite(id) && id > 0)),
+      new Set(chatIdsToDelete.filter(Boolean)),
     )
     const chatPlaceholders = uniqueChatDeletes.map(() => '?').join(', ')
     const chatFileRows = uniqueChatDeletes.length
@@ -169,8 +165,8 @@ async function main() {
         }
       }
       for (const transfer of ownershipTransfers) {
-        if (uniqueChatDeletes.includes(Number(transfer.chatId)) || !transfer.chatId || !transfer.nextOwnerId) continue
-        await queryRun('UPDATE chat_members SET role = ? WHERE chat_id = ? AND user_id = ?', ['owner', Number(transfer.chatId), Number(transfer.nextOwnerId)])
+        if (uniqueChatDeletes.includes(String(transfer.chatId)) || !transfer.chatId || !transfer.nextOwnerId) continue
+        await queryRun('UPDATE chat_members SET role = ? WHERE chat_id = ? AND user_id = ?', ['owner', transfer.chatId, transfer.nextOwnerId])
       }
       for (const chunk of chunkArray(userIds, 500)) {
         const chunkPlaceholders = chunk.map(() => '?').join(', ')

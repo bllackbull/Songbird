@@ -2,9 +2,11 @@ import { describe, test, expect, vi } from "vitest";
 import request from "supertest";
 import { makeApp, makeUserStore } from "../helpers/makeApp.js";
 
+const ALICE_ID = "11111111-1111-4111-a111-111111111111";
+
 function presenceApp({ isConnected = () => false, status = "online" } = {}) {
   const alice = {
-    id: 1,
+    id: ALICE_ID,
     username: "alice",
     status,
     last_seen: "2026-08-04 10:00:00",
@@ -22,7 +24,7 @@ function presenceApp({ isConnected = () => false, status = "online" } = {}) {
 describe("GET /api/presence", () => {
   test("returns effective status for a connected online user", async () => {
     const { app, sessionStore } = presenceApp({ isConnected: () => true });
-    sessionStore.createSession(1, "tok");
+    sessionStore.createSession(ALICE_ID, "tok");
     const res = await request(app)
       .get("/api/presence?username=alice")
       .set("Cookie", "sid=tok");
@@ -36,7 +38,7 @@ describe("GET /api/presence", () => {
 
   test("returns offline for a disconnected user even if last_seen is fresh", async () => {
     const { app, sessionStore } = presenceApp({ isConnected: () => false });
-    sessionStore.createSession(1, "tok");
+    sessionStore.createSession(ALICE_ID, "tok");
     const res = await request(app)
       .get("/api/presence?username=alice")
       .set("Cookie", "sid=tok");
@@ -50,7 +52,7 @@ describe("GET /api/presence", () => {
       isConnected: () => true,
       status: "invisible",
     });
-    sessionStore.createSession(1, "tok");
+    sessionStore.createSession(ALICE_ID, "tok");
     const res = await request(app)
       .get("/api/presence?username=alice")
       .set("Cookie", "sid=tok");
@@ -60,7 +62,7 @@ describe("GET /api/presence", () => {
 
   test("404 for unknown user", async () => {
     const { app, sessionStore } = presenceApp();
-    sessionStore.createSession(1, "tok");
+    sessionStore.createSession(ALICE_ID, "tok");
     const res = await request(app)
       .get("/api/presence?username=nobody")
       .set("Cookie", "sid=tok");

@@ -1101,7 +1101,7 @@ export default function ChatWindowPanel({
       chatColor={groupAvatarColor}
       seenCount={
         isChannelChat
-          ? (channelSeenCounts?.[Number(msg?._serverId || msg?.id || 0)] ??
+          ? (channelSeenCounts?.[msg?._serverId || msg?.id] ??
             msg?.seenCount ??
             null)
           : null
@@ -1110,24 +1110,24 @@ export default function ChatWindowPanel({
       onOpenMention={onOpenMention}
       onOpenForwardOrigin={onOpenForwardOrigin}
       forwardedChat={
-        Number(msg?.forwarded_from_chat_id || 0) > 0
-          ? forwardedChatsById?.[Number(msg?.forwarded_from_chat_id || 0)] || null
+        msg?.forwarded_from_chat_id
+          ? forwardedChatsById?.[msg.forwarded_from_chat_id] || null
           : null
       }
       forwardedChatStatus={
-        Number(msg?.forwarded_from_chat_id || 0) > 0
-          ? forwardedChatStatusById?.[Number(msg?.forwarded_from_chat_id || 0)] || null
+        msg?.forwarded_from_chat_id
+          ? forwardedChatStatusById?.[msg.forwarded_from_chat_id] || null
           : null
       }
       forwardedUser={
-        Number(msg?.forwarded_from_user_id || 0) > 0
-          ? forwardedUsersById?.[Number(msg?.forwarded_from_user_id || 0)] || null
+        msg?.forwarded_from_user_id
+          ? forwardedUsersById?.[msg.forwarded_from_user_id] || null
           : null
       }
       forwardedUserStatus={
-        Number(msg?.forwarded_from_user_id || 0) > 0
+        msg?.forwarded_from_user_id
           ? forwardedUserStatusByKey?.[
-              `id:${Number(msg?.forwarded_from_user_id || 0)}`
+              `id:${msg.forwarded_from_user_id}`
             ] || null
           : String(msg?.forwarded_from_username || "").trim()
             ? forwardedUserStatusByKey?.[
@@ -1613,7 +1613,7 @@ export default function ChatWindowPanel({
           </div>
         ) : (
           <MessageTimeline
-            key={`timeline-${Number(activeChatId || 0)}`}
+            key={`timeline-${activeChatId || ""}`}
             activeChatId={activeChatId}
             loadingMessages={loadingMessages}
             messages={messages}

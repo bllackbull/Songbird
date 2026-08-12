@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { dbKnex } from "../db/knex.js";
 
 /**
@@ -64,8 +65,9 @@ export async function addChatMembers(dbApi, chat, rows, { force = false } = {}) 
     );
     if (chat.type === "group") {
       await dbApi.run(
-        "INSERT INTO chat_messages (chat_id, user_id, body) VALUES (?, ?, ?)",
+        "INSERT INTO chat_messages (id, chat_id, user_id, body) VALUES (?, ?, ?, ?)",
         [
+          crypto.randomUUID(),
           chat.id,
           row.id,
           `[[system:joined:${row.nickname || row.username}]]`,

@@ -5,11 +5,14 @@ import { makeApp, makeUserStore } from "../helpers/makeApp.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+const ALICE_ID = "11111111-1111-4111-a111-111111111111";
+const BOB_ID = "22222222-2222-4222-a222-222222222222";
+
 function makeAppWithAlice(overrides = {}) {
   const hash = bcrypt.hashSync("secret123", 4);
   const userStore = makeUserStore([
     {
-      id: 1,
+      id: ALICE_ID,
       username: "alice",
       password_hash: hash,
       nickname: "Alice",
@@ -113,7 +116,7 @@ describe("PUT /api/profile", () => {
     const hash = bcrypt.hashSync("secret123", 4);
     const userStore = makeUserStore([
       {
-        id: 1,
+        id: ALICE_ID,
         username: "alice",
         password_hash: hash,
         nickname: null,
@@ -124,7 +127,7 @@ describe("PUT /api/profile", () => {
         banned: false,
       },
       {
-        id: 2,
+        id: BOB_ID,
         username: "bob",
         password_hash: hash,
         nickname: null,
@@ -149,7 +152,7 @@ describe("PUT /api/profile", () => {
     const hash = bcrypt.hashSync("secret123", 4);
     const userStore = makeUserStore([
       {
-        id: 1,
+        id: ALICE_ID,
         username: "alice",
         password_hash: hash,
         nickname: "Alice",
@@ -167,7 +170,7 @@ describe("PUT /api/profile", () => {
         removeAvatarByUrl: () => {},
         // Return the updated user
         findUserById: () => ({
-          id: 1,
+          id: ALICE_ID,
           username: "alice2",
           nickname: "Ali",
           avatar_url: null,

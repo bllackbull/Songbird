@@ -234,7 +234,7 @@ export function MessageComposer({
   ]);
 
   useEffect(() => {
-    const nextEditId = Number(editTarget?.id || 0);
+    const nextEditId = String(editTarget?.id || "").trim();
     if (!nextEditId) return;
     if (appliedEditIdRef.current === nextEditId) return;
     const nextValue =

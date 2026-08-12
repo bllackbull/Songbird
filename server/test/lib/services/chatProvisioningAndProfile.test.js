@@ -2,15 +2,19 @@ import { describe, test, expect, vi } from "vitest";
 import { createChatProvisioningService } from "../../../lib/services/chatProvisioningService.js";
 import { createProfileService } from "../../../lib/services/profileService.js";
 
+const CHAT_ID = "42424242-4242-4242-a242-424242424242";
+const ALICE_ID = "10101010-1010-4010-a010-101010101010";
+const BOB_ID = "20202020-2020-4020-a020-202020202020";
+
 describe("chatProvisioningService", () => {
   const createMockDb = () => ({
-    createChat: vi.fn(() => 42),
+    createChat: vi.fn(() => CHAT_ID),
     addChatMember: vi.fn(),
     findUserByUsername: vi.fn((un) =>
-      un === "bob" ? { id: 20, username: "bob" } : null,
+      un === "bob" ? { id: BOB_ID, username: "bob" } : null,
     ),
     findUserById: vi.fn((id) =>
-      id === 10 ? { id: 10, username: "alice" } : null,
+      id === ALICE_ID ? { id: ALICE_ID, username: "alice" } : null,
     ),
     crypto: { randomBytes: () => Buffer.from("abcdef123456", "hex") },
   });
@@ -22,14 +26,14 @@ describe("chatProvisioningService", () => {
     const res = service.createGroupOrChannel({
       name: "New Group",
       type: "group",
-      creatorUserId: 10,
+      creatorUserId: ALICE_ID,
       initialMemberUsernames: ["bob"],
     });
 
     expect(res.success).toBe(true);
-    expect(res.chatId).toBe(42);
-    expect(db.addChatMember).toHaveBeenCalledWith(42, 10, "owner");
-    expect(db.addChatMember).toHaveBeenCalledWith(42, 20, "member");
+    expect(res.chatId).toBe(CHAT_ID);
+    expect(db.addChatMember).toHaveBeenCalledWith(CHAT_ID, ALICE_ID, "owner");
+    expect(db.addChatMember).toHaveBeenCalledWith(CHAT_ID, BOB_ID, "member");
     expect(res.sseEvents.length).toBe(2);
   });
 });
@@ -38,10 +42,10 @@ describe("profileService", () => {
   const createMockDb = () => ({
     updateUserProfile: vi.fn(),
     findUserById: vi.fn((id) => ({ id, username: "alice" })),
-    listChatsForUser: vi.fn(() => [{ id: 1 }, { id: 2 }]),
+    listChatsForUser: vi.fn(() => [{ id: "11111111-1111-4111-a111-111111111111" }, { id: "22222222-2222-4222-a222-222222222222" }]),
     listChatMembers: vi.fn((chatId) => [
-      { id: 10, username: "alice" },
-      { id: 20, username: "bob" },
+      { id: ALICE_ID, username: "alice" },
+      { id: BOB_ID, username: "bob" },
     ]),
   });
 
@@ -50,12 +54,12 @@ describe("profileService", () => {
     const service = createProfileService(db);
 
     const res = service.updateProfile({
-      userId: 10,
+      userId: ALICE_ID,
       updates: { nickname: "Alice W." },
     });
 
     expect(res.success).toBe(true);
-    expect(db.updateUserProfile).toHaveBeenCalledWith(10, {
+    expect(db.updateUserProfile).toHaveBeenCalledWith(ALICE_ID, {
       nickname: "Alice W.",
     });
     expect(res.sseEvents.length).toBe(2);

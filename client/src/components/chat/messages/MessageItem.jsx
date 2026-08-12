@@ -174,8 +174,8 @@ export const MessageItem = memo(function MessageItem({
   const isRead = Boolean(msg.read_at);
   const isEdited = Boolean(Number(msg?.edited || 0) || msg?._edited);
   const deletedForwardOriginColor = "#94a3b8";
-  const forwardedFromChatId = Number(msg?.forwarded_from_chat_id || 0);
-  const forwardedFromUserId = Number(msg?.forwarded_from_user_id || 0);
+  const forwardedFromChatId = msg?.forwarded_from_chat_id ? String(msg.forwarded_from_chat_id).trim() : null;
+  const forwardedFromUserId = msg?.forwarded_from_user_id ? String(msg.forwarded_from_user_id).trim() : null;
   const storedForwardedLabel = String(msg?.forwarded_from_label || "").trim();
   const clientRequestId = String(
     msg?.client_request_id || msg?.clientRequestId || msg?._clientId || "",
@@ -189,8 +189,8 @@ export const MessageItem = memo(function MessageItem({
   );
   const remoteForwardedChatId =
     isRemoteForwardedOrigin
-      ? Number(chatId || msg?.chat_id || msg?.chatId || msg?._chatId || 0)
-      : 0;
+      ? String(chatId || msg?.chat_id || msg?.chatId || msg?._chatId || "").trim()
+      : null;
   // Derive the provider from the client_request_id prefix
   const remoteForwardedProvider = isRemoteForwardedOrigin
     ? /^remote:tg:/i.test(clientRequestId)
@@ -673,7 +673,7 @@ export const MessageItem = memo(function MessageItem({
     !isDeletedAuthor && typeof onOpenSenderProfile === "function";
   const contextMenuMobileEnabled = !isDesktop && isMobileTouchDevice;
   const senderMenuMember = {
-    id: Number(msg.user_id || 0) || null,
+    id: msg.user_id || null,
     username: msg.username || "",
     nickname: msg.nickname || "",
     avatar_url: msg.avatar_url || "",
@@ -894,7 +894,7 @@ export const MessageItem = memo(function MessageItem({
         isFirstInGroup ? "pt-2" : ""
       }`}
     >
-      {Number(unreadMarkerId) === Number(msg.id) ? (
+      {String(unreadMarkerId || "") === String(msg.id || "") ? (
         <div
           id={`unread-divider-${msg.id}`}
           className="flex items-center gap-3 py-3"

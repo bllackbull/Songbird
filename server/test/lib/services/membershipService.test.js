@@ -1,6 +1,11 @@
 import { describe, test, expect, vi } from "vitest";
 import { createMembershipService } from "../../../lib/services/membershipService.js";
 
+const CHAT_ID = "11111111-1111-4111-a111-111111111111";
+const ALICE_ID = "22222222-2222-4222-a222-222222222222";
+const BOB_ID = "33333333-3333-4333-a333-333333333333";
+const MSG_ID = "44444444-4444-4444-a444-444444444444";
+
 describe("membershipService", () => {
   const createMockDb = (overrides = {}) => {
     const membersMap = new Map();
@@ -8,41 +13,41 @@ describe("membershipService", () => {
     const usersMap = new Map();
 
     // Default seed
-    chatsMap.set(1, {
-      id: 1,
+    chatsMap.set(CHAT_ID, {
+      id: CHAT_ID,
       type: "group",
       name: "Test Group",
       invite_token: "tok123",
     });
-    usersMap.set(10, { id: 10, username: "alice", nickname: "Alice" });
-    usersMap.set(20, { id: 20, username: "bob", nickname: "Bob" });
+    usersMap.set(ALICE_ID, { id: ALICE_ID, username: "alice", nickname: "Alice" });
+    usersMap.set(BOB_ID, { id: BOB_ID, username: "bob", nickname: "Bob" });
 
-    membersMap.set(1, [{ id: 10, username: "alice", role: "owner" }]);
+    membersMap.set(CHAT_ID, [{ id: ALICE_ID, username: "alice", role: "owner" }]);
 
     return {
-      getChatById: vi.fn((id) => chatsMap.get(Number(id)) || null),
-      listChatMembers: vi.fn((id) => membersMap.get(Number(id)) || []),
+      getChatById: vi.fn((id) => chatsMap.get(String(id)) || null),
+      listChatMembers: vi.fn((id) => membersMap.get(String(id)) || []),
       addChatMember: vi.fn((chatId, userId, role) => {
-        const list = membersMap.get(Number(chatId)) || [];
-        const u = usersMap.get(Number(userId));
+        const list = membersMap.get(String(chatId)) || [];
+        const u = usersMap.get(String(userId));
         if (u) {
           list.push({ id: u.id, username: u.username, role });
-          membersMap.set(Number(chatId), list);
+          membersMap.set(String(chatId), list);
         }
       }),
       removeChatMember: vi.fn((chatId, userId) => {
-        const list = membersMap.get(Number(chatId)) || [];
+        const list = membersMap.get(String(chatId)) || [];
         membersMap.set(
-          Number(chatId),
-          list.filter((m) => Number(m.id) !== Number(userId)),
+          String(chatId),
+          list.filter((m) => String(m.id) !== String(userId)),
         );
       }),
       updateChatMemberRole: vi.fn((chatId, userId, role) => {
-        const list = membersMap.get(Number(chatId)) || [];
-        const item = list.find((m) => Number(m.id) === Number(userId));
+        const list = membersMap.get(String(chatId)) || [];
+        const item = list.find((m) => String(m.id) === String(userId));
         if (item) item.role = role;
       }),
-      findUserById: vi.fn((id) => usersMap.get(Number(id)) || null),
+      findUserById: vi.fn((id) => usersMap.get(String(id)) || null),
       findUserByUsername: vi.fn(
         (un) => [...usersMap.values()].find((u) => u.username === un) || null,
       ),
@@ -51,7 +56,7 @@ describe("membershipService", () => {
           [...chatsMap.values()].find((c) => c.invite_token === tok) || null,
       ),
       addSystemMessage: vi.fn((chatId, body, userId) => ({
-        id: 99,
+        id: MSG_ID,
         chat_id: chatId,
         user_id: userId,
         body,
@@ -66,14 +71,14 @@ describe("membershipService", () => {
     const db = createMockDb();
     const service = createMembershipService(db);
 
-    const res = service.addMembers({ chatId: 1, targetUserIds: [20] });
+    const res = service.addMembers({ chatId: CHAT_ID, targetUserIds: [BOB_ID] });
     expect(res.success).toBe(true);
     expect(res.addedCount).toBe(1);
-    expect(db.addChatMember).toHaveBeenCalledWith(1, 20, "member");
+    expect(db.addChatMember).toHaveBeenCalledWith(CHAT_ID, BOB_ID, "member");
     expect(db.addSystemMessage).toHaveBeenCalledWith(
-      1,
+      CHAT_ID,
       "[[system:joined:bob]]",
-      20,
+      BOB_ID,
     );
     expect(res.sseEvents.length).toBeGreaterThan(0);
   });
@@ -82,14 +87,14 @@ describe("membershipService", () => {
     const db = createMockDb();
     const service = createMembershipService(db);
 
-    const res = service.joinByInvite({ inviteToken: "tok123", userId: 20 });
+    const res = service.joinByInvite({ inviteToken: "tok123", userId: BOB_ID });
     expect(res.success).toBe(true);
-    expect(res.chat.id).toBe(1);
-    expect(db.addChatMember).toHaveBeenCalledWith(1, 20, "member");
+    expect(res.chat.id).toBe(CHAT_ID);
+    expect(db.addChatMember).toHaveBeenCalledWith(CHAT_ID, BOB_ID, "member");
     expect(db.addSystemMessage).toHaveBeenCalledWith(
-      1,
+      CHAT_ID,
       "[[system:joined:Bob]]",
-      20,
+      BOB_ID,
     );
   });
 
@@ -97,13 +102,13 @@ describe("membershipService", () => {
     const db = createMockDb();
     const service = createMembershipService(db);
 
-    const res = service.leaveChat({ chatId: 1, userId: 10 });
+    const res = service.leaveChat({ chatId: CHAT_ID, userId: ALICE_ID });
     expect(res.success).toBe(true);
-    expect(db.removeChatMember).toHaveBeenCalledWith(1, 10);
+    expect(db.removeChatMember).toHaveBeenCalledWith(CHAT_ID, ALICE_ID);
     expect(db.addSystemMessage).toHaveBeenCalledWith(
-      1,
+      CHAT_ID,
       "[[system:left:Alice]]",
-      10,
+      ALICE_ID,
     );
   });
 
@@ -112,16 +117,16 @@ describe("membershipService", () => {
     const service = createMembershipService(db);
 
     const res = service.removeMember({
-      chatId: 1,
-      targetUserId: 10,
-      removedByUserId: 20,
+      chatId: CHAT_ID,
+      targetUserId: ALICE_ID,
+      removedByUserId: BOB_ID,
     });
     expect(res.success).toBe(true);
-    expect(db.removeChatMember).toHaveBeenCalledWith(1, 10);
+    expect(db.removeChatMember).toHaveBeenCalledWith(CHAT_ID, ALICE_ID);
     expect(db.addSystemMessage).toHaveBeenCalledWith(
-      1,
+      CHAT_ID,
       "[[system:removed:Alice]]",
-      10,
+      ALICE_ID,
     );
   });
 
@@ -130,11 +135,11 @@ describe("membershipService", () => {
     const service = createMembershipService(db);
 
     const res = service.updateMemberRole({
-      chatId: 1,
-      targetUserId: 10,
+      chatId: CHAT_ID,
+      targetUserId: ALICE_ID,
       newRole: "admin",
     });
     expect(res.success).toBe(true);
-    expect(db.updateChatMemberRole).toHaveBeenCalledWith(1, 10, "admin");
+    expect(db.updateChatMemberRole).toHaveBeenCalledWith(CHAT_ID, ALICE_ID, "admin");
   });
 });

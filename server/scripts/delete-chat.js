@@ -18,7 +18,7 @@ async function resolveChatIds(dbApi, selectors) {
 
     const chat = await resolveChatRow(dbApi, raw, { groupOnly: false })
     if (chat?.id) {
-      ids.add(Number(chat.id))
+      ids.add(String(chat.id))
       continue
     }
 
@@ -99,8 +99,8 @@ async function main() {
       }
       const allChats = await dbApi.getAll('SELECT id FROM chats ORDER BY id ASC')
       chatIds = allChats
-        .map((row) => Number(row.id))
-        .filter((value) => Number.isFinite(value) && value > 0)
+        .map((row) => String(row.id))
+        .filter(Boolean)
     }
 
     if (!chatIds.length) {

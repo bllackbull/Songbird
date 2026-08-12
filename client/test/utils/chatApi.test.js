@@ -25,6 +25,7 @@ describe("chatApi.uploadFile", () => {
 
   test("performs S3 presigned upload when endpoint returns type === 's3'", async () => {
     const file = new File(["test content"], "photo.png", { type: "image/png" });
+    const fileUuid = "f47ac10b-58cc-4372-a567-0e02b2c3d479";
 
     const fetchMock = vi.fn(async (url, options = {}) => {
       if (url === "/api/uploads/presign") {
@@ -35,7 +36,7 @@ describe("chatApi.uploadFile", () => {
             type: "s3",
             uploadUrl:
               "https://my-bucket.s3.amazonaws.com/uploads/photo.png?sig=123",
-            fileId: 42,
+            fileId: fileUuid,
             storageKey: "uploads/photo.png",
             blurhash: "mockblurhash",
           }),
@@ -52,10 +53,10 @@ describe("chatApi.uploadFile", () => {
       if (url === "/api/uploads/complete") {
         expect(options.method).toBe("POST");
         const body = JSON.parse(options.body);
-        expect(body).toEqual({ fileId: 42, storageKey: "uploads/photo.png" });
+        expect(body).toEqual({ fileId: fileUuid, storageKey: "uploads/photo.png" });
         return {
           ok: true,
-          json: async () => ({ success: true, fileId: 42, status: "ready" }),
+          json: async () => ({ success: true, fileId: fileUuid, status: "ready" }),
         };
       }
       return { ok: false, status: 404 };
@@ -66,8 +67,8 @@ describe("chatApi.uploadFile", () => {
     const result = await uploadFile(file);
 
     expect(result).toEqual({
-      fileId: 42,
-      url: "/api/uploads/file/42",
+      fileId: fileUuid,
+      url: `/api/uploads/file/${fileUuid}`,
       filename: "photo.png",
       mimeType: "image/png",
       fileSize: file.size,

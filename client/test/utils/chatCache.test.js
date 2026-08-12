@@ -214,8 +214,12 @@ describe("isCacheableMessage", () => {
     expect(isCacheableMessage(msg)).toBe(false);
   });
 
-  test("returns true when id comes from _serverId", () => {
-    expect(isCacheableMessage({ _serverId: 42 })).toBe(true);
+  test("returns true when id is a valid UUID v4 string", () => {
+    expect(isCacheableMessage({ id: "f47ac10b-58cc-4372-a567-0e02b2c3d479" })).toBe(true);
+  });
+
+  test("returns true when id comes from _serverId with UUID string", () => {
+    expect(isCacheableMessage({ _serverId: "f47ac10b-58cc-4372-a567-0e02b2c3d479" })).toBe(true);
   });
 });
 

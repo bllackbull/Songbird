@@ -56,8 +56,8 @@ if (remote) {
     if (deleteAll) {
       targetMessageIds = (await dbApi
         .getAll("SELECT DISTINCT message_id FROM chat_message_files ORDER BY message_id ASC"))
-        .map((row) => Number(row.message_id))
-        .filter((id) => Number.isFinite(id) && id > 0);
+        .map((row) => String(row.message_id))
+        .filter(Boolean);
       messageStoredNames = (await dbApi.getAll("SELECT stored_name FROM chat_message_files")).map((row) => row.stored_name);
       avatarRows = await dbApi.getAll(
         `SELECT id, avatar_url FROM users WHERE avatar_url LIKE '/uploads/avatars/%'`,
@@ -83,8 +83,8 @@ if (remote) {
       targetMessageIds = Array.from(
         new Set(
           allFileRows
-            .map((row) => Number(row.message_id))
-            .filter((id) => Number.isFinite(id) && id > 0),
+            .map((row) => String(row.message_id))
+            .filter(Boolean),
         ),
       );
       if (targetMessageIds.length) {
@@ -136,7 +136,7 @@ if (remote) {
         await dbApi.run(`DELETE FROM chat_messages WHERE id IN (${placeholders})`, targetMessageIds);
       }
       if (avatarRows.length) {
-        const userIds = avatarRows.map((row) => Number(row.id)).filter(Boolean);
+        const userIds = avatarRows.map((row) => String(row.id)).filter(Boolean);
         if (userIds.length) {
           await dbApi.run(
             `UPDATE users SET avatar_url = NULL WHERE id IN (${userIds.map(() => "?").join(", ")})`,

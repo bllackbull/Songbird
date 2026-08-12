@@ -15,11 +15,12 @@ describe("GET /api/events (SSE)", () => {
   test("calls connectPresence on open and disconnectPresence on close", async () => {
     const connectPresence = vi.fn();
     const disconnectPresence = vi.fn();
+    const aliceId = "11111111-1111-4111-a111-111111111111";
     const { app, sessionStore } = makeApp({
-      userStore: makeUserStore([{ id: 1, username: "alice", status: "online" }]),
+      userStore: makeUserStore([{ id: aliceId, username: "alice", status: "online" }]),
       deps: { connectPresence, disconnectPresence },
     });
-    sessionStore.createSession(1, "sse-token");
+    sessionStore.createSession(aliceId, "sse-token");
 
     let req;
     try {

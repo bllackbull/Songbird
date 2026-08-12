@@ -145,7 +145,7 @@ async function main() {
 
       const existing = await dbApi.getRow(
         "SELECT id, source_raw, source_chat_id, source_username, sync_metadata, stream_media, enabled, paused FROM remote_channel_sources WHERE chat_id = ?",
-        [Number(chat.id)],
+        [chat.id],
       );
 
       if (!existing?.id && (syncMetadata || noSyncMetadata || streamMedia || noStreamMedia || enableRemote || disableRemote || pauseQueue || resumeQueue || skipQueue || skipAllQueue || testRemote)) {
@@ -159,7 +159,7 @@ async function main() {
       if (pauseQueue) {
         await dbApi.run(
           "UPDATE remote_channel_sources SET paused = 1, updated_at = datetime('now') WHERE chat_id = ?",
-          [Number(chat.id)],
+          [chat.id],
         );
         await dbApi.save();
         console.log(`Remote Channel queue paused for chat: id=${chat.id}`);
@@ -169,7 +169,7 @@ async function main() {
       if (resumeQueue) {
         await dbApi.run(
           "UPDATE remote_channel_sources SET paused = 0, updated_at = datetime('now') WHERE chat_id = ?",
-          [Number(chat.id)],
+          [chat.id],
         );
         await dbApi.save();
         console.log(`Remote Channel queue resumed for chat: id=${chat.id}`);
@@ -191,7 +191,7 @@ async function main() {
              ORDER BY id ASC
              LIMIT 1
            )`,
-          [Number(existing.id)],
+          [existing.id],
         );
         await dbApi.save();
         console.log(
@@ -212,7 +212,7 @@ async function main() {
                processed_at = datetime('now')
            WHERE source_id = ?
              AND status IN ('pending', 'retry')`,
-          [Number(existing.id)],
+          [existing.id],
         );
         await dbApi.save();
         console.log(`Skipped ${skipped} queue items for chat: id=${chat.id}`);
@@ -230,7 +230,7 @@ async function main() {
         if (existing?.id) {
           await dbApi.run(
             "UPDATE remote_channel_sources SET enabled = 0, updated_at = datetime('now') WHERE chat_id = ?",
-            [Number(chat.id)],
+            [chat.id],
           );
           await dbApi.save();
           console.log(`Remote Channel disabled for chat: id=${chat.id}`);
@@ -244,7 +244,7 @@ async function main() {
         if (existing?.id) {
           await dbApi.run(
             "UPDATE remote_channel_sources SET enabled = 1, updated_at = datetime('now') WHERE chat_id = ?",
-            [Number(chat.id)],
+            [chat.id],
           );
           await dbApi.save();
           console.log(`Remote Channel enabled for chat: id=${chat.id}`);
@@ -338,7 +338,7 @@ async function main() {
              last_error = NULL,
              updated_at = datetime('now')`,
           [
-            Number(chat.id),
+            chat.id,
             sourceRaw,
             sourceChatId,
             sourceUsername,
@@ -359,14 +359,14 @@ async function main() {
                  processed_at = datetime('now')
              WHERE source_id = ?
                AND status IN ('pending', 'retry', 'processing')`,
-            [Number(existing.id)],
+            [existing.id],
           );
         }
       } else {
         // Only update flags
         await dbApi.run(
           "UPDATE remote_channel_sources SET sync_metadata = ?, stream_media = ?, updated_at = datetime('now') WHERE chat_id = ?",
-          [nextSyncMetadata, nextStreamMedia, Number(chat.id)],
+          [nextSyncMetadata, nextStreamMedia, chat.id],
         );
       }
 
@@ -463,7 +463,7 @@ async function main() {
       }
       const chatConflict = await dbApi.getRow(
         "SELECT id FROM chats WHERE type IN ('group', 'channel') AND group_username IN (?, ?) AND id != ?",
-        [nextUsername, `@${nextUsername}`, Number(chat.id)],
+        [nextUsername, `@${nextUsername}`, chat.id],
       );
       if (chatConflict?.id) {
         console.error("Chat username already exists.");
@@ -490,23 +490,23 @@ async function main() {
         nextVisibility,
         nextColor,
         nextAllowMemberInvites,
-        nextOwner?.id ? Number(nextOwner.id) : null,
-        Number(chat.id),
+        nextOwner?.id || null,
+        chat.id,
       ],
     );
 
     if (nextOwner?.id) {
       await dbApi.run(
         "UPDATE chat_members SET role = 'member' WHERE chat_id = ? AND role = 'owner'",
-        [Number(chat.id)],
+        [chat.id],
       );
       await dbApi.run(
         "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, 'owner')",
-        [Number(chat.id), Number(nextOwner.id)],
+        [chat.id, nextOwner.id],
       );
       await dbApi.run(
         "UPDATE chat_members SET role = 'owner' WHERE chat_id = ? AND user_id = ?",
-        [Number(chat.id), Number(nextOwner.id)],
+        [chat.id, nextOwner.id],
       );
     }
 

@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import {
   getCliArgs,
   getPositionalArgs,
@@ -6,6 +7,7 @@ import {
 } from "./_cli.js";
 import { openDatabase, runAdminActionViaServer } from "./_db-admin.js";
 import { storageEncryption } from "../lib/storageEncryption.js";
+import { resolveChatRow, resolveUserRow } from "../lib/dbToolHelpers.js";
 
 const SAMPLE_MESSAGES = [
   "Hello there",
@@ -91,28 +93,9 @@ function buildTimestampSchedule(count, daysBack) {
   return stamps;
 }
 
-function parseUserSelector(value) {
-  const raw = String(value || "").trim();
-  if (!raw) return null;
-  const numeric = Number(raw);
-  if (Number.isFinite(numeric) && numeric > 0) {
-    return { by: "id", value: Math.trunc(numeric) };
-  }
-  return { by: "username", value: raw };
-}
-
-async function resolveUserId(dbApi, selector) {
-  if (!selector) return null;
-  if (selector.by === "id") {
-    const row = await dbApi.getRow("SELECT id FROM users WHERE id = ?", [
-      selector.value,
-    ]);
-    return row?.id ? Number(row.id) : null;
-  }
-  const row = await dbApi.getRow("SELECT id FROM users WHERE username = ?", [
-    selector.value,
-  ]);
-  return row?.id ? Number(row.id) : null;
+async function resolveUserId(dbApi, selectorRaw) {
+  const user = await resolveUserRow(dbApi, selectorRaw);
+  return user?.id ? String(user.id) : null;
 }
 
 async function main() {
@@ -155,22 +138,21 @@ async function main() {
     getFlagValue(npmArgs, "--days") ||
     "7";
 
-  const chatId = Number(chatIdRaw);
+  const chatIdSelector = String(chatIdRaw || "").trim();
   const count = Math.max(1, Math.min(10000, Number(countRaw) || 0));
   const daysBack = Math.max(1, Math.min(365, Number(daysBackRaw) || 7));
 
   if (
-    !Number.isFinite(chatId) ||
-    chatId <= 0 ||
+    !chatIdSelector ||
     !userOneRaw ||
     !userTwoRaw ||
     !count
   ) {
     console.error(
-      "Usage (recommended): npm run db:message:generate -- 1 alice bob 300 7",
+      "Usage (recommended): npm run db:message:generate -- <chat-id-or-username> alice bob 300 7",
     );
     console.error(
-      "Usage (named args): npm run db:message:generate -- --chatId 1 --userA alice --userB bob --count 300 --days 7",
+      "Usage (named args): npm run db:message:generate -- --chatId <chat-id-or-username> --userA alice --userB bob --count 300 --days 7",
     );
     console.error("Users can be username or user id.");
     process.exitCode = 1;
@@ -182,7 +164,7 @@ async function main() {
     const remoteResult = await runAdminActionViaServer(
       "generate_chat_messages",
       {
-        chatId,
+        chatId: chatIdSelector,
         userA: userOneRaw,
         userB: userTwoRaw,
         count,
@@ -193,7 +175,7 @@ async function main() {
       console.log(
         `Server mode generated messages: ${remoteResult.created ?? 0}`,
       );
-      console.log(`Chat: ${remoteResult.chatId ?? chatId}`);
+      console.log(`Chat: ${remoteResult.chatId ?? chatIdSelector}`);
       return;
     }
   } catch (error) {
@@ -204,18 +186,19 @@ async function main() {
 
   const dbApi = await openDatabase();
   try {
-    const chatRow = await dbApi.getRow("SELECT id FROM chats WHERE id = ?", [chatId]);
-    if (!chatRow?.id) {
-      console.error(`Chat not found: ${chatId}`);
+    const chat = await resolveChatRow(dbApi, chatIdSelector, { groupOnly: false });
+    if (!chat?.id) {
+      console.error(`Chat not found: ${chatIdSelector}`);
       if (remoteErrorMessage) {
         console.error(`Server mode error was: ${remoteErrorMessage}`);
       }
       process.exitCode = 1;
       return;
     }
+    const chatId = String(chat.id);
 
-    const userAId = await resolveUserId(dbApi, parseUserSelector(userOneRaw));
-    const userBId = await resolveUserId(dbApi, parseUserSelector(userTwoRaw));
+    const userAId = await resolveUserId(dbApi, userOneRaw);
+    const userBId = await resolveUserId(dbApi, userTwoRaw);
     if (!userAId || !userBId) {
       console.error("One or both users not found.");
       if (remoteErrorMessage) {
@@ -251,8 +234,9 @@ async function main() {
             ? rawBody.slice(0, MESSAGE_MAX_CHARS)
             : rawBody;
         await dbApi.run(
-          "INSERT INTO chat_messages (chat_id, user_id, body, created_at, read_at, read_by_user_id) VALUES (?, ?, ?, ?, NULL, NULL)",
+          "INSERT INTO chat_messages (id, chat_id, user_id, body, created_at, read_at, read_by_user_id) VALUES (?, ?, ?, ?, ?, NULL, NULL)",
           [
+            crypto.randomUUID(),
             chatId,
             senderId,
             storageEncryption.encryptText(body),

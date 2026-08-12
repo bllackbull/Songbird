@@ -42,12 +42,12 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
           storageProcessingMode: "sync",
           createMessageFiles: createMessageFilesMock,
           findMessageFileById: (id) =>
-            filesStore.find((f) => f.id === Number(id)) || null,
+            filesStore.find((f) => String(f.id) === String(id)) || null,
           adminGetRow: (sql, params) => {
             if (sql.includes("chat_message_files")) {
               const id = params ? params[0] : null;
               if (id)
-                return filesStore.find((f) => f.id === Number(id)) || null;
+                return filesStore.find((f) => String(f.id) === String(id)) || null;
               return filesStore[filesStore.length - 1] || null;
             }
             return null;
@@ -58,7 +58,7 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
             ) {
               const status = params[0];
               const fileId = params[1];
-              const file = filesStore.find((f) => f.id === Number(fileId));
+              const file = filesStore.find((f) => String(f.id) === String(fileId));
               if (file) file.processing_status = status;
             }
           },
@@ -137,12 +137,12 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
           storageProvider: localProvider,
           createMessageFiles: createMessageFilesMock,
           findMessageFileById: (id) =>
-            filesStore.find((f) => f.id === Number(id)) || null,
+            filesStore.find((f) => String(f.id) === String(id)) || null,
           adminGetRow: (sql, params) => {
             if (sql.includes("chat_message_files")) {
               const id = params ? params[0] : null;
               if (id)
-                return filesStore.find((f) => f.id === Number(id)) || null;
+                return filesStore.find((f) => String(f.id) === String(id)) || null;
               return filesStore[filesStore.length - 1] || null;
             }
             return null;
@@ -240,13 +240,13 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
           webhookSecret: "super-secret-webhook-key",
           createMessageFiles: createMessageFilesMock,
           findMessageFileById: (id) =>
-            filesStore.find((f) => f.id === Number(id)) || null,
+            filesStore.find((f) => String(f.id) === String(id)) || null,
           adminGetRow: (sql, params) => {
-            if (sql.includes("chat_messages")) return { chat_id: 101 };
+            if (sql.includes("chat_messages")) return { chat_id: "10101010-1010-4010-a010-101010101010" };
             if (sql.includes("chat_message_files")) {
               const id = params ? params[0] : null;
               if (id)
-                return filesStore.find((f) => f.id === Number(id)) || null;
+                return filesStore.find((f) => String(f.id) === String(id)) || null;
               return filesStore[filesStore.length - 1] || null;
             }
             return null;
@@ -254,8 +254,8 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
           adminRun: (sql, params) => {
             const lower = String(sql || "").toLowerCase();
             if (lower.includes("chat_message_files")) {
-              const fileId = Number(params[params.length - 1]);
-              const file = filesStore.find((f) => f.id === fileId);
+              const fileId = String(params[params.length - 1]);
+              const file = filesStore.find((f) => String(f.id) === fileId);
               if (file) {
                 if (params.includes("ready")) file.processing_status = "ready";
                 else if (params.includes("pending")) file.processing_status = "pending";

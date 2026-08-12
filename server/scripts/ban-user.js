@@ -53,15 +53,15 @@ async function main() {
 
     const sessionsRow = await dbApi.getRow(
       "SELECT COUNT(*) AS count FROM sessions WHERE user_id = ?",
-      [Number(user.id)],
+      [user.id],
     );
     await dbApi.run("BEGIN");
     try {
       await dbApi.run("UPDATE users SET banned = ? WHERE id = ?", [
         nextBanned,
-        Number(user.id),
+        user.id,
       ]);
-      await dbApi.run("DELETE FROM sessions WHERE user_id = ?", [Number(user.id)]);
+      await dbApi.run("DELETE FROM sessions WHERE user_id = ?", [user.id]);
       await dbApi.run("COMMIT");
     } catch (error) {
       await dbApi.run("ROLLBACK");

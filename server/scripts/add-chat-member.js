@@ -63,7 +63,7 @@ async function main() {
     }
 
     const rows = Array.from(
-      new Map(resolvedUserRows.map((row) => [Number(row.id), row])).values(),
+      new Map(resolvedUserRows.map((row) => [String(row.id), row])).values(),
     );
     if (!rows.length) {
       console.error("No users matched.");
