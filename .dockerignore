@@ -8,6 +8,7 @@ logs
 certs
 docs
 scripts
+!scripts/run-data-command.sh
 # Tests and test artifacts
 **/test
 **/coverage
