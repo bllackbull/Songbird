@@ -157,7 +157,7 @@ export function useChatEvents({
       let ws = null;
       if (useWebSocket) {
         try {
-          const wsUrl = getWebSocketUrl();
+          const wsUrl = getWebSocketUrl(username);
           ws = new WebSocket(wsUrl);
           source = ws;
         } catch (_) {

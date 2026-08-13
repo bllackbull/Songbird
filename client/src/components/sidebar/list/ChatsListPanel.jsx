@@ -474,7 +474,11 @@ export default function ChatsListPanel({
           const members = conv.members || [];
           const other =
             conv.type === "dm"
-              ? members.find((member) => member.username !== user.username)
+              ? members.find(
+                  (member) =>
+                    String(member?.username || "").toLowerCase() !==
+                    String(user?.username || "").toLowerCase(),
+                )
               : null;
           const isDeletedDm = conv.type === "dm" && !other;
           const showOnlineBadge =
@@ -802,7 +806,9 @@ export default function ChatsListPanel({
                   const nextOther =
                     conv.type === "dm"
                       ? conv.members?.find(
-                          (member) => member.username !== user.username,
+                          (member) =>
+                            String(member?.username || "").toLowerCase() !==
+                            String(user?.username || "").toLowerCase(),
                         )
                       : null;
                   setActivePeer(nextOther || null);

@@ -1777,6 +1777,11 @@ export function listChatMembersForChats(chatIds = []) {
       const cid = row.chat_id;
       if (!map.has(cid)) map.set(cid, []);
       map.get(cid).push(row);
+      const lowerCid = String(cid || "").toLowerCase();
+      if (lowerCid !== cid) {
+        if (!map.has(lowerCid)) map.set(lowerCid, []);
+        map.get(lowerCid).push(row);
+      }
     }
     return map;
   };
@@ -2970,16 +2975,20 @@ export function updateMessageFileMetadata(fileId, metadata = {}) {
   );
 }
 
-export function updateUserProfile(userId, username, nickname, avatarUrl) {
-  run(
+export function updateUserProfile(userId, arg2, nickname, avatarUrl) {
+  const updatePayload =
+    typeof arg2 === "object" && arg2 !== null
+      ? { username: arg2.username, nickname: arg2.nickname, avatar_url: arg2.avatarUrl }
+      : { username: arg2, nickname, avatar_url: avatarUrl };
+  return run(
     dbKnex("users")
       .where("id", userId)
-      .update({ username, nickname, avatar_url: avatarUrl }),
+      .update(updatePayload),
   );
 }
 
 export function updateUserPassword(userId, passwordHash) {
-  run(
+  return run(
     dbKnex("users")
       .where("id", userId)
       .update({ password_hash: passwordHash }),
@@ -2987,7 +2996,7 @@ export function updateUserPassword(userId, passwordHash) {
 }
 
 export function updateUserStatus(userId, status) {
-  run(
+  return run(
     dbKnex("users")
       .where("id", userId)
       .update({ status }),
@@ -2995,7 +3004,7 @@ export function updateUserStatus(userId, status) {
 }
 
 export function setUserBanned(userId, banned) {
-  run(
+  return run(
     dbKnex("users")
       .where("id", userId)
       .update({ banned: banned ? 1 : 0 }),
@@ -3003,7 +3012,7 @@ export function setUserBanned(userId, banned) {
 }
 
 export function deleteSessionsByUserId(userId) {
-  run(
+  return run(
     dbKnex("sessions")
       .where("user_id", userId)
       .del(),
@@ -3072,13 +3081,8 @@ export function markMessagesRead(chatId, readerId) {
     [readerId, chatId, readerId, readerId],
   );
   if (inserted && typeof inserted.then === "function") {
-    return inserted.then((res) => {
-      if (!res) return;
-      return updateFn();
-    });
+    return inserted.then(() => updateFn());
   }
-
-  if (!inserted) return;
 
   return updateFn();
 }

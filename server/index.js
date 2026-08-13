@@ -415,6 +415,7 @@ const presenceTracker = createPresenceTracker({
   getUserPresence,
   listChatsForUser,
   listChatMembers,
+  listChatMembersForChats,
   emitToUser: (username, payload) => {
     emitSseEvent(username, payload);
     wsPresenceBroadcaster?.(username, payload);
@@ -685,7 +686,10 @@ const apiDeps = {
   deleteUserById,
   disconnectPresence: (username, ref) => presenceTracker.markDisconnected(username, ref),
   emitChatEvent,
-  emitSseEvent,
+  emitSseEvent: (username, payload) => {
+    emitSseEvent(username, payload);
+    wsPresenceBroadcaster?.(username, payload);
+  },
   broadcastAll,
   broadcastPresence: (username) => presenceTracker.broadcastStatus(username),
   connectPresence: (username, ref) => presenceTracker.markConnected(username, ref),

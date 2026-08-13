@@ -16,6 +16,7 @@ function registerProfileRoutes(app, deps) {
     findChatByGroupUsername,
     findUserById,
     findUserByUsername,
+    isConnected,
     deleteUserById,
     hasEnoughFreeDiskSpace,
     avatarUploadRootDir,
@@ -38,6 +39,11 @@ function registerProfileRoutes(app, deps) {
     const previousUsername = String(options.previousUsername || "")
       .trim()
       .toLowerCase();
+    const storedStatus = String(user.status || "online").toLowerCase();
+    const effectiveStatus =
+      typeof isConnected === "function" && isConnected(currentUsername) && storedStatus === "online"
+        ? "online"
+        : "offline";
     const payload = {
       type: "profile_updated",
       userId: user.id,
@@ -46,7 +52,8 @@ function registerProfileRoutes(app, deps) {
       nickname: user.nickname || null,
       avatarUrl: ensureAvatarExists(user.id, user.avatar_url) || null,
       color: user.color || USER_COLORS[0],
-      status: user.status || "online",
+      status: effectiveStatus,
+      rawStatus: storedStatus,
     };
     const targets = new Set();
     if (currentUsername) targets.add(currentUsername);
@@ -169,9 +176,12 @@ function registerProfileRoutes(app, deps) {
 
     const rawUpdated = findUserById(currentUser.id);
     const updated = rawUpdated && typeof rawUpdated.then === "function" ? await rawUpdated : rawUpdated;
-    emitProfileUpdate(updated, {
+    await emitProfileUpdate(updated, {
       previousUsername: currentUser.username,
     });
+    if (typeof broadcastPresence === "function") {
+      await broadcastPresence(String(updated.username || "").toLowerCase());
+    }
 
     res.json({
       id: updated.id,
@@ -262,9 +272,12 @@ function registerProfileRoutes(app, deps) {
 
     const rawUpdated = findUserById(user.id);
     const updated = rawUpdated && typeof rawUpdated.then === "function" ? await rawUpdated : rawUpdated;
-    emitProfileUpdate(updated, {
+    await emitProfileUpdate(updated, {
       previousUsername: user.username,
     });
+    if (typeof broadcastPresence === "function") {
+      await broadcastPresence(String(updated.username || "").toLowerCase());
+    }
 
     return res.json({
       avatarUrl: ensureAvatarExists(updated.id, updated.avatar_url) || avatarUrl,
@@ -327,7 +340,7 @@ function registerProfileRoutes(app, deps) {
     }
 
     await updateUserStatus(user.id, status);
-    broadcastPresence(String(user.username || "").toLowerCase());
+    await broadcastPresence(String(user.username || "").toLowerCase());
 
     res.json({ ok: true, status });
   });

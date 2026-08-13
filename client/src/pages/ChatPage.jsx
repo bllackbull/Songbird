@@ -1257,7 +1257,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         last_sender_nickname: user.nickname || user.username,
         last_sender_avatar_url: user.avatarUrl || "",
         last_message_client_request_id: null,
-        last_message_read_at: null,
+        last_message_read_at: chat?.last_message_read_at || null,
       }));
     });
   };
@@ -2059,13 +2059,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const parsePresenceDate = (value) => {
     if (!value) return null;
-    if (typeof value === "string") {
-      const normalized = value.includes("T") ? value : value.replace(" ", "T");
-      return normalized.endsWith("Z")
-        ? new Date(normalized)
-        : new Date(`${normalized}Z`);
-    }
-    return new Date(value);
+    const d = parseServerDate(value);
+    return d && !isNaN(d.getTime()) ? d : null;
   };
   const normalizeStatus = (status) =>
     String(status || "").toLowerCase() === "online" ? "online" : "offline";
@@ -2100,7 +2095,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const rawStatus = String(payload?.rawStatus || status).toLowerCase();
     const rawLastSeen = String(payload?.lastSeen || "").trim();
     const parsedLastSeen = parsePresenceDate(rawLastSeen);
-    const normalizedLastSeen = parsedLastSeen?.toISOString?.() || new Date().toISOString();
+    const normalizedLastSeen = parsedLastSeen && !isNaN(parsedLastSeen.getTime())
+      ? parsedLastSeen.toISOString()
+      : new Date().toISOString();
     const onlineStatus = normalizeStatus(status);
     presenceStateRef.current.set(targetUsername, {
       status: onlineStatus,
@@ -2115,24 +2112,40 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setChats((prev) =>
       prev.map((chat) => {
         const members = Array.isArray(chat?.members) ? chat.members : [];
-        if (
-          !members.some(
-            (member) => String(member?.username || "").toLowerCase() === targetUsername,
-          )
-        ) {
+        const hasMember = members.some(
+          (member) => String(member?.username || "").toLowerCase() === targetUsername,
+        );
+        const isDmMatch =
+          chat?.type === "dm" &&
+          (hasMember ||
+            String(chat?.last_sender_username || "").toLowerCase() === targetUsername ||
+            members.length === 0);
+
+        if (!hasMember && !isDmMatch) {
           return chat;
         }
+
+        const updatedMembers = hasMember
+          ? members.map((member) => {
+              if (String(member?.username || "").toLowerCase() !== targetUsername) {
+                return member;
+              }
+              return {
+                ...member,
+                status: onlineStatus,
+              };
+            })
+          : [
+              ...members,
+              {
+                username: targetUsername,
+                status: onlineStatus,
+              },
+            ];
+
         return {
           ...chat,
-          members: members.map((member) => {
-            if (String(member?.username || "").toLowerCase() !== targetUsername) {
-              return member;
-            }
-            return {
-              ...member,
-              status: onlineStatus,
-            };
-          }),
+          members: updatedMembers,
         };
       }),
     );
@@ -2174,11 +2187,16 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     };
 
     presenceStateRef.current.delete(previousUsername);
+    const previousPresence = nextUsername
+      ? presenceStateRef.current.get(nextUsername) || presenceStateRef.current.get(previousUsername)
+      : null;
+    const effectivePresenceStatus =
+      previousPresence?.status ||
+      (nextStatus === "online" || nextStatus === "offline" ? nextStatus : "offline");
+
     if (nextUsername) {
-      const previousPresence = presenceStateRef.current.get(nextUsername) ||
-        presenceStateRef.current.get(previousUsername);
       presenceStateRef.current.set(nextUsername, {
-        status: nextStatus,
+        status: effectivePresenceStatus,
         lastSeen:
           previousPresence?.lastSeen ||
           new Date().toISOString(),
@@ -2200,7 +2218,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             nickname: nextNickname || member?.nickname || member?.username || "",
             avatar_url: nextAvatarUrl,
             color: nextColor,
-            status: nextStatus,
+            status: member?.status || effectivePresenceStatus,
           };
         });
         const shouldPatchLastSender =
@@ -3484,7 +3502,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (chat) {
         if (chat.type === "dm") {
           const other = (chat.members || []).find(
-            (member) => member.username !== user?.username,
+            (member) =>
+              String(member?.username || "").toLowerCase() !==
+              String(user?.username || "").toLowerCase(),
           );
           title = other?.nickname || other?.username || "Deleted account";
         } else if (chat.type === "group") {
@@ -4360,7 +4380,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           return;
         }
         const peer = (chat.members || []).find(
-          (member) => member.username !== user.username,
+          (member) =>
+            String(member?.username || "").toLowerCase() !==
+            String(user?.username || "").toLowerCase(),
         );
         const peerKey = (peer?.username || "").toLowerCase();
         if (!peerKey) {
@@ -4550,7 +4572,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           setActiveChatId(pendingOpenChatId);
           if (pendingChat.type === "dm") {
             const nextOther = (pendingChat.members || []).find(
-              (member) => member.username !== user.username,
+              (member) =>
+                String(member?.username || "").toLowerCase() !==
+                String(user?.username || "").toLowerCase(),
             );
             setActivePeer(nextOther || null);
           } else {

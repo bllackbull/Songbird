@@ -162,15 +162,18 @@ export function createWebSocketGateway({
 
   if (server) {
     server.on("upgrade", (request, socket, head) => {
-      const pathname = new URL(
+      const urlObj = new URL(
         request.url,
         `http://${request.headers.host || "localhost"}`,
-      ).pathname;
+      );
+      const pathname = urlObj.pathname;
       if (pathname === "/ws" || pathname === "/api/ws") {
-        let token = null;
-        const cookieHeader = request.headers.cookie || "";
-        const matches = cookieHeader.match(/sid=([^;]+)/);
-        if (matches) token = decodeURIComponent(matches[1]);
+        let token = urlObj.searchParams.get("token") || urlObj.searchParams.get("sid");
+        if (!token) {
+          const cookieHeader = request.headers.cookie || "";
+          const matches = cookieHeader.match(/sid=([^;]+)/);
+          if (matches) token = decodeURIComponent(matches[1]);
+        }
 
         const rawSession =
           token && getSessionFromToken ? getSessionFromToken(token) : null;

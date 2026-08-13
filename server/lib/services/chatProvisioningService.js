@@ -22,7 +22,7 @@ export function createChatProvisioningService(dbApi) {
   /**
    * Provisions a new group or channel.
    */
-  function createGroupOrChannel({
+  async function createGroupOrChannel({
     name,
     type = "group",
     creatorUserId,
@@ -31,23 +31,26 @@ export function createChatProvisioningService(dbApi) {
     groupUsername = null,
     allowMemberInvites = false,
   }) {
-    const creator = findUserById(creatorUserId);
+    const rawCreator = findUserById ? findUserById(creatorUserId) : null;
+    const creator = rawCreator && typeof rawCreator.then === "function" ? await rawCreator : rawCreator;
     if (!creator) throw new Error("Creator user not found");
 
     const normalizedType = type === "channel" ? "channel" : "group";
     const inviteToken = createInviteToken(crypto);
 
-    const chatId = createChat(name || "Untitled", normalizedType, {
+    const rawChatId = createChat(name || "Untitled", normalizedType, {
       public: isPublic,
       username: groupUsername,
       allowMemberInvites,
       inviteToken,
     });
+    const chatId = rawChatId && typeof rawChatId.then === "function" ? await rawChatId : rawChatId;
 
     if (!chatId) throw new Error("Failed to create chat");
 
     // Add creator as owner
-    addChatMember(chatId, creator.id, "owner");
+    const rawAddOwner = addChatMember(chatId, creator.id, "owner");
+    if (rawAddOwner && typeof rawAddOwner.then === "function") await rawAddOwner;
 
     // Add initial members
     const memberSet = new Set(
@@ -56,13 +59,15 @@ export function createChatProvisioningService(dbApi) {
     memberSet.delete(String(creator.username || "").toLowerCase());
 
     const addedUsernames = [creator.username];
-    memberSet.forEach((username) => {
-      const member = findUserByUsername(username);
+    for (const username of memberSet) {
+      const rawMember = findUserByUsername(username);
+      const member = rawMember && typeof rawMember.then === "function" ? await rawMember : rawMember;
       if (member) {
-        addChatMember(chatId, member.id, "member");
+        const rawAddMember = addChatMember(chatId, member.id, "member");
+        if (rawAddMember && typeof rawAddMember.then === "function") await rawAddMember;
         addedUsernames.push(member.username);
       }
-    });
+    }
 
     const sseEvents = addedUsernames.map((username) => ({
       targetUsername: username,

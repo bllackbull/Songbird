@@ -200,4 +200,54 @@ describe("Postgres Mode Realtime Events Audit & Fix Verification", () => {
       }),
     );
   });
+
+  test("5. markConnected registers isConnected synchronously even when getUserPresence returns a Promise", () => {
+    let resolveUserPresence;
+    const userPromise = new Promise((resolve) => {
+      resolveUserPresence = resolve;
+    });
+
+    const alice = {
+      id: ALICE_ID,
+      username: "alice",
+      status: "online",
+      last_seen: null,
+    };
+
+    const tracker = createPresenceTracker({
+      updateLastSeen: () => Promise.resolve(),
+      getUserPresence: () => userPromise,
+      listChatsForUser: () => Promise.resolve([]),
+      listChatMembers: () => Promise.resolve([]),
+      emitToUser: () => {},
+    });
+
+    const markPromise = tracker.markConnected("alice", "dummy-socket");
+    expect(tracker.isConnected("alice")).toBe(true);
+
+    resolveUserPresence(alice);
+    return markPromise;
+  });
+
+  test("6. profileService.updateProfile handles Promise returning DB functions in Postgres mode", async () => {
+    const { createProfileService } = await import("../../lib/services/profileService.js");
+    const alice = { id: ALICE_ID, username: "alice" };
+    const chat = { id: CHAT_ID };
+
+    const service = createProfileService({
+      findUserById: () => Promise.resolve(alice),
+      updateUserProfile: () => Promise.resolve(1),
+      listChatsForUser: () => Promise.resolve([chat]),
+      listChatMembers: () => Promise.resolve([{ username: "alice" }, { username: "bob" }]),
+    });
+
+    const result = await service.updateProfile({ userId: ALICE_ID, updates: { nickname: "Alice New" } });
+    expect(result.success).toBe(true);
+    expect(result.sseEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ targetUsername: "alice" }),
+        expect.objectContaining({ targetUsername: "bob" }),
+      ]),
+    );
+  });
 });

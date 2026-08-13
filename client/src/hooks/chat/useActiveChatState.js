@@ -73,7 +73,11 @@ export function useActiveChatState({
   const activeGroupMemberUsernamesKey = activeGroupMemberUsernames.join("|");
   const activeDmMember =
     activeChat?.type === "dm"
-      ? activeMembers.find((member) => member.username !== user.username)
+      ? activeMembers.find(
+          (member) =>
+            String(member?.username || "").toLowerCase() !==
+            String(user?.username || "").toLowerCase(),
+        )
       : null;
   const isDeletedDm = activeChat?.type === "dm" && !activeDmMember;
   const deletedDmPeer = isDeletedDm

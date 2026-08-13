@@ -4,12 +4,20 @@ export const formatBytesAsMb = (bytes) =>
 export const parseServerDate = (value) => {
   if (!value) return new Date();
   if (typeof value === "string") {
-    let normalized = value.includes("T") ? value : value.replace(" ", "T");
+    let normalized = value.trim();
+    if (!normalized) return new Date();
+    normalized = normalized.includes("T") ? normalized : normalized.replace(" ", "T");
+    normalized = normalized.replace(/(\.\d{3})\d+/, "$1");
     const hasExplicitTimezone = /(?:Z|[+-]\d{2}(?::?\d{2})?)$/i.test(normalized);
-    if (!hasExplicitTimezone) return new Date(`${normalized}Z`);
+    if (!hasExplicitTimezone) {
+      const d = new Date(`${normalized}Z`);
+      if (!isNaN(d.getTime())) return d;
+    }
     normalized = normalized.replace(/([+-]\d{4})$/i, (offset) => `${offset.slice(0, 3)}:${offset.slice(3)}`);
     normalized = normalized.replace(/([+-]\d{2})$/i, "$1:00");
-    return new Date(normalized);
+    const d = new Date(normalized);
+    if (!isNaN(d.getTime())) return d;
+    return new Date(NaN);
   }
   return new Date(value);
 };

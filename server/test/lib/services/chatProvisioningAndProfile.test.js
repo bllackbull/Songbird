@@ -19,11 +19,11 @@ describe("chatProvisioningService", () => {
     crypto: { randomBytes: () => Buffer.from("abcdef123456", "hex") },
   });
 
-  test("createGroupOrChannel provisions chat, adds owner and members, returns sse events", () => {
+  test("createGroupOrChannel provisions chat, adds owner and members, returns sse events", async () => {
     const db = createMockDb();
     const service = createChatProvisioningService(db);
 
-    const res = service.createGroupOrChannel({
+    const res = await service.createGroupOrChannel({
       name: "New Group",
       type: "group",
       creatorUserId: ALICE_ID,
@@ -49,11 +49,11 @@ describe("profileService", () => {
     ]),
   });
 
-  test("updateProfile updates profile and emits user_profile_updated events", () => {
+  test("updateProfile updates profile and emits user_profile_updated events", async () => {
     const db = createMockDb();
     const service = createProfileService(db);
 
-    const res = service.updateProfile({
+    const res = await service.updateProfile({
       userId: ALICE_ID,
       updates: { nickname: "Alice W." },
     });

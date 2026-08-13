@@ -366,10 +366,11 @@ export const deletePendingMessage = (clientId) =>
 export const getSseStreamUrl = (username) =>
   `${API_BASE}/api/events?username=${encodeURIComponent(username)}`;
 
-export const getWebSocketUrl = () => {
+export const getWebSocketUrl = (username) => {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const host = window.location.host;
-  return `${protocol}//${host}/ws`;
+  const query = username ? `?username=${encodeURIComponent(username)}` : "";
+  return `${protocol}//${host}/ws${query}`;
 };
 
 export const getMessagesUploadUrl = () => `${API_BASE}/api/messages/upload`;
