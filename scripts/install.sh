@@ -3666,31 +3666,7 @@ resolve_chat_visibility_for_script() {
 # Check whether any user with role='owner' exists in the database.
 # Exits 0 if owner exists, 1 if not (or if check fails).
 check_owner_exists() {
-  local path_prefix=""
-  path_prefix="$(node_tools_path_prefix)"
-  run_data_command env INSTALL_DIR="$INSTALL_DIR" NODE_TOOLS_PATH_PREFIX="$path_prefix" bash -lc '
-    if [[ -n "$NODE_TOOLS_PATH_PREFIX" ]]; then
-      export PATH="$NODE_TOOLS_PATH_PREFIX:$PATH"
-    fi
-    cd "$INSTALL_DIR" || exit 1
-    node --input-type=module -e "
-      import { pathToFileURL } from \"node:url\";
-      const rootUrl = pathToFileURL(process.cwd() + \"/\");
-      let dbApi;
-      try {
-        const { openDatabase } = await import(new URL(\"./server/scripts/_db-admin.js\", rootUrl));
-        dbApi = await openDatabase();
-        const sql = \"SELECT id FROM users WHERE role = \" + \"'owner'\" + \" LIMIT 1\";
-        const row = await dbApi.getRow(sql);
-        process.exit(row && row.id ? 0 : 1);
-      } catch (err) {
-        process.stderr.write(String(err?.message || err) + \"\\n\");
-        process.exit(1);
-      } finally {
-        try { await dbApi?.close(); } catch (_) {}
-      }
-    "
-  '
+  run_db_command_logged_quiet npm --prefix server run db:owner:check
 }
 
 # After installation, offer to create an owner user if none exists.

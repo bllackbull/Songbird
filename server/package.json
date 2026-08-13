@@ -39,6 +39,7 @@
     "db:user:verify": "/bin/bash -p ../scripts/run-data-command.sh node scripts/verify-user.js",
     "db:user:delete": "/bin/bash -p ../scripts/run-data-command.sh node scripts/delete-user.js",
     "db:user:create": "/bin/bash -p ../scripts/run-data-command.sh node scripts/create-user.js",
+    "db:owner:check": "/bin/bash -p ../scripts/run-data-command.sh node scripts/check-owner.js",
     "db:user:generate": "/bin/bash -p ../scripts/run-data-command.sh node scripts/generate-user.js",
     "db:message:generate": "/bin/bash -p ../scripts/run-data-command.sh node scripts/generate-chat-message.js",
     "db:inspect": "/bin/bash -p ../scripts/run-data-command.sh node scripts/inspect-db.js all",

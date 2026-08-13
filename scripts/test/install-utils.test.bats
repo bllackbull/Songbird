@@ -883,7 +883,7 @@ EOF
 
   [ "$(wc -l < "$LAUNCHER_MARKER")" -eq 6 ]
   [ "$(grep -Fc 'true --example' "$LAUNCHER_CALLS")" -eq 3 ]
-  grep -Fq "SELECT id FROM users" "$LAUNCHER_CALLS"
+  grep -Fq "db:owner:check" "$LAUNCHER_CALLS"
   grep -Fq "resolveChatRow" "$LAUNCHER_CALLS"
   grep -Fq "db:user:create" "$LAUNCHER_CALLS"
 }

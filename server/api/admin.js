@@ -459,6 +459,12 @@ function registerAdminRoutes(app, deps) {
         });
       }
 
+      if (action === "check_owner_exists" || action === "check_owner") {
+        const ownerRow = adminGetRow("SELECT id FROM users WHERE role = 'owner' LIMIT 1");
+        const existingOwner = ownerRow && typeof ownerRow.then === "function" ? await ownerRow : ownerRow;
+        return res.json({ ok: true, hasOwner: Boolean(existingOwner?.id) });
+      }
+
       if (action === "create_user") {
         const rawUsername = String(payload.username || "").trim().toLowerCase();
         const nickname = String(payload.nickname || "").trim();
