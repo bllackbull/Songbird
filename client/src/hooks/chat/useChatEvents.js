@@ -256,10 +256,18 @@ export function useChatEvents({
                 const clientRequestId = String(
                   payload?.client_request_id || payload?.clientRequestId || "",
                 ).trim();
+                const payloadMsgId = normalizeUuid(payload?.messageId);
+                const currentLastMsgId = normalizeUuid(chat?.last_message_id);
+                const isDuplicateMsgEvent =
+                  Boolean(payloadMsgId) &&
+                  Boolean(currentLastMsgId) &&
+                  payloadMsgId === currentLastMsgId;
+                const shouldIncrementUnread =
+                  !isOwnEvent && !isDuplicateMsgEvent;
                 return {
                   ...chat,
                   last_message_id:
-                    normalizeUuid(payload?.messageId) || chat?.last_message_id || null,
+                    payloadMsgId || chat?.last_message_id || null,
                   last_message: previewBody || chat?.last_message || "",
                   last_time: eventTime,
                   last_message_client_request_id: clientRequestId || null,
@@ -273,7 +281,7 @@ export function useChatEvents({
                   unread_count:
                     isReadableActiveChat
                       ? 0
-                      : !isOwnEvent
+                      : shouldIncrementUnread
                         ? currentUnread + 1
                         : currentUnread,
                 };

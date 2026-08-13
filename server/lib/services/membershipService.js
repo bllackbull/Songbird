@@ -116,15 +116,78 @@ export function createMembershipService(dbApi) {
     role = "member",
     force = false,
   }) {
-    const chat = getChatById(chatId);
-    if (!chat) throw new Error("Chat not found");
+    const rawChat = getChatById(chatId);
+    const rawMembers = listChatMembers(chatId);
+    const hasAsync =
+      (rawChat && typeof rawChat.then === "function") ||
+      (rawMembers && typeof rawMembers.then === "function");
+
+    const doAdd = async () => {
+      const chat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
+      if (!chat) throw new Error("Chat not found");
+
+      let addedCount = 0;
+      let skippedCount = 0;
+      let systemMessageUserId = null;
+      const addedUsernames = [];
+
+      const existingMembers = (rawMembers && typeof rawMembers.then === "function" ? await rawMembers : rawMembers) || [];
+      const existingUserIds = new Set(existingMembers.map((m) => m.id));
+
+      for (const userId of targetUserIds) {
+        if (existingUserIds.has(userId)) {
+          skippedCount++;
+          continue;
+        }
+
+        const rawPriorLeft = isUserPriorLeft(chatId, userId);
+        const priorLeft = rawPriorLeft && typeof rawPriorLeft.then === "function" ? await rawPriorLeft : rawPriorLeft;
+        if (!force && priorLeft) {
+          skippedCount++;
+          continue;
+        }
+
+        const rawClear = clearPriorLeft(chatId, userId);
+        if (rawClear && typeof rawClear.then === "function") await rawClear;
+        const rawAdd = addChatMember(chatId, userId, role);
+        if (rawAdd && typeof rawAdd.then === "function") await rawAdd;
+        addedCount++;
+
+        const rawUser = findUserById(userId);
+        const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
+        if (user?.username) {
+          addedUsernames.push(user.username);
+          if (systemMessageUserId === null) systemMessageUserId = userId;
+        }
+      }
+
+      const effects = await buildEffectsAsync(
+        chatId,
+        addedUsernames.length === 1
+          ? `[[system:joined:${addedUsernames[0]}]]`
+          : null,
+        addedUsernames,
+        systemMessageUserId,
+      );
+
+      return {
+        success: true,
+        addedCount,
+        skippedCount,
+        ...effects,
+      };
+    };
+
+    if (hasAsync) return doAdd();
+
+    if (!rawChat) throw new Error("Chat not found");
 
     let addedCount = 0;
     let skippedCount = 0;
     let systemMessageUserId = null;
     const addedUsernames = [];
 
-    const existingMembers = listChatMembers(chatId) || [];
+    const existingMembers = rawMembers || [];
     const existingUserIds = new Set(existingMembers.map((m) => m.id));
 
     for (const userId of targetUserIds) {
@@ -289,22 +352,52 @@ export function createMembershipService(dbApi) {
    * Leave a chat.
    */
   function leaveChat({ chatId, userId }) {
-    const chat = getChatById(chatId);
-    if (!chat) throw new Error("Chat not found");
+    const rawChat = getChatById(chatId);
+    const rawUser = findUserById(userId);
+    const hasAsync =
+      (rawChat && typeof rawChat.then === "function") ||
+      (rawUser && typeof rawUser.then === "function");
 
-    const user = findUserById(userId);
-    if (!user) throw new Error("User not found");
+    const doLeave = async () => {
+      const chat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
+      if (!chat) throw new Error("Chat not found");
+
+      const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
+      if (!user) throw new Error("User not found");
+
+      const rawRemove = removeChatMember(chatId, userId);
+      if (rawRemove && typeof rawRemove.then === "function") await rawRemove;
+
+      const nickname = user.nickname || user.username;
+      const effects = await buildEffectsAsync(
+        chatId,
+        `[[system:left:${nickname}]]`,
+        [user.username],
+        user.id,
+      );
+
+      return {
+        success: true,
+        chat,
+        ...effects,
+      };
+    };
+
+    if (hasAsync) return doLeave();
+
+    if (!rawChat) throw new Error("Chat not found");
+    if (!rawUser) throw new Error("User not found");
 
     removeChatMember(chatId, userId);
 
-    const nickname = user.nickname || user.username;
+    const nickname = rawUser.nickname || rawUser.username;
     const effects = buildEffects(chatId, `[[system:left:${nickname}]]`, [
-      user.username,
-    ], user.id);
+      rawUser.username,
+    ], rawUser.id);
 
     return {
       success: true,
-      chat,
+      chat: rawChat,
       ...effects,
     };
   }
@@ -313,22 +406,52 @@ export function createMembershipService(dbApi) {
    * Remove a member from a chat.
    */
   function removeMember({ chatId, targetUserId, removedByUserId }) {
-    const chat = getChatById(chatId);
-    if (!chat) throw new Error("Chat not found");
+    const rawChat = getChatById(chatId);
+    const rawUser = findUserById(targetUserId);
+    const hasAsync =
+      (rawChat && typeof rawChat.then === "function") ||
+      (rawUser && typeof rawUser.then === "function");
 
-    const targetUser = findUserById(targetUserId);
-    if (!targetUser) throw new Error("User not found");
+    const doRemove = async () => {
+      const chat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
+      if (!chat) throw new Error("Chat not found");
+
+      const targetUser = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
+      if (!targetUser) throw new Error("User not found");
+
+      const rawRemove = removeChatMember(chatId, targetUserId);
+      if (rawRemove && typeof rawRemove.then === "function") await rawRemove;
+
+      const nickname = targetUser.nickname || targetUser.username;
+      const effects = await buildEffectsAsync(
+        chatId,
+        `[[system:removed:${nickname}]]`,
+        [targetUser.username],
+        targetUser.id,
+      );
+
+      return {
+        success: true,
+        chat,
+        ...effects,
+      };
+    };
+
+    if (hasAsync) return doRemove();
+
+    if (!rawChat) throw new Error("Chat not found");
+    if (!rawUser) throw new Error("User not found");
 
     removeChatMember(chatId, targetUserId);
 
-    const nickname = targetUser.nickname || targetUser.username;
+    const nickname = rawUser.nickname || rawUser.username;
     const effects = buildEffects(chatId, `[[system:removed:${nickname}]]`, [
-      targetUser.username,
-    ], targetUser.id);
+      rawUser.username,
+    ], rawUser.id);
 
     return {
       success: true,
-      chat,
+      chat: rawChat,
       ...effects,
     };
   }
@@ -337,18 +460,42 @@ export function createMembershipService(dbApi) {
    * Update member role.
    */
   function updateMemberRole({ chatId, targetUserId, newRole }) {
-    const chat = getChatById(chatId);
-    if (!chat) throw new Error("Chat not found");
+    const rawChat = getChatById(chatId);
+    const rawUser = findUserById(targetUserId);
+    const hasAsync =
+      (rawChat && typeof rawChat.then === "function") ||
+      (rawUser && typeof rawUser.then === "function");
 
-    const targetUser = findUserById(targetUserId);
-    if (!targetUser) throw new Error("User not found");
+    const doUpdate = async () => {
+      const chat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
+      if (!chat) throw new Error("Chat not found");
+
+      const targetUser = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
+      if (!targetUser) throw new Error("User not found");
+
+      const rawUpdate = updateChatMemberRole(chatId, targetUserId, newRole);
+      if (rawUpdate && typeof rawUpdate.then === "function") await rawUpdate;
+
+      const effects = await buildEffectsAsync(chatId, null, [targetUser.username]);
+
+      return {
+        success: true,
+        chat,
+        ...effects,
+      };
+    };
+
+    if (hasAsync) return doUpdate();
+
+    if (!rawChat) throw new Error("Chat not found");
+    if (!rawUser) throw new Error("User not found");
 
     updateChatMemberRole(chatId, targetUserId, newRole);
-    const effects = buildEffects(chatId, null, [targetUser.username]);
+    const effects = buildEffects(chatId, null, [rawUser.username]);
 
     return {
       success: true,
-      chat,
+      chat: rawChat,
       ...effects,
     };
   }

@@ -56,12 +56,14 @@ export function registerRemoteUploadRoutes(app, deps) {
     }
     let session = null;
     if (typeof getSessionFromRequest === "function") {
-      session = getSessionFromRequest(req);
+      const rawSession = getSessionFromRequest(req);
+      session = rawSession && typeof rawSession.then === "function" ? await rawSession : rawSession;
     } else if (typeof getSession === "function") {
       const cookies = parseCookies(req.headers.cookie || "");
       const token =
         cookies.sid || req.headers.authorization?.replace(/^Bearer\s+/i, "");
-      session = getSession(token);
+      const rawSession = getSession(token);
+      session = rawSession && typeof rawSession.then === "function" ? await rawSession : rawSession;
     }
     if (!session) {
       res.status(401).json({ error: "Not authenticated." });

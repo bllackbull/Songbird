@@ -91,11 +91,24 @@ export function createPresenceTracker({
 
   function getOnlineCount() {
     let count = 0;
+    const promises = [];
     connectionsByUsername.forEach((_refs, key) => {
       const user = getUserPresence(key);
-      if (user && String(user.status || "").toLowerCase() === "online")
+      if (user && typeof user.then === "function") {
+        promises.push(
+          user.then((u) => {
+            if (u && String(u.status || "").toLowerCase() === "online") {
+              count += 1;
+            }
+          }),
+        );
+      } else if (user && String(user.status || "").toLowerCase() === "online") {
         count += 1;
+      }
     });
+    if (promises.length > 0) {
+      return Promise.all(promises).then(() => count);
+    }
     return count;
   }
 

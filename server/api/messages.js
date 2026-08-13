@@ -1008,7 +1008,8 @@ function registerMessageRoutes(app, deps) {
         let transcodeJobsQueued = 0;
 
         if (shouldTranscodeVideos && hasVideoFiles) {
-          const insertedRows = listMessageFilesByMessageIds([messageId]);
+          const rawInsertedRows = listMessageFilesByMessageIds([messageId]);
+          const insertedRows = (rawInsertedRows && typeof rawInsertedRows.then === "function" ? await rawInsertedRows : rawInsertedRows) || [];
           const insertedByStoredName = new Map();
 
           insertedRows.forEach((row) => {

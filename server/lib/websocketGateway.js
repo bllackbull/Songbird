@@ -11,6 +11,8 @@ export function createWebSocketGateway({
   const wss = new WebSocketServer({ noServer: true });
   const clientsByUsername = new Map();
 
+  const instanceId = Math.random().toString(36).substring(2);
+
   // PubSub subscriber for cross-instance message routing
   const pubsubSub = redisClient ? redisClient.duplicate() : null;
   if (pubsubSub) {
@@ -18,7 +20,8 @@ export function createWebSocketGateway({
     pubsubSub.on("message", (channel, message) => {
       if (channel === "songbird:events") {
         try {
-          const { username, chatId, payload, broadcast } = JSON.parse(message);
+          const { username, chatId, payload, broadcast, senderInstance } = JSON.parse(message);
+          if (senderInstance === instanceId) return;
           if (broadcast) {
             broadcastLocal(payload);
           } else if (chatId && sseHub) {
@@ -73,7 +76,7 @@ export function createWebSocketGateway({
     if (redisClient) {
       redisClient.publish(
         "songbird:events",
-        JSON.stringify({ username, payload }),
+        JSON.stringify({ username, payload, senderInstance: instanceId }),
       );
     }
   }
@@ -95,7 +98,7 @@ export function createWebSocketGateway({
     if (redisClient) {
       redisClient.publish(
         "songbird:events",
-        JSON.stringify({ chatId, payload }),
+        JSON.stringify({ chatId, payload, senderInstance: instanceId }),
       );
     }
   }
@@ -112,32 +115,40 @@ export function createWebSocketGateway({
     if (redisClient) {
       redisClient.publish(
         "songbird:events",
-        JSON.stringify({ broadcast: true, payload }),
+        JSON.stringify({ broadcast: true, payload, senderInstance: instanceId }),
       );
     }
   }
 
-  wss.on("connection", (ws, req, session) => {
-    const username = session?.username
-      ? String(session.username).toLowerCase()
-      : null;
-    if (username) {
-      const clients = clientsByUsername.get(username) || new Set();
-      clients.add(ws);
-      clientsByUsername.set(username, clients);
-    }
-    if (onUserConnected) onUserConnected(username, ws);
-
-    ws.on("close", () => {
+  wss.on("connection", (ws, req, rawSession) => {
+    const handleConnection = (session) => {
+      const username = session?.username
+        ? String(session.username).toLowerCase()
+        : null;
       if (username) {
-        const clients = clientsByUsername.get(username);
-        if (clients) {
-          clients.delete(ws);
-          if (!clients.size) clientsByUsername.delete(username);
-        }
+        const clients = clientsByUsername.get(username) || new Set();
+        clients.add(ws);
+        clientsByUsername.set(username, clients);
       }
-      if (onUserDisconnected) onUserDisconnected(username, ws);
-    });
+      if (onUserConnected) onUserConnected(username, ws);
+
+      ws.on("close", () => {
+        if (username) {
+          const clients = clientsByUsername.get(username);
+          if (clients) {
+            clients.delete(ws);
+            if (!clients.size) clientsByUsername.delete(username);
+          }
+        }
+        if (onUserDisconnected) onUserDisconnected(username, ws);
+      });
+    };
+
+    if (rawSession && typeof rawSession.then === "function") {
+      rawSession.then(handleConnection).catch(() => handleConnection(null));
+    } else {
+      handleConnection(rawSession);
+    }
 
     ws.on("message", (raw) => {
       try {
@@ -161,11 +172,22 @@ export function createWebSocketGateway({
         const matches = cookieHeader.match(/sid=([^;]+)/);
         if (matches) token = decodeURIComponent(matches[1]);
 
-        const session =
+        const rawSession =
           token && getSessionFromToken ? getSessionFromToken(token) : null;
-        wss.handleUpgrade(request, socket, head, (ws) => {
-          wss.emit("connection", ws, request, session);
-        });
+
+        const processSession = (session) => {
+          wss.handleUpgrade(request, socket, head, (ws) => {
+            wss.emit("connection", ws, request, session);
+          });
+        };
+
+        if (rawSession && typeof rawSession.then === "function") {
+          rawSession.then(processSession).catch(() => {
+            processSession(null);
+          });
+        } else {
+          processSession(rawSession);
+        }
       }
     });
   }

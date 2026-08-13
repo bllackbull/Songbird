@@ -94,4 +94,38 @@ describe("WebSocket Gateway", () => {
 
     gateway.close();
   });
+
+  test("handles Promise-returning getSessionFromToken during HTTP upgrade", async () => {
+    const onUserConnected = vi.fn();
+    const server = new EventEmitter();
+    const session = { id: "s1", username: "alice" };
+    const getSessionFromToken = vi.fn(() => Promise.resolve(session));
+
+    const gateway = createWebSocketGateway({
+      server,
+      getSessionFromToken,
+      onUserConnected,
+    });
+
+    vi.spyOn(gateway.wss, "handleUpgrade").mockImplementation((req, socket, head, callback) => {
+      callback({ on: () => {} });
+    });
+
+    const request = {
+      url: "/ws",
+      headers: { host: "localhost", cookie: "sid=valid-token" },
+    };
+    const socket = {};
+    const head = Buffer.from([]);
+
+    server.emit("upgrade", request, socket, head);
+
+    // Wait for promise tick
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(onUserConnected).toHaveBeenCalledWith("alice", expect.anything());
+    expect(gateway.clientsByUsername.get("alice")).toBeDefined();
+
+    gateway.close();
+  });
 });

@@ -2678,15 +2678,34 @@ export function createMessageFiles(messageId, files = []) {
   });
 }
 
+function normalizeDbTimestamp(value) {
+  const str = String(value || "").trim();
+  if (!str) return "";
+  if (str.includes("T")) {
+    const d = new Date(str);
+    if (Number.isFinite(d.getTime())) {
+      const year = d.getUTCFullYear();
+      const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+      const day = String(d.getUTCDate()).padStart(2, "0");
+      const hours = String(d.getUTCHours()).padStart(2, "0");
+      const mins = String(d.getUTCMinutes()).padStart(2, "0");
+      const secs = String(d.getUTCSeconds()).padStart(2, "0");
+      return `${year}-${month}-${day} ${hours}:${mins}:${secs}`;
+    }
+    return str.replace("T", " ").replace(/Z$/i, "").trim();
+  }
+  return str;
+}
+
 export function getMessages(chatId, options = {}) {
   const limitRaw = Number(options.limit || 50);
   const limit = Number.isFinite(limitRaw)
     ? Math.max(1, Math.min(10000, limitRaw))
     : 50;
   const beforeIdRaw = String(options.beforeId || "").trim();
-  const beforeCreatedAtRaw = String(options.beforeCreatedAt || "").trim();
+  const beforeCreatedAtRaw = normalizeDbTimestamp(options.beforeCreatedAt);
   const afterIdRaw = String(options.afterId || "").trim();
-  const afterCreatedAtRaw = String(options.afterCreatedAt || "").trim();
+  const afterCreatedAtRaw = normalizeDbTimestamp(options.afterCreatedAt);
   const viewerUserIdRaw = String(options.viewerUserId || "").trim();
   const hasViewerUserId = Boolean(viewerUserIdRaw);
   const hasBeforeId = Boolean(beforeIdRaw);
@@ -3018,7 +3037,22 @@ export function getUserPresence(username) {
 }
 
 export function markMessagesRead(chatId, readerId) {
-  if (!chatId || !readerId) return;
+  if (!chatId || !readerId) return isPostgresMode() ? Promise.resolve() : undefined;
+
+  const updateFn = () =>
+    run(
+      `
+      UPDATE chat_messages
+      SET read_at = datetime('now'), read_by_user_id = ?
+      WHERE chat_id = ?
+        AND (
+          user_id != ?
+          OR ${REMOTE_MESSAGE_CLIENT_REQUEST_SQL}
+        )
+        AND read_at IS NULL
+    `,
+      [readerId, chatId, readerId],
+    );
 
   const inserted = run(
     `INSERT OR IGNORE INTO chat_message_reads (message_id, user_id, read_at)
@@ -3037,21 +3071,16 @@ export function markMessagesRead(chatId, readerId) {
        )`,
     [readerId, chatId, readerId, readerId],
   );
+  if (inserted && typeof inserted.then === "function") {
+    return inserted.then((res) => {
+      if (!res) return;
+      return updateFn();
+    });
+  }
+
   if (!inserted) return;
 
-  run(
-    `
-    UPDATE chat_messages
-    SET read_at = datetime('now'), read_by_user_id = ?
-    WHERE chat_id = ?
-      AND (
-        user_id != ?
-        OR ${REMOTE_MESSAGE_CLIENT_REQUEST_SQL}
-      )
-      AND read_at IS NULL
-  `,
-    [readerId, chatId, readerId],
-  );
+  return updateFn();
 }
 
 export function getMessageReadCounts(messageIds = []) {
@@ -3109,7 +3138,7 @@ export function recordMessageReads(messageIds = [], readerId) {
         .filter(Boolean),
     ),
   );
-  if (!normalized.length) return;
+  if (!normalized.length) return isPostgresMode() ? Promise.resolve() : undefined;
   const rawRows = getAll(
     dbKnex("chat_messages")
       .select("id", "user_id", "client_request_id")
@@ -3124,8 +3153,9 @@ export function recordMessageReads(messageIds = [], readerId) {
       )
       .map((row) => row.id)
       .filter(Boolean);
-    if (!toInsert.length) return;
+    if (!toInsert.length) return isPostgresMode() ? Promise.resolve() : undefined;
     const chunkSize = 300;
+    const promises = [];
     for (let i = 0; i < toInsert.length; i += chunkSize) {
       const chunk = toInsert.slice(i, i + chunkSize);
       const insertItems = chunk.map((id) => ({
@@ -3133,13 +3163,15 @@ export function recordMessageReads(messageIds = [], readerId) {
         user_id: readerId,
         read_at: dbKnex.raw("datetime('now')"),
       }));
-      run(
+      const p = run(
         dbKnex("chat_message_reads")
           .insert(insertItems)
           .onConflict(["message_id", "user_id"])
           .ignore(),
       );
+      if (p && typeof p.then === "function") promises.push(p);
     }
+    if (promises.length > 0) return Promise.all(promises);
   };
 
   if (rawRows && typeof rawRows.then === "function") {
