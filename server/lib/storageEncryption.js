@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { normalizeEnvSecret, updateEnvValue } from "./secrets.js";
 
 const TEXT_PREFIX = "sb-enc-v1:";
 const FILE_MAGIC = Buffer.from("SBENC1\0", "utf8");
@@ -11,81 +12,16 @@ const FILE_TAG_OFFSET = FILE_IV_OFFSET + 12;
 const FILE_DATA_OFFSET = FILE_HEADER_LENGTH;
 const FILE_TEMP_DIR_NAME = "songbird-secure";
 
-function normalizeEnvSecret(value) {
-  const raw = String(value ?? "").trim();
-  if (!raw) return "";
-  if (
-    (raw.startsWith('"') && raw.endsWith('"')) ||
-    (raw.startsWith("'") && raw.endsWith("'"))
-  ) {
-    return raw.slice(1, -1).trim();
-  }
-  return raw;
-}
-
-function updateEnvValue(targetPath, key, value, { fsImpl = fs } = {}) {
-  const safeValue = String(value ?? "");
-  let contents = "";
-  try {
-    contents = fsImpl.existsSync(targetPath)
-      ? fsImpl.readFileSync(targetPath, "utf8")
-      : "";
-  } catch {
-    contents = "";
-  }
-
-  const lines = contents ? contents.split(/\r?\n/) : [];
-  let found = false;
-  const updated = lines.map((line) => {
-    if (line.startsWith(`${key}=`)) {
-      found = true;
-      return `${key}=${safeValue}`;
-    }
-    return line;
-  });
-
-  if (!found) {
-    updated.push(`${key}=${safeValue}`);
-  }
-
-  const next = updated.filter(
-    (line, index, arr) => line.length > 0 || index < arr.length - 1,
-  );
-  fsImpl.writeFileSync(targetPath, `${next.join("\n")}\n`);
-}
-
 function ensureStorageEncryptionKey({
   projectRootDir,
-  dataDir,
   fsImpl = fs,
   pathImpl = path,
   cryptoImpl = crypto,
 } = {}) {
-  // Load from data volume secrets file first — survives container rebuilds
-  // even when the project .env is on an ephemeral filesystem.
-  const secretsPath = dataDir ? pathImpl.join(String(dataDir), "secrets.env") : null;
-  if (secretsPath) {
-    try {
-      if (fsImpl.existsSync(secretsPath)) {
-        const lines = fsImpl.readFileSync(secretsPath, "utf8").split(/\r?\n/);
-        for (const line of lines) {
-          const match = line.match(/^([A-Z_]+)=(.+)$/);
-          if (match && match[1] === "STORAGE_ENCRYPTION_KEY" && !process.env.STORAGE_ENCRYPTION_KEY) {
-            process.env.STORAGE_ENCRYPTION_KEY = match[2];
-          }
-        }
-      }
-    } catch {
-      // best effort
-    }
-  }
-
   const existing = normalizeEnvSecret(process.env.STORAGE_ENCRYPTION_KEY);
   if (existing) return existing;
 
   const generated = cryptoImpl.randomBytes(32).toString("base64url");
-
-  // Write to project .env (best-effort, may be ephemeral in Docker/cloud)
   const envPath = pathImpl.join(String(projectRootDir || ""), ".env");
   try {
     updateEnvValue(envPath, "STORAGE_ENCRYPTION_KEY", generated, { fsImpl });
@@ -94,20 +30,6 @@ function ensureStorageEncryptionKey({
       "[storage-encryption] Unable to update .env with generated storage key:",
       String(error?.message || error),
     );
-  }
-
-  // Write to data volume so the key survives container restarts
-  if (secretsPath) {
-    try {
-      fsImpl.mkdirSync(String(dataDir), { recursive: true });
-      updateEnvValue(secretsPath, "STORAGE_ENCRYPTION_KEY", generated, { fsImpl });
-      console.log("[storage-encryption] Encryption key persisted to data volume.");
-    } catch (error) {
-      console.warn(
-        "[storage-encryption] Unable to persist encryption key to data volume:",
-        String(error?.message || error),
-      );
-    }
   }
 
   process.env.STORAGE_ENCRYPTION_KEY = generated;

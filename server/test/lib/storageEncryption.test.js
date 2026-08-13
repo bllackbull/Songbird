@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, test } from "vitest";
-import { createStorageEncryption } from "../../lib/storageEncryption.js";
+import {
+  createStorageEncryption,
+  ensureStorageEncryptionKey,
+} from "../../lib/storageEncryption.js";
 
 const TEXT_PREFIX = "sb-enc-v1:";
 const originalStorageKey = process.env.STORAGE_ENCRYPTION_KEY;
@@ -73,5 +76,26 @@ describe("storage text encryption", () => {
     // Mock filesystem methods to test in-memory
     const decryptedRange = encryption.decryptBuffer(encryptedBuffer).subarray(6, 14);
     expect(decryptedRange.toString()).toBe("Songbird");
+  });
+
+  test("ensureStorageEncryptionKey returns existing env key or generates a new one", () => {
+    delete process.env.STORAGE_ENCRYPTION_KEY;
+    let writtenContent = "";
+    const mockFs = {
+      existsSync: () => true,
+      readFileSync: () => "EXISTING=1",
+      writeFileSync: (p, c) => {
+        writtenContent = c;
+      },
+    };
+
+    const key = ensureStorageEncryptionKey({
+      projectRootDir: "/tmp",
+      fsImpl: mockFs,
+    });
+
+    expect(key).toBeTruthy();
+    expect(process.env.STORAGE_ENCRYPTION_KEY).toBe(key);
+    expect(writtenContent).toContain(`STORAGE_ENCRYPTION_KEY=${key}`);
   });
 });

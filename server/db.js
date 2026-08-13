@@ -10,12 +10,8 @@ import { normalizeSqlForPostgres } from "./lib/sqlNormalizer.js";
 import { migrations } from "./migrations/index.js";
 import { setUserColor } from "./settings/colors.js";
 import { generateUuid } from "./lib/uuidUtils.js";
-import {
-  ensureStorageEncryptionKey,
-  storageEncryption,
-} from "./lib/storageEncryption.js";
-import { ensureAdminApiToken } from "./lib/adminApiToken.js";
-import { ensureWebhookSecret } from "./lib/webhookSecret.js";
+import { storageEncryption } from "./lib/storageEncryption.js";
+import { ensureSystemSecrets } from "./lib/secrets.js";
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRootDir = path.resolve(serverDir, "..");
@@ -27,11 +23,6 @@ const backupDir = path.join(dataDir, "backups");
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
-// Load persistent secrets from the data volume before deciding to generate new
-// ones — this ensures keys survive container restarts on ephemeral filesystems.
-ensureStorageEncryptionKey({ projectRootDir, dataDir, fsImpl: fs, pathImpl: path, cryptoImpl: crypto });
-ensureAdminApiToken({ projectRootDir, dataDir, fsImpl: fs, pathImpl: path, cryptoImpl: crypto });
-ensureWebhookSecret({ projectRootDir, dataDir, fsImpl: fs, pathImpl: path, cryptoImpl: crypto });
 const REMOTE_MESSAGE_CLIENT_REQUEST_SQL =
   "LOWER(COALESCE(client_request_id, '')) LIKE 'remote:%'";
 
@@ -593,6 +584,15 @@ async function runDatabaseMigrations() {
 }
 
 await runDatabaseMigrations();
+
+await ensureSystemSecrets({
+  dbRun: run,
+  dbGetRow: getRow,
+  projectRootDir,
+  fsImpl: fs,
+  pathImpl: path,
+  cryptoImpl: crypto,
+});
 
 saveDatabase();
 

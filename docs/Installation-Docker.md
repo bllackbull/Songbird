@@ -78,7 +78,7 @@ The nginx container requires TLS certificate files before it can start. Place yo
 - `certs/cert.pem` — certificate (or full chain)
 - `certs/key.pem` — private key
 
-See [SSL Certificates](./SSL-Certificates.md) for the available options (Certbot, existing files, or the deploy script).
+See [SSL Certificates](./SSL-Certificates.md) for the available options.
 
 ## 5. Build and start
 
