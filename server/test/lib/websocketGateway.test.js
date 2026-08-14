@@ -221,4 +221,20 @@ describe("WebSocket Gateway", () => {
 
     gateway.close();
   });
+
+  test("sends broadcast events to all connected websocket clients when gateway.broadcastAll is called", () => {
+    const wsAlice = { readyState: 1, send: vi.fn() };
+    const wsBob = { readyState: 1, send: vi.fn() };
+
+    const gateway = createWebSocketGateway({});
+    gateway.clientsByUsername.set("alice", new Set([wsAlice]));
+    gateway.clientsByUsername.set("bob", new Set([wsBob]));
+
+    gateway.broadcastAll({ type: "chat_list_changed" });
+
+    expect(wsAlice.send).toHaveBeenCalledWith(JSON.stringify({ type: "chat_list_changed" }));
+    expect(wsBob.send).toHaveBeenCalledWith(JSON.stringify({ type: "chat_list_changed" }));
+
+    gateway.close();
+  });
 });

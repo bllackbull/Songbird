@@ -413,6 +413,7 @@ const sseHub = createSseHub({ listChatMembers });
 const { addSseClient, removeSseClient, emitSseEvent, emitChatEvent, broadcastAll, getCachedMembers } = sseHub;
 
 let wsPresenceBroadcaster = null;
+let wsGlobalBroadcaster = null;
 const presenceTracker = createPresenceTracker({
   updateLastSeen,
   getUserPresence,
@@ -693,7 +694,10 @@ const apiDeps = {
     emitSseEvent(username, payload);
     wsPresenceBroadcaster?.(username, payload);
   },
-  broadcastAll,
+  broadcastAll: (payload) => {
+    broadcastAll(payload);
+    wsGlobalBroadcaster?.(payload);
+  },
   broadcastPresence: (username) => presenceTracker.broadcastStatus(username),
   connectPresence: (username, ref) => presenceTracker.markConnected(username, ref),
   isUserConnected: (username) => presenceTracker.isConnected(username),
@@ -1161,6 +1165,7 @@ const wsGateway = createWebSocketGateway({
   heartbeatTimeoutMs: wsHeartbeatTimeoutMs,
 });
 wsPresenceBroadcaster = (username, payload) => wsGateway.sendEvent(username, payload);
+wsGlobalBroadcaster = (payload) => wsGateway.broadcastAll(payload);
 
 // Graceful shutdown for container orchestrators
 process.on("SIGTERM", () => {
