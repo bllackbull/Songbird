@@ -51,4 +51,11 @@ function readDbConfig() {
   };
 }
 
-export { readEnvBool, readEnvInt, readDbConfig };
+function parseEnv() {
+  return {
+    wsHeartbeatIntervalMs: readEnvInt("WS_HEARTBEAT_INTERVAL_MS", 30000, { min: 1 }),
+    wsHeartbeatTimeoutMs: readEnvInt("WS_HEARTBEAT_TIMEOUT_MS", 10000, { min: 1 }),
+  };
+}
+
+export { readEnvBool, readEnvInt, readDbConfig, parseEnv };

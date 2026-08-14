@@ -83,6 +83,8 @@ nano .env
 | `CHAT_LIST_REFRESH_INTERVAL` | `integer` | `20000` | فاصله زمانی تازه‌سازی پس‌زمینه فهرست چت‌ها (میلی‌ثانیه). |
 | `CHAT_HEALTH_CHECK_INTERVAL` | `integer` | `10000` | فاصله زمانی بررسی سلامت اتصال (میلی‌ثانیه). |
 | `CHAT_SSE_RECONNECT_DELAY` | `integer` | `2000` | تأخیر پیش از اتصال مجدد SSE پس از خطا (میلی‌ثانیه). |
+| `WS_HEARTBEAT_INTERVAL_MS` | `integer` | `30000` | فرکانس ارسال فریم‌های پینگ heartbeat وب‌سوکت به کلاینت‌ها (میلی‌ثانیه). |
+| `WS_HEARTBEAT_TIMEOUT_MS` | `integer` | `10000` | مهلت زمانی پیش از قطع اتصال کلاینت‌های غیرپاسخگو وب‌سوکت (میلی‌ثانیه). |
 | `CHAT_SEARCH_MAX_RESULTS` | `integer` | `5` | حداکثر تعداد کاربران نمایش‌داده‌شده در نتایج جستجو. |
 | `CHAT_VOICE_WAVEFORM_MAX_DECODE_MB` | `integer` | `5` | حداکثر اندازه فایل صوتی (مگابایت) مجاز برای رمزگشایی شکل‌موج سمت‌کلاینت. (`CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES` به‌عنوان جایگزین قدیمی به بایت پشتیبانی می‌شود.) |
 | `CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS` | `integer` | `480` | حداکثر مدت‌زمان صوت (ثانیه) مجاز برای رمزگشایی شکل‌موج سمت‌کلاینت. |

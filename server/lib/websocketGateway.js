@@ -7,11 +7,49 @@ export function createWebSocketGateway({
   getSessionFromToken,
   onUserConnected,
   onUserDisconnected,
+  heartbeatIntervalMs = 30000,
+  heartbeatTimeoutMs = 10000,
 }) {
   const wss = new WebSocketServer({ noServer: true });
   const clientsByUsername = new Map();
 
   const instanceId = Math.random().toString(36).substring(2);
+
+  function clearHeartbeatTimeoutTimer(ws) {
+    if (ws && ws._heartbeatTimeoutTimer) {
+      clearTimeout(ws._heartbeatTimeoutTimer);
+      ws._heartbeatTimeoutTimer = null;
+    }
+  }
+
+  const heartbeatTimer = setInterval(() => {
+    wss.clients.forEach((ws) => {
+      if (ws.isAlive === false) {
+        clearHeartbeatTimeoutTimer(ws);
+        if (typeof ws.terminate === "function") {
+          ws.terminate();
+        }
+        return;
+      }
+      ws.isAlive = false;
+      if (typeof ws.ping === "function") {
+        ws.ping();
+      }
+      clearHeartbeatTimeoutTimer(ws);
+      if (heartbeatTimeoutMs > 0) {
+        ws._heartbeatTimeoutTimer = setTimeout(() => {
+          ws._heartbeatTimeoutTimer = null;
+          if (ws.isAlive === false && typeof ws.terminate === "function") {
+            ws.terminate();
+          }
+        }, heartbeatTimeoutMs);
+      }
+    });
+  }, heartbeatIntervalMs);
+
+  if (typeof heartbeatTimer.unref === "function") {
+    heartbeatTimer.unref();
+  }
 
   // PubSub subscriber for cross-instance message routing
   const pubsubSub = redisClient ? redisClient.duplicate() : null;
@@ -121,6 +159,17 @@ export function createWebSocketGateway({
   }
 
   wss.on("connection", (ws, req, rawSession) => {
+    ws.isAlive = true;
+    if (wss.clients && typeof wss.clients.add === "function") {
+      wss.clients.add(ws);
+    }
+    if (typeof ws.on === "function") {
+      ws.on("pong", () => {
+        ws.isAlive = true;
+        clearHeartbeatTimeoutTimer(ws);
+      });
+    }
+
     const handleConnection = (session) => {
       const username = session?.username
         ? String(session.username).toLowerCase()
@@ -132,16 +181,22 @@ export function createWebSocketGateway({
       }
       if (onUserConnected) onUserConnected(username, ws);
 
-      ws.on("close", () => {
-        if (username) {
-          const clients = clientsByUsername.get(username);
-          if (clients) {
-            clients.delete(ws);
-            if (!clients.size) clientsByUsername.delete(username);
+      if (typeof ws.on === "function") {
+        ws.on("close", () => {
+          clearHeartbeatTimeoutTimer(ws);
+          if (wss.clients && typeof wss.clients.delete === "function") {
+            wss.clients.delete(ws);
           }
-        }
-        if (onUserDisconnected) onUserDisconnected(username, ws);
-      });
+          if (username) {
+            const clients = clientsByUsername.get(username);
+            if (clients) {
+              clients.delete(ws);
+              if (!clients.size) clientsByUsername.delete(username);
+            }
+          }
+          if (onUserDisconnected) onUserDisconnected(username, ws);
+        });
+      }
     };
 
     if (rawSession && typeof rawSession.then === "function") {
@@ -150,14 +205,20 @@ export function createWebSocketGateway({
       handleConnection(rawSession);
     }
 
-    ws.on("message", (raw) => {
-      try {
-        const msg = JSON.parse(raw.toString());
-        if (msg.type === "ping") {
-          ws.send(JSON.stringify({ type: "pong", timestamp: Date.now() }));
-        }
-      } catch (_) {}
-    });
+    if (typeof ws.on === "function") {
+      ws.on("message", (raw) => {
+        try {
+          const msg = JSON.parse(raw.toString());
+          if (msg.type === "pong" || msg.type === "ping") {
+            ws.isAlive = true;
+            clearHeartbeatTimeoutTimer(ws);
+          }
+          if (msg.type === "ping") {
+            ws.send(JSON.stringify({ type: "pong", timestamp: Date.now() }));
+          }
+        } catch (_) {}
+      });
+    }
   });
 
   if (server) {
@@ -202,6 +263,10 @@ export function createWebSocketGateway({
     sendChatEvent,
     broadcastAll,
     close() {
+      clearInterval(heartbeatTimer);
+      if (wss.clients && typeof wss.clients.forEach === "function") {
+        wss.clients.forEach((ws) => clearHeartbeatTimeoutTimer(ws));
+      }
       if (unsubscribeHub) unsubscribeHub();
       if (pubsubSub) pubsubSub.quit();
       wss.close();

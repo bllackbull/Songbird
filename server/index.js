@@ -31,7 +31,7 @@ import { buildTimestampSchedule } from "./lib/timeUtils.js";
 import { isLoopbackRequest, parseUploadFileMetadata } from "./lib/requestUtils.js";
 import { USERNAME_REGEX } from "./lib/validation.js";
 import { USER_COLORS, setUserColor } from "./settings/colors.js";
-import { readEnvInt, readDbConfig } from "./settings/env.js";
+import { readEnvInt, readDbConfig, parseEnv } from "./settings/env.js";
 import { createPostgresMaintenance } from "./lib/postgresMaintenance.js";
 import { dbKnex } from "./db/knex.js";
 import {
@@ -1149,6 +1149,7 @@ const server = app.listen(port, bindAddress, () => {
   console.log(`Songbird server running on http://${bindAddress}:${port}`);
 });
 
+const { wsHeartbeatIntervalMs, wsHeartbeatTimeoutMs } = parseEnv();
 const wsGateway = createWebSocketGateway({
   server,
   sseHub,
@@ -1156,6 +1157,8 @@ const wsGateway = createWebSocketGateway({
   getSessionFromToken: getSessionCombined,
   onUserConnected: (username, ws) => presenceTracker.markConnected(username, ws),
   onUserDisconnected: (username, ws) => presenceTracker.markDisconnected(username, ws),
+  heartbeatIntervalMs: wsHeartbeatIntervalMs,
+  heartbeatTimeoutMs: wsHeartbeatTimeoutMs,
 });
 wsPresenceBroadcaster = (username, payload) => wsGateway.sendEvent(username, payload);
 
