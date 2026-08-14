@@ -131,5 +131,17 @@ describe("postgresMaintenance", () => {
       "vacuumdb is not installed",
     );
     await expect(maintenance.vacuum()).rejects.not.toThrow("super-secret");
+
+    const maintenanceWithStderr = createPostgresMaintenance({
+      config,
+      execute: async () => {
+        const error = new Error("failed");
+        error.stderr = "pg_dump: error: server version: 18.0; pg_dump version: 15.0 with super-secret";
+        throw error;
+      },
+    });
+    await expect(maintenanceWithStderr.backup("/tmp/test.dump")).rejects.toThrow(
+      "pg_dump failed: pg_dump: error: server version: 18.0; pg_dump version: 15.0 with [REDACTED]",
+    );
   });
 });

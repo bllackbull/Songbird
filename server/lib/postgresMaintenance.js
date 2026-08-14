@@ -82,10 +82,19 @@ function assertArchivePath(archivePath) {
   return resolved;
 }
 
-function commandError(tool, error) {
+function commandError(tool, error, connection) {
   if (error?.code === "ENOENT") {
     return new Error(`${tool} is not installed or is unavailable in PATH.`);
   }
+  let details = (error?.stderr || error?.message || "").trim();
+  if (connection?.password) {
+    details = details.replaceAll(connection.password, "[REDACTED]");
+  }
+  if (details) {
+    console.error(`[postgresMaintenance] ${tool} failed: ${details}`);
+    return new Error(`${tool} failed: ${details}`);
+  }
+  console.error(`[postgresMaintenance] ${tool} failed with unknown error.`);
   return new Error(
     `${tool} failed. Check PostgreSQL permissions and server logs.`,
   );
@@ -100,7 +109,7 @@ export function createPostgresMaintenance({ config, execute = execFile } = {}) {
         windowsHide: true,
       });
     } catch (error) {
-      throw commandError(tool, error);
+      throw commandError(tool, error, connection);
     }
   };
 
