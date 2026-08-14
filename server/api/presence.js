@@ -17,7 +17,7 @@ function registerPresenceRoutes(app, deps) {
     }
 
     const effectiveStatus =
-      isConnected(user.username) && String(user.status || "").toLowerCase() === "online"
+      typeof isConnected === "function" && isConnected(user.username) && String(user.status || "online").toLowerCase() !== "invisible"
         ? "online"
         : "offline";
 

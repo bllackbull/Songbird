@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { Ban, CirclePlus, Filter, Pencil, ShieldCheck, ShieldOff, Tag, Trash, UserPlus } from "../../icons/lucide.js";
+import { Ban, CirclePlus, Pencil, ShieldCheck, ShieldOff, Trash, UserPlus } from "../../icons/lucide.js";
 import { api, cardCls, btnPrimary, iconBtn, fmtDate, DEFAULT_PAGE_SIZE } from "./adminShared.js";
-import { LoadingRows, EmptyState, FilterDropdown, SortTh, RoleBadge, Pagination, TabToolbar, TabSearchInput } from "./AdminCommon.jsx";
+import { LoadingRows, EmptyState, FilterPopover, SortTh, RoleBadge, Pagination, TabToolbar, TabSearchInput } from "./AdminCommon.jsx";
 import AdminUserModal from "./AdminUserModal.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 import Avatar from "../common/Avatar.jsx";
@@ -20,6 +20,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
   const [search, setSearch]           = useState("");
   const [roleFilter, setRoleFilter]   = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [verifiedFilter, setVerifiedFilter] = useState("");
   const [sortBy, setSortBy]           = useState("id");
   const [sortDir, setSortDir]         = useState("ASC");
   const [editUser, setEditUser]       = useState(null);
@@ -48,6 +49,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
     if (trimmedSearch) params.set("search", trimmedSearch);
     if (roleFilter) params.set("role", roleFilter);
     if (statusFilter) params.set("status", statusFilter);
+    if (verifiedFilter) params.set("verified", verifiedFilter);
     try {
       const data = await api.get(`/api/admin/users?${params.toString()}`);
       if (requestId !== requestIdRef.current) return;
@@ -60,7 +62,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
     }
-  }, [trimmedSearch, roleFilter, statusFilter, sortBy, sortDir, pageSize]);
+  }, [trimmedSearch, roleFilter, statusFilter, verifiedFilter, sortBy, sortDir, pageSize]);
 
   // Refetch (debounced) whenever the query or page changes while the tab is visible.
   useEffect(() => {
@@ -79,6 +81,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
   const changeSearch = (value) => { setSearch(value); setPage(1); };
   const changeRoleFilter = (value) => { setRoleFilter(value); setPage(1); };
   const changeStatusFilter = (value) => { setStatusFilter(value); setPage(1); };
+  const changeVerifiedFilter = (value) => { setVerifiedFilter(value); setPage(1); };
   const changePageSize = (value) => { setPageSize(value); setPage(1); };
   const toggleSort = (field) => {
     setPage(1);
@@ -104,12 +107,42 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
   // Whether the currently logged-in admin is themselves the server owner.
   const iAmOwner = currentUser?.role === "owner";
 
+  const userFilterSections = [
+    {
+      id: "role",
+      label: "Role",
+      value: roleFilter,
+      onChange: changeRoleFilter,
+      options: [["", "All roles"], ["user", "User"], ["admin", "Admin"], ["owner", "Owner"], ["banned", "Banned"]],
+    },
+    {
+      id: "status",
+      label: "Status",
+      value: statusFilter,
+      onChange: changeStatusFilter,
+      options: [["", "All statuses"], ["online", "Online"], ["offline", "Offline"]],
+    },
+    {
+      id: "verified",
+      label: "Verified Status",
+      value: verifiedFilter,
+      onChange: changeVerifiedFilter,
+      options: [["", "All"], ["1", "Verified"], ["0", "Unverified"]],
+    },
+  ];
+
+  const resetUserFilters = () => {
+    setRoleFilter("");
+    setStatusFilter("");
+    setVerifiedFilter("");
+    setPage(1);
+  };
+
   return (
     <div className="space-y-3">
       <TabToolbar>
         <TabSearchInput value={search} onChange={changeSearch} placeholder="Search users…" />
-        <FilterDropdown value={roleFilter} onChange={changeRoleFilter} icon={Tag} options={[["", "All roles"], ["user", "User"], ["admin", "Admin"], ["owner", "Owner"], ["banned", "Banned"]]} />
-        <FilterDropdown value={statusFilter} onChange={changeStatusFilter} icon={Filter} options={[["", "All"], ["online", "online"], ["offline", "offline"]]} />
+        <FilterPopover sections={userFilterSections} onReset={resetUserFilters} />
         <button type="button" onClick={() => setCreateOpen(true)}
           className={btnPrimary + " w-9 shrink-0 justify-center px-0 sm:w-auto sm:justify-start sm:px-3"}>
           <UserPlus size={16} className="icon-anim-pop shrink-0" /> <span className="hidden sm:inline">New user</span>

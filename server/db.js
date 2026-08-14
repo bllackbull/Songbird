@@ -3104,7 +3104,7 @@ export function getUserPresence(username) {
   const row = getRow(
     dbKnex("users")
       .select("id", "username", "status", "last_seen")
-      .where("username", norm)
+      .where(dbKnex.raw("LOWER(username) = ?", [norm]))
       .first(),
   );
   if (row && typeof row.then === "function") {
@@ -3603,7 +3603,7 @@ function naturalSortExpr(col, tiebreaker = null, dir = "ASC") {
 }
 
 
-export function adminListUsers({ limit = 200, offset = 0, search = "", sortBy = "id", sortDir = "DESC", roleFilter = null, statusFilter = null }) {
+export function adminListUsers({ limit = 200, offset = 0, search = "", sortBy = "id", sortDir = "DESC", roleFilter = null, statusFilter = null, verifiedFilter = null, connectedUsernames = null }) {
   const safeLimit  = Math.max(1, Math.min(500, Number(limit) || 200));
   const safeOffset = Math.max(0, Number(offset) || 0);
   const safeSortBy  = ["id", "username", "nickname", "role", "created_at", "last_seen"].includes(sortBy) ? sortBy : "id";
@@ -3629,9 +3629,36 @@ export function adminListUsers({ limit = 200, offset = 0, search = "", sortBy = 
   }
 
   if (statusFilter === "online") {
-    qb = qb.where("status", "online");
+    qb = qb.where(function () {
+      this.where("status", "online").orWhereNull("status").orWhere("status", "!=", "invisible");
+    });
+    if (Array.isArray(connectedUsernames)) {
+      const lowerConnected = connectedUsernames.map((u) => String(u).toLowerCase()).filter(Boolean);
+      if (lowerConnected.length === 0) {
+        qb = qb.whereRaw("1 = 0");
+      } else {
+        qb = qb.whereIn(dbKnex.raw("LOWER(username)"), lowerConnected);
+      }
+    }
   } else if (statusFilter === "offline") {
-    qb = qb.where("status", "!=", "online");
+    if (Array.isArray(connectedUsernames)) {
+      const lowerConnected = connectedUsernames.map((u) => String(u).toLowerCase()).filter(Boolean);
+      if (lowerConnected.length > 0) {
+        qb = qb.where(function () {
+          this.whereNotIn(dbKnex.raw("LOWER(username)"), lowerConnected).orWhere("status", "invisible");
+        });
+      }
+    } else {
+      qb = qb.where("status", "invisible");
+    }
+  }
+
+  if (verifiedFilter === "1" || verifiedFilter === "true") {
+    qb = qb.where("verified", 1);
+  } else if (verifiedFilter === "0" || verifiedFilter === "false") {
+    qb = qb.where(function () {
+      this.where("verified", 0).orWhereNull("verified");
+    });
   }
 
   if (safeSortBy === "nickname") {
@@ -3661,7 +3688,7 @@ export function adminListUsers({ limit = 200, offset = 0, search = "", sortBy = 
 
 // adminCountUsers is kept for any future callers that only need the count,
 // but the list endpoint now uses adminListUsers which returns both together.
-export function adminCountUsers({ search = "", roleFilter = null, statusFilter = null } = {}) {
+export function adminCountUsers({ search = "", roleFilter = null, statusFilter = null, verifiedFilter = null, connectedUsernames = null } = {}) {
   let qb = dbKnex("users").count({ count: "*" });
 
   if (search) {
@@ -3678,9 +3705,36 @@ export function adminCountUsers({ search = "", roleFilter = null, statusFilter =
   }
 
   if (statusFilter === "online") {
-    qb = qb.where("status", "online");
+    qb = qb.where(function () {
+      this.where("status", "online").orWhereNull("status").orWhere("status", "!=", "invisible");
+    });
+    if (Array.isArray(connectedUsernames)) {
+      const lowerConnected = connectedUsernames.map((u) => String(u).toLowerCase()).filter(Boolean);
+      if (lowerConnected.length === 0) {
+        qb = qb.whereRaw("1 = 0");
+      } else {
+        qb = qb.whereIn(dbKnex.raw("LOWER(username)"), lowerConnected);
+      }
+    }
   } else if (statusFilter === "offline") {
-    qb = qb.where("status", "!=", "online");
+    if (Array.isArray(connectedUsernames)) {
+      const lowerConnected = connectedUsernames.map((u) => String(u).toLowerCase()).filter(Boolean);
+      if (lowerConnected.length > 0) {
+        qb = qb.where(function () {
+          this.whereNotIn(dbKnex.raw("LOWER(username)"), lowerConnected).orWhere("status", "invisible");
+        });
+      }
+    } else {
+      qb = qb.where("status", "invisible");
+    }
+  }
+
+  if (verifiedFilter === "1" || verifiedFilter === "true") {
+    qb = qb.where("verified", 1);
+  } else if (verifiedFilter === "0" || verifiedFilter === "false") {
+    qb = qb.where(function () {
+      this.where("verified", 0).orWhereNull("verified");
+    });
   }
 
   const rawRow = getRow(qb.first());
@@ -3690,7 +3744,18 @@ export function adminCountUsers({ search = "", roleFilter = null, statusFilter =
   return Number(rawRow?.count || 0);
 }
 
-export function adminListChats({ limit = 200, offset = 0, search = "", sortBy = "id", sortDir = "DESC", typeFilter = null }) {
+export function adminListChats({
+  limit = 200,
+  offset = 0,
+  search = "",
+  sortBy = "id",
+  sortDir = "DESC",
+  typeFilter = null,
+  visibilityFilter = null,
+  verifiedFilter = null,
+  autoAddFilter = null,
+  remoteFilter = null,
+}) {
   const safeLimit  = Math.max(1, Math.min(500, Number(limit) || 200));
   const safeOffset = Math.max(0, Number(offset) || 0);
   const safeSortBy  = ["id", "name", "type", "group_visibility", "created_at", "member_count", "message_count"].includes(sortBy) ? sortBy : "id";
@@ -3698,6 +3763,7 @@ export function adminListChats({ limit = 200, offset = 0, search = "", sortBy = 
 
   let qb = dbKnex("chats as c")
     .leftJoin("users as owner", "owner.id", dbKnex.raw("(SELECT user_id FROM chat_members WHERE chat_id = c.id AND role = 'owner' LIMIT 1)"))
+    .leftJoin("remote_channel_sources as rcs", "rcs.chat_id", "c.id")
     .select(
       "c.id", "c.name", "c.type", "c.group_username", "c.group_visibility", "c.group_color", "c.group_avatar_url", "c.created_at", "c.verified", "c.auto_add_new_users",
       dbKnex.raw("(SELECT COUNT(*) FROM chat_members WHERE chat_id = c.id) AS member_count"),
@@ -3705,6 +3771,7 @@ export function adminListChats({ limit = 200, offset = 0, search = "", sortBy = 
       "owner.id as owner_id", "owner.username as owner_username", "owner.nickname as owner_nickname",
       "owner.avatar_url as owner_avatar_url", "owner.color as owner_color",
       "owner.verified as owner_verified", "owner.role as owner_role",
+      "rcs.enabled as remote_enabled", "rcs.paused as remote_paused",
       dbKnex.raw("COUNT(*) OVER() AS _total")
     )
     .whereIn("c.type", ["group", "channel"]);
@@ -3718,6 +3785,28 @@ export function adminListChats({ limit = 200, offset = 0, search = "", sortBy = 
   }
   if (typeFilter === "group" || typeFilter === "channel") {
     qb = qb.where("c.type", typeFilter);
+  }
+  if (visibilityFilter === "public" || visibilityFilter === "private") {
+    qb = qb.where("c.group_visibility", visibilityFilter);
+  }
+  if (verifiedFilter === "1" || verifiedFilter === "true") {
+    qb = qb.where("c.verified", 1);
+  } else if (verifiedFilter === "0" || verifiedFilter === "false") {
+    qb = qb.where(function () { this.where("c.verified", 0).orWhereNull("c.verified"); });
+  }
+  if (autoAddFilter === "1" || autoAddFilter === "true") {
+    qb = qb.where("c.auto_add_new_users", 1);
+  } else if (autoAddFilter === "0" || autoAddFilter === "false") {
+    qb = qb.where(function () { this.where("c.auto_add_new_users", 0).orWhereNull("c.auto_add_new_users"); });
+  }
+  if (remoteFilter === "active") {
+    qb = qb.where("rcs.enabled", 1).where(function () { this.where("rcs.paused", 0).orWhereNull("rcs.paused"); });
+  } else if (remoteFilter === "paused") {
+    qb = qb.where("rcs.enabled", 1).where("rcs.paused", 1);
+  } else if (remoteFilter === "disabled") {
+    qb = qb.where("rcs.enabled", 0);
+  } else if (remoteFilter === "none") {
+    qb = qb.whereNull("rcs.id");
   }
 
   const countCols = ["member_count", "message_count"];
@@ -3748,8 +3837,16 @@ export function adminListChats({ limit = 200, offset = 0, search = "", sortBy = 
 
 // adminCountChats is kept for any future callers that only need the count,
 // but the list endpoint now uses adminListChats which returns both together.
-export function adminCountChats({ search = "", typeFilter = null } = {}) {
+export function adminCountChats({
+  search = "",
+  typeFilter = null,
+  visibilityFilter = null,
+  verifiedFilter = null,
+  autoAddFilter = null,
+  remoteFilter = null,
+} = {}) {
   let qb = dbKnex("chats as c")
+    .leftJoin("remote_channel_sources as rcs", "rcs.chat_id", "c.id")
     .count({ count: "*" })
     .whereIn("c.type", ["group", "channel"]);
 
@@ -3762,6 +3859,28 @@ export function adminCountChats({ search = "", typeFilter = null } = {}) {
   }
   if (typeFilter === "group" || typeFilter === "channel") {
     qb = qb.where("c.type", typeFilter);
+  }
+  if (visibilityFilter === "public" || visibilityFilter === "private") {
+    qb = qb.where("c.group_visibility", visibilityFilter);
+  }
+  if (verifiedFilter === "1" || verifiedFilter === "true") {
+    qb = qb.where("c.verified", 1);
+  } else if (verifiedFilter === "0" || verifiedFilter === "false") {
+    qb = qb.where(function () { this.where("c.verified", 0).orWhereNull("c.verified"); });
+  }
+  if (autoAddFilter === "1" || autoAddFilter === "true") {
+    qb = qb.where("c.auto_add_new_users", 1);
+  } else if (autoAddFilter === "0" || autoAddFilter === "false") {
+    qb = qb.where(function () { this.where("c.auto_add_new_users", 0).orWhereNull("c.auto_add_new_users"); });
+  }
+  if (remoteFilter === "active") {
+    qb = qb.where("rcs.enabled", 1).where(function () { this.where("rcs.paused", 0).orWhereNull("rcs.paused"); });
+  } else if (remoteFilter === "paused") {
+    qb = qb.where("rcs.enabled", 1).where("rcs.paused", 1);
+  } else if (remoteFilter === "disabled") {
+    qb = qb.where("rcs.enabled", 0);
+  } else if (remoteFilter === "none") {
+    qb = qb.whereNull("rcs.id");
   }
 
   const rawRow = getRow(qb.first());

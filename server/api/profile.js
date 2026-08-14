@@ -41,7 +41,7 @@ function registerProfileRoutes(app, deps) {
       .toLowerCase();
     const storedStatus = String(user.status || "online").toLowerCase();
     const effectiveStatus =
-      typeof isConnected === "function" && isConnected(currentUsername) && storedStatus === "online"
+      typeof isConnected === "function" && isConnected(currentUsername) && storedStatus !== "invisible"
         ? "online"
         : "offline";
     const payload = {

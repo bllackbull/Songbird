@@ -731,6 +731,7 @@ const apiDeps = {
   hydrateMissingVideoMetadata,
   inferMimeFromFilename,
   isConnected: (username) => presenceTracker.isConnected(username),
+  getConnectedUsernames: () => presenceTracker.getConnectedUsernames(),
   isDangerousUploadFile,
   isLoopbackRequest,
   isMember,

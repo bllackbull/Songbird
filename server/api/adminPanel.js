@@ -74,6 +74,7 @@ function registerAdminPanelRoutes(app, deps) {
     findUserByUsername,
     findChatById,
     isConnected,
+    getConnectedUsernames,
     isUserAdmin,
     isUserOwner,
     isLoopbackRequest,
@@ -394,11 +395,13 @@ function registerAdminPanelRoutes(app, deps) {
     const sortDir   = String(req.query.sortDir || "").toLowerCase() === "asc" ? "ASC" : "DESC";
     const roleFilter = ["user", "admin", "owner", "banned"].includes(req.query.role) ? req.query.role : null;
     const statusFilter = ["online", "offline"].includes(req.query.status) ? req.query.status : null;
-    const rawResult = adminListUsers({ limit, offset, search, sortBy, sortDir, roleFilter, statusFilter });
+    const verifiedFilter = ["1", "0", "true", "false"].includes(req.query.verified) ? req.query.verified : null;
+    const connectedUsernames = typeof getConnectedUsernames === "function" ? getConnectedUsernames() : null;
+    const rawResult = adminListUsers({ limit, offset, search, sortBy, sortDir, roleFilter, statusFilter, verifiedFilter, connectedUsernames });
     const { users, total } = (rawResult && typeof rawResult.then === "function" ? await rawResult : rawResult) || { users: [], total: 0 };
     users.forEach((u) => {
       u.online =
-        isConnected(u.username) && String(u.status || "").toLowerCase() === "online" ? 1 : 0;
+        typeof isConnected === "function" && isConnected(u.username) && String(u.status || "online").toLowerCase() !== "invisible" ? 1 : 0;
     });
     res.json({ users, total, limit, offset });
   });
@@ -705,7 +708,11 @@ function registerAdminPanelRoutes(app, deps) {
       ? req.query.sortBy : "id";
     const sortDir = String(req.query.sortDir || "").toLowerCase() === "asc" ? "ASC" : "DESC";
     const typeFilter = ["group", "channel"].includes(req.query.type) ? req.query.type : null;
-    const rawResult = adminListChats({ limit, offset, search, sortBy, sortDir, typeFilter });
+    const visibilityFilter = ["public", "private"].includes(req.query.visibility) ? req.query.visibility : null;
+    const verifiedFilter = ["1", "0", "true", "false"].includes(req.query.verified) ? req.query.verified : null;
+    const autoAddFilter = ["1", "0", "true", "false"].includes(req.query.auto_add) ? req.query.auto_add : null;
+    const remoteFilter = ["active", "paused", "disabled", "none"].includes(req.query.remote) ? req.query.remote : null;
+    const rawResult = adminListChats({ limit, offset, search, sortBy, sortDir, typeFilter, visibilityFilter, verifiedFilter, autoAddFilter, remoteFilter });
     const { chats, total } = (rawResult && typeof rawResult.then === "function"
       ? await rawResult
       : rawResult) || { chats: [], total: 0 };

@@ -133,10 +133,19 @@ export function createPresenceTracker({
     return count;
   }
 
+  function getConnectedUsernames() {
+    const list = [];
+    connectionsByUsername.forEach((refs, key) => {
+      if (refs && refs.size > 0) list.push(key);
+    });
+    return list;
+  }
+
   return {
     markConnected,
     markDisconnected,
     isConnected,
+    getConnectedUsernames,
     effectiveStatus,
     broadcastStatus,
     getOnlineCount,

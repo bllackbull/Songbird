@@ -347,7 +347,7 @@ function registerChatRoutes(app, deps) {
         ...member,
         avatar_url: ensureAvatarExists(member.id, member.avatar_url),
         status:
-          isConnected(member.username) && String(member.status || "").toLowerCase() === "online"
+          typeof isConnected === "function" && member?.username && isConnected(member.username) && String(member?.status || "online").toLowerCase() !== "invisible"
             ? "online"
             : "offline",
       }));

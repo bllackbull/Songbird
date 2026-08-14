@@ -168,6 +168,7 @@ export function makeApp(overrides = {}) {
     disconnectPresence: () => {},
     broadcastPresence: () => {},
     isConnected: () => false,
+    getConnectedUsernames: () => [],
     getOnlineCount: () => 0,
 
     // ── Upload stubs (multer instances — .single/.array called at route

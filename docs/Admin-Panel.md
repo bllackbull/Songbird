@@ -81,7 +81,7 @@ Manage all users in your Songbird instance:
 
 ### Features
 
-- **View All Users**: List with sorting and filtering (1000 row limit)
+- **View All Users**: Paginated List with sorting and filtering
 - **Create Users**: Create new accounts with username, nickname, password
 - **Edit Users**: 
   - Update username, nickname, avatar
@@ -89,8 +89,7 @@ Manage all users in your Songbird instance:
   - Change user role (admin/user)
   - Ban/unban users
 - **Delete Users**: Permanently remove user accounts
-- **Search & Filter**: Find users by username or nickname
-- **Sorting**: Sort by username, nickname, created date, or last seen
+- **Search & Filter**: Searching and filtering across the entire users dataset
 
 ## Chats Tab
 
@@ -98,11 +97,12 @@ Manage DMs, groups, and channels:
 
 ### Features
 
-- **View All Chats**: List with type, members, and creation date
+- **View All Chats**: Paginated list with type, member count, message count, and creation date
 - **Create Chats**: Create a new group or channel
-- **Edit Chats**: Update a chat metadata and its ownership
-- **Delete Chats**: Permanently remove chats and all messages
-- **Search & Filter**: Find chats by name, username, or type
+- **Edit Chats**: Update chat metadata and its ownership
+- **Delete Chats**: Permanently remove chats and all associated messages
+- **Search & Filter**: Searching and filtering across all groups and channels
+- **Sorting**: Sort by Name, Type, Visibility, Created Date, Member Count, or Message Count
 - **Member Management**: View and modify chat membership
 - **Auto-Add New Users**: Automatically add newly registered user accounts to public chats
 
