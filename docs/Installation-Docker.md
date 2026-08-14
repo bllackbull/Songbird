@@ -1,5 +1,9 @@
 # Install via Docker
 
+:::tip Infrastructure Note
+This guide uses Docker Compose and is designed for **IaaS** (Infrastructure as a Service — self-hosted VPS or dedicated virtual machines running Docker Engine). If you are deploying to managed cloud platforms (PaaS / CaaS) like Render, Railway, AWS ECS, Google Cloud Run, or Kubernetes, see the [Cloud Deployment](./Cloud-Deployment.md) guide.
+:::
+
 **Prerequisites (tested on Ubuntu 22.04+):**
 
 - An Ubuntu server with sudo access

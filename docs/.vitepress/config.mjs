@@ -7,6 +7,7 @@ const enSidebar = [
     items: [
       {text: '🚀 Deployment Script', link: '/Deployment-Script'},
       {text: '🐳 Install via Docker', link: '/Installation-Docker'},
+      {text: '☁️ Cloud Deployment', link: '/Cloud-Deployment'},
       {text: '🛠️ Manual Installation', link: '/Manual-Installation'},
       {text: '🌐 Configure Nginx', link: '/Nginx-Configuration'},
       {text: '🔒 SSL Certificates', link: '/SSL-Certificates'},
@@ -43,6 +44,7 @@ const faSidebar = [
     items: [
       {text: '🚀 اسکریپت نصب', link: '/fa/Deployment-Script'},
       {text: '🐳 نصب از طریق Docker', link: '/fa/Installation-Docker'},
+      {text: '☁️ استقرار ابری', link: '/fa/Cloud-Deployment'},
       {text: '🛠️ نصب دستی', link: '/fa/Manual-Installation'},
       {text: '🌐 کانفیگ Nginx', link: '/fa/Nginx-Configuration'},
       {text: '🔒 گواهی‌های SSL', link: '/fa/SSL-Certificates'},
