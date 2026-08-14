@@ -1438,8 +1438,8 @@ function registerAdminPanelRoutes(app, deps) {
         });
       } catch (error) {
         try { fs.rmSync(backupPath, { force: true }); } catch {}
-        log(session, "db.backup", { targetType: "system", status: "error", details: "maintenance command failed" });
-        if (!res.headersSent) res.status(500).json({ error: "Backup failed." });
+        log(session, "db.backup", { targetType: "system", status: "error", details: error?.message || "maintenance command failed" });
+        if (!res.headersSent) res.status(500).json({ error: error?.message || "Backup failed." });
       }
       return;
     }

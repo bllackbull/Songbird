@@ -221,12 +221,33 @@ const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
     }
   };
 
-  const downloadDb = () => {
+  const downloadDb = async () => {
     flashStatus("backup", "busy", "Downloading…");
-    window.location.href = "/api/admin/maintenance/download-db";
-    // The browser handles the actual download; there's no completion event
-    // to await, so flip to a success state shortly after triggering it.
-    setTimeout(() => flashStatus("backup", "success", "Saved"), 900);
+    try {
+      const res = await apiFetch("/api/admin/maintenance/download-db");
+      if (!res.ok) {
+        flashStatus("backup", "error", "Failed");
+        return;
+      }
+      const blob = await res.blob();
+      const contentDisposition = res.headers.get("content-disposition");
+      let filename = "songbird-backup.db";
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename="?([^";]+)"?/);
+        if (match && match[1]) filename = match[1];
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      flashStatus("backup", "success", "Saved");
+    } catch {
+      flashStatus("backup", "error", "Failed");
+    }
   };
 
   const onFilePicked = (e) => {
