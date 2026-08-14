@@ -8,6 +8,7 @@ import {
   makeSessionStore,
   makeUserStore,
 } from "../helpers/makeApp.js";
+import { userEvents } from "../../lib/workers/autoAddWorker.js";
 
 const temporaryPaths = [];
 
@@ -290,5 +291,41 @@ describe("POST /api/admin/users verified status", () => {
       expect.stringMatching(/insert into/i),
       expect.arrayContaining([1]),
     );
+  });
+
+  test("emits user:created event when admin creates a user", async () => {
+    const adminRun = vi.fn();
+    let calls = 0;
+    const adminGetRow = vi.fn().mockImplementation((sql) => {
+      const lower = String(sql || "").toLowerCase();
+      if (lower.includes("users")) {
+        calls += 1;
+        if (calls === 1) return null;
+        return { id: "u0000000-0000-4000-8000-000000000099", username: "admincreated", nickname: "Admin Created", color: "#10b981", role: "user", verified: 0 };
+      }
+      return null;
+    });
+
+    const { app } = makeAdminApp({ adminRun, adminGetRow });
+    const emitted = [];
+    const handler = (data) => emitted.push(data);
+    userEvents.on("user:created", handler);
+
+    try {
+      const res = await request(app)
+        .post("/api/admin/users")
+        .set("Cookie", "sid=admin-session")
+        .send({
+          username: "admincreated",
+          nickname: "Admin Created",
+          password: "password123",
+        });
+
+      expect(res.status).toBe(201);
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].userId).toBeDefined();
+    } finally {
+      userEvents.off("user:created", handler);
+    }
   });
 });

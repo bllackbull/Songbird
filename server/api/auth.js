@@ -1,3 +1,5 @@
+import { userEvents } from "../lib/workers/autoAddWorker.js";
+
 function registerAuthRoutes(app, deps) {
   const {
     USER_COLORS,
@@ -88,6 +90,10 @@ function registerAuthRoutes(app, deps) {
       assignedColor,
     );
     const id = rawId && typeof rawId.then === "function" ? await rawId : rawId;
+
+    if (id) {
+      userEvents.emit("user:created", { userId: id });
+    }
 
     const token = crypto.randomBytes(24).toString("hex");
 

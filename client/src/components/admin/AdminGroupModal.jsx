@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, lazy, Suspense } from "react";
-import { BadgeCheck, Check, Close, Refresh } from "../../icons/lucide.js";
+import { BadgeCheck, Check, Close, Refresh, UserPlus } from "../../icons/lucide.js";
 import { searchUsers, apiFetch } from "../../api/chatApi.js";
 import { CHAT_PAGE_CONFIG } from "../../settings/chatPageConfig.js";
 import { api, inputCls } from "./adminShared.js";
@@ -185,6 +185,15 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [verified, setVerified] = useState(editing ? Boolean(chat?.verified) : false);
+  const [autoAddNewUsers, setAutoAddNewUsers] = useState(
+    editing ? Boolean(chat?.auto_add_new_users) : false
+  );
+
+  useEffect(() => {
+    if (form.visibility !== "public") {
+      setAutoAddNewUsers(false);
+    }
+  }, [form.visibility]);
 
   // Avatar state. In edit mode we upload immediately to the existing chat; in
   // create mode we hold the picked file and upload after the chat is created.
@@ -283,6 +292,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
           visibility: form.visibility,
           color: form.groupColor,
           verified,
+          autoAddNewUsers,
         };
         if (owner?.id && owner.id !== initialOwnerId) payload.owner = owner.id;
         const r = await api.patch(`/api/admin/chats/${chat.id}`, payload);
@@ -324,6 +334,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
           verified,
           memberIds: members.map((m) => m.id).filter(Boolean),
           addAllEligibleMembers,
+          autoAddNewUsers,
         };
         const r = await api.post("/api/admin/chats", payload);
         if (!r.ok) { const d = await r.json(); setError(d.error || "Failed"); setBusy(false); return; }
@@ -337,7 +348,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
     } catch {
       setError("Request failed."); setBusy(false);
     }
-  }, [editing, form, owner, type, members, addAllEligibleMembers, chat, onSaved, onClose, fileUploadEnabled, pendingAvatarFile, avatarRemoved, uploadAvatarTo, initialOwnerId, verified]);
+  }, [editing, form, owner, type, members, addAllEligibleMembers, chat, onSaved, onClose, fileUploadEnabled, pendingAvatarFile, avatarRemoved, uploadAvatarTo, initialOwnerId, verified, autoAddNewUsers]);
 
   const extraFields = (
     <div className="space-y-3">
@@ -392,6 +403,34 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
     </div>
   );
 
+  const autoAddToggleSlot = (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={autoAddNewUsers}
+      disabled={form.visibility !== "public"}
+      onClick={() => {
+        if (form.visibility !== "public") return;
+        setAutoAddNewUsers((prev) => !prev);
+      }}
+      className="flex w-full items-center justify-between rounded-2xl border border-emerald-200 px-4 py-3 text-left text-sm font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 dark:border-emerald-500/30 dark:text-emerald-200 dark:hover:bg-emerald-500/10 dark:disabled:border-slate-700 dark:disabled:bg-slate-900/60 dark:disabled:text-slate-500"
+    >
+      <span className="inline-flex items-center gap-2">
+        <UserPlus size={18} className="shrink-0 icon-anim-pop" aria-hidden="true" />
+        Auto-add new users
+      </span>
+      <span
+        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition ${
+          autoAddNewUsers && form.visibility === "public"
+            ? "justify-end bg-emerald-500"
+            : "justify-start bg-slate-300 dark:bg-slate-700"
+        }`}
+      >
+        <span className="inline-block h-5 w-5 rounded-full bg-white shadow-sm transition" />
+      </span>
+    </button>
+  );
+
   return (
     <Suspense fallback={null}>
       <NewGroupModal
@@ -413,6 +452,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
         submitLabel={editing ? "Save" : "Create"}
         entityLabel={entityLabel}
         extraFields={extraFields}
+        autoAddToggleSlot={autoAddToggleSlot}
         showMemberSearch
         addAllMembersSelected={addAllEligibleMembers}
         onToggleAddAllMembers={toggleAddAllEligibleMembers}

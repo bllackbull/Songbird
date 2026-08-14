@@ -4,6 +4,7 @@ import { validateUuidParams } from "../lib/uuidMiddleware.js";
 import { isValidUuid, generateUuid } from "../lib/uuidUtils.js";
 import { writeAdminLog, readAdminLog, clearAdminLog } from "../lib/adminLog.js";
 import { readInstallerLog, readNginxLog, readServiceLog, probeLogSources } from "../lib/systemLogs.js";
+import { userEvents } from "../lib/workers/autoAddWorker.js";
 import { dbKnex } from "../db/knex.js";
 import os from "node:os";
 import crypto from "node:crypto";
@@ -470,6 +471,7 @@ function registerAdminPanelRoutes(app, deps) {
     adminSave();
     const row = await callAdminGetRow(dbKnex("users").select("id", "username", "nickname", "color", "role", "verified").where("username", rawUsername).first());
     log(session, "user.create", { targetType: "user", targetLabel: `@${rawUsername}`, details: `role=${role}` });
+    userEvents.emit("user:created", { userId: newUserId });
     res.status(201).json({ ok: true, user: row });
   });
 
@@ -741,6 +743,7 @@ function registerAdminPanelRoutes(app, deps) {
     const inviteToken  = createInviteToken(crypto);
     const ownerColor   = String((await adminGetRow(dbKnex("users").select("color").where("id", owner.id).first()))?.color || "") || "#10b981";
     const groupColor   = normalizeHexColor(String(b.color || "")) || ownerColor;
+    const autoAddNewUsers = (visibility === "public" && Boolean(b.autoAddNewUsers || b.auto_add_new_users)) ? 1 : 0;
     const chatId = await resolveMaybePromise(createChat(name, type, {
       groupUsername:     username,
       groupVisibility:   visibility,
@@ -748,6 +751,8 @@ function registerAdminPanelRoutes(app, deps) {
       createdByUserId:   owner.id,
       groupColor,
       verified:          Boolean(b.verified),
+      autoAddNewUsers,
+      auto_add_new_users: autoAddNewUsers,
     }));
 
     if (!chatId) return res.status(500).json({ error: "Failed to create chat." });
@@ -828,10 +833,29 @@ function registerAdminPanelRoutes(app, deps) {
       newOwnerUsername = String(newOwner.username || "");
     }
 
+    let auto_add_new_users;
+    if (nextVisibility === "private") {
+      auto_add_new_users = 0;
+    } else if (b.autoAddNewUsers !== undefined) {
+      auto_add_new_users = b.autoAddNewUsers ? 1 : 0;
+    } else if (b.auto_add_new_users !== undefined) {
+      auto_add_new_users = b.auto_add_new_users ? 1 : 0;
+    }
+
+    const patchPayload = {
+      name: nextName,
+      groupUsername: nextUsername,
+      groupVisibility: nextVisibility,
+    };
+    if (auto_add_new_users !== undefined) {
+      patchPayload.auto_add_new_users = auto_add_new_users;
+      patchPayload.autoAddNewUsers = auto_add_new_users;
+    }
+
     if (chat.type === "group") {
-      await resolveMaybePromise(updateGroupChat(chatId, { name: nextName, groupUsername: nextUsername, groupVisibility: nextVisibility }));
+      await resolveMaybePromise(updateGroupChat(chatId, patchPayload));
     } else {
-      await resolveMaybePromise(updateChannelChat(chatId, { name: nextName, groupUsername: nextUsername, groupVisibility: nextVisibility }));
+      await resolveMaybePromise(updateChannelChat(chatId, patchPayload));
     }
 
     if (nextColor) await resolveMaybePromise(adminRun(dbKnex("chats").where("id", chatId).update({ group_color: nextColor })));

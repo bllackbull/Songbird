@@ -10,6 +10,7 @@ import {
 import { createInviteToken } from "../lib/inviteTokens.js";
 import { storageEncryption } from "../lib/storageEncryption.js";
 import { generateUuid, isValidUuid } from "../lib/uuidUtils.js";
+import { userEvents } from "../lib/workers/autoAddWorker.js";
 import { dbKnex } from "../db/knex.js";
 import crypto from "crypto";
 
@@ -539,6 +540,7 @@ function registerAdminRoutes(app, deps) {
         }
 
         adminSave();
+        userEvents.emit("user:created", { userId: newUserId });
 
         const rowResult = adminGetRow(
           "SELECT id, username, nickname FROM users WHERE username = ?",
@@ -616,6 +618,8 @@ function registerAdminRoutes(app, deps) {
           String((await callAdminGetRow(dbKnex("users").select("color").where("id", owner.id).first()))?.color || "")
             .trim() || "#10b981";
 
+        const auto_add_new_users = (visibility === "public" && Boolean(payload.autoAddNewUsers || payload.auto_add_new_users)) ? 1 : 0;
+
         let row = null;
         await adminRun("BEGIN");
         try {
@@ -627,6 +631,7 @@ function registerAdminRoutes(app, deps) {
               type,
               group_username: username || null,
               group_visibility: visibility,
+              auto_add_new_users,
               invite_token: inviteToken,
               created_by_user_id: owner.id,
               group_color: fallbackColor,
@@ -906,22 +911,49 @@ function registerAdminRoutes(app, deps) {
           }
         }
 
+        let auto_add_new_users;
+        if (nextVisibility === "private") {
+          auto_add_new_users = 0;
+        } else if (payload.autoAddNewUsers !== undefined) {
+          auto_add_new_users = payload.autoAddNewUsers ? 1 : 0;
+        } else if (payload.auto_add_new_users !== undefined) {
+          auto_add_new_users = payload.auto_add_new_users ? 1 : 0;
+        }
+
         await adminRun("BEGIN");
         try {
-          await adminRun(
-            `UPDATE chats
-             SET name = ?, group_username = ?, group_visibility = ?, group_color = ?, allow_member_invites = ?, created_by_user_id = COALESCE(?, created_by_user_id)
-             WHERE id = ? AND type IN ('group', 'channel')`,
-            [
-              nextName || null,
-              nextUsername || null,
-              nextVisibility,
-              nextColor,
-              allowMemberInvites,
-              nextOwner?.id || null,
-              chat.id,
-            ],
-          );
+          if (auto_add_new_users !== undefined) {
+            await adminRun(
+              `UPDATE chats
+               SET name = ?, group_username = ?, group_visibility = ?, group_color = ?, allow_member_invites = ?, auto_add_new_users = ?, created_by_user_id = COALESCE(?, created_by_user_id)
+               WHERE id = ? AND type IN ('group', 'channel')`,
+              [
+                nextName || null,
+                nextUsername || null,
+                nextVisibility,
+                nextColor,
+                allowMemberInvites,
+                auto_add_new_users,
+                nextOwner?.id || null,
+                chat.id,
+              ],
+            );
+          } else {
+            await adminRun(
+              `UPDATE chats
+               SET name = ?, group_username = ?, group_visibility = ?, group_color = ?, allow_member_invites = ?, created_by_user_id = COALESCE(?, created_by_user_id)
+               WHERE id = ? AND type IN ('group', 'channel')`,
+              [
+                nextName || null,
+                nextUsername || null,
+                nextVisibility,
+                nextColor,
+                allowMemberInvites,
+                nextOwner?.id || null,
+                chat.id,
+              ],
+            );
+          }
 
           if (nextOwner?.id) {
             await adminRun(

@@ -104,6 +104,7 @@ Manage DMs, groups, and channels:
 - **Delete Chats**: Permanently remove chats and all messages
 - **Search & Filter**: Find chats by name, username, or type
 - **Member Management**: View and modify chat membership
+- **Auto-Add New Users**: Automatically add newly registered user accounts to public chats
 
 ## Settings Tab
 

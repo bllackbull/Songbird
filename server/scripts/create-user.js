@@ -127,6 +127,26 @@ async function main() {
       if (newRow?.id) await dbApi.run("UPDATE users SET role = ? WHERE id = ?", [normalizedRole, newRow.id]);
     }
 
+    const autoAddChats = await dbApi.getAll(
+      "SELECT id, type FROM chats WHERE type IN ('group', 'channel') AND group_visibility = 'public' AND auto_add_new_users = 1"
+    );
+    if (Array.isArray(autoAddChats) && autoAddChats.length > 0) {
+      for (const chat of autoAddChats) {
+        await dbApi.run(
+          "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, 'member')",
+          [chat.id, id]
+        );
+        if (chat.type === "group") {
+          const body = `[[system:joined:${nickname || username}]]`;
+          const msgId = crypto.randomUUID();
+          await dbApi.run(
+            "INSERT INTO chat_messages (id, chat_id, user_id, body, created_at) VALUES (?, ?, ?, ?, datetime('now'))",
+            [msgId, chat.id, id, body]
+          );
+        }
+      }
+    }
+
     const row = await dbApi.getRow(
       "SELECT id, username, nickname FROM users WHERE username = ?",
       [username],

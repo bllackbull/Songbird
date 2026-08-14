@@ -751,6 +751,12 @@ export function createChat(name, type = "dm", options = {}) {
       ? String(options.groupAvatarUrl || "").trim() || null
       : null;
   const verified = options.verified ? 1 : 0;
+  const autoAddNewUsers =
+    groupVisibility === "private"
+      ? 0
+      : (options.auto_add_new_users || options.autoAddNewUsers)
+        ? 1
+        : 0;
 
   const res = run(
     dbKnex("chats").insert({
@@ -765,6 +771,7 @@ export function createChat(name, type = "dm", options = {}) {
       allow_member_invites: allowMemberInvites,
       group_avatar_url: groupAvatarUrl,
       verified,
+      auto_add_new_users: autoAddNewUsers,
     }),
   );
 
@@ -1623,7 +1630,7 @@ export function findChatById(chatId) {
   if (!chatId) return isPostgresMode() ? Promise.resolve(null) : null;
   const row = getRow(
     dbKnex("chats")
-      .select("id", "name", "type", "group_username", "group_visibility", "invite_token", "group_color", "allow_member_invites", "group_avatar_url", "created_by_user_id", "verified")
+      .select("id", "name", "type", "group_username", "group_visibility", "invite_token", "group_color", "allow_member_invites", "group_avatar_url", "created_by_user_id", "verified", "auto_add_new_users")
       .where("id", chatId)
       .first(),
   );
@@ -1662,6 +1669,12 @@ export function updateGroupChat(chatId, payload = {}) {
   if (hasGroupAvatarUrl) {
     updateData.group_avatar_url = groupAvatarUrl;
   }
+  if (payload.auto_add_new_users !== undefined || payload.autoAddNewUsers !== undefined) {
+    updateData.auto_add_new_users = payload.auto_add_new_users || payload.autoAddNewUsers ? 1 : 0;
+  }
+  if (groupVisibility === "private") {
+    updateData.auto_add_new_users = 0;
+  }
 
   return run(
     dbKnex("chats")
@@ -1699,12 +1712,67 @@ export function updateChannelChat(chatId, payload = {}) {
   if (hasGroupAvatarUrl) {
     updateData.group_avatar_url = groupAvatarUrl;
   }
+  if (payload.auto_add_new_users !== undefined || payload.autoAddNewUsers !== undefined) {
+    updateData.auto_add_new_users = payload.auto_add_new_users || payload.autoAddNewUsers ? 1 : 0;
+  }
+  if (groupVisibility === "private") {
+    updateData.auto_add_new_users = 0;
+  }
 
   return run(
     dbKnex("chats")
       .where({ id: chatId, type: "channel" })
       .update(updateData),
   );
+}
+
+export function updateChat(id, updates = {}) {
+  const patch = { ...updates };
+  if (patch.visibility !== undefined) {
+    patch.group_visibility = patch.visibility;
+    delete patch.visibility;
+  }
+  if (patch.autoAddNewUsers !== undefined) {
+    patch.auto_add_new_users = patch.autoAddNewUsers ? 1 : 0;
+    delete patch.autoAddNewUsers;
+  }
+  if (patch.auto_add_new_users !== undefined) {
+    patch.auto_add_new_users = patch.auto_add_new_users ? 1 : 0;
+  }
+  if (patch.group_visibility === "private") {
+    patch.auto_add_new_users = 0;
+  }
+  return run(
+    dbKnex("chats")
+      .where("id", id)
+      .update(patch),
+  );
+}
+
+export async function getAutoAddPublicChatIds() {
+  const query = dbKnex("chats")
+    .select("id")
+    .whereIn("type", ["group", "channel"])
+    .where("group_visibility", "public")
+    .where("auto_add_new_users", 1);
+  const rows = await getAll(query);
+  return (rows || []).map((r) => r.id);
+}
+
+export async function bulkAddMemberToChats(userId, chatIds) {
+  if (!chatIds || chatIds.length === 0) return [];
+  const rows = chatIds.map((chatId) => ({
+    chat_id: chatId,
+    user_id: userId,
+    role: "member",
+  }));
+  await run(
+    dbKnex("chat_members")
+      .insert(rows)
+      .onConflict(["chat_id", "user_id"])
+      .ignore(),
+  );
+  return chatIds;
 }
 
 export function regenerateGroupInviteToken(chatId, inviteToken) {
@@ -3631,7 +3699,7 @@ export function adminListChats({ limit = 200, offset = 0, search = "", sortBy = 
   let qb = dbKnex("chats as c")
     .leftJoin("users as owner", "owner.id", dbKnex.raw("(SELECT user_id FROM chat_members WHERE chat_id = c.id AND role = 'owner' LIMIT 1)"))
     .select(
-      "c.id", "c.name", "c.type", "c.group_username", "c.group_visibility", "c.group_color", "c.group_avatar_url", "c.created_at", "c.verified",
+      "c.id", "c.name", "c.type", "c.group_username", "c.group_visibility", "c.group_color", "c.group_avatar_url", "c.created_at", "c.verified", "c.auto_add_new_users",
       dbKnex.raw("(SELECT COUNT(*) FROM chat_members WHERE chat_id = c.id) AS member_count"),
       dbKnex.raw("(SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) AS message_count"),
       "owner.id as owner_id", "owner.username as owner_username", "owner.nickname as owner_nickname",

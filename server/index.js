@@ -26,6 +26,7 @@ import { createRedisClient, createRedisSessionStore } from "./lib/redis.js";
 import { storageEncryption } from "./lib/storageEncryption.js";
 import { createStorageProvider } from "./lib/storage/index.js";
 import { createRemoteChannelManager } from "./lib/remoteChannels.js";
+import { initAutoAddWorker } from "./lib/workers/autoAddWorker.js";
 import { buildTimestampSchedule } from "./lib/timeUtils.js";
 import { isLoopbackRequest, parseUploadFileMetadata } from "./lib/requestUtils.js";
 import { USERNAME_REGEX } from "./lib/validation.js";
@@ -36,6 +37,8 @@ import { dbKnex } from "./db/knex.js";
 import {
   addAllEligibleChatMembers,
   addChatMember,
+  getAutoAddPublicChatIds,
+  bulkAddMemberToChats,
   adminGetAll,
   adminGetRow,
   adminRun,
@@ -1117,6 +1120,7 @@ setImmediate(() => {
   }
 });
 remoteChannelManager.start();
+initAutoAddWorker({ db: { getAutoAddPublicChatIds, bulkAddMemberToChats, findUserById, findChatById, createMessage }, emitChatEvent });
 
 // Periodically purge old done/skipped/failed remote channel queue rows to
 // prevent the table growing without bound. Runs every 24 hours; keeps rows

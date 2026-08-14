@@ -3488,6 +3488,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }
       if (typeof window === "undefined" || !("Notification" in window)) return;
       if (!notificationsActive) return;
+      const rawBody = normalizeMessageBody(meta?.body ?? payload?.body).trim();
+      if (/^\[\[system:/i.test(rawBody)) return;
       const senderName = String(payload?.username || "").trim();
       const isOwnEvent =
         senderName.toLowerCase() === String(user?.username || "").toLowerCase() &&

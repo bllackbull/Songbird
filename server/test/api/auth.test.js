@@ -2,6 +2,7 @@ import { describe, test, expect } from "vitest";
 import request from "supertest";
 import bcrypt from "bcryptjs";
 import { makeApp, makeUserStore } from "../helpers/makeApp.js";
+import { userEvents } from "../../lib/workers/autoAddWorker.js";
 
 // ─── Test UUIDs ───────────────────────────────────────────────────────────────
 const UUID_ALICE = "a0000000-0000-4000-8000-000000000001";
@@ -41,6 +42,25 @@ describe("POST /api/register", () => {
     });
     expect(res.status).toBe(200);
     expect(extractSid(res)).not.toBeNull();
+  });
+
+  test("emits user:created event on userEvents listener when user registers", async () => {
+    const { app } = makeApp();
+    const emitted = [];
+    const handler = (data) => emitted.push(data);
+    userEvents.on("user:created", handler);
+
+    try {
+      const res = await request(app).post("/api/register").send({
+        username: "eventuser",
+        password: "password123",
+      });
+      expect(res.status).toBe(200);
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0]).toEqual({ userId: res.body.id });
+    } finally {
+      userEvents.off("user:created", handler);
+    }
   });
 
   test("returns 409 when username is already taken", async () => {
