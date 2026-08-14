@@ -9,6 +9,51 @@ import fs from "node:fs";
  * Supports bidirectional conversions between SQLite and PostgreSQL databases.
  */
 
+const COLUMN_DEFAULTS = {
+  users: {
+    status: "online",
+    role: "user",
+    banned: 0,
+    verified: 0,
+    avatar_encryption_type: "none",
+    avatar_storage_driver: "local",
+  },
+  chats: {
+    type: "dm",
+    allow_member_invites: 1,
+    verified: 0,
+    auto_add_new_users: 0,
+  },
+  chat_members: {
+    role: "member",
+  },
+  chat_messages: {
+    edited: 0,
+  },
+  chat_message_files: {
+    storage_driver: "local",
+    processing_status: "ready",
+    encryption_type: "none",
+  },
+  chat_mutes: {
+    muted: 1,
+  },
+  remote_channel_sources: {
+    provider: "telegram",
+    source_version: 1,
+    sync_metadata: 0,
+    stream_media: 0,
+    paused: 0,
+    enabled: 0,
+  },
+  remote_channel_queue: {
+    provider: "telegram",
+    source_version: 1,
+    status: "pending",
+    attempts: 0,
+  },
+};
+
 export async function convertSqliteToPostgres({ sqlitePath, postgresConfig }) {
   if (!fs.existsSync(sqlitePath)) {
     throw new Error(`SQLite source file not found: ${sqlitePath}`);
@@ -22,29 +67,69 @@ export async function convertSqliteToPostgres({ sqlitePath, postgresConfig }) {
   });
 
   try {
-    const tables = sqliteDb
+    const pgTablesRes = await pgKnex.raw(
+      "SELECT table_name FROM information_schema.tables WHERE table_schema='public';"
+    );
+    const pgTableNames = new Set(
+      (pgTablesRes?.rows || pgTablesRes || []).map((row) => row.table_name)
+    );
+
+    const rawTables = sqliteDb
       .prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'knex_%'"
       )
       .all()
       .map((row) => row.name);
 
-    await pgKnex.raw("SET session_replication_role = 'replica';");
+    const tables = rawTables.filter((table) => pgTableNames.has(table));
+
+    // Sort tables so parent tables (users, chats, meta) come before dependent child tables
+    const tablePriority = ["meta", "app_settings", "users", "chats", "remote_channel_sources", "chat_messages"];
+    tables.sort((a, b) => {
+      const indexA = tablePriority.indexOf(a);
+      const indexB = tablePriority.indexOf(b);
+      if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+      if (indexA !== -1) return -1;
+      if (indexB !== -1) return 1;
+      return a.localeCompare(b);
+    });
+
+    let replicationRoleSet = false;
+    try {
+      await pgKnex.raw("SET session_replication_role = 'replica';");
+      replicationRoleSet = true;
+    } catch (_) {
+      // Non-superuser PostgreSQL connections (e.g. managed databases like RDS, Supabase, Render, Neon)
+      // do not have permission to set session_replication_role.
+    }
 
     for (const table of tables) {
       const rows = sqliteDb.prepare(`SELECT * FROM ${table}`).all();
       if (!rows.length) continue;
 
-      await pgKnex(table).truncate({ cascade: true });
+      await pgKnex.raw(`TRUNCATE TABLE "${table}" CASCADE;`);
 
       const chunkSize = 500;
+      const defaults = COLUMN_DEFAULTS[table] || {};
       for (let i = 0; i < rows.length; i += chunkSize) {
-        const chunk = rows.slice(i, i + chunkSize);
+        const chunk = rows.slice(i, i + chunkSize).map((row) => {
+          const newRow = { ...row };
+          for (const [col, defaultVal] of Object.entries(defaults)) {
+            if (newRow[col] === null || newRow[col] === undefined) {
+              newRow[col] = defaultVal;
+            }
+          }
+          return newRow;
+        });
         await pgKnex(table).insert(chunk);
       }
     }
 
-    await pgKnex.raw("SET session_replication_role = 'origin';");
+    if (replicationRoleSet) {
+      try {
+        await pgKnex.raw("SET session_replication_role = 'origin';");
+      } catch (_) {}
+    }
 
     for (const table of tables) {
       try {

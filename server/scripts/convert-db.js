@@ -1,6 +1,12 @@
 import path from "node:path";
+import dotenv from "dotenv";
 import { convertSqliteToPostgres } from "../lib/convertDb.js";
 import { readDbConfig } from "../settings/env.js";
+import { serverDir } from "./_cli.js";
+
+const projectRootDir = path.resolve(serverDir, "..");
+dotenv.config({ path: path.join(projectRootDir, ".env"), quiet: true });
+dotenv.config({ path: path.join(serverDir, ".env"), override: true, quiet: true });
 
 async function main() {
   const args = process.argv.slice(2);
