@@ -1052,6 +1052,7 @@ export default function ChatWindowPanel({
   const messageFilesProps = useMemo(
     () => ({
       isDesktop,
+      isOffline,
       loadedMediaThumbs,
       setLoadedMediaThumbs,
       mediaAspectByKey,
@@ -1068,6 +1069,7 @@ export default function ChatWindowPanel({
     }),
     [
       isDesktop,
+      isOffline,
       loadedMediaThumbs,
       mediaAspectByKey,
       videoPosterByUrl,
@@ -1623,6 +1625,8 @@ export default function ChatWindowPanel({
             messages={messages}
             groupedMessages={groupedMessages}
             loadingOlderMessages={loadingOlderMessages}
+            hasOlderMessages={hasOlderMessages}
+            isOffline={isOffline}
             handleGroupChipClick={handleGroupChipClick}
             renderMessageItem={renderMessageItem}
             chatScrollRef={chatScrollRef}

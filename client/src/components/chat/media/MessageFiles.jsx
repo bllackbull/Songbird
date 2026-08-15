@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Download, File, Pause, Play } from "../../../icons/lucide.js";
+import { Download, File, Pause, Play, WifiOff } from "../../../icons/lucide.js";
 import { CHAT_PAGE_CONFIG } from "../../../settings/chatPageConfig.js";
 import { CACHE_STORES } from "../../../utils/cacheDb.js";
 import { canUseIdb, readIdbCache, writeIdbCache } from "../../../utils/chatCache.js";
@@ -862,6 +862,7 @@ const VoiceMessageChip = memo(
 export function MessageFiles({
   files = [],
   isDesktop,
+  isOffline = false,
   _docFullWidth = false,
   loadedMediaThumbs,
   setLoadedMediaThumbs,
@@ -882,6 +883,7 @@ export function MessageFiles({
     [getFileRenderType],
   );
   const thumbFallbackTimersRef = useRef(new Map());
+  const [failedMediaKeys, setFailedMediaKeys] = useState({});
 
   const canPersistMediaCache = () => {
     if (typeof window === "undefined") return false;
@@ -1037,6 +1039,14 @@ export function MessageFiles({
     onMessageMediaLoaded?.();
   }, [setLoadedMediaThumbs, mediaThumbCacheKey, mediaCacheVersion, onMessageMediaLoaded, writeMediaCache]);
 
+  const handleMediaError = useCallback(
+    (key, thumbKey) => {
+      setFailedMediaKeys((prev) => ({ ...prev, [key]: true }));
+      markMediaThumbLoaded(thumbKey);
+    },
+    [markMediaThumbLoaded],
+  );
+
   const scheduleThumbFallback = useCallback((thumbKey, delayMs) => {
     if (typeof window === "undefined") return;
     if (loadedMediaThumbs.has(thumbKey)) return;
@@ -1178,6 +1188,35 @@ export function MessageFiles({
         }
 
         if (isImage && file.url) {
+          if (isOffline && failedMediaKeys[key]) {
+            return (
+              <button
+                type="button"
+                key={key}
+                onClick={() => {
+                  if (
+                    typeof navigator !== "undefined" &&
+                    navigator.onLine &&
+                    !isOffline
+                  ) {
+                    setFailedMediaKeys((prev) => {
+                      const next = { ...prev };
+                      delete next[key];
+                      return next;
+                    });
+                  }
+                }}
+                className="relative flex w-full items-center gap-2.5 rounded-xl border border-slate-200/80 bg-slate-100/70 p-3.5 text-left text-xs text-slate-600 transition hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-400"
+                data-testid="offline-media-placeholder"
+              >
+                <WifiOff size={18} className="shrink-0 text-slate-400 dark:text-slate-500" />
+                <span className="min-w-0 flex-1 truncate font-medium">
+                  Media unavailable offline — tap to retry when online
+                </span>
+              </button>
+            );
+          }
+
           return (
             <button
               type="button"
@@ -1207,7 +1246,7 @@ export function MessageFiles({
                     );
                     markMediaThumbLoaded(thumbKey);
                   }}
-                  onError={() => markMediaThumbLoaded(thumbKey)}
+                  onError={() => handleMediaError(key, thumbKey)}
                   loading={isDesktop ? "lazy" : "eager"}
                   decoding={isDesktop ? "async" : "sync"}
                   fetchPriority={
@@ -1243,6 +1282,35 @@ export function MessageFiles({
         }
 
         if (isVideo && file.url) {
+          if (isOffline && failedMediaKeys[key]) {
+            return (
+              <button
+                type="button"
+                key={key}
+                onClick={() => {
+                  if (
+                    typeof navigator !== "undefined" &&
+                    navigator.onLine &&
+                    !isOffline
+                  ) {
+                    setFailedMediaKeys((prev) => {
+                      const next = { ...prev };
+                      delete next[key];
+                      return next;
+                    });
+                  }
+                }}
+                className="relative flex w-full items-center gap-2.5 rounded-xl border border-slate-200/80 bg-slate-100/70 p-3.5 text-left text-xs text-slate-600 transition hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-400"
+                data-testid="offline-media-placeholder"
+              >
+                <WifiOff size={18} className="shrink-0 text-slate-400 dark:text-slate-500" />
+                <span className="min-w-0 flex-1 truncate font-medium">
+                  Media unavailable offline — tap to retry when online
+                </span>
+              </button>
+            );
+          }
+
           return (
             <button
               type="button"
@@ -1268,6 +1336,7 @@ export function MessageFiles({
                     src={cachedPoster}
                     alt={file.name || "video thumbnail"}
                     onLoad={() => markMediaThumbLoaded(thumbKey)}
+                    onError={() => handleMediaError(key, thumbKey)}
                     className={videoClass}
                   />
                 ) : (
@@ -1297,11 +1366,7 @@ export function MessageFiles({
                     onLoadedData={(event) =>
                       handleVideoThumbReady(event, thumbKey, file.url)
                     }
-                    onError={() => {
-                      if (!isDesktop) {
-                        markMediaThumbLoaded(thumbKey);
-                      }
-                    }}
+                    onError={() => handleMediaError(key, thumbKey)}
                     src={file.url}
                     className={videoClass}
                   />
