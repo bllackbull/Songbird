@@ -8,6 +8,12 @@ import { setChatPageConfig } from './settings/chatPageConfig.js'
 import InstallBar from './components/pwa/InstallBar.jsx'
 import InstallGuideModal from './components/pwa/InstallGuideModal.jsx'
 import { normalizeUuid } from './utils/uuidUtils.js'
+import {
+  getSavedSessionUser,
+  saveSessionUser,
+  clearSavedSessionUser,
+  fetchSessionUser,
+} from './utils/sessionStorage.js'
 
 const API_BASE = ''
 const AUTH_REDIRECT_KEY = 'songbird-auth-redirect'
@@ -146,7 +152,19 @@ export default function App() {
   const [inviteToken, setInviteToken] = useState(() =>
     getInviteToken(window.location.pathname),
   )
-  const [user, setUser] = useState(null)
+  const [userState, setUserState] = useState(() => getSavedSessionUser())
+  const setUser = (next) => {
+    setUserState((prev) => {
+      const resolved = typeof next === 'function' ? next(prev) : next
+      if (resolved) {
+        saveSessionUser(resolved)
+      } else {
+        clearSavedSessionUser()
+      }
+      return resolved
+    })
+  }
+  const user = userState
   const [authStatus, setAuthStatus] = useState('')
   const [authChecked, setAuthChecked] = useState(false)
   const [authLoading, setAuthLoading] = useState(false)
@@ -192,41 +210,10 @@ export default function App() {
     !installDismissed &&
     (showInstallBanner || showIosInstallBanner || isDesktopViewport)
 
-  function normalizeSessionUser(data) {
-    if (!data?.username) return null
-    // Req 6.3: normalize UUID ID on first receipt from API
-    const userId = normalizeUuid(data.id) || null
-    // Req 6.6: if server returns a non-UUID id, treat as missing (but still
-    // accept the session — user just won't have an id in state)
-    return {
-      id: userId,
-      username: data.username,
-      nickname: data.nickname || null,
-      avatarUrl: data.avatarUrl || null,
-      color: data.color || null,
-      status: data.status || 'online',
-      role: data.role || 'user',
-      verified: Boolean(data.verified),
-    }
-  }
-
-  async function fetchSessionUser() {
-    const res = await fetch(`${API_BASE}/api/me`, { credentials: 'include' })
-    if (!res.ok) {
-      throw new Error('No active session')
-    }
-    const data = await res.json()
-    const nextUser = normalizeSessionUser(data)
-    if (!nextUser) {
-      throw new Error('Invalid session payload')
-    }
-    return nextUser
-  }
-
   async function resolveSessionUserWithRetry(fallbackUser = null, attempts = 8, waitMs = 150) {
     for (let i = 0; i < attempts; i += 1) {
       try {
-        return await fetchSessionUser()
+        return await fetchSessionUser(API_BASE)
       } catch {
         if (i < attempts - 1) {
           await new Promise((resolve) => window.setTimeout(resolve, waitMs))
@@ -694,13 +681,15 @@ export default function App() {
     let isMounted = true
     const fetchSession = async () => {
       try {
-        const nextUser = await fetchSessionUser()
+        const nextUser = await fetchSessionUser(API_BASE)
         if (isMounted && nextUser) {
           setUser(nextUser)
         }
-      } catch {
+      } catch (err) {
         if (isMounted) {
-          setUser(null)
+          if (err.isUnauthenticated) {
+            setUser(null)
+          }
         }
       } finally {
         if (isMounted) {
