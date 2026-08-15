@@ -437,5 +437,24 @@ describe("Remote Uploads & File Management Routes", () => {
         global.fetch = originalFetch;
       }
     });
+
+    test("uploadBuffer uploads buffer directly to remote storage provider", async () => {
+      vi.spyOn(mockRemoteProvider, "uploadBuffer").mockResolvedValue({
+        key: "uploads/test-buffer.txt",
+      });
+
+      const res = await mockRemoteProvider.uploadBuffer(
+        "uploads/test-buffer.txt",
+        Buffer.from("hello world"),
+        "text/plain",
+      );
+
+      expect(res.key).toBe("uploads/test-buffer.txt");
+      expect(mockRemoteProvider.uploadBuffer).toHaveBeenCalledWith(
+        "uploads/test-buffer.txt",
+        expect.any(Buffer),
+        "text/plain",
+      );
+    });
   });
 });

@@ -969,6 +969,31 @@ function registerMessageRoutes(app, deps) {
           (normalizedFiles.length === 1
             ? `Sent ${normalizedFiles[0].kind === "media" ? "a media file" : "a document"}`
             : `Sent ${normalizedFiles.length} files`);
+
+        if (
+          deps.storageProvider &&
+          (deps.storageProvider.type === "remote" ||
+            deps.storageProvider.type === "s3") &&
+          typeof deps.storageProvider.uploadBuffer === "function"
+        ) {
+          await Promise.all(
+            uploadedFiles.map(async (file, index) => {
+              const norm = normalizedFiles[index];
+              if (!norm) return;
+              const fileKey = `uploads/${file.filename}`;
+              const fileBuf = await fs.promises.readFile(file.path);
+              await deps.storageProvider.uploadBuffer(
+                fileKey,
+                fileBuf,
+                norm.mimeType || "application/octet-stream",
+              );
+              norm.storageDriver = deps.storageProvider.type || "s3";
+              norm.storageKey = fileKey;
+              await fs.promises.unlink(file.path).catch(() => {});
+            }),
+          );
+        }
+
         let messageId = editMessageId || null;
         let dedupedMessage = false;
         if (editTarget) {

@@ -41,6 +41,22 @@ export class LocalStorageProvider extends StorageProvider {
   }
 
   /**
+   * Upload raw buffer directly to local storage.
+   * @param {string} fileKey
+   * @param {Buffer|Uint8Array|string} body
+   * @returns {Promise<{key: string}>}
+   */
+  async uploadBuffer(fileKey, body) {
+    const cleanKey = String(fileKey || "").replace(/^\//, "");
+    const filePath = path.isAbsolute(cleanKey)
+      ? cleanKey
+      : path.join(this.uploadDir, cleanKey);
+    await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.promises.writeFile(filePath, body);
+    return { key: cleanKey };
+  }
+
+  /**
    * Remove file from local disk asynchronously if present.
    * @param {string} fileKey
    * @returns {Promise<boolean>}

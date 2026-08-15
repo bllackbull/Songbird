@@ -316,7 +316,31 @@ export function createUploadTools({
         if (!storedName) return res.status(404).end();
 
         const filePath = path.join(uploadRootDir, storedName);
-        if (!fs.existsSync(filePath)) return res.status(404).end();
+        if (!fs.existsSync(filePath)) {
+          if (
+            storageProvider &&
+            (storageProvider.type === "s3" || storageProvider.type === "remote") &&
+            typeof storageProvider.getDownloadUrl === "function"
+          ) {
+            try {
+              const row = adminGetRow(
+                dbKnex("chat_message_files")
+                  .select("storage_key", "storage_driver")
+                  .where("stored_name", storedName)
+                  .first(),
+              );
+              const key = row?.storage_key || `uploads/${storedName}`;
+              return storageProvider
+                .getDownloadUrl(key)
+                .then((url) => {
+                  if (url) return res.redirect(302, url);
+                  return res.status(404).end();
+                })
+                .catch(() => res.status(404).end());
+            } catch (_) {}
+          }
+          return res.status(404).end();
+        }
 
         const row = adminGetRow(
           dbKnex("chat_message_files").select("original_name", "mime_type").where("stored_name", storedName).first(),

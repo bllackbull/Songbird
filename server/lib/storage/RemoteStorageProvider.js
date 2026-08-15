@@ -96,6 +96,25 @@ export class RemoteStorageProvider extends StorageProvider {
   }
 
   /**
+   * Upload raw buffer or stream directly to S3/R2.
+   * @param {string} fileKey
+   * @param {Buffer|Uint8Array|string} body
+   * @param {string} [contentType]
+   * @returns {Promise<{key: string}>}
+   */
+  async uploadBuffer(fileKey, body, contentType = "application/octet-stream") {
+    const cleanKey = String(fileKey || "").replace(/^\//, "");
+    const command = new PutObjectCommand({
+      Bucket: this.bucket,
+      Key: cleanKey,
+      Body: body,
+      ContentType: contentType,
+    });
+    await this.client.send(command);
+    return { key: cleanKey };
+  }
+
+  /**
    * Get download URL (presigned GET or public CDN URL).
    * @param {string} fileKey
    * @param {object} [options]
