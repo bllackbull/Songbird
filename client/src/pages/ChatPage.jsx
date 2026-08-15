@@ -4228,6 +4228,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     );
     if (!hasPending) return;
     const interval = setInterval(() => {
+      const isOnline =
+        (typeof navigator === "undefined" || navigator.onLine !== false) &&
+        sseConnected;
+      if (!isOnline) return;
+
       setMessages((prev) => {
         const now = Date.now();
         let changed = false;
@@ -4252,7 +4257,36 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       });
     }, CHAT_PAGE_CONFIG.pendingStatusCheckIntervalMs);
     return () => clearInterval(interval);
-  }, [activeChatId, messages]);
+  }, [activeChatId, messages, sseConnected]);
+
+  useEffect(() => {
+    if (!activeChatId || !isAppActive) return;
+    const flushPending = () => {
+      const isOnline =
+        typeof navigator === "undefined" || navigator.onLine !== false;
+      if (!isOnline && !sseConnected) return;
+      const pending = messages.filter(
+        (msg) => msg._delivery === "sending" && !msg._awaitingServerEcho,
+      );
+      if (!pending.length) return;
+      pending.forEach((msg) => {
+        void sendPendingMessage(msg);
+      });
+    };
+
+    if (sseConnected) {
+      flushPending();
+    }
+
+    const handleOnline = () => {
+      flushPending();
+    };
+
+    window.addEventListener("online", handleOnline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [activeChatId, messages, sseConnected, isAppActive]);
 
   useEffect(() => {
     if (!activeChatId || !isAppActive) return;
