@@ -456,5 +456,45 @@ describe("Remote Uploads & File Management Routes", () => {
         "text/plain",
       );
     });
+
+    test("GET /api/uploads/messages/:storedName redirects 302 to remote storage URL", async () => {
+      const storedName = "test-remote-file.png";
+      const fileRecord = {
+        storage_driver: "s3",
+        storage_key: `uploads/${storedName}`,
+        stored_name: storedName,
+      };
+
+      const customApp = makeApp({
+        deps: {
+          storageProvider: mockRemoteProvider,
+          adminGetRow: () => fileRecord,
+        },
+      });
+
+      const { createUploadTools } = await import("../lib/uploads.js");
+      const fsMod = await import("node:fs");
+      const multerMod = await import("multer");
+      const uploadTools = createUploadTools({
+        fs: fsMod.default,
+        path: await import("node:path"),
+        crypto: await import("node:crypto"),
+        multer: multerMod.default,
+        adminGetRow: () => fileRecord,
+        uploadRootDir: "/tmp",
+        avatarUploadRootDir: "/tmp",
+        fileUploadMaxSize: 100 * 1024 * 1024,
+        fileUploadMaxFiles: 10,
+        fileUploadMaxTotalSize: 500 * 1024 * 1024,
+        storageEncryption: { decryptFileToBuffer: () => null, getDecryptedFileSize: () => 0 },
+        storageProvider: mockRemoteProvider,
+      });
+      uploadTools.registerUploadRoutes(customApp.app, { adminGetRow: () => fileRecord });
+
+      const res = await request(customApp.app).get(`/api/uploads/messages/${storedName}`);
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toContain("test-bucket.s3.amazonaws.com");
+    });
   });
 });
