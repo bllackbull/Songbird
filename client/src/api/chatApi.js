@@ -398,6 +398,11 @@ export async function uploadFile(file) {
 
     if (res.ok) {
       presignRes = await res.json();
+    } else {
+      const errJson = await res.json().catch(() => null);
+      if (errJson?.error) {
+        console.warn("[upload] Presign request failed:", errJson.error);
+      }
     }
   } catch (_err) {
     presignRes = null;
