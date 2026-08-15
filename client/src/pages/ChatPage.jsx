@@ -1493,6 +1493,31 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }));
       setChats((prev) => (prev.length ? prev : normalizedCached));
       setLoadingChats(false);
+
+      const pendingOpenChatIdRaw =
+        typeof window !== "undefined"
+          ? window.sessionStorage.getItem(OPEN_CHAT_ID_KEY)
+          : null;
+      const pendingOpenChatId = normalizeUuid(pendingOpenChatIdRaw) || pendingOpenChatIdRaw;
+      if (pendingOpenChatId && !activeChatIdRef.current) {
+        const pendingChat = normalizedCached.find(
+          (item) => item.id === pendingOpenChatId,
+        );
+        if (pendingChat) {
+          setActiveChatId(pendingOpenChatId);
+          if (pendingChat.type === "dm") {
+            const nextOther = (pendingChat.members || []).find(
+              (member) =>
+                String(member?.username || "").toLowerCase() !==
+                String(user?.username || "").toLowerCase(),
+            );
+            setActivePeer(nextOther || null);
+          } else {
+            setActivePeer(null);
+          }
+          setMobileTab("chat");
+        }
+      }
     })();
     return () => {
       isActive = false;

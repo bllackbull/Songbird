@@ -131,13 +131,15 @@ export const isCacheExpired = (entry, ttlMs) => {
 
 export const readChatListCache = () => null;
 
-export const readChatListCacheAsync = async (username) => {
+export const readChatListCacheAsync = async (username, options = {}) => {
   const cached = await readIdbCache(
     CACHE_STORES.chatList,
     buildChatListCacheKey(username),
   );
   if (!cached || cached.version !== CHAT_CACHE_VERSION) return null;
-  if (isCacheExpired(cached, CHAT_PAGE_CONFIG.cacheTtlMs)) {
+  const isOffline = typeof navigator !== "undefined" && !navigator.onLine;
+  const allowExpired = options?.allowExpiredIfOffline ?? isOffline;
+  if (!allowExpired && isCacheExpired(cached, CHAT_PAGE_CONFIG.cacheTtlMs)) {
     await deleteIdbCache(
       CACHE_STORES.chatList,
       buildChatListCacheKey(username),
@@ -149,11 +151,13 @@ export const readChatListCacheAsync = async (username) => {
 
 export const readMessagesCache = () => null;
 
-export const readMessagesCacheAsync = async (username, chatId) => {
+export const readMessagesCacheAsync = async (username, chatId, options = {}) => {
   const key = buildMessagesCacheKey(username, chatId);
   const cached = await readIdbCache(CACHE_STORES.messages, key);
   if (!cached || cached.version !== CHAT_CACHE_VERSION) return null;
-  if (isCacheExpired(cached, CHAT_PAGE_CONFIG.cacheTtlMs)) {
+  const isOffline = typeof navigator !== "undefined" && !navigator.onLine;
+  const allowExpired = options?.allowExpiredIfOffline ?? isOffline;
+  if (!allowExpired && isCacheExpired(cached, CHAT_PAGE_CONFIG.cacheTtlMs)) {
     await deleteIdbCache(CACHE_STORES.messages, key);
     return null;
   }
