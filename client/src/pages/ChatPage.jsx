@@ -6270,6 +6270,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
   }
 
+  const isOffline =
+    !sseConnected ||
+    (typeof navigator !== "undefined" && navigator.onLine === false);
+
   const { contextMenu, closeContextMenu, openContextMenu } = useAppContextMenu({
     activeChatId,
     chats,
@@ -6289,6 +6293,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     onMarkChatSeen: handleMarkChatSeen,
     onToggleChatMute: toggleMuteChat,
     onDeleteChats: requestDeleteChats,
+    isOffline,
+    sseConnected,
   });
 
   useEffect(() => {
@@ -6614,6 +6620,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
       <ChatWindowPanel
         mobileTab={mobileTab}
+        isOffline={isOffline}
+        sseConnected={sseConnected}
         activeChatId={activeChatId}
         activeChat={activeChat}
         closeChat={closeChat}
@@ -6766,6 +6774,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             allowDeleteForEveryone={canDeleteMessageForEveryone(
               pendingDeleteMessage,
             )}
+            isOffline={isOffline}
+            sseConnected={sseConnected}
             onClose={() => {
               setMessageDeleteScopeOpen(false);
               setPendingDeleteMessage(null);

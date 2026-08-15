@@ -169,6 +169,8 @@ export const MessageItem = memo(function MessageItem({
   canSwipeReply = true,
   onOpenContextMenu,
   visibilityRef = null,
+  sseConnected = true,
+  isOffline = false,
 }) {
   const isOwn = !isChannelChat && msg.username === user.username;
   const isRead = Boolean(msg.read_at);
@@ -696,6 +698,11 @@ export const MessageItem = memo(function MessageItem({
         },
       }),
   };
+  const computedIsOffline =
+    isOffline ||
+    sseConnected === false ||
+    (typeof navigator !== "undefined" && navigator.onLine === false);
+
   const messageContextMenu = {
     disabled: !onOpenContextMenu,
     isMobile: contextMenuMobileEnabled,
@@ -711,6 +718,7 @@ export const MessageItem = memo(function MessageItem({
         isMobile,
         data: {
           message: msg,
+          isOffline: computedIsOffline,
         },
       }),
   };
@@ -1486,6 +1494,8 @@ export const MessageItem = memo(function MessageItem({
   if (prev.forwardedUserStatus !== next.forwardedUserStatus) return false;
   if (prev.forwardedChat !== next.forwardedChat) return false;
   if (prev.forwardedChatStatus !== next.forwardedChatStatus) return false;
+  if (prev.isOffline !== next.isOffline) return false;
+  if (prev.sseConnected !== next.sseConnected) return false;
   if (prev.messageFilesProps !== next.messageFilesProps) {
     const prevFiles = Array.isArray(prev.msg?.files) ? prev.msg.files : [];
     const nextFiles = Array.isArray(next.msg?.files) ? next.msg.files : [];

@@ -77,6 +77,8 @@ export default function ChatWindowPanel({
   unreadInChat,
   onJumpToLatest,
   isConnected,
+  isOffline = false,
+  sseConnected = true,
   isDark,
   insecureConnection,
   pendingUploadFiles,
@@ -1084,6 +1086,8 @@ export default function ChatWindowPanel({
   const renderMessageItem = (msg, options = {}) => (
     <MessageItem
       msg={msg}
+      isOffline={isOffline}
+      sseConnected={sseConnected}
       isFirstInGroup={options.isFirstInGroup}
       user={user}
       formatTime={formatTime}

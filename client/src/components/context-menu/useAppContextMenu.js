@@ -39,6 +39,8 @@ export function useAppContextMenu({
   onMarkChatSeen,
   onToggleChatMute,
   onDeleteChats,
+  isOffline: isOfflineProp = false,
+  sseConnected = true,
 }) {
   const [contextMenu, setContextMenu] = useState(null);
 
@@ -96,6 +98,11 @@ export function useAppContextMenu({
 
       if (kind === "message") {
         const message = data?.message || null;
+        const offline =
+          data?.isOffline ??
+          (isOfflineProp ||
+            sseConnected === false ||
+            (typeof navigator !== "undefined" && navigator.onLine === false));
         const hasText = hasMessageText(message);
         const linkTarget = findContextMenuLinkTarget(event?.target, targetEl);
         const files = getMessageFiles(message);
@@ -129,6 +136,7 @@ export function useAppContextMenu({
                   id: "edit",
                   label: "Edit",
                   icon: Pencil,
+                  disabled: Boolean(offline),
                   onSelect: () => onEditMessage?.(message),
                 },
               ]

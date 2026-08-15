@@ -17,15 +17,23 @@ export default function DeleteMessageScopeModal({
   onClose,
   onConfirm,
   allowDeleteForEveryone = true,
+  isOffline = false,
+  sseConnected = true,
 }) {
   const dialogRef = useRef(null);
   useFocusTrap(dialogRef, open);
+  const offline =
+    isOffline ||
+    sseConnected === false ||
+    (typeof navigator !== "undefined" && navigator.onLine === false);
   const [deleteForEveryone, setDeleteForEveryone] = useState(
     readDeleteForEveryonePreference,
   );
   const [submitting, setSubmitting] = useState(false);
+  const effectiveDeleteForEveryone = offline ? false : deleteForEveryone;
 
   const handleDeleteForEveryoneChange = (nextValue) => {
+    if (offline) return;
     setDeleteForEveryone(nextValue);
     if (typeof window === "undefined") return;
     window.localStorage.setItem(
@@ -38,7 +46,9 @@ export default function DeleteMessageScopeModal({
     if (submitting) return;
     setSubmitting(true);
     try {
-      await onConfirm?.(allowDeleteForEveryone ? deleteForEveryone : false);
+      await onConfirm?.(
+        allowDeleteForEveryone && !offline ? effectiveDeleteForEveryone : false,
+      );
     } finally {
       setSubmitting(false);
     }
@@ -67,16 +77,16 @@ export default function DeleteMessageScopeModal({
         {allowDeleteForEveryone ? (
           <button
             type="button"
-            onClick={() => handleDeleteForEveryoneChange(!deleteForEveryone)}
+            onClick={() => handleDeleteForEveryoneChange(!effectiveDeleteForEveryone)}
             role="switch"
-            aria-checked={deleteForEveryone}
-            disabled={submitting}
+            aria-checked={effectiveDeleteForEveryone}
+            disabled={submitting || offline}
             className="mt-4 flex w-full items-center justify-between rounded-2xl border border-emerald-200/70 bg-white/90 px-4 py-3 text-left text-sm font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_18px_rgba(16,185,129,0.18)] disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
           >
             <span>Delete for everyone</span>
             <span
               className={`relative inline-flex h-6 w-11 items-center rounded-full p-0.5 transition ${
-                deleteForEveryone
+                effectiveDeleteForEveryone
                   ? "justify-end bg-emerald-500"
                   : "justify-start bg-slate-300 dark:bg-slate-700"
               }`}
