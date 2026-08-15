@@ -390,7 +390,7 @@ export function createUploadTools({
         if (!fs.existsSync(filePath)) {
           if (
             storageProvider &&
-            storageProvider.type === "s3" &&
+            (storageProvider.type === "s3" || storageProvider.type === "remote") &&
             typeof storageProvider.getDownloadUrl === "function"
           ) {
             try {

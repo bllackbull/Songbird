@@ -5,6 +5,7 @@ import { StorageProvider } from "./StorageProvider.js";
 export class LocalStorageProvider extends StorageProvider {
   constructor(options = {}) {
     super();
+    this.type = "local";
     this.uploadDir =
       options.uploadDir || options.STORAGE_LOCAL_DIR || "./uploads";
     this.uploadUrl =

@@ -11,6 +11,7 @@ import { StorageProvider } from "./StorageProvider.js";
 export class RemoteStorageProvider extends StorageProvider {
   constructor(config = {}) {
     super();
+    this.type = config.type || "remote";
     this.bucket = config.bucket || config.STORAGE_BUCKET;
     this.region = config.region || config.STORAGE_REGION || "auto";
     this.endpoint = config.endpoint || config.STORAGE_ENDPOINT;
