@@ -4149,6 +4149,18 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       // Keep optimistic row stable and let SSE/polling reconcile the final server row.
       // Avoid forcing a full sidebar refresh on every successful send.
     } catch (error) {
+      const isNetworkError =
+        (typeof navigator !== "undefined" && !navigator.onLine) ||
+        error instanceof TypeError ||
+        error?.name === "TypeError" ||
+        String(error?.message || "").includes("Failed to fetch") ||
+        String(error?.message || "").includes("NetworkError");
+
+      if (isNetworkError && !isEditingExistingMessage) {
+        // Keep message in _delivery: "sending" state so it flushes when online
+        return;
+      }
+
       if (
         !isEditingExistingMessage &&
         isAmbiguousSendStatus(error?._ambiguousSendStatus)
