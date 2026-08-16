@@ -71,6 +71,9 @@ export function createMessageFileJobs({
       const missingMessageIds = new Set();
 
       safeRows.forEach((row) => {
+        const driver = String(row.storage_driver || "local").toLowerCase();
+        if (driver === "remote" || driver === "s3") return;
+
         const stored = path.basename(String(row.stored_name || "").trim());
         if (!stored) return;
 

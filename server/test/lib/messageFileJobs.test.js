@@ -13,7 +13,7 @@
  * 4. The retention value is read live via getSetting() — changing it after
  *    the jobs object is created takes effect immediately (no restart needed).
  */
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, vi } from "vitest";
 import { createMessageFileJobs } from "../../lib/messageFileJobs.js";
 
 // ─── Minimal stub factory ─────────────────────────────────────────────────────
@@ -175,5 +175,71 @@ describe("backfillMessageFileExpiry — retention disabled", () => {
     const result = jobs.backfillMessageFileExpiry();
     expect(result).toBe(0);
     expect(queryCalled).toBe(false);
+  });
+});
+
+// ─── cleanupMissingMessageFiles ───────────────────────────────────────────────
+
+describe("cleanupMissingMessageFiles — remote storage must not be pruned", () => {
+  const MESSAGE_ID = "d0d0d0d0-e1e1-4f2f-b040-171717171717";
+
+  function makeJobsWithRows({ rows, adminRunSpy }) {
+    return createMessageFileJobs({
+      getSetting: () => 0,
+      adminGetAll: (query) => {
+        // Simulates the "all files for candidate messages" lookup.
+        if (String(query?.toString?.() || "").includes("chat_message_files")) {
+          return rows;
+        }
+        return [];
+      },
+      adminGetRow: () => null,
+      adminRun: adminRunSpy,
+      adminSave: () => {},
+      listMessageFilesByMessageIds: () => rows,
+      removeStoredFileNames: () => {},
+      uploadRootDir: "/tmp/upload-root",
+      fs: { existsSync: () => false },
+      path: { join: (...p) => p.join("/"), basename: (p) => p },
+    });
+  }
+
+  test("does not delete a remote-storage message when its local file is absent", () => {
+    const adminRunSpy = vi.fn();
+    const rows = [
+      {
+        id: 1,
+        message_id: MESSAGE_ID,
+        stored_name: "photo.png",
+        storage_driver: "remote",
+        storage_key: "uploads/photo.png",
+      },
+    ];
+
+    const jobs = makeJobsWithRows({ rows, adminRunSpy });
+    const result = jobs.cleanupMissingMessageFiles([MESSAGE_ID]);
+
+    expect(result.changed).toBe(false);
+    expect(adminRunSpy).not.toHaveBeenCalledWith(expect.stringContaining("DELETE"));
+    expect(adminRunSpy).not.toHaveBeenCalled();
+  });
+
+  test("still deletes a local-storage message whose file is absent from disk", () => {
+    const adminRunSpy = vi.fn();
+    const rows = [
+      {
+        id: 2,
+        message_id: MESSAGE_ID,
+        stored_name: "doc.pdf",
+        storage_driver: "local",
+        storage_key: null,
+      },
+    ];
+
+    const jobs = makeJobsWithRows({ rows, adminRunSpy });
+    const result = jobs.cleanupMissingMessageFiles([MESSAGE_ID]);
+
+    expect(result.changed).toBe(true);
+    expect(adminRunSpy).toHaveBeenCalledWith("BEGIN");
   });
 });
