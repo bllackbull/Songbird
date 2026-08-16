@@ -372,6 +372,8 @@ const REMOTE_CHANNEL_CONFIG = {
 };
 const MESSAGE_FILE_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 
+const storageProvider = createStorageProvider(process.env);
+
 const uploadTools = createUploadTools({
   fs,
   path,
@@ -386,6 +388,7 @@ const uploadTools = createUploadTools({
   fileUploadMaxFiles: FILE_UPLOAD_MAX_FILES,
   fileUploadMaxTotalSize: FILE_UPLOAD_MAX_TOTAL_SIZE,
   storageEncryption,
+  storageProvider,
 });
 
 const {
@@ -623,9 +626,7 @@ async function backfillStorageEncryption() {
   }
 }
 
-registerUploadRoutes(app, { adminGetRow });
-
-const storageProvider = createStorageProvider(process.env);
+registerUploadRoutes(app, { adminGetRow, storageProvider });
 
 const apiDeps = {
   dbConfig: readDbConfig(),
