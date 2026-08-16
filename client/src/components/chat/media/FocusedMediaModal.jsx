@@ -491,6 +491,7 @@ export function FocusedMediaModal({
                     autoPlay
                     playsInline
                     preload="auto"
+                    crossOrigin={focusedMedia.url?.startsWith("https://") ? "anonymous" : undefined}
                     src={focusedMedia.url}
                     onClick={toggleFocusedVideoPlay}
                     onLoadedMetadata={handleFocusedVideoLoadedMetadata}
@@ -542,6 +543,8 @@ export function FocusedMediaModal({
                 <img
                   src={focusedMedia.url}
                   alt={focusedMedia.name || "media"}
+                  crossOrigin={focusedMedia.url?.startsWith("https://") ? "anonymous" : undefined}
+                  referrerPolicy="no-referrer"
                   onLoad={onFocusedImageLoad}
                   className={`mx-auto max-h-[78vh] w-auto max-w-full rounded-2xl object-contain transition-opacity duration-150 ${
                     focusedMediaLoaded ? "opacity-100" : "opacity-0"

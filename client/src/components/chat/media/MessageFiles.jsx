@@ -1238,6 +1238,8 @@ export function MessageFiles({
                 <img
                   src={file.url}
                   alt={file.name || "image"}
+                  crossOrigin={file.url?.startsWith("https://") ? "anonymous" : undefined}
+                  referrerPolicy="no-referrer"
                   onLoad={(event) => {
                     cacheMediaAspectRatio(
                       file,
@@ -1348,6 +1350,7 @@ export function MessageFiles({
                     playsInline
                     preload={isDesktop ? "auto" : "auto"}
                     poster={videoPosterByUrl[file.url] || undefined}
+                    crossOrigin={file.url?.startsWith("https://") ? "anonymous" : undefined}
                     onLoadedMetadata={(event) => {
                       cacheMediaAspectRatio(
                         file,
