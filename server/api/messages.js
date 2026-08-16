@@ -994,9 +994,10 @@ function registerMessageRoutes(app, deps) {
               if (!norm) return;
               const fileKey = `uploads/${file.filename}`;
               const fileBuf = await fs.promises.readFile(file.path);
+              const uploadBuf = storageEncryption.decryptBuffer(fileBuf);
               await deps.storageProvider.uploadBuffer(
                 fileKey,
-                fileBuf,
+                uploadBuf,
                 norm.mimeType || "application/octet-stream",
               );
               norm.storageDriver = deps.storageProvider.type || "s3";
