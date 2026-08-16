@@ -393,12 +393,26 @@ function registerChatRoutes(app, deps) {
     const rawLastFiles = listMessageFilesByMessageIds(lastMessageIds);
     const lastFiles = (rawLastFiles && typeof rawLastFiles.then === "function" ? await rawLastFiles : rawLastFiles) || [];
 
-    const filesByMessageId = lastFiles.reduce((acc, file) => {
+    const filesByMessageId = {};
+    for (const file of lastFiles) {
       const messageId = file.message_id;
+      if (!filesByMessageId[messageId]) filesByMessageId[messageId] = [];
 
-      if (!acc[messageId]) acc[messageId] = [];
+      let fileUrl = `/api/uploads/messages/${file.stored_name}`;
+      const driver = file.storage_driver;
+      const storageKey = file.storage_key;
+      if (
+        (driver === "remote" || driver === "s3") &&
+        storageKey &&
+        deps.storageProvider &&
+        typeof deps.storageProvider.getDownloadUrl === "function"
+      ) {
+        try {
+          fileUrl = await deps.storageProvider.getDownloadUrl(storageKey);
+        } catch (_) {}
+      }
 
-      acc[messageId].push({
+      filesByMessageId[messageId].push({
         id: file.id,
         kind: file.kind,
         name: file.original_name,
@@ -415,11 +429,9 @@ function registerChatRoutes(app, deps) {
           ? Number(file.duration_seconds)
           : null,
         expiresAt: file.expires_at || null,
-        url: `/api/uploads/messages/${file.stored_name}`,
+        url: fileUrl,
       });
-
-      return acc;
-    }, {});
+    }
 
     const enrichedChats = chats.map((chat) => ({
       ...chat,

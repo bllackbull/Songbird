@@ -310,12 +310,26 @@ function registerMessageRoutes(app, deps) {
     const resolvedFiles = (rawFiles && typeof rawFiles.then === "function" ? await rawFiles : rawFiles) || [];
     const files = await hydrateMissingVideoMetadata(resolvedFiles);
 
-    const filesByMessageId = files.reduce((acc, file) => {
+    const filesByMessageId = {};
+    for (const file of files) {
       const messageId = file.message_id;
+      if (!filesByMessageId[messageId]) filesByMessageId[messageId] = [];
 
-      if (!acc[messageId]) acc[messageId] = [];
+      let fileUrl = `/api/uploads/messages/${file.stored_name}`;
+      const driver = file.storage_driver;
+      const storageKey = file.storage_key;
+      if (
+        (driver === "remote" || driver === "s3") &&
+        storageKey &&
+        deps.storageProvider &&
+        typeof deps.storageProvider.getDownloadUrl === "function"
+      ) {
+        try {
+          fileUrl = await deps.storageProvider.getDownloadUrl(storageKey);
+        } catch (_) {}
+      }
 
-      acc[messageId].push({
+      filesByMessageId[messageId].push({
         id: file.id,
         kind: file.kind,
         name: file.original_name,
@@ -332,11 +346,9 @@ function registerMessageRoutes(app, deps) {
           ? Number(file.duration_seconds)
           : null,
         expiresAt: file.expires_at || null,
-        url: `/api/uploads/messages/${file.stored_name}`,
+        url: fileUrl,
       });
-
-      return acc;
-    }, {});
+    }
 
     const enriched = normalizedMessages
       .map((message) => ({
@@ -1074,30 +1086,51 @@ function registerMessageRoutes(app, deps) {
           ? await hydrateMissingVideoMetadata(insertedFiles)
           : insertedFiles;
         const sourceFilesForResponse = hydratedFiles.length ? hydratedFiles : normalizedFiles;
-        const responseFiles = sourceFilesForResponse.map((file, idx) => {
+
+        const resolveFileUrl = async (file) => {
           const storedName = file.stored_name || file.storedName || "";
-          const expiresAtVal = file.expires_at || file.expiresAt || expiresAtIso || null;
-          return {
-            id: file.id || (idx + 1),
-            kind: file.kind,
-            name: file.original_name || file.originalName || "",
-            mimeType: file.mime_type || file.mimeType || "",
-            processing: typeof isVideoFileProcessing === "function" ? isVideoFileProcessing(file) : false,
-            sizeBytes: Number(file.size_bytes || file.sizeBytes || 0),
-            width: Number.isFinite(Number(file.width_px ?? file.widthPx))
-              ? Number(file.width_px ?? file.widthPx)
-              : null,
-            height: Number.isFinite(Number(file.height_px ?? file.heightPx))
-              ? Number(file.height_px ?? file.heightPx)
-              : null,
-            durationSeconds: Number.isFinite(Number(file.duration_seconds ?? file.durationSeconds))
-              ? Number(file.duration_seconds ?? file.durationSeconds)
-              : null,
-            expiresAt: expiresAtVal,
-            expires_at: expiresAtVal,
-            url: storedName ? `/api/uploads/messages/${storedName}` : null,
-          };
-        });
+          const driver = file.storage_driver || file.storageDriver;
+          const storageKey = file.storage_key || file.storageKey;
+          if (
+            (driver === "remote" || driver === "s3") &&
+            storageKey &&
+            deps.storageProvider &&
+            typeof deps.storageProvider.getDownloadUrl === "function"
+          ) {
+            try {
+              return await deps.storageProvider.getDownloadUrl(storageKey);
+            } catch (_) {}
+          }
+          return storedName ? `/api/uploads/messages/${storedName}` : null;
+        };
+
+        const responseFiles = await Promise.all(
+          sourceFilesForResponse.map(async (file, idx) => {
+            const storedName = file.stored_name || file.storedName || "";
+            const expiresAtVal = file.expires_at || file.expiresAt || expiresAtIso || null;
+            const resolvedUrl = await resolveFileUrl(file);
+            return {
+              id: file.id || (idx + 1),
+              kind: file.kind,
+              name: file.original_name || file.originalName || "",
+              mimeType: file.mime_type || file.mimeType || "",
+              processing: typeof isVideoFileProcessing === "function" ? isVideoFileProcessing(file) : false,
+              sizeBytes: Number(file.size_bytes || file.sizeBytes || 0),
+              width: Number.isFinite(Number(file.width_px ?? file.widthPx))
+                ? Number(file.width_px ?? file.widthPx)
+                : null,
+              height: Number.isFinite(Number(file.height_px ?? file.heightPx))
+                ? Number(file.height_px ?? file.heightPx)
+                : null,
+              durationSeconds: Number.isFinite(Number(file.duration_seconds ?? file.durationSeconds))
+                ? Number(file.duration_seconds ?? file.durationSeconds)
+                : null,
+              expiresAt: expiresAtVal,
+              expires_at: expiresAtVal,
+              url: resolvedUrl,
+            };
+          }),
+        );
         const fileExpiresAt = responseFiles.find((f) => f.expiresAt)?.expiresAt || null;
 
         if (editTarget) {
