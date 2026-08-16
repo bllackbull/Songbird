@@ -3,6 +3,7 @@ import { Download, File, Pause, Play, WifiOff } from "../../../icons/lucide.js";
 import { CHAT_PAGE_CONFIG } from "../../../settings/chatPageConfig.js";
 import { CACHE_STORES } from "../../../utils/cacheDb.js";
 import { canUseIdb, readIdbCache, writeIdbCache } from "../../../utils/chatCache.js";
+import { isCrossOriginUrl, saveMedia } from "../../../utils/fileDownload.js";
 
 const VOICE_WAVEFORM_CACHE_KEY = "voice-waveform-cache-v1";
 const VOICE_WAVEFORM_CACHE_MAX = 160;
@@ -1403,6 +1404,12 @@ export function MessageFiles({
             href={file.url}
             download={file.name || undefined}
             rel="noopener noreferrer"
+            onClick={(event) => {
+              if (isCrossOriginUrl(file.url)) {
+                event.preventDefault();
+                void saveMedia(file.url, file.name);
+              }
+            }}
             className={`group ${docChipClass} items-center gap-2 rounded-xl border border-emerald-200/70 bg-white/70 px-3 py-2.5 text-xs text-slate-700 transition hover:border-emerald-300 hover:bg-white hover:shadow-[0_0_16px_rgba(16,185,129,0.18)] dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200 dark:hover:bg-slate-900/70 dark:hover:shadow-[0_0_16px_rgba(16,185,129,0.14)]`}
           >
             <span className="relative inline-flex h-5 w-5 shrink-0 items-center justify-center">
