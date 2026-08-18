@@ -167,17 +167,16 @@ export function registerRemoteUploadRoutes(app, deps) {
       };
 
       const targetMsgId = messageId || null;
-      let inserted = null;
-      if (typeof createMessageFiles === "function") {
-        inserted = createMessageFiles(targetMsgId, [fileObj]);
-      }
-
       let fileId = null;
-      if (Array.isArray(inserted) && inserted[0]?.id) {
-        fileId = inserted[0].id;
-      } else if (inserted && typeof inserted === "object" && inserted.id) {
-        fileId = inserted.id;
-      } else if (typeof adminGetRow === "function") {
+      if (targetMsgId && typeof createMessageFiles === "function") {
+        const inserted = createMessageFiles(targetMsgId, [fileObj]);
+        if (Array.isArray(inserted) && inserted[0]?.id) {
+          fileId = inserted[0].id;
+        } else if (inserted && typeof inserted === "object" && inserted.id) {
+          fileId = inserted.id;
+        }
+      }
+      if (!fileId && targetMsgId && typeof adminGetRow === "function") {
         const row = callAdminGetRow(
           dbKnex("chat_message_files")
             .select("id")

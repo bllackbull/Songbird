@@ -80,6 +80,7 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
         .post("/api/uploads/presign")
         .set("Cookie", [`sid=${sessionToken}`])
         .send({
+          messageId: "c0c0c0c0-d1d1-4e2e-af3f-060606060606",
           filename: "test-document.pdf",
           contentType: "application/pdf",
           fileSize: 1024,
@@ -283,6 +284,7 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
         .post("/api/uploads/presign")
         .set("Cookie", [`sid=${sessionToken}`])
         .send({
+          messageId: "c0c0c0c0-d1d1-4e2e-af3f-060606060606",
           filename: "video.mp4",
           contentType: "video/mp4",
           fileSize: 1048576,

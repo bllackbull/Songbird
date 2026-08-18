@@ -122,6 +122,7 @@ describe("Remote Uploads & File Management Routes", () => {
         .post("/api/uploads/presign")
         .set("Cookie", [`sid=${sessionToken}`])
         .send({
+          messageId: "c0c0c0c0-d1d1-4e2e-af3f-060606060606",
           filename: "sample.png",
           contentType: "image/png",
           fileSize: 2048,
@@ -141,6 +142,41 @@ describe("Remote Uploads & File Management Routes", () => {
       expect(res.body.fileId).toBeDefined();
 
       expect(createMessageFilesMock).toHaveBeenCalled();
+    });
+
+    test("presign returns storageKey and no fileId when messageId is absent (no row inserted)", async () => {
+      const createMessageFilesMock = vi.fn(() => []);
+      const customApp = makeApp({
+        deps: {
+          storageProvider: mockRemoteProvider,
+          createMessageFiles: createMessageFilesMock,
+          MESSAGE_FILE_LIMITS: { maxFileSizeBytes: 50 * 1024 * 1024 },
+        },
+      });
+      const uId = customApp.userStore.createUser(
+        "rowless",
+        "pass",
+        "Rowless",
+        null,
+        "#fff",
+      );
+      customApp.sessionStore.createSession(uId, sessionToken);
+
+      const res = await request(customApp.app)
+        .post("/api/uploads/presign")
+        .set("Cookie", [`sid=${sessionToken}`])
+        .send({
+          filename: "clip.mp4",
+          contentType: "video/mp4",
+          fileSize: 1024,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.type).toBe("remote");
+      expect(res.body.storageKey).toMatch(/^uploads\//);
+      expect(res.body.uploadUrl).toBeTruthy();
+      expect(res.body.fileId).toBeNull();
+      expect(createMessageFilesMock).not.toHaveBeenCalled();
     });
   });
 
