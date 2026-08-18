@@ -64,6 +64,47 @@ function registerMessageRoutes(app, deps) {
     markMessageRead,
   } = deps;
 
+  const safeBasename = (p) => {
+    if (path && typeof path.basename === "function") return path.basename(p);
+    return String(p || "").split("/").pop().split("\\").pop();
+  };
+  const safeInferMime =
+    typeof inferMimeFromFilename === "function"
+      ? inferMimeFromFilename
+      : () => null;
+  const safeDecodeFilename =
+    typeof decodeOriginalFilename === "function"
+      ? decodeOriginalFilename
+      : (n) => n;
+  const safeIsDangerousUploadFile =
+    typeof isDangerousUploadFile === "function"
+      ? isDangerousUploadFile
+      : () => false;
+  const safeGetUploadKind =
+    typeof getUploadKind === "function"
+      ? getUploadKind
+      : (_uploadType, mimeType) => {
+          const m = String(mimeType || "").toLowerCase();
+          if (m.startsWith("image/")) return "image";
+          if (m.startsWith("video/")) return "video";
+          if (m.startsWith("audio/")) return "audio";
+          return "document";
+        };
+  const safeSanitizePositiveInt =
+    typeof sanitizePositiveInt === "function"
+      ? sanitizePositiveInt
+      : (val) => {
+          const num = Number(val);
+          return Number.isFinite(num) && num > 0 ? Math.round(num) : null;
+        };
+  const safeSanitizeDurationSeconds =
+    typeof sanitizeDurationSeconds === "function"
+      ? sanitizeDurationSeconds
+      : (val) => {
+          const num = Number(val);
+          return Number.isFinite(num) && num >= 0 ? num : null;
+        };
+
   const messagePubService = createMessagePublicationService({
     createOrReuseMessage,
     createMessageFiles,
@@ -676,11 +717,7 @@ function registerMessageRoutes(app, deps) {
         return;
       }
 
-      if (!Array.isArray(req.files)) {
-        return res.status(400).json({ error: "Invalid files payload." });
-      }
-
-      const uploadedFiles = req.files;
+      const uploadedFiles = Array.isArray(req.files) ? req.files : [];
 
       try {
         if (!getSetting("FILE_UPLOAD")) {
@@ -694,6 +731,37 @@ function registerMessageRoutes(app, deps) {
         const username = req.body?.username?.toString();
         const uploadType = req.body?.uploadType?.toString();
         const fileMeta = parseUploadFileMetadata(req.body?.fileMeta);
+
+        let rawStorageKeys =
+          req.body?.storageKeys ??
+          req.body?.storageKey ??
+          req.body?.presignedFiles;
+        let presignedFiles = [];
+
+        if (rawStorageKeys !== undefined && rawStorageKeys !== null) {
+          if (typeof rawStorageKeys === "string") {
+            const trimmed = rawStorageKeys.trim();
+            if (trimmed) {
+              try {
+                const parsed = JSON.parse(trimmed);
+                if (Array.isArray(parsed)) {
+                  presignedFiles = parsed;
+                } else if (parsed && typeof parsed === "object") {
+                  presignedFiles = [parsed];
+                } else if (typeof parsed === "string" && parsed.trim()) {
+                  presignedFiles = [parsed.trim()];
+                }
+              } catch (_) {
+                presignedFiles = [trimmed];
+              }
+            }
+          } else if (Array.isArray(rawStorageKeys)) {
+            presignedFiles = rawStorageKeys;
+          } else if (typeof rawStorageKeys === "object") {
+            presignedFiles = [rawStorageKeys];
+          }
+        }
+
         const body = req.body?.body?.toString() || "";
         const trimmedBody = body.trim();
         const replyToMessageId = req.body?.replyToMessageId?.toString() || null;
@@ -725,13 +793,15 @@ function registerMessageRoutes(app, deps) {
           return;
         }
 
-        if (!uploadedFiles.length) {
+        const totalFilesCount = uploadedFiles.length + presignedFiles.length;
+
+        if (!totalFilesCount) {
           return res
             .status(400)
             .json({ error: "At least one file is required." });
         }
 
-        if (uploadedFiles.length > MESSAGE_FILE_LIMITS.maxFiles) {
+        if (totalFilesCount > MESSAGE_FILE_LIMITS.maxFiles) {
           removeUploadedFiles(uploadedFiles);
 
           return res.status(400).json({
@@ -803,10 +873,33 @@ function registerMessageRoutes(app, deps) {
           }
         }
 
-        const totalBytes = uploadedFiles.reduce(
+        const localBytes = uploadedFiles.reduce(
           (sum, file) => sum + Number(file.size || 0),
           0,
         );
+
+        const presignedBytes = presignedFiles.reduce((sum, item, index) => {
+          const meta =
+            fileMeta[uploadedFiles.length + index] || fileMeta[index] || {};
+          const sz = Number(
+            (typeof item === "object" && item !== null
+              ? (item.sizeBytes ??
+                item.size_bytes ??
+                item.fileSize ??
+                item.file_size ??
+                item.size)
+              : null) ??
+              meta.sizeBytes ??
+              meta.size_bytes ??
+              meta.fileSize ??
+              meta.file_size ??
+              meta.size ??
+              0,
+          );
+          return sum + (Number.isFinite(sz) && sz > 0 ? sz : 0);
+        }, 0);
+
+        const totalBytes = localBytes + presignedBytes;
 
         if (totalBytes > MESSAGE_FILE_LIMITS.maxTotalBytes) {
           removeUploadedFiles(uploadedFiles);
@@ -816,7 +909,7 @@ function registerMessageRoutes(app, deps) {
           });
         }
 
-        if (!hasEnoughFreeDiskSpace(totalBytes)) {
+        if (localBytes > 0 && !hasEnoughFreeDiskSpace(localBytes)) {
           removeUploadedFiles(uploadedFiles);
 
           return res.status(400).json({
@@ -843,7 +936,7 @@ function registerMessageRoutes(app, deps) {
           getSetting("MESSAGE_FILE_RETENTION"),
         );
 
-        const normalizedFiles = uploadedFiles.map((file, index) => {
+        const normalizedLocalFiles = uploadedFiles.map((file, index) => {
           const originalName = decodeOriginalFilename(
             file.originalname || "file",
           );
@@ -877,8 +970,163 @@ function registerMessageRoutes(app, deps) {
             heightPx: sanitizePositiveInt(meta.height),
             durationSeconds: sanitizeDurationSeconds(meta.durationSeconds),
             expiresAt: expiresAtIso,
+            storageDriver: "local",
           };
         });
+
+        const normalizedPresignedFiles = presignedFiles.map((item, index) => {
+          const meta =
+            fileMeta[uploadedFiles.length + index] || fileMeta[index] || {};
+          const key =
+            typeof item === "string"
+              ? item
+              : (item?.storageKey || item?.storage_key || item?.key || "");
+          if (!key) {
+            throw new Error("Invalid storage key for file.");
+          }
+
+          const rawName =
+            (typeof item === "object" && item !== null
+              ? (item.originalName || item.original_name || item.name || item.filename)
+              : null) ||
+            meta.originalName ||
+            meta.original_name ||
+            meta.name ||
+            meta.filename ||
+            safeBasename(key) ||
+            "file";
+          const originalName = safeDecodeFilename(rawName);
+          const inferredMime = safeInferMime(originalName);
+
+          const rawMime =
+            (typeof item === "object" && item !== null
+              ? (item.mimeType || item.mime_type || item.contentType || item.content_type || item.type)
+              : null) ||
+            meta.mimeType ||
+            meta.mime_type ||
+            meta.contentType ||
+            meta.content_type ||
+            meta.type ||
+            inferredMime ||
+            "application/octet-stream";
+          const mimeType = String(rawMime).toLowerCase();
+
+          if (safeIsDangerousUploadFile(originalName, mimeType)) {
+            throw new Error(
+              "This file type is not allowed for security reasons.",
+            );
+          }
+
+          const kind = safeGetUploadKind(uploadType, mimeType);
+          if (!kind) {
+            throw new Error("Invalid file type for selected upload option.");
+          }
+
+          const sizeBytes = Number(
+            (typeof item === "object" && item !== null
+              ? (item.sizeBytes ?? item.size_bytes ?? item.fileSize ?? item.file_size ?? item.size)
+              : null) ??
+              meta.sizeBytes ??
+              meta.size_bytes ??
+              meta.fileSize ??
+              meta.file_size ??
+              meta.size ??
+              0,
+          );
+
+          const widthPx = safeSanitizePositiveInt(
+            (typeof item === "object" && item !== null
+              ? (item.widthPx ?? item.width_px ?? item.width)
+              : null) ??
+              meta.widthPx ??
+              meta.width_px ??
+              meta.width,
+          );
+
+          const heightPx = safeSanitizePositiveInt(
+            (typeof item === "object" && item !== null
+              ? (item.heightPx ?? item.height_px ?? item.height)
+              : null) ??
+              meta.heightPx ??
+              meta.height_px ??
+              meta.height,
+          );
+
+          const durationSeconds = safeSanitizeDurationSeconds(
+            (typeof item === "object" && item !== null
+              ? (item.durationSeconds ?? item.duration_seconds ?? item.duration)
+              : null) ??
+              meta.durationSeconds ??
+              meta.duration_seconds ??
+              meta.duration,
+          );
+
+          const blurhash =
+            (typeof item === "object" && item !== null ? item.blurhash : null) ||
+            meta.blurhash ||
+            null;
+
+          const rawWaveform =
+            (typeof item === "object" && item !== null ? item.waveform : null) ||
+            meta.waveform ||
+            null;
+          const waveform = rawWaveform
+            ? typeof rawWaveform === "string"
+              ? rawWaveform
+              : JSON.stringify(rawWaveform)
+            : null;
+
+          const thumbStorageKey =
+            (typeof item === "object" && item !== null
+              ? (item.thumbStorageKey || item.thumb_storage_key)
+              : null) ||
+            meta.thumbStorageKey ||
+            meta.thumb_storage_key ||
+            null;
+
+          const storageDriver =
+            (typeof item === "object" && item !== null
+              ? (item.storageDriver || item.storage_driver)
+              : null) ||
+            meta.storageDriver ||
+            meta.storage_driver ||
+            (deps.storageProvider?.type || "remote");
+
+          const encryptionType =
+            (typeof item === "object" && item !== null
+              ? (item.encryptionType || item.encryption_type)
+              : null) ||
+            meta.encryptionType ||
+            meta.encryption_type ||
+            "none";
+
+          return {
+            kind,
+            originalName,
+            storedName: safeBasename(key),
+            mimeType,
+            sizeBytes,
+            widthPx,
+            heightPx,
+            durationSeconds,
+            expiresAt: expiresAtIso,
+            storageDriver,
+            storageKey: key,
+            processingStatus:
+              (typeof item === "object" && item !== null
+                ? (item.processingStatus || item.processing_status)
+                : null) || "ready",
+            blurhash,
+            waveform,
+            thumbStorageKey,
+            encryptionType,
+          };
+        });
+
+        const normalizedFiles = [
+          ...normalizedLocalFiles,
+          ...normalizedPresignedFiles,
+        ];
 
         const hasVideoFiles = normalizedFiles.some((file) =>
           String(file.mimeType || "")
@@ -916,30 +1164,35 @@ function registerMessageRoutes(app, deps) {
               if (!storedName) return;
 
               const inputPath = path.join(uploadRootDir, storedName);
-              const metadata = await probeVideoMetadata(inputPath);
+              if (fs.existsSync && fs.existsSync(inputPath)) {
+                const metadata = await probeVideoMetadata(inputPath);
 
-              if (!file.widthPx && metadata.widthPx) {
-                file.widthPx = metadata.widthPx;
-              }
-              if (!file.heightPx && metadata.heightPx) {
-                file.heightPx = metadata.heightPx;
-              }
-              if (
-                file.durationSeconds === null &&
-                metadata.durationSeconds !== null
-              ) {
-                file.durationSeconds = metadata.durationSeconds;
+                if (!file.widthPx && metadata.widthPx) {
+                  file.widthPx = metadata.widthPx;
+                }
+                if (!file.heightPx && metadata.heightPx) {
+                  file.heightPx = metadata.heightPx;
+                }
+                if (
+                  file.durationSeconds === null &&
+                  metadata.durationSeconds !== null
+                ) {
+                  file.durationSeconds = metadata.durationSeconds;
+                }
               }
             }),
           );
         }
 
         normalizedFiles.forEach((file) => {
+          if (file.storageKey) return;
           const storedName = path.basename(String(file?.storedName || "").trim());
           if (!storedName) return;
 
           const inputPath = path.join(uploadRootDir, storedName);
-          storageEncryption.encryptFileInPlace(inputPath);
+          if (fs.existsSync && fs.existsSync(inputPath)) {
+            storageEncryption.encryptFileInPlace(inputPath);
+          }
         });
 
         const summarizeFiles = (files) => {
