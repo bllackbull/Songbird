@@ -14,6 +14,7 @@ export function registerRemoteUploadRoutes(app, deps) {
     createMessageFiles,
     findMessageFileById,
     emitChatEvent,
+    recordPendingPresignedUpload,
     storageProcessingMode = "sync",
     s3ProcessingMode = "sync",
     webhookSecret,
@@ -185,6 +186,26 @@ export function registerRemoteUploadRoutes(app, deps) {
             .first(),
         );
         fileId = row?.id || null;
+      }
+
+      if (typeof recordPendingPresignedUpload === "function") {
+        try {
+          recordPendingPresignedUpload({
+            storageKey: finalStorageKey,
+            userId: session?.userId || null,
+          });
+        } catch (_) {}
+      } else if (typeof adminRun === "function") {
+        try {
+          callAdminRun(
+            dbKnex("pending_presigned_uploads").insert({
+              storage_key: finalStorageKey,
+              user_id: session?.userId || null,
+              created_at: new Date().toISOString(),
+            }),
+          );
+          if (typeof adminSave === "function") adminSave();
+        } catch (_) {}
       }
 
       return res.json({

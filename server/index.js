@@ -73,6 +73,9 @@ import {
   getMessages,
   getFirstUnreadMessage,
   recordMessageReads,
+  recordPendingPresignedUpload,
+  removePendingPresignedUploads,
+  listPendingPresignedUploads,
   listMessageFilesByMessageIds,
   markGroupMemberRemoved,
   markChatMemberLeft,
@@ -476,6 +479,7 @@ const messageFileJobs = createMessageFileJobs({
   fs,
   path,
   getSetting,
+  storageProvider,
 });
 const {
   chunkArray,
@@ -484,6 +488,7 @@ const {
   backfillMessageFileExpiry,
   removeAllMessageUploads,
   computeExpiryIso,
+  pruneOrphanRemoteObjects,
 } = messageFileJobs;
 
 const inspector = createInspector({ fs, dataDir, adminGetRow, adminGetAll });
@@ -792,6 +797,10 @@ const apiDeps = {
   setRemoteChannelProviderState,
   listMutedUserIdsForChat,
   setSessionCookie,
+  recordPendingPresignedUpload,
+  removePendingPresignedUploads,
+  listPendingPresignedUploads,
+  pruneOrphanRemoteObjects,
   setUserColor,
   updateLastSeen,
   updateGroupChat,
@@ -1070,6 +1079,7 @@ async function backfillTextMessageExpiry() {
 // enabling/disabling retention via the admin panel takes effect without a
 // server restart.
 try {
+  await pruneOrphanRemoteObjects();
   if (getSetting("MESSAGE_FILE_RETENTION") > 0) {
     await backfillMessageFileExpiry();
     await cleanupExpiredMessageFiles();
@@ -1080,6 +1090,7 @@ try {
 
 const expiryCleanupTimer = setInterval(async () => {
   try {
+    await pruneOrphanRemoteObjects();
     if (getSetting("MESSAGE_FILE_RETENTION") > 0) {
       await cleanupExpiredMessageFiles();
     }

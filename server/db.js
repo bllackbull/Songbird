@@ -2751,6 +2751,41 @@ export function createMessageFiles(messageId, files = []) {
   });
 }
 
+export function recordPendingPresignedUpload({ storageKey, userId = null, expiresAt = null }) {
+  if (!storageKey) return null;
+  const key = String(storageKey).trim();
+  if (!key) return null;
+  const nowIso = new Date().toISOString();
+  run(
+    dbKnex("pending_presigned_uploads").insert({
+      storage_key: key,
+      user_id: userId || null,
+      created_at: nowIso,
+      expires_at: expiresAt || null,
+    }),
+  );
+  return { storage_key: key, user_id: userId, created_at: nowIso, expires_at: expiresAt };
+}
+
+export function removePendingPresignedUploads(storageKeys = []) {
+  const keys = (Array.isArray(storageKeys) ? storageKeys : [storageKeys])
+    .map((k) => (typeof k === "string" ? k.trim() : (k?.storageKey || k?.storage_key || k?.key || "")))
+    .filter(Boolean);
+  if (!keys.length) return 0;
+  run(
+    dbKnex("pending_presigned_uploads").whereIn("storage_key", keys).del(),
+  );
+  return keys.length;
+}
+
+export function listPendingPresignedUploads(cutoffIso = null) {
+  let query = dbKnex("pending_presigned_uploads").select("*");
+  if (cutoffIso) {
+    query = query.where("created_at", "<=", cutoffIso);
+  }
+  return getAll(query);
+}
+
 function normalizeDbTimestamp(value) {
   const str = String(value || "").trim();
   if (!str) return "";

@@ -11,6 +11,7 @@ export function createMessageFileJobs({
   fs,
   path,
   getSetting,
+  storageProvider,
 }) {
   // Always read the live setting instead of a value captured once at startup,
   // so admin-panel changes to retention take effect without a restart.
@@ -294,6 +295,92 @@ export function createMessageFileJobs({
     return expiry.toISOString();
   };
 
+  const pruneOrphanRemoteObjects = async (options = {}) => {
+    const {
+      maxAgeMs = 60 * 60 * 1000,
+      storageProvider: activeStorageProvider = storageProvider,
+      storageKeys: customKeys = null,
+    } = options;
+
+    const cutoffIso = new Date(Date.now() - maxAgeMs).toISOString();
+
+    let keysToCheck = [];
+
+    if (Array.isArray(customKeys) && customKeys.length > 0) {
+      keysToCheck = customKeys;
+    } else {
+      const rawPending = adminGetAll(
+        dbKnex("pending_presigned_uploads")
+          .select("storage_key")
+          .where("created_at", "<=", cutoffIso),
+      );
+      const pendingRows =
+        (rawPending && typeof rawPending.then === "function"
+          ? await rawPending
+          : rawPending) || [];
+
+      keysToCheck = pendingRows.map((r) => r.storage_key).filter(Boolean);
+    }
+
+    if (!keysToCheck.length) {
+      return { prunedCount: 0, prunedKeys: [] };
+    }
+
+    const rawReferenced = adminGetAll(
+      dbKnex("chat_message_files")
+        .select("storage_key")
+        .whereIn("storage_key", keysToCheck),
+    );
+    const referencedRows =
+      (rawReferenced && typeof rawReferenced.then === "function"
+        ? await rawReferenced
+        : rawReferenced) || [];
+
+    const referencedKeysSet = new Set(
+      (referencedRows || []).map((r) => r.storage_key).filter(Boolean),
+    );
+
+    const orphanKeys = keysToCheck.filter((key) => !referencedKeysSet.has(key));
+    const claimedKeys = keysToCheck.filter((key) => referencedKeysSet.has(key));
+
+    if (claimedKeys.length) {
+      adminRun(
+        dbKnex("pending_presigned_uploads")
+          .whereIn("storage_key", claimedKeys)
+          .del(),
+      );
+    }
+
+    const prunedKeys = [];
+    for (const key of orphanKeys) {
+      try {
+        if (
+          activeStorageProvider &&
+          typeof activeStorageProvider.deleteFile === "function"
+        ) {
+          await activeStorageProvider.deleteFile(key);
+        }
+        prunedKeys.push(key);
+      } catch (_) {
+        // best effort cleanup per object
+      }
+    }
+
+    if (prunedKeys.length) {
+      adminRun(
+        dbKnex("pending_presigned_uploads")
+          .whereIn("storage_key", prunedKeys)
+          .del(),
+      );
+      if (typeof adminSave === "function") adminSave();
+    }
+
+    return {
+      prunedCount: prunedKeys.length,
+      prunedKeys,
+    };
+  };
+
   return {
     chunkArray,
     cleanupMissingMessageFiles,
@@ -301,5 +388,6 @@ export function createMessageFileJobs({
     backfillMessageFileExpiry,
     removeAllMessageUploads,
     computeExpiryIso,
+    pruneOrphanRemoteObjects,
   };
 }

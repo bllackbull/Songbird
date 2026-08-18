@@ -35,6 +35,7 @@ import { migration034VerifiedField } from "./034-verified-field.js";
 import { migration035StorageAndMediaColumns } from "./035-storage-and-media-columns.js";
 import { migration036UuidPrimaryKeys } from "./036-uuid-primary-keys.js";
 import { migration037AutoAddNewUsers } from "./037-auto-add-new-users.js";
+import { migration038PendingPresignedUploads } from "./038-pending-presigned-uploads.js";
 
 export const migrations = [
   migration001InitialSchema,
@@ -74,4 +75,5 @@ export const migrations = [
   migration035StorageAndMediaColumns,
   migration036UuidPrimaryKeys,
   migration037AutoAddNewUsers,
+  migration038PendingPresignedUploads,
 ];

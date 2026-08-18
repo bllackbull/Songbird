@@ -84,6 +84,8 @@ export function makeApp(overrides = {}) {
     return userStore.findUserById(record.userId) ?? null;
   };
 
+  const pendingUploadsStore = [];
+
   const deps = {
     // ── Settings ──────────────────────────────────────────────────────────────
     getSetting: (key) => {
@@ -184,6 +186,32 @@ export function makeApp(overrides = {}) {
 
     removeStoredFileNames: () => {},
     removeAllMessageUploads: () => {},
+    recordPendingPresignedUpload: ({ storageKey, userId, expiresAt }) => {
+      const rec = { storage_key: storageKey, user_id: userId, created_at: new Date().toISOString(), expires_at: expiresAt };
+      pendingUploadsStore.push(rec);
+      return rec;
+    },
+    removePendingPresignedUploads: (keys = []) => {
+      const keySet = new Set((Array.isArray(keys) ? keys : [keys]).map((k) => (typeof k === "string" ? k : k?.storageKey || k?.storage_key)));
+      for (let i = pendingUploadsStore.length - 1; i >= 0; i--) {
+        if (keySet.has(pendingUploadsStore[i].storage_key)) {
+          pendingUploadsStore.splice(i, 1);
+        }
+      }
+    },
+    listPendingPresignedUploads: () => pendingUploadsStore,
+    pruneOrphanRemoteObjects: async (options = {}) => {
+      const provider = options.storageProvider || deps.storageProvider;
+      const prunedKeys = [];
+      while (pendingUploadsStore.length > 0) {
+        const rec = pendingUploadsStore.pop();
+        if (provider && typeof provider.deleteFile === "function") {
+          await provider.deleteFile(rec.storage_key);
+        }
+        prunedKeys.push(rec.storage_key);
+      }
+      return { prunedCount: prunedKeys.length, prunedKeys };
+    },
     isLoopbackRequest: () => false,
     chunkArray: (arr) => [arr],
     decodeOriginalFilename: (name) => name,
@@ -326,5 +354,5 @@ export function makeApp(overrides = {}) {
   };
 
   registerApiRoutes(app, deps);
-  return { app, sessionStore, userStore, deps };
+  return { app, sessionStore, userStore, deps, pendingUploadsStore };
 }

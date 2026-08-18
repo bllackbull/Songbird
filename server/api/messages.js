@@ -49,6 +49,7 @@ function registerMessageRoutes(app, deps) {
     path,
     probeVideoMetadata,
     removeUploadedFiles,
+    removePendingPresignedUploads,
     requireSession,
     requireSessionUsernameMatch,
     sanitizeDurationSeconds,
@@ -1293,6 +1294,15 @@ function registerMessageRoutes(app, deps) {
           createMessageFiles(messageId, normalizedFiles);
           if (chat.type === "saved") {
             markMessageRead(messageId, user.id);
+          }
+        }
+
+        const usedStorageKeys = (normalizedFiles || [])
+          .map((f) => f.storageKey || f.storage_key)
+          .filter(Boolean);
+        if (usedStorageKeys.length > 0) {
+          if (typeof removePendingPresignedUploads === "function") {
+            removePendingPresignedUploads(usedStorageKeys);
           }
         }
 
