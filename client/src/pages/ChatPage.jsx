@@ -112,6 +112,7 @@ import {
   updateProfile,
   updateStatus as updateStatusRequest,
   uploadAvatar,
+  prepareFilesForMessage,
 } from "../api/chatApi.js";
 import { useMessageMaxChars } from "../settings/appConfig.js";
 import {
@@ -3830,33 +3831,57 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const uploadPendingMessageWithProgress = (pendingMessage, targetChatId) =>
     new Promise((resolve, reject) => {
-      const form = new FormData();
-      form.append("username", user.username);
-      form.append("chatId", String(targetChatId));
-      form.append("body", pendingMessage.body || "");
-      form.append("uploadType", pendingMessage._uploadType || "document");
-      form.append("clientRequestId", String(pendingMessage._clientId || ""));
-      if (pendingMessage.replyTo?.id) {
-        form.append("replyToMessageId", String(pendingMessage.replyTo.id));
-      }
-      if (pendingMessage._editMessageId) {
-        form.append("editMessageId", String(pendingMessage._editMessageId));
-      }
-      const fileMeta = [];
-      pendingMessage._files.forEach((item) => {
-        if (item?.file instanceof Blob) {
-          const filename = item.name || item.file.name || "upload.bin";
-          form.append("files", item.file, filename);
-          fileMeta.push({
-            width: Number.isFinite(Number(item.width)) ? Number(item.width) : null,
-            height: Number.isFinite(Number(item.height)) ? Number(item.height) : null,
-            durationSeconds: Number.isFinite(Number(item.durationSeconds))
-              ? Number(item.durationSeconds)
-              : null,
-          });
+      (async () => {
+        const form = new FormData();
+        form.append("username", user.username);
+        form.append("chatId", String(targetChatId));
+        form.append("body", pendingMessage.body || "");
+        form.append("uploadType", pendingMessage._uploadType || "document");
+        form.append("clientRequestId", String(pendingMessage._clientId || ""));
+        if (pendingMessage.replyTo?.id) {
+          form.append("replyToMessageId", String(pendingMessage.replyTo.id));
         }
-      });
-      form.append("fileMeta", JSON.stringify(fileMeta));
+        if (pendingMessage._editMessageId) {
+          form.append("editMessageId", String(pendingMessage._editMessageId));
+        }
+
+        const fileItems = (pendingMessage._files || []).filter(
+          (item) => item?.file instanceof Blob,
+        );
+
+        let prepResult = { presignedFiles: [], localFiles: [], fileMeta: [] };
+        try {
+          prepResult = await prepareFilesForMessage(fileItems, {
+            onProgress: (_idx, pct) => {
+              if (typeof setPendingUploadProgress === "function") {
+                setPendingUploadProgress(pendingMessage._clientId, pct, targetChatId);
+              }
+            },
+          });
+        } catch (err) {
+          console.warn("[uploadPendingMessageWithProgress] prepareFilesForMessage failed:", err);
+        }
+
+        const { presignedFiles = [] } = prepResult;
+        const usedRemote = presignedFiles.length > 0;
+
+        if (usedRemote) {
+          form.append("storageKeys", JSON.stringify(presignedFiles));
+        } else {
+          const fileMeta = [];
+          fileItems.forEach((item) => {
+            const filename = item.name || item.file.name || "upload.bin";
+            form.append("files", item.file, filename);
+            fileMeta.push({
+              width: Number.isFinite(Number(item.width)) ? Number(item.width) : null,
+              height: Number.isFinite(Number(item.height)) ? Number(item.height) : null,
+              durationSeconds: Number.isFinite(Number(item.durationSeconds))
+                ? Number(item.durationSeconds)
+                : null,
+            });
+          });
+          form.append("fileMeta", JSON.stringify(fileMeta));
+        }
 
       const xhr = new XMLHttpRequest();
       let settled = false;
@@ -3927,7 +3952,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         );
       };
 
-      xhr.send(form);
+        xhr.send(form);
+      })().catch(reject);
     });
 
   const sendPendingMessage = async (pendingMessage) => {
