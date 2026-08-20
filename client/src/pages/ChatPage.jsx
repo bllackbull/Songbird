@@ -4055,10 +4055,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           const hasMediaVideo = files.some((file) =>
             String(file?.mimeType || "").toLowerCase().startsWith("video/"),
           );
-          const keepPendingUntilServerEcho = hasFiles && uploadType === "media" && hasMediaVideo;
-          const serverId = data?.id || null;
-          const awaitingServerEcho = Boolean(serverId);
           const responseFiles = Array.isArray(data?.files) && data.files.length > 0 ? data.files : null;
+          const isProcessingOnServer = responseFiles
+            ? responseFiles.some((f) => f.processing === true)
+            : true;
+          const keepPendingUntilServerEcho =
+            hasFiles && uploadType === "media" && hasMediaVideo && isProcessingOnServer;
           const calculatedExpiresAt = data?.expiresAt || null;
           const index = prev.findIndex(
             (msg) =>
@@ -4160,8 +4162,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           const hasMediaVideo = files.some((file) =>
             String(file?.mimeType || "").toLowerCase().startsWith("video/"),
           );
+          const responseFiles = Array.isArray(data?.files) && data.files.length > 0 ? data.files : null;
+          const isProcessingOnServer = responseFiles
+            ? responseFiles.some((f) => f.processing === true)
+            : true;
           const keepPendingUntilServerEcho =
-            uploadType === "media" && hasMediaVideo;
+            uploadType === "media" && hasMediaVideo && isProcessingOnServer;
           if (!keepPendingUntilServerEcho) {
             if (activeUploadProgressHideTimerRef.current) {
               window.clearTimeout(activeUploadProgressHideTimerRef.current);
