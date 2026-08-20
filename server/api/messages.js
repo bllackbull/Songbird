@@ -1324,6 +1324,10 @@ function registerMessageRoutes(app, deps) {
             const mimeType = String(file?.mimeType || "").toLowerCase();
             if (!mimeType.startsWith("video/")) return;
 
+            // Skip local ffmpeg transcode queue for files uploaded directly to remote/s3 storage
+            const driver = file.storageDriver || file.storage_driver;
+            if (driver === "remote" || driver === "s3" || file.storageKey || file.storage_key) return;
+
             const storedName = path.basename(
               String(file?.storedName || "").trim(),
             );
@@ -1378,7 +1382,10 @@ function registerMessageRoutes(app, deps) {
               kind: file.kind,
               name: file.original_name || file.originalName || "",
               mimeType: file.mime_type || file.mimeType || "",
-              processing: typeof isVideoFileProcessing === "function" ? isVideoFileProcessing(file) : false,
+              processing:
+                (file.storage_driver === "remote" || file.storage_driver === "s3" || file.storageDriver === "remote" || file.storageDriver === "s3")
+                  ? (file.processing_status || file.processingStatus) === "pending"
+                  : (typeof isVideoFileProcessing === "function" ? isVideoFileProcessing(file) : false),
               sizeBytes: Number(file.size_bytes || file.sizeBytes || 0),
               width: Number.isFinite(Number(file.width_px ?? file.widthPx))
                 ? Number(file.width_px ?? file.widthPx)
