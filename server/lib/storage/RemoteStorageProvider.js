@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import {
   S3Client,
   PutObjectCommand,
@@ -174,5 +176,53 @@ export class RemoteStorageProvider extends StorageProvider {
       }
       throw err;
     }
+  }
+
+  /**
+   * Download a remote object directly to a local file path.
+   * @param {string} fileKey
+   * @param {string} destPath
+   * @returns {Promise<string>}
+   */
+  async downloadToPath(fileKey, destPath) {
+    const cleanKey = String(fileKey || "").replace(/^\//, "");
+    const command = new GetObjectCommand({
+      Bucket: this.bucket,
+      Key: cleanKey,
+    });
+    const response = await this.client.send(command);
+    const bodyStream = response.Body;
+
+    await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
+    const writeStream = fs.createWriteStream(destPath);
+
+    await new Promise((resolve, reject) => {
+      bodyStream.pipe(writeStream);
+      bodyStream.on("error", reject);
+      writeStream.on("error", reject);
+      writeStream.on("finish", resolve);
+    });
+
+    return destPath;
+  }
+
+  /**
+   * Upload a local file directly to remote storage.
+   * @param {string} fileKey
+   * @param {string} filePath
+   * @param {string} [contentType]
+   * @returns {Promise<{key: string}>}
+   */
+  async uploadFile(fileKey, filePath, contentType = "application/octet-stream") {
+    const cleanKey = String(fileKey || "").replace(/^\//, "");
+    const body = fs.createReadStream(filePath);
+    const command = new PutObjectCommand({
+      Bucket: this.bucket,
+      Key: cleanKey,
+      Body: body,
+      ContentType: contentType,
+    });
+    await this.client.send(command);
+    return { key: cleanKey };
   }
 }

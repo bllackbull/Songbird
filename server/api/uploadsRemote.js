@@ -21,6 +21,7 @@ export function registerRemoteUploadRoutes(app, deps) {
     requireSession,
     getSessionFromRequest,
     storageEncryption = defaultStorageEncryption,
+    enqueueVideoTranscodeJob = deps.enqueueVideoTranscodeJob,
   } = deps;
 
   function toSql(builder, p = []) {
@@ -268,16 +269,37 @@ export function registerRemoteUploadRoutes(app, deps) {
     const mode = String(
       deps.storageProcessingMode || storageProcessingMode || "sync",
     ).toLowerCase();
-    const newStatus =
-      mode === "webhook" || mode === "remote" || mode === "async"
-        ? "pending"
-        : "ready";
+    const isVideo = String(file.mime_type || file.mimeType || "")
+      .toLowerCase()
+      .startsWith("video/");
+
+    const transcodeFn = deps.enqueueVideoTranscodeJob || enqueueVideoTranscodeJob;
+
+    let newStatus = "ready";
+    if (isVideo && (mode === "local" || mode === "auto" || mode === "sync")) {
+      newStatus = typeof transcodeFn === "function" ? "pending" : "ready";
+    } else if (mode === "webhook" || mode === "remote" || mode === "async") {
+      newStatus = "pending";
+    }
 
     if (typeof adminRun === "function") {
       callAdminRun(
         dbKnex("chat_message_files").where("id", fileId).update({ processing_status: newStatus }),
       );
       if (typeof adminSave === "function") adminSave();
+    }
+
+    if (isVideo && (mode === "local" || mode === "auto" || mode === "sync")) {
+      if (typeof transcodeFn === "function") {
+        transcodeFn({
+          fileId,
+          storedName: file.stored_name || file.storedName,
+          storageKey: file.storage_key || storageKey,
+          storageDriver: file.storage_driver || file.storageDriver,
+          chatId: file.chat_id || file.chatId,
+          messageId: file.message_id || file.messageId,
+        });
+      }
     }
 
     if (newStatus === "pending" && mediaQueueManager?.scheduleFallbackCheck) {

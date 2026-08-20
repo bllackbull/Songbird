@@ -1324,21 +1324,18 @@ function registerMessageRoutes(app, deps) {
             const mimeType = String(file?.mimeType || "").toLowerCase();
             if (!mimeType.startsWith("video/")) return;
 
-            // Skip local ffmpeg transcode queue for files uploaded directly to remote/s3 storage
-            const driver = file.storageDriver || file.storage_driver;
-            if (driver === "remote" || driver === "s3" || file.storageKey || file.storage_key) return;
-
             const storedName = path.basename(
               String(file?.storedName || "").trim(),
             );
-            if (!storedName) return;
 
-            const fileId = insertedByStoredName.get(storedName);
+            const fileId = insertedByStoredName.get(storedName) || file?.id;
             if (!fileId) return;
 
             enqueueVideoTranscodeJob({
               fileId,
               storedName,
+              storageKey: file.storageKey || file.storage_key,
+              storageDriver: file.storageDriver || file.storage_driver,
               chatId,
               messageId,
               username: user.username,

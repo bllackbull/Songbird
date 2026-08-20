@@ -9,6 +9,7 @@ export function createMediaQueueManager({
   adminGetRow,
   adminRun,
   emitChatEvent,
+  enqueueVideoTranscodeJob,
 }) {
   const isRealRedis =
     redisClient &&
@@ -43,21 +44,32 @@ export function createMediaQueueManager({
 
     try {
       // Execute local fallback processing
-      // Update DB status to ready
-      if (adminRun) {
-        const { sql: updateSql, params: updateParams } = toSql(
-          dbKnex("chat_message_files").where("id", fileId).update({ processing_status: "ready" }),
-        );
-        adminRun(updateSql, updateParams);
-      }
-
-      // Broadcast SSE notification
-      if (typeof emitChatEvent === "function") {
-        emitChatEvent("songbird:realtime-event", {
-          type: "video:ready",
+      const isVideo = String(row.mime_type || "").toLowerCase().startsWith("video/");
+      if (isVideo && typeof enqueueVideoTranscodeJob === "function") {
+        enqueueVideoTranscodeJob({
           fileId,
+          storedName: row.stored_name,
           storageKey: row.storage_key || storageKey,
+          storageDriver: row.storage_driver,
+          messageId: row.message_id,
         });
+      } else {
+        // Update DB status to ready
+        if (adminRun) {
+          const { sql: updateSql, params: updateParams } = toSql(
+            dbKnex("chat_message_files").where("id", fileId).update({ processing_status: "ready" }),
+          );
+          adminRun(updateSql, updateParams);
+        }
+
+        // Broadcast SSE notification
+        if (typeof emitChatEvent === "function") {
+          emitChatEvent("songbird:realtime-event", {
+            type: "video:ready",
+            fileId,
+            storageKey: row.storage_key || storageKey,
+          });
+        }
       }
     } catch (err) {
       if (adminRun) {

@@ -25,6 +25,7 @@ import { createSessionHelpers } from "./lib/sessions.js";
 import { createRedisClient, createRedisSessionStore } from "./lib/redis.js";
 import { storageEncryption } from "./lib/storageEncryption.js";
 import { createStorageProvider } from "./lib/storage/index.js";
+import { createMediaQueueManager } from "./lib/mediaQueue.js";
 import { createRemoteChannelManager } from "./lib/remoteChannels.js";
 import { initAutoAddWorker } from "./lib/workers/autoAddWorker.js";
 import { buildTimestampSchedule } from "./lib/timeUtils.js";
@@ -456,6 +457,7 @@ const videoTranscoder = createVideoTranscodeManager({
   uploadRootDir,
   transcodeVideosToH264: TRANSCODE_VIDEOS_TO_H264,
   storageEncryption,
+  storageProvider,
 });
 const {
   enqueueVideoTranscodeJob,
@@ -496,6 +498,17 @@ const { buildInspectSnapshot, hasEnoughFreeDiskSpace } = inspector;
 
 const redisClient = createRedisClient();
 const redisSessionStore = createRedisSessionStore({ redisClient, dbGetSession: getSession });
+
+const mediaQueueManager = createMediaQueueManager({
+  redisClient,
+  storageProvider,
+  s3ProcessingMode: process.env.STORAGE_PROCESSING_MODE || "sync",
+  s3ProcessingTimeoutMs: Number(process.env.STORAGE_PROCESSING_TIMEOUT_MS) || 30000,
+  adminGetRow,
+  adminRun,
+  emitChatEvent,
+  enqueueVideoTranscodeJob,
+});
 
 async function createSessionCombined(userId, token) {
   await createSession(userId, token);
@@ -637,6 +650,7 @@ const apiDeps = {
   dbConfig: readDbConfig(),
   postgresMaintenance: null,
   storageProvider,
+  mediaQueueManager,
   storageProcessingMode: process.env.STORAGE_PROCESSING_MODE || "sync",
   webhookSecret: process.env.WEBHOOK_SECRET || null,
   ALLOWED_AVATAR_MIME_TYPES,

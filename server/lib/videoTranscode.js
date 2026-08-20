@@ -14,6 +14,7 @@ export function createVideoTranscodeManager({
   uploadRootDir,
   transcodeVideosToH264,
   storageEncryption,
+  storageProvider,
 }) {
   const TRANSCODED_VIDEO_NAME_TAG = "-h264-";
   const videoTranscodeQueue = [];
@@ -221,27 +222,70 @@ export function createVideoTranscodeManager({
   };
 
   const runVideoTranscodeJob = async (job) => {
-    const fileId = Number(job?.fileId || 0);
-    const inputStoredName = path.basename(String(job?.storedName || "").trim());
-    if (!fileId || !inputStoredName) return;
+    const fileId = job?.fileId;
+    if (!fileId) return;
 
-    const inputPath = path.join(uploadRootDir, inputStoredName);
-    if (!fs.existsSync(inputPath)) return;
+    const fileRow = adminGetRow
+      ? adminGetRow(dbKnex("chat_message_files").where("id", fileId).first())
+      : null;
 
-    const parsed = path.parse(inputStoredName);
+    const driver = String(
+      fileRow?.storage_driver || fileRow?.storageDriver || job?.storageDriver || "local",
+    ).toLowerCase();
+
+    const storageKey = fileRow?.storage_key || job?.storageKey || null;
+    const isRemote = driver === "remote" || driver === "s3" || Boolean(storageKey && driver !== "local");
+    const rawStoredName = fileRow?.stored_name || job?.storedName || "";
+    const inputStoredName = path.basename(String(rawStoredName).trim());
+
+    if (!inputStoredName && !storageKey) return;
+
+    let inputPath = "";
+    let isTempInput = false;
+
+    if (isRemote) {
+      if (!storageProvider) {
+        console.error(`[video-transcode] storageProvider missing for remote file ${fileId}`);
+        return;
+      }
+      isTempInput = true;
+      const keyToFetch = storageKey || inputStoredName;
+      inputPath = path.join(
+        uploadRootDir,
+        `tmp-input-${crypto.randomBytes(6).toString("hex")}-${inputStoredName || "video.mp4"}`,
+      );
+      if (typeof storageProvider.downloadToPath === "function") {
+        await storageProvider.downloadToPath(keyToFetch, inputPath);
+      } else if (typeof storageProvider.getDownloadUrl === "function") {
+        const fetchImpl = globalThis.fetch;
+        const downloadUrl = await storageProvider.getDownloadUrl(keyToFetch);
+        const resp = await fetchImpl(downloadUrl);
+        if (!resp.ok) throw new Error(`Failed to fetch remote file: ${resp.status}`);
+        const buf = Buffer.from(await resp.arrayBuffer());
+        fs.writeFileSync(inputPath, buf);
+      } else {
+        throw new Error("storageProvider does not support downloading files.");
+      }
+    } else {
+      inputPath = path.join(uploadRootDir, inputStoredName);
+      if (!fs.existsSync(inputPath)) return;
+    }
+
+    const parsed = path.parse(inputStoredName || "video.mp4");
     const outputName = `${parsed.name}-h264-${crypto.randomBytes(4).toString("hex")}.mp4`;
     const outputPath = path.join(uploadRootDir, outputName);
     const decryptedInput = storageEncryption.decryptFileToTempPath(
       inputPath,
-      inputStoredName,
+      inputStoredName || "video.mp4",
     );
 
     try {
       debugLog("video-transcode:start", {
         fileId,
-        messageId: job?.messageId || null,
+        messageId: job?.messageId || fileRow?.message_id || null,
         chatId: job?.chatId || null,
         inputStoredName,
+        isRemote,
       });
 
       await runFfmpeg([
@@ -272,54 +316,95 @@ export function createVideoTranscodeManager({
       const outputMeta = await probeVideoMetadata(outputPath);
       storageEncryption.encryptFileInPlace(outputPath);
 
-      fs.unlinkSync(inputPath);
+      let finalStorageKey = storageKey;
 
-      adminRun(
-        dbKnex("chat_message_files")
-          .where("id", fileId)
-          .update({
-            stored_name: outputName,
-            mime_type: "video/mp4",
-            size_bytes: Number(outputStat.size || 0),
-            ...(Number.isFinite(Number(outputMeta?.widthPx)) ? { width_px: Number(outputMeta.widthPx) } : {}),
-            ...(Number.isFinite(Number(outputMeta?.heightPx)) ? { height_px: Number(outputMeta.heightPx) } : {}),
-            ...(Number.isFinite(Number(outputMeta?.durationSeconds)) ? { duration_seconds: Number(outputMeta.durationSeconds) } : {}),
-          }),
-      );
+      if (isRemote) {
+        finalStorageKey = storageKey
+          ? storageKey.replace(/(\.[^.]*)?$/, `-h264-${crypto.randomBytes(4).toString("hex")}.mp4`)
+          : `transcoded/${outputName}`;
 
-      adminSave();
+        if (typeof storageProvider.uploadFile === "function") {
+          await storageProvider.uploadFile(finalStorageKey, outputPath, "video/mp4");
+        } else if (typeof storageProvider.uploadBuffer === "function") {
+          await storageProvider.uploadBuffer(
+            finalStorageKey,
+            fs.readFileSync(outputPath),
+            "video/mp4",
+          );
+        }
+
+        try {
+          if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+        } catch (_) {}
+      } else {
+        try {
+          if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+        } catch (_) {}
+      }
+
+      if (isTempInput) {
+        try {
+          if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+        } catch (_) {}
+      }
+
+      if (adminRun) {
+        adminRun(
+          dbKnex("chat_message_files")
+            .where("id", fileId)
+            .update({
+              stored_name: outputName,
+              ...(finalStorageKey ? { storage_key: finalStorageKey } : {}),
+              mime_type: "video/mp4",
+              size_bytes: Number(outputStat.size || 0),
+              processing_status: "ready",
+              ...(Number.isFinite(Number(outputMeta?.widthPx)) ? { width_px: Number(outputMeta.widthPx) } : {}),
+              ...(Number.isFinite(Number(outputMeta?.heightPx)) ? { height_px: Number(outputMeta.heightPx) } : {}),
+              ...(Number.isFinite(Number(outputMeta?.durationSeconds)) ? { duration_seconds: Number(outputMeta.durationSeconds) } : {}),
+            }),
+        );
+        if (adminSave) adminSave();
+      }
 
       debugLog("video-transcode:done", {
         fileId,
         outputName,
+        storageKey: finalStorageKey,
         width: outputMeta?.widthPx ?? null,
         height: outputMeta?.heightPx ?? null,
         durationSeconds: outputMeta?.durationSeconds ?? null,
         sizeBytes: Number(outputStat.size || 0),
       });
 
-      const chatId = job?.chatId || null;
-      const messageId = job?.messageId || null;
-      const messageRow = messageId
-        ? adminGetRow(dbKnex("chat_messages").select("body").where("id", messageId).first())
+      const messageId = job?.messageId || fileRow?.message_id || null;
+      const messageRow = messageId && adminGetRow
+        ? adminGetRow(dbKnex("chat_messages").select("body", "chat_id").where("id", messageId).first())
         : null;
-      const messageBody = storageEncryption
-        .decryptText(String(messageRow?.body || "").trim())
-        .trim();
-      const filesForMessage = messageId
-        ? listMessageFilesByMessageIds([messageId])
-        : [];
-      const summaryText = summarizeMessageFiles(filesForMessage);
+      const chatId = job?.chatId || messageRow?.chat_id || null;
 
-      if (chatId) {
+      if (typeof emitChatEvent === "function") {
+        emitChatEvent("songbird:realtime-event", {
+          type: "video:ready",
+          fileId,
+          status: "ready",
+          storageKey: finalStorageKey,
+        });
+      }
+
+      if (chatId && messageId && typeof emitChatEvent === "function") {
+        const messageBody = storageEncryption
+          .decryptText(String(messageRow?.body || "").trim())
+          .trim();
+        const filesForMessage = listMessageFilesByMessageIds
+          ? listMessageFilesByMessageIds([messageId])
+          : [];
+        const summaryText = summarizeMessageFiles(filesForMessage);
+
         const userId = job?.userId || null;
-        if (!isValidUuid(String(chatId)) || !isValidUuid(String(messageId || "")) || !isValidUuid(String(userId || ""))) {
-          return;
-        }
         emitChatEvent(chatId, {
           type: "chat_message",
           chatId,
-          messageId: messageId || null,
+          messageId,
           username: String(job?.username || ""),
           userId,
           body: messageBody,
@@ -327,16 +412,29 @@ export function createVideoTranscodeManager({
         });
       }
     } catch (error) {
-      try {
-        if (fs.existsSync(outputPath)) {
-          fs.unlinkSync(outputPath);
-        }
-      } catch (_) {
-        // best effort cleanup
+      if (adminRun) {
+        adminRun(
+          dbKnex("chat_message_files")
+            .where("id", fileId)
+            .update({ processing_status: "failed" }),
+        );
+        if (adminSave) adminSave();
       }
 
+      try {
+        if (outputPath && fs.existsSync(outputPath)) {
+          fs.unlinkSync(outputPath);
+        }
+      } catch (_) {}
+
+      try {
+        if (isTempInput && inputPath && fs.existsSync(inputPath)) {
+          fs.unlinkSync(inputPath);
+        }
+      } catch (_) {}
+
       console.error(
-        `[video-transcode] failed for ${inputStoredName}: ${String(error?.message || error)}`,
+        `[video-transcode] failed for ${inputStoredName || fileId}: ${String(error?.message || error)}`,
       );
 
       debugLog("video-transcode:error", {
@@ -345,7 +443,9 @@ export function createVideoTranscodeManager({
         error: String(error?.message || error),
       });
     } finally {
-      decryptedInput.cleanup();
+      if (decryptedInput && typeof decryptedInput.cleanup === "function") {
+        decryptedInput.cleanup();
+      }
     }
   };
 
@@ -372,10 +472,11 @@ export function createVideoTranscodeManager({
       console.warn(
         `[video-transcode] queue full (${videoTranscodeQueue.length} jobs); dropping job for file ${Number(job?.fileId || 0)}`,
       );
-      return;
+      return false;
     }
     videoTranscodeQueue.push(job);
     void processVideoTranscodeQueue();
+    return true;
   };
 
   const isVideoFileProcessing = (row) => {

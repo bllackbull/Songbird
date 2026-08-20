@@ -44,12 +44,25 @@ describe("LocalStorageProvider", () => {
     expect(url).toBe("/api/uploads/file/abc123_test.txt");
   });
 
+  it("supports downloadToPath and uploadFile", async () => {
+    const provider = new LocalStorageProvider({ uploadDir: tmpDir });
+    const srcFile = path.join(tmpDir, "source.txt");
+    await fs.promises.writeFile(srcFile, "hello world");
+
+    await provider.uploadFile("uploaded.txt", srcFile);
+    expect(await provider.exists("uploaded.txt")).toBe(true);
+
+    const destFile = path.join(tmpDir, "downloaded.txt");
+    await provider.downloadToPath("uploaded.txt", destFile);
+    const content = await fs.promises.readFile(destFile, "utf-8");
+    expect(content).toBe("hello world");
+  });
+
   it("checks file existence correctly", async () => {
     const provider = new LocalStorageProvider({ uploadDir: tmpDir });
     const filePath = path.join(tmpDir, "test.txt");
 
     expect(await provider.exists("test.txt")).toBe(false);
-
     await fs.promises.writeFile(filePath, "hello world");
     expect(await provider.exists("test.txt")).toBe(true);
   });

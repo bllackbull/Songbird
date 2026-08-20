@@ -35,4 +35,25 @@ export class StorageProvider {
   async exists(fileKey) {
     throw new Error("exists not implemented");
   }
+
+  /**
+   * Download a file from storage to local destination path.
+   * @param {string} fileKey
+   * @param {string} destPath
+   * @returns {Promise<string>}
+   */
+  async downloadToPath(fileKey, destPath) {
+    throw new Error("downloadToPath not implemented");
+  }
+
+  /**
+   * Upload a local file path to storage.
+   * @param {string} fileKey
+   * @param {string} filePath
+   * @param {string} [contentType]
+   * @returns {Promise<{key: string}>}
+   */
+  async uploadFile(fileKey, filePath, contentType) {
+    throw new Error("uploadFile not implemented");
+  }
 }

@@ -94,4 +94,36 @@ export class LocalStorageProvider extends StorageProvider {
       return false;
     }
   }
+
+  /**
+   * Copy local stored file to a destination path.
+   * @param {string} fileKey
+   * @param {string} destPath
+   * @returns {Promise<string>}
+   */
+  async downloadToPath(fileKey, destPath) {
+    const cleanKey = String(fileKey || "").replace(/^\//, "");
+    const srcPath = path.isAbsolute(cleanKey)
+      ? cleanKey
+      : path.join(this.uploadDir, cleanKey);
+    await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
+    await fs.promises.copyFile(srcPath, destPath);
+    return destPath;
+  }
+
+  /**
+   * Save a local file into local storage.
+   * @param {string} fileKey
+   * @param {string} filePath
+   * @returns {Promise<{key: string}>}
+   */
+  async uploadFile(fileKey, filePath) {
+    const cleanKey = String(fileKey || "").replace(/^\//, "");
+    const dest = path.isAbsolute(cleanKey)
+      ? cleanKey
+      : path.join(this.uploadDir, cleanKey);
+    await fs.promises.mkdir(path.dirname(dest), { recursive: true });
+    await fs.promises.copyFile(filePath, dest);
+    return { key: cleanKey };
+  }
 }
