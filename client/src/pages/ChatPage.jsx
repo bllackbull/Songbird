@@ -4048,6 +4048,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         messageId: data?.id || null,
       });
 
+      const serverId = data?.id || data?._serverId || null;
+
       if (isTargetActive) {
         setMessages((prev) => {
           const uploadType = String(pendingMessage?._uploadType || "").toLowerCase();
@@ -4061,6 +4063,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             : true;
           const keepPendingUntilServerEcho =
             hasFiles && uploadType === "media" && hasMediaVideo && isProcessingOnServer;
+          const awaitingServerEcho = Boolean(keepPendingUntilServerEcho);
           const calculatedExpiresAt = data?.expiresAt || null;
           const index = prev.findIndex(
             (msg) =>
