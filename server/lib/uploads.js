@@ -169,6 +169,10 @@ export function createUploadTools({
   const getUploadKind = (uploadType, mimeType = "") => {
     const type = String(mimeType || "").toLowerCase();
 
+    if (type.startsWith("video/")) {
+      return "media";
+    }
+
     if (uploadType === "media") {
       if (
         type.startsWith("image/") ||

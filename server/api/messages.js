@@ -222,7 +222,7 @@ function registerMessageRoutes(app, deps) {
     if (!sourceFiles?.length) return [];
 
     const reusedFiles = sourceFiles.flatMap((file) => {
-      const storedName = path.basename(String(file?.stored_name || "").trim());
+      const storedName = safeBasename(String(file?.stored_name || "").trim());
       if (!storedName) return [];
       const sourcePath = path.join(uploadRootDir, storedName);
       if (!fs.existsSync(sourcePath)) return [];
@@ -954,7 +954,8 @@ function registerMessageRoutes(app, deps) {
             );
           }
 
-          const kind = getUploadKind(uploadType, mimeType);
+          const isVideo = mimeType.startsWith("video/") || (inferredMime && String(inferredMime).toLowerCase().startsWith("video/"));
+          const kind = isVideo ? "media" : getUploadKind(uploadType, mimeType);
           if (!kind) {
             throw new Error("Invalid file type for selected upload option.");
           }
@@ -964,7 +965,7 @@ function registerMessageRoutes(app, deps) {
           return {
             kind,
             originalName,
-            storedName: path.basename(file.filename),
+            storedName: safeBasename(file.filename),
             mimeType,
             sizeBytes: Number(file.size || 0),
             widthPx: sanitizePositiveInt(meta.width),
@@ -1101,11 +1102,31 @@ function registerMessageRoutes(app, deps) {
             meta.encryption_type ||
             "none";
 
+          const storageProcessingMode = String(
+            deps.storageProcessingMode || process.env.STORAGE_PROCESSING_MODE || "sync",
+          ).toLowerCase();
+          const isLocalTranscodeMode =
+            storageProcessingMode === "local" ||
+            storageProcessingMode === "auto" ||
+            storageProcessingMode === "sync";
+          const isVideo =
+            mimeType.startsWith("video/") ||
+            (inferredMime && String(inferredMime).toLowerCase().startsWith("video/"));
+          const isAlreadyTranscoded = safeBasename(key).toLowerCase().includes("-h264-");
+          const shouldTranscodeThisFile =
+            isVideo &&
+            !isAlreadyTranscoded &&
+            isLocalTranscodeMode &&
+            Boolean(getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS"));
+
+          const effectiveKind = isVideo ? "media" : kind;
+          const effectiveMime = isVideo && !mimeType.startsWith("video/") && inferredMime ? inferredMime : mimeType;
+
           return {
-            kind,
+            kind: effectiveKind,
             originalName,
             storedName: safeBasename(key),
-            mimeType,
+            mimeType: effectiveMime,
             sizeBytes,
             widthPx,
             heightPx,
@@ -1116,7 +1137,7 @@ function registerMessageRoutes(app, deps) {
             processingStatus:
               (typeof item === "object" && item !== null
                 ? (item.processingStatus || item.processing_status)
-                : null) || "ready",
+                : null) || (shouldTranscodeThisFile ? "pending" : "ready"),
             blurhash,
             waveform,
             thumbStorageKey,
@@ -1129,14 +1150,23 @@ function registerMessageRoutes(app, deps) {
           ...normalizedPresignedFiles,
         ];
 
-        const hasVideoFiles = normalizedFiles.some((file) =>
-          String(file.mimeType || "")
-            .toLowerCase()
-            .startsWith("video/"),
-        );
+        const storageProcessingMode = String(
+          deps.storageProcessingMode || process.env.STORAGE_PROCESSING_MODE || "sync",
+        ).toLowerCase();
+        const isLocalTranscodeMode =
+          storageProcessingMode === "local" ||
+          storageProcessingMode === "auto" ||
+          storageProcessingMode === "sync";
+
+        const hasVideoFiles = normalizedFiles.some((file) => {
+          const m = String(file.mimeType || "").toLowerCase();
+          const s = String(file.storedName || "").toLowerCase();
+          return (m.startsWith("video/") || file.kind === "media") && !s.includes("-h264-");
+        });
         const shouldTranscodeVideos =
-          getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS") &&
-          String(uploadType || "").toLowerCase() === "media";
+          Boolean(getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS")) &&
+          isLocalTranscodeMode &&
+          hasVideoFiles;
 
         debugLog("api:messages/upload:start", {
           chatId,
@@ -1159,7 +1189,7 @@ function registerMessageRoutes(app, deps) {
               if (file.widthPx && file.heightPx && file.durationSeconds !== null)
                 return;
 
-              const storedName = path.basename(
+              const storedName = safeBasename(
                 String(file?.storedName || "").trim(),
               );
               if (!storedName) return;
@@ -1185,9 +1215,9 @@ function registerMessageRoutes(app, deps) {
           );
         }
 
-        normalizedFiles.forEach((file) => {
-          if (file.storageKey) return;
-          const storedName = path.basename(String(file?.storedName || "").trim());
+          normalizedFiles.forEach((file) => {
+            if (file.storageKey) return;
+            const storedName = safeBasename(String(file?.storedName || "").trim());
           if (!storedName) return;
 
           const inputPath = path.join(uploadRootDir, storedName);
@@ -1314,21 +1344,24 @@ function registerMessageRoutes(app, deps) {
           const insertedByStoredName = new Map();
 
           insertedRows.forEach((row) => {
-            const key = path.basename(String(row?.stored_name || "").trim());
-            if (!key) return;
-
-            insertedByStoredName.set(key, row.id);
+            const nameKey = safeBasename(String(row?.stored_name || row?.storedName || "").trim());
+            const storageKey = String(row?.storage_key || row?.storageKey || "").trim();
+            if (nameKey) insertedByStoredName.set(nameKey, row.id);
+            if (storageKey) insertedByStoredName.set(storageKey, row.id);
           });
 
           normalizedFiles.forEach((file) => {
             const mimeType = String(file?.mimeType || "").toLowerCase();
             if (!mimeType.startsWith("video/")) return;
 
-            const storedName = path.basename(
+            const storedName = safeBasename(
               String(file?.storedName || "").trim(),
             );
 
-            const fileId = insertedByStoredName.get(storedName) || file?.id;
+            const fileId =
+              insertedByStoredName.get(file.storageKey || file.storage_key) ||
+              insertedByStoredName.get(storedName) ||
+              file?.id;
             if (!fileId) return;
 
             enqueueVideoTranscodeJob({

@@ -274,9 +274,12 @@ export function registerRemoteUploadRoutes(app, deps) {
       .startsWith("video/");
 
     const transcodeFn = deps.enqueueVideoTranscodeJob || enqueueVideoTranscodeJob;
+    const transcodeEnabled = deps.getSetting
+      ? deps.getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS")
+      : true;
 
     let newStatus = "ready";
-    if (isVideo && (mode === "local" || mode === "auto" || mode === "sync")) {
+    if (isVideo && transcodeEnabled && (mode === "local" || mode === "auto" || mode === "sync")) {
       newStatus = typeof transcodeFn === "function" ? "pending" : "ready";
     } else if (mode === "webhook" || mode === "remote" || mode === "async") {
       newStatus = "pending";
@@ -289,7 +292,7 @@ export function registerRemoteUploadRoutes(app, deps) {
       if (typeof adminSave === "function") adminSave();
     }
 
-    if (isVideo && (mode === "local" || mode === "auto" || mode === "sync")) {
+    if (isVideo && transcodeEnabled && (mode === "local" || mode === "auto" || mode === "sync")) {
       if (typeof transcodeFn === "function") {
         transcodeFn({
           fileId,

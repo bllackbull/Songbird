@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { pipeline } from "node:stream/promises";
 import {
   S3Client,
   PutObjectCommand,
@@ -106,10 +107,12 @@ export class RemoteStorageProvider extends StorageProvider {
    */
   async uploadBuffer(fileKey, body, contentType = "application/octet-stream") {
     const cleanKey = String(fileKey || "").replace(/^\//, "");
+    const buf = Buffer.isBuffer(body) ? body : Buffer.from(body);
     const command = new PutObjectCommand({
       Bucket: this.bucket,
       Key: cleanKey,
-      Body: body,
+      Body: buf,
+      ContentLength: buf.length,
       ContentType: contentType,
     });
     await this.client.send(command);
@@ -191,18 +194,8 @@ export class RemoteStorageProvider extends StorageProvider {
       Key: cleanKey,
     });
     const response = await this.client.send(command);
-    const bodyStream = response.Body;
-
     await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
-    const writeStream = fs.createWriteStream(destPath);
-
-    await new Promise((resolve, reject) => {
-      bodyStream.pipe(writeStream);
-      bodyStream.on("error", reject);
-      writeStream.on("error", reject);
-      writeStream.on("finish", resolve);
-    });
-
+    await pipeline(response.Body, fs.createWriteStream(destPath));
     return destPath;
   }
 
@@ -215,11 +208,13 @@ export class RemoteStorageProvider extends StorageProvider {
    */
   async uploadFile(fileKey, filePath, contentType = "application/octet-stream") {
     const cleanKey = String(fileKey || "").replace(/^\//, "");
+    const stat = fs.statSync(filePath);
     const body = fs.createReadStream(filePath);
     const command = new PutObjectCommand({
       Bucket: this.bucket,
       Key: cleanKey,
       Body: body,
+      ContentLength: stat.size,
       ContentType: contentType,
     });
     await this.client.send(command);

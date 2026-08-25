@@ -94,6 +94,7 @@ export function makeApp(overrides = {}) {
         USERNAME_MAX_CHARS: 16,
         NICKNAME_MAX_CHARS: 24,
         FILE_UPLOAD: true,
+        FILE_UPLOAD_TRANSCODE_VIDEOS: true,
         MESSAGE_MAX_CHARS: 4000,
         CHAT_MESSAGE_FETCH_LIMIT: 60,
         CHAT_MESSAGE_PAGE_SIZE: 60,

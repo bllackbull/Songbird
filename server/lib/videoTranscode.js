@@ -242,44 +242,46 @@ export function createVideoTranscodeManager({
 
     let inputPath = "";
     let isTempInput = false;
-
-    if (isRemote) {
-      if (!storageProvider) {
-        console.error(`[video-transcode] storageProvider missing for remote file ${fileId}`);
-        return;
-      }
-      isTempInput = true;
-      const keyToFetch = storageKey || inputStoredName;
-      inputPath = path.join(
-        uploadRootDir,
-        `tmp-input-${crypto.randomBytes(6).toString("hex")}-${inputStoredName || "video.mp4"}`,
-      );
-      if (typeof storageProvider.downloadToPath === "function") {
-        await storageProvider.downloadToPath(keyToFetch, inputPath);
-      } else if (typeof storageProvider.getDownloadUrl === "function") {
-        const fetchImpl = globalThis.fetch;
-        const downloadUrl = await storageProvider.getDownloadUrl(keyToFetch);
-        const resp = await fetchImpl(downloadUrl);
-        if (!resp.ok) throw new Error(`Failed to fetch remote file: ${resp.status}`);
-        const buf = Buffer.from(await resp.arrayBuffer());
-        fs.writeFileSync(inputPath, buf);
-      } else {
-        throw new Error("storageProvider does not support downloading files.");
-      }
-    } else {
-      inputPath = path.join(uploadRootDir, inputStoredName);
-      if (!fs.existsSync(inputPath)) return;
-    }
-
-    const parsed = path.parse(inputStoredName || "video.mp4");
-    const outputName = `${parsed.name}-h264-${crypto.randomBytes(4).toString("hex")}.mp4`;
-    const outputPath = path.join(uploadRootDir, outputName);
-    const decryptedInput = storageEncryption.decryptFileToTempPath(
-      inputPath,
-      inputStoredName || "video.mp4",
-    );
+    let decryptedInput = null;
+    let outputPath = "";
 
     try {
+      if (isRemote) {
+        if (!storageProvider) {
+          console.error(`[video-transcode] storageProvider missing for remote file ${fileId}`);
+          return;
+        }
+        isTempInput = true;
+        const keyToFetch = storageKey || inputStoredName;
+        inputPath = path.join(
+          uploadRootDir,
+          `tmp-input-${crypto.randomBytes(6).toString("hex")}-${inputStoredName || "video.mp4"}`,
+        );
+        if (typeof storageProvider.downloadToPath === "function") {
+          await storageProvider.downloadToPath(keyToFetch, inputPath);
+        } else if (typeof storageProvider.getDownloadUrl === "function") {
+          const fetchImpl = globalThis.fetch;
+          const downloadUrl = await storageProvider.getDownloadUrl(keyToFetch);
+          const resp = await fetchImpl(downloadUrl);
+          if (!resp.ok) throw new Error(`Failed to fetch remote file: ${resp.status}`);
+          const buf = Buffer.from(await resp.arrayBuffer());
+          fs.writeFileSync(inputPath, buf);
+        } else {
+          throw new Error("storageProvider does not support downloading files.");
+        }
+      } else {
+        inputPath = path.join(uploadRootDir, inputStoredName);
+        if (!fs.existsSync(inputPath)) return;
+      }
+
+      const parsed = path.parse(inputStoredName || "video.mp4");
+      const outputName = `${parsed.name}-h264-${crypto.randomBytes(4).toString("hex")}.mp4`;
+      outputPath = path.join(uploadRootDir, outputName);
+      decryptedInput = storageEncryption.decryptFileToTempPath(
+        inputPath,
+        inputStoredName || "video.mp4",
+      );
+
       debugLog("video-transcode:start", {
         fileId,
         messageId: job?.messageId || fileRow?.message_id || null,
@@ -481,7 +483,6 @@ export function createVideoTranscodeManager({
 
   const isVideoFileProcessing = (row) => {
     if (!transcodeVideosToH264) return false;
-    if (String(row?.kind || "").toLowerCase() === "document") return false;
 
     const mimeType = String(row?.mime_type || "").toLowerCase();
     if (!mimeType.startsWith("video/")) return false;
