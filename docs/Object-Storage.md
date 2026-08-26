@@ -91,9 +91,9 @@ When uploading media files (such as videos or audio) with `STORAGE_DRIVER=remote
 
 | Mode | Behavior |
 |---|---|
-| `auto` (Default) | **Hybrid Remote with Local Fallback.** Serves client presigned upload URLs. Expects an external remote worker / serverless compute to process media and hit the webhook callback (`/api/uploads/webhook/processed`). If the remote compute does not finish within `STORAGE_PROCESSING_TIMEOUT_MS`, the local worker automatically takes over processing. |
+| `auto` (Default) | **Hybrid Remote with Local Fallback.** Serves client presigned upload URLs. Expects an external remote worker / serverless compute to process media and hit the webhook callback (`/api/uploads/webhook/processed`). If the remote compute does not finish within `STORAGE_PROCESSING_TIMEOUT_MS`, the local worker automatically takes over processing via local FFmpeg transcoding. |
 | `remote` | **Pure Remote Processing.** Remote workers or cloud webhooks handle processing exclusively. Disables local fallback timers. |
-| `local` | **Pure Local Processing.** Forces local server media workers (FFmpeg / BullMQ) to process all uploaded files. |
+| `local` | **Pure Local Processing.** Forces local server media workers (FFmpeg / BullMQ) to process all uploaded files locally. |
 
 ### Configuration Variables
 
@@ -102,6 +102,27 @@ When uploading media files (such as videos or audio) with `STORAGE_DRIVER=remote
 | `STORAGE_PROCESSING_MODE` | `string` | `auto` | Media processing strategy (`auto`, `remote`, or `local`). |
 | `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `30000` | Fallback timeout in milliseconds (default `30000` ms / 30 seconds) before local BullMQ worker takes over in `auto` mode. |
 | `WEBHOOK_SECRET` | `string` | *(Auto-generated)* | Secret token to authenticate incoming webhook callback requests (`X-Songbird-Webhook-Secret`). Automatically generated on startup if missing and written to `.env` and in the database. |
+
+### Local FFmpeg Transcoding with Remote Storage
+
+When `STORAGE_DRIVER=remote` (e.g., Cloudflare R2 or AWS S3) is enabled with `STORAGE_PROCESSING_MODE=local` or `auto`, Songbird performs media processing and FFmpeg video conversion directly on the local backend server without requiring external serverless transcoding infrastructure.
+
+#### Local Transcoding Workflow:
+1. **Direct Remote Upload**: The client uploads the raw video file directly to remote object storage using a presigned URL.
+2. **Worker Scheduling**: In `local` mode (or in `auto` mode if the remote webhook does not complete within `STORAGE_PROCESSING_TIMEOUT_MS`), Songbird's background media queue schedules a local transcoding job.
+3. **Temporary Local Fetch**: The local worker downloads the raw video file from remote storage (Cloudflare R2 / S3) into a temporary local workspace directory.
+4. **FFmpeg Conversion & Metadata**:
+   - `ffmpeg` transcodes the video locally into H.264 video and AAC audio (`.mp4`).
+   - Extracts video metadata (duration, width, height).
+   - Generates a preview thumbnail image.
+   - Handles decryption and re-encryption seamlessly if envelope encryption (`STORAGE_ENCRYPTION_MODE=local`) is enabled.
+5. **Remote Storage Re-upload**: The local worker uploads the transcoded H.264 video and thumbnail frame back to remote object storage.
+6. **State Sync & Workspace Cleanup**: Database records are updated with the new remote storage keys, real-time SSE events notify connected clients, and temporary local workspace files are safely deleted.
+
+:::tip Local Transcoding Requirements
+- **FFmpeg Binary**: `ffmpeg` must be installed on the host machine or container running the Songbird backend (`ffmpeg -version`).
+- **Temporary Disk Space**: Ensure adequate temporary disk space is available on the local server for downloading, transcoding, and staging large video files before they are uploaded back to remote storage.
+:::
 
 ### Webhook Callback Endpoint Setup
 

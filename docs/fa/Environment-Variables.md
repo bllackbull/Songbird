@@ -51,7 +51,7 @@ nano .env
 | `STORAGE_PUBLIC_URL` | `string` | `""` | پیشوند URL اختیاری دامنه CDN (مانند `https://cdn.example.com`). |
 | `STORAGE_EXPIRES_IN` | `integer` | `3600` | زمان انقضا به ثانیه برای Presigned URLها. |
 | `STORAGE_FORCE_PATH_STYLE` | `boolean` | `true` | فعال سازی ساختار URL به روش path-style (مقدار `true` برای MinIO، R2، ArvanCloud توصیه میشود). |
-| `STORAGE_PROCESSING_MODE` | `string` | `auto` | حالت گردش کار پردازش رسانه (`auto`، `remote`، `local`). |
+| `STORAGE_PROCESSING_MODE` | `string` | `auto` | حالت گردش کار پردازش رسانه (`auto`، `remote`، `local`). نحوه مدیریت ترنسکد رسانه (FFmpeg) به صورت محلی یا برونسپاری ریموت را تعیین میکند. |
 | `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `30000` | مهلت زمان Fallback به میلی ثانیه قبل از آنکه worker محلی BullMQ در حالت `auto` پردازش را تحویل بگیرد. |
 | `WEBHOOK_SECRET` | `string` | *(تولید خودکار)* | کلید محرمانه برای احراز هویت درخواست های Webhook دریافتی. |
 | `STORAGE_ENCRYPTION_MODE` | `string` | `remote` | استراتژی رمزنگاری ذخیره سازی (`remote` برای سمت ارائه دهنده، `local` برای رمزنگاری سمت اپلیکیشن). |

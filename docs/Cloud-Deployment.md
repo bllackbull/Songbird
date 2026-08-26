@@ -124,6 +124,10 @@ STORAGE_SECRET_ACCESS_KEY=AWS_SECRET_KEY
 STORAGE_REGION=us-east-1
 ```
 
+:::tip Media Transcoding with Remote Storage
+When `STORAGE_DRIVER=remote` is enabled alongside `STORAGE_PROCESSING_MODE=local` or `auto`, Songbird performs FFmpeg video transcoding on the local backend worker node (downloading from Cloudflare R2 / S3, transcoding locally, and re-uploading). Ensure worker nodes have `ffmpeg` installed and temporary local disk space available. See [Object Storage](./Object-Storage.md) for processing modes.
+:::
+
 #### 3. Redis Event Synchronization (Pub/Sub)
 Configure `REDIS_URL` or `REDIS_HOST`. When Redis is enabled, Songbird automatically uses Redis Pub/Sub (channel `songbird:events`) to synchronize real-time WebSocket and SSE events across all container nodes, as well as BullMQ for distributed background jobs (e.g., video transcoding):
 ```txt

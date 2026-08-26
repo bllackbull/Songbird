@@ -316,14 +316,35 @@ export function createVideoTranscodeManager({
 
       const outputStat = fs.statSync(outputPath);
       const outputMeta = await probeVideoMetadata(outputPath);
-      storageEncryption.encryptFileInPlace(outputPath);
 
+      const isRemoteUpload =
+        isRemote ||
+        Boolean(
+          storageProvider &&
+            (storageProvider.type === "remote" || storageProvider.type === "s3"),
+        );
+
+      const encType = String(
+        fileRow?.encryption_type ||
+          fileRow?.encryptionType ||
+          job?.encryptionType ||
+          process.env.STORAGE_ENCRYPTION_MODE ||
+          (isRemoteUpload ? "remote" : "none"),
+      ).toLowerCase();
+
+      if (
+        encType === "aes-256-gcm" ||
+        encType === "local" ||
+        encType === "app"
+      ) {
+        storageEncryption.encryptFileInPlace(outputPath);
+      }
       let finalStorageKey = storageKey;
 
-      if (isRemote) {
+      if (isRemoteUpload) {
         finalStorageKey = storageKey
           ? storageKey.replace(/(\.[^.]*)?$/, `-h264-${crypto.randomBytes(4).toString("hex")}.mp4`)
-          : `transcoded/${outputName}`;
+          : `uploads/${outputName}`;
 
         if (typeof storageProvider.uploadFile === "function") {
           await storageProvider.uploadFile(finalStorageKey, outputPath, "video/mp4");
@@ -337,6 +358,9 @@ export function createVideoTranscodeManager({
 
         try {
           if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+        } catch (_) {}
+        try {
+          if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
         } catch (_) {}
       } else {
         try {
@@ -356,6 +380,7 @@ export function createVideoTranscodeManager({
             .where("id", fileId)
             .update({
               stored_name: outputName,
+              storage_driver: storageProvider?.type || "local",
               ...(finalStorageKey ? { storage_key: finalStorageKey } : {}),
               mime_type: "video/mp4",
               size_bytes: Number(outputStat.size || 0),

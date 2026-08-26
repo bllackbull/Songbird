@@ -404,7 +404,7 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
         });
 
       expect(presignRes.status).toBe(200);
-      const storageKey = presignRes.body.storageKey;
+      expect(presignRes.body.type).toBe("local");
 
       const uploadRes = await request(appObj.app)
         .post("/api/messages/upload")
@@ -413,9 +413,9 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
           chatId: "c0c0c0c0-d1d1-4e2e-af3f-060606060606",
           username: "s3user",
           uploadType: "media",
-          storageKeys: [
+          presignedFiles: [
             {
-              storageKey,
+              storageKey: "uploads/remote_video.mp4",
               originalName: "remote_video.mp4",
               mimeType: "video/mp4",
               sizeBytes: 5000000,
@@ -425,9 +425,9 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
 
       expect(uploadRes.status).toBe(200);
       expect(enqueueTranscodeMock).toHaveBeenCalled();
-      const insertedFile = filesStore.find((f) => f.storage_key === storageKey);
+      const insertedFile = filesStore.find((f) => (f.original_name || f.originalName) === "remote_video.mp4");
       expect(insertedFile).toBeDefined();
-      expect(insertedFile.processing_status).toBe("pending");
+      expect(insertedFile.processing_status || insertedFile.processingStatus).toBe("pending");
     });
   });
 });

@@ -51,7 +51,7 @@ nano .env
 | `STORAGE_PUBLIC_URL` | `string` | `""` | Optional custom CDN domain URL prefix (e.g. `https://cdn.example.com`). |
 | `STORAGE_EXPIRES_IN` | `integer` | `3600` | Expiration time in seconds for presigned URLs. |
 | `STORAGE_FORCE_PATH_STYLE` | `boolean` | `true` | Enable path-style URL syntax (`true` recommended for MinIO, R2, ArvanCloud, etc.). |
-| `STORAGE_PROCESSING_MODE` | `string` | `auto` | Media processing workflow mode (`auto`, `remote`, `local`). |
+| `STORAGE_PROCESSING_MODE` | `string` | `auto` | Media processing workflow mode (`auto`, `remote`, `local`). Controls whether media transcoding (FFmpeg) is handled locally or offloaded remotely. |
 | `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `30000` | Fallback timeout (ms) before local BullMQ worker takes over media processing in `auto` mode. |
 | `WEBHOOK_SECRET` | `string` | *(Auto-generated)* | Secret token to authenticate incoming webhook callback requests.|
 | `STORAGE_ENCRYPTION_MODE` | `string` | `remote` | Storage encryption strategy (`remote` for provider-side SSE-S3, `local` for application-level encryption). |

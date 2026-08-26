@@ -149,6 +149,7 @@ describe("Remote Uploads & File Management Routes", () => {
       const customApp = makeApp({
         deps: {
           storageProvider: mockRemoteProvider,
+          storageProcessingMode: "remote",
           createMessageFiles: createMessageFilesMock,
           MESSAGE_FILE_LIMITS: { maxFileSizeBytes: 50 * 1024 * 1024 },
         },

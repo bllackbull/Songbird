@@ -171,9 +171,10 @@ After changing `.env`, apply the changes (see [Environment Variables](./Environm
 
 Songbird transcodes uploaded videos to H.264/AAC MP4 when `FILE_UPLOAD_TRANSCODE_VIDEOS=true`, which requires `ffmpeg`.
 
-- Verify ffmpeg is installed: `ffmpeg -version`.
-- If videos fail to process, check the service logs for transcoding errors.
-- Set `APP_DEBUG=true` to get verbose `[app-debug]` lines covering upload/transcode events, then restart the service.
+- **Verify FFmpeg installation**: Ensure `ffmpeg` is installed on the backend server or container (`ffmpeg -version`).
+- **Remote storage (`STORAGE_DRIVER=remote`)**: When using Cloudflare R2 or S3 with `STORAGE_PROCESSING_MODE=local` or `auto`, the local worker downloads raw videos to a temporary local workspace directory before running `ffmpeg` and re-uploading transcoded files back to remote storage. Ensure the server has adequate temporary disk space and write permissions.
+- **Check service logs**: Look for `[video-transcode]` or `[app-debug]` error messages in service logs.
+- **Enable debug logging**: Set `APP_DEBUG=true` in `.env` to receive detailed stdout logs for upload, remote fetch, transcode, and remote re-upload operations.
 
 ## Docker build issues
 

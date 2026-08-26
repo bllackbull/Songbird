@@ -1276,6 +1276,18 @@ function registerMessageRoutes(app, deps) {
             uploadedFiles.map(async (file, index) => {
               const norm = normalizedFiles[index];
               if (!norm) return;
+
+              const isVideo = String(norm.mimeType || "").toLowerCase().startsWith("video/");
+              const isQueuedForLocalTranscode =
+                isVideo &&
+                shouldTranscodeVideos &&
+                !String(norm.storedName || "").toLowerCase().includes("-h264-");
+
+              if (isQueuedForLocalTranscode) {
+                norm.storageDriver = "local";
+                return;
+              }
+
               const fileKey = `uploads/${file.filename}`;
               const fileBuf = await fs.promises.readFile(file.path);
               const uploadBuf = storageEncryption.decryptBuffer(fileBuf);

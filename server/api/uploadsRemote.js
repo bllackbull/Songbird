@@ -112,6 +112,18 @@ export function registerRemoteUploadRoutes(app, deps) {
         .json({ error: "File size exceeds maximum allowed limit." });
     }
 
+    const mode = String(
+      deps.storageProcessingMode || storageProcessingMode || process.env.STORAGE_PROCESSING_MODE || "sync",
+    ).toLowerCase();
+    const isVideo = mime.startsWith("video/");
+
+    if (isVideo && (mode === "local" || mode === "sync")) {
+      return res.json({
+        success: true,
+        type: "local",
+      });
+    }
+
     const ext = path.extname(name).toLowerCase();
     const generatedKey = `uploads/${Date.now()}_${crypto.randomBytes(8).toString("hex")}${ext}`;
 
