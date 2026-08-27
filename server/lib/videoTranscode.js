@@ -405,7 +405,7 @@ export function createVideoTranscodeManager({
 
       const messageId = job?.messageId || fileRow?.message_id || null;
       const messageRow = messageId && adminGetRow
-        ? adminGetRow(dbKnex("chat_messages").select("body", "chat_id").where("id", messageId).first())
+        ? adminGetRow(dbKnex("chat_messages").select("body", "chat_id", "user_id", "username").where("id", messageId).first())
         : null;
       const chatId = job?.chatId || messageRow?.chat_id || null;
 
@@ -419,23 +419,80 @@ export function createVideoTranscodeManager({
       }
 
       if (chatId && messageId && typeof emitChatEvent === "function") {
-        const messageBody = storageEncryption
-          .decryptText(String(messageRow?.body || "").trim())
-          .trim();
-        const filesForMessage = listMessageFilesByMessageIds
+        const messageBody = storageEncryption?.decryptText
+          ? storageEncryption.decryptText(String(messageRow?.body || "").trim()).trim()
+          : String(messageRow?.body || "").trim();
+        const rawFiles = listMessageFilesByMessageIds
           ? listMessageFilesByMessageIds([messageId])
           : [];
+        const filesForMessage =
+          (rawFiles && typeof rawFiles.then === "function" ? await rawFiles : rawFiles) || [];
         const summaryText = summarizeMessageFiles(filesForMessage);
 
-        const userId = job?.userId || null;
+        const resolvedFiles = await Promise.all(
+          filesForMessage.map(async (f) => {
+            const driver = f.storage_driver || f.storageDriver;
+            const sKey = f.storage_key || f.storageKey;
+            const storedName = f.stored_name || f.storedName || "";
+            let fileUrl = storedName ? `/api/uploads/messages/${storedName}` : null;
+            if (
+              (driver === "remote" || driver === "s3") &&
+              sKey &&
+              storageProvider &&
+              typeof storageProvider.getDownloadUrl === "function"
+            ) {
+              try {
+                fileUrl = await storageProvider.getDownloadUrl(sKey);
+              } catch (_) {}
+            }
+            return {
+              id: f.id,
+              kind: f.kind,
+              name: f.original_name || f.originalName || "",
+              mimeType: f.mime_type || f.mimeType || "",
+              processing: false,
+              sizeBytes: Number(f.size_bytes || f.sizeBytes || 0),
+              width: Number.isFinite(Number(f.width_px ?? f.widthPx))
+                ? Number(f.width_px ?? f.widthPx)
+                : null,
+              height: Number.isFinite(Number(f.height_px ?? f.heightPx))
+                ? Number(f.height_px ?? f.heightPx)
+                : null,
+              durationSeconds: Number.isFinite(Number(f.duration_seconds ?? f.durationSeconds))
+                ? Number(f.duration_seconds ?? f.durationSeconds)
+                : null,
+              blurhash: f.blurhash || null,
+              expiresAt: f.expires_at || f.expiresAt || null,
+              storageDriver: driver || null,
+              storageKey: sKey || null,
+              url: fileUrl,
+            };
+          }),
+        );
+
+        const userId = job?.userId || messageRow?.user_id || null;
+        const senderUsername = String(job?.username || messageRow?.username || "");
+
+        emitChatEvent(chatId, {
+          type: "chat_message_updated",
+          chatId,
+          messageId,
+          username: senderUsername,
+          userId,
+          body: messageBody,
+          summaryText,
+          files: resolvedFiles,
+        });
+
         emitChatEvent(chatId, {
           type: "chat_message",
           chatId,
           messageId,
-          username: String(job?.username || ""),
+          username: senderUsername,
           userId,
           body: messageBody,
           summaryText,
+          files: resolvedFiles,
         });
       }
     } catch (error) {

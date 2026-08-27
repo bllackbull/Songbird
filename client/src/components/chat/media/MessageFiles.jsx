@@ -1042,7 +1042,7 @@ export function MessageFiles({
 
   const handleMediaError = useCallback(
     (key, thumbKey) => {
-      setFailedMediaKeys((prev) => ({ ...prev, [key]: true }));
+      setFailedMediaKeys((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
       markMediaThumbLoaded(thumbKey);
     },
     [markMediaThumbLoaded],

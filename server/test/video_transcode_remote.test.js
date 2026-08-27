@@ -132,5 +132,21 @@ describe("Video Transcode Manager - Remote & Local Storage", () => {
     expect(readyEvent).toBeDefined();
     expect(readyEvent.evt.status).toBe("ready");
     expect(readyEvent.evt.storageKey).toMatch(/messages\/video123-h264.*\.mp4/);
+
+    const updateEvent = emittedEvents.find((e) => e.evt.type === "chat_message_updated");
+    expect(updateEvent).toBeDefined();
+    expect(updateEvent.chatId).toBe("chat-uuid-789");
+    expect(updateEvent.evt.files).toBeDefined();
+    expect(updateEvent.evt.files.length).toBe(1);
+    expect(updateEvent.evt.files[0].processing).toBe(false);
+    expect(updateEvent.evt.files[0].url).toMatch(/^\/api\/uploads\/file\/|^\/api\/uploads\/messages\/|^https?:\/\//);
+    expect(updateEvent.evt.files[0].url).not.toBe(readyEvent.evt.storageKey);
+
+    const messageEvent = emittedEvents.find((e) => e.evt.type === "chat_message");
+    expect(messageEvent).toBeDefined();
+    expect(messageEvent.chatId).toBe("chat-uuid-789");
+    expect(messageEvent.evt.files).toBeDefined();
+    expect(messageEvent.evt.files.length).toBe(1);
+    expect(messageEvent.evt.files[0].url).toMatch(/^\/api\/uploads\/file\/|^\/api\/uploads\/messages\/|^https?:\/\//);
   });
 });

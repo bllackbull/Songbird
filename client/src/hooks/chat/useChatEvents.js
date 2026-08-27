@@ -441,6 +441,26 @@ export function useChatEvents({
             });
             return;
           }
+          if (isUpdateEvent) {
+            const payloadMsgId = normalizeUuid(payload?.messageId) || null;
+            if (payloadMsgId && Array.isArray(payload?.files)) {
+              setMessages((prev) =>
+                prev.map((msg) => {
+                  const msgId = normalizeUuid(msg?._serverId || msg?.id);
+                  if (msgId && msgId === payloadMsgId) {
+                    return {
+                      ...msg,
+                      files: payload.files,
+                      _processingPending: false,
+                      _delivery: "sent",
+                      ...(payload.body !== undefined ? { body: payload.body } : {}),
+                    };
+                  }
+                  return msg;
+                }),
+              );
+            }
+          }
           if (payload.type === "chat_read") {
             // Read receipts are already applied to messages/chat state above
             // (and channel seen-counts refresh via onChatRead). No message

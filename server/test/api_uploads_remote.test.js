@@ -179,6 +179,38 @@ describe("Remote Uploads & File Management Routes", () => {
       expect(res.body.fileId).toBeNull();
       expect(createMessageFilesMock).not.toHaveBeenCalled();
     });
+
+    test("presign returns remote upload URL for video when storageProcessingMode is 'local'", async () => {
+      const customApp = makeApp({
+        deps: {
+          storageProvider: mockRemoteProvider,
+          storageProcessingMode: "local",
+          MESSAGE_FILE_LIMITS: { maxFileSizeBytes: 50 * 1024 * 1024 },
+        },
+      });
+      const uId = customApp.userStore.createUser(
+        "localmodeuser",
+        "pass",
+        "LocalModeUser",
+        null,
+        "#fff",
+      );
+      customApp.sessionStore.createSession(uId, sessionToken);
+
+      const res = await request(customApp.app)
+        .post("/api/uploads/presign")
+        .set("Cookie", [`sid=${sessionToken}`])
+        .send({
+          filename: "clip_local.mp4",
+          contentType: "video/mp4",
+          fileSize: 1024,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.type).toBe("remote");
+      expect(res.body.uploadUrl).toContain("https://test-bucket.s3.amazonaws.com/");
+      expect(res.body.storageKey).toBeDefined();
+    });
   });
 
   describe("POST /api/uploads/complete", () => {
