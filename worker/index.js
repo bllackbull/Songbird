@@ -33,29 +33,40 @@ const tempPath = (suffix = "") =>
     `${Date.now()}-${crypto.randomBytes(6).toString("hex")}${suffix}`,
   );
 
-async function notifyCallback(url, payload) {
+async function notifyCallback(url, payload, maxRetries = 5) {
   if (!url) return;
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(WEBHOOK_SECRET
-          ? { "x-songbird-webhook-secret": WEBHOOK_SECRET }
-          : {}),
-      },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
+  for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(WEBHOOK_SECRET
+            ? { "x-songbird-webhook-secret": WEBHOOK_SECRET }
+            : {}),
+        },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        console.log(
+          `[worker] Callback webhook delivered successfully for file ${payload.fileId}`,
+        );
+        return;
+      }
+      const errText = await res.text();
       console.warn(
-        `[worker] Callback webhook returned ${res.status}: ${await res.text()}`,
+        `[worker] Callback webhook returned ${res.status} (attempt ${attempt}/${maxRetries}): ${errText}`,
+      );
+    } catch (err) {
+      console.error(
+        `[worker] Failed to notify callback ${url} for file ${payload.fileId} (attempt ${attempt}/${maxRetries}):`,
+        err?.message || err,
       );
     }
-  } catch (err) {
-    console.error(
-      `[worker] Failed to notify callback ${url} for file ${payload.fileId}:`,
-      err?.message || err,
-    );
+    if (attempt < maxRetries) {
+      const delayMs = Math.min(16000, 1000 * Math.pow(2, attempt - 1));
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
   }
 }
 

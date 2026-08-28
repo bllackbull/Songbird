@@ -239,10 +239,12 @@ export function registerRemoteUploadRoutes(app, deps) {
 
     let file = null;
     if (typeof findMessageFileById === "function") {
-      file = findMessageFileById(fileId);
+      const raw = findMessageFileById(fileId);
+      file = raw && typeof raw.then === "function" ? await raw : raw;
     }
     if (!file && typeof adminGetRow === "function") {
-      file = callAdminGetRow(dbKnex("chat_message_files").where("id", fileId).first());
+      const raw = callAdminGetRow(dbKnex("chat_message_files").where("id", fileId).first());
+      file = raw && typeof raw.then === "function" ? await raw : raw;
     }
 
     if (!file) {
@@ -257,9 +259,10 @@ export function registerRemoteUploadRoutes(app, deps) {
       file.message_id &&
       typeof adminGetRow === "function"
     ) {
-      const msg = callAdminGetRow(
+      const rawMsg = callAdminGetRow(
         dbKnex("chat_messages").select("user_id", "username").where("id", file.message_id).first(),
       );
+      const msg = rawMsg && typeof rawMsg.then === "function" ? await rawMsg : rawMsg;
       if (
         msg &&
         msg.user_id &&
@@ -357,10 +360,12 @@ export function registerRemoteUploadRoutes(app, deps) {
 
     let file = null;
     if (typeof findMessageFileById === "function") {
-      file = findMessageFileById(fileId);
+      const raw = findMessageFileById(fileId);
+      file = raw && typeof raw.then === "function" ? await raw : raw;
     }
     if (!file && typeof adminGetRow === "function") {
-      file = callAdminGetRow(dbKnex("chat_message_files").where("id", fileId).first());
+      const raw = callAdminGetRow(dbKnex("chat_message_files").where("id", fileId).first());
+      file = raw && typeof raw.then === "function" ? await raw : raw;
     }
 
     if (!file) {
@@ -372,9 +377,10 @@ export function registerRemoteUploadRoutes(app, deps) {
       const updatePayload = { processing_status: finalStatus };
       if (transcodedStorageKey) updatePayload.storage_key = transcodedStorageKey;
       if (thumbStorageKey) updatePayload.thumb_storage_key = thumbStorageKey;
-      callAdminRun(
+      const rawUpdate = callAdminRun(
         dbKnex("chat_message_files").where("id", fileId).update(updatePayload),
       );
+      if (rawUpdate && typeof rawUpdate.then === "function") await rawUpdate;
       if (typeof adminSave === "function") adminSave();
     }
 
@@ -385,9 +391,10 @@ export function registerRemoteUploadRoutes(app, deps) {
     let chatId = null;
     let messageRow = null;
     if (file.message_id && typeof adminGetRow === "function") {
-      messageRow = callAdminGetRow(
+      const rawMsg = callAdminGetRow(
         dbKnex("chat_messages").where("id", file.message_id).first(),
       );
+      messageRow = rawMsg && typeof rawMsg.then === "function" ? await rawMsg : rawMsg;
       chatId = messageRow?.chat_id || null;
     }
 
@@ -580,16 +587,18 @@ export function registerRemoteUploadRoutes(app, deps) {
 
     let file = null;
     if (typeof findMessageFileById === "function") {
-      file = findMessageFileById(idParam);
+      const raw = findMessageFileById(idParam);
+      file = raw && typeof raw.then === "function" ? await raw : raw;
     }
     if (!file && typeof adminGetRow === "function") {
-      file = callAdminGetRow(
+      const raw = callAdminGetRow(
         dbKnex("chat_message_files")
           .where((builder) => {
             builder.where("id", idParam).orWhere("stored_name", idParam).orWhere("storage_key", idParam);
           })
           .first(),
       );
+      file = raw && typeof raw.then === "function" ? await raw : raw;
     }
 
     if (!file) return res.status(404).end();
