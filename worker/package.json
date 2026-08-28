@@ -1,0 +1,16 @@
+{
+  "name": "songbird-media-worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Standalone HTTP push video transcoding worker for Songbird",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1103.0"
+  },
+  "engines": {
+    "node": ">=24.18.0"
+  }
+}

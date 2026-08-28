@@ -1,4 +1,5 @@
 import knex from "knex";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
@@ -10,7 +11,7 @@ dotenv.config({ path: path.join(projectRootDir, ".env"), quiet: true });
 dotenv.config({ path: path.join(serverRootDir, ".env"), quiet: true });
 
 const dataDir = path.resolve(
-  process.env.DATA_DIR || path.resolve(serverDir, "..", "data"),
+  process.env.DATA_DIR || path.resolve(projectRootDir, "data"),
 );
 const dbPath = path.join(dataDir, "songbird.db");
 

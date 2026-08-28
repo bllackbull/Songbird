@@ -1,6 +1,7 @@
 import rateLimit from "express-rate-limit";
 import { validateUuidParams, validateUuidBody } from "../lib/uuidMiddleware.js";
 import { createMessagePublicationService } from "../lib/services/messagePublicationService.js";
+import { dispatchMediaWorkerJob } from "../lib/mediaWorker.js";
 
 function registerMessageRoutes(app, deps) {
   const {
@@ -1103,12 +1104,11 @@ function registerMessageRoutes(app, deps) {
             "none";
 
           const storageProcessingMode = String(
-            deps.storageProcessingMode || process.env.STORAGE_PROCESSING_MODE || "sync",
+            deps.storageProcessingMode || process.env.STORAGE_PROCESSING_MODE || "auto",
           ).toLowerCase();
           const isLocalTranscodeMode =
             storageProcessingMode === "local" ||
-            storageProcessingMode === "auto" ||
-            storageProcessingMode === "sync";
+            storageProcessingMode === "auto";
           const isVideo =
             mimeType.startsWith("video/") ||
             (inferredMime && String(inferredMime).toLowerCase().startsWith("video/"));
@@ -1151,12 +1151,11 @@ function registerMessageRoutes(app, deps) {
         ];
 
         const storageProcessingMode = String(
-          deps.storageProcessingMode || process.env.STORAGE_PROCESSING_MODE || "sync",
+          deps.storageProcessingMode || process.env.STORAGE_PROCESSING_MODE || "auto",
         ).toLowerCase();
         const isLocalTranscodeMode =
           storageProcessingMode === "local" ||
-          storageProcessingMode === "auto" ||
-          storageProcessingMode === "sync";
+          storageProcessingMode === "auto";
 
         const hasVideoFiles = normalizedFiles.some((file) => {
           const m = String(file.mimeType || "").toLowerCase();
@@ -1376,17 +1375,36 @@ function registerMessageRoutes(app, deps) {
               file?.id;
             if (!fileId) return;
 
-            enqueueVideoTranscodeJob({
-              fileId,
-              storedName,
-              storageKey: file.storageKey || file.storage_key,
-              storageDriver: file.storageDriver || file.storage_driver,
-              chatId,
-              messageId,
-              username: user.username,
-            });
+            const effectiveWorkerUrl = deps.mediaWorkerUrl || process.env.MEDIA_WORKER_URL || null;
+            if ((storageProcessingMode === "remote" || storageProcessingMode === "auto") && effectiveWorkerUrl) {
+              const driver = file.storageDriver || file.storage_driver;
+              if (driver === "remote" || driver === "s3" || file.storageKey || file.storage_key) {
+                dispatchMediaWorkerJob({
+                  mediaWorkerUrl: effectiveWorkerUrl,
+                  webhookSecret: deps.webhookSecret || process.env.WEBHOOK_SECRET || null,
+                  callbackUrl: deps.webhookCallbackUrl || process.env.SONGBIRD_WEBHOOK_CALLBACK_URL || null,
+                  fileId,
+                  storageKey: file.storageKey || file.storage_key,
+                  storedName,
+                  mimeType,
+                  encryptionType: file.encryptionType || file.encryption_type || "none",
+                  fetchImpl: deps.fetchImpl || globalThis.fetch,
+                }).catch(() => {});
+              }
+            }
 
-            transcodeJobsQueued += 1;
+            if (shouldTranscodeVideos && typeof enqueueVideoTranscodeJob === "function") {
+              enqueueVideoTranscodeJob({
+                fileId,
+                storedName,
+                storageKey: file.storageKey || file.storage_key,
+                storageDriver: file.storageDriver || file.storage_driver,
+                chatId,
+                messageId,
+                username: user.username,
+              });
+              transcodeJobsQueued += 1;
+            }
           });
         }
 

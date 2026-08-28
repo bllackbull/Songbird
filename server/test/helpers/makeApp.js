@@ -182,8 +182,9 @@ export function makeApp(overrides = {}) {
     avatarUploadRootDir: "/tmp/test-avatars",
     removeUploadedFiles: () => {},
     storageProvider: createStorageProvider({ STORAGE_DRIVER: "local" }),
-    storageProcessingMode: "sync",
+    storageProcessingMode: "auto",
     webhookSecret: null,
+    mediaWorkerUrl: null,
 
     removeStoredFileNames: () => {},
     removeAllMessageUploads: () => {},

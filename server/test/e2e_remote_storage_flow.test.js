@@ -39,7 +39,7 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
       const appObj = makeApp({
         deps: {
           storageProvider: localProvider,
-          storageProcessingMode: "sync",
+          storageProcessingMode: "local",
           createMessageFiles: createMessageFilesMock,
           findMessageFileById: (id) =>
             filesStore.find((f) => String(f.id) === String(id)) || null,
@@ -237,7 +237,7 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
       const appObj = makeApp({
         deps: {
           storageProvider: mockRemoteProvider,
-          storageProcessingMode: "webhook",
+          storageProcessingMode: "remote",
           webhookSecret: "super-secret-webhook-key",
           createMessageFiles: createMessageFilesMock,
           findMessageFileById: (id) =>
@@ -304,7 +304,7 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
       const fileId = presignRes.body.fileId;
       const storageKey = presignRes.body.storageKey;
 
-      // 2. Complete (status should be pending in webhook mode)
+      // 2. Complete (status should be pending in remote mode)
       const completeRes = await request(appObj.app)
         .post("/api/uploads/complete")
         .set("Cookie", [`sid=${sessionToken}`])
@@ -404,7 +404,7 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
         });
 
       expect(presignRes.status).toBe(200);
-      expect(presignRes.body.type).toBe("local");
+      expect(presignRes.body.type).toBe("remote");
 
       const uploadRes = await request(appObj.app)
         .post("/api/messages/upload")

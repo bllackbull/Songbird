@@ -39,7 +39,7 @@ describe("Remote Uploads & File Management Routes", () => {
     appObj = makeApp({
       deps: {
         storageProvider: mockRemoteProvider,
-        storageProcessingMode: "sync",
+        storageProcessingMode: "local",
         webhookSecret: "secret-key-123",
         MESSAGE_FILE_LIMITS: { maxFileSizeBytes: 50 * 1024 * 1024 },
       },
@@ -245,7 +245,7 @@ describe("Remote Uploads & File Management Routes", () => {
       const customApp = makeApp({
         deps: {
           storageProvider: mockRemoteProvider,
-          storageProcessingMode: "sync",
+          storageProcessingMode: "local",
           findMessageFileById: (id) => (String(id) === uuidFileId ? fileRecord : null),
           adminGetRow: (sql) =>
             sql.includes("chat_message_files") ? fileRecord : null,
@@ -278,7 +278,7 @@ describe("Remote Uploads & File Management Routes", () => {
       expect(res.body.status).toBe("ready");
     });
 
-    test("keeps status as pending in webhook mode", async () => {
+    test("keeps status as pending in remote mode", async () => {
       let fileStatus = "pending";
       const uuidFileId = "10000000-0000-4000-8000-000000000011";
       const fileRecord = {
@@ -292,7 +292,7 @@ describe("Remote Uploads & File Management Routes", () => {
       const customApp = makeApp({
         deps: {
           storageProvider: mockRemoteProvider,
-          storageProcessingMode: "webhook",
+          storageProcessingMode: "remote",
           findMessageFileById: (id) => (String(id) === uuidFileId ? fileRecord : null),
           adminGetRow: (sql) =>
             sql.includes("chat_message_files") ? fileRecord : null,
@@ -323,6 +323,61 @@ describe("Remote Uploads & File Management Routes", () => {
       expect(res.body.success).toBe(true);
       expect(res.body.fileId).toBe(uuidFileId);
       expect(res.body.status).toBe("pending");
+    });
+
+    test("dispatches HTTP transcode job to mediaWorkerUrl when configured", async () => {
+      const uuidFileId = "10000000-0000-4000-8000-000000000012";
+      const fileRecord = {
+        id: uuidFileId,
+        message_id: null,
+        storage_driver: "s3",
+        storage_key: "uploads/file12.mp4",
+        mime_type: "video/mp4",
+        stored_name: "file12.mp4",
+        processing_status: "pending",
+      };
+
+      let dispatchedUrl = null;
+      let dispatchedPayload = null;
+      const mockFetch = vi.fn(async (url, opts) => {
+        dispatchedUrl = url;
+        dispatchedPayload = JSON.parse(opts.body);
+        return { ok: true, status: 202 };
+      });
+
+      const customApp = makeApp({
+        deps: {
+          storageProvider: mockRemoteProvider,
+          storageProcessingMode: "remote",
+          mediaWorkerUrl: "https://media-worker.onrender.com",
+          webhookSecret: "secret-token",
+          fetchImpl: mockFetch,
+          findMessageFileById: (id) => (String(id) === uuidFileId ? fileRecord : null),
+          adminGetRow: (sql) =>
+            sql.includes("chat_message_files") ? fileRecord : null,
+          adminRun: () => {},
+          adminSave: () => {},
+        },
+      });
+      const uId = customApp.userStore.createUser(
+        "testuser12",
+        "pass",
+        "Test",
+        null,
+        "#fff",
+      );
+      customApp.sessionStore.createSession(uId, sessionToken);
+
+      const res = await request(customApp.app)
+        .post("/api/uploads/complete")
+        .set("Cookie", [`sid=${sessionToken}`])
+        .send({ fileId: uuidFileId, storageKey: "uploads/file12.mp4" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(dispatchedUrl).toBe("https://media-worker.onrender.com/transcode");
+      expect(dispatchedPayload.fileId).toBe(uuidFileId);
+      expect(dispatchedPayload.storageKey).toBe("uploads/file12.mp4");
     });
   });
 

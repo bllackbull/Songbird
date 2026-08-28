@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { storageEncryption as defaultStorageEncryption } from "../lib/storageEncryption.js";
 import { dbKnex } from "../db/knex.js";
+import { dispatchMediaWorkerJob } from "../lib/mediaWorker.js";
 
 export function registerRemoteUploadRoutes(app, deps) {
   const {
@@ -15,9 +16,10 @@ export function registerRemoteUploadRoutes(app, deps) {
     findMessageFileById,
     emitChatEvent,
     recordPendingPresignedUpload,
-    storageProcessingMode = "sync",
-    s3ProcessingMode = "sync",
+    storageProcessingMode = "auto",
+    s3ProcessingMode = "auto",
     webhookSecret,
+    mediaWorkerUrl = deps.mediaWorkerUrl || process.env.MEDIA_WORKER_URL || null,
     requireSession,
     getSessionFromRequest,
     storageEncryption = defaultStorageEncryption,
@@ -267,7 +269,7 @@ export function registerRemoteUploadRoutes(app, deps) {
     }
 
     const mode = String(
-      deps.storageProcessingMode || storageProcessingMode || "sync",
+      deps.storageProcessingMode || storageProcessingMode || "auto",
     ).toLowerCase();
     const isVideo = String(file.mime_type || file.mimeType || "")
       .toLowerCase()
@@ -279,9 +281,9 @@ export function registerRemoteUploadRoutes(app, deps) {
       : true;
 
     let newStatus = "ready";
-    if (isVideo && transcodeEnabled && (mode === "local" || mode === "auto" || mode === "sync")) {
+    if (isVideo && transcodeEnabled && (mode === "local" || mode === "auto")) {
       newStatus = typeof transcodeFn === "function" ? "pending" : "ready";
-    } else if (mode === "webhook" || mode === "remote" || mode === "async") {
+    } else if (mode === "remote") {
       newStatus = "pending";
     }
 
@@ -292,7 +294,7 @@ export function registerRemoteUploadRoutes(app, deps) {
       if (typeof adminSave === "function") adminSave();
     }
 
-    if (isVideo && transcodeEnabled && (mode === "local" || mode === "auto" || mode === "sync")) {
+    if (isVideo && transcodeEnabled && (mode === "local" || mode === "auto")) {
       if (typeof transcodeFn === "function") {
         transcodeFn({
           fileId,
@@ -303,6 +305,21 @@ export function registerRemoteUploadRoutes(app, deps) {
           messageId: file.message_id || file.messageId,
         });
       }
+    }
+
+    const effectiveWorkerUrl = deps.mediaWorkerUrl || mediaWorkerUrl || process.env.MEDIA_WORKER_URL || null;
+    if (isVideo && transcodeEnabled && (mode === "remote" || mode === "auto") && effectiveWorkerUrl) {
+      dispatchMediaWorkerJob({
+        mediaWorkerUrl: effectiveWorkerUrl,
+        webhookSecret: deps.webhookSecret !== undefined ? deps.webhookSecret : webhookSecret,
+        callbackUrl: deps.webhookCallbackUrl || process.env.SONGBIRD_WEBHOOK_CALLBACK_URL || null,
+        fileId,
+        storageKey: file.storage_key || storageKey,
+        storedName: file.stored_name || file.storedName,
+        mimeType: file.mime_type || file.mimeType,
+        encryptionType: file.encryption_type || file.encryptionType || "none",
+        fetchImpl: deps.fetchImpl || globalThis.fetch,
+      }).catch(() => {});
     }
 
     if (newStatus === "pending" && mediaQueueManager?.scheduleFallbackCheck) {
