@@ -1312,7 +1312,8 @@ function registerMessageRoutes(app, deps) {
             fallbackBody;
           editMessage(messageId, editBody);
           setMessageExpiresAt(messageId, null);
-          createMessageFiles(messageId, normalizedFiles);
+          const rawCreate = createMessageFiles(messageId, normalizedFiles);
+          if (rawCreate && typeof rawCreate.then === "function") await rawCreate;
         } else {
           const rawCreated = createOrReuseMessage(
             chatId,
@@ -1332,7 +1333,8 @@ function registerMessageRoutes(app, deps) {
             removeUploadedFiles(uploadedFiles);
             return res.json({ id: messageId, deduped: true });
           }
-          createMessageFiles(messageId, normalizedFiles);
+          const rawCreate = createMessageFiles(messageId, normalizedFiles);
+          if (rawCreate && typeof rawCreate.then === "function") await rawCreate;
           if (chat.type === "saved") {
             markMessageRead(messageId, user.id);
           }
@@ -1389,7 +1391,15 @@ function registerMessageRoutes(app, deps) {
                   mimeType,
                   encryptionType: file.encryptionType || file.encryption_type || "none",
                   fetchImpl: deps.fetchImpl || globalThis.fetch,
-                }).catch(() => {});
+                }).then((ok) => {
+                  if (ok) {
+                    console.log(`[messages] Dispatched transcode job for file ${fileId} to worker ${effectiveWorkerUrl}`);
+                  } else {
+                    console.warn(`[messages] Failed to dispatch transcode job for file ${fileId} to worker ${effectiveWorkerUrl}`);
+                  }
+                }).catch((err) => {
+                  console.error(`[messages] Error dispatching transcode job for file ${fileId}:`, err);
+                });
               }
             }
 

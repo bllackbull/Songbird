@@ -174,7 +174,8 @@ export function registerRemoteUploadRoutes(app, deps) {
       const targetMsgId = messageId || null;
       let fileId = null;
       if (targetMsgId && typeof createMessageFiles === "function") {
-        const inserted = createMessageFiles(targetMsgId, [fileObj]);
+        const rawInserted = createMessageFiles(targetMsgId, [fileObj]);
+        const inserted = rawInserted && typeof rawInserted.then === "function" ? await rawInserted : rawInserted;
         if (Array.isArray(inserted) && inserted[0]?.id) {
           fileId = inserted[0].id;
         } else if (inserted && typeof inserted === "object" && inserted.id) {

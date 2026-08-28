@@ -2696,9 +2696,11 @@ export function setMessageForwardOrigin(messageId, payload = {}) {
 }
 
 export function createMessageFiles(messageId, files = []) {
-  if (messageId === undefined || messageId === null) return;
+  if (messageId === undefined || messageId === null || !Array.isArray(files) || !files.length) {
+    return isPostgresMode() ? Promise.resolve([]) : [];
+  }
 
-  files.forEach((file) => {
+  const queries = files.map((file) => {
     const originalName = file.originalName || file.original_name || "";
     const storedName = file.storedName || file.stored_name || "";
     const mimeType = file.mimeType || file.mime_type || "";
@@ -2727,7 +2729,7 @@ export function createMessageFiles(messageId, files = []) {
     const encryptionType =
       file.encryptionType || file.encryption_type || "none";
 
-    run(
+    return run(
       dbKnex("chat_message_files").insert({
         message_id: messageId,
         kind: file.kind,
@@ -2749,6 +2751,11 @@ export function createMessageFiles(messageId, files = []) {
       }),
     );
   });
+
+  if (isPostgresMode()) {
+    return Promise.all(queries);
+  }
+  return queries;
 }
 
 export function recordPendingPresignedUpload({ storageKey, userId = null, expiresAt = null }) {
