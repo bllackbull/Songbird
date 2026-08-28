@@ -4857,7 +4857,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             video.srcObject = null;
           }
           video.removeAttribute("src");
-          video.load();
           if (reader?.readyState === FileReader.LOADING) {
             reader.abort();
           }
@@ -4919,11 +4918,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         };
 
         const cleanup = () => {
+          try {
+            audio.pause();
+          } catch {
+            // no-op
+          }
           if ("srcObject" in audio) {
             audio.srcObject = null;
           }
           audio.removeAttribute("src");
-          audio.load();
           if (reader?.readyState === FileReader.LOADING) {
             reader.abort();
           }

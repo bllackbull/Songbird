@@ -738,8 +738,10 @@ export default function ChatWindowPanel({
     warmupVideo.src = firstVideoUrl;
     warmupVideo.load();
     return () => {
+      try {
+        warmupVideo.pause();
+      } catch {}
       warmupVideo.removeAttribute("src");
-      warmupVideo.load();
     };
   }, [isDesktop, activeChatId, messages, getFileRenderType]);
 

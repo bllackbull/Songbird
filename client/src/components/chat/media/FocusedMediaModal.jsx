@@ -488,21 +488,23 @@ export function FocusedMediaModal({
                   backfaceVisibility: "hidden",
                 }}
                 >
-                  <video
-                    key={focusedMedia.url}
-                    ref={focusedVideoRef}
-                    autoPlay
-                    playsInline
-                    preload="auto"
-                    src={focusedMedia.url}
-                    onClick={toggleFocusedVideoPlay}
-                    onLoadedMetadata={handleFocusedVideoLoadedMetadata}
-                    onLoadedData={handleFocusedVideoLoadedData}
-                    onCanPlay={handleFocusedVideoCanPlay}
-                    onError={handleFocusedVideoError}
-                    className="mx-auto block max-h-[72vh] w-auto max-w-full cursor-pointer rounded-2xl bg-transparent object-contain md:max-h-[78vh] md:transform-[translateZ(0)] md:backface-hidden"
-                    style={{ backfaceVisibility: "hidden" }}
-                  />
+                  {focusedMedia.url ? (
+                    <video
+                      key={focusedMedia.url}
+                      ref={focusedVideoRef}
+                      autoPlay
+                      playsInline
+                      preload="auto"
+                      src={focusedMedia.url}
+                      onClick={toggleFocusedVideoPlay}
+                      onLoadedMetadata={handleFocusedVideoLoadedMetadata}
+                      onLoadedData={handleFocusedVideoLoadedData}
+                      onCanPlay={handleFocusedVideoCanPlay}
+                      onError={handleFocusedVideoError}
+                      className="mx-auto block max-h-[72vh] w-auto max-w-full cursor-pointer rounded-2xl bg-transparent object-contain md:max-h-[78vh] md:transform-[translateZ(0)] md:backface-hidden"
+                      style={{ backfaceVisibility: "hidden" }}
+                    />
+                  ) : null}
                   {!focusedMediaLoaded ? (
                     <div className="pointer-events-none absolute inset-0 animate-pulse rounded-2xl bg-slate-200/80 dark:bg-slate-800/80" />
                   ) : null}
