@@ -718,34 +718,6 @@ export default function ChatWindowPanel({
   }, []);
 
   useEffect(() => {
-    if (isDesktop || !activeChatId) return;
-    let firstVideoUrl = null;
-    for (let i = 0; i < messages.length; i += 1) {
-      const files = Array.isArray(messages[i]?.files) ? messages[i].files : [];
-      const videoFile = files.find(
-        (file) => getFileRenderType(file) === "video" && file?.url,
-      );
-      if (videoFile?.url) {
-        firstVideoUrl = videoFile.url;
-        break;
-      }
-    }
-    if (!firstVideoUrl) return;
-    const warmupVideo = document.createElement("video");
-    warmupVideo.preload = "auto";
-    warmupVideo.muted = true;
-    warmupVideo.playsInline = true;
-    warmupVideo.src = firstVideoUrl;
-    warmupVideo.load();
-    return () => {
-      try {
-        warmupVideo.pause();
-      } catch {}
-      warmupVideo.removeAttribute("src");
-    };
-  }, [isDesktop, activeChatId, messages, getFileRenderType]);
-
-  useEffect(() => {
     if (!showUploadMenu) return;
     const handleOutside = (event) => {
       if (uploadMenuRef.current?.contains(event.target)) return;

@@ -160,7 +160,7 @@ const destroyPooledAudio = (poolKey) => {
     try {
       pooled.pause();
       pooled.currentTime = 0;
-      pooled.src = "";
+      pooled.removeAttribute("src");
     } catch (_) {
       // ignore cleanup issues
     }

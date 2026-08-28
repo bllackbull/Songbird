@@ -138,7 +138,7 @@ export async function extractVideoMetadataAndThumbnail(file) {
           URL.revokeObjectURL(objectUrl);
         } catch {}
       }
-      video.src = "";
+      video.removeAttribute("src");
       video.remove();
     };
 
