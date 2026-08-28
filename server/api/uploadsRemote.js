@@ -24,6 +24,7 @@ export function registerRemoteUploadRoutes(app, deps) {
     getSessionFromRequest,
     storageEncryption = defaultStorageEncryption,
     enqueueVideoTranscodeJob = deps.enqueueVideoTranscodeJob,
+    listMessageFilesByMessageIds = deps.listMessageFilesByMessageIds,
   } = deps;
 
   function toSql(builder, p = []) {
@@ -381,14 +382,90 @@ export function registerRemoteUploadRoutes(app, deps) {
     }
 
     let chatId = null;
+    let messageRow = null;
     if (file.message_id && typeof adminGetRow === "function") {
-      const msg = callAdminGetRow(
-        dbKnex("chat_messages").select("chat_id").where("id", file.message_id).first(),
+      messageRow = callAdminGetRow(
+        dbKnex("chat_messages").where("id", file.message_id).first(),
       );
-      chatId = msg?.chat_id || null;
+      chatId = messageRow?.chat_id || null;
     }
 
     if (typeof emitChatEvent === "function") {
+      if (chatId && file.message_id) {
+        const rawFiles = typeof listMessageFilesByMessageIds === "function"
+          ? listMessageFilesByMessageIds([file.message_id])
+          : [];
+        const filesForMessage =
+          (rawFiles && typeof rawFiles.then === "function" ? await rawFiles : rawFiles) || [];
+
+        const resolvedFiles = await Promise.all(
+          filesForMessage.map(async (f) => {
+            const driver = f.storage_driver || f.storageDriver;
+            const sKey = (String(f.id) === String(fileId) && transcodedStorageKey)
+              ? transcodedStorageKey
+              : (f.storage_key || f.storageKey);
+            const storedName = f.stored_name || f.storedName || "";
+            let fileUrl = storedName ? `/api/uploads/messages/${storedName}` : null;
+            if (
+              (driver === "remote" || driver === "s3") &&
+              sKey &&
+              storageProvider &&
+              typeof storageProvider.getDownloadUrl === "function"
+            ) {
+              try {
+                fileUrl = await storageProvider.getDownloadUrl(sKey);
+              } catch (_) {}
+            }
+            const isThisPending = String(f.id) === String(fileId)
+              ? finalStatus === "pending"
+              : (f.processing_status || f.processingStatus) === "pending";
+
+            return {
+              id: f.id,
+              kind: f.kind,
+              name: f.original_name || f.originalName || "",
+              mimeType: f.mime_type || f.mimeType || "",
+              processing: isThisPending,
+              sizeBytes: Number(f.size_bytes || f.sizeBytes || 0),
+              width: Number.isFinite(Number(f.width_px ?? f.widthPx))
+                ? Number(f.width_px ?? f.widthPx)
+                : null,
+              height: Number.isFinite(Number(f.height_px ?? f.heightPx))
+                ? Number(f.height_px ?? f.heightPx)
+                : null,
+              durationSeconds: Number.isFinite(Number(f.duration_seconds ?? f.durationSeconds))
+                ? Number(f.duration_seconds ?? f.durationSeconds)
+                : null,
+              blurhash: f.blurhash || null,
+              expiresAt: f.expires_at || f.expiresAt || null,
+              storageDriver: driver || null,
+              storageKey: sKey || null,
+              url: fileUrl,
+            };
+          }),
+        );
+
+        emitChatEvent(chatId, {
+          type: "chat_message_updated",
+          chatId,
+          messageId: file.message_id,
+          username: messageRow?.username || "",
+          userId: messageRow?.user_id || null,
+          body: messageRow?.body || "",
+          files: resolvedFiles,
+        });
+
+        emitChatEvent(chatId, {
+          type: "chat_message",
+          chatId,
+          messageId: file.message_id,
+          username: messageRow?.username || "",
+          userId: messageRow?.user_id || null,
+          body: messageRow?.body || "",
+          files: resolvedFiles,
+        });
+      }
+
       emitChatEvent(chatId, {
         type: "video:ready",
         fileId,

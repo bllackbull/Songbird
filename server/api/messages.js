@@ -1116,7 +1116,6 @@ function registerMessageRoutes(app, deps) {
           const shouldTranscodeThisFile =
             isVideo &&
             !isAlreadyTranscoded &&
-            isLocalTranscodeMode &&
             Boolean(getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS"));
 
           const effectiveKind = isVideo ? "media" : kind;
@@ -1162,8 +1161,9 @@ function registerMessageRoutes(app, deps) {
           const s = String(file.storedName || "").toLowerCase();
           return (m.startsWith("video/") || file.kind === "media") && !s.includes("-h264-");
         });
-        const shouldTranscodeVideos =
-          Boolean(getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS")) &&
+        const transcodeVideosEnabled = Boolean(getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS"));
+        const shouldTranscodeVideosLocally =
+          transcodeVideosEnabled &&
           isLocalTranscodeMode &&
           hasVideoFiles;
 
@@ -1172,11 +1172,11 @@ function registerMessageRoutes(app, deps) {
           username: String(username || "").toLowerCase(),
           fileCount: normalizedFiles.length,
           hasVideoFiles,
-          transcodeEnabled: shouldTranscodeVideos,
+          transcodeEnabled: transcodeVideosEnabled,
           uploadType,
         });
 
-        if (shouldTranscodeVideos && hasVideoFiles) {
+        if (shouldTranscodeVideosLocally && hasVideoFiles) {
           await ensureFfmpegAvailable();
         }
 
@@ -1349,7 +1349,7 @@ function registerMessageRoutes(app, deps) {
 
         let transcodeJobsQueued = 0;
 
-        if (shouldTranscodeVideos && hasVideoFiles) {
+        if (transcodeVideosEnabled && hasVideoFiles) {
           const rawInsertedRows = listMessageFilesByMessageIds([messageId]);
           const insertedRows = (rawInsertedRows && typeof rawInsertedRows.then === "function" ? await rawInsertedRows : rawInsertedRows) || [];
           const insertedByStoredName = new Map();
@@ -1393,7 +1393,7 @@ function registerMessageRoutes(app, deps) {
               }
             }
 
-            if (shouldTranscodeVideos && typeof enqueueVideoTranscodeJob === "function") {
+            if (shouldTranscodeVideosLocally && typeof enqueueVideoTranscodeJob === "function") {
               enqueueVideoTranscodeJob({
                 fileId,
                 storedName,
@@ -1474,7 +1474,7 @@ function registerMessageRoutes(app, deps) {
             expiresAt: fileExpiresAt,
             expires_at: fileExpiresAt,
           });
-        } else if (shouldTranscodeVideos && hasVideoFiles && transcodeJobsQueued > 0) {
+        } else if (shouldTranscodeVideosLocally && hasVideoFiles && transcodeJobsQueued > 0) {
           // Only show pending-conversion videos to the uploader.
           emitSseEvent(user.username, {
             type: "chat_message",
