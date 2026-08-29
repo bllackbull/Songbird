@@ -382,7 +382,10 @@ export function registerRemoteUploadRoutes(app, deps) {
     const finalStatus = status || "ready";
     if (typeof adminRun === "function") {
       const updatePayload = { processing_status: finalStatus };
-      if (transcodedStorageKey) updatePayload.storage_key = transcodedStorageKey;
+      if (transcodedStorageKey) {
+        updatePayload.storage_key = transcodedStorageKey;
+        updatePayload.stored_name = path.basename(transcodedStorageKey);
+      }
       if (thumbStorageKey) updatePayload.thumb_storage_key = thumbStorageKey;
       if (Number.isFinite(Number(width)) && Number(width) > 0) {
         updatePayload.width_px = Number(width);

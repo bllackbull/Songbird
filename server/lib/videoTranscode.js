@@ -569,8 +569,21 @@ export function createVideoTranscodeManager({
     const mimeType = String(row?.mime_type || "").toLowerCase();
     if (!mimeType.startsWith("video/")) return false;
 
-    const storedName = String(row?.stored_name || "").toLowerCase();
-    return !storedName.includes(TRANSCODED_VIDEO_NAME_TAG);
+    const driver = row?.storage_driver || row?.storageDriver;
+    const status = row?.processing_status || row?.processingStatus;
+    if (driver === "remote" || driver === "s3") {
+      if (status === "ready") return false;
+      if (status === "pending") return true;
+    }
+
+    const storageKey = String(row?.storage_key || row?.storageKey || "").toLowerCase();
+    if (storageKey.includes(TRANSCODED_VIDEO_NAME_TAG)) return false;
+
+    const storedName = String(row?.stored_name || row?.storedName || "").toLowerCase();
+    if (storedName.includes(TRANSCODED_VIDEO_NAME_TAG)) return false;
+
+    if (status === "ready") return false;
+    return true;
   };
 
   const hydrateMissingVideoMetadata = async (rows = []) => {

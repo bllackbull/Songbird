@@ -1326,7 +1326,7 @@ export function MessageFiles({
                   downloadUrl: `${file.url}${file.url.includes("?") ? "&" : "?"}download=1`,
                   name: mediaDownloadName,
                   type: "video",
-                  processing: Boolean(file.processing),
+                  processing: Boolean(isProcessingVideo),
                   width: file.width,
                   height: file.height,
                   poster: cachedPoster || file.thumbUrl || null,

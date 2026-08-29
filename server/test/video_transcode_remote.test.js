@@ -73,6 +73,47 @@ describe("Video Transcode Manager - Remote & Local Storage", () => {
     }
   });
 
+  it("evaluates isVideoFileProcessing correctly for remote storage rows", async () => {
+    const manager = createVideoTranscodeManager({
+      uploadRootDir: tmpDir,
+      transcodeVideosToH264: true,
+      storageEncryption,
+      storageProvider: mockStorageProvider,
+    });
+
+    // 1. Ready status on remote storage must NOT be processing, even if stored_name has no -h264-
+    expect(
+      manager.isVideoFileProcessing({
+        mime_type: "video/mp4",
+        stored_name: "original_raw_video.mp4",
+        storage_driver: "remote",
+        storage_key: "uploads/123-h264-abc.mp4",
+        processing_status: "ready",
+      }),
+    ).toBe(false);
+
+    // 2. Transcoded storage key must NOT be processing
+    expect(
+      manager.isVideoFileProcessing({
+        mime_type: "video/mp4",
+        stored_name: "original_raw_video.mp4",
+        storage_driver: "s3",
+        storage_key: "uploads/123-h264-abc.mp4",
+      }),
+    ).toBe(false);
+
+    // 3. Pending status on remote storage IS processing
+    expect(
+      manager.isVideoFileProcessing({
+        mime_type: "video/mp4",
+        stored_name: "original_raw_video.mp4",
+        storage_driver: "remote",
+        storage_key: "uploads/123.mp4",
+        processing_status: "pending",
+      }),
+    ).toBe(true);
+  });
+
   it("transcodes remote video file downloaded from storageProvider and uploads result", async () => {
     const remoteKey = "messages/video123.mp4";
     const srcPath = path.join(tmpDir, remoteKey);

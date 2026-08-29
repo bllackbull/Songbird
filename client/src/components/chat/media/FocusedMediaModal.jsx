@@ -470,7 +470,7 @@ export function FocusedMediaModal({
               ref={mediaViewportRef}
               style={{ touchAction: "none" }}
             >
-              {focusedMedia.processing ? (
+              {Boolean(focusedMedia.processing) && !String(focusedMedia.url || "").includes("-h264-") ? (
                 <div
                   className="mx-auto flex items-center justify-center overflow-hidden rounded-2xl bg-slate-200/80 dark:bg-slate-800/80"
                   style={getFocusFrameStyle()}
