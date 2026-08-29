@@ -168,6 +168,14 @@ async function processTranscodeJob({
           .randomBytes(4)
           .toString("hex")}.mp4`;
         await storage.uploadFile(transcodedStorageKey, finalOutputPath, "video/mp4");
+
+        // Delete the original raw file from R2 to avoid storing duplicate orphaned video files
+        if (transcodedStorageKey !== storageKey) {
+          await storage.deleteFile(storageKey);
+          console.log(
+            `[worker] Deleted original raw video ${storageKey} from R2`,
+          );
+        }
       }
 
       console.log(`[worker] Process completed for file ${fileId}:`, {

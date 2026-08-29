@@ -2,6 +2,7 @@ import {
   S3Client,
   GetObjectCommand,
   PutObjectCommand,
+  DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { pipeline } from "node:stream/promises";
 import fs from "node:fs";
@@ -42,5 +43,16 @@ export function createStorage({
     );
   };
 
-  return { downloadToPath, uploadFile };
+  const deleteFile = async (key) => {
+    if (!key) return;
+    try {
+      await client.send(
+        new DeleteObjectCommand({ Bucket: bucket, Key: key }),
+      );
+    } catch (err) {
+      console.warn(`[worker] Failed to delete file ${key}:`, err?.message || err);
+    }
+  };
+
+  return { downloadToPath, uploadFile, deleteFile };
 }
