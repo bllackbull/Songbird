@@ -1361,9 +1361,7 @@ export function MessageFiles({
                         event.currentTarget?.videoHeight,
                       );
                       handleVideoThumbLoadedMetadata(event);
-                      if (!isDesktop) {
-                        markMediaThumbLoaded(thumbKey);
-                      }
+                      markMediaThumbLoaded(thumbKey);
                     }}
                     onLoadStart={() => scheduleThumbFallback(thumbKey)}
                     onCanPlay={(event) =>

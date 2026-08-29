@@ -321,29 +321,90 @@ export function useFocusedMedia({ isDesktop, isMobileTouchDevice }) {
   useEffect(() => {
     const video = focusedVideoRef.current;
     if (!video || focusedMedia?.type !== "video") return undefined;
-    const handleLoaded = () => setFocusedVideoDuration(video.duration || 0);
+
+    const checkReady = () => {
+      const rs = Number(video.readyState || 0);
+      if (rs >= 1 || Number(video.duration || 0) > 0) {
+        setFocusedVideoDuration(video.duration || 0);
+        setFocusedVideoTime(video.currentTime || 0);
+        setFocusedMediaLoaded(true);
+        if (
+          Number(video.videoWidth || 0) <= 0 &&
+          Number(video.videoHeight || 0) <= 0 &&
+          rs >= 2
+        ) {
+          setFocusedVideoDecodeIssue(
+            "Video track could not be decoded in this browser. Audio may still play.",
+          );
+        } else {
+          setFocusedVideoDecodeIssue("");
+        }
+      }
+    };
+
+    checkReady();
+
+    const handleLoaded = () => {
+      setFocusedVideoDuration(video.duration || 0);
+      setFocusedMediaLoaded(true);
+      checkReady();
+    };
+    const handleLoadedData = () => {
+      setFocusedVideoDuration(video.duration || 0);
+      setFocusedVideoTime(video.currentTime || 0);
+      setFocusedMediaLoaded(true);
+      checkReady();
+    };
+    const handleCanPlay = () => {
+      setFocusedMediaLoaded(true);
+      checkReady();
+    };
     const handlePlay = () => setFocusedVideoPlaying(true);
     const handlePause = () => setFocusedVideoPlaying(false);
     const handleTimeUpdate = () => setFocusedVideoTime(video.currentTime || 0);
     const handleEnded = () => setFocusedVideoPlaying(false);
     const handleDurationChange = () =>
       setFocusedVideoDuration(video.duration || 0);
+    const handleError = () => {
+      setFocusedMediaLoaded(true);
+      setFocusedVideoDecodeIssue(
+        "This video format or codec is not supported by your browser.",
+      );
+    };
+
     video.addEventListener("loadedmetadata", handleLoaded);
+    video.addEventListener("loadeddata", handleLoadedData);
+    video.addEventListener("canplay", handleCanPlay);
+    video.addEventListener("canplaythrough", handleCanPlay);
     video.addEventListener("play", handlePlay);
     video.addEventListener("pause", handlePause);
     video.addEventListener("timeupdate", handleTimeUpdate);
     video.addEventListener("ended", handleEnded);
     video.addEventListener("durationchange", handleDurationChange);
+    video.addEventListener("error", handleError);
     setFocusedVideoMuted(video.muted);
+
+    const fallbackTimer = setTimeout(() => {
+      checkReady();
+      if (Number(video.readyState || 0) >= 1 || Number(video.duration || 0) > 0) {
+        setFocusedMediaLoaded(true);
+      }
+    }, 400);
+
     return () => {
+      clearTimeout(fallbackTimer);
       video.removeEventListener("loadedmetadata", handleLoaded);
+      video.removeEventListener("loadeddata", handleLoadedData);
+      video.removeEventListener("canplay", handleCanPlay);
+      video.removeEventListener("canplaythrough", handleCanPlay);
       video.removeEventListener("play", handlePlay);
       video.removeEventListener("pause", handlePause);
       video.removeEventListener("timeupdate", handleTimeUpdate);
       video.removeEventListener("ended", handleEnded);
       video.removeEventListener("durationchange", handleDurationChange);
+      video.removeEventListener("error", handleError);
     };
-  }, [focusedMedia]);
+  }, [focusedMedia, focusVisible]);
 
   useEffect(() => {
     if (focusedMedia?.type !== "video" || !focusVisible) return;
