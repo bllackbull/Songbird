@@ -504,16 +504,6 @@ export function registerRemoteUploadRoutes(app, deps) {
           body: messageRow?.body || "",
           files: resolvedFiles,
         });
-
-        emitChatEvent(chatId, {
-          type: "chat_message",
-          chatId,
-          messageId: file.message_id,
-          username: messageRow?.username || "",
-          userId: messageRow?.user_id || null,
-          body: messageRow?.body || "",
-          files: resolvedFiles,
-        });
       }
 
       emitChatEvent(chatId, {

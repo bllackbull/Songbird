@@ -401,12 +401,17 @@ export function useChatEvents({
           if (payload.type === "chat_read" && !isOwnEvent) {
             onChatReadRef.current?.(payload);
             const nowIso = new Date().toISOString();
+            const targetMsgId = normalizeUuid(payload?.messageId) || null;
             setMessages((prev) =>
               prev.map((msg) => {
                 const fromCurrentUser = isMessageAuthoredByUser(msg, {
                   username: usernameRef.current,
                 });
                 if (!fromCurrentUser || msg?.read_at) return msg;
+                const msgId = normalizeUuid(msg?._serverId || msg?.id);
+                if (targetMsgId && msgId !== targetMsgId) {
+                  return msg;
+                }
                 return { ...msg, read_at: nowIso };
               }),
             );
