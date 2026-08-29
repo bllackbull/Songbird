@@ -44,6 +44,112 @@ export const transcodeVideo = ({ inputPath, outputPath }) =>
     outputPath,
   ]);
 
+export const faststartVideo = ({ inputPath, outputPath }) =>
+  runBin("ffmpeg", [
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-y",
+    "-i",
+    inputPath,
+    "-c",
+    "copy",
+    "-movflags",
+    "+faststart",
+    outputPath,
+  ]);
+
+export const probeVideoDetails = async (filePath) => {
+  try {
+    const output = await new Promise((resolve, reject) => {
+      const child = spawn(
+        "ffprobe",
+        [
+          "-v",
+          "error",
+          "-show_entries",
+          "stream=codec_type,codec_name,pix_fmt,width,height,duration:format=format_name,duration",
+          "-of",
+          "json",
+          filePath,
+        ],
+        { stdio: ["ignore", "pipe", "pipe"] },
+      );
+      let stdout = "";
+      child.stdout.on("data", (c) => (stdout += String(c || "")));
+      child.on("error", reject);
+      child.on("close", (code) =>
+        code === 0 ? resolve(stdout) : reject(new Error(`exit ${code}`)),
+      );
+    });
+    const parsed = JSON.parse(String(output || "{}"));
+    const streams = Array.isArray(parsed?.streams) ? parsed.streams : [];
+    const videoStream = streams.find((s) => s.codec_type === "video") || {};
+    const audioStream = streams.find((s) => s.codec_type === "audio") || null;
+    const format = parsed?.format || {};
+
+    const videoCodec = String(videoStream.codec_name || "").toLowerCase();
+    const audioCodec = audioStream
+      ? String(audioStream.codec_name || "").toLowerCase()
+      : null;
+    const pixFmt = String(videoStream.pix_fmt || "").toLowerCase();
+    const formatName = String(format.format_name || "").toLowerCase();
+
+    const isMp4Container =
+      formatName.includes("mp4") ||
+      formatName.includes("mov") ||
+      formatName.includes("m4a");
+    const isH264 = videoCodec === "h264" || videoCodec === "avc1";
+    const isStandardPixFmt =
+      !pixFmt || pixFmt === "yuv420p" || pixFmt === "yuvj420p";
+    const isAudioCompatible =
+      !audioStream ||
+      audioCodec === "aac" ||
+      audioCodec === "mp3" ||
+      audioCodec === "opus";
+
+    const needsTranscode = !(
+      isMp4Container &&
+      isH264 &&
+      isStandardPixFmt &&
+      isAudioCompatible
+    );
+
+    const sanitizeInt = (v) => {
+      const n = Number(v);
+      return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+    };
+    const sanitizeDuration = (v) => {
+      const n = Number(v);
+      return Number.isFinite(n) && n >= 0 ? Math.round(n * 1000) / 1000 : null;
+    };
+
+    return {
+      needsTranscode,
+      videoCodec,
+      audioCodec,
+      pixFmt,
+      formatName,
+      widthPx: sanitizeInt(videoStream?.width),
+      heightPx: sanitizeInt(videoStream?.height),
+      durationSeconds: sanitizeDuration(
+        videoStream?.duration ?? format?.duration,
+      ),
+    };
+  } catch (err) {
+    return {
+      needsTranscode: true,
+      videoCodec: null,
+      audioCodec: null,
+      pixFmt: null,
+      formatName: null,
+      widthPx: null,
+      heightPx: null,
+      durationSeconds: null,
+    };
+  }
+};
+
 export const probeVideoMetadata = async (filePath) => {
   try {
     const output = await new Promise((resolve, reject) => {

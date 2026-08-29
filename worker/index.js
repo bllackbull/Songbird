@@ -8,6 +8,8 @@ import { decryptFileToTempPath, encryptBuffer } from "./encryption.js";
 import {
   transcodeVideo,
   probeVideoMetadata,
+  probeVideoDetails,
+  faststartVideo,
   generateThumbnail,
 } from "./ffmpeg.js";
 
@@ -107,8 +109,37 @@ async function processTranscodeJob({
     }
 
     try {
-      await transcodeVideo({ inputPath: workingInputPath, outputPath });
-      const meta = await probeVideoMetadata(outputPath);
+      const details = await probeVideoDetails(workingInputPath);
+      let meta = details;
+
+      let finalOutputPath = workingInputPath;
+      let usedTranscodedFile = false;
+
+      if (details.needsTranscode) {
+        console.log(
+          `[worker] File ${fileId} requires transcoding (codec=${details.videoCodec}, pix_fmt=${details.pixFmt}, format=${details.formatName})`,
+        );
+        await transcodeVideo({ inputPath: workingInputPath, outputPath });
+        meta = await probeVideoMetadata(outputPath);
+        finalOutputPath = outputPath;
+        usedTranscodedFile = true;
+      } else {
+        console.log(
+          `[worker] File ${fileId} is already web-compatible H.264/AAC. Skipping re-encoding.`,
+        );
+        try {
+          await faststartVideo({ inputPath: workingInputPath, outputPath });
+          finalOutputPath = outputPath;
+          usedTranscodedFile = true;
+        } catch (faststartErr) {
+          console.warn(
+            `[worker] Faststart copy skipped for file ${fileId}:`,
+            faststartErr?.message,
+          );
+          finalOutputPath = workingInputPath;
+          usedTranscodedFile = false;
+        }
+      }
 
       let thumbStorageKey = null;
       try {
@@ -126,21 +157,24 @@ async function processTranscodeJob({
         thumbStorageKey = null;
       }
 
-      if (isEncrypted) {
-        const rawOutput = fs.readFileSync(outputPath);
-        const encryptedOutput = encryptBuffer(rawOutput);
-        fs.writeFileSync(outputPath, encryptedOutput);
+      let transcodedStorageKey = storageKey;
+      if (usedTranscodedFile) {
+        if (isEncrypted) {
+          const rawOutput = fs.readFileSync(finalOutputPath);
+          const encryptedOutput = encryptBuffer(rawOutput);
+          fs.writeFileSync(finalOutputPath, encryptedOutput);
+        }
+        transcodedStorageKey = `${storageKey.replace(/(\.[^.]*)?$/, "")}-h264-${crypto
+          .randomBytes(4)
+          .toString("hex")}.mp4`;
+        await storage.uploadFile(transcodedStorageKey, finalOutputPath, "video/mp4");
       }
 
-      const transcodedStorageKey = `${storageKey.replace(/(\.[^.]*)?$/, "")}-h264-${crypto
-        .randomBytes(4)
-        .toString("hex")}.mp4`;
-      await storage.uploadFile(transcodedStorageKey, outputPath, "video/mp4");
-
-      console.log(`[worker] Transcode completed for file ${fileId}:`, {
+      console.log(`[worker] Process completed for file ${fileId}:`, {
         transcodedStorageKey,
         thumbStorageKey,
         meta,
+        transcoded: details.needsTranscode,
       });
 
       await notifyCallback(targetCallback, {
