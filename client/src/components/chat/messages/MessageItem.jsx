@@ -318,6 +318,7 @@ export const MessageItem = memo(function MessageItem({
     hasFiles &&
     (!normalizedBodyText ||
       FILE_SUMMARY_PATTERN.test(normalizedBodyText) ||
+      normalizedBodyText.startsWith("sb-enc-v1:") ||
       normalizedBodyText === generatedSummaryText ||
       (hasMixedVoiceAndOtherFiles &&
         /^Sent a voice message$/i.test(normalizedBodyText)));

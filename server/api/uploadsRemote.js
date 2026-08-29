@@ -425,6 +425,11 @@ export function registerRemoteUploadRoutes(app, deps) {
         const filesForMessage =
           (rawFiles && typeof rawFiles.then === "function" ? await rawFiles : rawFiles) || [];
 
+        const enc = deps.storageEncryption || defaultStorageEncryption;
+        const decryptedBody = enc
+          ? enc.decryptText(messageRow?.body || "")
+          : messageRow?.body || "";
+
         const resolvedFiles = await Promise.all(
           filesForMessage.map(async (f) => {
             const isTargetFile = String(f.id) === String(fileId);
@@ -501,7 +506,7 @@ export function registerRemoteUploadRoutes(app, deps) {
           messageId: file.message_id,
           username: messageRow?.username || "",
           userId: messageRow?.user_id || null,
-          body: messageRow?.body || "",
+          body: decryptedBody || "",
           files: resolvedFiles,
         });
       }
