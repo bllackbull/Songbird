@@ -128,7 +128,9 @@ export function useFocusedMedia({ isDesktop, isMobileTouchDevice }) {
 
   const handleFocusedVideoCanPlay = useCallback(() => {
     const video = focusedVideoRef.current;
-    if (!video || !focusVisible) return;
+    if (!video) return;
+    setFocusedMediaLoaded(true);
+    if (!focusVisible) return;
     if (!video.paused) return;
     const playPromise = video.play?.();
     if (playPromise && typeof playPromise.catch === "function") {
@@ -139,6 +141,7 @@ export function useFocusedMedia({ isDesktop, isMobileTouchDevice }) {
   }, [focusVisible]);
 
   const handleFocusedVideoError = useCallback(() => {
+    setFocusedMediaLoaded(true);
     setFocusedVideoDecodeIssue(
       "This video format or codec is not supported by your browser.",
     );

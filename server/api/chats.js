@@ -399,17 +399,25 @@ function registerChatRoutes(app, deps) {
       if (!filesByMessageId[messageId]) filesByMessageId[messageId] = [];
 
       let fileUrl = `/api/uploads/messages/${file.stored_name}`;
+      let thumbUrl = null;
       const driver = file.storage_driver;
       const storageKey = file.storage_key;
+      const thumbKey = file.thumb_storage_key || file.thumbStorageKey;
       if (
         (driver === "remote" || driver === "s3") &&
-        storageKey &&
         deps.storageProvider &&
         typeof deps.storageProvider.getDownloadUrl === "function"
       ) {
-        try {
-          fileUrl = await deps.storageProvider.getDownloadUrl(storageKey);
-        } catch (_) {}
+        if (storageKey) {
+          try {
+            fileUrl = await deps.storageProvider.getDownloadUrl(storageKey);
+          } catch (_) {}
+        }
+        if (thumbKey) {
+          try {
+            thumbUrl = await deps.storageProvider.getDownloadUrl(thumbKey);
+          } catch (_) {}
+        }
       }
 
       filesByMessageId[messageId].push({
@@ -429,6 +437,8 @@ function registerChatRoutes(app, deps) {
           ? Number(file.duration_seconds)
           : null,
         expiresAt: file.expires_at || null,
+        thumbStorageKey: thumbKey || null,
+        thumbUrl: thumbUrl || null,
         url: fileUrl,
       });
     }

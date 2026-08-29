@@ -496,6 +496,7 @@ export function FocusedMediaModal({
                       playsInline
                       preload="auto"
                       src={focusedMedia.url}
+                      poster={focusedMedia.poster || undefined}
                       onClick={toggleFocusedVideoPlay}
                       onLoadedMetadata={handleFocusedVideoLoadedMetadata}
                       onLoadedData={handleFocusedVideoLoadedData}

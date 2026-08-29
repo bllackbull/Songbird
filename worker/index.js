@@ -148,6 +148,9 @@ async function processTranscodeJob({
         status: "ready",
         transcodedStorageKey,
         thumbStorageKey,
+        width: Number(meta?.widthPx || meta?.width || 0) || null,
+        height: Number(meta?.heightPx || meta?.height || 0) || null,
+        duration: Number(meta?.durationSeconds || meta?.duration || 0) || null,
       });
     } finally {
       decryptCleanup();

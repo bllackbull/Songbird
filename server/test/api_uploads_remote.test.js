@@ -400,6 +400,79 @@ describe("Remote Uploads & File Management Routes", () => {
       expect(res.status).toBe(404);
     });
 
+    test("updates file status, metadata and emits chat_message_updated with resolved thumbUrl", async () => {
+      const fileUuid = "20000000-0000-4000-8000-000000000021";
+      const messageUuid = "50000000-0000-4000-8000-000000000006";
+      const chatUuid = "42000000-0000-4000-8000-000000000043";
+      const fileRecord = {
+        id: fileUuid,
+        message_id: messageUuid,
+        storage_driver: "s3",
+        storage_key: "uploads/raw.mp4",
+        processing_status: "pending",
+        mime_type: "video/mp4",
+      };
+
+      const emitChatEventMock = vi.fn();
+      let capturedPayload = null;
+
+      const customApp = makeApp({
+        deps: {
+          storageProvider: {
+            ...mockRemoteProvider,
+            getDownloadUrl: vi.fn(async (key) => `https://cdn.example.com/${key}`),
+          },
+          webhookSecret: "secret-key-123",
+          findMessageFileById: (id) => (String(id) === fileUuid ? fileRecord : null),
+          listMessageFilesByMessageIds: () => [fileRecord],
+          adminGetRow: (sql) => {
+            if (sql.includes("chat_messages")) return { chat_id: chatUuid, id: messageUuid };
+            if (sql.includes("chat_message_files")) return fileRecord;
+            return null;
+          },
+          adminRun: (sql, params) => {
+            capturedPayload = { sql, params };
+          },
+          adminSave: () => {},
+          emitChatEvent: emitChatEventMock,
+        },
+      });
+
+      const res = await request(customApp.app)
+        .post("/api/uploads/webhook/processed")
+        .set("x-songbird-webhook-secret", "secret-key-123")
+        .send({
+          fileId: fileUuid,
+          status: "ready",
+          transcodedStorageKey: "transcoded/video21.mp4",
+          thumbStorageKey: "thumbs/thumb21.jpg",
+          width: 1280,
+          height: 720,
+          duration: 15.4,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+
+      expect(emitChatEventMock).toHaveBeenCalledWith(
+        chatUuid,
+        expect.objectContaining({
+          type: "chat_message_updated",
+          messageId: messageUuid,
+          files: expect.arrayContaining([
+            expect.objectContaining({
+              id: fileUuid,
+              width: 1280,
+              height: 720,
+              durationSeconds: 15.4,
+              thumbUrl: "https://cdn.example.com/thumbs/thumb21.jpg",
+              url: "https://cdn.example.com/transcoded/video21.mp4",
+            }),
+          ]),
+        }),
+      );
+    });
+
     test("updates file status and emits video:ready SSE event", async () => {
       const fileUuid = "20000000-0000-4000-8000-000000000020";
       const messageUuid = "50000000-0000-4000-8000-000000000005";

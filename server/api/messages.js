@@ -359,17 +359,25 @@ function registerMessageRoutes(app, deps) {
       if (!filesByMessageId[messageId]) filesByMessageId[messageId] = [];
 
       let fileUrl = `/api/uploads/messages/${file.stored_name}`;
+      let thumbUrl = null;
       const driver = file.storage_driver;
       const storageKey = file.storage_key;
+      const thumbKey = file.thumb_storage_key || file.thumbStorageKey;
       if (
         (driver === "remote" || driver === "s3") &&
-        storageKey &&
         deps.storageProvider &&
         typeof deps.storageProvider.getDownloadUrl === "function"
       ) {
-        try {
-          fileUrl = await deps.storageProvider.getDownloadUrl(storageKey);
-        } catch (_) {}
+        if (storageKey) {
+          try {
+            fileUrl = await deps.storageProvider.getDownloadUrl(storageKey);
+          } catch (_) {}
+        }
+        if (thumbKey) {
+          try {
+            thumbUrl = await deps.storageProvider.getDownloadUrl(thumbKey);
+          } catch (_) {}
+        }
       }
 
       filesByMessageId[messageId].push({
@@ -389,6 +397,8 @@ function registerMessageRoutes(app, deps) {
           ? Number(file.duration_seconds)
           : null,
         expiresAt: file.expires_at || null,
+        thumbStorageKey: thumbKey || null,
+        thumbUrl: thumbUrl || null,
         url: fileUrl,
       });
     }
@@ -1442,11 +1452,29 @@ function registerMessageRoutes(app, deps) {
           return storedName ? `/api/uploads/messages/${storedName}` : null;
         };
 
+        const resolveThumbUrl = async (file) => {
+          const driver = file.storage_driver || file.storageDriver;
+          const thumbKey = file.thumb_storage_key || file.thumbStorageKey;
+          if (
+            (driver === "remote" || driver === "s3") &&
+            thumbKey &&
+            deps.storageProvider &&
+            typeof deps.storageProvider.getDownloadUrl === "function"
+          ) {
+            try {
+              return await deps.storageProvider.getDownloadUrl(thumbKey);
+            } catch (_) {}
+          }
+          return null;
+        };
+
         const responseFiles = await Promise.all(
           sourceFilesForResponse.map(async (file, idx) => {
             const storedName = file.stored_name || file.storedName || "";
             const expiresAtVal = file.expires_at || file.expiresAt || expiresAtIso || null;
             const resolvedUrl = await resolveFileUrl(file);
+            const resolvedThumbUrl = await resolveThumbUrl(file);
+            const thumbKey = file.thumb_storage_key || file.thumbStorageKey || null;
             return {
               id: file.id || (idx + 1),
               kind: file.kind,
@@ -1468,6 +1496,8 @@ function registerMessageRoutes(app, deps) {
                 : null,
               expiresAt: expiresAtVal,
               expires_at: expiresAtVal,
+              thumbStorageKey: thumbKey,
+              thumbUrl: resolvedThumbUrl,
               url: resolvedUrl,
             };
           }),

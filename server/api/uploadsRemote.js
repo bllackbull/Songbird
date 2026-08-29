@@ -352,8 +352,15 @@ export function registerRemoteUploadRoutes(app, deps) {
       }
     }
 
-    const { fileId, status, transcodedStorageKey, thumbStorageKey } =
-      req.body || {};
+    const {
+      fileId,
+      status,
+      transcodedStorageKey,
+      thumbStorageKey,
+      width,
+      height,
+      duration,
+    } = req.body || {};
     if (!fileId) {
       return res.status(400).json({ error: "fileId is required." });
     }
@@ -377,6 +384,15 @@ export function registerRemoteUploadRoutes(app, deps) {
       const updatePayload = { processing_status: finalStatus };
       if (transcodedStorageKey) updatePayload.storage_key = transcodedStorageKey;
       if (thumbStorageKey) updatePayload.thumb_storage_key = thumbStorageKey;
+      if (Number.isFinite(Number(width)) && Number(width) > 0) {
+        updatePayload.width_px = Number(width);
+      }
+      if (Number.isFinite(Number(height)) && Number(height) > 0) {
+        updatePayload.height_px = Number(height);
+      }
+      if (Number.isFinite(Number(duration)) && Number(duration) >= 0) {
+        updatePayload.duration_seconds = Number(duration);
+      }
       const rawUpdate = callAdminRun(
         dbKnex("chat_message_files").where("id", fileId).update(updatePayload),
       );
@@ -408,25 +424,52 @@ export function registerRemoteUploadRoutes(app, deps) {
 
         const resolvedFiles = await Promise.all(
           filesForMessage.map(async (f) => {
+            const isTargetFile = String(f.id) === String(fileId);
             const driver = f.storage_driver || f.storageDriver;
-            const sKey = (String(f.id) === String(fileId) && transcodedStorageKey)
+            const sKey = (isTargetFile && transcodedStorageKey)
               ? transcodedStorageKey
               : (f.storage_key || f.storageKey);
+            const thumbKey = (isTargetFile && thumbStorageKey)
+              ? thumbStorageKey
+              : (f.thumb_storage_key || f.thumbStorageKey);
             const storedName = f.stored_name || f.storedName || "";
             let fileUrl = storedName ? `/api/uploads/messages/${storedName}` : null;
+            let thumbUrl = null;
             if (
               (driver === "remote" || driver === "s3") &&
-              sKey &&
               storageProvider &&
               typeof storageProvider.getDownloadUrl === "function"
             ) {
-              try {
-                fileUrl = await storageProvider.getDownloadUrl(sKey);
-              } catch (_) {}
+              if (sKey) {
+                try {
+                  fileUrl = await storageProvider.getDownloadUrl(sKey);
+                } catch (_) {}
+              }
+              if (thumbKey) {
+                try {
+                  thumbUrl = await storageProvider.getDownloadUrl(thumbKey);
+                } catch (_) {}
+              }
             }
-            const isThisPending = String(f.id) === String(fileId)
+            const isThisPending = isTargetFile
               ? finalStatus === "pending"
               : (f.processing_status || f.processingStatus) === "pending";
+
+            const fileWidth = isTargetFile && Number.isFinite(Number(width)) && Number(width) > 0
+              ? Number(width)
+              : Number.isFinite(Number(f.width_px ?? f.widthPx))
+                ? Number(f.width_px ?? f.widthPx)
+                : null;
+            const fileHeight = isTargetFile && Number.isFinite(Number(height)) && Number(height) > 0
+              ? Number(height)
+              : Number.isFinite(Number(f.height_px ?? f.heightPx))
+                ? Number(f.height_px ?? f.heightPx)
+                : null;
+            const fileDuration = isTargetFile && Number.isFinite(Number(duration)) && Number(duration) >= 0
+              ? Number(duration)
+              : Number.isFinite(Number(f.duration_seconds ?? f.durationSeconds))
+                ? Number(f.duration_seconds ?? f.durationSeconds)
+                : null;
 
             return {
               id: f.id,
@@ -435,19 +478,15 @@ export function registerRemoteUploadRoutes(app, deps) {
               mimeType: f.mime_type || f.mimeType || "",
               processing: isThisPending,
               sizeBytes: Number(f.size_bytes || f.sizeBytes || 0),
-              width: Number.isFinite(Number(f.width_px ?? f.widthPx))
-                ? Number(f.width_px ?? f.widthPx)
-                : null,
-              height: Number.isFinite(Number(f.height_px ?? f.heightPx))
-                ? Number(f.height_px ?? f.heightPx)
-                : null,
-              durationSeconds: Number.isFinite(Number(f.duration_seconds ?? f.durationSeconds))
-                ? Number(f.duration_seconds ?? f.durationSeconds)
-                : null,
+              width: fileWidth,
+              height: fileHeight,
+              durationSeconds: fileDuration,
               blurhash: f.blurhash || null,
               expiresAt: f.expires_at || f.expiresAt || null,
               storageDriver: driver || null,
               storageKey: sKey || null,
+              thumbStorageKey: thumbKey || null,
+              thumbUrl: thumbUrl || null,
               url: fileUrl,
             };
           }),

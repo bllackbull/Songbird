@@ -1162,7 +1162,10 @@ export function MessageFiles({
           "media";
         const thumbKey = `thumb-${key}`;
         const cachedPoster =
-          isVideo && file.url ? videoPosterByUrl[file.url] : "";
+          (isVideo && file.url ? videoPosterByUrl[file.url] : "") ||
+          file?.thumbUrl ||
+          file?.posterUrl ||
+          "";
         const thumbLoaded =
           loadedMediaThumbs.has(thumbKey) || Boolean(cachedPoster);
         const mediaAspectRatio = getMediaAspectRatio(file);
@@ -1326,6 +1329,7 @@ export function MessageFiles({
                   processing: Boolean(file.processing),
                   width: file.width,
                   height: file.height,
+                  poster: cachedPoster || file.thumbUrl || null,
                   expiresAt: file.expiresAt || null,
                 })
               }
