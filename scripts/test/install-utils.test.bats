@@ -713,13 +713,16 @@ make_valid_source_dir() {
 @test "configure_systemd_service: writes EnvironmentFile to systemd unit" {
   INSTALL_DIR="$TEST_DIR"
   SERVICE_FILE="$TEST_DIR/songbird.service"
+  WORKER_SERVICE_FILE="$TEST_DIR/songbird-worker.service"
   NODE_EXEC_PATH="/usr/bin/node"
   SERVICE_USER="songbird"
   SERVICE_GROUP="songbird"
   run configure_systemd_service
   [ "$status" -eq 0 ]
   [ -f "$SERVICE_FILE" ]
+  [ -f "$WORKER_SERVICE_FILE" ]
   grep -q "EnvironmentFile=$TEST_DIR/\.env" "$SERVICE_FILE"
+  grep -q "EnvironmentFile=$TEST_DIR/\.env" "$WORKER_SERVICE_FILE"
 }
 
 make_data_command_launcher() {
