@@ -458,6 +458,14 @@ const videoTranscoder = createVideoTranscodeManager({
   transcodeVideosToH264: TRANSCODE_VIDEOS_TO_H264,
   storageEncryption,
   storageProvider,
+  mediaWorkerUrl:
+    process.env.MEDIA_WORKER_URL ||
+    `http://127.0.0.1:${process.env.WORKER_PORT || "8080"}`,
+  webhookSecret: process.env.WEBHOOK_SECRET || null,
+  callbackUrl:
+    process.env.WEBHOOK_CALLBACK_URL ||
+    process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
+    `http://127.0.0.1:${process.env.SERVER_PORT || process.env.PORT || "5174"}/api/uploads/webhook/processed`,
 });
 const {
   enqueueVideoTranscodeJob,
@@ -653,7 +661,13 @@ const apiDeps = {
   mediaQueueManager,
   storageProcessingMode: process.env.STORAGE_PROCESSING_MODE || "auto",
   webhookSecret: process.env.WEBHOOK_SECRET || null,
-  mediaWorkerUrl: process.env.MEDIA_WORKER_URL || null,
+  webhookCallbackUrl:
+    process.env.WEBHOOK_CALLBACK_URL ||
+    process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
+    `http://127.0.0.1:${process.env.SERVER_PORT || process.env.PORT || "5174"}/api/uploads/webhook/processed`,
+  mediaWorkerUrl:
+    process.env.MEDIA_WORKER_URL ||
+    `http://127.0.0.1:${process.env.WORKER_PORT || "8080"}`,
   ALLOWED_AVATAR_MIME_TYPES,
   redisClient,
   redisSessionStore,

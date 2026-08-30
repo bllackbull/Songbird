@@ -1162,20 +1162,13 @@ function registerMessageRoutes(app, deps) {
         const storageProcessingMode = String(
           deps.storageProcessingMode || process.env.STORAGE_PROCESSING_MODE || "auto",
         ).toLowerCase();
-        const isLocalTranscodeMode =
-          storageProcessingMode === "local" ||
-          storageProcessingMode === "auto";
-
         const hasVideoFiles = normalizedFiles.some((file) => {
           const m = String(file.mimeType || "").toLowerCase();
           const s = String(file.storedName || "").toLowerCase();
           return (m.startsWith("video/") || file.kind === "media") && !s.includes("-h264-");
         });
         const transcodeVideosEnabled = Boolean(getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS"));
-        const shouldTranscodeVideosLocally =
-          transcodeVideosEnabled &&
-          isLocalTranscodeMode &&
-          hasVideoFiles;
+        const shouldTranscodeVideos = transcodeVideosEnabled && hasVideoFiles;
 
         debugLog("api:messages/upload:start", {
           chatId,
@@ -1186,7 +1179,7 @@ function registerMessageRoutes(app, deps) {
           uploadType,
         });
 
-        if (shouldTranscodeVideosLocally && hasVideoFiles) {
+        if (shouldTranscodeVideos && typeof ensureFfmpegAvailable === "function") {
           await ensureFfmpegAvailable();
         }
 
@@ -1387,33 +1380,55 @@ function registerMessageRoutes(app, deps) {
               file?.id;
             if (!fileId) return;
 
-            const effectiveWorkerUrl = deps.mediaWorkerUrl || process.env.MEDIA_WORKER_URL || null;
-            if ((storageProcessingMode === "remote" || storageProcessingMode === "auto") && effectiveWorkerUrl) {
-              const driver = file.storageDriver || file.storage_driver;
-              if (driver === "remote" || driver === "s3" || file.storageKey || file.storage_key) {
-                dispatchMediaWorkerJob({
-                  mediaWorkerUrl: effectiveWorkerUrl,
-                  webhookSecret: deps.webhookSecret || process.env.WEBHOOK_SECRET || null,
-                  callbackUrl: deps.webhookCallbackUrl || process.env.SONGBIRD_WEBHOOK_CALLBACK_URL || null,
-                  fileId,
-                  storageKey: file.storageKey || file.storage_key,
-                  storedName,
-                  mimeType,
-                  encryptionType: file.encryptionType || file.encryption_type || "none",
-                  fetchImpl: deps.fetchImpl || globalThis.fetch,
-                }).then((ok) => {
+            const defaultWorkerPort = process.env.WORKER_PORT || "8080";
+            const effectiveWorkerUrl =
+              deps.mediaWorkerUrl !== undefined
+                ? deps.mediaWorkerUrl
+                : process.env.MEDIA_WORKER_URL ||
+                  `http://127.0.0.1:${defaultWorkerPort}`;
+            if (effectiveWorkerUrl) {
+              dispatchMediaWorkerJob({
+                mediaWorkerUrl: effectiveWorkerUrl,
+                webhookSecret:
+                  deps.webhookSecret !== undefined
+                    ? deps.webhookSecret
+                    : process.env.WEBHOOK_SECRET || null,
+                callbackUrl:
+                  deps.webhookCallbackUrl ||
+                  process.env.WEBHOOK_CALLBACK_URL ||
+                  process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
+                  `http://127.0.0.1:${process.env.SERVER_PORT || process.env.PORT || "5174"}/api/uploads/webhook/processed`,
+                fileId,
+                storageKey: file.storageKey || file.storage_key || storedName,
+                storedName: storedName || file.storageKey || file.storage_key,
+                mimeType,
+                encryptionType:
+                  file.encryptionType ||
+                  file.encryption_type ||
+                  (Boolean(deps.storageEncryption?.hasKey?.())
+                    ? "local"
+                    : "none"),
+                fetchImpl: deps.fetchImpl || globalThis.fetch,
+              })
+                .then((ok) => {
                   if (ok) {
-                    console.log(`[messages] Dispatched transcode job for file ${fileId} to worker ${effectiveWorkerUrl}`);
+                    console.log(
+                      `[messages] Dispatched transcode job for file ${fileId} to worker ${effectiveWorkerUrl}`,
+                    );
                   } else {
-                    console.warn(`[messages] Failed to dispatch transcode job for file ${fileId} to worker ${effectiveWorkerUrl}`);
+                    console.warn(
+                      `[messages] Failed to dispatch transcode job for file ${fileId} to worker ${effectiveWorkerUrl}`,
+                    );
                   }
-                }).catch((err) => {
-                  console.error(`[messages] Error dispatching transcode job for file ${fileId}:`, err);
+                })
+                .catch((err) => {
+                  console.error(
+                    `[messages] Error dispatching transcode job for file ${fileId}:`,
+                    err,
+                  );
                 });
-              }
-            }
-
-            if (shouldTranscodeVideosLocally && typeof enqueueVideoTranscodeJob === "function") {
+              transcodeJobsQueued += 1;
+            } else if (typeof enqueueVideoTranscodeJob === "function") {
               enqueueVideoTranscodeJob({
                 fileId,
                 storedName,
@@ -1514,7 +1529,7 @@ function registerMessageRoutes(app, deps) {
             expiresAt: fileExpiresAt,
             expires_at: fileExpiresAt,
           });
-        } else if (shouldTranscodeVideosLocally && hasVideoFiles && transcodeJobsQueued > 0) {
+        } else if (shouldTranscodeVideos && hasVideoFiles && transcodeJobsQueued > 0) {
           // Only show pending-conversion videos to the uploader.
           emitSseEvent(user.username, {
             type: "chat_message",

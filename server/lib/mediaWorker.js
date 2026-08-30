@@ -22,12 +22,19 @@ export async function dispatchMediaWorkerJob({
   storedName,
   mimeType,
   encryptionType = "none",
+  downloadUrl = null,
+  uploadUrl = null,
+  thumbUploadUrl = null,
+  storageConfig = null,
   fetchImpl = globalThis.fetch,
 }) {
   if (!mediaWorkerUrl || !fileId) return false;
 
   try {
     const endpoint = `${String(mediaWorkerUrl).replace(/\/+$/, "")}/transcode`;
+    const effectiveStorageKey = storageKey || storedName;
+    const effectiveStoredName = storedName || storageKey;
+
     const res = await fetchImpl(endpoint, {
       method: "POST",
       headers: {
@@ -38,11 +45,15 @@ export async function dispatchMediaWorkerJob({
       },
       body: JSON.stringify({
         fileId,
-        storageKey,
-        storedName,
+        storageKey: effectiveStorageKey,
+        storedName: effectiveStoredName,
         mimeType,
         encryptionType,
         callbackUrl: callbackUrl || null,
+        ...(downloadUrl ? { downloadUrl } : {}),
+        ...(uploadUrl ? { uploadUrl } : {}),
+        ...(thumbUploadUrl ? { thumbUploadUrl } : {}),
+        ...(storageConfig ? { storageConfig } : {}),
       }),
     });
 

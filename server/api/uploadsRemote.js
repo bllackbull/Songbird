@@ -280,16 +280,23 @@ export function registerRemoteUploadRoutes(app, deps) {
       .toLowerCase()
       .startsWith("video/");
 
+    const defaultWorkerPort = process.env.WORKER_PORT || "8080";
+    const effectiveWorkerUrl =
+      deps.mediaWorkerUrl !== undefined
+        ? deps.mediaWorkerUrl
+        : mediaWorkerUrl ||
+          process.env.MEDIA_WORKER_URL ||
+          `http://127.0.0.1:${defaultWorkerPort}`;
     const transcodeFn = deps.enqueueVideoTranscodeJob || enqueueVideoTranscodeJob;
     const transcodeEnabled = deps.getSetting
       ? deps.getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS")
       : true;
 
     let newStatus = "ready";
-    if (isVideo && transcodeEnabled && (mode === "local" || mode === "auto")) {
-      newStatus = typeof transcodeFn === "function" ? "pending" : "ready";
-    } else if (mode === "remote") {
+    if (mode === "remote") {
       newStatus = "pending";
+    } else if (isVideo && transcodeEnabled) {
+      newStatus = (effectiveWorkerUrl || typeof transcodeFn === "function") ? "pending" : "ready";
     }
 
     if (typeof adminRun === "function") {
@@ -299,8 +306,28 @@ export function registerRemoteUploadRoutes(app, deps) {
       if (typeof adminSave === "function") adminSave();
     }
 
-    if (isVideo && transcodeEnabled && (mode === "local" || mode === "auto")) {
-      if (typeof transcodeFn === "function") {
+    if (isVideo && transcodeEnabled) {
+      if (effectiveWorkerUrl) {
+        const defaultCallback = `http://127.0.0.1:${process.env.SERVER_PORT || process.env.PORT || "5174"}/api/uploads/webhook/processed`;
+        dispatchMediaWorkerJob({
+          mediaWorkerUrl: effectiveWorkerUrl,
+          webhookSecret:
+            deps.webhookSecret !== undefined
+              ? deps.webhookSecret
+              : webhookSecret || process.env.WEBHOOK_SECRET || null,
+          callbackUrl:
+            deps.webhookCallbackUrl ||
+            process.env.WEBHOOK_CALLBACK_URL ||
+            process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
+            defaultCallback,
+          fileId,
+          storageKey: file.storage_key || storageKey,
+          storedName: file.stored_name || file.storedName,
+          mimeType: file.mime_type || file.mimeType,
+          encryptionType: file.encryption_type || file.encryptionType || "none",
+          fetchImpl: deps.fetchImpl || globalThis.fetch,
+        }).catch(() => {});
+      } else if (typeof transcodeFn === "function") {
         transcodeFn({
           fileId,
           storedName: file.stored_name || file.storedName,
@@ -310,21 +337,6 @@ export function registerRemoteUploadRoutes(app, deps) {
           messageId: file.message_id || file.messageId,
         });
       }
-    }
-
-    const effectiveWorkerUrl = deps.mediaWorkerUrl || mediaWorkerUrl || process.env.MEDIA_WORKER_URL || null;
-    if (isVideo && transcodeEnabled && (mode === "remote" || mode === "auto") && effectiveWorkerUrl) {
-      dispatchMediaWorkerJob({
-        mediaWorkerUrl: effectiveWorkerUrl,
-        webhookSecret: deps.webhookSecret !== undefined ? deps.webhookSecret : webhookSecret,
-        callbackUrl: deps.webhookCallbackUrl || process.env.SONGBIRD_WEBHOOK_CALLBACK_URL || null,
-        fileId,
-        storageKey: file.storage_key || storageKey,
-        storedName: file.stored_name || file.storedName,
-        mimeType: file.mime_type || file.mimeType,
-        encryptionType: file.encryption_type || file.encryptionType || "none",
-        fetchImpl: deps.fetchImpl || globalThis.fetch,
-      }).catch(() => {});
     }
 
     if (newStatus === "pending" && mediaQueueManager?.scheduleFallbackCheck) {

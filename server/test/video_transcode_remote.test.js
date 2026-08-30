@@ -1,81 +1,31 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import fs from "fs";
-import path from "path";
-import os from "os";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createVideoTranscodeManager } from "../lib/videoTranscode.js";
 import { LocalStorageProvider } from "../lib/storage/LocalStorageProvider.js";
 import { createStorageEncryption } from "../lib/storageEncryption.js";
 
-describe("Video Transcode Manager - Remote & Local Storage", () => {
-  let tmpDir;
+describe("Video Transcode Manager - Unified Worker Dispatch & Processing Checks", () => {
   let mockStorageProvider;
-  let mockSpawn;
   let dbRows;
   let adminRunEvents;
   let emittedEvents;
   let storageEncryption;
+  let mockFetch;
 
   beforeEach(async () => {
-    tmpDir = await fs.promises.mkdtemp(
-      path.join(os.tmpdir(), "transcode-test-"),
-    );
-    mockStorageProvider = new LocalStorageProvider({ uploadDir: tmpDir });
+    mockStorageProvider = new LocalStorageProvider({ uploadDir: "/tmp/transcode-test" });
     dbRows = new Map();
     adminRunEvents = [];
     emittedEvents = [];
     storageEncryption = createStorageEncryption();
-
-    // Mock spawn to simulate successful ffmpeg & ffprobe executions
-    mockSpawn = vi.fn((cmd, args, opts) => {
-      const listeners = {};
-      const child = {
-        stdout: {
-          on: (event, cb) => {
-            listeners[`stdout:${event}`] = cb;
-            if (cmd === "ffprobe" && event === "data") {
-              cb(
-                JSON.stringify({
-                  streams: [{ width: 1280, height: 720, duration: "5.5" }],
-                  format: { duration: "5.5" },
-                }),
-              );
-            }
-          },
-        },
-        stderr: {
-          on: (event, cb) => {
-            listeners[`stderr:${event}`] = cb;
-          },
-        },
-        on: (event, cb) => {
-          listeners[event] = cb;
-          if (event === "close") {
-            // When ffmpeg runs, write a dummy output MP4 file if commanded
-            if (cmd === "ffmpeg") {
-              const outPath = args[args.length - 1];
-              if (outPath && !outPath.startsWith("-")) {
-                try {
-                  fs.writeFileSync(outPath, "dummy transcoded video content");
-                } catch (_) {}
-              }
-            }
-            setTimeout(() => cb(0), 10);
-          }
-        },
-      };
-      return child;
+    mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 202,
+      json: async () => ({ success: true, message: "Transcode job accepted" }),
     });
   });
 
-  afterEach(async () => {
-    if (tmpDir) {
-      await fs.promises.rm(tmpDir, { recursive: true, force: true });
-    }
-  });
-
-  it("evaluates isVideoFileProcessing correctly for remote storage rows", async () => {
+  it("evaluates isVideoFileProcessing correctly for remote and local storage rows", async () => {
     const manager = createVideoTranscodeManager({
-      uploadRootDir: tmpDir,
       transcodeVideosToH264: true,
       storageEncryption,
       storageProvider: mockStorageProvider,
@@ -112,19 +62,22 @@ describe("Video Transcode Manager - Remote & Local Storage", () => {
         processing_status: "pending",
       }),
     ).toBe(true);
+
+    // 4. Non-video is NOT processing
+    expect(
+      manager.isVideoFileProcessing({
+        mime_type: "image/png",
+        stored_name: "photo.png",
+      }),
+    ).toBe(false);
   });
 
-  it("transcodes remote video file downloaded from storageProvider and uploads result", async () => {
-    const remoteKey = "messages/video123.mp4";
-    const srcPath = path.join(tmpDir, remoteKey);
-    await fs.promises.mkdir(path.dirname(srcPath), { recursive: true });
-    await fs.promises.writeFile(srcPath, "dummy input video content");
-
+  it("dispatches HTTP transcode job to mediaWorkerUrl upon enqueueVideoTranscodeJob", async () => {
     const fileRecord = {
       id: "file-uuid-123",
       message_id: "msg-uuid-456",
       stored_name: "video123.mp4",
-      storage_key: remoteKey,
+      storage_key: "messages/video123.mp4",
       storage_driver: "remote",
       mime_type: "video/mp4",
       processing_status: "pending",
@@ -132,62 +85,45 @@ describe("Video Transcode Manager - Remote & Local Storage", () => {
     dbRows.set("file-uuid-123", fileRecord);
 
     const manager = createVideoTranscodeManager({
-      spawn: mockSpawn,
-      fs,
-      path,
-      crypto: (await import("node:crypto")).default,
       adminRun: (sql) => {
         adminRunEvents.push(sql);
       },
-      adminGetRow: (sqlBuilder) => {
-        return fileRecord;
-      },
+      adminGetRow: () => fileRecord,
       adminSave: () => {},
       listMessageFilesByMessageIds: () => [fileRecord],
       emitChatEvent: (chatId, evt) => {
         emittedEvents.push({ chatId, evt });
       },
       debugLog: () => {},
-      uploadRootDir: tmpDir,
+      uploadRootDir: "/tmp/transcode-test",
       transcodeVideosToH264: true,
       storageEncryption,
       storageProvider: mockStorageProvider,
+      mediaWorkerUrl: "http://127.0.0.1:8080",
+      webhookSecret: "test-secret-123",
+      fetchImpl: mockFetch,
     });
 
-    const jobHandled = manager.enqueueVideoTranscodeJob({
+    const jobHandled = await manager.enqueueVideoTranscodeJob({
       fileId: "file-uuid-123",
       storedName: "video123.mp4",
-      storageKey: remoteKey,
+      storageKey: "messages/video123.mp4",
       storageDriver: "remote",
       chatId: "chat-uuid-789",
       messageId: "msg-uuid-456",
     });
 
     expect(jobHandled).toBe(true);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
 
-    // Wait for queue processing
-    await new Promise((r) => setTimeout(r, 200));
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toBe("http://127.0.0.1:8080/transcode");
+    expect(options.method).toBe("POST");
+    expect(options.headers["x-songbird-webhook-secret"]).toBe("test-secret-123");
 
-    expect(mockSpawn).toHaveBeenCalled();
-    const readyEvent = emittedEvents.find((e) => e.evt.type === "video:ready");
-    expect(readyEvent).toBeDefined();
-    expect(readyEvent.evt.status).toBe("ready");
-    expect(readyEvent.evt.storageKey).toMatch(/messages\/video123-h264.*\.mp4/);
-
-    const updateEvent = emittedEvents.find((e) => e.evt.type === "chat_message_updated");
-    expect(updateEvent).toBeDefined();
-    expect(updateEvent.chatId).toBe("chat-uuid-789");
-    expect(updateEvent.evt.files).toBeDefined();
-    expect(updateEvent.evt.files.length).toBe(1);
-    expect(updateEvent.evt.files[0].processing).toBe(false);
-    expect(updateEvent.evt.files[0].url).toMatch(/^\/api\/uploads\/file\/|^\/api\/uploads\/messages\/|^https?:\/\//);
-    expect(updateEvent.evt.files[0].url).not.toBe(readyEvent.evt.storageKey);
-
-    const messageEvent = emittedEvents.find((e) => e.evt.type === "chat_message");
-    expect(messageEvent).toBeDefined();
-    expect(messageEvent.chatId).toBe("chat-uuid-789");
-    expect(messageEvent.evt.files).toBeDefined();
-    expect(messageEvent.evt.files.length).toBe(1);
-    expect(messageEvent.evt.files[0].url).toMatch(/^\/api\/uploads\/file\/|^\/api\/uploads\/messages\/|^https?:\/\//);
+    const parsedBody = JSON.parse(options.body);
+    expect(parsedBody.fileId).toBe("file-uuid-123");
+    expect(parsedBody.storageKey).toBe("messages/video123.mp4");
+    expect(parsedBody.storedName).toBe("video123.mp4");
   });
 });
