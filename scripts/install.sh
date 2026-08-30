@@ -3070,11 +3070,16 @@ update_songbird() {
       warn "Failed to synchronize global command after update."
     fi
 
-  log "Restarting Songbird service..."
-  run_as_root systemctl restart songbird.service || return 1
-  if have_cmd systemctl && systemctl list-unit-files | grep -q "^songbird-worker.service"; then
-    run_as_root systemctl restart songbird-worker.service || true
-  fi
+    if have_cmd systemctl && [[ -f "$SERVICE_FILE" && ! -f "$WORKER_SERVICE_FILE" ]]; then
+      log "Configuring worker systemd service..."
+      configure_systemd_service || true
+    fi
+
+    log "Restarting Songbird service..."
+    run_as_root systemctl restart songbird.service || return 1
+    if have_cmd systemctl && systemctl list-unit-files | grep -q "^songbird-worker.service"; then
+      run_as_root systemctl restart songbird-worker.service || true
+    fi
     run_as_root systemctl reload nginx || return 1
 
     show_deployment_success_frame "update"
@@ -3146,6 +3151,11 @@ update_songbird() {
     log "Global command synchronized from updated install script."
   else
     warn "Failed to synchronize global command after update."
+  fi
+
+  if have_cmd systemctl && [[ -f "$SERVICE_FILE" && ! -f "$WORKER_SERVICE_FILE" ]]; then
+    log "Configuring worker systemd service..."
+    configure_systemd_service || true
   fi
 
   log "Restarting Songbird service..."
