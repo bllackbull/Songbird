@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import request from "supertest";
-import { createWorkerServer } from "../index.js";
+import { createWorkerServer, isLoopbackUrl } from "../index.js";
 
 describe("Media Worker HTTP Server", () => {
   it("GET /health returns 200 OK with worker status and queue metrics", async () => {
@@ -47,7 +47,7 @@ describe("Media Worker HTTP Server", () => {
       .post("/transcode")
       .set("x-songbird-webhook-secret", "valid-secret")
       .send({
-        fileId: "msg-file-123",
+        fileId: "file-99",
         storageKey: "uploads/video.mp4",
         storedName: "video.mp4",
         mimeType: "video/mp4",
@@ -55,14 +55,29 @@ describe("Media Worker HTTP Server", () => {
 
     expect(res.status).toBe(202);
     expect(res.body.success).toBe(true);
-    expect(res.body.fileId).toBe("msg-file-123");
+    expect(res.body.fileId).toBe("file-99");
   });
 
-  it("returns 404 for unknown endpoints", async () => {
-    const server = createWorkerServer();
-    const res = await request(server).get("/non-existent-endpoint");
+  it("handles 404 for unknown endpoints", async () => {
+    const server = createWorkerServer({ webhookSecret: "" });
+    const res = await request(server).get("/unknown-endpoint");
 
     expect(res.status).toBe(404);
     expect(res.body.error).toBe("Not found");
+  });
+
+  describe("isLoopbackUrl", () => {
+    it("identifies 127.0.0.1, localhost, and 0.0.0.0 as loopback", () => {
+      expect(isLoopbackUrl("http://127.0.0.1:5174/api/uploads/webhook/processed")).toBe(true);
+      expect(isLoopbackUrl("http://localhost:5174/api/uploads/webhook/processed")).toBe(true);
+      expect(isLoopbackUrl("http://0.0.0.0:8080/api/uploads/webhook/processed")).toBe(true);
+    });
+
+    it("identifies public/remote domains as non-loopback", () => {
+      expect(isLoopbackUrl("https://songbird-web.onrender.com/api/uploads/webhook/processed")).toBe(false);
+      expect(isLoopbackUrl("https://api.example.com/webhook")).toBe(false);
+      expect(isLoopbackUrl(null)).toBe(false);
+      expect(isLoopbackUrl("not-a-valid-url")).toBe(false);
+    });
   });
 });

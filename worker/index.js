@@ -96,6 +96,21 @@ const tempPath = (suffix = "") =>
     `${Date.now()}-${crypto.randomBytes(6).toString("hex")}${suffix}`,
   );
 
+export const isLoopbackUrl = (url) => {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.hostname === "127.0.0.1" ||
+      parsed.hostname === "localhost" ||
+      parsed.hostname === "::1" ||
+      parsed.hostname === "0.0.0.0"
+    );
+  } catch {
+    return false;
+  }
+};
+
 async function notifyCallback(url, payload, secret, maxRetries = 5) {
   if (!url) {
     console.warn(
@@ -151,7 +166,10 @@ async function processTranscodeJob({
   uploadUrl,
   thumbUploadUrl,
 }) {
-  const targetCallback = callbackUrl || DEFAULT_CALLBACK_URL;
+  let targetCallback = callbackUrl || DEFAULT_CALLBACK_URL;
+  if (isLoopbackUrl(callbackUrl) && !isLoopbackUrl(DEFAULT_CALLBACK_URL)) {
+    targetCallback = DEFAULT_CALLBACK_URL;
+  }
   const isEncrypted =
     String(encryptionType || "").toLowerCase() === "local" ||
     String(encryptionType || "").toLowerCase() === "aes-256-gcm" ||

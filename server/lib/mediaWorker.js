@@ -19,7 +19,8 @@ function isLocalWorkerAddress(url) {
     return (
       parsed.hostname === "127.0.0.1" ||
       parsed.hostname === "localhost" ||
-      parsed.hostname === "::1"
+      parsed.hostname === "::1" ||
+      parsed.hostname === "0.0.0.0"
     );
   } catch {
     return url.includes("127.0.0.1") || url.includes("localhost");
@@ -78,17 +79,23 @@ export async function dispatchMediaWorkerJob({
   const effectiveStorageKey = storageKey || storedName;
   const effectiveStoredName = storedName || storageKey;
 
-  const payload = {
-    fileId,
-    storageKey: effectiveStorageKey,
-    storedName: effectiveStoredName,
-    mimeType,
-    encryptionType,
-    callbackUrl: callbackUrl || null,
-    ...(downloadUrl ? { downloadUrl } : {}),
-    ...(uploadUrl ? { uploadUrl } : {}),
-    ...(thumbUploadUrl ? { thumbUploadUrl } : {}),
-    ...(storageConfig ? { storageConfig } : {}),
+  const getPayloadForTarget = (targetWorkerUrl) => {
+    let effectiveCallback = callbackUrl || null;
+    if (!isLocalWorkerAddress(targetWorkerUrl) && isLocalWorkerAddress(effectiveCallback)) {
+      effectiveCallback = null;
+    }
+    return {
+      fileId,
+      storageKey: effectiveStorageKey,
+      storedName: effectiveStoredName,
+      mimeType,
+      encryptionType,
+      callbackUrl: effectiveCallback,
+      ...(downloadUrl ? { downloadUrl } : {}),
+      ...(uploadUrl ? { uploadUrl } : {}),
+      ...(thumbUploadUrl ? { thumbUploadUrl } : {}),
+      ...(storageConfig ? { storageConfig } : {}),
+    };
   };
 
   const configuredRemoteUrl =
@@ -101,7 +108,7 @@ export async function dispatchMediaWorkerJob({
     try {
       return await sendTranscodeRequest(
         localWorkerUrl,
-        payload,
+        getPayloadForTarget(localWorkerUrl),
         webhookSecret,
         fetchImpl,
       );
@@ -122,7 +129,7 @@ export async function dispatchMediaWorkerJob({
     try {
       return await sendTranscodeRequest(
         configuredRemoteUrl,
-        payload,
+        getPayloadForTarget(configuredRemoteUrl),
         webhookSecret,
         fetchImpl,
       );
@@ -136,13 +143,16 @@ export async function dispatchMediaWorkerJob({
   }
 
   // Mode: auto (default)
-  // If remote worker is configured and not pointing to local host, try remote up to 3 times before falling back to local worker
-  if (configuredRemoteUrl && !isLocalWorkerAddress(configuredRemoteUrl)) {
+  // If remote worker is configured and not pointing to local host, try remote up to 3 times before falling back to local
+  const isRemoteWorkerConfigured =
+    Boolean(configuredRemoteUrl) && !isLocalWorkerAddress(configuredRemoteUrl);
+
+  if (isRemoteWorkerConfigured) {
     for (let attempt = 1; attempt <= maxRemoteRetries; attempt += 1) {
       try {
         const ok = await sendTranscodeRequest(
           configuredRemoteUrl,
-          payload,
+          getPayloadForTarget(configuredRemoteUrl),
           webhookSecret,
           fetchImpl,
         );
@@ -156,20 +166,19 @@ export async function dispatchMediaWorkerJob({
         );
       }
       if (attempt < maxRemoteRetries && retryDelayMs > 0) {
-        await new Promise((r) => setTimeout(r, retryDelayMs));
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
       }
     }
-
     console.warn(
       `[mediaWorker] All ${maxRemoteRetries} attempts to remote worker (${configuredRemoteUrl}) failed for file ${fileId}. Falling back to local worker (${localWorkerUrl}).`,
     );
   }
 
-  // Fallback to local worker in auto mode (or direct local dispatch if no remote URL configured)
+  // Fallback to local worker
   try {
     return await sendTranscodeRequest(
       localWorkerUrl,
-      payload,
+      getPayloadForTarget(localWorkerUrl),
       webhookSecret,
       fetchImpl,
     );

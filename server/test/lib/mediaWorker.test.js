@@ -53,6 +53,28 @@ describe("dispatchMediaWorkerJob", () => {
     });
   });
 
+  test("in remote mode, replaces loopback callbackUrl with null so worker uses its own configured webhook url", async () => {
+    let capturedOptions = {};
+
+    const mockFetch = vi.fn(async (url, options) => {
+      capturedOptions = options;
+      return { ok: true, status: 202 };
+    });
+
+    const res = await dispatchMediaWorkerJob({
+      mediaWorkerUrl: "https://worker.onrender.com",
+      storageProcessingMode: "remote",
+      callbackUrl: "http://127.0.0.1:5174/api/uploads/webhook/processed",
+      fileId: 88,
+      storageKey: "uploads/loopback.mp4",
+      fetchImpl: mockFetch,
+    });
+
+    expect(res).toBe(true);
+    const parsedBody = JSON.parse(capturedOptions.body);
+    expect(parsedBody.callbackUrl).toBeNull();
+  });
+
   test("in remote mode, returns false when mediaWorkerUrl is missing and does not call local worker", async () => {
     const mockFetch = vi.fn();
     const res = await dispatchMediaWorkerJob({
@@ -102,19 +124,19 @@ describe("dispatchMediaWorkerJob", () => {
     expect(calls).toEqual(["http://127.0.0.1:9090/transcode"]);
   });
 
-  test("in auto mode with remote worker URL, succeeds without fallback when remote succeeds", async () => {
+  test("in auto mode with remote URL, calls remote worker on first attempt if successful", async () => {
     const calls = [];
     const mockFetch = vi.fn(async (url) => {
       calls.push(url);
-      return { ok: true, status: 200 };
+      return { ok: true, status: 202 };
     });
 
     const res = await dispatchMediaWorkerJob({
       mediaWorkerUrl: "https://remote-worker.example.com",
       storageProcessingMode: "auto",
       workerPort: 8080,
-      fileId: 77,
-      storageKey: "uploads/auto.mp4",
+      fileId: 101,
+      storageKey: "uploads/remote-success.mp4",
       fetchImpl: mockFetch,
     });
 
@@ -122,11 +144,11 @@ describe("dispatchMediaWorkerJob", () => {
     expect(calls).toEqual(["https://remote-worker.example.com/transcode"]);
   });
 
-  test("in auto mode, retries remote worker 3 times before falling back to local worker", async () => {
+  test("in auto mode with remote URL, retries up to 3 times before falling back to local worker", async () => {
     const calls = [];
     const mockFetch = vi.fn(async (url) => {
       calls.push(url);
-      if (url.includes("remote-worker.example.com")) {
+      if (url.includes("remote-worker")) {
         return { ok: false, status: 503 };
       }
       return { ok: true, status: 200 };
@@ -136,9 +158,8 @@ describe("dispatchMediaWorkerJob", () => {
       mediaWorkerUrl: "https://remote-worker.example.com",
       storageProcessingMode: "auto",
       workerPort: 8080,
-      maxRemoteRetries: 3,
-      fileId: 88,
-      storageKey: "uploads/auto-fallback.mp4",
+      fileId: 102,
+      storageKey: "uploads/retry-fallback.mp4",
       fetchImpl: mockFetch,
     });
 
