@@ -53,6 +53,8 @@ nano .env
 | `STORAGE_FORCE_PATH_STYLE` | `boolean` | `true` | فعال سازی ساختار URL به روش path-style (مقدار `true` برای MinIO، R2، ArvanCloud توصیه میشود). |
 | `STORAGE_PROCESSING_MODE` | `string` | `auto` | حالت گردش کار پردازش رسانه (`auto`، `remote`، `local`). نحوه مدیریت ترنسکد رسانه (FFmpeg) به صورت محلی یا برونسپاری ریموت را تعیین میکند. |
 | `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `30000` | مهلت زمان Fallback به میلی ثانیه قبل از آنکه worker محلی BullMQ در حالت `auto` پردازش را تحویل بگیرد. |
+| `WORKER_URL` | `string` | `""` | آدرس پایه worker خارجی پردازش رسانه برای ترنسکد با HTTP push (مانند `https://worker.example.com`). |
+| `WEBHOOK_URL` | `string` | `""` | آدرس بازخوانی (Callback) عمومی Webhook سرور Songbird ارسالی به workerها (مانند `https://songbird.example.com/api/uploads/webhook/processed`). |
 | `WEBHOOK_SECRET` | `string` | *(تولید خودکار)* | کلید محرمانه برای احراز هویت درخواست های Webhook دریافتی. |
 | `STORAGE_ENCRYPTION_MODE` | `string` | `remote` | استراتژی رمزنگاری ذخیره سازی (`remote` برای سمت ارائه دهنده، `local` برای رمزنگاری سمت اپلیکیشن). |
 | `MESSAGE_FILE_RETENTION` | `integer` | `7` | حذف خودکار فایل‌های پیام آپلودشده پس از N روز (`0` غیرفعال می‌کند). |

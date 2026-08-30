@@ -19,7 +19,6 @@ Because this worker uses HTTP dispatch and direct object storage access, it is *
 |---|---|---|
 | `PORT` | HTTP port the worker listens on (default: `8080`) | `8080` |
 | `WEBHOOK_SECRET` | Secret token to authenticate incoming requests from Songbird (`x-songbird-webhook-secret`). Must match Songbird's `WEBHOOK_SECRET`. | `your-secret-token` |
-| `SONGBIRD_WEBHOOK_URL` | Songbird webhook callback URL | `https://songbird.example.com/api/uploads/webhook/processed` |
 | `STORAGE_BUCKET` | S3 / R2 bucket name | `my-songbird-bucket` |
 | `STORAGE_ENDPOINT` | S3 / R2 endpoint URL | `https://<account-id>.r2.cloudflarestorage.com` |
 | `STORAGE_REGION` | Storage region (default: `auto`) | `auto` |
@@ -37,7 +36,8 @@ On the Songbird server, configure:
 ```env
 STORAGE_DRIVER="remote"
 STORAGE_PROCESSING_MODE="remote"    # or "auto"
-MEDIA_WORKER_URL="https://your-media-worker.onrender.com"
+WORKER_URL="https://your-media-worker.onrender.com"
+WEBHOOK_URL="https://songbird.example.com/api/uploads/webhook/processed"
 WEBHOOK_SECRET="your-secret-token"
 ```
 

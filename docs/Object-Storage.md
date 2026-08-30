@@ -101,6 +101,8 @@ When uploading media files (such as videos or audio) with `STORAGE_DRIVER=remote
 |---|---|---:|---|
 | `STORAGE_PROCESSING_MODE` | `string` | `auto` | Media processing strategy (`auto`, `remote`, or `local`). |
 | `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `30000` | Fallback timeout in milliseconds (default `30000` ms / 30 seconds) before local BullMQ worker takes over in `auto` mode. |
+| `WORKER_URL` | `string` | `""` | External media processing worker base URL for HTTP push transcoding (e.g. `https://worker.example.com`). Fallback: `MEDIA_WORKER_URL`. |
+| `WEBHOOK_URL` | `string` | `""` | Songbird public webhook callback URL sent to external workers (e.g. `https://songbird.example.com/api/uploads/webhook/processed`). Fallback: `WEBHOOK_CALLBACK_URL`. |
 | `WEBHOOK_SECRET` | `string` | *(Auto-generated)* | Secret token to authenticate incoming webhook callback requests (`X-Songbird-Webhook-Secret`). Automatically generated on startup if missing and written to `.env` and in the database. |
 
 ### Local FFmpeg Transcoding with Remote Storage

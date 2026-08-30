@@ -101,6 +101,8 @@ STORAGE_FORCE_PATH_STYLE=true
 |---|---|---:|---|
 | `STORAGE_PROCESSING_MODE` | `string` | `auto` | استراتژی پردازش رسانه (`auto` ، `remote` یا `local`). |
 | `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `30000` | مهلت زمان Fallback به میلی ثانیه (پیشفرض `30000` میلی ثانیه / ۳۰ ثانیه) قبل از آنکه worker محلی BullMQ در حالت `auto` پردازش را تحویل بگیرد. |
+| `WORKER_URL` | `string` | `""` | آدرس پایه worker خارجی پردازش رسانه برای ترنسکد با HTTP push (مانند `https://worker.example.com`). نام جایگزین: `MEDIA_WORKER_URL`. |
+| `WEBHOOK_URL` | `string` | `""` | آدرس بازخوانی (Callback) عمومی Webhook سرور Songbird ارسالی به workerها (مانند `https://songbird.example.com/api/uploads/webhook/processed`). نام جایگزین: `WEBHOOK_CALLBACK_URL`. |
 | `WEBHOOK_SECRET` | `string` | *(تولید خودکار)* | کلید محرمانه برای احراز هویت درخواست های Webhook دریافتی (`X-Songbird-Webhook-Secret`). در صورت عدم وجود، هنگام راه اندازی سرور به طور خودکار تولید شده، در دیتابیس ذخیره و در فایل `.env` قرار میگیرد. |
 
 ### ترنسکد محلی FFmpeg برای ذخیره سازی ابری (Remote Storage)
