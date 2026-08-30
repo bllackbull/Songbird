@@ -207,18 +207,18 @@ export const MessageItem = memo(function MessageItem({
     forwardedUser?.nickname || forwardedUser?.username || "",
   ).trim();
   const isDeletedForwardedChat =
-    forwardedFromChatId > 0 &&
+    Boolean(forwardedFromChatId) &&
     forwardedChatStatus !== "ready" &&
     !forwardedChat;
   const isDeletedForwardedUser =
-    forwardedFromUserId > 0 &&
+    Boolean(forwardedFromUserId) &&
     forwardedUserStatus !== "ready" &&
     !forwardedUser;
   const forwardedFromLabel = forwardedFromChatId
     ? isDeletedForwardedChat
       ? "Hidden"
       : liveForwardedChatName || storedForwardedLabel
-    : forwardedFromUserId > 0
+    : forwardedFromUserId
       ? isDeletedForwardedUser
         ? "Hidden"
         : liveForwardedUserName || storedForwardedLabel
@@ -228,7 +228,7 @@ export const MessageItem = memo(function MessageItem({
     ? isDeletedForwardedChat
       ? ""
       : String(forwardedChat?.group_avatar_url || "").trim()
-    : forwardedFromUserId > 0
+    : forwardedFromUserId
       ? isDeletedForwardedUser
         ? ""
         : String(forwardedUser?.avatar_url || msg?.forwarded_from_avatar_url || "").trim()
@@ -237,7 +237,7 @@ export const MessageItem = memo(function MessageItem({
     ? isDeletedForwardedChat
       ? deletedForwardOriginColor
       : String(forwardedChat?.group_color || "#10b981").trim() || "#10b981"
-    : forwardedFromUserId > 0
+    : forwardedFromUserId
       ? isDeletedForwardedUser
         ? deletedForwardOriginColor
         : String(
@@ -779,14 +779,14 @@ export const MessageItem = memo(function MessageItem({
               </span>
             </Tooltip>
             {/* Verified badge: shown for forwarded users and verified forwarded chats */}
-            {!isDeletedForwardedUser && forwardedFromUserId > 0 && Boolean(forwardedUser?.verified) && (
+            {!isDeletedForwardedUser && Boolean(forwardedFromUserId) && Boolean(forwardedUser?.verified) && (
               <VerifiedBadge size={13} />
             )}
-            {!isDeletedForwardedChat && forwardedFromChatId > 0 && Boolean(forwardedChat?.verified) && (
+            {!isDeletedForwardedChat && Boolean(forwardedFromChatId) && Boolean(forwardedChat?.verified) && (
               <VerifiedBadge size={13} />
             )}
             {/* Role badge: only for forwarded users, not chats */}
-            {!isDeletedForwardedUser && forwardedFromUserId > 0 && (
+            {!isDeletedForwardedUser && Boolean(forwardedFromUserId) && (
               <UserRoleBadge role={forwardedUser?.role} size={13} />
             )}
           </span>
