@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
+import { fileURLToPath } from "node:url";
+import { pipeline } from "node:stream/promises";
 import { createStorage } from "./storage.js";
 import { decryptFileToTempPath, encryptBuffer } from "./encryption.js";
 import {
@@ -13,11 +15,32 @@ import {
   generateThumbnail,
 } from "./ffmpeg.js";
 
-const PORT = Number(process.env.PORT || 8080);
+const workerDir = path.dirname(fileURLToPath(import.meta.url));
+const projectRootDir = path.resolve(workerDir, "..");
+
+if (typeof process.loadEnvFile === "function") {
+  try { process.loadEnvFile(path.join(projectRootDir, ".env")); } catch {}
+  try { process.loadEnvFile(path.join(workerDir, ".env")); } catch {}
+}
+
+const PORT = Number(process.env.WORKER_PORT || 8080);
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "";
-const DEFAULT_CALLBACK_URL = process.env.SONGBIRD_WEBHOOK_URL || "";
+const DEFAULT_CALLBACK_URL =
+  process.env.WEBHOOK_URL ||
+  process.env.SONGBIRD_WEBHOOK_URL ||
+  process.env.WEBHOOK_CALLBACK_URL ||
+  `http://127.0.0.1:${process.env.SERVER_PORT || "5174"}/api/uploads/webhook/processed`;
+const WORKER_CONCURRENCY = Math.max(
+  1,
+  parseInt(
+    process.env.WORKER_CONCURRENCY || process.env.CONCURRENCY || "2",
+    10,
+  ),
+);
 
 const storage = createStorage({
+  driver: process.env.STORAGE_DRIVER || process.env.STORAGE_DRIVE,
+  dataDir: process.env.DATA_DIR,
   endpoint: process.env.STORAGE_ENDPOINT,
   region: process.env.STORAGE_REGION,
   bucket: process.env.STORAGE_BUCKET,
@@ -25,6 +48,44 @@ const storage = createStorage({
   secretAccessKey: process.env.STORAGE_SECRET_ACCESS_KEY,
   forcePathStyle: process.env.STORAGE_FORCE_PATH_STYLE,
 });
+
+class AsyncQueue {
+  constructor(concurrency = 2) {
+    this.concurrency = concurrency;
+    this.running = 0;
+    this.queue = [];
+  }
+
+  push(fn) {
+    this.queue.push(fn);
+    this._next();
+  }
+
+  _next() {
+    while (this.running < this.concurrency && this.queue.length > 0) {
+      const task = this.queue.shift();
+      this.running += 1;
+      task()
+        .catch((err) => {
+          console.error("[worker] Background job execution error:", err);
+        })
+        .finally(() => {
+          this.running -= 1;
+          this._next();
+        });
+    }
+  }
+
+  get size() {
+    return this.queue.length;
+  }
+
+  get pending() {
+    return this.running;
+  }
+}
+
+const jobQueue = new AsyncQueue(WORKER_CONCURRENCY);
 
 const tmpDir = path.join(os.tmpdir(), "songbird-media-worker");
 fs.mkdirSync(tmpDir, { recursive: true });
@@ -35,29 +96,35 @@ const tempPath = (suffix = "") =>
     `${Date.now()}-${crypto.randomBytes(6).toString("hex")}${suffix}`,
   );
 
-async function notifyCallback(url, payload, maxRetries = 5) {
-  if (!url) return;
+async function notifyCallback(url, payload, secret, maxRetries = 5) {
+  if (!url) {
+    console.warn(
+      `[worker] Callback notification skipped for file ${payload?.fileId}: no callbackUrl provided or configured.`,
+    );
+    return;
+  }
+  const effectiveSecret = secret || WEBHOOK_SECRET || "";
   for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
     try {
       const res = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(WEBHOOK_SECRET
-            ? { "x-songbird-webhook-secret": WEBHOOK_SECRET }
+          ...(effectiveSecret
+            ? { "x-songbird-webhook-secret": effectiveSecret }
             : {}),
         },
         body: JSON.stringify(payload),
       });
       if (res.ok) {
         console.log(
-          `[worker] Callback webhook delivered successfully for file ${payload.fileId}`,
+          `[worker] Callback webhook delivered successfully to ${url} for file ${payload.fileId}`,
         );
         return;
       }
       const errText = await res.text();
       console.warn(
-        `[worker] Callback webhook returned ${res.status} (attempt ${attempt}/${maxRetries}): ${errText}`,
+        `[worker] Callback webhook to ${url} returned HTTP ${res.status} (attempt ${attempt}/${maxRetries}): ${errText}`,
       );
     } catch (err) {
       console.error(
@@ -78,6 +145,11 @@ async function processTranscodeJob({
   storedName,
   encryptionType,
   callbackUrl,
+  webhookSecret,
+  storageConfig,
+  downloadUrl,
+  uploadUrl,
+  thumbUploadUrl,
 }) {
   const targetCallback = callbackUrl || DEFAULT_CALLBACK_URL;
   const isEncrypted =
@@ -90,12 +162,26 @@ async function processTranscodeJob({
   const outputPath = tempPath(".mp4");
   const thumbPath = tempPath(".jpg");
 
+  const effectiveStorage = storageConfig
+    ? createStorage(storageConfig)
+    : storage;
+
   console.log(
     `[worker] Starting transcode job for file ${fileId} (${storageKey})`,
   );
 
   try {
-    await storage.downloadToPath(storageKey, inputPath);
+    if (downloadUrl) {
+      const res = await fetch(downloadUrl);
+      if (!res.ok) {
+        throw new Error(
+          `Failed to download from downloadUrl: HTTP ${res.status}`,
+        );
+      }
+      await pipeline(res.body, fs.createWriteStream(inputPath));
+    } else {
+      await effectiveStorage.downloadToPath(storageKey, inputPath);
+    }
 
     let workingInputPath = inputPath;
     let decryptCleanup = () => {};
@@ -148,7 +234,23 @@ async function processTranscodeJob({
           outputPath: thumbPath,
         });
         thumbStorageKey = `${storageKey.replace(/\.[^.]*$/, "")}-thumb.jpg`;
-        await storage.uploadFile(thumbStorageKey, thumbPath, "image/jpeg");
+        if (thumbUploadUrl) {
+          const res = await fetch(thumbUploadUrl, {
+            method: "PUT",
+            headers: { "Content-Type": "image/jpeg" },
+            body: fs.createReadStream(thumbPath),
+            duplex: "half",
+          });
+          if (!res.ok) {
+            throw new Error(`Failed to upload thumbnail: HTTP ${res.status}`);
+          }
+        } else {
+          await effectiveStorage.uploadFile(
+            thumbStorageKey,
+            thumbPath,
+            "image/jpeg",
+          );
+        }
       } catch (thumbErr) {
         console.warn(
           `[worker] Thumbnail generation skipped for file ${fileId}:`,
@@ -167,13 +269,32 @@ async function processTranscodeJob({
         transcodedStorageKey = `${storageKey.replace(/(\.[^.]*)?$/, "")}-h264-${crypto
           .randomBytes(4)
           .toString("hex")}.mp4`;
-        await storage.uploadFile(transcodedStorageKey, finalOutputPath, "video/mp4");
 
-        // Delete the original raw file from R2 to avoid storing duplicate orphaned video files
-        if (transcodedStorageKey !== storageKey) {
-          await storage.deleteFile(storageKey);
+        if (uploadUrl) {
+          const res = await fetch(uploadUrl, {
+            method: "PUT",
+            headers: { "Content-Type": "video/mp4" },
+            body: fs.createReadStream(finalOutputPath),
+            duplex: "half",
+          });
+          if (!res.ok) {
+            throw new Error(
+              `Failed to upload transcoded video: HTTP ${res.status}`,
+            );
+          }
+        } else {
+          await effectiveStorage.uploadFile(
+            transcodedStorageKey,
+            finalOutputPath,
+            "video/mp4",
+          );
+        }
+
+        // Delete the original raw file from remote storage to avoid storing duplicate orphaned video files
+        if (transcodedStorageKey !== storageKey && !uploadUrl) {
+          await effectiveStorage.deleteFile(storageKey);
           console.log(
-            `[worker] Deleted original raw video ${storageKey} from R2`,
+            `[worker] Deleted original raw video ${storageKey} from storage`,
           );
         }
       }
@@ -193,7 +314,7 @@ async function processTranscodeJob({
         width: Number(meta?.widthPx || meta?.width || 0) || null,
         height: Number(meta?.heightPx || meta?.height || 0) || null,
         duration: Number(meta?.durationSeconds || meta?.duration || 0) || null,
-      });
+      }, webhookSecret);
     } finally {
       decryptCleanup();
     }
@@ -202,7 +323,7 @@ async function processTranscodeJob({
     await notifyCallback(targetCallback, {
       fileId,
       status: "failed",
-    });
+    }, webhookSecret);
   } finally {
     for (const p of [inputPath, outputPath, thumbPath]) {
       try {
@@ -243,14 +364,22 @@ const server = http.createServer(async (req, res) => {
   ) {
     res.writeHead(200, { "Content-Type": "application/json" });
     return res.end(
-      JSON.stringify({ status: "ok", service: "songbird-media-worker" }),
+      JSON.stringify({
+        status: "ok",
+        service: "songbird-media-worker",
+        queue: {
+          pending: jobQueue.pending,
+          queued: jobQueue.size,
+          concurrency: jobQueue.concurrency,
+        },
+      }),
     );
   }
 
   // Transcode dispatch endpoint
   if (req.method === "POST" && url.pathname === "/transcode") {
+    const incomingSecret = req.headers["x-songbird-webhook-secret"];
     if (WEBHOOK_SECRET) {
-      const incomingSecret = req.headers["x-songbird-webhook-secret"];
       if (incomingSecret !== WEBHOOK_SECRET) {
         res.writeHead(401, { "Content-Type": "application/json" });
         return res.end(JSON.stringify({ error: "Unauthorized" }));
@@ -265,12 +394,27 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify({ error: "Invalid JSON body" }));
     }
 
-    const { fileId, storageKey, storedName, encryptionType, callbackUrl } =
-      payload;
-    if (!fileId || !storageKey) {
+    const {
+      fileId,
+      storageKey,
+      storedName,
+      encryptionType,
+      callbackUrl,
+      webhookSecret,
+      storageConfig,
+      downloadUrl,
+      uploadUrl,
+      thumbUploadUrl,
+    } = payload;
+    const effectiveStorageKey = storageKey || storedName;
+    const effectiveStoredName = storedName || storageKey;
+    if (!fileId || (!effectiveStorageKey && !downloadUrl)) {
       res.writeHead(400, { "Content-Type": "application/json" });
       return res.end(
-        JSON.stringify({ error: "fileId and storageKey are required" }),
+        JSON.stringify({
+          error:
+            "fileId and storageKey (or storedName/downloadUrl) are required",
+        }),
       );
     }
 
@@ -281,19 +425,25 @@ const server = http.createServer(async (req, res) => {
         success: true,
         message: "Transcode job accepted",
         fileId,
+        queuePosition: jobQueue.size,
       }),
     );
 
-    // Process in background asynchronously
-    processTranscodeJob({
-      fileId,
-      storageKey,
-      storedName,
-      encryptionType,
-      callbackUrl,
-    }).catch((err) => {
-      console.error(`[worker] Unhandled error processing file ${fileId}:`, err);
-    });
+    // Process via async queue with concurrency limit
+    jobQueue.push(() =>
+      processTranscodeJob({
+        fileId,
+        storageKey: effectiveStorageKey,
+        storedName: effectiveStoredName,
+        encryptionType,
+        callbackUrl,
+        webhookSecret: webhookSecret || incomingSecret || null,
+        storageConfig,
+        downloadUrl,
+        uploadUrl,
+        thumbUploadUrl,
+      }),
+    );
     return;
   }
 
@@ -302,7 +452,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`[songbird-media-worker] listening on port ${PORT}`);
+  console.log(`[songbird-worker] listening on port ${PORT} (storage: ${storage.type})`);
 });
 
 for (const sig of ["SIGINT", "SIGTERM"]) {

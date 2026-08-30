@@ -1,16 +1,20 @@
 {
-  "name": "songbird-media-worker",
-  "version": "1.0.0",
+  "name": "songbird-worker",
   "private": true,
-  "description": "Standalone HTTP push video transcoding worker for Songbird",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bllackbull/songbird.git"
+  },
+  "bugs": {
+    "url": "https://github.com/bllackbull/songbird/issues"
+  },
+  "homepage": "https://github.com/bllackbull/songbird#readme",
   "type": "module",
   "scripts": {
+    "dev": "node --watch --watch-path=. --watch-path=../.env index.js",
     "start": "node index.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1103.0"
-  },
-  "engines": {
-    "node": ">=24.18.0"
   }
 }
