@@ -57,8 +57,9 @@ COPY server/ ./server/
 COPY --from=worker-deps /app/worker/node_modules ./worker/node_modules
 COPY worker/ ./worker/
 COPY scripts/run-data-command.sh ./scripts/run-data-command.sh
+RUN chmod 755 /app/scripts/run-data-command.sh
 COPY scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
-RUN chmod 755 /app/scripts/run-data-command.sh /app/scripts/docker-entrypoint.sh
+RUN chmod 755 /app/scripts/docker-entrypoint.sh
 COPY --from=client-build /app/client/dist ./client/dist
 
 # Root-level files needed at runtime for version info and changelog
