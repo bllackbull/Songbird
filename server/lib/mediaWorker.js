@@ -133,55 +133,25 @@ export async function dispatchMediaWorkerJob({
     }
   }
 
-  const timeoutMs = Math.max(
-    0,
-    Number(
-      storageProcessingTimeoutMs !== undefined
-        ? storageProcessingTimeoutMs
-        : process.env.STORAGE_PROCESSING_TIMEOUT_MS || 30000,
-    ),
-  );
-
   if (mode === "remote") {
     // Mode: remote -> calls only the remote worker without local fallback
     if (!configuredRemoteUrl) {
       return false;
     }
-    const startTime = Date.now();
-    let attempt = 0;
-    while (true) {
-      attempt += 1;
-      try {
-        const ok = await sendTranscodeRequest(
-          configuredRemoteUrl,
-          getPayloadForTarget(configuredRemoteUrl),
-          webhookSecret,
-          fetchImpl,
-        );
-        if (ok) {
-          return true;
-        }
-      } catch (err) {
-        console.warn(
-          `[mediaWorker] Attempt ${attempt} to remote worker (${configuredRemoteUrl}) failed for file ${fileId}:`,
-          err?.message || err,
-        );
-      }
-
-      const elapsed = Date.now() - startTime;
-      if (elapsed >= timeoutMs) {
-        break;
-      }
-
-      const delay = Math.min(
-        retryDelayMs !== undefined ? retryDelayMs : 250,
-        timeoutMs - elapsed,
+    try {
+      return await sendTranscodeRequest(
+        configuredRemoteUrl,
+        getPayloadForTarget(configuredRemoteUrl),
+        webhookSecret,
+        fetchImpl,
       );
-      if (delay > 0) {
-        await new Promise((resolve) => setTimeout(resolve, delay));
-      }
+    } catch (err) {
+      console.warn(
+        `[mediaWorker] Failed to dispatch to remote worker (${configuredRemoteUrl}) for file ${fileId}:`,
+        err?.message || err,
+      );
+      return false;
     }
-    return false;
   }
 
   // Mode: auto (default)
@@ -190,6 +160,15 @@ export async function dispatchMediaWorkerJob({
     Boolean(configuredRemoteUrl) && !isLocalWorkerAddress(configuredRemoteUrl);
 
   if (isRemoteWorkerConfigured) {
+    const timeoutMs = Math.max(
+      0,
+      Number(
+        storageProcessingTimeoutMs !== undefined
+          ? storageProcessingTimeoutMs
+          : process.env.STORAGE_PROCESSING_TIMEOUT_MS || 30000,
+      ),
+    );
+
     const startTime = Date.now();
     let attempt = 0;
     while (true) {
