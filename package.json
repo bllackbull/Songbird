@@ -12,8 +12,9 @@
   "homepage": "https://github.com/bllackbull/songbird#readme",
   "scripts": {
     "dev": "concurrently \"npm --prefix client run dev\" \"npm --prefix server run dev\" \"npm --prefix worker run dev\"",
-    "test": "concurrently \"npm --prefix client run test\" \"npm --prefix server run test\"",
-    "test:coverage": "concurrently \"npm --prefix client run test:coverage\" \"npm --prefix server run test:coverage\"",
+    "test": "concurrently \"npm --prefix client run test\" \"npm --prefix server run test\" \"npm --prefix worker run test\"",
+    "test:coverage": "concurrently \"npm --prefix client run test:coverage\" \"npm --prefix server run test:coverage\" \"npm --prefix worker run test:coverage\"",
+    "test:bench": "concurrently \"npm --prefix client run test:bench\" \"npm --prefix server run test:bench\" \"npm --prefix worker run test:bench\"",
     "test:scripts": "bats scripts/test/",
     "start": "concurrently \"npm --prefix client run start\" \"npm --prefix server run start\" \"npm --prefix worker run start\"",
     "build": "npm --prefix client run build",

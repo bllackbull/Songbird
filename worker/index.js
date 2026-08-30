@@ -354,110 +354,128 @@ function parseJsonBody(req) {
   });
 }
 
-const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+export function createWorkerServer(options = {}) {
+  const effectiveWebhookSecret =
+    options.webhookSecret !== undefined ? options.webhookSecret : WEBHOOK_SECRET;
+  const effectiveQueue = options.jobQueue || jobQueue;
+  const processJobFn = options.processTranscodeJob || processTranscodeJob;
 
-  // Health check
-  if (
-    req.method === "GET" &&
-    (url.pathname === "/health" || url.pathname === "/")
-  ) {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    return res.end(
-      JSON.stringify({
-        status: "ok",
-        service: "songbird-media-worker",
-        queue: {
-          pending: jobQueue.pending,
-          queued: jobQueue.size,
-          concurrency: jobQueue.concurrency,
-        },
-      }),
-    );
-  }
+  const appServer = http.createServer(async (req, res) => {
+    const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
 
-  // Transcode dispatch endpoint
-  if (req.method === "POST" && url.pathname === "/transcode") {
-    const incomingSecret = req.headers["x-songbird-webhook-secret"];
-    if (WEBHOOK_SECRET) {
-      if (incomingSecret !== WEBHOOK_SECRET) {
-        res.writeHead(401, { "Content-Type": "application/json" });
-        return res.end(JSON.stringify({ error: "Unauthorized" }));
-      }
-    }
-
-    let payload;
-    try {
-      payload = await parseJsonBody(req);
-    } catch (err) {
-      res.writeHead(400, { "Content-Type": "application/json" });
-      return res.end(JSON.stringify({ error: "Invalid JSON body" }));
-    }
-
-    const {
-      fileId,
-      storageKey,
-      storedName,
-      encryptionType,
-      callbackUrl,
-      webhookSecret,
-      storageConfig,
-      downloadUrl,
-      uploadUrl,
-      thumbUploadUrl,
-    } = payload;
-    const effectiveStorageKey = storageKey || storedName;
-    const effectiveStoredName = storedName || storageKey;
-    if (!fileId || (!effectiveStorageKey && !downloadUrl)) {
-      res.writeHead(400, { "Content-Type": "application/json" });
+    // Health check
+    if (
+      req.method === "GET" &&
+      (url.pathname === "/health" || url.pathname === "/")
+    ) {
+      res.writeHead(200, { "Content-Type": "application/json" });
       return res.end(
         JSON.stringify({
-          error:
-            "fileId and storageKey (or storedName/downloadUrl) are required",
+          status: "ok",
+          service: "songbird-media-worker",
+          queue: {
+            pending: effectiveQueue.pending,
+            queued: effectiveQueue.size,
+            concurrency: effectiveQueue.concurrency,
+          },
         }),
       );
     }
 
-    // Acknowledge receipt immediately (202 Accepted)
-    res.writeHead(202, { "Content-Type": "application/json" });
-    res.end(
-      JSON.stringify({
-        success: true,
-        message: "Transcode job accepted",
-        fileId,
-        queuePosition: jobQueue.size,
-      }),
-    );
+    // Transcode dispatch endpoint
+    if (req.method === "POST" && url.pathname === "/transcode") {
+      const incomingSecret = req.headers["x-songbird-webhook-secret"];
+      if (effectiveWebhookSecret) {
+        if (incomingSecret !== effectiveWebhookSecret) {
+          res.writeHead(401, { "Content-Type": "application/json" });
+          return res.end(JSON.stringify({ error: "Unauthorized" }));
+        }
+      }
 
-    // Process via async queue with concurrency limit
-    jobQueue.push(() =>
-      processTranscodeJob({
+      let payload;
+      try {
+        payload = await parseJsonBody(req);
+      } catch (err) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        return res.end(JSON.stringify({ error: "Invalid JSON body" }));
+      }
+
+      const {
         fileId,
-        storageKey: effectiveStorageKey,
-        storedName: effectiveStoredName,
+        storageKey,
+        storedName,
         encryptionType,
         callbackUrl,
-        webhookSecret: webhookSecret || incomingSecret || null,
+        webhookSecret,
         storageConfig,
         downloadUrl,
         uploadUrl,
         thumbUploadUrl,
-      }),
-    );
-    return;
-  }
+      } = payload;
+      const effectiveStorageKey = storageKey || storedName;
+      const effectiveStoredName = storedName || storageKey;
+      if (!fileId || (!effectiveStorageKey && !downloadUrl)) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        return res.end(
+          JSON.stringify({
+            error:
+              "fileId and storageKey (or storedName/downloadUrl) are required",
+          }),
+        );
+      }
 
-  res.writeHead(404, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ error: "Not found" }));
-});
+      // Acknowledge receipt immediately (202 Accepted)
+      res.writeHead(202, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          success: true,
+          message: "Transcode job accepted",
+          fileId,
+          queuePosition: effectiveQueue.size,
+        }),
+      );
 
-server.listen(PORT, () => {
-  console.log(`[songbird-worker] listening on port ${PORT} (storage: ${storage.type})`);
-});
+      // Process via async queue with concurrency limit
+      effectiveQueue.push(() =>
+        processJobFn({
+          fileId,
+          storageKey: effectiveStorageKey,
+          storedName: effectiveStoredName,
+          encryptionType,
+          callbackUrl,
+          webhookSecret: webhookSecret || incomingSecret || null,
+          storageConfig,
+          downloadUrl,
+          uploadUrl,
+          thumbUploadUrl,
+        }),
+      );
+      return;
+    }
 
-for (const sig of ["SIGINT", "SIGTERM"]) {
-  process.on(sig, () => {
-    console.log(`[worker] ${sig} received, shutting down gracefully...`);
-    server.close(() => process.exit(0));
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Not found" }));
   });
+
+  return appServer;
+}
+
+export const server = createWorkerServer();
+
+if (
+  process.argv[1] &&
+  fileURLToPath(import.meta.url) === path.resolve(process.argv[1])
+) {
+  server.listen(PORT, () => {
+    console.log(
+      `[songbird-worker] listening on port ${PORT} (storage: ${storage.type})`,
+    );
+  });
+
+  for (const sig of ["SIGINT", "SIGTERM"]) {
+    process.on(sig, () => {
+      console.log(`[worker] ${sig} received, shutting down gracefully...`);
+      server.close(() => process.exit(0));
+    });
+  }
 }
