@@ -56,9 +56,9 @@ Songbird controls media processing dispatch using the `STORAGE_PROCESSING_MODE` 
 
 | Mode | Description |
 |---|---|
-| `auto` (Default) | **Remote-First with Local Fallback.** Songbird attempts to dispatch transcoding tasks to the external worker (`WORKER_URL`) with up to 3 retries. In Docker and standard environments, Songbird also automatically spawns and manages the local worker (`http://127.0.0.1:WORKER_PORT`) as a child process. If remote dispatch is unconfigured or fails, the local worker processes the file. |
-| `local` | **Direct Local Worker Processing.** Forces all transcoding tasks to be handled by the local worker on `http://127.0.0.1:WORKER_PORT`. Remote workers are never contacted. |
-| `remote` | **Pure Remote Worker Processing.** Dispatches solely to the remote worker (`WORKER_URL`) without local fallback. No local worker processes are spawned or monitored on the Songbird server. Ideal for resource-constrained or serverless cloud instances. |
+| `auto` (Default) | **Remote-First with Local Fallback.** Songbird attempts to dispatch transcoding tasks to the external worker (`WORKER_URL`), retrying failed requests until `STORAGE_PROCESSING_TIMEOUT_MS` expires. In Docker and standard environments, Songbird also automatically spawns and manages the local worker (`http://127.0.0.1:WORKER_PORT`) as a child process. If remote dispatch is unconfigured or times out, the local worker processes the file. |
+| `local` | **Direct Local Worker Processing.** Forces all transcoding tasks to be handled directly by the local worker on `http://127.0.0.1:WORKER_PORT`. Remote workers are never contacted. Auto-spawns the local worker child process on startup. |
+| `remote` | **Pure Remote Worker Processing.** Dispatches solely to the remote worker (`WORKER_URL`), retrying failed requests until `STORAGE_PROCESSING_TIMEOUT_MS` expires without falling back to local processing. No local worker processes are spawned or monitored on the Songbird server. Ideal for resource-constrained or serverless cloud instances. |
 
 ---
 
@@ -92,7 +92,7 @@ Configure these variables in the Songbird backend `.env`:
 | `WORKER_URL` | `string` | `""` | Base URL of the remote Media Worker (e.g., `https://media-worker.example.com`). Fallback: `MEDIA_WORKER_URL`. |
 | `WORKER_PORT` | `integer` | `8080` | Port for the local Media Worker service. Songbird uses this to construct `http://127.0.0.1:WORKER_PORT`. |
 | `STORAGE_PROCESSING_MODE` | `string` | `auto` | Media processing strategy (`auto`, `local`, or `remote`). |
-| `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `30000` | Fallback timeout in milliseconds before local processing takes over in `auto` mode. |
+| `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `30000` | Total retry timeout in milliseconds when dispatching transcode jobs to the remote worker before falling back to local processing in `auto` mode or failing the dispatch in `remote` mode. |
 | `WEBHOOK_URL` | `string` | `""` | Public Songbird webhook callback URL sent to external workers (e.g., `https://songbird.example.com/api/uploads/webhook/processed`). Fallback: `WEBHOOK_CALLBACK_URL`. |
 | `WEBHOOK_SECRET` | `string` | *(Auto-generated)* | Shared secret token used to authenticate webhook communications. Generated automatically on startup if omitted. |
 

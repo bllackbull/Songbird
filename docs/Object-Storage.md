@@ -130,9 +130,9 @@ Songbird configures media processing via `STORAGE_PROCESSING_MODE`:
 
 | Mode | Behavior |
 |---|---|
-| `auto` (Default) | **Remote First with 3 Retries & Local Fallback.** Runs the local Media Worker service in the container. Dispatches transcode jobs to the remote worker (`MEDIA_WORKER_URL`) first and retries up to 3 times on failure before falling back to the local Media Worker (`http://127.0.0.1:WORKER_PORT`). If `MEDIA_WORKER_URL` is omitted, dispatches directly to the local worker. |
-| `local` | **Direct Local Worker Processing.** Runs the local Media Worker in the container and dispatches only to the local worker (`http://127.0.0.1:WORKER_PORT`). Remote workers are never called. |
-| `remote` | **Pure Remote Worker Processing.** Does not run any local worker in the container and dispatches only to the remote worker (`MEDIA_WORKER_URL`) without local fallback. |
+| `auto` (Default) | **Remote-First with Local Fallback.** Runs the local Media Worker service in the container. Dispatches transcode jobs to the remote worker (`WORKER_URL`), retrying failed requests until `STORAGE_PROCESSING_TIMEOUT_MS` expires before falling back to the local Media Worker (`http://127.0.0.1:WORKER_PORT`). If `WORKER_URL` is omitted, dispatches directly to the local worker. |
+| `local` | **Direct Local Worker Processing.** Runs the local Media Worker in the container and dispatches directly and exclusively to the local worker (`http://127.0.0.1:WORKER_PORT`). Remote workers are never called. |
+| `remote` | **Pure Remote Worker Processing.** Does not run any local worker in the container and dispatches only to the remote worker (`WORKER_URL`), retrying failed requests until `STORAGE_PROCESSING_TIMEOUT_MS` expires without local fallback. |
 
 ### Configuration Variables on Songbird Server
 
@@ -143,7 +143,7 @@ Add or edit these settings in your Songbird server `.env`:
 | `WORKER_URL` | `string` | `""` | External media processing worker base URL for HTTP push transcoding (e.g. `https://worker.example.com`). Fallback: `MEDIA_WORKER_URL`. |
 | `WORKER_PORT` | `integer` | `8080` | Port for the standalone Media Worker service (`worker/`). Songbird uses this as the default port when constructing the local Media Worker URL (`http://127.0.0.1:8080`). |
 | `STORAGE_PROCESSING_MODE` | `string` | `auto` | Media processing strategy (`auto`, `remote`, or `local`). |
-| `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `30000` | Fallback timeout in milliseconds before local processing takes over in `auto` mode. |
+| `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `30000` | Total retry timeout in milliseconds when dispatching transcode jobs to the remote worker before falling back to local processing in `auto` mode or failing the dispatch in `remote` mode. |
 | `WEBHOOK_URL` | `string` | `""` | Songbird public webhook callback URL sent to external workers (e.g. `https://songbird.example.com/api/uploads/webhook/processed`). Fallback: `WEBHOOK_CALLBACK_URL`. |
 | `WEBHOOK_SECRET` | `string` | *(Auto-generated)* | Secret token to authenticate incoming webhook callback requests (`X-Songbird-Webhook-Secret`). Automatically generated on startup if missing and written to `.env` and in the database. |
 
