@@ -280,14 +280,7 @@ export function registerRemoteUploadRoutes(app, deps) {
       .toLowerCase()
       .startsWith("video/");
 
-    const defaultWorkerPort = process.env.WORKER_PORT || "8080";
-    const effectiveWorkerUrl =
-      deps.mediaWorkerUrl !== undefined
-        ? deps.mediaWorkerUrl
-        : mediaWorkerUrl ||
-          process.env.MEDIA_WORKER_URL ||
-          `http://127.0.0.1:${defaultWorkerPort}`;
-    const transcodeFn = deps.enqueueVideoTranscodeJob || enqueueVideoTranscodeJob;
+    const defaultCallback = `http://127.0.0.1:${process.env.SERVER_PORT || process.env.PORT || "5174"}/api/uploads/webhook/processed`;
     const transcodeEnabled = deps.getSetting
       ? deps.getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS")
       : true;
@@ -296,7 +289,7 @@ export function registerRemoteUploadRoutes(app, deps) {
     if (mode === "remote") {
       newStatus = "pending";
     } else if (isVideo && transcodeEnabled) {
-      newStatus = (effectiveWorkerUrl || typeof transcodeFn === "function") ? "pending" : "ready";
+      newStatus = "pending";
     }
 
     if (typeof adminRun === "function") {
@@ -307,36 +300,26 @@ export function registerRemoteUploadRoutes(app, deps) {
     }
 
     if (isVideo && transcodeEnabled) {
-      if (effectiveWorkerUrl) {
-        const defaultCallback = `http://127.0.0.1:${process.env.SERVER_PORT || process.env.PORT || "5174"}/api/uploads/webhook/processed`;
-        dispatchMediaWorkerJob({
-          mediaWorkerUrl: effectiveWorkerUrl,
-          webhookSecret:
-            deps.webhookSecret !== undefined
-              ? deps.webhookSecret
-              : webhookSecret || process.env.WEBHOOK_SECRET || null,
-          callbackUrl:
-            deps.webhookCallbackUrl ||
-            process.env.WEBHOOK_CALLBACK_URL ||
-            process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
-            defaultCallback,
-          fileId,
-          storageKey: file.storage_key || storageKey,
-          storedName: file.stored_name || file.storedName,
-          mimeType: file.mime_type || file.mimeType,
-          encryptionType: file.encryption_type || file.encryptionType || "none",
-          fetchImpl: deps.fetchImpl || globalThis.fetch,
-        }).catch(() => {});
-      } else if (typeof transcodeFn === "function") {
-        transcodeFn({
-          fileId,
-          storedName: file.stored_name || file.storedName,
-          storageKey: file.storage_key || storageKey,
-          storageDriver: file.storage_driver || file.storageDriver,
-          chatId: file.chat_id || file.chatId,
-          messageId: file.message_id || file.messageId,
-        });
-      }
+      dispatchMediaWorkerJob({
+        mediaWorkerUrl: deps.mediaWorkerUrl || mediaWorkerUrl || process.env.MEDIA_WORKER_URL || null,
+        storageProcessingMode: mode,
+        workerPort: deps.workerPort || process.env.WORKER_PORT || "8080",
+        webhookSecret:
+          deps.webhookSecret !== undefined
+            ? deps.webhookSecret
+            : webhookSecret || process.env.WEBHOOK_SECRET || null,
+        callbackUrl:
+          deps.webhookCallbackUrl ||
+          process.env.WEBHOOK_CALLBACK_URL ||
+          process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
+          defaultCallback,
+        fileId,
+        storageKey: file.storage_key || storageKey,
+        storedName: file.stored_name || file.storedName,
+        mimeType: file.mime_type || file.mimeType,
+        encryptionType: file.encryption_type || file.encryptionType || "none",
+        fetchImpl: deps.fetchImpl || globalThis.fetch,
+      }).catch(() => {});
     }
 
     if (newStatus === "pending" && mediaQueueManager?.scheduleFallbackCheck) {

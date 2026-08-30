@@ -2,15 +2,6 @@ import { describe, test, expect, vi } from "vitest";
 import { dispatchMediaWorkerJob } from "../../lib/mediaWorker.js";
 
 describe("dispatchMediaWorkerJob", () => {
-  test("returns false when mediaWorkerUrl is missing", async () => {
-    const res = await dispatchMediaWorkerJob({
-      mediaWorkerUrl: null,
-      fileId: 123,
-      storageKey: "uploads/clip.mp4",
-    });
-    expect(res).toBe(false);
-  });
-
   test("returns false when fileId is missing", async () => {
     const res = await dispatchMediaWorkerJob({
       mediaWorkerUrl: "http://localhost:8080",
@@ -20,7 +11,7 @@ describe("dispatchMediaWorkerJob", () => {
     expect(res).toBe(false);
   });
 
-  test("dispatches POST request with correct payload and headers", async () => {
+  test("dispatches POST request with correct payload and headers in remote mode", async () => {
     let capturedUrl = "";
     let capturedOptions = {};
 
@@ -32,6 +23,7 @@ describe("dispatchMediaWorkerJob", () => {
 
     const res = await dispatchMediaWorkerJob({
       mediaWorkerUrl: "http://media-worker.internal:8080/",
+      storageProcessingMode: "remote",
       webhookSecret: "super-secret-token",
       callbackUrl: "https://songbird.app/api/uploads/webhook/processed",
       fileId: 42,
@@ -61,18 +53,121 @@ describe("dispatchMediaWorkerJob", () => {
     });
   });
 
-  test("handles fetch network failure gracefully and returns false", async () => {
-    const mockFetch = vi.fn(async () => {
-      throw new Error("Connection refused");
+  test("in remote mode, returns false when mediaWorkerUrl is missing and does not call local worker", async () => {
+    const mockFetch = vi.fn();
+    const res = await dispatchMediaWorkerJob({
+      mediaWorkerUrl: null,
+      storageProcessingMode: "remote",
+      fileId: 123,
+      storageKey: "uploads/clip.mp4",
+      fetchImpl: mockFetch,
     });
+    expect(res).toBe(false);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  test("in remote mode, returns false on failure without falling back to local worker", async () => {
+    const mockFetch = vi.fn(async () => ({ ok: false, status: 500 }));
 
     const res = await dispatchMediaWorkerJob({
-      mediaWorkerUrl: "http://media-worker.internal:8080",
+      mediaWorkerUrl: "https://remote-worker.example.com",
+      storageProcessingMode: "remote",
       fileId: 99,
       storageKey: "uploads/fail.mp4",
       fetchImpl: mockFetch,
     });
 
     expect(res).toBe(false);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0][0]).toBe("https://remote-worker.example.com/transcode");
+  });
+
+  test("in local mode, calls only the local worker and ignores remote mediaWorkerUrl", async () => {
+    const calls = [];
+    const mockFetch = vi.fn(async (url) => {
+      calls.push(url);
+      return { ok: true, status: 200 };
+    });
+
+    const res = await dispatchMediaWorkerJob({
+      mediaWorkerUrl: "https://remote-worker.example.com",
+      storageProcessingMode: "local",
+      workerPort: 9090,
+      fileId: 55,
+      storageKey: "uploads/local.mp4",
+      fetchImpl: mockFetch,
+    });
+
+    expect(res).toBe(true);
+    expect(calls).toEqual(["http://127.0.0.1:9090/transcode"]);
+  });
+
+  test("in auto mode with remote worker URL, succeeds without fallback when remote succeeds", async () => {
+    const calls = [];
+    const mockFetch = vi.fn(async (url) => {
+      calls.push(url);
+      return { ok: true, status: 200 };
+    });
+
+    const res = await dispatchMediaWorkerJob({
+      mediaWorkerUrl: "https://remote-worker.example.com",
+      storageProcessingMode: "auto",
+      workerPort: 8080,
+      fileId: 77,
+      storageKey: "uploads/auto.mp4",
+      fetchImpl: mockFetch,
+    });
+
+    expect(res).toBe(true);
+    expect(calls).toEqual(["https://remote-worker.example.com/transcode"]);
+  });
+
+  test("in auto mode, retries remote worker 3 times before falling back to local worker", async () => {
+    const calls = [];
+    const mockFetch = vi.fn(async (url) => {
+      calls.push(url);
+      if (url.includes("remote-worker.example.com")) {
+        return { ok: false, status: 503 };
+      }
+      return { ok: true, status: 200 };
+    });
+
+    const res = await dispatchMediaWorkerJob({
+      mediaWorkerUrl: "https://remote-worker.example.com",
+      storageProcessingMode: "auto",
+      workerPort: 8080,
+      maxRemoteRetries: 3,
+      fileId: 88,
+      storageKey: "uploads/auto-fallback.mp4",
+      fetchImpl: mockFetch,
+    });
+
+    expect(res).toBe(true);
+    expect(calls).toEqual([
+      "https://remote-worker.example.com/transcode",
+      "https://remote-worker.example.com/transcode",
+      "https://remote-worker.example.com/transcode",
+      "http://127.0.0.1:8080/transcode",
+    ]);
+  });
+
+  test("in auto mode with no remote URL, calls local worker directly", async () => {
+    const calls = [];
+    const mockFetch = vi.fn(async (url) => {
+      calls.push(url);
+      return { ok: true, status: 200 };
+    });
+
+    const res = await dispatchMediaWorkerJob({
+      mediaWorkerUrl: null,
+      storageProcessingMode: "auto",
+      workerPort: 8080,
+      fileId: 99,
+      storageKey: "uploads/local-direct.mp4",
+      fetchImpl: mockFetch,
+    });
+
+    expect(res).toBe(true);
+    expect(calls).toEqual(["http://127.0.0.1:8080/transcode"]);
   });
 });

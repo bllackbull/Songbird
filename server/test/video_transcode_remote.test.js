@@ -47,83 +47,184 @@ describe("Video Transcode Manager - Unified Worker Dispatch & Processing Checks"
       manager.isVideoFileProcessing({
         mime_type: "video/mp4",
         stored_name: "original_raw_video.mp4",
-        storage_driver: "s3",
-        storage_key: "uploads/123-h264-abc.mp4",
+        storage_driver: "remote",
+        storage_key: "uploads/video-h264-abc.mp4",
       }),
     ).toBe(false);
 
-    // 3. Pending status on remote storage IS processing
+    // 3. Transcoded stored_name must NOT be processing
     expect(
       manager.isVideoFileProcessing({
         mime_type: "video/mp4",
-        stored_name: "original_raw_video.mp4",
-        storage_driver: "remote",
-        storage_key: "uploads/123.mp4",
-        processing_status: "pending",
+        stored_name: "video-h264-abc.mp4",
+        storage_driver: "local",
       }),
-    ).toBe(true);
+    ).toBe(false);
 
-    // 4. Non-video is NOT processing
+    // 4. Non-video file must NOT be processing
     expect(
       manager.isVideoFileProcessing({
         mime_type: "image/png",
-        stored_name: "photo.png",
+        stored_name: "image.png",
       }),
     ).toBe(false);
+
+    // 5. Raw video file with pending or no status IS processing
+    expect(
+      manager.isVideoFileProcessing({
+        mime_type: "video/mp4",
+        stored_name: "raw.mp4",
+        storage_driver: "remote",
+        storage_key: "uploads/123-foo.mp4",
+        processing_status: "pending",
+      }),
+    ).toBe(true);
   });
 
   it("dispatches HTTP transcode job to mediaWorkerUrl upon enqueueVideoTranscodeJob", async () => {
-    const fileRecord = {
-      id: "file-uuid-123",
-      message_id: "msg-uuid-456",
-      stored_name: "video123.mp4",
-      storage_key: "messages/video123.mp4",
-      storage_driver: "remote",
+    dbRows.set("job_2", {
+      id: "job_2",
       mime_type: "video/mp4",
+      stored_name: "remote_sample.mp4",
+      storage_key: "uploads/remote_sample.mp4",
+      encryption_type: "none",
       processing_status: "pending",
-    };
-    dbRows.set("file-uuid-123", fileRecord);
+    });
 
     const manager = createVideoTranscodeManager({
-      adminRun: (sql) => {
-        adminRunEvents.push(sql);
-      },
-      adminGetRow: () => fileRecord,
-      adminSave: () => {},
-      listMessageFilesByMessageIds: () => [fileRecord],
-      emitChatEvent: (chatId, evt) => {
-        emittedEvents.push({ chatId, evt });
-      },
-      debugLog: () => {},
-      uploadRootDir: "/tmp/transcode-test",
       transcodeVideosToH264: true,
       storageEncryption,
       storageProvider: mockStorageProvider,
       mediaWorkerUrl: "http://127.0.0.1:8080",
-      webhookSecret: "test-secret-123",
+      adminGetRow: (query) => {
+        return dbRows.get("job_2") || null;
+      },
       fetchImpl: mockFetch,
     });
 
-    const jobHandled = await manager.enqueueVideoTranscodeJob({
-      fileId: "file-uuid-123",
-      storedName: "video123.mp4",
-      storageKey: "messages/video123.mp4",
-      storageDriver: "remote",
-      chatId: "chat-uuid-789",
-      messageId: "msg-uuid-456",
+    const res = await manager.enqueueVideoTranscodeJob({
+      fileId: "job_2",
     });
 
-    expect(jobHandled).toBe(true);
     expect(mockFetch).toHaveBeenCalledTimes(1);
-
-    const [url, options] = mockFetch.mock.calls[0];
+    const [url, opts] = mockFetch.mock.calls[0];
     expect(url).toBe("http://127.0.0.1:8080/transcode");
-    expect(options.method).toBe("POST");
-    expect(options.headers["x-songbird-webhook-secret"]).toBe("test-secret-123");
+    const payload = JSON.parse(opts.body);
+    expect(payload.fileId).toBe("job_2");
+    expect(payload.storageKey).toBe("uploads/remote_sample.mp4");
+    expect(payload.storedName).toBe("remote_sample.mp4");
+    expect(payload.mimeType).toBe("video/mp4");
+    expect(payload.encryptionType).toBe("none");
+    expect(res).toBe(true);
+  });
 
-    const parsedBody = JSON.parse(options.body);
-    expect(parsedBody.fileId).toBe("file-uuid-123");
-    expect(parsedBody.storageKey).toBe("messages/video123.mp4");
-    expect(parsedBody.storedName).toBe("video123.mp4");
+  it("does not dispatch transcode job when storageProcessingMode is 'remote' and mediaWorkerUrl is omitted", async () => {
+    dbRows.set("uuid-remote-video-2", {
+      id: "uuid-remote-video-2",
+      mime_type: "video/mp4",
+      stored_name: "uuid-remote-video-2.mp4",
+      storage_key: "uploads/uuid-remote-video-2.mp4",
+      encryption_type: "none",
+      processing_status: "pending",
+    });
+
+    const manager = createVideoTranscodeManager({
+      transcodeVideosToH264: true,
+      storageEncryption,
+      storageProvider: mockStorageProvider,
+      storageProcessingMode: "remote",
+      mediaWorkerUrl: null,
+      adminGetRow: () => {
+        return dbRows.get("uuid-remote-video-2") || null;
+      },
+      fetchImpl: mockFetch,
+    });
+
+    const res = await manager.enqueueVideoTranscodeJob({
+      fileId: "uuid-remote-video-2",
+      storageProcessingMode: "remote",
+    });
+
+    expect(res).toBe(false);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("dispatches to local worker URL when storageProcessingMode is 'local' and mediaWorkerUrl is omitted", async () => {
+    dbRows.set("uuid-local-video-3", {
+      id: "uuid-local-video-3",
+      mime_type: "video/mp4",
+      stored_name: "uuid-local-video-3.mp4",
+      storage_key: "uploads/uuid-local-video-3.mp4",
+      encryption_type: "none",
+      processing_status: "pending",
+    });
+
+    const manager = createVideoTranscodeManager({
+      transcodeVideosToH264: true,
+      storageEncryption,
+      storageProvider: mockStorageProvider,
+      storageProcessingMode: "local",
+      mediaWorkerUrl: null,
+      adminGetRow: () => {
+        return dbRows.get("uuid-local-video-3") || null;
+      },
+      fetchImpl: mockFetch,
+    });
+
+    const res = await manager.enqueueVideoTranscodeJob({
+      fileId: "uuid-local-video-3",
+      storageProcessingMode: "local",
+    });
+
+    expect(res).toBe(true);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const url = mockFetch.mock.calls[0][0];
+    expect(url).toContain("127.0.0.1");
+    expect(url).toContain("/transcode");
+  });
+
+  it("in auto mode with remote worker URL, retries 3 times on remote failure then falls back to local worker", async () => {
+    dbRows.set("uuid-auto-video-4", {
+      id: "uuid-auto-video-4",
+      mime_type: "video/mp4",
+      stored_name: "uuid-auto-video-4.mp4",
+      storage_key: "uploads/uuid-auto-video-4.mp4",
+      encryption_type: "none",
+      processing_status: "pending",
+    });
+
+    const calls = [];
+    const customFetch = vi.fn(async (url) => {
+      calls.push(url);
+      if (url.includes("remote-service.net")) {
+        return { ok: false, status: 502 };
+      }
+      return { ok: true, status: 200 };
+    });
+
+    const manager = createVideoTranscodeManager({
+      transcodeVideosToH264: true,
+      storageEncryption,
+      storageProvider: mockStorageProvider,
+      storageProcessingMode: "auto",
+      mediaWorkerUrl: "https://remote-service.net",
+      adminGetRow: () => {
+        return dbRows.get("uuid-auto-video-4") || null;
+      },
+      fetchImpl: customFetch,
+    });
+
+    const res = await manager.enqueueVideoTranscodeJob({
+      fileId: "uuid-auto-video-4",
+      storageProcessingMode: "auto",
+    });
+
+    expect(res).toBe(true);
+    expect(calls).toEqual([
+      "https://remote-service.net/transcode",
+      "https://remote-service.net/transcode",
+      "https://remote-service.net/transcode",
+      "http://127.0.0.1:8080/transcode",
+    ]);
   });
 });

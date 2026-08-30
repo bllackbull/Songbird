@@ -1380,15 +1380,25 @@ function registerMessageRoutes(app, deps) {
               file?.id;
             if (!fileId) return;
 
-            const defaultWorkerPort = process.env.WORKER_PORT || "8080";
-            const effectiveWorkerUrl =
-              deps.mediaWorkerUrl !== undefined
-                ? deps.mediaWorkerUrl
-                : process.env.MEDIA_WORKER_URL ||
-                  `http://127.0.0.1:${defaultWorkerPort}`;
-            if (effectiveWorkerUrl) {
+            if (typeof deps.enqueueVideoTranscodeJob === "function") {
+              deps.enqueueVideoTranscodeJob({
+                fileId,
+                storedName: storedName || file.storageKey || file.storage_key,
+                storageKey: file.storageKey || file.storage_key || storedName,
+                storageDriver: file.storageDriver || file.storage_driver,
+                chatId,
+                messageId,
+                username: user.username,
+                storageProcessingMode,
+              });
+              transcodeJobsQueued += 1;
+            } else {
+              const defaultCallback = `http://127.0.0.1:${process.env.SERVER_PORT || process.env.PORT || "5174"}/api/uploads/webhook/processed`;
+
               dispatchMediaWorkerJob({
-                mediaWorkerUrl: effectiveWorkerUrl,
+                mediaWorkerUrl: deps.mediaWorkerUrl || process.env.MEDIA_WORKER_URL || null,
+                storageProcessingMode,
+                workerPort: deps.workerPort || process.env.WORKER_PORT || "8080",
                 webhookSecret:
                   deps.webhookSecret !== undefined
                     ? deps.webhookSecret
@@ -1397,7 +1407,7 @@ function registerMessageRoutes(app, deps) {
                   deps.webhookCallbackUrl ||
                   process.env.WEBHOOK_CALLBACK_URL ||
                   process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
-                  `http://127.0.0.1:${process.env.SERVER_PORT || process.env.PORT || "5174"}/api/uploads/webhook/processed`,
+                  defaultCallback,
                 fileId,
                 storageKey: file.storageKey || file.storage_key || storedName,
                 storedName: storedName || file.storageKey || file.storage_key,
@@ -1413,11 +1423,11 @@ function registerMessageRoutes(app, deps) {
                 .then((ok) => {
                   if (ok) {
                     console.log(
-                      `[messages] Dispatched transcode job for file ${fileId} to worker ${effectiveWorkerUrl}`,
+                      `[messages] Dispatched transcode job for file ${fileId} (mode=${storageProcessingMode})`,
                     );
                   } else {
                     console.warn(
-                      `[messages] Failed to dispatch transcode job for file ${fileId} to worker ${effectiveWorkerUrl}`,
+                      `[messages] Failed to dispatch transcode job for file ${fileId} (mode=${storageProcessingMode})`,
                     );
                   }
                 })
@@ -1427,17 +1437,6 @@ function registerMessageRoutes(app, deps) {
                     err,
                   );
                 });
-              transcodeJobsQueued += 1;
-            } else if (typeof enqueueVideoTranscodeJob === "function") {
-              enqueueVideoTranscodeJob({
-                fileId,
-                storedName,
-                storageKey: file.storageKey || file.storage_key,
-                storageDriver: file.storageDriver || file.storage_driver,
-                chatId,
-                messageId,
-                username: user.username,
-              });
               transcodeJobsQueued += 1;
             }
           });

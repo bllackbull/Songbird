@@ -16,6 +16,7 @@ export function createVideoTranscodeManager({
   transcodeVideosToH264,
   storageEncryption,
   storageProvider,
+  storageProcessingMode,
   mediaWorkerUrl,
   webhookSecret,
   callbackUrl,
@@ -174,11 +175,20 @@ export function createVideoTranscodeManager({
     const fileId = job?.fileId;
     if (!fileId) return false;
 
-    const defaultWorkerPort = process.env.WORKER_PORT || "8080";
+    const currentMode = String(
+      job?.storageProcessingMode ||
+      storageProcessingMode ||
+      process.env.STORAGE_PROCESSING_MODE ||
+      "auto",
+    ).toLowerCase();
+
     const workerUrl =
-      mediaWorkerUrl ||
-      process.env.MEDIA_WORKER_URL ||
-      `http://127.0.0.1:${defaultWorkerPort}`;
+      job?.mediaWorkerUrl !== undefined
+        ? job?.mediaWorkerUrl
+        : mediaWorkerUrl !== undefined
+        ? mediaWorkerUrl
+        : process.env.MEDIA_WORKER_URL || null;
+
     const secret =
       webhookSecret !== undefined
         ? webhookSecret
@@ -228,6 +238,8 @@ export function createVideoTranscodeManager({
 
     return dispatchMediaWorkerJob({
       mediaWorkerUrl: workerUrl,
+      storageProcessingMode: currentMode,
+      workerPort: job?.workerPort || process.env.WORKER_PORT || "8080",
       webhookSecret: secret,
       callbackUrl: cbUrl,
       fileId,
@@ -235,7 +247,7 @@ export function createVideoTranscodeManager({
       storedName,
       mimeType,
       encryptionType,
-      fetchImpl,
+      fetchImpl: job?.fetchImpl || fetchImpl,
     });
   };
 

@@ -28,6 +28,7 @@ import { createStorageProvider } from "./lib/storage/index.js";
 import { createMediaQueueManager } from "./lib/mediaQueue.js";
 import { createRemoteChannelManager } from "./lib/remoteChannels.js";
 import { initAutoAddWorker } from "./lib/workers/autoAddWorker.js";
+import { ensureLocalWorkerRunning } from "./lib/localWorkerManager.js";
 import { buildTimestampSchedule } from "./lib/timeUtils.js";
 import { isLoopbackRequest, parseUploadFileMetadata } from "./lib/requestUtils.js";
 import { USERNAME_REGEX } from "./lib/validation.js";
@@ -458,9 +459,9 @@ const videoTranscoder = createVideoTranscodeManager({
   transcodeVideosToH264: TRANSCODE_VIDEOS_TO_H264,
   storageEncryption,
   storageProvider,
-  mediaWorkerUrl:
-    process.env.MEDIA_WORKER_URL ||
-    `http://127.0.0.1:${process.env.WORKER_PORT || "8080"}`,
+  storageProcessingMode: process.env.STORAGE_PROCESSING_MODE || "auto",
+  mediaWorkerUrl: process.env.MEDIA_WORKER_URL || null,
+  workerPort: process.env.WORKER_PORT || "8080",
   webhookSecret: process.env.WEBHOOK_SECRET || null,
   callbackUrl:
     process.env.WEBHOOK_CALLBACK_URL ||
@@ -660,14 +661,13 @@ const apiDeps = {
   storageProvider,
   mediaQueueManager,
   storageProcessingMode: process.env.STORAGE_PROCESSING_MODE || "auto",
+  mediaWorkerUrl: process.env.MEDIA_WORKER_URL || null,
+  workerPort: process.env.WORKER_PORT || "8080",
   webhookSecret: process.env.WEBHOOK_SECRET || null,
   webhookCallbackUrl:
     process.env.WEBHOOK_CALLBACK_URL ||
     process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
     `http://127.0.0.1:${process.env.SERVER_PORT || process.env.PORT || "5174"}/api/uploads/webhook/processed`,
-  mediaWorkerUrl:
-    process.env.MEDIA_WORKER_URL ||
-    `http://127.0.0.1:${process.env.WORKER_PORT || "8080"}`,
   ALLOWED_AVATAR_MIME_TYPES,
   redisClient,
   redisSessionStore,
@@ -1192,6 +1192,9 @@ if (REMOTE_CHANNEL) {
 
 const server = app.listen(port, bindAddress, () => {
   console.log(`Songbird server running on http://${bindAddress}:${port}`);
+  ensureLocalWorkerRunning().catch((err) => {
+    console.warn("[server] ensureLocalWorkerRunning error:", err?.message || err);
+  });
 });
 
 const { wsHeartbeatIntervalMs, wsHeartbeatTimeoutMs } = parseEnv();
