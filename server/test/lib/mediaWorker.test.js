@@ -163,7 +163,7 @@ describe("dispatchMediaWorkerJob", () => {
     expect(calls).toEqual(["https://remote-worker.example.com/transcode"]);
   });
 
-  test("in auto mode with remote URL, retries up to 3 times before falling back to local worker", async () => {
+  test("in auto mode with remote URL, retries for storageProcessingTimeoutMs before falling back to local worker", async () => {
     const calls = [];
     const mockFetch = vi.fn(async (url) => {
       calls.push(url);
@@ -176,6 +176,8 @@ describe("dispatchMediaWorkerJob", () => {
     const res = await dispatchMediaWorkerJob({
       mediaWorkerUrl: "https://remote-worker.example.com",
       storageProcessingMode: "auto",
+      storageProcessingTimeoutMs: 60,
+      retryDelayMs: 20,
       workerPort: 8080,
       fileId: 102,
       storageKey: "uploads/retry-fallback.mp4",
@@ -183,12 +185,9 @@ describe("dispatchMediaWorkerJob", () => {
     });
 
     expect(res).toBe(true);
-    expect(calls).toEqual([
-      "https://remote-worker.example.com/transcode",
-      "https://remote-worker.example.com/transcode",
-      "https://remote-worker.example.com/transcode",
-      "http://127.0.0.1:8080/transcode",
-    ]);
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    expect(calls[0]).toBe("https://remote-worker.example.com/transcode");
+    expect(calls[calls.length - 1]).toBe("http://127.0.0.1:8080/transcode");
   });
 
   test("in auto mode with no remote URL, calls local worker directly", async () => {

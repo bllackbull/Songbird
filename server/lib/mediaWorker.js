@@ -35,8 +35,8 @@ function isLocalWorkerAddress(url) {
  * @param {string} [params.mediaWorkerUrl] - Deprecated fallback alias for workerUrl
  * @param {string} [params.storageProcessingMode] - Strategy mode: 'auto' (default), 'local', or 'remote'
  * @param {string|number} [params.workerPort] - Port of local worker (default 8080)
- * @param {number} [params.maxRemoteRetries] - Max retries for remote worker in auto mode (default 3)
- * @param {number} [params.retryDelayMs] - Delay between retries in ms (default 0)
+ * @param {number} [params.storageProcessingTimeoutMs] - Total time (ms) to retry calling remote worker in auto mode (default: STORAGE_PROCESSING_TIMEOUT_MS or 30000)
+ * @param {number} [params.retryDelayMs] - Delay between retry attempts in ms (default 250)
  * @param {string} [params.webhookSecret] - Secret token for x-songbird-webhook-secret header
  * @param {string} [params.callbackUrl] - Songbird callback webhook URL (e.g. https://songbird.example.com/api/uploads/webhook/processed)
  * @param {string|number} params.fileId - File record ID in chat_message_files
@@ -52,8 +52,8 @@ export async function dispatchMediaWorkerJob({
   mediaWorkerUrl,
   storageProcessingMode,
   workerPort,
-  maxRemoteRetries = 3,
-  retryDelayMs = 0,
+  storageProcessingTimeoutMs,
+  retryDelayMs = 250,
   webhookSecret,
   callbackUrl,
   fileId,
@@ -133,34 +133,24 @@ export async function dispatchMediaWorkerJob({
     }
   }
 
+  const timeoutMs = Math.max(
+    0,
+    Number(
+      storageProcessingTimeoutMs !== undefined
+        ? storageProcessingTimeoutMs
+        : process.env.STORAGE_PROCESSING_TIMEOUT_MS || 30000,
+    ),
+  );
+
   if (mode === "remote") {
-    // Mode: remote -> calls only the remote worker without any fallback or local workers running
+    // Mode: remote -> calls only the remote worker without local fallback
     if (!configuredRemoteUrl) {
       return false;
     }
-    try {
-      return await sendTranscodeRequest(
-        configuredRemoteUrl,
-        getPayloadForTarget(configuredRemoteUrl),
-        webhookSecret,
-        fetchImpl,
-      );
-    } catch (err) {
-      console.warn(
-        `[mediaWorker] Failed to dispatch to remote worker (${configuredRemoteUrl}) for file ${fileId}:`,
-        err?.message || err,
-      );
-      return false;
-    }
-  }
-
-  // Mode: auto (default)
-  // If remote worker is configured and not pointing to local host, try remote up to 3 times before falling back to local
-  const isRemoteWorkerConfigured =
-    Boolean(configuredRemoteUrl) && !isLocalWorkerAddress(configuredRemoteUrl);
-
-  if (isRemoteWorkerConfigured) {
-    for (let attempt = 1; attempt <= maxRemoteRetries; attempt += 1) {
+    const startTime = Date.now();
+    let attempt = 0;
+    while (true) {
+      attempt += 1;
       try {
         const ok = await sendTranscodeRequest(
           configuredRemoteUrl,
@@ -173,16 +163,69 @@ export async function dispatchMediaWorkerJob({
         }
       } catch (err) {
         console.warn(
-          `[mediaWorker] Attempt ${attempt}/${maxRemoteRetries} to remote worker (${configuredRemoteUrl}) failed for file ${fileId}:`,
+          `[mediaWorker] Attempt ${attempt} to remote worker (${configuredRemoteUrl}) failed for file ${fileId}:`,
           err?.message || err,
         );
       }
-      if (attempt < maxRemoteRetries && retryDelayMs > 0) {
-        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+
+      const elapsed = Date.now() - startTime;
+      if (elapsed >= timeoutMs) {
+        break;
+      }
+
+      const delay = Math.min(
+        retryDelayMs !== undefined ? retryDelayMs : 250,
+        timeoutMs - elapsed,
+      );
+      if (delay > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+    return false;
+  }
+
+  // Mode: auto (default)
+  // If remote worker is configured and not pointing to local host, retry remote worker for STORAGE_PROCESSING_TIMEOUT_MS before falling back to local
+  const isRemoteWorkerConfigured =
+    Boolean(configuredRemoteUrl) && !isLocalWorkerAddress(configuredRemoteUrl);
+
+  if (isRemoteWorkerConfigured) {
+    const startTime = Date.now();
+    let attempt = 0;
+    while (true) {
+      attempt += 1;
+      try {
+        const ok = await sendTranscodeRequest(
+          configuredRemoteUrl,
+          getPayloadForTarget(configuredRemoteUrl),
+          webhookSecret,
+          fetchImpl,
+        );
+        if (ok) {
+          return true;
+        }
+      } catch (err) {
+        console.warn(
+          `[mediaWorker] Attempt ${attempt} to remote worker (${configuredRemoteUrl}) failed for file ${fileId}:`,
+          err?.message || err,
+        );
+      }
+
+      const elapsed = Date.now() - startTime;
+      if (elapsed >= timeoutMs) {
+        break;
+      }
+
+      const delay = Math.min(
+        retryDelayMs !== undefined ? retryDelayMs : 250,
+        timeoutMs - elapsed,
+      );
+      if (delay > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
     console.warn(
-      `[mediaWorker] All ${maxRemoteRetries} attempts to remote worker (${configuredRemoteUrl}) failed for file ${fileId}. Falling back to local worker (${localWorkerUrl}).`,
+      `[mediaWorker] Remote worker (${configuredRemoteUrl}) timed out after ${timeoutMs}ms (${attempt} attempt${attempt === 1 ? "" : "s"}) for file ${fileId}. Falling back to local worker (${localWorkerUrl}).`,
     );
   }
 

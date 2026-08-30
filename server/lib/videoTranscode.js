@@ -17,6 +17,8 @@ export function createVideoTranscodeManager({
   storageEncryption,
   storageProvider,
   storageProcessingMode,
+  storageProcessingTimeoutMs,
+  workerUrl,
   mediaWorkerUrl,
   webhookSecret,
   callbackUrl,
@@ -241,8 +243,14 @@ export function createVideoTranscodeManager({
     }
 
     return dispatchMediaWorkerJob({
+      workerUrl,
       mediaWorkerUrl: workerUrl,
       storageProcessingMode: currentMode,
+      storageProcessingTimeoutMs:
+        job?.storageProcessingTimeoutMs ||
+        storageProcessingTimeoutMs ||
+        (process.env.STORAGE_PROCESSING_TIMEOUT_MS ? Number(process.env.STORAGE_PROCESSING_TIMEOUT_MS) : undefined),
+      retryDelayMs: job?.retryDelayMs,
       workerPort: job?.workerPort || process.env.WORKER_PORT || "8080",
       webhookSecret: secret,
       callbackUrl: cbUrl,

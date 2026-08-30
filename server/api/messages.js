@@ -1409,6 +1409,9 @@ function registerMessageRoutes(app, deps) {
                   process.env.MEDIA_WORKER_URL ||
                   null,
                 storageProcessingMode,
+                storageProcessingTimeoutMs:
+                  deps.storageProcessingTimeoutMs ||
+                  (process.env.STORAGE_PROCESSING_TIMEOUT_MS ? Number(process.env.STORAGE_PROCESSING_TIMEOUT_MS) : undefined),
                 workerPort: deps.workerPort || process.env.WORKER_PORT || "8080",
                 webhookSecret:
                   deps.webhookSecret !== undefined
