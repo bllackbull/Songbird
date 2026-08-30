@@ -184,6 +184,7 @@ export function makeApp(overrides = {}) {
     storageProvider: createStorageProvider({ STORAGE_DRIVER: "local" }),
     storageProcessingMode: "auto",
     webhookSecret: null,
+    workerUrl: null,
     mediaWorkerUrl: null,
 
     removeStoredFileNames: () => {},

@@ -31,7 +31,8 @@ function isLocalWorkerAddress(url) {
  * Dispatches video transcoding jobs to an external or local media processing worker via HTTP POST.
  *
  * @param {object} params
- * @param {string} [params.mediaWorkerUrl] - Base URL of the external worker (e.g. https://worker.onrender.com)
+ * @param {string} [params.workerUrl] - Base URL of the external worker (e.g. https://worker.onrender.com)
+ * @param {string} [params.mediaWorkerUrl] - Deprecated fallback alias for workerUrl
  * @param {string} [params.storageProcessingMode] - Strategy mode: 'auto' (default), 'local', or 'remote'
  * @param {string|number} [params.workerPort] - Port of local worker (default 8080)
  * @param {number} [params.maxRemoteRetries] - Max retries for remote worker in auto mode (default 3)
@@ -47,6 +48,7 @@ function isLocalWorkerAddress(url) {
  * @returns {Promise<boolean>} Whether the dispatch request was successfully accepted
  */
 export async function dispatchMediaWorkerJob({
+  workerUrl,
   mediaWorkerUrl,
   storageProcessingMode,
   workerPort,
@@ -79,8 +81,16 @@ export async function dispatchMediaWorkerJob({
   const effectiveStorageKey = storageKey || storedName;
   const effectiveStoredName = storedName || storageKey;
 
+  const resolvedCallbackUrl =
+    callbackUrl ||
+    process.env.WEBHOOK_URL ||
+    process.env.WEBHOOK_CALLBACK_URL ||
+    process.env.SONGBIRD_WEBHOOK_URL ||
+    process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
+    null;
+
   const getPayloadForTarget = (targetWorkerUrl) => {
-    let effectiveCallback = callbackUrl || null;
+    let effectiveCallback = resolvedCallbackUrl;
     if (!isLocalWorkerAddress(targetWorkerUrl) && isLocalWorkerAddress(effectiveCallback)) {
       effectiveCallback = null;
     }
@@ -99,9 +109,11 @@ export async function dispatchMediaWorkerJob({
   };
 
   const configuredRemoteUrl =
-    mediaWorkerUrl !== undefined
+    workerUrl !== undefined
+      ? workerUrl
+      : mediaWorkerUrl !== undefined
       ? mediaWorkerUrl
-      : process.env.MEDIA_WORKER_URL || null;
+      : process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null;
 
   if (mode === "local") {
     // Mode: local -> calls only the local worker

@@ -1873,7 +1873,7 @@ VAPID_SUBJECT=${existing_subject}
 
 # Media Processing Worker
 WORKER_PORT=${WORKER_PORT}
-MEDIA_WORKER_URL=http://127.0.0.1:${WORKER_PORT}
+WORKER_URL=http://127.0.0.1:${WORKER_PORT}
 WEBHOOK_URL=http://127.0.0.1:${SERVER_PORT}/api/uploads/webhook/processed
 
 # NOTE: All other application settings (sign-up, file uploads, retention,

@@ -53,7 +53,26 @@ describe("dispatchMediaWorkerJob", () => {
     });
   });
 
-  test("in remote mode, replaces loopback callbackUrl with null so worker uses its own configured webhook url", async () => {
+  test("dispatches POST request with workerUrl parameter", async () => {
+    let capturedUrl = "";
+    const mockFetch = vi.fn(async (url) => {
+      capturedUrl = url;
+      return { ok: true, status: 202 };
+    });
+
+    const res = await dispatchMediaWorkerJob({
+      workerUrl: "https://custom-worker.example.com",
+      storageProcessingMode: "remote",
+      fileId: 100,
+      storageKey: "uploads/custom.mp4",
+      fetchImpl: mockFetch,
+    });
+
+    expect(res).toBe(true);
+    expect(capturedUrl).toBe("https://custom-worker.example.com/transcode");
+  });
+
+  test("in remote mode, replaces loopback callbackUrl with null when no public callback URL is set", async () => {
     let capturedOptions = {};
 
     const mockFetch = vi.fn(async (url, options) => {

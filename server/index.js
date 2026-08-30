@@ -460,11 +460,14 @@ const videoTranscoder = createVideoTranscodeManager({
   storageEncryption,
   storageProvider,
   storageProcessingMode: process.env.STORAGE_PROCESSING_MODE || "auto",
-  mediaWorkerUrl: process.env.MEDIA_WORKER_URL || null,
+  mediaWorkerUrl: process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
+  workerUrl: process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
   workerPort: process.env.WORKER_PORT || "8080",
   webhookSecret: process.env.WEBHOOK_SECRET || null,
   callbackUrl:
+    process.env.WEBHOOK_URL ||
     process.env.WEBHOOK_CALLBACK_URL ||
+    process.env.SONGBIRD_WEBHOOK_URL ||
     process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
     `http://127.0.0.1:${process.env.SERVER_PORT || process.env.PORT || "5174"}/api/uploads/webhook/processed`,
 });
@@ -661,11 +664,14 @@ const apiDeps = {
   storageProvider,
   mediaQueueManager,
   storageProcessingMode: process.env.STORAGE_PROCESSING_MODE || "auto",
-  mediaWorkerUrl: process.env.MEDIA_WORKER_URL || null,
+  mediaWorkerUrl: process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
+  workerUrl: process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
   workerPort: process.env.WORKER_PORT || "8080",
   webhookSecret: process.env.WEBHOOK_SECRET || null,
   webhookCallbackUrl:
+    process.env.WEBHOOK_URL ||
     process.env.WEBHOOK_CALLBACK_URL ||
+    process.env.SONGBIRD_WEBHOOK_URL ||
     process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
     `http://127.0.0.1:${process.env.SERVER_PORT || process.env.PORT || "5174"}/api/uploads/webhook/processed`,
   ALLOWED_AVATAR_MIME_TYPES,

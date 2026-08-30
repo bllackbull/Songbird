@@ -183,11 +183,13 @@ export function createVideoTranscodeManager({
     ).toLowerCase();
 
     const workerUrl =
-      job?.mediaWorkerUrl !== undefined
+      job?.workerUrl !== undefined
+        ? job?.workerUrl
+        : job?.mediaWorkerUrl !== undefined
         ? job?.mediaWorkerUrl
         : mediaWorkerUrl !== undefined
         ? mediaWorkerUrl
-        : process.env.MEDIA_WORKER_URL || null;
+        : process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null;
 
     const secret =
       webhookSecret !== undefined
@@ -196,7 +198,9 @@ export function createVideoTranscodeManager({
     const defaultCallback = `http://127.0.0.1:${process.env.SERVER_PORT || process.env.PORT || "5174"}/api/uploads/webhook/processed`;
     const cbUrl =
       callbackUrl ||
+      process.env.WEBHOOK_URL ||
       process.env.WEBHOOK_CALLBACK_URL ||
+      process.env.SONGBIRD_WEBHOOK_URL ||
       process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
       defaultCallback;
 

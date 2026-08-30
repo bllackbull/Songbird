@@ -1396,7 +1396,18 @@ function registerMessageRoutes(app, deps) {
               const defaultCallback = `http://127.0.0.1:${process.env.SERVER_PORT || process.env.PORT || "5174"}/api/uploads/webhook/processed`;
 
               dispatchMediaWorkerJob({
-                mediaWorkerUrl: deps.mediaWorkerUrl || process.env.MEDIA_WORKER_URL || null,
+                workerUrl:
+                  deps.workerUrl ||
+                  deps.mediaWorkerUrl ||
+                  process.env.WORKER_URL ||
+                  process.env.MEDIA_WORKER_URL ||
+                  null,
+                mediaWorkerUrl:
+                  deps.workerUrl ||
+                  deps.mediaWorkerUrl ||
+                  process.env.WORKER_URL ||
+                  process.env.MEDIA_WORKER_URL ||
+                  null,
                 storageProcessingMode,
                 workerPort: deps.workerPort || process.env.WORKER_PORT || "8080",
                 webhookSecret:
@@ -1405,7 +1416,9 @@ function registerMessageRoutes(app, deps) {
                     : process.env.WEBHOOK_SECRET || null,
                 callbackUrl:
                   deps.webhookCallbackUrl ||
+                  process.env.WEBHOOK_URL ||
                   process.env.WEBHOOK_CALLBACK_URL ||
+                  process.env.SONGBIRD_WEBHOOK_URL ||
                   process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
                   defaultCallback,
                 fileId,

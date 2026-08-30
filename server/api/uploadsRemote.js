@@ -19,7 +19,18 @@ export function registerRemoteUploadRoutes(app, deps) {
     storageProcessingMode = "auto",
     s3ProcessingMode = "auto",
     webhookSecret,
-    mediaWorkerUrl = deps.mediaWorkerUrl || process.env.MEDIA_WORKER_URL || null,
+    workerUrl =
+      deps.workerUrl ||
+      deps.mediaWorkerUrl ||
+      process.env.WORKER_URL ||
+      process.env.MEDIA_WORKER_URL ||
+      null,
+    mediaWorkerUrl =
+      deps.workerUrl ||
+      deps.mediaWorkerUrl ||
+      process.env.WORKER_URL ||
+      process.env.MEDIA_WORKER_URL ||
+      null,
     requireSession,
     getSessionFromRequest,
     storageEncryption = defaultStorageEncryption,
@@ -301,7 +312,22 @@ export function registerRemoteUploadRoutes(app, deps) {
 
     if (isVideo && transcodeEnabled) {
       dispatchMediaWorkerJob({
-        mediaWorkerUrl: deps.mediaWorkerUrl || mediaWorkerUrl || process.env.MEDIA_WORKER_URL || null,
+        workerUrl:
+          deps.workerUrl ||
+          deps.mediaWorkerUrl ||
+          workerUrl ||
+          mediaWorkerUrl ||
+          process.env.WORKER_URL ||
+          process.env.MEDIA_WORKER_URL ||
+          null,
+        mediaWorkerUrl:
+          deps.workerUrl ||
+          deps.mediaWorkerUrl ||
+          workerUrl ||
+          mediaWorkerUrl ||
+          process.env.WORKER_URL ||
+          process.env.MEDIA_WORKER_URL ||
+          null,
         storageProcessingMode: mode,
         workerPort: deps.workerPort || process.env.WORKER_PORT || "8080",
         webhookSecret:
@@ -310,7 +336,9 @@ export function registerRemoteUploadRoutes(app, deps) {
             : webhookSecret || process.env.WEBHOOK_SECRET || null,
         callbackUrl:
           deps.webhookCallbackUrl ||
+          process.env.WEBHOOK_URL ||
           process.env.WEBHOOK_CALLBACK_URL ||
+          process.env.SONGBIRD_WEBHOOK_URL ||
           process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
           defaultCallback,
         fileId,

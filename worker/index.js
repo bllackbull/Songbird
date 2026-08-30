@@ -25,11 +25,6 @@ if (typeof process.loadEnvFile === "function") {
 
 const PORT = Number(process.env.WORKER_PORT || 8080);
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "";
-const DEFAULT_CALLBACK_URL =
-  process.env.WEBHOOK_URL ||
-  process.env.SONGBIRD_WEBHOOK_URL ||
-  process.env.WEBHOOK_CALLBACK_URL ||
-  `http://127.0.0.1:${process.env.SERVER_PORT || "5174"}/api/uploads/webhook/processed`;
 const WORKER_CONCURRENCY = Math.max(
   1,
   parseInt(
@@ -166,10 +161,8 @@ async function processTranscodeJob({
   uploadUrl,
   thumbUploadUrl,
 }) {
-  let targetCallback = callbackUrl || DEFAULT_CALLBACK_URL;
-  if (isLoopbackUrl(callbackUrl) && !isLoopbackUrl(DEFAULT_CALLBACK_URL)) {
-    targetCallback = DEFAULT_CALLBACK_URL;
-  }
+  const defaultLocalCallback = `http://127.0.0.1:${process.env.SERVER_PORT || "5174"}/api/uploads/webhook/processed`;
+  const targetCallback = callbackUrl || defaultLocalCallback;
   const isEncrypted =
     String(encryptionType || "").toLowerCase() === "local" ||
     String(encryptionType || "").toLowerCase() === "aes-256-gcm" ||
