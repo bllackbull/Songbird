@@ -1,15 +1,15 @@
 # ذخیره سازی ابری و پردازش رسانه (Object Storage)
 
-Songbird از یک معماری ذخیره سازی قابل گسترش (Pluggable Storage) پشتیبانی میکند که به شما امکان میدهد بین ذخیره سازی دیسک محلی و ذخیره سازی ابری ریموت (Object Storage) انتخاب کنید. این معماری هنگام ترکیب با صف های کاری پس زمینه، پردازش، تبدیل و ارائه فایل های رسانه ای را در محیط های تک سروری یا سیستم های توزیع شده ابری به صورت روان مدیریت میکند.
+پلتفرم Songbird از یک معماری ذخیره سازی ماژولار (Pluggable Storage) پشتیبانی میکند که به شما امکان میدهد بین ذخیره سازی دیسک محلی و ذخیره سازی ابری سازگار با S3 انتخاب کنید. در ترکیب با **Media Worker یکپارچه Songbird**، امکان ترنسکد ویدیویی غیرهمگام با کارایی بالا، استخراج بندانگشتی (Thumbnail) و بهینهسازی مدیا در استقرارهای تکسروری یا محیطهای ابری توزیعشده فراهم شده است.
 
 ## درایورهای ذخیره سازی (Storage Drivers)
 
-Songbird از متغیر محیطی `STORAGE_DRIVER` برای تعیین محل ذخیره سازی فایل های آپلودشده چت، پیوست های رسانه ای و آواتارها استفاده میکند.
+Songbird از متغیر محیطی `STORAGE_DRIVER` برای تعیین محل ذخیره سازی فایلهای آپلودشده چت، پیوستهای چندرسانهای و آواتارها استفاده میکند.
 
 | درایور | `STORAGE_DRIVER` | توضیح |
 |---|---|---|
-| **دیسک محلی** (پیشفرض) | `local` | آپلودها مستقیماً روی فایل سیستم محلی سرور در پوشه `DATA_DIR` (پوشه های `data/uploads/` و `data/avatars/`) ذخیره میشوند. مناسب برای نصب های ساده تک سروری. |
-| **ذخیره سازی ابری ریموت** | `remote` | آپلودها در یک باکت سازگار با S3 (مانند AWS S3، Cloudflare R2، MinIO، ArvanCloud، Wasabi) ذخیره میشوند. آپلودها با استفاده از Presigned URL مستقیماً از سمت کلاینت انجام میشوند. |
+| **دیسک محلی** (پیشفرض) | `local` | آپلودها مستقیماً روی فایل سیستم محلی سرور در مسیر پوشه `DATA_DIR` (پوشههای `data/uploads/` و `data/avatars/`) ذخیره میشوند. ایدهآل برای استقرارهای ساده روی یک سرور VPS یا Docker. |
+| **ذخیره سازی ابری ریموت** | `remote` | آپلودها در یک باکت سازگار با S3 (مانند AWS S3، Cloudflare R2، MinIO، ArvanCloud، Wasabi) ذخیره میشوند. فرآیند آپلود با استفاده از Presigned URL مستقیماً بین کلاینت و باکت انجام شده و از سرور اصلی عبور نمیکند. |
 
 ```bash
 # نمونه تنظیم در فایل .env
@@ -18,37 +18,25 @@ STORAGE_DRIVER=remote
 
 ## پیکربندی ذخیره سازی ابری ریموت
 
-هنگامی که `STORAGE_DRIVER=remote` فعال است، متغیرهای محیطی زیر را برای اتصال Songbird به باکت ذخیره سازی ابری خود پیکربندی کنید:
+هنگامی که `STORAGE_DRIVER=remote` فعال است، متغیرهای محیطی زیر را برای اتصال Songbird به باکت ذخیره سازی ابری خود تنظیم کنید:
 
 | متغیر | نوع | پیشفرض | توضیح |
 |---|---|---:|---|
-| `STORAGE_DRIVER` | `string` | `local` | برای فعال سازی ذخیره سازی ابری، روی `remote` تنظیم کنید. |
-| `STORAGE_ENDPOINT` | `string` | `""` | نشانی URL سرویس ذخیره سازی ابری (مانند AWS، Cloudflare R2، MinIO، ArvanCloud). |
+| `STORAGE_DRIVER` | `string` | `local` | برای فعالسازی ذخیره سازی ابری، روی `remote` تنظیم کنید. |
+| `STORAGE_ENDPOINT` | `string` | `""` | نشانی URL سرویس ذخیره سازی سازگار با S3 (مانند AWS، Cloudflare R2، MinIO، ArvanCloud). |
 | `STORAGE_BUCKET` | `string` | `""` | نام باکت (Bucket) ذخیره سازی شما. |
-| `STORAGE_REGION` | `string` | `auto` | منطقه جغرافیایی باکت (پیشفرض `auto` که سازگاری بدون نیاز به پیکربندی اضافه را با Cloudflare R2، MinIO، ArvanCloud و سایر سرویس های سازگار با S3 فراهم میکند؛ کاربران AWS S3 میتوانند آن را با کد منطقه خود مانند `us-east-1` یا `eu-central-1` جایگزین کنند). |
-| `STORAGE_ACCESS_KEY_ID` | `string` | `""` | شناسه کلید دسترسی (Access Key ID) برای احراز هویت باکت. |
-| `STORAGE_SECRET_ACCESS_KEY` | `string` | `""` | کلید دسترسی محرمانه (Secret Access Key) برای احراز هویت باکت. |
-| `STORAGE_PUBLIC_URL` | `string` | `""` | پیشوند URL اختیاری دامنه CDN (مانند `https://cdn.example.com`). در صورت تنظیم، لینک های دانلود عمومی به جای Presigned URLها از این پیشوند استفاده میکنند. |
-| `STORAGE_EXPIRES_IN` | `integer` | `3600` | زمان انقضا به ثانیه برای Presigned URLهای آپلود و دانلود. |
-| `STORAGE_FORCE_PATH_STYLE` | `boolean` | `true` | فعال سازی ساختار URL به روش path-style (به صورت `endpoint/bucket/key`). برای MinIO، Cloudflare R2، ArvanCloud، Wasabi و غیره الزامی است. |
+| `STORAGE_REGION` | `string` | `auto` | منطقه جغرافیایی باکت (پیشفرض `auto` برای سرویسهای Cloudflare R2، MinIO و ArvanCloud؛ کاربران AWS S3 میتوانند منطقه اختصاصی مانند `us-east-1` را وارد کنند). |
+| `STORAGE_ACCESS_KEY_ID` | `string` | `""` | کلید دسترسی (Access Key ID) برای احراز هویت باکت. |
+| `STORAGE_SECRET_ACCESS_KEY` | `string` | `""` | کلید مخفی (Secret Access Key) برای احراز هویت باکت. |
+| `STORAGE_PUBLIC_URL` | `string` | `""` | پیشوند اختیاری دامنه CDN اختصاصی (مانند `https://cdn.example.com`). در صورت تنظیم، لینکهای دانلود عمومی به جای Presigned URL از این پیشوند استفاده میکنند. |
+| `STORAGE_EXPIRES_IN` | `integer` | `3600` | مدت زمان انقضای توکنهای Presigned URL برای آپلود و دانلود بر حسب ثانیه. |
+| `STORAGE_FORCE_PATH_STYLE` | `boolean` | `true` | فعالسازی فرمت آدرسدهی Path-Style (به صورت `endpoint/bucket/key`). برای Cloudflare R2، MinIO، ArvanCloud، Wasabi و غیره الزامی است. |
 
-### نمونه پیکربندی ارائه دهندگان (Provider Examples)
-
-#### AWS S3
-
-```
-STORAGE_DRIVER=remote
-STORAGE_ENDPOINT=https://s3.us-east-1.amazonaws.com
-STORAGE_BUCKET=my-songbird-bucket
-STORAGE_REGION=us-east-1
-STORAGE_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
-STORAGE_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
-STORAGE_FORCE_PATH_STYLE=false
-```
+### نمونههای پیکربندی ارائه دهندگان
 
 #### Cloudflare R2
 
-```
+```txt
 STORAGE_DRIVER=remote
 STORAGE_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
 STORAGE_BUCKET=my-songbird-bucket
@@ -59,9 +47,21 @@ STORAGE_PUBLIC_URL=https://media.example.com
 STORAGE_FORCE_PATH_STYLE=true
 ```
 
-#### MinIO (میزبانی شخصی)
+#### AWS S3
 
+```txt
+STORAGE_DRIVER=remote
+STORAGE_ENDPOINT=https://s3.us-east-1.amazonaws.com
+STORAGE_BUCKET=my-songbird-bucket
+STORAGE_REGION=us-east-1
+STORAGE_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+STORAGE_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+STORAGE_FORCE_PATH_STYLE=false
 ```
+
+#### MinIO (Self-Hosted)
+
+```txt
 STORAGE_DRIVER=remote
 STORAGE_ENDPOINT=http://minio.internal:9000
 STORAGE_BUCKET=songbird-media
@@ -73,7 +73,7 @@ STORAGE_FORCE_PATH_STYLE=true
 
 #### ابر آروان (ArvanCloud Object Storage)
 
-```
+```txt
 STORAGE_DRIVER=remote
 STORAGE_ENDPOINT=https://s3.ir-thr-at1.arvanstorage.ir
 STORAGE_BUCKET=my-songbird-bucket
@@ -83,86 +83,162 @@ STORAGE_SECRET_ACCESS_KEY=<ARVAN_SECRET_KEY>
 STORAGE_FORCE_PATH_STYLE=true
 ```
 
-## تنظیمات پردازش رسانه ریموت و Fallback
+---
 
-هنگام آپلود فایل های رسانه ای با `STORAGE_DRIVER=remote`، Songbird پردازش فایل ها را به صورت ناهمگام (Asynchronous) انجام میدهد تا سرعت پاسخ دهی آپلود حفظ شود.
+## معماری Media Worker یکپارچه
 
-### حالت های پردازش (`STORAGE_PROCESSING_MODE`)
+سرویس Songbird دارای یک **Media Worker** مستقل و بدون وضعیت (Stateless HTTP Push Worker) در پوشه `worker/` است که وظیفه انجام ترنسکد ویدیوها، استخراج تصاویر بندانگشتی و بررسی متادیتای فایلهای مدیا را خارج از سرور اصلی چت بر عهده دارد.
 
-| حالت | رفتار |
+:::tip راهنمای اختصاصی ورکر مدیا
+برای بررسی جامع استقرار مستقل، راه اندازی ابری (Render، Railway، Fly.io)، تنظیم همزمانی و مستندات API، به صفحه اختصاصی [ورکر مدیا](./Media-Worker.md) مراجعه کنید.
+:::
+
+```
+┌──────────────┐     ۱. آپلود مستقیم (Presigned/Multipart)     ┌──────────────────────┐
+│   کلاینت     │ ───────────────────────────────────────────> │ S3 / R2 / دیسک محلی  │
+│ وب یا اپلیکیشن│                                             └──────────────────────┘
+└──────┬───────┘                                                         ▲
+       │                                                                 │
+       │ ۲. اطلاع به سرور                                               │ ۴. خواندن فایل خام /
+       ▼                                                                 │    آپلود پردازششده /
+┌──────────────┐          ۳. POST /transcode                 ┌───────────┴──────────┐
+│ سرور اصلی    │ ──────────────────────────────────────────> │ Songbird Media Worker│
+│   Songbird   │ <────────────────────────────────────────── │    (HTTP Push)       │
+└──────────────┘    ۵. POST /api/uploads/webhook/processed   └──────────────────────┘
+                               (همراه با تلاش مجدد Retry)
+```
+
+### ویژگیهای کلیدی معماری
+
+- **مستقل از دیتابیس (Database-Agnostic)**: سرویس Media Worker اتصالی به پایگاه داده SQLite یا PostgreSQL ندارد. تمام ارتباطات از طریق درخواستهای استاندارد HTTP (`POST /transcode` و فراخوانی Webhook) انجام میپذیرد؛ بنابراین میتوان آن را به صورت مجزا مقیاسدهی کرد و روی انواع دیتابیسها بدون وابستگی اجرا نمود.
+- **پشتیبانی دوگانه از فضاهای ذخیره سازی**: ورکر توانایی خواندن و نوشتن مستقیم روی انواع فضای ذخیره سازی ابری S3 (مانند Cloudflare R2، AWS S3، MinIO) و همچنین فایل سیستم محلی (Local Disk) را دارد.
+- **ترنسکد هوشمند و بهینهسازی Faststart**:
+  - بررسی متادیتا و کدکهای ویدیو با استفاده از `ffprobe`.
+  - تبدیل ویدیوهای ناسازگار یا با بیتریت بالا (مانند MKV، AVI، WebM، HEVC، ProRes) به فرمت سازگار وب یعنی H.264 با صدای AAC در کانتینر `.mp4`.
+  - **تشخیص هوشمند ویدیوهای آماده وب (Smart Web-Ready Skip)**: اگر ویدیوی آپلودشده از قبل با استانداردهای وب سازگار باشد (H.264/AAC با `yuv420p` در کانتینر MP4)، فرآیند سنگین تبدیل مجدد (Re-encoding) نادیده گرفته شده و فقط قابلیت Faststart با کپی سریع استریم (`-movflags +faststart`) اعمال میشود تا پخش فوری ویدیو در مرورگر تضمین شود.
+- **تولید خودکار بندانگشتی (Thumbnail)**: استخراج خودکار تصویر بندانگشتی باکیفیت JPEG (`<storageKey>-thumb.jpg`) برای پیشنمایش ویدیوها.
+- **استخراج متادیتا**: اندازهگیری ابعاد دقیق (عرض و ارتفاع) و مدت زمان ویدیو و ارسال آن به سرور Songbird جهت رندر فوری کادر نمایش در کلاینتها.
+- **پاکسازی فایلهای زائد (Orphan Cleanup)**: پس از تکمیل موفقیتآمیز ترنسکد، ورکر فایل ویدیویی خام اولیه را از فضای ابری حذف میکند تا از اشغال فضای تکراری و ایجاد فایلهای یتیم جلوگیری شود.
+- **رمزنگاری سرتاسری لایه اپلیکیشن (Envelope Encryption)**: در صورت فعال بودن رمزنگاری فایلها در وضعیت سکون (`STORAGE_ENCRYPTION_MODE=local`)، ورکر فایل رمزگذاریشده را در حافظه با `STORAGE_ENCRYPTION_KEY` رمزگشایی کرده، عملیات ترنسکد را انجام داده و خروجی را پیش از ذخیره سازی مجدداً رمزنگاری میکند.
+- **سیستم ارسال مطمئن Webhook همراه با Retry**: ورکر پس از اتمام پردازش، نتیجه را با مکانیزم تلاش مجدد نمایی (Exponential Backoff تا ۵ مرتبه) به سرور Songbird گزارش میدهد تا در صورت قطعی موقت شبکه یا بار پردازشی سرور، هیچ عملیاتی مفقود نشود.
+
+---
+
+## حالتهای پردازش مدیا (`STORAGE_PROCESSING_MODE`)
+
+نحوه پردازش و مدیریت کارهای ترنسکد از طریق متغیر `STORAGE_PROCESSING_MODE` کنترل میشود:
+
+| حالت | عملکرد |
 |---|---|
-| `auto` (پیشفرض) | **ترکیبی ریموت با Fallback محلی.** Presigned URLهای آپلود را ارائه میدهد و منتظر میماند تا worker ریموت / پردازش ابری، کار را انجام داده و فراخوانی Webhook (`/api/uploads/webhook/processed`) را انجام دهد. اگر پردازش ریموت ظرف زمان `STORAGE_PROCESSING_TIMEOUT_MS` کامل نشود، worker محلی به طور خودکار پردازش را از طریق ترنسکد محلی FFmpeg برعهده میگیرد. |
-| `remote` | **پردازش کاملاً ریموت.** پردازش فایل ها منحصراً توسط workerهای ریموت یا Webhookهای ابری انجام میشود و تایمر Fallback محلی غیرفعال میگردد. |
-| `local` | **پردازش کاملاً محلی.** workerهای رسانه ای سرور محلی (FFmpeg / BullMQ) را مجبور میکند تمام فایل های آپلودشده را به صورت محلی پردازش کنند. |
+| `auto` (پیشفرض) | **ارسال به ورکر ریموت با ۳ بار تلاش مجدد و بازگشت به ورکر محلی.** ورکر مدیا محلی در کانتینر اجرا میشود. ابتدا درخواست ترنسکد به ورکر ریموت (`MEDIA_WORKER_URL`) ارسال میشود و در صورت خطا تا ۳ بار تلاش مجدد صورت میگیرد؛ در صورت عدم موفقیت به ورکر محلی (`http://127.0.0.1:WORKER_PORT`) بازمیگردد. در صورت عدم تنظیم `MEDIA_WORKER_URL` مستقیماً به ورکر محلی ارسال میشود. |
+| `local` | **پردازش انحصاری در ورکر محلی.** ورکر محلی در کانتینر اجرا شده و کارها فقط به ورکر محلی (`http://127.0.0.1:WORKER_PORT`) فرستاده میشوند. |
+| `remote` | **پردازش انحصاری در ورکر ریموت.** ورکر محلی در کانتینر اجرا نمیشود و وظایف فقط به ورکر ریموت (`MEDIA_WORKER_URL`) ارسال میشوند بدون هیچ بازگشتی به ورکر محلی. |
 
-### متغیرهای پیکربندی
+### متغیرهای پیکربندی در سرور Songbird
+
+این مقادیر را در فایل `.env` سرور Songbird تنظیم کنید:
 
 | متغیر | نوع | پیشفرض | توضیح |
 |---|---|---:|---|
-| `STORAGE_PROCESSING_MODE` | `string` | `auto` | استراتژی پردازش رسانه (`auto` ، `remote` یا `local`). |
-| `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `30000` | مهلت زمان Fallback به میلی ثانیه (پیشفرض `30000` میلی ثانیه / ۳۰ ثانیه) قبل از آنکه worker محلی BullMQ در حالت `auto` پردازش را تحویل بگیرد. |
 | `WORKER_URL` | `string` | `""` | آدرس پایه worker خارجی پردازش رسانه برای ترنسکد با HTTP push (مانند `https://worker.example.com`). نام جایگزین: `MEDIA_WORKER_URL`. |
+| `WORKER_PORT` | `integer` | `8080` | پورت سرویس مستقل Media Worker (`worker/`). توسط Songbird برای ساخت آدرس پیشفرض ورکر محلی (`http://127.0.0.1:8080`) استفاده میشود. |
+| `STORAGE_PROCESSING_MODE` | `string` | `auto` | استراتژی پردازش رسانه (`auto` ، `remote` یا `local`). |
+| `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `30000` | مهلت زمانی Fallback بر حسب میلی ثانیه قبل از اجرای پردازش محلی در حالت `auto`. |
 | `WEBHOOK_URL` | `string` | `""` | آدرس بازخوانی (Callback) عمومی Webhook سرور Songbird ارسالی به workerها (مانند `https://songbird.example.com/api/uploads/webhook/processed`). نام جایگزین: `WEBHOOK_CALLBACK_URL`. |
 | `WEBHOOK_SECRET` | `string` | *(تولید خودکار)* | کلید محرمانه برای احراز هویت درخواست های Webhook دریافتی (`X-Songbird-Webhook-Secret`). در صورت عدم وجود، هنگام راه اندازی سرور به طور خودکار تولید شده، در دیتابیس ذخیره و در فایل `.env` قرار میگیرد. |
 
-### ترنسکد محلی FFmpeg برای ذخیره سازی ابری (Remote Storage)
+---
 
-هنگامی که `STORAGE_DRIVER=remote` (مانند Cloudflare R2 یا AWS S3) همراه با `STORAGE_PROCESSING_MODE=local` یا `auto` فعال باشد، Songbird میتواند ویدیوهای آپلودشده را با استفاده از FFmpeg به صورت محلی روی سرور اصلی پردازش و ترنسکد کند، بدون اینکه نیازی به راه اندازی زیرساخت پردازش خارجی (Serverless) باشد.
+## راه اندازی و استقرار Media Worker
 
-#### نحوه عملکرد ترنسکد محلی:
-۱. **آپلود مستقیم به ابری**: کلاینت ویدیوی خام اصلی را با استفاده از Presigned URL مستقیماً در ذخیره سازی ابری ریموت آپلود میکند.
-۲. **زمانبندی Worker**: در حالت `local` (یا در حالت `auto` اگر Webhook ریموت ظرف زمان `STORAGE_PROCESSING_TIMEOUT_MS` کار را تمام نکند)، صف پسزمینه رسانه Songbird یک کار ترنسکد محلی را زمانبندی میکند.
-۳. **دانلود موقت محلی**: Worker محلی فایل ویدیوی خام را موقتاً از ذخیره سازی ابری (Cloudflare R2 / S3) در یک پوشه کاری موقت دیسک محلی دانلود میکند.
-۴. **تبدیل FFmpeg و استخراج متادیتا**:
-   - ابزار `ffmpeg` ویدیو را به صورت محلی به فرمت H.264 (ویدیو) و AAC (صوت) با پسوند `.mp4` ترنسکد میکند.
-   - متادیتای ویدیو (مدت زمان، عرض و ارتفاع) را استخراج میکند.
-   - تصویر بندانگشتی (Thumbnail) پیشنمایش تولید میکند.
-   - در صورت فعال بودن رمزنگاری محلی (`STORAGE_ENCRYPTION_MODE=local`)، رمزگشایی و رمزنگاری مجدد فایلها به طور خودکار مدیریت میشود.
-۵. **آپلود مجدد به ذخیره سازی ابری**: Worker محلی فایل ویدیوی ترنسکدشده H.264 و تصویر Thumbnail تولیدشده را به باکت ذخیره سازی ابری (Cloudflare R2 / S3) آپلود میکند.
-۶. **همگامسازی وضعیت و پاکسازی پوشه کاری**: کلیدهای ذخیره سازی ابری جدید در دیتابیس بهروزرسانی شده، رویدادهای همزمان SSE به کلاینتهای متصل ارسال میشوند و فایلهای موقت دیسک محلی بلافاصله حذف میگردند.
+کدهای Media Worker در پوشه `worker/` قرار دارد و میتواند در کنار سرویس اصلی Songbird یا روی یک سرور و کانتینر مجزا مستقر شود.
 
-:::tip پیشنیازهای ترنسکد محلی
-- **فایل اجرایی FFmpeg**: ابزار `ffmpeg` باید روی سرور یا کانتینر اجراکننده بکاند Songbird نصب شده باشد (با دستور `ffmpeg -version` بررسی کنید).
-- **فضای دیسک موقت**: مطمئن شوید فضای دیسک موقت کافی روی سرور محلی برای دانلود، ترنسکد و آمادهسازی فایلهای ویدیویی بزرگ قبل از آپلود مجدد به ذخیره سازی ابری وجود دارد.
-:::
+### متغیرهای محیطی Media Worker
 
-### نحوه یافتن و استفاده از کلید محرمانه Webhook
+| متغیر | نوع | پیشفرض | توضیح |
+|---|---|---:|---|
+| `WORKER_PORT` | `integer` | `8080` | پورت HTTP که ورکر روی آن گوش میدهد. |
+| `WORKER_CONCURRENCY` | `integer` | `2` | تعداد عملیات همزمان ترنسکد ویدیو. |
+| `WEBHOOK_SECRET` | `string` | `""` | توکن احراز هویت درخواستهای ارسالی از سرور Songbird. باید با `WEBHOOK_SECRET` سرور اصلی یکسان باشد. |
+| `WEBHOOK_URL` | `string` | `""` | نشانی پیشفرض فراخوانی Webhook در سرور Songbird. |
+| `STORAGE_DRIVER` | `string` | `local` | درایور ذخیره سازی (`local` برای دیسک محلی یا `s3`/`remote` برای ذخیره سازی ابری). |
+| `STORAGE_BUCKET` | `string` | `""` | نام باکت S3 / R2. |
+| `STORAGE_ENDPOINT` | `string` | `""` | نشانی Endpoint سرویس S3 / R2. |
+| `STORAGE_REGION` | `string` | `auto` | منطقه جغرافیایی باکت S3 / R2. |
+| `STORAGE_ACCESS_KEY_ID` | `string` | `""` | کلید دسترسی باکت. |
+| `STORAGE_SECRET_ACCESS_KEY` | `string` | `""` | کلید مخفی باکت. |
+| `STORAGE_FORCE_PATH_STYLE` | `boolean` | `true` | برای سرویسهای Cloudflare R2، MinIO و ArvanCloud روی `true` تنظیم شود. |
+| `STORAGE_ENCRYPTION_KEY` | `string` | `""` | *(اختیاری)* کلید رمزنگاری متقارن در صورت فعال بودن رمزنگاری فایلها در سرور Songbird. |
+| `DATA_DIR` | `string` | `/opt/songbird/data` | مسیر پوشه دادههای Songbird (فایلهای آپلود در `<DATA_DIR>/uploads` قابل دسترسی خواهند بود) هنگام استفاده از `STORAGE_DRIVER=local`. |
 
-سرویس های پردازش بیرونی (مانند AWS Lambda، Cloudflare Workers یا میکروسرویس های اختصاصی) میتوانند پس از اتمام ترنسکد یا پردازش ریموت، پایان کار را به Songbird اطلاع دهند:
+### روش اول: اجرا از طریق Docker Compose مستقل
 
-۱. هنگام راه اندازی سرور، اگر `WEBHOOK_SECRET` تنظیم نشده باشد، Songbird به طور خودکار یک توکن محرمانه امن تولید کرده، آن را در دیتابیس ذخیره و در فایل `.env` ذخیره میکند.
+میتوانید ورکر را با استفاده از فایل `worker/docker-compose.yaml` اجرا کنید:
 
-۲. مدیران سیستم یا پردازنده های ابری میتوانند با مراجعه به فایل `.env` یا بررسی تنظیمات دیتابیس مقدار `WEBHOOK_SECRET` تولیدشده را دریافت کنند.
+```bash
+cd worker
+docker compose up -d
+```
 
-۳. تابع ابری / Lambda یا worker خارجی خود را طوری تنظیم کنید که هنگام ارسال درخواست های Webhook به نقطه پایانی `/api/uploads/webhook/processed` سرور Songbird، توکن را در هدر HTTP با عنوان `x-songbird-webhook-secret: <WEBHOOK_SECRET>` قرار دهد.
+### روش دوم: استقرار روی پلتفرمهای ابری (Render، Railway، Fly.io)
 
-#### درخواست به نقطه پایانی Webhook:
-```http
-POST /api/uploads/webhook/processed
-Header: x-songbird-webhook-secret: <WEBHOOK_SECRET>
-Content-Type: application/json
+ورکر را به عنوان یک سرویس Docker مستقل در پلتفرم ابری مورد نظر بسازید:
 
+- **Build Context / Root**: `./worker`
+- **مسیر Dockerfile**: `./worker/Dockerfile`
+- **پورت**: `8080`
+- **متغیرهای محیطی**: مقادیر اتصال به فضای ابری (`STORAGE_*`) و `WEBHOOK_SECRET` را برابر با سرور اصلی قرار دهید.
+
+### روش سوم: بیلد و اجرای مستقیم با Docker
+
+```bash
+# بیلد ایمیج ورکر
+docker build -t songbird-media-worker -f worker/Dockerfile worker/
+
+# اجرای کانتینر ورکر
+docker run -d \
+  -p 8080:8080 \
+  --name songbird-media-worker \
+  --env-file .env \
+  songbird-media-worker
+```
+
+### بررسی وضعیت سلامت (Health Check)
+
+ورکر دارای اندپوینت `/health` است که وضعیت کاری، کارهای فعال و صف پردازش را گزارش میدهد:
+
+```bash
+curl http://localhost:8080/health
+```
+
+نمونه خروجی:
+```json
 {
-  "fileId": 42,
-  "status": "ready",
-  "transcodedStorageKey": "transcoded/video_720p.mp4",
-  "thumbStorageKey": "thumbs/video_thumb.jpg"
+  "status": "ok",
+  "service": "songbird-media-worker",
+  "queue": {
+    "pending": 0,
+    "queued": 0,
+    "concurrency": 2
+  }
 }
 ```
 
+---
+
 ## حالتهای رمزنگاری ریموت (`STORAGE_ENCRYPTION_MODE`)
 
-Songbird دو استراتژی رمزنگاری هنگام استفاده از ذخیره سازی ابری ریموت ارائه میدهد:
+Songbird دو استراتژی مختلف برای رمزنگاری هنگام استفاده از ذخیره سازی ابری ارائه میدهد:
 
 | حالت | `STORAGE_ENCRYPTION_MODE` | توضیح |
 |---|---|---|
-| **رمزنگاری ریموت** (پیشفرض) | `remote` | از رمزنگاری سمت ارائه دهنده / رمزنگاری پیشفرض باکت S3 (مانند SSE-S3 / AES-256) استفاده میکند. درخواست های دانلود ریدایرکت مستقیم 302 با لینک presigned برمی گردانند. |
-| **رمزنگاری پاکتی محلی** | `local` | از رمزنگاری پاکتی سمت اپلیکیشن (envelope encryption با AES-256-GCM) همراه با کلیدهای رمزنگاری محلی استفاده میکند. سرور فایل را دریافت و رمزگشایی کرده و سپس به سمت کلاینت استریم میکند. |
+| **رمزنگاری سمت ارائه دهنده** (پیشفرض) | `remote` | از رمزنگاری پیشفرض باکت S3 (مانند SSE-S3 / AES-256) استفاده میکند. درخواستهای دانلود با ریدایرکت مستقیم 302 به باکت/CDN متصل میشوند که بالاترین سرعت را فراهم میکند. |
+| **رمزنگاری Envelope سمت اپلیکیشن** | `local` | از رمزنگاری متقارن AES-256-GCM با کلید اختصاصی سرور (`STORAGE_ENCRYPTION_KEY`) استفاده میکند. فایلها پیش از ارسال به کلاینت رمزگشایی میشوند. |
 
-```
-# رمزنگاری سمت ارائه دهنده / باکت S3 (توصیه شده برای Cloudflare R2 / AWS S3 همراه با CDN)
+```txt
+# رمزنگاری سمت ارائه دهنده باکت (پیشنهادی برای Cloudflare R2 / AWS S3 همراه با CDN)
 STORAGE_ENCRYPTION_MODE=remote
 
-# رمزنگاری پاکتی سمت اپلیکیشن
+# رمزنگاری لایه اپلیکیشن
 STORAGE_ENCRYPTION_MODE=local
 ```

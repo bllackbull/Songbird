@@ -125,11 +125,11 @@ STORAGE_REGION=us-east-1
 ```
 
 :::tip ترنسکد رسانه در ذخیره سازی ابری
-هنگامی که `STORAGE_DRIVER=remote` همراه با `STORAGE_PROCESSING_MODE=local` یا `auto` فعال باشد، Songbird ترنسکد ویدیویی FFmpeg را روی گره Worker محلی انجام میدهد (دانلود از Cloudflare R2 / S3، ترنسکد محلی و آپلود مجدد). مطمئن شوید روی گره های Worker ابزار `ffmpeg` نصب شده و فضای دیسک موقت محلی در دسترس است. برای حالت های پردازش، مستندات [ذخیره سازی ابری](./Object-Storage.md) را ببینید.
+هنگامی که `STORAGE_DRIVER=remote` فعال باشد، Songbird ترنسکد ویدیو و استخراج thumbnail را به **Media Worker** مستقل (`worker/`) محول میکند که میتواند به عنوان یک سرویس کانتینری مجزا یا در کنار گره های سرور مستقر شود. همچنین در صورت تنظیم `STORAGE_PROCESSING_MODE=local` یا عدم تنظیم `WORKER_URL`، پردازش ها به صورت داخلی روی سرور انجام میپذیرد. مطمئن شوید گره های ورکر یا سرور فضای دیسک موقت کافی در اختیار دارند. برای جزئیات معماری و استقرار، مستندات [ورکر مدیا](./Media-Worker.md) و [ذخیره سازی ابری](./Object-Storage.md) را ببینید.
 :::
 
 #### ۳. همگام سازی رویدادها با Redis (Pub/Sub)
-متغیر `REDIS_URL` یا `REDIS_HOST` را تنظیم کنید. با فعال شدن Redis، سرویس Songbird به طور خودکار از قابلیت Redis Pub/Sub (کانال `songbird:events`) برای همگام سازی همزمان رویدادهای WebSocket و SSE بین تمامی کانتینرها و همچنین از BullMQ برای پردازش کارهای پس زمینه (مانند تبدیل فرمت ویدیوها) استفاده میکند:
+متغیر `REDIS_URL` یا `REDIS_HOST` را تنظیم کنید. با فعال شدن Redis، سرویس Songbird به طور خودکار از قابلیت Redis Pub/Sub (کانال `songbird:events`) برای همگام سازی همزمان رویدادهای WebSocket و SSE بین تمامی کانتینرها استفاده میکند:
 ```txt
 REDIS_URL=redis://:password@redis.internal:6379
 ```

@@ -1,6 +1,6 @@
 # Object Storage & Media Processing
 
-Songbird supports a pluggable storage architecture that allows you to choose between local disk storage and S3-compatible remote object storage. When combined with background job queues, Songbird can process, convert, and serve media files seamlessly across single-node deployments or distributed cloud environments.
+Songbird supports a pluggable storage architecture that allows you to choose between local disk storage and S3-compatible remote object storage. When combined with the unified **Songbird Media Worker**, Songbird provides high-performance, asynchronous video transcoding, thumbnail extraction, and media optimization across single-server or distributed cloud environments.
 
 ## Storage Drivers
 
@@ -8,8 +8,8 @@ Songbird uses the `STORAGE_DRIVER` environment variable to determine where uploa
 
 | Driver | `STORAGE_DRIVER` | Description |
 |---|---|---|
-| **Local Disk** (Default) | `local` | Uploads are stored directly on the server's local file system in the `DATA_DIR` directory (`data/uploads/` and `data/avatars/`). Best for simple single-server deployments. |
-| **Remote Object Storage** | `remote` | Uploads are stored in an S3-compatible object storage bucket (e.g., AWS S3, Cloudflare R2, MinIO, ArvanCloud, Wasabi). Uploads use presigned URLs directly from the client. |
+| **Local Disk** (Default) | `local` | Uploads are stored directly on the server's local file system in the `DATA_DIR` directory (`data/uploads/` and `data/avatars/`). Ideal for single-server VPS or Docker deployments. |
+| **Remote Object Storage** | `remote` | Uploads are stored in an S3-compatible object storage bucket (e.g., AWS S3, Cloudflare R2, MinIO, ArvanCloud, Wasabi). File uploads bypass the application server via direct client-to-bucket presigned URLs. |
 
 ```bash
 # Example .env setting
@@ -25,30 +25,18 @@ When `STORAGE_DRIVER=remote` is enabled, configure the following environment var
 | `STORAGE_DRIVER` | `string` | `local` | Set to `remote` to enable remote object storage. |
 | `STORAGE_ENDPOINT` | `string` | `""` | Base URL of your S3-compatible service (e.g., AWS, Cloudflare R2, MinIO, ArvanCloud). |
 | `STORAGE_BUCKET` | `string` | `""` | Name of your storage bucket. |
-| `STORAGE_REGION` | `string` | `auto` | Storage bucket region (defaults to `auto` for Cloudflare R2, MinIO, ArvanCloud, and S3-compatible providers out of the box; AWS S3 users can override this with their specific region, e.g. `us-east-1`, `eu-central-1`). |
+| `STORAGE_REGION` | `string` | `auto` | Storage bucket region (defaults to `auto` for Cloudflare R2, MinIO, and ArvanCloud; AWS S3 users can set their specific region like `us-east-1`). |
 | `STORAGE_ACCESS_KEY_ID` | `string` | `""` | Access Key ID for bucket authentication. |
 | `STORAGE_SECRET_ACCESS_KEY` | `string` | `""` | Secret Access Key for bucket authentication. |
 | `STORAGE_PUBLIC_URL` | `string` | `""` | Optional custom CDN domain URL prefix (e.g., `https://cdn.example.com`). If set, public download links use this prefix instead of presigned URLs. |
 | `STORAGE_EXPIRES_IN` | `integer` | `3600` | Expiration time in seconds for presigned upload and download URLs. |
 | `STORAGE_FORCE_PATH_STYLE` | `boolean` | `true` | Enables path-style URL syntax (`endpoint/bucket/key`). Required for MinIO, Cloudflare R2, ArvanCloud, Wasabi, etc. |
 
-### Provider Examples
-
-#### AWS S3
-
-```
-STORAGE_DRIVER=remote
-STORAGE_ENDPOINT=https://s3.us-east-1.amazonaws.com
-STORAGE_BUCKET=my-songbird-bucket
-STORAGE_REGION=us-east-1
-STORAGE_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
-STORAGE_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
-STORAGE_FORCE_PATH_STYLE=false
-```
+### Provider Configuration Examples
 
 #### Cloudflare R2
 
-```
+```txt
 STORAGE_DRIVER=remote
 STORAGE_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
 STORAGE_BUCKET=my-songbird-bucket
@@ -59,9 +47,21 @@ STORAGE_PUBLIC_URL=https://media.example.com
 STORAGE_FORCE_PATH_STYLE=true
 ```
 
+#### AWS S3
+
+```txt
+STORAGE_DRIVER=remote
+STORAGE_ENDPOINT=https://s3.us-east-1.amazonaws.com
+STORAGE_BUCKET=my-songbird-bucket
+STORAGE_REGION=us-east-1
+STORAGE_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+STORAGE_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+STORAGE_FORCE_PATH_STYLE=false
+```
+
 #### MinIO (Self-Hosted)
 
-```
+```txt
 STORAGE_DRIVER=remote
 STORAGE_ENDPOINT=http://minio.internal:9000
 STORAGE_BUCKET=songbird-media
@@ -73,7 +73,7 @@ STORAGE_FORCE_PATH_STYLE=true
 
 #### ArvanCloud Object Storage
 
-```
+```txt
 STORAGE_DRIVER=remote
 STORAGE_ENDPOINT=https://s3.ir-thr-at1.arvanstorage.ir
 STORAGE_BUCKET=my-songbird-bucket
@@ -83,73 +83,148 @@ STORAGE_SECRET_ACCESS_KEY=<ARVAN_SECRET_KEY>
 STORAGE_FORCE_PATH_STYLE=true
 ```
 
-## Remote Media Processing & Fallback Settings
+---
 
-When uploading media files (such as videos or audio) with `STORAGE_DRIVER=remote`, Songbird handles processing asynchronously to ensure fast upload response times.
+## Unified Media Worker Architecture
 
-### Processing Modes (`STORAGE_PROCESSING_MODE`)
+Songbird features a dedicated, stateless HTTP push **Media Worker** (`worker/`) designed to offload video transcoding, thumbnail extraction, and media probing from the primary chat server.
+
+:::tip Dedicated Media Worker Guide
+For comprehensive instructions on standalone deployment, cloud platform setup (Render, Railway, Fly.io), concurrency tuning, and API reference, see the dedicated [Media Worker](./Media-Worker.md) guide.
+:::
+
+```
+┌──────────────┐     1. Upload (Presigned/Multipart)     ┌──────────────────────┐
+│  Web / App   │ ──────────────────────────────────────> │ S3 / R2 / Local Disk │
+│    Client    │                                         └──────────────────────┘
+└──────┬───────┘                                                     ▲
+       │                                                             │
+       │ 2. Notify Server                                            │ 4. Read raw /
+       ▼                                                             │    Upload processed /
+┌──────────────┐          3. POST /transcode             ┌───────────┴──────────┐
+│   Songbird   │ ──────────────────────────────────────> │ Songbird Media Worker│
+│   Backend    │ <────────────────────────────────────── │    (HTTP Push)       │
+└──────────────┘       5. POST /api/uploads/webhook/     └──────────────────────┘
+                              processed (with retries)
+```
+
+### Core Architecture Highlights
+
+- **Database-Agnostic**: The media worker does not connect directly to SQLite or PostgreSQL. Communication with Songbird occurs entirely over HTTP (`POST /transcode` and webhook callbacks), allowing it to scale independently and work seamlessly across all deployment configurations.
+- **Dual Storage Support**: The worker natively processes media for both S3-compatible remote object storage (Cloudflare R2, AWS S3, MinIO) and local filesystem storage.
+- **Intelligent Transcoding & Faststart**:
+  - Automatically probes video format and codecs (`ffprobe`).
+  - Converts non-compliant or high-bitrate video formats (e.g. MKV, AVI, WebM, HEVC, ProRes) into universally supported web-compatible H.264 video with AAC audio (`.mp4`).
+  - **Smart Web-Ready Skip**: If the uploaded video is already web-ready (H.264/AAC with `yuv420p` in an MP4 container), CPU-heavy re-encoding is bypassed, applying faststart stream copy (`-movflags +faststart`) to optimize instant playback.
+- **Thumbnail Generation**: Automatically extracts high-quality JPEG thumbnails (`<storageKey>-thumb.jpg`) for video previews.
+- **Metadata Extraction**: Measures dimensions (width, height) and duration, reporting them back to Songbird for instant client layout rendering.
+- **Orphan File Cleanup**: Upon successful transcoding, the worker automatically deletes the original raw video file from remote object storage to prevent duplicate storage consumption.
+- **End-to-End Envelope Encryption**: When Songbird's encryption-at-rest (`STORAGE_ENCRYPTION_MODE=local`) is enabled, the worker decrypts files in memory using `STORAGE_ENCRYPTION_KEY`, processes the video, and re-encrypts the output before saving.
+- **Robust Retry Delivery**: The worker uses exponential backoff retries (up to 5 attempts) when notifying the Songbird server webhook, ensuring resilient operation during network hiccups or restarts.
+
+---
+
+## Media Processing Modes (`STORAGE_PROCESSING_MODE`)
+
+Songbird configures media processing via `STORAGE_PROCESSING_MODE`:
 
 | Mode | Behavior |
 |---|---|
-| `auto` (Default) | **Hybrid Remote with Local Fallback.** Serves client presigned upload URLs. Expects an external remote worker / serverless compute to process media and hit the webhook callback (`/api/uploads/webhook/processed`). If the remote compute does not finish within `STORAGE_PROCESSING_TIMEOUT_MS`, the local worker automatically takes over processing via local FFmpeg transcoding. |
-| `remote` | **Pure Remote Processing.** Remote workers or cloud webhooks handle processing exclusively. Disables local fallback timers. |
-| `local` | **Pure Local Processing.** Forces local server media workers (FFmpeg / BullMQ) to process all uploaded files locally. |
+| `auto` (Default) | **Remote First with 3 Retries & Local Fallback.** Runs the local Media Worker service in the container. Dispatches transcode jobs to the remote worker (`MEDIA_WORKER_URL`) first and retries up to 3 times on failure before falling back to the local Media Worker (`http://127.0.0.1:WORKER_PORT`). If `MEDIA_WORKER_URL` is omitted, dispatches directly to the local worker. |
+| `local` | **Direct Local Worker Processing.** Runs the local Media Worker in the container and dispatches only to the local worker (`http://127.0.0.1:WORKER_PORT`). Remote workers are never called. |
+| `remote` | **Pure Remote Worker Processing.** Does not run any local worker in the container and dispatches only to the remote worker (`MEDIA_WORKER_URL`) without local fallback. |
 
-### Configuration Variables
+### Configuration Variables on Songbird Server
+
+Add or edit these settings in your Songbird server `.env`:
 
 | Variable | Type | Default | Description |
 |---|---|---:|---|
-| `STORAGE_PROCESSING_MODE` | `string` | `auto` | Media processing strategy (`auto`, `remote`, or `local`). |
-| `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `30000` | Fallback timeout in milliseconds (default `30000` ms / 30 seconds) before local BullMQ worker takes over in `auto` mode. |
 | `WORKER_URL` | `string` | `""` | External media processing worker base URL for HTTP push transcoding (e.g. `https://worker.example.com`). Fallback: `MEDIA_WORKER_URL`. |
+| `WORKER_PORT` | `integer` | `8080` | Port for the standalone Media Worker service (`worker/`). Songbird uses this as the default port when constructing the local Media Worker URL (`http://127.0.0.1:8080`). |
+| `STORAGE_PROCESSING_MODE` | `string` | `auto` | Media processing strategy (`auto`, `remote`, or `local`). |
+| `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `30000` | Fallback timeout in milliseconds before local processing takes over in `auto` mode. |
 | `WEBHOOK_URL` | `string` | `""` | Songbird public webhook callback URL sent to external workers (e.g. `https://songbird.example.com/api/uploads/webhook/processed`). Fallback: `WEBHOOK_CALLBACK_URL`. |
 | `WEBHOOK_SECRET` | `string` | *(Auto-generated)* | Secret token to authenticate incoming webhook callback requests (`X-Songbird-Webhook-Secret`). Automatically generated on startup if missing and written to `.env` and in the database. |
 
-### Local FFmpeg Transcoding with Remote Storage
+---
 
-When `STORAGE_DRIVER=remote` (e.g., Cloudflare R2 or AWS S3) is enabled with `STORAGE_PROCESSING_MODE=local` or `auto`, Songbird performs media processing and FFmpeg video conversion directly on the local backend server without requiring external serverless transcoding infrastructure.
+## Deploying the Media Worker
 
-#### Local Transcoding Workflow:
-1. **Direct Remote Upload**: The client uploads the raw video file directly to remote object storage using a presigned URL.
-2. **Worker Scheduling**: In `local` mode (or in `auto` mode if the remote webhook does not complete within `STORAGE_PROCESSING_TIMEOUT_MS`), Songbird's background media queue schedules a local transcoding job.
-3. **Temporary Local Fetch**: The local worker downloads the raw video file from remote storage (Cloudflare R2 / S3) into a temporary local workspace directory.
-4. **FFmpeg Conversion & Metadata**:
-   - `ffmpeg` transcodes the video locally into H.264 video and AAC audio (`.mp4`).
-   - Extracts video metadata (duration, width, height).
-   - Generates a preview thumbnail image.
-   - Handles decryption and re-encryption seamlessly if envelope encryption (`STORAGE_ENCRYPTION_MODE=local`) is enabled.
-5. **Remote Storage Re-upload**: The local worker uploads the transcoded H.264 video and thumbnail frame back to remote object storage.
-6. **State Sync & Workspace Cleanup**: Database records are updated with the new remote storage keys, real-time SSE events notify connected clients, and temporary local workspace files are safely deleted.
+The Media Worker lives in the `worker/` directory and can be deployed alongside Songbird or on a separate standalone server or container service.
 
-:::tip Local Transcoding Requirements
-- **FFmpeg Binary**: `ffmpeg` must be installed on the host machine or container running the Songbird backend (`ffmpeg -version`).
-- **Temporary Disk Space**: Ensure adequate temporary disk space is available on the local server for downloading, transcoding, and staging large video files before they are uploaded back to remote storage.
-:::
+### Worker Environment Variables
 
-### Webhook Callback Endpoint Setup
+| Variable | Type | Default | Description |
+|---|---|---:|---|
+| `WORKER_PORT` | `integer` | `8080` | HTTP port the worker listens on. |
+| `WORKER_CONCURRENCY` | `integer` | `2` | Number of simultaneous video transcode operations. |
+| `WEBHOOK_SECRET` | `string` | `""` | Secret token to authenticate incoming dispatch requests from Songbird. Must match Songbird's `WEBHOOK_SECRET`. |
+| `WEBHOOK_URL` | `string` | `""` | Default Songbird webhook callback URL. |
+| `STORAGE_DRIVER` | `string` | `local` | Storage backend (`local` for local disk, `s3` / `remote` for object storage). |
+| `STORAGE_BUCKET` | `string` | `""` | S3 / R2 bucket name. |
+| `STORAGE_ENDPOINT` | `string` | `""` | S3 / R2 endpoint URL. |
+| `STORAGE_REGION` | `string` | `auto` | S3 / R2 bucket region. |
+| `STORAGE_ACCESS_KEY_ID` | `string` | `""` | Storage Access Key ID. |
+| `STORAGE_SECRET_ACCESS_KEY` | `string` | `""` | Storage Secret Access Key. |
+| `STORAGE_FORCE_PATH_STYLE` | `boolean` | `true` | Set `true` for Cloudflare R2, MinIO, and ArvanCloud. |
+| `STORAGE_ENCRYPTION_KEY` | `string` | `""` | *(Optional)* Symmetric encryption key matching Songbird if envelope encryption is enabled. |
+| `DATA_DIR` | `string` | `/opt/songbird/data` | Path to Songbird data directory (uploads accessed at `<DATA_DIR>/uploads`) when `STORAGE_DRIVER=local`. |
 
-External compute services (such as AWS Lambda, Cloudflare Workers, or custom microservices) notify Songbird when remote media transcoding or processing completes.
+### Option 1: Standalone Docker Compose
 
-#### How to Locate and Use the Webhook Secret:
-1. On server startup, if `WEBHOOK_SECRET` is missing, Songbird automatically generates a secure secret token and writes it to both `.env` and in the database.
+You can run the worker using the provided `worker/docker-compose.yaml`:
 
-2. Administrators or cloud workers can inspect `.env` or query database settings to locate the generated `WEBHOOK_SECRET`.
+```bash
+cd worker
+docker compose up -d
+```
 
-3. Configure your external cloud worker or serverless function to include this token in the `X-Songbird-Webhook-Secret` HTTP header when making callback requests to your Songbird server endpoint (`/api/uploads/webhook/processed`).
+### Option 2: Deploying to Cloud Platforms (Render, Railway, Fly.io)
 
-#### Webhook Endpoint Request:
-```http
-POST /api/uploads/webhook/processed
-Header: x-songbird-webhook-secret: <WEBHOOK_SECRET>
-Content-Type: application/json
+You can run the worker as an independent Docker service on any container hosting platform:
 
+- **Build Context / Root**: `./worker`
+- **Dockerfile**: `./worker/Dockerfile`
+- **Port**: `8080`
+- **Environment Variables**: Configure the storage credentials (`STORAGE_*`) and `WEBHOOK_SECRET` matching your Songbird backend.
+
+### Option 3: Local Docker Build
+
+```bash
+# Build worker image
+docker build -t songbird-media-worker -f worker/Dockerfile worker/
+
+# Run worker container
+docker run -d \
+  -p 8080:8080 \
+  --name songbird-media-worker \
+  --env-file .env \
+  songbird-media-worker
+```
+
+### Health Check
+
+The Media Worker provides a `/health` endpoint reporting operational status, active jobs, and queued tasks:
+
+```bash
+curl http://localhost:8080/health
+```
+
+Example response:
+```json
 {
-  "fileId": 42,
-  "status": "ready",
-  "transcodedStorageKey": "transcoded/video_720p.mp4",
-  "thumbStorageKey": "thumbs/video_thumb.jpg"
+  "status": "ok",
+  "service": "songbird-media-worker",
+  "queue": {
+    "pending": 0,
+    "queued": 0,
+    "concurrency": 2
+  }
 }
 ```
+
+---
 
 ## Remote Encryption Modes (`STORAGE_ENCRYPTION_MODE`)
 
@@ -158,35 +233,12 @@ Songbird offers two encryption strategies when using remote object storage:
 | Mode | `STORAGE_ENCRYPTION_MODE` | Description |
 |---|---|---|
 | **Remote Encryption** (Default) | `remote` | Uses provider-side encryption / default S3 bucket encryption (e.g., SSE-S3 / AES-256). Download requests return direct presigned 302 redirects to S3/CDN for maximum performance. |
-| **Local Envelope Encryption** | `local` | Uses application-side envelope encryption (AES-256-GCM) with local encryption keys. The server fetches and decrypts files before streaming to the client. |
+| **Local Envelope Encryption** | `local` | Uses application-side envelope encryption (AES-256-GCM) with local encryption keys (`STORAGE_ENCRYPTION_KEY`). Files are decrypted securely on the fly. |
 
-```
+```txt
 # Provider-side / bucket encryption (Recommended for Cloudflare R2 / AWS S3 with CDN)
 STORAGE_ENCRYPTION_MODE=remote
 
 # Application-side envelope encryption
 STORAGE_ENCRYPTION_MODE=local
-```
-
-## Redis & Background Jobs (BullMQ)
-
-Songbird uses **BullMQ** for managing background jobs, such as media processing, video transcoding, and cleanup timers.
-
-### BullMQ Operation Modes
-
-1. **Redis Enabled (`REDIS_HOST` or `REDIS_URL` configured):**
-   - Songbird connects to Redis and initializes persistent BullMQ queues (`media-processing` queue) and background workers.
-   - Tasks are distributed safely across multi-process server clusters or dedicated background worker nodes.
-   - Enables Redis session storage and pub/sub event distribution across multiple server instances.
-
-2. **In-Process Queue Fallback (Redis NOT configured):**
-   - When no Redis host or URL is provided, Songbird seamlessly switches to an in-process, in-memory job queue with timer fallbacks.
-   - Single-instance deployments run completely self-contained without requiring external Redis software or extra setup.
-
-```
-# Optional Redis setup for multi-instance scaling & BullMQ background queues
-REDIS_HOST=127.0.0.1
-REDIS_PORT=6379
-# OR
-REDIS_URL=redis://:password@redis-server:6379/0
 ```

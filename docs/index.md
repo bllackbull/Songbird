@@ -34,8 +34,8 @@ features:
     details: Tune ports, uploads, retention, push, and more through environment variables or admin UI.
     link: /Environment-Variables
   - icon: ☁️
-    title: Object Storage
-    details: Pluggable S3-compatible cloud storage, CDN distribution, and background media queues.
+    title: Object Storage & Media Worker
+    details: Pluggable S3-compatible cloud storage, standalone HTTP push media transcoding worker, and CDN support.
     link: /Object-Storage
   - icon: 📡
     title: Remote Channels
