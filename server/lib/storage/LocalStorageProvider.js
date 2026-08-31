@@ -41,6 +41,22 @@ export class LocalStorageProvider extends StorageProvider {
   }
 
   /**
+   * Upload raw buffer directly to local storage.
+   * @param {string} fileKey
+   * @param {Buffer|Uint8Array|string} body
+   * @returns {Promise<{key: string}>}
+   */
+  async uploadBuffer(fileKey, body) {
+    const cleanKey = String(fileKey || "").replace(/^\//, "");
+    const filePath = path.isAbsolute(cleanKey)
+      ? cleanKey
+      : path.join(this.uploadDir, cleanKey);
+    await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.promises.writeFile(filePath, body);
+    return { key: cleanKey };
+  }
+
+  /**
    * Remove file from local disk asynchronously if present.
    * @param {string} fileKey
    * @returns {Promise<boolean>}
@@ -77,5 +93,37 @@ export class LocalStorageProvider extends StorageProvider {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Copy local stored file to a destination path.
+   * @param {string} fileKey
+   * @param {string} destPath
+   * @returns {Promise<string>}
+   */
+  async downloadToPath(fileKey, destPath) {
+    const cleanKey = String(fileKey || "").replace(/^\//, "");
+    const srcPath = path.isAbsolute(cleanKey)
+      ? cleanKey
+      : path.join(this.uploadDir, cleanKey);
+    await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
+    await fs.promises.copyFile(srcPath, destPath);
+    return destPath;
+  }
+
+  /**
+   * Save a local file into local storage.
+   * @param {string} fileKey
+   * @param {string} filePath
+   * @returns {Promise<{key: string}>}
+   */
+  async uploadFile(fileKey, filePath) {
+    const cleanKey = String(fileKey || "").replace(/^\//, "");
+    const dest = path.isAbsolute(cleanKey)
+      ? cleanKey
+      : path.join(this.uploadDir, cleanKey);
+    await fs.promises.mkdir(path.dirname(dest), { recursive: true });
+    await fs.promises.copyFile(filePath, dest);
+    return { key: cleanKey };
   }
 }

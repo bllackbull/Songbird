@@ -159,21 +159,29 @@ curl -x http://your-proxy:3128 https://fcm.googleapis.com
 | Cause | Fix |
 |---|---|
 | Upload larger than per-file cap | Increase `FILE_UPLOAD_MAX_SIZE_MB`. |
-| Message total exceeds cap | Increase `FILE_UPLOAD_MAX_TOTAL_SIZE_MB` and align Nginx `client_max_body_size`. |
+| Message total exceeds cap | Increase `FILE_UPLOAD_MAX_TOTAL_SIZE_MB` and align Nginx `client_max_body_size` (for `STORAGE_DRIVER=local`). |
 | Too many files in one message | Increase `FILE_UPLOAD_MAX_FILES`. |
 | Uploads disabled | Set `FILE_UPLOAD=true`. |
-| Nginx rejects large bodies (`413`) | Set `client_max_body_size` to match `FILE_UPLOAD_MAX_TOTAL_SIZE_MB`. |
-| Disk full | Check free space with `npm run db:inspect` (reports disk usage) or `df -h`. |
+| Nginx rejects large bodies (`413`) | Set `client_max_body_size` to match `FILE_UPLOAD_MAX_TOTAL_SIZE_MB` (for `STORAGE_DRIVER=local`). |
+| CORS error in browser on R2/S3 upload | Configure CORS policy on your bucket allowing `PUT`, `GET`, `HEAD`, `POST`, origin domain, and `ETag` expose header. See [Object Storage CORS](./Object-Storage.md#cloudflare-r2--s3-cors-configuration-requirements). |
+| `403 Forbidden` on presigned PUT/GET | Verify `STORAGE_ACCESS_KEY_ID`, `STORAGE_SECRET_ACCESS_KEY`, bucket permissions, and system clock sync. |
+| Presigned URL generation error (500) | Check `STORAGE_ENDPOINT`, `STORAGE_BUCKET`, and server logs for S3 SDK initialization errors. |
+| Browser cannot reach storage endpoint | Ensure `STORAGE_ENDPOINT` is a public HTTPS URL accessible from end-user networks. |
+| Disk full (local storage) | Check free space with `npm run db:inspect` (reports disk usage) or `df -h`. |
 
 After changing `.env`, apply the changes (see [Environment Variables](./Environment-Variables.md#apply-changes)).
 
 ## Video transcoding issues
 
-Songbird transcodes uploaded videos to H.264/AAC MP4 when `FILE_UPLOAD_TRANSCODE_VIDEOS=true`, which requires `ffmpeg`.
+Songbird automatically optimizes and transcodes uploaded videos to web-ready H.264/AAC MP4 when `FILE_UPLOAD_TRANSCODE_VIDEOS=true`.
 
-- Verify ffmpeg is installed: `ffmpeg -version`.
-- If videos fail to process, check the service logs for transcoding errors.
-- Set `APP_DEBUG=true` to get verbose `[app-debug]` lines covering upload/transcode events, then restart the service.
+- **Check Media Worker Health**: If using the standalone Media Worker, verify its health status via `curl http://localhost:8080/health` (or using the configured `WORKER_PORT` / `WORKER_URL/health`). The response should return `{"status": "ok", ...}`. See [Media Worker](./Media-Worker.md) for full configuration details.
+- **Verify Webhook Secret Synchronization**: Ensure the `WEBHOOK_SECRET` in the Songbird server configuration matches the `WEBHOOK_SECRET` configured in the Media Worker. If secrets mismatch, dispatch or callback requests will fail with `401 Unauthorized`.
+- **Verify Webhook Callback Reachability**: The Media Worker must be able to reach Songbird's callback endpoint (`POST /api/uploads/webhook/processed`). If Songbird is behind a reverse proxy, set `WEBHOOK_URL` (or fallback `WEBHOOK_CALLBACK_URL`) or ensure internal DNS/network routing allows worker-to-server HTTP requests.
+- **Verify FFmpeg Installation**: If running in `local` processing mode or running the worker directly from source, ensure `ffmpeg` and `ffprobe` are installed on the system (`ffmpeg -version`).
+- **Temporary Disk Space**: Ensure the worker node has sufficient temporary disk space (`/tmp` or system temp directory) for staging, transcoding, and thumbnail generation.
+- **Check Service & Worker Logs**: Look for `[worker]` or `[app-debug]` log messages in server or worker logs.
+- **Enable Debug Logging**: Set `APP_DEBUG=true` in Songbird's `.env` to receive verbose terminal logs for upload dispatch, transcode status, and real-time event broadcasts.
 
 ## Docker build issues
 

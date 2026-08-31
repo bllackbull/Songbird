@@ -39,7 +39,7 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
       const appObj = makeApp({
         deps: {
           storageProvider: localProvider,
-          storageProcessingMode: "sync",
+          storageProcessingMode: "local",
           createMessageFiles: createMessageFilesMock,
           findMessageFileById: (id) =>
             filesStore.find((f) => String(f.id) === String(id)) || null,
@@ -80,6 +80,7 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
         .post("/api/uploads/presign")
         .set("Cookie", [`sid=${sessionToken}`])
         .send({
+          messageId: "c0c0c0c0-d1d1-4e2e-af3f-060606060606",
           filename: "test-document.pdf",
           contentType: "application/pdf",
           fileSize: 1024,
@@ -236,7 +237,7 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
       const appObj = makeApp({
         deps: {
           storageProvider: mockRemoteProvider,
-          storageProcessingMode: "webhook",
+          storageProcessingMode: "remote",
           webhookSecret: "super-secret-webhook-key",
           createMessageFiles: createMessageFilesMock,
           findMessageFileById: (id) =>
@@ -283,6 +284,7 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
         .post("/api/uploads/presign")
         .set("Cookie", [`sid=${sessionToken}`])
         .send({
+          messageId: "c0c0c0c0-d1d1-4e2e-af3f-060606060606",
           filename: "video.mp4",
           contentType: "video/mp4",
           fileSize: 1048576,
@@ -302,7 +304,7 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
       const fileId = presignRes.body.fileId;
       const storageKey = presignRes.body.storageKey;
 
-      // 2. Complete (status should be pending in webhook mode)
+      // 2. Complete (status should be pending in remote mode)
       const completeRes = await request(appObj.app)
         .post("/api/uploads/complete")
         .set("Cookie", [`sid=${sessionToken}`])
@@ -339,6 +341,93 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
       expect(downloadRes.headers.location).toBe(
         "https://my-bucket.s3.us-west-2.amazonaws.com/transcoded/video_720p.mp4?download=true",
       );
+    });
+
+    test("presign -> message upload with presigned video under STORAGE_PROCESSING_MODE=local enqueues transcoding", async () => {
+      const enqueueTranscodeMock = vi.fn();
+      const createMessageFilesMock = vi.fn((msgId, files) => {
+        const result = [];
+        files.forEach((f) => {
+          const rec = {
+            id: filesStore.length + 1,
+            message_id: msgId,
+            storage_driver: f.storageDriver || f.storage_driver || "s3",
+            stored_name: f.storedName || f.stored_name,
+            storage_key: f.storageKey || f.storage_key,
+            processing_status: f.processingStatus || f.processing_status || "ready",
+            ...f,
+          };
+          filesStore.push(rec);
+          result.push(rec);
+        });
+        return result;
+      });
+
+      const appObj = makeApp({
+        deps: {
+          storageProvider: mockRemoteProvider,
+          storageProcessingMode: "local",
+          isMember: () => true,
+          findChatById: () => ({ id: "c0c0c0c0-d1d1-4e2e-af3f-060606060606", type: "group" }),
+          enqueueVideoTranscodeJob: enqueueTranscodeMock,
+          createMessageFiles: createMessageFilesMock,
+          listMessageFilesByMessageIds: () => filesStore,
+          findMessageFileById: (id) =>
+            filesStore.find((f) => String(f.id) === String(id)) || null,
+          adminGetRow: (sql, params) => {
+            const lower = String(sql || "").toLowerCase();
+            if (lower.includes("chat_members")) return { role: "member", user_id: userId, chat_id: "c0c0c0c0-d1d1-4e2e-af3f-060606060606" };
+            if (lower.includes("chats")) return { id: "c0c0c0c0-d1d1-4e2e-af3f-060606060606", type: "group" };
+            if (lower.includes("chat_messages")) return { id: "msg-123", chat_id: "c0c0c0c0-d1d1-4e2e-af3f-060606060606" };
+            if (lower.includes("chat_message_files")) {
+              const id = params ? params[0] : null;
+              if (id)
+                return filesStore.find((f) => String(f.id) === String(id)) || null;
+              return filesStore[filesStore.length - 1] || null;
+            }
+            return null;
+          },
+          adminRun: () => {},
+        },
+      });
+
+      userId = appObj.userStore.createUser("s3user", "pass", "S3 User", null, "#10b981");
+      appObj.sessionStore.createSession(userId, sessionToken);
+
+      const presignRes = await request(appObj.app)
+        .post("/api/uploads/presign")
+        .set("Cookie", [`sid=${sessionToken}`])
+        .send({
+          filename: "remote_video.mp4",
+          contentType: "video/mp4",
+          fileSize: 5000000,
+        });
+
+      expect(presignRes.status).toBe(200);
+      expect(presignRes.body.type).toBe("remote");
+
+      const uploadRes = await request(appObj.app)
+        .post("/api/messages/upload")
+        .set("Cookie", [`sid=${sessionToken}`])
+        .send({
+          chatId: "c0c0c0c0-d1d1-4e2e-af3f-060606060606",
+          username: "s3user",
+          uploadType: "media",
+          presignedFiles: [
+            {
+              storageKey: "uploads/remote_video.mp4",
+              originalName: "remote_video.mp4",
+              mimeType: "video/mp4",
+              sizeBytes: 5000000,
+            },
+          ],
+        });
+
+      expect(uploadRes.status).toBe(200);
+      expect(enqueueTranscodeMock).toHaveBeenCalled();
+      const insertedFile = filesStore.find((f) => (f.original_name || f.originalName) === "remote_video.mp4");
+      expect(insertedFile).toBeDefined();
+      expect(insertedFile.processing_status || insertedFile.processingStatus).toBe("pending");
     });
   });
 });

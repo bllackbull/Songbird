@@ -88,4 +88,80 @@ describe("MediaQueueManager (BullMQ / In-Process Fallback)", () => {
 
     await manager.close();
   });
+
+  it("marks file as ready and skips calling enqueueVideoTranscodeJob when transcodeVideosToH264 is false", async () => {
+    let runCalled = false;
+    let eventEmitted = false;
+    const enqueueJobMock = vi.fn();
+
+    const manager = createMediaQueueManager({
+      s3ProcessingMode: "auto",
+      s3ProcessingTimeoutMs: 50,
+      transcodeVideosToH264: false,
+      enqueueVideoTranscodeJob: enqueueJobMock,
+      adminGetRow: () => ({ id: FILE_ID_1, mime_type: "video/mp4", processing_status: "pending" }),
+      adminRun: (sql, params) => {
+        if (sql.includes("processing_status") && (params?.includes("ready") || sql.includes("ready"))) {
+          runCalled = true;
+        }
+      },
+      emitChatEvent: (eventName, payload) => {
+        if (payload?.type === "video:ready") {
+          eventEmitted = true;
+        }
+      },
+    });
+
+    manager.scheduleFallbackCheck({
+      fileId: FILE_ID_1,
+      storageKey: "uploads/file.mp4",
+    });
+
+    await new Promise((res) => setTimeout(res, 100));
+
+    expect(enqueueJobMock).not.toHaveBeenCalled();
+    expect(runCalled).toBe(true);
+    expect(eventEmitted).toBe(true);
+
+    await manager.close();
+  });
+
+  it("respects process.env.STORAGE_PROCESSING_TIMEOUT_MS when s3ProcessingTimeoutMs is omitted", async () => {
+    const originalEnv = process.env.STORAGE_PROCESSING_TIMEOUT_MS;
+    process.env.STORAGE_PROCESSING_TIMEOUT_MS = "60";
+
+    try {
+      let runCalled = false;
+      const manager = createMediaQueueManager({
+        s3ProcessingMode: "auto",
+        adminGetRow: () => ({ id: FILE_ID_1, processing_status: "pending" }),
+        adminRun: (sql, params) => {
+          if (sql.includes("processing_status") && (params?.includes("ready") || sql.includes("ready"))) {
+            runCalled = true;
+          }
+        },
+      });
+
+      manager.scheduleFallbackCheck({
+        fileId: FILE_ID_1,
+        storageKey: "uploads/file.mp4",
+      });
+
+      // Before timeout (30ms), should not have run
+      await new Promise((res) => setTimeout(res, 20));
+      expect(runCalled).toBe(false);
+
+      // After timeout (60ms), should run
+      await new Promise((res) => setTimeout(res, 80));
+      expect(runCalled).toBe(true);
+
+      await manager.close();
+    } finally {
+      if (originalEnv !== undefined) {
+        process.env.STORAGE_PROCESSING_TIMEOUT_MS = originalEnv;
+      } else {
+        delete process.env.STORAGE_PROCESSING_TIMEOUT_MS;
+      }
+    }
+  });
 });

@@ -124,8 +124,12 @@ STORAGE_SECRET_ACCESS_KEY=AWS_SECRET_KEY
 STORAGE_REGION=us-east-1
 ```
 
+:::tip ترنسکد رسانه در ذخیره سازی ابری
+Songbird ترنسکد ویدیو و استخراج thumbnail را به **Media Worker** مستقل (`worker/`) محول میکند که میتواند به عنوان یک سرویس کانتینری مجزا یا در کنار گره های سرور مستقر شود. برای جزئیات معماری و استقرار، مستندات [ورکر مدیا](./Media-Worker.md) و [ذخیره سازی ابری](./Object-Storage.md) را ببینید.
+:::
+
 #### ۳. همگام سازی رویدادها با Redis (Pub/Sub)
-متغیر `REDIS_URL` یا `REDIS_HOST` را تنظیم کنید. با فعال شدن Redis، سرویس Songbird به طور خودکار از قابلیت Redis Pub/Sub (کانال `songbird:events`) برای همگام سازی همزمان رویدادهای WebSocket و SSE بین تمامی کانتینرها و همچنین از BullMQ برای پردازش کارهای پس زمینه (مانند تبدیل فرمت ویدیوها) استفاده میکند:
+متغیر `REDIS_URL` یا `REDIS_HOST` را تنظیم کنید. با فعال شدن Redis، سرویس Songbird به طور خودکار از قابلیت Redis Pub/Sub (کانال `songbird:events`) برای همگام سازی همزمان رویدادهای WebSocket و SSE بین تمامی کانتینرها استفاده میکند:
 ```txt
 REDIS_URL=redis://:password@redis.internal:6379
 ```

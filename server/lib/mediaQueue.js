@@ -1,15 +1,28 @@
 import { Queue, Worker } from "bullmq";
 import { dbKnex } from "../db/knex.js";
+import { readEnvBool } from "../settings/env.js";
 
 export function createMediaQueueManager({
   redisClient,
   storageProvider,
   s3ProcessingMode = "auto",
-  s3ProcessingTimeoutMs = 30000,
+  s3ProcessingTimeoutMs,
   adminGetRow,
   adminRun,
   emitChatEvent,
+  enqueueVideoTranscodeJob,
+  transcodeVideosToH264,
+  getSetting,
 }) {
+  const effectiveTimeoutMs = Math.max(
+    0,
+    Number(
+      s3ProcessingTimeoutMs !== undefined
+        ? s3ProcessingTimeoutMs
+        : process.env.STORAGE_PROCESSING_TIMEOUT_MS || 120000,
+    ) || 120000,
+  );
+
   const isRealRedis =
     redisClient &&
     typeof redisClient.duplicate === "function" &&
@@ -43,21 +56,41 @@ export function createMediaQueueManager({
 
     try {
       // Execute local fallback processing
-      // Update DB status to ready
-      if (adminRun) {
-        const { sql: updateSql, params: updateParams } = toSql(
-          dbKnex("chat_message_files").where("id", fileId).update({ processing_status: "ready" }),
-        );
-        adminRun(updateSql, updateParams);
-      }
+      const isVideo = String(row.mime_type || "").toLowerCase().startsWith("video/");
+      const isTranscodeEnabled = () => {
+        if (typeof transcodeVideosToH264 === "boolean") return transcodeVideosToH264;
+        if (typeof getSetting === "function") {
+          const val = getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS");
+          if (val !== undefined && val !== null) return Boolean(val);
+        }
+        return readEnvBool("FILE_UPLOAD_TRANSCODE_VIDEOS", true);
+      };
 
-      // Broadcast SSE notification
-      if (typeof emitChatEvent === "function") {
-        emitChatEvent("songbird:realtime-event", {
-          type: "video:ready",
+      if (isVideo && isTranscodeEnabled() && typeof enqueueVideoTranscodeJob === "function") {
+        enqueueVideoTranscodeJob({
           fileId,
+          storedName: row.stored_name,
           storageKey: row.storage_key || storageKey,
+          storageDriver: row.storage_driver,
+          messageId: row.message_id,
         });
+      } else {
+        // Update DB status to ready
+        if (adminRun) {
+          const { sql: updateSql, params: updateParams } = toSql(
+            dbKnex("chat_message_files").where("id", fileId).update({ processing_status: "ready" }),
+          );
+          adminRun(updateSql, updateParams);
+        }
+
+        // Broadcast SSE notification
+        if (typeof emitChatEvent === "function") {
+          emitChatEvent("songbird:realtime-event", {
+            type: "video:ready",
+            fileId,
+            storageKey: row.storage_key || storageKey,
+          });
+        }
       }
     } catch (err) {
       if (adminRun) {
@@ -112,7 +145,7 @@ export function createMediaQueueManager({
 
     enqueueJob(
       { fileId, storageKey, reason: "fallback_timer" },
-      s3ProcessingTimeoutMs,
+      effectiveTimeoutMs,
     );
   }
 

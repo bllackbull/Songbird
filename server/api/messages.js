@@ -1,6 +1,8 @@
 import rateLimit from "express-rate-limit";
 import { validateUuidParams, validateUuidBody } from "../lib/uuidMiddleware.js";
 import { createMessagePublicationService } from "../lib/services/messagePublicationService.js";
+import { dispatchMediaWorkerJob } from "../lib/mediaWorker.js";
+import { readEnvBool } from "../settings/env.js";
 
 function registerMessageRoutes(app, deps) {
   const {
@@ -49,6 +51,7 @@ function registerMessageRoutes(app, deps) {
     path,
     probeVideoMetadata,
     removeUploadedFiles,
+    removePendingPresignedUploads,
     requireSession,
     requireSessionUsernameMatch,
     sanitizeDurationSeconds,
@@ -63,6 +66,47 @@ function registerMessageRoutes(app, deps) {
     markMessagesRead,
     markMessageRead,
   } = deps;
+
+  const safeBasename = (p) => {
+    if (path && typeof path.basename === "function") return path.basename(p);
+    return String(p || "").split("/").pop().split("\\").pop();
+  };
+  const safeInferMime =
+    typeof inferMimeFromFilename === "function"
+      ? inferMimeFromFilename
+      : () => null;
+  const safeDecodeFilename =
+    typeof decodeOriginalFilename === "function"
+      ? decodeOriginalFilename
+      : (n) => n;
+  const safeIsDangerousUploadFile =
+    typeof isDangerousUploadFile === "function"
+      ? isDangerousUploadFile
+      : () => false;
+  const safeGetUploadKind =
+    typeof getUploadKind === "function"
+      ? getUploadKind
+      : (_uploadType, mimeType) => {
+          const m = String(mimeType || "").toLowerCase();
+          if (m.startsWith("image/")) return "image";
+          if (m.startsWith("video/")) return "video";
+          if (m.startsWith("audio/")) return "audio";
+          return "document";
+        };
+  const safeSanitizePositiveInt =
+    typeof sanitizePositiveInt === "function"
+      ? sanitizePositiveInt
+      : (val) => {
+          const num = Number(val);
+          return Number.isFinite(num) && num > 0 ? Math.round(num) : null;
+        };
+  const safeSanitizeDurationSeconds =
+    typeof sanitizeDurationSeconds === "function"
+      ? sanitizeDurationSeconds
+      : (val) => {
+          const num = Number(val);
+          return Number.isFinite(num) && num >= 0 ? num : null;
+        };
 
   const messagePubService = createMessagePublicationService({
     createOrReuseMessage,
@@ -180,7 +224,7 @@ function registerMessageRoutes(app, deps) {
     if (!sourceFiles?.length) return [];
 
     const reusedFiles = sourceFiles.flatMap((file) => {
-      const storedName = path.basename(String(file?.stored_name || "").trim());
+      const storedName = safeBasename(String(file?.stored_name || "").trim());
       if (!storedName) return [];
       const sourcePath = path.join(uploadRootDir, storedName);
       if (!fs.existsSync(sourcePath)) return [];
@@ -310,12 +354,34 @@ function registerMessageRoutes(app, deps) {
     const resolvedFiles = (rawFiles && typeof rawFiles.then === "function" ? await rawFiles : rawFiles) || [];
     const files = await hydrateMissingVideoMetadata(resolvedFiles);
 
-    const filesByMessageId = files.reduce((acc, file) => {
+    const filesByMessageId = {};
+    for (const file of files) {
       const messageId = file.message_id;
+      if (!filesByMessageId[messageId]) filesByMessageId[messageId] = [];
 
-      if (!acc[messageId]) acc[messageId] = [];
+      let fileUrl = `/api/uploads/messages/${file.stored_name}`;
+      let thumbUrl = null;
+      const driver = file.storage_driver;
+      const storageKey = file.storage_key;
+      const thumbKey = file.thumb_storage_key || file.thumbStorageKey;
+      if (
+        (driver === "remote" || driver === "s3") &&
+        deps.storageProvider &&
+        typeof deps.storageProvider.getDownloadUrl === "function"
+      ) {
+        if (storageKey) {
+          try {
+            fileUrl = await deps.storageProvider.getDownloadUrl(storageKey);
+          } catch (_) {}
+        }
+        if (thumbKey) {
+          try {
+            thumbUrl = await deps.storageProvider.getDownloadUrl(thumbKey);
+          } catch (_) {}
+        }
+      }
 
-      acc[messageId].push({
+      filesByMessageId[messageId].push({
         id: file.id,
         kind: file.kind,
         name: file.original_name,
@@ -332,11 +398,11 @@ function registerMessageRoutes(app, deps) {
           ? Number(file.duration_seconds)
           : null,
         expiresAt: file.expires_at || null,
-        url: `/api/uploads/messages/${file.stored_name}`,
+        thumbStorageKey: thumbKey || null,
+        thumbUrl: thumbUrl || null,
+        url: fileUrl,
       });
-
-      return acc;
-    }, {});
+    }
 
     const enriched = normalizedMessages
       .map((message) => ({
@@ -664,11 +730,7 @@ function registerMessageRoutes(app, deps) {
         return;
       }
 
-      if (!Array.isArray(req.files)) {
-        return res.status(400).json({ error: "Invalid files payload." });
-      }
-
-      const uploadedFiles = req.files;
+      const uploadedFiles = Array.isArray(req.files) ? req.files : [];
 
       try {
         if (!getSetting("FILE_UPLOAD")) {
@@ -682,6 +744,37 @@ function registerMessageRoutes(app, deps) {
         const username = req.body?.username?.toString();
         const uploadType = req.body?.uploadType?.toString();
         const fileMeta = parseUploadFileMetadata(req.body?.fileMeta);
+
+        let rawStorageKeys =
+          req.body?.storageKeys ??
+          req.body?.storageKey ??
+          req.body?.presignedFiles;
+        let presignedFiles = [];
+
+        if (rawStorageKeys !== undefined && rawStorageKeys !== null) {
+          if (typeof rawStorageKeys === "string") {
+            const trimmed = rawStorageKeys.trim();
+            if (trimmed) {
+              try {
+                const parsed = JSON.parse(trimmed);
+                if (Array.isArray(parsed)) {
+                  presignedFiles = parsed;
+                } else if (parsed && typeof parsed === "object") {
+                  presignedFiles = [parsed];
+                } else if (typeof parsed === "string" && parsed.trim()) {
+                  presignedFiles = [parsed.trim()];
+                }
+              } catch (_) {
+                presignedFiles = [trimmed];
+              }
+            }
+          } else if (Array.isArray(rawStorageKeys)) {
+            presignedFiles = rawStorageKeys;
+          } else if (typeof rawStorageKeys === "object") {
+            presignedFiles = [rawStorageKeys];
+          }
+        }
+
         const body = req.body?.body?.toString() || "";
         const trimmedBody = body.trim();
         const replyToMessageId = req.body?.replyToMessageId?.toString() || null;
@@ -713,13 +806,15 @@ function registerMessageRoutes(app, deps) {
           return;
         }
 
-        if (!uploadedFiles.length) {
+        const totalFilesCount = uploadedFiles.length + presignedFiles.length;
+
+        if (!totalFilesCount) {
           return res
             .status(400)
             .json({ error: "At least one file is required." });
         }
 
-        if (uploadedFiles.length > MESSAGE_FILE_LIMITS.maxFiles) {
+        if (totalFilesCount > MESSAGE_FILE_LIMITS.maxFiles) {
           removeUploadedFiles(uploadedFiles);
 
           return res.status(400).json({
@@ -791,10 +886,33 @@ function registerMessageRoutes(app, deps) {
           }
         }
 
-        const totalBytes = uploadedFiles.reduce(
+        const localBytes = uploadedFiles.reduce(
           (sum, file) => sum + Number(file.size || 0),
           0,
         );
+
+        const presignedBytes = presignedFiles.reduce((sum, item, index) => {
+          const meta =
+            fileMeta[uploadedFiles.length + index] || fileMeta[index] || {};
+          const sz = Number(
+            (typeof item === "object" && item !== null
+              ? (item.sizeBytes ??
+                item.size_bytes ??
+                item.fileSize ??
+                item.file_size ??
+                item.size)
+              : null) ??
+              meta.sizeBytes ??
+              meta.size_bytes ??
+              meta.fileSize ??
+              meta.file_size ??
+              meta.size ??
+              0,
+          );
+          return sum + (Number.isFinite(sz) && sz > 0 ? sz : 0);
+        }, 0);
+
+        const totalBytes = localBytes + presignedBytes;
 
         if (totalBytes > MESSAGE_FILE_LIMITS.maxTotalBytes) {
           removeUploadedFiles(uploadedFiles);
@@ -804,7 +922,7 @@ function registerMessageRoutes(app, deps) {
           });
         }
 
-        if (!hasEnoughFreeDiskSpace(totalBytes)) {
+        if (localBytes > 0 && !hasEnoughFreeDiskSpace(localBytes)) {
           removeUploadedFiles(uploadedFiles);
 
           return res.status(400).json({
@@ -831,7 +949,7 @@ function registerMessageRoutes(app, deps) {
           getSetting("MESSAGE_FILE_RETENTION"),
         );
 
-        const normalizedFiles = uploadedFiles.map((file, index) => {
+        const normalizedLocalFiles = uploadedFiles.map((file, index) => {
           const originalName = decodeOriginalFilename(
             file.originalname || "file",
           );
@@ -848,7 +966,8 @@ function registerMessageRoutes(app, deps) {
             );
           }
 
-          const kind = getUploadKind(uploadType, mimeType);
+          const isVideo = mimeType.startsWith("video/") || (inferredMime && String(inferredMime).toLowerCase().startsWith("video/"));
+          const kind = isVideo ? "media" : getUploadKind(uploadType, mimeType);
           if (!kind) {
             throw new Error("Invalid file type for selected upload option.");
           }
@@ -858,35 +977,218 @@ function registerMessageRoutes(app, deps) {
           return {
             kind,
             originalName,
-            storedName: path.basename(file.filename),
+            storedName: safeBasename(file.filename),
             mimeType,
             sizeBytes: Number(file.size || 0),
             widthPx: sanitizePositiveInt(meta.width),
             heightPx: sanitizePositiveInt(meta.height),
             durationSeconds: sanitizeDurationSeconds(meta.durationSeconds),
             expiresAt: expiresAtIso,
+            storageDriver: "local",
           };
         });
 
-        const hasVideoFiles = normalizedFiles.some((file) =>
-          String(file.mimeType || "")
-            .toLowerCase()
-            .startsWith("video/"),
-        );
-        const shouldTranscodeVideos =
-          getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS") &&
-          String(uploadType || "").toLowerCase() === "media";
+        const normalizedPresignedFiles = presignedFiles.map((item, index) => {
+          const meta =
+            fileMeta[uploadedFiles.length + index] || fileMeta[index] || {};
+          const key =
+            typeof item === "string"
+              ? item
+              : (item?.storageKey || item?.storage_key || item?.key || "");
+          if (!key) {
+            throw new Error("Invalid storage key for file.");
+          }
+
+          const rawName =
+            (typeof item === "object" && item !== null
+              ? (item.originalName || item.original_name || item.name || item.filename)
+              : null) ||
+            meta.originalName ||
+            meta.original_name ||
+            meta.name ||
+            meta.filename ||
+            safeBasename(key) ||
+            "file";
+          const originalName = safeDecodeFilename(rawName);
+          const inferredMime = safeInferMime(originalName);
+
+          const rawMime =
+            (typeof item === "object" && item !== null
+              ? (item.mimeType || item.mime_type || item.contentType || item.content_type || item.type)
+              : null) ||
+            meta.mimeType ||
+            meta.mime_type ||
+            meta.contentType ||
+            meta.content_type ||
+            meta.type ||
+            inferredMime ||
+            "application/octet-stream";
+          const mimeType = String(rawMime).toLowerCase();
+
+          if (safeIsDangerousUploadFile(originalName, mimeType)) {
+            throw new Error(
+              "This file type is not allowed for security reasons.",
+            );
+          }
+
+          const kind = safeGetUploadKind(uploadType, mimeType);
+          if (!kind) {
+            throw new Error("Invalid file type for selected upload option.");
+          }
+
+          const sizeBytes = Number(
+            (typeof item === "object" && item !== null
+              ? (item.sizeBytes ?? item.size_bytes ?? item.fileSize ?? item.file_size ?? item.size)
+              : null) ??
+              meta.sizeBytes ??
+              meta.size_bytes ??
+              meta.fileSize ??
+              meta.file_size ??
+              meta.size ??
+              0,
+          );
+
+          const widthPx = safeSanitizePositiveInt(
+            (typeof item === "object" && item !== null
+              ? (item.widthPx ?? item.width_px ?? item.width)
+              : null) ??
+              meta.widthPx ??
+              meta.width_px ??
+              meta.width,
+          );
+
+          const heightPx = safeSanitizePositiveInt(
+            (typeof item === "object" && item !== null
+              ? (item.heightPx ?? item.height_px ?? item.height)
+              : null) ??
+              meta.heightPx ??
+              meta.height_px ??
+              meta.height,
+          );
+
+          const durationSeconds = safeSanitizeDurationSeconds(
+            (typeof item === "object" && item !== null
+              ? (item.durationSeconds ?? item.duration_seconds ?? item.duration)
+              : null) ??
+              meta.durationSeconds ??
+              meta.duration_seconds ??
+              meta.duration,
+          );
+
+          const blurhash =
+            (typeof item === "object" && item !== null ? item.blurhash : null) ||
+            meta.blurhash ||
+            null;
+
+          const rawWaveform =
+            (typeof item === "object" && item !== null ? item.waveform : null) ||
+            meta.waveform ||
+            null;
+          const waveform = rawWaveform
+            ? typeof rawWaveform === "string"
+              ? rawWaveform
+              : JSON.stringify(rawWaveform)
+            : null;
+
+          const thumbStorageKey =
+            (typeof item === "object" && item !== null
+              ? (item.thumbStorageKey || item.thumb_storage_key)
+              : null) ||
+            meta.thumbStorageKey ||
+            meta.thumb_storage_key ||
+            null;
+
+          const storageDriver =
+            (typeof item === "object" && item !== null
+              ? (item.storageDriver || item.storage_driver)
+              : null) ||
+            meta.storageDriver ||
+            meta.storage_driver ||
+            (deps.storageProvider?.type || "remote");
+
+          const encryptionType =
+            (typeof item === "object" && item !== null
+              ? (item.encryptionType || item.encryption_type)
+              : null) ||
+            meta.encryptionType ||
+            meta.encryption_type ||
+            "none";
+
+          const storageProcessingMode = String(
+            deps.storageProcessingMode || process.env.STORAGE_PROCESSING_MODE || "auto",
+          ).toLowerCase();
+          const transcodeVideosSetting = getSetting
+            ? Boolean(getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS"))
+            : readEnvBool("FILE_UPLOAD_TRANSCODE_VIDEOS", true);
+          const isVideo =
+            mimeType.startsWith("video/") ||
+            (inferredMime && String(inferredMime).toLowerCase().startsWith("video/"));
+          const isAlreadyTranscoded = safeBasename(key).toLowerCase().includes("-h264-");
+          const shouldTranscodeThisFile =
+            isVideo &&
+            !isAlreadyTranscoded &&
+            transcodeVideosSetting;
+
+          let rawItemStatus =
+            typeof item === "object" && item !== null
+              ? (item.processingStatus || item.processing_status)
+              : null;
+          if (isVideo && !transcodeVideosSetting) {
+            rawItemStatus = "ready";
+          }
+
+          const effectiveKind = isVideo ? "media" : kind;
+          const effectiveMime = isVideo && !mimeType.startsWith("video/") && inferredMime ? inferredMime : mimeType;
+
+          return {
+            kind: effectiveKind,
+            originalName,
+            storedName: safeBasename(key),
+            mimeType: effectiveMime,
+            sizeBytes,
+            widthPx,
+            heightPx,
+            durationSeconds,
+            expiresAt: expiresAtIso,
+            storageDriver,
+            storageKey: key,
+            processingStatus:
+              rawItemStatus || (shouldTranscodeThisFile ? "pending" : "ready"),
+            blurhash,
+            waveform,
+            thumbStorageKey,
+            encryptionType,
+          };
+        });
+
+        const normalizedFiles = [
+          ...normalizedLocalFiles,
+          ...normalizedPresignedFiles,
+        ];
+
+        const storageProcessingMode = String(
+          deps.storageProcessingMode || process.env.STORAGE_PROCESSING_MODE || "auto",
+        ).toLowerCase();
+        const hasVideoFiles = normalizedFiles.some((file) => {
+          const m = String(file.mimeType || "").toLowerCase();
+          const s = String(file.storedName || "").toLowerCase();
+          return (m.startsWith("video/") || file.kind === "media") && !s.includes("-h264-");
+        });
+        const transcodeVideosEnabled = getSetting
+          ? Boolean(getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS"))
+          : readEnvBool("FILE_UPLOAD_TRANSCODE_VIDEOS", true);
+        const shouldTranscodeVideos = transcodeVideosEnabled && hasVideoFiles;
 
         debugLog("api:messages/upload:start", {
           chatId,
           username: String(username || "").toLowerCase(),
           fileCount: normalizedFiles.length,
           hasVideoFiles,
-          transcodeEnabled: shouldTranscodeVideos,
+          transcodeEnabled: transcodeVideosEnabled,
           uploadType,
         });
 
-        if (shouldTranscodeVideos && hasVideoFiles) {
+        if (shouldTranscodeVideos && typeof ensureFfmpegAvailable === "function") {
           await ensureFfmpegAvailable();
         }
 
@@ -898,36 +1200,41 @@ function registerMessageRoutes(app, deps) {
               if (file.widthPx && file.heightPx && file.durationSeconds !== null)
                 return;
 
-              const storedName = path.basename(
+              const storedName = safeBasename(
                 String(file?.storedName || "").trim(),
               );
               if (!storedName) return;
 
               const inputPath = path.join(uploadRootDir, storedName);
-              const metadata = await probeVideoMetadata(inputPath);
+              if (fs.existsSync && fs.existsSync(inputPath)) {
+                const metadata = await probeVideoMetadata(inputPath);
 
-              if (!file.widthPx && metadata.widthPx) {
-                file.widthPx = metadata.widthPx;
-              }
-              if (!file.heightPx && metadata.heightPx) {
-                file.heightPx = metadata.heightPx;
-              }
-              if (
-                file.durationSeconds === null &&
-                metadata.durationSeconds !== null
-              ) {
-                file.durationSeconds = metadata.durationSeconds;
+                if (!file.widthPx && metadata.widthPx) {
+                  file.widthPx = metadata.widthPx;
+                }
+                if (!file.heightPx && metadata.heightPx) {
+                  file.heightPx = metadata.heightPx;
+                }
+                if (
+                  file.durationSeconds === null &&
+                  metadata.durationSeconds !== null
+                ) {
+                  file.durationSeconds = metadata.durationSeconds;
+                }
               }
             }),
           );
         }
 
-        normalizedFiles.forEach((file) => {
-          const storedName = path.basename(String(file?.storedName || "").trim());
+          normalizedFiles.forEach((file) => {
+            if (file.storageKey) return;
+            const storedName = safeBasename(String(file?.storedName || "").trim());
           if (!storedName) return;
 
           const inputPath = path.join(uploadRootDir, storedName);
-          storageEncryption.encryptFileInPlace(inputPath);
+          if (fs.existsSync && fs.existsSync(inputPath)) {
+            storageEncryption.encryptFileInPlace(inputPath);
+          }
         });
 
         const summarizeFiles = (files) => {
@@ -969,6 +1276,44 @@ function registerMessageRoutes(app, deps) {
           (normalizedFiles.length === 1
             ? `Sent ${normalizedFiles[0].kind === "media" ? "a media file" : "a document"}`
             : `Sent ${normalizedFiles.length} files`);
+
+        if (
+          deps.storageProvider &&
+          (deps.storageProvider.type === "remote" ||
+            deps.storageProvider.type === "s3") &&
+          typeof deps.storageProvider.uploadBuffer === "function"
+        ) {
+          await Promise.all(
+            uploadedFiles.map(async (file, index) => {
+              const norm = normalizedFiles[index];
+              if (!norm) return;
+
+              const isVideo = String(norm.mimeType || "").toLowerCase().startsWith("video/");
+              const isQueuedForLocalTranscode =
+                isVideo &&
+                shouldTranscodeVideos &&
+                !String(norm.storedName || "").toLowerCase().includes("-h264-");
+
+              if (isQueuedForLocalTranscode) {
+                norm.storageDriver = "local";
+                return;
+              }
+
+              const fileKey = `uploads/${file.filename}`;
+              const fileBuf = await fs.promises.readFile(file.path);
+              const uploadBuf = storageEncryption.decryptBuffer(fileBuf);
+              await deps.storageProvider.uploadBuffer(
+                fileKey,
+                uploadBuf,
+                norm.mimeType || "application/octet-stream",
+              );
+              norm.storageDriver = deps.storageProvider.type || "s3";
+              norm.storageKey = fileKey;
+              await fs.promises.unlink(file.path).catch(() => {});
+            }),
+          );
+        }
+
         let messageId = editMessageId || null;
         let dedupedMessage = false;
         if (editTarget) {
@@ -979,7 +1324,8 @@ function registerMessageRoutes(app, deps) {
             fallbackBody;
           editMessage(messageId, editBody);
           setMessageExpiresAt(messageId, null);
-          createMessageFiles(messageId, normalizedFiles);
+          const rawCreate = createMessageFiles(messageId, normalizedFiles);
+          if (rawCreate && typeof rawCreate.then === "function") await rawCreate;
         } else {
           const rawCreated = createOrReuseMessage(
             chatId,
@@ -999,47 +1345,125 @@ function registerMessageRoutes(app, deps) {
             removeUploadedFiles(uploadedFiles);
             return res.json({ id: messageId, deduped: true });
           }
-          createMessageFiles(messageId, normalizedFiles);
+          const rawCreate = createMessageFiles(messageId, normalizedFiles);
+          if (rawCreate && typeof rawCreate.then === "function") await rawCreate;
           if (chat.type === "saved") {
             markMessageRead(messageId, user.id);
           }
         }
 
+        const usedStorageKeys = (normalizedFiles || [])
+          .map((f) => f.storageKey || f.storage_key)
+          .filter(Boolean);
+        if (usedStorageKeys.length > 0) {
+          if (typeof removePendingPresignedUploads === "function") {
+            removePendingPresignedUploads(usedStorageKeys);
+          }
+        }
+
         let transcodeJobsQueued = 0;
 
-        if (shouldTranscodeVideos && hasVideoFiles) {
+        if (transcodeVideosEnabled && hasVideoFiles) {
           const rawInsertedRows = listMessageFilesByMessageIds([messageId]);
           const insertedRows = (rawInsertedRows && typeof rawInsertedRows.then === "function" ? await rawInsertedRows : rawInsertedRows) || [];
           const insertedByStoredName = new Map();
 
           insertedRows.forEach((row) => {
-            const key = path.basename(String(row?.stored_name || "").trim());
-            if (!key) return;
-
-            insertedByStoredName.set(key, row.id);
+            const nameKey = safeBasename(String(row?.stored_name || row?.storedName || "").trim());
+            const storageKey = String(row?.storage_key || row?.storageKey || "").trim();
+            if (nameKey) insertedByStoredName.set(nameKey, row.id);
+            if (storageKey) insertedByStoredName.set(storageKey, row.id);
           });
 
           normalizedFiles.forEach((file) => {
             const mimeType = String(file?.mimeType || "").toLowerCase();
             if (!mimeType.startsWith("video/")) return;
 
-            const storedName = path.basename(
+            const storedName = safeBasename(
               String(file?.storedName || "").trim(),
             );
-            if (!storedName) return;
 
-            const fileId = insertedByStoredName.get(storedName);
+            const fileId =
+              insertedByStoredName.get(file.storageKey || file.storage_key) ||
+              insertedByStoredName.get(storedName) ||
+              file?.id;
             if (!fileId) return;
 
-            enqueueVideoTranscodeJob({
-              fileId,
-              storedName,
-              chatId,
-              messageId,
-              username: user.username,
-            });
+            if (typeof deps.enqueueVideoTranscodeJob === "function") {
+              deps.enqueueVideoTranscodeJob({
+                fileId,
+                storedName: storedName || file.storageKey || file.storage_key,
+                storageKey: file.storageKey || file.storage_key || storedName,
+                storageDriver: file.storageDriver || file.storage_driver,
+                chatId,
+                messageId,
+                username: user.username,
+                storageProcessingMode,
+              });
+              transcodeJobsQueued += 1;
+            } else {
+              const defaultCallback = `http://127.0.0.1:${process.env.SERVER_PORT || process.env.PORT || "5174"}/api/uploads/webhook/processed`;
 
-            transcodeJobsQueued += 1;
+              dispatchMediaWorkerJob({
+                workerUrl:
+                  deps.workerUrl ||
+                  deps.mediaWorkerUrl ||
+                  process.env.WORKER_URL ||
+                  process.env.MEDIA_WORKER_URL ||
+                  null,
+                mediaWorkerUrl:
+                  deps.workerUrl ||
+                  deps.mediaWorkerUrl ||
+                  process.env.WORKER_URL ||
+                  process.env.MEDIA_WORKER_URL ||
+                  null,
+                storageProcessingMode,
+                storageProcessingTimeoutMs:
+                  deps.storageProcessingTimeoutMs ||
+                  (process.env.STORAGE_PROCESSING_TIMEOUT_MS ? Number(process.env.STORAGE_PROCESSING_TIMEOUT_MS) : undefined),
+                workerPort: deps.workerPort || process.env.WORKER_PORT || "8080",
+                webhookSecret:
+                  deps.webhookSecret !== undefined
+                    ? deps.webhookSecret
+                    : process.env.WEBHOOK_SECRET || null,
+                callbackUrl:
+                  deps.webhookCallbackUrl ||
+                  process.env.WEBHOOK_URL ||
+                  process.env.WEBHOOK_CALLBACK_URL ||
+                  process.env.SONGBIRD_WEBHOOK_URL ||
+                  process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
+                  defaultCallback,
+                fileId,
+                storageKey: file.storageKey || file.storage_key || storedName,
+                storedName: storedName || file.storageKey || file.storage_key,
+                mimeType,
+                encryptionType:
+                  file.encryptionType ||
+                  file.encryption_type ||
+                  (Boolean(deps.storageEncryption?.hasKey?.())
+                    ? "local"
+                    : "none"),
+                fetchImpl: deps.fetchImpl || globalThis.fetch,
+              })
+                .then((ok) => {
+                  if (ok) {
+                    console.log(
+                      `[messages] Dispatched transcode job for file ${fileId} (mode=${storageProcessingMode})`,
+                    );
+                  } else {
+                    console.warn(
+                      `[messages] Failed to dispatch transcode job for file ${fileId} (mode=${storageProcessingMode})`,
+                    );
+                  }
+                })
+                .catch((err) => {
+                  console.error(
+                    `[messages] Error dispatching transcode job for file ${fileId}:`,
+                    err,
+                  );
+                });
+              transcodeJobsQueued += 1;
+            }
           });
         }
 
@@ -1049,30 +1473,74 @@ function registerMessageRoutes(app, deps) {
           ? await hydrateMissingVideoMetadata(insertedFiles)
           : insertedFiles;
         const sourceFilesForResponse = hydratedFiles.length ? hydratedFiles : normalizedFiles;
-        const responseFiles = sourceFilesForResponse.map((file, idx) => {
+
+        const resolveFileUrl = async (file) => {
           const storedName = file.stored_name || file.storedName || "";
-          const expiresAtVal = file.expires_at || file.expiresAt || expiresAtIso || null;
-          return {
-            id: file.id || (idx + 1),
-            kind: file.kind,
-            name: file.original_name || file.originalName || "",
-            mimeType: file.mime_type || file.mimeType || "",
-            processing: typeof isVideoFileProcessing === "function" ? isVideoFileProcessing(file) : false,
-            sizeBytes: Number(file.size_bytes || file.sizeBytes || 0),
-            width: Number.isFinite(Number(file.width_px ?? file.widthPx))
-              ? Number(file.width_px ?? file.widthPx)
-              : null,
-            height: Number.isFinite(Number(file.height_px ?? file.heightPx))
-              ? Number(file.height_px ?? file.heightPx)
-              : null,
-            durationSeconds: Number.isFinite(Number(file.duration_seconds ?? file.durationSeconds))
-              ? Number(file.duration_seconds ?? file.durationSeconds)
-              : null,
-            expiresAt: expiresAtVal,
-            expires_at: expiresAtVal,
-            url: storedName ? `/api/uploads/messages/${storedName}` : null,
-          };
-        });
+          const driver = file.storage_driver || file.storageDriver;
+          const storageKey = file.storage_key || file.storageKey;
+          if (
+            (driver === "remote" || driver === "s3") &&
+            storageKey &&
+            deps.storageProvider &&
+            typeof deps.storageProvider.getDownloadUrl === "function"
+          ) {
+            try {
+              return await deps.storageProvider.getDownloadUrl(storageKey);
+            } catch (_) {}
+          }
+          return storedName ? `/api/uploads/messages/${storedName}` : null;
+        };
+
+        const resolveThumbUrl = async (file) => {
+          const driver = file.storage_driver || file.storageDriver;
+          const thumbKey = file.thumb_storage_key || file.thumbStorageKey;
+          if (
+            (driver === "remote" || driver === "s3") &&
+            thumbKey &&
+            deps.storageProvider &&
+            typeof deps.storageProvider.getDownloadUrl === "function"
+          ) {
+            try {
+              return await deps.storageProvider.getDownloadUrl(thumbKey);
+            } catch (_) {}
+          }
+          return null;
+        };
+
+        const responseFiles = await Promise.all(
+          sourceFilesForResponse.map(async (file, idx) => {
+            const storedName = file.stored_name || file.storedName || "";
+            const expiresAtVal = file.expires_at || file.expiresAt || expiresAtIso || null;
+            const resolvedUrl = await resolveFileUrl(file);
+            const resolvedThumbUrl = await resolveThumbUrl(file);
+            const thumbKey = file.thumb_storage_key || file.thumbStorageKey || null;
+            return {
+              id: file.id || (idx + 1),
+              kind: file.kind,
+              name: file.original_name || file.originalName || "",
+              mimeType: file.mime_type || file.mimeType || "",
+              processing:
+                (file.storage_driver === "remote" || file.storage_driver === "s3" || file.storageDriver === "remote" || file.storageDriver === "s3")
+                  ? (file.processing_status || file.processingStatus) === "pending"
+                  : (typeof isVideoFileProcessing === "function" ? isVideoFileProcessing(file) : false),
+              sizeBytes: Number(file.size_bytes || file.sizeBytes || 0),
+              width: Number.isFinite(Number(file.width_px ?? file.widthPx))
+                ? Number(file.width_px ?? file.widthPx)
+                : null,
+              height: Number.isFinite(Number(file.height_px ?? file.heightPx))
+                ? Number(file.height_px ?? file.heightPx)
+                : null,
+              durationSeconds: Number.isFinite(Number(file.duration_seconds ?? file.durationSeconds))
+                ? Number(file.duration_seconds ?? file.durationSeconds)
+                : null,
+              expiresAt: expiresAtVal,
+              expires_at: expiresAtVal,
+              thumbStorageKey: thumbKey,
+              thumbUrl: resolvedThumbUrl,
+              url: resolvedUrl,
+            };
+          }),
+        );
         const fileExpiresAt = responseFiles.find((f) => f.expiresAt)?.expiresAt || null;
 
         if (editTarget) {

@@ -19,7 +19,7 @@ hero:
 features:
   - icon: 🚀
     title: نصب آسان
-    details: اسکریپت نصب تکخطی، وابستگیها، build، Nginx و SSL را برای شما مدیریت میکند.
+    details: اسکریپت نصب تک خطی، وابستگی ها، build، Nginx و SSL را برای شما مدیریت میکند.
     link: /fa/Deployment-Script
   - icon: 🐳
     title: آماده برای Docker
@@ -34,8 +34,8 @@ features:
     details: پورت‌ها، آپلودها، نگه‌داری فایل‌ها، push و موارد دیگر را از طریق متغیرهای محیطی یا رابط مدیریت تنظیم کنید.
     link: /fa/Environment-Variables
   - icon: ☁️
-    title: ذخیره سازی ابری
-    details: ذخیره سازی ابری سازگار با S3، توزیع CDN و صف های پس زمینه پردازش رسانه.
+    title: ذخیره سازی ابری و Media Worker
+    details: ذخیره سازی ابری سازگار با S3، میکروسرویس ترنسکد و بهینه سازی رسانه با HTTP Push و توزیع CDN.
     link: /fa/Object-Storage
   - icon: 📡
     title: Remote Channel

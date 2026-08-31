@@ -21,6 +21,7 @@ const enSidebar = [
     items: [
       {text: '🔧 Environment Variables', link: '/Environment-Variables'},
       {text: '☁️ Object Storage', link: '/Object-Storage'},
+      {text: '🎞️ Media Worker', link: '/Media-Worker'},
       {text: '🛡️ Admin Panel', link: '/Admin-Panel'},
       {text: '📡 Remote Channel Setup', link: '/Remote-Channel-Setup'},
       {text: '🔔 Push Notification Proxy', link: '/Push-Notification-Proxy'},
@@ -58,8 +59,9 @@ const faSidebar = [
     items: [
       {text: '🔧 متغیرهای محیطی', link: '/fa/Environment-Variables'},
       {text: '☁️ ذخیره سازی ابری', link: '/fa/Object-Storage'},
+      {text: '🎞️ ورکر مدیا', link: '/fa/Media-Worker'},
       {text: '🛡️ پنل مدیریت', link: '/fa/Admin-Panel'},
-      {text: '📡 راه‌اندازی Remote Channel', link: '/fa/Remote-Channel-Setup'},
+      {text: '📡 راهاندازی Remote Channel', link: '/fa/Remote-Channel-Setup'},
       {text: '🔔 پراکسی Push Notification', link: '/fa/Push-Notification-Proxy'},
     ],
   },

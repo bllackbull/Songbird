@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+import { pipeline } from "node:stream/promises";
 import {
   S3Client,
   PutObjectCommand,
@@ -96,6 +99,27 @@ export class RemoteStorageProvider extends StorageProvider {
   }
 
   /**
+   * Upload raw buffer or stream directly to S3/R2.
+   * @param {string} fileKey
+   * @param {Buffer|Uint8Array|string} body
+   * @param {string} [contentType]
+   * @returns {Promise<{key: string}>}
+   */
+  async uploadBuffer(fileKey, body, contentType = "application/octet-stream") {
+    const cleanKey = String(fileKey || "").replace(/^\//, "");
+    const buf = Buffer.isBuffer(body) ? body : Buffer.from(body);
+    const command = new PutObjectCommand({
+      Bucket: this.bucket,
+      Key: cleanKey,
+      Body: buf,
+      ContentLength: buf.length,
+      ContentType: contentType,
+    });
+    await this.client.send(command);
+    return { key: cleanKey };
+  }
+
+  /**
    * Get download URL (presigned GET or public CDN URL).
    * @param {string} fileKey
    * @param {object} [options]
@@ -155,5 +179,45 @@ export class RemoteStorageProvider extends StorageProvider {
       }
       throw err;
     }
+  }
+
+  /**
+   * Download a remote object directly to a local file path.
+   * @param {string} fileKey
+   * @param {string} destPath
+   * @returns {Promise<string>}
+   */
+  async downloadToPath(fileKey, destPath) {
+    const cleanKey = String(fileKey || "").replace(/^\//, "");
+    const command = new GetObjectCommand({
+      Bucket: this.bucket,
+      Key: cleanKey,
+    });
+    const response = await this.client.send(command);
+    await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
+    await pipeline(response.Body, fs.createWriteStream(destPath));
+    return destPath;
+  }
+
+  /**
+   * Upload a local file directly to remote storage.
+   * @param {string} fileKey
+   * @param {string} filePath
+   * @param {string} [contentType]
+   * @returns {Promise<{key: string}>}
+   */
+  async uploadFile(fileKey, filePath, contentType = "application/octet-stream") {
+    const cleanKey = String(fileKey || "").replace(/^\//, "");
+    const stat = fs.statSync(filePath);
+    const body = fs.createReadStream(filePath);
+    const command = new PutObjectCommand({
+      Bucket: this.bucket,
+      Key: cleanKey,
+      Body: body,
+      ContentLength: stat.size,
+      ContentType: contentType,
+    });
+    await this.client.send(command);
+    return { key: cleanKey };
   }
 }

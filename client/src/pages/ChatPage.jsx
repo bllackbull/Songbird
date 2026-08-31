@@ -112,6 +112,7 @@ import {
   updateProfile,
   updateStatus as updateStatusRequest,
   uploadAvatar,
+  prepareFilesForMessage,
 } from "../api/chatApi.js";
 import { useMessageMaxChars } from "../settings/appConfig.js";
 import {
@@ -3830,33 +3831,57 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const uploadPendingMessageWithProgress = (pendingMessage, targetChatId) =>
     new Promise((resolve, reject) => {
-      const form = new FormData();
-      form.append("username", user.username);
-      form.append("chatId", String(targetChatId));
-      form.append("body", pendingMessage.body || "");
-      form.append("uploadType", pendingMessage._uploadType || "document");
-      form.append("clientRequestId", String(pendingMessage._clientId || ""));
-      if (pendingMessage.replyTo?.id) {
-        form.append("replyToMessageId", String(pendingMessage.replyTo.id));
-      }
-      if (pendingMessage._editMessageId) {
-        form.append("editMessageId", String(pendingMessage._editMessageId));
-      }
-      const fileMeta = [];
-      pendingMessage._files.forEach((item) => {
-        if (item?.file instanceof Blob) {
-          const filename = item.name || item.file.name || "upload.bin";
-          form.append("files", item.file, filename);
-          fileMeta.push({
-            width: Number.isFinite(Number(item.width)) ? Number(item.width) : null,
-            height: Number.isFinite(Number(item.height)) ? Number(item.height) : null,
-            durationSeconds: Number.isFinite(Number(item.durationSeconds))
-              ? Number(item.durationSeconds)
-              : null,
-          });
+      (async () => {
+        const form = new FormData();
+        form.append("username", user.username);
+        form.append("chatId", String(targetChatId));
+        form.append("body", pendingMessage.body || "");
+        form.append("uploadType", pendingMessage._uploadType || "document");
+        form.append("clientRequestId", String(pendingMessage._clientId || ""));
+        if (pendingMessage.replyTo?.id) {
+          form.append("replyToMessageId", String(pendingMessage.replyTo.id));
         }
-      });
-      form.append("fileMeta", JSON.stringify(fileMeta));
+        if (pendingMessage._editMessageId) {
+          form.append("editMessageId", String(pendingMessage._editMessageId));
+        }
+
+        const fileItems = (pendingMessage._files || []).filter(
+          (item) => item?.file instanceof Blob,
+        );
+
+        let prepResult = { presignedFiles: [], localFiles: [], fileMeta: [] };
+        try {
+          prepResult = await prepareFilesForMessage(fileItems, {
+            onProgress: (_idx, pct) => {
+              if (typeof setPendingUploadProgress === "function") {
+                setPendingUploadProgress(pendingMessage._clientId, pct, targetChatId);
+              }
+            },
+          });
+        } catch (err) {
+          console.warn("[uploadPendingMessageWithProgress] prepareFilesForMessage failed:", err);
+        }
+
+        const { presignedFiles = [] } = prepResult;
+        const usedRemote = presignedFiles.length > 0;
+
+        if (usedRemote) {
+          form.append("storageKeys", JSON.stringify(presignedFiles));
+        } else {
+          const fileMeta = [];
+          fileItems.forEach((item) => {
+            const filename = item.name || item.file.name || "upload.bin";
+            form.append("files", item.file, filename);
+            fileMeta.push({
+              width: Number.isFinite(Number(item.width)) ? Number(item.width) : null,
+              height: Number.isFinite(Number(item.height)) ? Number(item.height) : null,
+              durationSeconds: Number.isFinite(Number(item.durationSeconds))
+                ? Number(item.durationSeconds)
+                : null,
+            });
+          });
+          form.append("fileMeta", JSON.stringify(fileMeta));
+        }
 
       const xhr = new XMLHttpRequest();
       let settled = false;
@@ -3927,7 +3952,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         );
       };
 
-      xhr.send(form);
+        xhr.send(form);
+      })().catch(reject);
     });
 
   const sendPendingMessage = async (pendingMessage) => {
@@ -4022,6 +4048,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         messageId: data?.id || null,
       });
 
+      const serverId = data?.id || data?._serverId || null;
+
       if (isTargetActive) {
         setMessages((prev) => {
           const uploadType = String(pendingMessage?._uploadType || "").toLowerCase();
@@ -4029,10 +4057,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           const hasMediaVideo = files.some((file) =>
             String(file?.mimeType || "").toLowerCase().startsWith("video/"),
           );
-          const keepPendingUntilServerEcho = hasFiles && uploadType === "media" && hasMediaVideo;
-          const serverId = data?.id || null;
-          const awaitingServerEcho = Boolean(serverId);
           const responseFiles = Array.isArray(data?.files) && data.files.length > 0 ? data.files : null;
+          const isProcessingOnServer = responseFiles
+            ? responseFiles.some((f) => f.processing === true)
+            : true;
+          const keepPendingUntilServerEcho =
+            hasFiles && uploadType === "media" && hasMediaVideo && isProcessingOnServer;
+          const awaitingServerEcho = Boolean(keepPendingUntilServerEcho);
           const calculatedExpiresAt = data?.expiresAt || null;
           const index = prev.findIndex(
             (msg) =>
@@ -4134,8 +4165,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           const hasMediaVideo = files.some((file) =>
             String(file?.mimeType || "").toLowerCase().startsWith("video/"),
           );
+          const responseFiles = Array.isArray(data?.files) && data.files.length > 0 ? data.files : null;
+          const isProcessingOnServer = responseFiles
+            ? responseFiles.some((f) => f.processing === true)
+            : true;
           const keepPendingUntilServerEcho =
-            uploadType === "media" && hasMediaVideo;
+            uploadType === "media" && hasMediaVideo && isProcessingOnServer;
           if (!keepPendingUntilServerEcho) {
             if (activeUploadProgressHideTimerRef.current) {
               window.clearTimeout(activeUploadProgressHideTimerRef.current);
@@ -4799,16 +4834,23 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
     if (mimeType.startsWith("video/")) {
       return new Promise((resolve) => {
+        let objectUrl = null;
+        let resolved = false;
+        try {
+          objectUrl = URL.createObjectURL(file);
+        } catch {
+          return resolve({ width: null, height: null, durationSeconds: null });
+        }
+
         const video = document.createElement("video");
         video.preload = "metadata";
         video.muted = true;
         video.playsInline = true;
-        let reader = null;
-        let resolved = false;
 
         const resolveOnce = (metadata) => {
           if (resolved) return;
           resolved = true;
+          cleanup();
           resolve(metadata);
         };
 
@@ -4818,15 +4860,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           } catch {
             // no-op
           }
-          if ("srcObject" in video) {
-            video.srcObject = null;
-          }
           video.removeAttribute("src");
-          video.load();
-          if (reader?.readyState === FileReader.LOADING) {
-            reader.abort();
+          if (objectUrl) {
+            try {
+              URL.revokeObjectURL(objectUrl);
+            } catch {
+              // no-op
+            }
+            objectUrl = null;
           }
-          reader = null;
         };
 
         video.onloadedmetadata = () => {
@@ -4837,62 +4879,49 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               ? Number(video.duration)
               : null,
           });
-          cleanup();
         };
         video.onerror = () => {
           resolveOnce({ width: null, height: null, durationSeconds: null });
-          cleanup();
         };
 
-        try {
-          if ("srcObject" in video) {
-            video.srcObject = file;
-            return;
-          }
-          reader = new FileReader();
-          reader.onload = () => {
-            const dataUrl = typeof reader?.result === "string" ? reader.result : "";
-            if (!dataUrl) {
-              resolveOnce({ width: null, height: null, durationSeconds: null });
-              cleanup();
-              return;
-            }
-            video.src = dataUrl;
-          };
-          reader.onerror = () => {
-            resolveOnce({ width: null, height: null, durationSeconds: null });
-            cleanup();
-          };
-          reader.readAsDataURL(file);
-        } catch {
-          resolveOnce({ width: null, height: null, durationSeconds: null });
-          cleanup();
-        }
+        video.src = objectUrl;
       });
     }
     if (mimeType.startsWith("audio/")) {
       return new Promise((resolve) => {
+        let objectUrl = null;
+        let resolved = false;
+        try {
+          objectUrl = URL.createObjectURL(file);
+        } catch {
+          return resolve({ width: null, height: null, durationSeconds: null });
+        }
+
         const audio = document.createElement("audio");
         audio.preload = "metadata";
-        let reader = null;
-        let resolved = false;
 
         const resolveOnce = (metadata) => {
           if (resolved) return;
           resolved = true;
+          cleanup();
           resolve(metadata);
         };
 
         const cleanup = () => {
-          if ("srcObject" in audio) {
-            audio.srcObject = null;
+          try {
+            audio.pause();
+          } catch {
+            // no-op
           }
           audio.removeAttribute("src");
-          audio.load();
-          if (reader?.readyState === FileReader.LOADING) {
-            reader.abort();
+          if (objectUrl) {
+            try {
+              URL.revokeObjectURL(objectUrl);
+            } catch {
+              // no-op
+            }
+            objectUrl = null;
           }
-          reader = null;
         };
 
         audio.onloadedmetadata = () => {
@@ -4903,33 +4932,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               ? Number(audio.duration)
               : null,
           });
-          cleanup();
         };
         audio.onerror = () => {
           resolveOnce({ width: null, height: null, durationSeconds: null });
-          cleanup();
         };
 
-        try {
-          reader = new FileReader();
-          reader.onload = () => {
-            const dataUrl = typeof reader?.result === "string" ? reader.result : "";
-            if (!dataUrl) {
-              resolveOnce({ width: null, height: null, durationSeconds: null });
-              cleanup();
-              return;
-            }
-            audio.src = dataUrl;
-          };
-          reader.onerror = () => {
-            resolveOnce({ width: null, height: null, durationSeconds: null });
-            cleanup();
-          };
-          reader.readAsDataURL(file);
-        } catch {
-          resolveOnce({ width: null, height: null, durationSeconds: null });
-          cleanup();
-        }
+        audio.src = objectUrl;
       });
     }
     return Promise.resolve({ width: null, height: null, durationSeconds: null });

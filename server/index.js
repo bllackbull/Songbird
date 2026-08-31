@@ -25,8 +25,10 @@ import { createSessionHelpers } from "./lib/sessions.js";
 import { createRedisClient, createRedisSessionStore } from "./lib/redis.js";
 import { storageEncryption } from "./lib/storageEncryption.js";
 import { createStorageProvider } from "./lib/storage/index.js";
+import { createMediaQueueManager } from "./lib/mediaQueue.js";
 import { createRemoteChannelManager } from "./lib/remoteChannels.js";
 import { initAutoAddWorker } from "./lib/workers/autoAddWorker.js";
+import { ensureLocalWorkerRunning } from "./lib/localWorkerManager.js";
 import { buildTimestampSchedule } from "./lib/timeUtils.js";
 import { isLoopbackRequest, parseUploadFileMetadata } from "./lib/requestUtils.js";
 import { USERNAME_REGEX } from "./lib/validation.js";
@@ -73,6 +75,9 @@ import {
   getMessages,
   getFirstUnreadMessage,
   recordMessageReads,
+  recordPendingPresignedUpload,
+  removePendingPresignedUploads,
+  listPendingPresignedUploads,
   listMessageFilesByMessageIds,
   markGroupMemberRemoved,
   markChatMemberLeft,
@@ -372,6 +377,8 @@ const REMOTE_CHANNEL_CONFIG = {
 };
 const MESSAGE_FILE_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 
+const storageProvider = createStorageProvider(process.env);
+
 const uploadTools = createUploadTools({
   fs,
   path,
@@ -386,6 +393,7 @@ const uploadTools = createUploadTools({
   fileUploadMaxFiles: FILE_UPLOAD_MAX_FILES,
   fileUploadMaxTotalSize: FILE_UPLOAD_MAX_TOTAL_SIZE,
   storageEncryption,
+  storageProvider,
 });
 
 const {
@@ -449,7 +457,20 @@ const videoTranscoder = createVideoTranscodeManager({
   debugLog,
   uploadRootDir,
   transcodeVideosToH264: TRANSCODE_VIDEOS_TO_H264,
+  getSetting,
   storageEncryption,
+  storageProvider,
+  storageProcessingMode: process.env.STORAGE_PROCESSING_MODE || "auto",
+  mediaWorkerUrl: process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
+  workerUrl: process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
+  workerPort: process.env.WORKER_PORT || "8080",
+  webhookSecret: process.env.WEBHOOK_SECRET || null,
+  callbackUrl:
+    process.env.WEBHOOK_URL ||
+    process.env.WEBHOOK_CALLBACK_URL ||
+    process.env.SONGBIRD_WEBHOOK_URL ||
+    process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
+    `http://127.0.0.1:${process.env.SERVER_PORT || process.env.PORT || "5174"}/api/uploads/webhook/processed`,
 });
 const {
   enqueueVideoTranscodeJob,
@@ -473,6 +494,7 @@ const messageFileJobs = createMessageFileJobs({
   fs,
   path,
   getSetting,
+  storageProvider,
 });
 const {
   chunkArray,
@@ -481,6 +503,7 @@ const {
   backfillMessageFileExpiry,
   removeAllMessageUploads,
   computeExpiryIso,
+  pruneOrphanRemoteObjects,
 } = messageFileJobs;
 
 const inspector = createInspector({ fs, dataDir, adminGetRow, adminGetAll });
@@ -488,6 +511,19 @@ const { buildInspectSnapshot, hasEnoughFreeDiskSpace } = inspector;
 
 const redisClient = createRedisClient();
 const redisSessionStore = createRedisSessionStore({ redisClient, dbGetSession: getSession });
+
+const mediaQueueManager = createMediaQueueManager({
+  redisClient,
+  storageProvider,
+  s3ProcessingMode: process.env.STORAGE_PROCESSING_MODE || "auto",
+  s3ProcessingTimeoutMs: Number(process.env.STORAGE_PROCESSING_TIMEOUT_MS) || 120000,
+  adminGetRow,
+  adminRun,
+  emitChatEvent,
+  enqueueVideoTranscodeJob,
+  transcodeVideosToH264: TRANSCODE_VIDEOS_TO_H264,
+  getSetting,
+});
 
 async function createSessionCombined(userId, token) {
   await createSession(userId, token);
@@ -623,16 +659,24 @@ async function backfillStorageEncryption() {
   }
 }
 
-registerUploadRoutes(app, { adminGetRow });
-
-const storageProvider = createStorageProvider(process.env);
+registerUploadRoutes(app, { adminGetRow, storageProvider });
 
 const apiDeps = {
   dbConfig: readDbConfig(),
   postgresMaintenance: null,
   storageProvider,
-  storageProcessingMode: process.env.STORAGE_PROCESSING_MODE || "sync",
+  mediaQueueManager,
+  storageProcessingMode: process.env.STORAGE_PROCESSING_MODE || "auto",
+  mediaWorkerUrl: process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
+  workerUrl: process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
+  workerPort: process.env.WORKER_PORT || "8080",
   webhookSecret: process.env.WEBHOOK_SECRET || null,
+  webhookCallbackUrl:
+    process.env.WEBHOOK_URL ||
+    process.env.WEBHOOK_CALLBACK_URL ||
+    process.env.SONGBIRD_WEBHOOK_URL ||
+    process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
+    `http://127.0.0.1:${process.env.SERVER_PORT || process.env.PORT || "5174"}/api/uploads/webhook/processed`,
   ALLOWED_AVATAR_MIME_TYPES,
   redisClient,
   redisSessionStore,
@@ -791,6 +835,10 @@ const apiDeps = {
   setRemoteChannelProviderState,
   listMutedUserIdsForChat,
   setSessionCookie,
+  recordPendingPresignedUpload,
+  removePendingPresignedUploads,
+  listPendingPresignedUploads,
+  pruneOrphanRemoteObjects,
   setUserColor,
   updateLastSeen,
   updateGroupChat,
@@ -1069,6 +1117,7 @@ async function backfillTextMessageExpiry() {
 // enabling/disabling retention via the admin panel takes effect without a
 // server restart.
 try {
+  await pruneOrphanRemoteObjects();
   if (getSetting("MESSAGE_FILE_RETENTION") > 0) {
     await backfillMessageFileExpiry();
     await cleanupExpiredMessageFiles();
@@ -1079,6 +1128,7 @@ try {
 
 const expiryCleanupTimer = setInterval(async () => {
   try {
+    await pruneOrphanRemoteObjects();
     if (getSetting("MESSAGE_FILE_RETENTION") > 0) {
       await cleanupExpiredMessageFiles();
     }
@@ -1151,6 +1201,12 @@ if (REMOTE_CHANNEL) {
 
 const server = app.listen(port, bindAddress, () => {
   console.log(`Songbird server running on http://${bindAddress}:${port}`);
+  ensureLocalWorkerRunning({
+    transcodeVideos: TRANSCODE_VIDEOS_TO_H264,
+    getSetting,
+  }).catch((err) => {
+    console.warn("[server] ensureLocalWorkerRunning error:", err?.message || err);
+  });
 });
 
 const { wsHeartbeatIntervalMs, wsHeartbeatTimeoutMs } = parseEnv();
