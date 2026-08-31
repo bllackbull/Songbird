@@ -125,4 +125,43 @@ describe("MediaQueueManager (BullMQ / In-Process Fallback)", () => {
 
     await manager.close();
   });
+
+  it("respects process.env.STORAGE_PROCESSING_TIMEOUT_MS when s3ProcessingTimeoutMs is omitted", async () => {
+    const originalEnv = process.env.STORAGE_PROCESSING_TIMEOUT_MS;
+    process.env.STORAGE_PROCESSING_TIMEOUT_MS = "60";
+
+    try {
+      let runCalled = false;
+      const manager = createMediaQueueManager({
+        s3ProcessingMode: "auto",
+        adminGetRow: () => ({ id: FILE_ID_1, processing_status: "pending" }),
+        adminRun: (sql, params) => {
+          if (sql.includes("processing_status") && (params?.includes("ready") || sql.includes("ready"))) {
+            runCalled = true;
+          }
+        },
+      });
+
+      manager.scheduleFallbackCheck({
+        fileId: FILE_ID_1,
+        storageKey: "uploads/file.mp4",
+      });
+
+      // Before timeout (30ms), should not have run
+      await new Promise((res) => setTimeout(res, 20));
+      expect(runCalled).toBe(false);
+
+      // After timeout (60ms), should run
+      await new Promise((res) => setTimeout(res, 80));
+      expect(runCalled).toBe(true);
+
+      await manager.close();
+    } finally {
+      if (originalEnv !== undefined) {
+        process.env.STORAGE_PROCESSING_TIMEOUT_MS = originalEnv;
+      } else {
+        delete process.env.STORAGE_PROCESSING_TIMEOUT_MS;
+      }
+    }
+  });
 });

@@ -516,7 +516,7 @@ const mediaQueueManager = createMediaQueueManager({
   redisClient,
   storageProvider,
   s3ProcessingMode: process.env.STORAGE_PROCESSING_MODE || "auto",
-  s3ProcessingTimeoutMs: Number(process.env.STORAGE_PROCESSING_TIMEOUT_MS) || 30000,
+  s3ProcessingTimeoutMs: Number(process.env.STORAGE_PROCESSING_TIMEOUT_MS) || 120000,
   adminGetRow,
   adminRun,
   emitChatEvent,

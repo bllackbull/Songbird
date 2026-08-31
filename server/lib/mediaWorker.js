@@ -37,7 +37,7 @@ function isLocalWorkerAddress(url) {
  * @param {string} [params.mediaWorkerUrl] - Deprecated fallback alias for workerUrl
  * @param {string} [params.storageProcessingMode] - Strategy mode: 'auto' (default), 'local', or 'remote'
  * @param {string|number} [params.workerPort] - Port of local worker (default 8080)
- * @param {number} [params.storageProcessingTimeoutMs] - Total time (ms) to retry calling remote worker in auto mode (default: STORAGE_PROCESSING_TIMEOUT_MS or 30000)
+ * @param {number} [params.storageProcessingTimeoutMs] - Total time (ms) to retry calling remote worker in auto mode (default: STORAGE_PROCESSING_TIMEOUT_MS or 120000)
  * @param {number} [params.retryDelayMs] - Delay between retry attempts in ms (default 250)
  * @param {string} [params.webhookSecret] - Secret token for x-songbird-webhook-secret header
  * @param {string} [params.callbackUrl] - Songbird callback webhook URL (e.g. https://songbird.example.com/api/uploads/webhook/processed)
@@ -186,7 +186,7 @@ export async function dispatchMediaWorkerJob({
       Number(
         storageProcessingTimeoutMs !== undefined
           ? storageProcessingTimeoutMs
-          : process.env.STORAGE_PROCESSING_TIMEOUT_MS || 30000,
+          : process.env.STORAGE_PROCESSING_TIMEOUT_MS || 120000,
       ),
     );
 

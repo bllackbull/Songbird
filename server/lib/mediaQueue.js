@@ -6,7 +6,7 @@ export function createMediaQueueManager({
   redisClient,
   storageProvider,
   s3ProcessingMode = "auto",
-  s3ProcessingTimeoutMs = 30000,
+  s3ProcessingTimeoutMs,
   adminGetRow,
   adminRun,
   emitChatEvent,
@@ -14,6 +14,15 @@ export function createMediaQueueManager({
   transcodeVideosToH264,
   getSetting,
 }) {
+  const effectiveTimeoutMs = Math.max(
+    0,
+    Number(
+      s3ProcessingTimeoutMs !== undefined
+        ? s3ProcessingTimeoutMs
+        : process.env.STORAGE_PROCESSING_TIMEOUT_MS || 120000,
+    ) || 120000,
+  );
+
   const isRealRedis =
     redisClient &&
     typeof redisClient.duplicate === "function" &&
@@ -136,7 +145,7 @@ export function createMediaQueueManager({
 
     enqueueJob(
       { fileId, storageKey, reason: "fallback_timer" },
-      s3ProcessingTimeoutMs,
+      effectiveTimeoutMs,
     );
   }
 
