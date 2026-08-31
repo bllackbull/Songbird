@@ -1163,3 +1163,98 @@ setup_test_git_repo() {
   [[ "$output" =~ "Offline downgrade requested." ]]
   [ -f "$TEST_DIR/zip-extracted" ]
 }
+
+# ===========================================================================
+# update_menu
+# ===========================================================================
+
+@test "update_menu: updates global command when newer version is available on GitHub" {
+  GLOBAL_COMMAND_PATH="$TEST_DIR/songbird-deploy"
+  SCRIPT_VERSION="0.12.0"
+
+  fetch_remote_installer_script() {
+    printf '#!/usr/bin/env bash\n# songbird-deploy-version: 0.13.0\necho remote\n' > "$1"
+    return 0
+  }
+  press_enter_to_continue() { return 0; }
+  export -f fetch_remote_installer_script press_enter_to_continue
+
+  run update_menu
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Newer version available (0.13.0 > 0.12.0)" ]]
+  [[ "$output" =~ "Menu updated to version 0.13.0." ]]
+  [ -f "$GLOBAL_COMMAND_PATH" ]
+  grep -Fq "0.13.0" "$GLOBAL_COMMAND_PATH"
+}
+
+@test "update_menu: prompts to reinstall when menu is already up to date (accepted)" {
+  GLOBAL_COMMAND_PATH="$TEST_DIR/songbird-deploy"
+  SCRIPT_VERSION="0.12.0"
+  CURRENT_SCRIPT_PATH="$TEST_DIR/current.sh"
+  printf '#!/usr/bin/env bash\n# songbird-deploy-version: 0.12.0\necho current\n' > "$CURRENT_SCRIPT_PATH"
+
+  fetch_remote_installer_script() {
+    printf '#!/usr/bin/env bash\n# songbird-deploy-version: 0.12.0\necho remote\n' > "$1"
+    return 0
+  }
+  prompt_yes_no() { printf "yes"; }
+  press_enter_to_continue() { return 0; }
+  export -f fetch_remote_installer_script prompt_yes_no press_enter_to_continue
+
+  run update_menu
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Menu is already up to date" ]]
+  [[ "$output" =~ "Menu reinstalled successfully" ]]
+  [ -f "$GLOBAL_COMMAND_PATH" ]
+}
+
+@test "update_menu: prompts to reinstall when menu is already up to date (declined)" {
+  GLOBAL_COMMAND_PATH="$TEST_DIR/songbird-deploy"
+  SCRIPT_VERSION="0.12.0"
+
+  fetch_remote_installer_script() {
+    printf '#!/usr/bin/env bash\n# songbird-deploy-version: 0.12.0\necho remote\n' > "$1"
+    return 0
+  }
+  prompt_yes_no() { printf "no"; }
+  press_enter_to_continue() { return 0; }
+  export -f fetch_remote_installer_script prompt_yes_no press_enter_to_continue
+
+  run update_menu
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Menu is already up to date" ]]
+  [[ "$output" =~ "Reinstall canceled." ]]
+}
+
+@test "update_menu: prompts to reinstall when fetch fails from GitHub (accepted)" {
+  GLOBAL_COMMAND_PATH="$TEST_DIR/songbird-deploy"
+  SCRIPT_VERSION="0.12.0"
+  CURRENT_SCRIPT_PATH="$TEST_DIR/current.sh"
+  printf '#!/usr/bin/env bash\n# songbird-deploy-version: 0.12.0\necho current\n' > "$CURRENT_SCRIPT_PATH"
+
+  fetch_remote_installer_script() { return 1; }
+  prompt_yes_no() { printf "yes"; }
+  press_enter_to_continue() { return 0; }
+  export -f fetch_remote_installer_script prompt_yes_no press_enter_to_continue
+
+  run update_menu
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Failed to fetch installer script from GitHub." ]]
+  [[ "$output" =~ "Menu reinstalled successfully" ]]
+  [ -f "$GLOBAL_COMMAND_PATH" ]
+}
+
+@test "update_menu: prompts to reinstall when fetch fails from GitHub (declined)" {
+  GLOBAL_COMMAND_PATH="$TEST_DIR/songbird-deploy"
+  SCRIPT_VERSION="0.12.0"
+
+  fetch_remote_installer_script() { return 1; }
+  prompt_yes_no() { printf "no"; }
+  press_enter_to_continue() { return 0; }
+  export -f fetch_remote_installer_script prompt_yes_no press_enter_to_continue
+
+  run update_menu
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Failed to fetch installer script from GitHub." ]]
+  [[ "$output" =~ "Reinstall canceled." ]]
+}

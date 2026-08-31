@@ -3592,16 +3592,94 @@ install_global_command_core() {
   install_global_command_from_remote
 }
 
-install_global_command() {
-  if ! install_global_command_core "${1:-$CURRENT_SCRIPT_PATH}"; then
-    warn "Failed to install global command."
-    press_enter_to_continue
+fetch_remote_installer_script() {
+  local target_file="$1"
+  if ! have_cmd curl; then
     return 1
   fi
+  curl -fsSL --connect-timeout 10 --max-time 30 "$SCRIPT_REMOTE_URL" > "$target_file" || return 1
+  [[ -s "$target_file" ]] || return 1
+}
 
-  log "Global command installed: songbird-deploy (version ${LAST_GLOBAL_COMMAND_VERSION:-$SCRIPT_VERSION})"
-  log "Run it from anywhere with: songbird-deploy"
+update_menu() {
+  log "Checking for menu updates from GitHub..."
+
+  local temp_remote=""
+  temp_remote="$(mktemp)"
+
+  if ! fetch_remote_installer_script "$temp_remote"; then
+    rm -f "$temp_remote"
+    warn "Failed to fetch installer script from GitHub."
+    local reinstall_choice=""
+    reinstall_choice="$(prompt_yes_no "Do you want to reinstall the current menu again?" "no")"
+    if [[ "$reinstall_choice" == "yes" ]]; then
+      if install_global_command_core "$CURRENT_SCRIPT_PATH"; then
+        log "Menu reinstalled successfully (version ${LAST_GLOBAL_COMMAND_VERSION:-$SCRIPT_VERSION})."
+      else
+        warn "Failed to reinstall menu."
+      fi
+    else
+      log "Reinstall canceled."
+    fi
+    press_enter_to_continue
+    return 0
+  fi
+
+  local remote_version=""
+  remote_version="$(read_script_version_header "$temp_remote" 2>/dev/null || true)"
+  if [[ -z "$remote_version" ]]; then
+    rm -f "$temp_remote"
+    warn "Could not determine remote script version from GitHub."
+    local reinstall_choice=""
+    reinstall_choice="$(prompt_yes_no "Do you want to reinstall the current menu again?" "no")"
+    if [[ "$reinstall_choice" == "yes" ]]; then
+      if install_global_command_core "$CURRENT_SCRIPT_PATH"; then
+        log "Menu reinstalled successfully (version ${LAST_GLOBAL_COMMAND_VERSION:-$SCRIPT_VERSION})."
+      else
+        warn "Failed to reinstall menu."
+      fi
+    else
+      log "Reinstall canceled."
+    fi
+    press_enter_to_continue
+    return 0
+  fi
+
+  if dpkg --compare-versions "$remote_version" gt "$SCRIPT_VERSION"; then
+    log "Newer version available (${remote_version} > ${SCRIPT_VERSION}). Updating menu..."
+    if ! run_silent run_as_root install -m 755 "$temp_remote" "$GLOBAL_COMMAND_PATH"; then
+      rm -f "$temp_remote"
+      warn "Failed to update menu."
+      press_enter_to_continue
+      return 1
+    fi
+    rm -f "$temp_remote"
+    LAST_GLOBAL_COMMAND_VERSION="$remote_version"
+    log "Menu updated to version ${remote_version}."
+    log "Run it from anywhere with: songbird-deploy"
+    press_enter_to_continue
+    return 0
+  fi
+
+  rm -f "$temp_remote"
+  log "Menu is already up to date (version ${SCRIPT_VERSION})."
+  local reinstall_choice=""
+  reinstall_choice="$(prompt_yes_no "Do you want to reinstall the current menu again?" "no")"
+  if [[ "$reinstall_choice" == "yes" ]]; then
+    if install_global_command_core "$CURRENT_SCRIPT_PATH"; then
+      log "Menu reinstalled successfully (version ${LAST_GLOBAL_COMMAND_VERSION:-$SCRIPT_VERSION})."
+    else
+      warn "Failed to reinstall menu."
+    fi
+  else
+    log "Reinstall canceled."
+  fi
   press_enter_to_continue
+  return 0
+}
+
+install_global_command() {
+  update_menu
 }
 
 installed_global_command_version() {
@@ -3720,7 +3798,7 @@ show_menu() {
   printf $'4) ⚙️  Edit Settings (.env)\n'
   printf $'5) 🗃️  Manage Database\n'
   printf $'6) 🗑️  Remove Songbird\n'
-  printf $'7) 🔄️  Reinstall songbird-deploy\n'
+  printf $'7) 🔄️  Update menu\n'
   printf $'8) 🌐  Configure mirrors\n'
   printf $'9) 📋  View Logs\n'
   printf $'0) 🚪  Exit\n\n'
@@ -4712,7 +4790,7 @@ main() {
       4) run_menu_action edit_settings ;;
       5) run_menu_action show_db_menu ;;
       6) run_menu_action remove_songbird ;;
-      7) run_menu_action install_global_command ;;
+      7) run_menu_action update_menu ;;
       8) run_menu_action configure_mirrors_menu ;;
       9) run_menu_action show_logs_menu ;;
       0) break ;;

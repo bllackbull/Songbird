@@ -32,7 +32,7 @@ songbird-deploy
 | 4 | ⚙️ Edit Settings (.env) | Change ports, uploads, retention, sign-up, and other env values, then rebuild/apply. |
 | 5 | 🗃️ Manage Database | Open the database submenu (see below). |
 | 6 | 🗑️ Remove Songbird | Uninstall Songbird, optionally removing the global command. |
-| 7 | 🔄 Reinstall songbird-deploy | Refresh the global command to the latest script version. |
+| 7 | 🔄 Update menu | Check GitHub for newer script versions and update the global command (or reinstall current). |
 | 8 | 🌐 Configure mirrors | Set NodeSource, apt, and npm registry mirrors for restricted networks. |
 | 9 | 📋 View Logs | Open the logs submenu (script, service, Nginx access/error). |
 | 0 | 🚪 Exit | Leave the menu. |
@@ -120,6 +120,18 @@ Choose **Update Songbird** (Option 2) from the menu to update or downgrade your 
    - **Downgrade**: If the archive `VERSION` is lower than the installed version, it prompts for confirmation before downgrading.
 
 See [Updating & Downgrading](./Updating.md) for full details and manual alternatives.
+
+## Updating the deployment menu
+
+Choose **Update menu** (Option 7) to check for updates to the `songbird-deploy` script itself:
+
+1. **Check for updates**: The script queries the official GitHub repository to check if a newer version of `scripts/install.sh` is available.
+2. **Automatic update**: If a newer version is found, it downloads and replaces the global `songbird-deploy` command (`/usr/local/bin/songbird-deploy`), updating it to the latest version.
+3. **Reinstall prompt**: If the menu is already up to date, or if fetching from GitHub fails (such as in restricted network environments), it prompts:
+   ```txt
+   Do you want to reinstall the current menu again? [y/N]
+   ```
+   Selecting `yes` reinstalls the global command using the existing local script.
 
 ## Mirrors for restricted networks
 

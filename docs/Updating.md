@@ -86,6 +86,13 @@ When choosing **Offline** mode with a local source zip archive:
   ```
   If confirmed, it extracts the archive, preserves your data/backups, updates dependencies, runs migrations, and restarts the services.
 
+### 5. Updating the deployment menu
+
+To update the `songbird-deploy` CLI command itself:
+1. Run `songbird-deploy`.
+2. Choose option **7** (**Update menu**).
+3. The script checks GitHub for newer installer releases and updates the global command automatically (or offers to reinstall if already current).
+
 ---
 
 ## Docker + Compose
