@@ -2,6 +2,7 @@ import rateLimit from "express-rate-limit";
 import { validateUuidParams, validateUuidBody } from "../lib/uuidMiddleware.js";
 import { createMessagePublicationService } from "../lib/services/messagePublicationService.js";
 import { dispatchMediaWorkerJob } from "../lib/mediaWorker.js";
+import { readEnvBool } from "../settings/env.js";
 
 function registerMessageRoutes(app, deps) {
   const {
@@ -1116,9 +1117,9 @@ function registerMessageRoutes(app, deps) {
           const storageProcessingMode = String(
             deps.storageProcessingMode || process.env.STORAGE_PROCESSING_MODE || "auto",
           ).toLowerCase();
-          const isLocalTranscodeMode =
-            storageProcessingMode === "local" ||
-            storageProcessingMode === "auto";
+          const transcodeVideosSetting = getSetting
+            ? Boolean(getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS"))
+            : readEnvBool("FILE_UPLOAD_TRANSCODE_VIDEOS", true);
           const isVideo =
             mimeType.startsWith("video/") ||
             (inferredMime && String(inferredMime).toLowerCase().startsWith("video/"));
@@ -1126,7 +1127,15 @@ function registerMessageRoutes(app, deps) {
           const shouldTranscodeThisFile =
             isVideo &&
             !isAlreadyTranscoded &&
-            Boolean(getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS"));
+            transcodeVideosSetting;
+
+          let rawItemStatus =
+            typeof item === "object" && item !== null
+              ? (item.processingStatus || item.processing_status)
+              : null;
+          if (isVideo && !transcodeVideosSetting) {
+            rawItemStatus = "ready";
+          }
 
           const effectiveKind = isVideo ? "media" : kind;
           const effectiveMime = isVideo && !mimeType.startsWith("video/") && inferredMime ? inferredMime : mimeType;
@@ -1144,9 +1153,7 @@ function registerMessageRoutes(app, deps) {
             storageDriver,
             storageKey: key,
             processingStatus:
-              (typeof item === "object" && item !== null
-                ? (item.processingStatus || item.processing_status)
-                : null) || (shouldTranscodeThisFile ? "pending" : "ready"),
+              rawItemStatus || (shouldTranscodeThisFile ? "pending" : "ready"),
             blurhash,
             waveform,
             thumbStorageKey,
@@ -1167,7 +1174,9 @@ function registerMessageRoutes(app, deps) {
           const s = String(file.storedName || "").toLowerCase();
           return (m.startsWith("video/") || file.kind === "media") && !s.includes("-h264-");
         });
-        const transcodeVideosEnabled = Boolean(getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS"));
+        const transcodeVideosEnabled = getSetting
+          ? Boolean(getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS"))
+          : readEnvBool("FILE_UPLOAD_TRANSCODE_VIDEOS", true);
         const shouldTranscodeVideos = transcodeVideosEnabled && hasVideoFiles;
 
         debugLog("api:messages/upload:start", {

@@ -209,4 +209,43 @@ describe("dispatchMediaWorkerJob", () => {
     expect(res).toBe(true);
     expect(calls).toEqual(["http://127.0.0.1:8080/transcode"]);
   });
+
+  test("does not dispatch any worker request when transcodeEnabled is false", async () => {
+    const mockFetch = vi.fn();
+
+    const res = await dispatchMediaWorkerJob({
+      workerUrl: "http://localhost:8080",
+      fileId: 100,
+      storageKey: "uploads/video.mp4",
+      transcodeEnabled: false,
+      fetchImpl: mockFetch,
+    });
+
+    expect(res).toBe(false);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  test("does not dispatch any worker request when FILE_UPLOAD_TRANSCODE_VIDEOS env is false", async () => {
+    const originalEnv = process.env.FILE_UPLOAD_TRANSCODE_VIDEOS;
+    process.env.FILE_UPLOAD_TRANSCODE_VIDEOS = "false";
+    try {
+      const mockFetch = vi.fn();
+
+      const res = await dispatchMediaWorkerJob({
+        workerUrl: "http://localhost:8080",
+        fileId: 101,
+        storageKey: "uploads/video.mp4",
+        fetchImpl: mockFetch,
+      });
+
+      expect(res).toBe(false);
+      expect(mockFetch).not.toHaveBeenCalled();
+    } finally {
+      if (originalEnv !== undefined) {
+        process.env.FILE_UPLOAD_TRANSCODE_VIDEOS = originalEnv;
+      } else {
+        delete process.env.FILE_UPLOAD_TRANSCODE_VIDEOS;
+      }
+    }
+  });
 });

@@ -1,5 +1,6 @@
 import { Queue, Worker } from "bullmq";
 import { dbKnex } from "../db/knex.js";
+import { readEnvBool } from "../settings/env.js";
 
 export function createMediaQueueManager({
   redisClient,
@@ -10,6 +11,8 @@ export function createMediaQueueManager({
   adminRun,
   emitChatEvent,
   enqueueVideoTranscodeJob,
+  transcodeVideosToH264,
+  getSetting,
 }) {
   const isRealRedis =
     redisClient &&
@@ -45,7 +48,16 @@ export function createMediaQueueManager({
     try {
       // Execute local fallback processing
       const isVideo = String(row.mime_type || "").toLowerCase().startsWith("video/");
-      if (isVideo && typeof enqueueVideoTranscodeJob === "function") {
+      const isTranscodeEnabled = () => {
+        if (typeof transcodeVideosToH264 === "boolean") return transcodeVideosToH264;
+        if (typeof getSetting === "function") {
+          const val = getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS");
+          if (val !== undefined && val !== null) return Boolean(val);
+        }
+        return readEnvBool("FILE_UPLOAD_TRANSCODE_VIDEOS", true);
+      };
+
+      if (isVideo && isTranscodeEnabled() && typeof enqueueVideoTranscodeJob === "function") {
         enqueueVideoTranscodeJob({
           fileId,
           storedName: row.stored_name,

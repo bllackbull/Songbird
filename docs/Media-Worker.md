@@ -87,6 +87,7 @@ Configure these variables in the Songbird backend `.env`:
 | `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `30000` | Total retry timeout in milliseconds when dispatching transcode jobs to the remote worker before falling back to local processing in `auto` mode or failing the dispatch in `remote` mode. |
 | `WEBHOOK_URL` | `string` | `""` | Public Songbird webhook callback URL sent to external workers (e.g., `https://songbird.example.com/api/uploads/webhook/processed`). Fallback: `WEBHOOK_CALLBACK_URL`. |
 | `WEBHOOK_SECRET` | `string` | *(Auto-generated)* | Shared secret token used to authenticate webhook communications. Generated automatically on startup if omitted. |
+| `FILE_UPLOAD_TRANSCODE_VIDEOS` | `boolean` | `true` | When set to `false`, completely disables video transcoding, skips sending any transcode dispatch calls (`POST /transcode`) to either remote or local Media Workers, and prevents spawning or probing the local Media Worker process. |
 
 ## Deployment Options
 
@@ -96,6 +97,14 @@ If you run Songbird via standard Docker Compose or systemd, you do not need to c
 
 - In Docker deployments, `scripts/docker-entrypoint.sh` automatically launches the worker process in the background.
 - In manual/Node deployments, Songbird's `localWorkerManager` automatically detects whether the worker is listening on `WORKER_PORT` and starts `worker/index.js` as a managed child process if needed.
+
+:::tip Disabling Video Transcoding & Local Worker
+To disable video transcoding or save CPU and memory resources on low-spec servers without running worker processes, set `FILE_UPLOAD_TRANSCODE_VIDEOS=false` in your `.env` (or configure it in the Admin Panel under **Settings > File Upload**). When disabled:
+
+- Video files are preserved in their original uploaded format without re-encoding.
+- Songbird skips all HTTP transcode dispatch requests (`POST /transcode`) to both local and remote workers.
+- The local background worker process is neither spawned by `scripts/docker-entrypoint.sh` nor managed/probed by `localWorkerManager`.
+:::
 
 ### 2. Standalone Docker Compose (Separate Server or Container)
 

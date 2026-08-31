@@ -226,4 +226,71 @@ describe("Video Transcode Manager - Unified Worker Dispatch & Processing Checks"
     expect(calls[0]).toBe("https://remote-service.net/transcode");
     expect(calls[calls.length - 1]).toBe("http://127.0.0.1:8080/transcode");
   });
+
+  it("does not dispatch worker job and returns false when transcodeVideosToH264 is false", async () => {
+    dbRows.set("uuid-no-transcode", {
+      id: "uuid-no-transcode",
+      mime_type: "video/mp4",
+      stored_name: "original_raw.mp4",
+      storage_key: "uploads/original_raw.mp4",
+      storage_driver: "s3",
+      processing_status: "ready",
+    });
+
+    const manager = createVideoTranscodeManager({
+      transcodeVideosToH264: false,
+      storageEncryption,
+      storageProvider: mockStorageProvider,
+      storageProcessingMode: "auto",
+      mediaWorkerUrl: "https://remote-service.net",
+      adminGetRow: () => dbRows.get("uuid-no-transcode") || null,
+      adminRun: (sql, params) => adminRunEvents.push({ sql, params }),
+      fetchImpl: mockFetch,
+    });
+
+    const res = await manager.enqueueVideoTranscodeJob({
+      fileId: "uuid-no-transcode",
+    });
+
+    expect(res).toBe(false);
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(adminRunEvents.length).toBe(0);
+  });
+
+  it("does not dispatch worker job when FILE_UPLOAD_TRANSCODE_VIDEOS env is false", async () => {
+    const originalEnv = process.env.FILE_UPLOAD_TRANSCODE_VIDEOS;
+    process.env.FILE_UPLOAD_TRANSCODE_VIDEOS = "false";
+    try {
+      dbRows.set("uuid-env-no-transcode", {
+        id: "uuid-env-no-transcode",
+        mime_type: "video/mp4",
+        stored_name: "original_raw.mp4",
+        storage_key: "uploads/original_raw.mp4",
+        storage_driver: "s3",
+        processing_status: "ready",
+      });
+
+      const manager = createVideoTranscodeManager({
+        storageEncryption,
+        storageProvider: mockStorageProvider,
+        storageProcessingMode: "auto",
+        mediaWorkerUrl: "https://remote-service.net",
+        adminGetRow: () => dbRows.get("uuid-env-no-transcode") || null,
+        fetchImpl: mockFetch,
+      });
+
+      const res = await manager.enqueueVideoTranscodeJob({
+        fileId: "uuid-env-no-transcode",
+      });
+
+      expect(res).toBe(false);
+      expect(mockFetch).not.toHaveBeenCalled();
+    } finally {
+      if (originalEnv !== undefined) {
+        process.env.FILE_UPLOAD_TRANSCODE_VIDEOS = originalEnv;
+      } else {
+        delete process.env.FILE_UPLOAD_TRANSCODE_VIDEOS;
+      }
+    }
+  });
 });

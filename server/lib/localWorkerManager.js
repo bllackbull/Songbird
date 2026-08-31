@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readEnvBool } from "../settings/env.js";
 
 let activeLocalWorkerChild = null;
 
@@ -69,6 +70,21 @@ export async function ensureLocalWorkerRunning(options = {}) {
   const startLocalWorker = String(
     options.startLocalWorker || process.env.START_LOCAL_WORKER || "auto",
   ).toLowerCase();
+
+  const isTranscodeEnabled = () => {
+    if (typeof options.transcodeVideos === "boolean") return options.transcodeVideos;
+    if (typeof options.transcodeVideosToH264 === "boolean") return options.transcodeVideosToH264;
+    if (typeof options.transcodeEnabled === "boolean") return options.transcodeEnabled;
+    if (typeof options.getSetting === "function") {
+      const val = options.getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS");
+      if (val !== undefined && val !== null) return Boolean(val);
+    }
+    return readEnvBool("FILE_UPLOAD_TRANSCODE_VIDEOS", true);
+  };
+
+  if (!isTranscodeEnabled()) {
+    return { started: false, reason: "transcoding_disabled" };
+  }
 
   if (startLocalWorker === "false") {
     return { started: false, reason: "disabled_by_env" };

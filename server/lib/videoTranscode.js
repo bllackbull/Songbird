@@ -1,5 +1,6 @@
 import { dbKnex } from "../db/knex.js";
 import { dispatchMediaWorkerJob } from "./mediaWorker.js";
+import { readEnvBool } from "../settings/env.js";
 
 export function createVideoTranscodeManager({
   spawn,
@@ -14,6 +15,7 @@ export function createVideoTranscodeManager({
   debugLog = () => {},
   uploadRootDir,
   transcodeVideosToH264,
+  getSetting,
   storageEncryption,
   storageProvider,
   storageProcessingMode,
@@ -176,6 +178,22 @@ export function createVideoTranscodeManager({
   const enqueueVideoTranscodeJob = async (job) => {
     const fileId = job?.fileId;
     if (!fileId) return false;
+
+    const isTranscodeEnabled = () => {
+      if (typeof job?.transcodeVideosToH264 === "boolean") return job.transcodeVideosToH264;
+      if (typeof job?.transcodeVideos === "boolean") return job.transcodeVideos;
+      if (typeof job?.transcodeEnabled === "boolean") return job.transcodeEnabled;
+      if (typeof transcodeVideosToH264 === "boolean") return transcodeVideosToH264;
+      if (typeof getSetting === "function") {
+        const val = getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS");
+        if (val !== undefined && val !== null) return Boolean(val);
+      }
+      return readEnvBool("FILE_UPLOAD_TRANSCODE_VIDEOS", true);
+    };
+
+    if (!isTranscodeEnabled()) {
+      return false;
+    }
 
     const currentMode = String(
       job?.storageProcessingMode ||

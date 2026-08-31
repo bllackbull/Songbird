@@ -1,3 +1,5 @@
+import { readEnvBool } from "../settings/env.js";
+
 async function sendTranscodeRequest(workerUrl, payload, webhookSecret, fetchImpl) {
   if (!workerUrl) return false;
   const endpoint = `${String(workerUrl).replace(/\/+$/, "")}/transcode`;
@@ -66,8 +68,27 @@ export async function dispatchMediaWorkerJob({
   thumbUploadUrl = null,
   storageConfig = null,
   fetchImpl = globalThis.fetch,
+  transcodeVideos,
+  transcodeVideosToH264,
+  transcodeEnabled,
+  getSetting,
 }) {
   if (!fileId) return false;
+
+  const isTranscodeEnabled = () => {
+    if (typeof transcodeEnabled === "boolean") return transcodeEnabled;
+    if (typeof transcodeVideos === "boolean") return transcodeVideos;
+    if (typeof transcodeVideosToH264 === "boolean") return transcodeVideosToH264;
+    if (typeof getSetting === "function") {
+      const val = getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS");
+      if (val !== undefined && val !== null) return Boolean(val);
+    }
+    return readEnvBool("FILE_UPLOAD_TRANSCODE_VIDEOS", true);
+  };
+
+  if (!isTranscodeEnabled()) {
+    return false;
+  }
 
   const mode = String(
     storageProcessingMode ||

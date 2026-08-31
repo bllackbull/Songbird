@@ -3,6 +3,7 @@ import path from "node:path";
 import { storageEncryption as defaultStorageEncryption } from "../lib/storageEncryption.js";
 import { dbKnex } from "../db/knex.js";
 import { dispatchMediaWorkerJob } from "../lib/mediaWorker.js";
+import { readEnvBool } from "../settings/env.js";
 
 export function registerRemoteUploadRoutes(app, deps) {
   const {
@@ -155,6 +156,10 @@ export function registerRemoteUploadRoutes(app, deps) {
       else if (mime.startsWith("video/")) kind = "video";
       else if (mime.startsWith("audio/")) kind = "audio";
 
+      const transcodeEnabled = deps.getSetting
+        ? Boolean(deps.getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS"))
+        : readEnvBool("FILE_UPLOAD_TRANSCODE_VIDEOS", true);
+
       const fileObj = {
         kind,
         originalName: name,
@@ -166,7 +171,7 @@ export function registerRemoteUploadRoutes(app, deps) {
         durationSeconds: Number.isFinite(Number(duration))
           ? Number(duration)
           : null,
-        processingStatus: "pending",
+        processingStatus: (kind === "video" && !transcodeEnabled) ? "ready" : "pending",
         storageDriver: providerType,
         storageKey: finalStorageKey,
         blurhash: clientWebpThumbBase64 || blurhash || null,
@@ -293,14 +298,16 @@ export function registerRemoteUploadRoutes(app, deps) {
 
     const defaultCallback = `http://127.0.0.1:${process.env.SERVER_PORT || process.env.PORT || "5174"}/api/uploads/webhook/processed`;
     const transcodeEnabled = deps.getSetting
-      ? deps.getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS")
-      : true;
+      ? Boolean(deps.getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS"))
+      : readEnvBool("FILE_UPLOAD_TRANSCODE_VIDEOS", true);
 
     let newStatus = "ready";
-    if (mode === "remote") {
-      newStatus = "pending";
-    } else if (isVideo && transcodeEnabled) {
-      newStatus = "pending";
+    if (transcodeEnabled) {
+      if (mode === "remote") {
+        newStatus = "pending";
+      } else if (isVideo) {
+        newStatus = "pending";
+      }
     }
 
     if (typeof adminRun === "function") {
@@ -344,12 +351,13 @@ export function registerRemoteUploadRoutes(app, deps) {
           process.env.SONGBIRD_WEBHOOK_URL ||
           process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
           defaultCallback,
-        fileId,
+        fileId: file.id || fileId,
         storageKey: file.storage_key || storageKey,
         storedName: file.stored_name || file.storedName,
-        mimeType: file.mime_type || file.mimeType,
+        mimeType: file.mime_type || file.mimeType || "video/mp4",
         encryptionType: file.encryption_type || file.encryptionType || "none",
         fetchImpl: deps.fetchImpl || globalThis.fetch,
+        transcodeEnabled,
       }).catch(() => {});
     }
 

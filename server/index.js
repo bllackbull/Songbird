@@ -457,6 +457,7 @@ const videoTranscoder = createVideoTranscodeManager({
   debugLog,
   uploadRootDir,
   transcodeVideosToH264: TRANSCODE_VIDEOS_TO_H264,
+  getSetting,
   storageEncryption,
   storageProvider,
   storageProcessingMode: process.env.STORAGE_PROCESSING_MODE || "auto",
@@ -520,6 +521,8 @@ const mediaQueueManager = createMediaQueueManager({
   adminRun,
   emitChatEvent,
   enqueueVideoTranscodeJob,
+  transcodeVideosToH264: TRANSCODE_VIDEOS_TO_H264,
+  getSetting,
 });
 
 async function createSessionCombined(userId, token) {
@@ -1198,7 +1201,10 @@ if (REMOTE_CHANNEL) {
 
 const server = app.listen(port, bindAddress, () => {
   console.log(`Songbird server running on http://${bindAddress}:${port}`);
-  ensureLocalWorkerRunning().catch((err) => {
+  ensureLocalWorkerRunning({
+    transcodeVideos: TRANSCODE_VIDEOS_TO_H264,
+    getSetting,
+  }).catch((err) => {
     console.warn("[server] ensureLocalWorkerRunning error:", err?.message || err);
   });
 });

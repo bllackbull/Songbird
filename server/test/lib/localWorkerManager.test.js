@@ -153,5 +153,48 @@ describe("localWorkerManager", () => {
       expect(result.port).toBe(9090);
       expect(mockSpawn).toHaveBeenCalledTimes(1);
     });
+
+    it("skips starting local worker and does not probe when transcodeVideos is false", async () => {
+      const mockFetch = vi.fn();
+      const mockSpawn = vi.fn();
+
+      const result = await ensureLocalWorkerRunning({
+        storageProcessingMode: "auto",
+        transcodeVideos: false,
+        fetchImpl: mockFetch,
+        spawnImpl: mockSpawn,
+      });
+
+      expect(result.started).toBe(false);
+      expect(result.reason).toBe("transcoding_disabled");
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(mockSpawn).not.toHaveBeenCalled();
+    });
+
+    it("skips starting local worker and does not probe when FILE_UPLOAD_TRANSCODE_VIDEOS env is false", async () => {
+      const originalEnv = process.env.FILE_UPLOAD_TRANSCODE_VIDEOS;
+      process.env.FILE_UPLOAD_TRANSCODE_VIDEOS = "false";
+      try {
+        const mockFetch = vi.fn();
+        const mockSpawn = vi.fn();
+
+        const result = await ensureLocalWorkerRunning({
+          storageProcessingMode: "auto",
+          fetchImpl: mockFetch,
+          spawnImpl: mockSpawn,
+        });
+
+        expect(result.started).toBe(false);
+        expect(result.reason).toBe("transcoding_disabled");
+        expect(mockFetch).not.toHaveBeenCalled();
+        expect(mockSpawn).not.toHaveBeenCalled();
+      } finally {
+        if (originalEnv !== undefined) {
+          process.env.FILE_UPLOAD_TRANSCODE_VIDEOS = originalEnv;
+        } else {
+          delete process.env.FILE_UPLOAD_TRANSCODE_VIDEOS;
+        }
+      }
+    });
   });
 });

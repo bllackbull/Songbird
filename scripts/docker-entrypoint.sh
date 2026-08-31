@@ -4,6 +4,7 @@ set -e
 WORKER_PORT="${WORKER_PORT:-8080}"
 STORAGE_PROCESSING_MODE="${STORAGE_PROCESSING_MODE:-auto}"
 START_LOCAL_WORKER="${START_LOCAL_WORKER:-auto}"
+FILE_UPLOAD_TRANSCODE_VIDEOS="${FILE_UPLOAD_TRANSCODE_VIDEOS:-true}"
 WORKER_URL="${WORKER_URL:-${MEDIA_WORKER_URL:-}}"
 
 should_start_local_worker() {
@@ -12,6 +13,9 @@ should_start_local_worker() {
   fi
   if [ "$START_LOCAL_WORKER" = "true" ]; then
     return 0
+  fi
+  if [ "$FILE_UPLOAD_TRANSCODE_VIDEOS" = "false" ] || [ "$FILE_UPLOAD_TRANSCODE_VIDEOS" = "0" ] || [ "$FILE_UPLOAD_TRANSCODE_VIDEOS" = "no" ] || [ "$FILE_UPLOAD_TRANSCODE_VIDEOS" = "off" ]; then
+    return 1
   fi
   if [ "$STORAGE_PROCESSING_MODE" = "remote" ]; then
     return 1

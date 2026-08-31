@@ -74,3 +74,15 @@ teardown() {
   [[ ! "$output" =~ "Starting local Songbird Media Worker" ]]
   [[ "$output" =~ "app_started" ]]
 }
+
+@test "docker-entrypoint does NOT start local worker when FILE_UPLOAD_TRANSCODE_VIDEOS is 'false'" {
+  export PATH="$TEST_DIR/bin:$PATH"
+  export STORAGE_PROCESSING_MODE=auto
+  export START_LOCAL_WORKER=auto
+  export FILE_UPLOAD_TRANSCODE_VIDEOS=false
+
+  run "$ENTRYPOINT_SCRIPT" echo "app_started"
+  [ "$status" -eq 0 ]
+  [[ ! "$output" =~ "Starting local Songbird Media Worker" ]]
+  [[ "$output" =~ "app_started" ]]
+}

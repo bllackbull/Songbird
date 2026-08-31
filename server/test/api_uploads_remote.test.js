@@ -379,6 +379,60 @@ describe("Remote Uploads & File Management Routes", () => {
       expect(dispatchedPayload.fileId).toBe(uuidFileId);
       expect(dispatchedPayload.storageKey).toBe("uploads/file12.mp4");
     });
+
+    test("does not dispatch HTTP transcode job when FILE_UPLOAD_TRANSCODE_VIDEOS is false", async () => {
+      const uuidFileId = "10000000-0000-4000-8000-000000000013";
+      let updatedStatus = null;
+      const fileRecord = {
+        id: uuidFileId,
+        message_id: null,
+        storage_driver: "s3",
+        storage_key: "uploads/file13.mp4",
+        mime_type: "video/mp4",
+        stored_name: "file13.mp4",
+        processing_status: "ready",
+      };
+
+      const mockFetch = vi.fn();
+
+      const customApp = makeApp({
+        deps: {
+          storageProvider: mockRemoteProvider,
+          storageProcessingMode: "remote",
+          mediaWorkerUrl: "https://media-worker.onrender.com",
+          webhookSecret: "secret-token",
+          fetchImpl: mockFetch,
+          getSetting: (key) => (key === "FILE_UPLOAD_TRANSCODE_VIDEOS" ? false : null),
+          findMessageFileById: (id) => (String(id) === uuidFileId ? fileRecord : null),
+          adminGetRow: (sql) =>
+            sql.includes("chat_message_files") ? fileRecord : null,
+          adminRun: (sql, params) => {
+            if (sql.includes("processing_status")) {
+              updatedStatus = params?.[0];
+            }
+          },
+          adminSave: () => {},
+        },
+      });
+      const uId = customApp.userStore.createUser(
+        "testuser13",
+        "pass",
+        "Test",
+        null,
+        "#fff",
+      );
+      customApp.sessionStore.createSession(uId, sessionToken);
+
+      const res = await request(customApp.app)
+        .post("/api/uploads/complete")
+        .set("Cookie", [`sid=${sessionToken}`])
+        .send({ fileId: uuidFileId, storageKey: "uploads/file13.mp4" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(res.body.status).toBe("ready");
+    });
   });
 
   describe("POST /api/uploads/webhook/processed", () => {
