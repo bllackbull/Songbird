@@ -19,7 +19,7 @@ hero:
 features:
   - icon: 🚀
     title: نصب آسان
-    details: اسکریپت نصب تکخطی، وابستگیها، build، Nginx و SSL را برای شما مدیریت میکند.
+    details: اسکریپت نصب تک خطی، وابستگی ها، build، Nginx و SSL را برای شما مدیریت میکند.
     link: /fa/Deployment-Script
   - icon: 🐳
     title: آماده برای Docker

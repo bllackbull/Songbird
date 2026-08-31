@@ -125,7 +125,7 @@ STORAGE_REGION=us-east-1
 ```
 
 :::tip Media Transcoding with Remote Storage
-When `STORAGE_DRIVER=remote` is enabled, Songbird offloads video transcoding and thumbnail extraction to the standalone HTTP push **Media Worker** (`worker/`), which can be deployed as an independent container service or alongside backend nodes. Alternatively, Songbird can process media locally if `STORAGE_PROCESSING_MODE=local` is set or if `WORKER_URL` is omitted. Ensure worker/backend nodes have adequate temporary disk space. See [Media Worker](./Media-Worker.md) and [Object Storage](./Object-Storage.md) for architecture and deployment details.
+Songbird offloads video transcoding and thumbnail extraction to the standalone HTTP push **Media Worker** (`worker/`), which can be deployed as an independent container service or alongside backend nodes. See [Media Worker](./Media-Worker.md) and [Object Storage](./Object-Storage.md) for architecture and deployment details.
 :::
 
 #### 3. Redis Event Synchronization (Pub/Sub)

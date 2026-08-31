@@ -4,8 +4,6 @@ Songbird includes a dedicated, lightweight, stateless HTTP push **Media Worker**
 
 Whether deployed as a built-in background process or as a standalone cloud microservice across separate machines or container instances, the Media Worker ensures fast, reliable media processing without degrading real-time chat responsiveness.
 
----
-
 ## Overview & Key Capabilities
 
 - **Stateless & Database-Agnostic**: The Media Worker does not connect directly to SQLite or PostgreSQL. All communication with Songbird occurs over HTTP REST endpoints (`POST /transcode`) and webhook callbacks (`POST /api/uploads/webhook/processed`). It operates identically across all database configurations.
@@ -19,8 +17,6 @@ Whether deployed as a built-in background process or as a standalone cloud micro
 - **Orphan File Cleanup**: Upon successful transcoding, the worker automatically deletes the original raw video from remote storage to prevent duplicate storage consumption.
 - **Application Envelope Encryption**: When Songbird's encryption-at-rest (`STORAGE_ENCRYPTION_MODE=local`) is enabled, the worker decrypts files in memory using `STORAGE_ENCRYPTION_KEY`, processes the video, and re-encrypts the output before saving.
 - **Resilient Webhook Callbacks**: Uses exponential backoff retries (up to 5 attempts) to notify the Songbird server when processing completes, ensuring reliable delivery even during brief network interruptions.
-
----
 
 ## Architecture & Workflow
 
@@ -48,8 +44,6 @@ Whether deployed as a built-in background process or as a standalone cloud micro
 5. **Callback Notification**: The worker posts the completed status, dimensions, duration, and processed storage keys back to Songbird via `POST /api/uploads/webhook/processed` (authenticated via `x-songbird-webhook-secret`).
 6. **Real-time Broadcast**: Songbird updates the database record to `ready` and broadcasts an SSE/WebSocket update to all participants in the chat.
 
----
-
 ## Media Processing Modes (`STORAGE_PROCESSING_MODE`)
 
 Songbird controls media processing dispatch using the `STORAGE_PROCESSING_MODE` environment variable:
@@ -59,8 +53,6 @@ Songbird controls media processing dispatch using the `STORAGE_PROCESSING_MODE` 
 | `auto` (Default) | **Remote-First with Local Fallback.** Songbird attempts to dispatch transcoding tasks to the external worker (`WORKER_URL`), retrying failed requests until `STORAGE_PROCESSING_TIMEOUT_MS` expires. In Docker and standard environments, Songbird also automatically spawns and manages the local worker (`http://127.0.0.1:WORKER_PORT`) as a child process. If remote dispatch is unconfigured or times out, the local worker processes the file. |
 | `local` | **Direct Local Worker Processing.** Forces all transcoding tasks to be handled directly by the local worker on `http://127.0.0.1:WORKER_PORT`. Remote workers are never contacted. Auto-spawns the local worker child process on startup. |
 | `remote` | **Pure Remote Worker Processing.** Dispatches solely to the remote worker (`WORKER_URL`), retrying failed requests until `STORAGE_PROCESSING_TIMEOUT_MS` expires without falling back to local processing. No local worker processes are spawned or monitored on the Songbird server. Ideal for resource-constrained or serverless cloud instances. |
-
----
 
 ## Environment Variables Reference
 
@@ -95,8 +87,6 @@ Configure these variables in the Songbird backend `.env`:
 | `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `30000` | Total retry timeout in milliseconds when dispatching transcode jobs to the remote worker before falling back to local processing in `auto` mode or failing the dispatch in `remote` mode. |
 | `WEBHOOK_URL` | `string` | `""` | Public Songbird webhook callback URL sent to external workers (e.g., `https://songbird.example.com/api/uploads/webhook/processed`). Fallback: `WEBHOOK_CALLBACK_URL`. |
 | `WEBHOOK_SECRET` | `string` | *(Auto-generated)* | Shared secret token used to authenticate webhook communications. Generated automatically on startup if omitted. |
-
----
 
 ## Deployment Options
 
@@ -217,8 +207,6 @@ sudo systemctl enable --now songbird-worker
 sudo systemctl status songbird-worker
 ```
 
----
-
 ## API Reference & Endpoints
 
 ### 1. Health Check
@@ -313,8 +301,6 @@ Sent by the worker to Songbird upon completion.
 }
 ```
 
----
-
 ## Security & Best Practices
 
 1. **Synchronize `WEBHOOK_SECRET`**: Always set an identical, high-entropy `WEBHOOK_SECRET` string on both the Songbird server and Media Worker. Requests lacking a matching `x-songbird-webhook-secret` header are rejected with `401 Unauthorized`.
@@ -324,8 +310,6 @@ Sent by the worker to Songbird upon completion.
    - Recommended `WORKER_CONCURRENCY`: Set to `1` transcode job per 1–2 dedicated vCPUs.
    - For a 4-vCPU worker node, set `WORKER_CONCURRENCY=2` or `3` to avoid CPU throttling.
 4. **Temporary Disk Space**: Ensure the worker host has sufficient temporary disk storage in `/tmp` (or system temp directory) to hold raw and transcoded video files during active processing.
-
----
 
 ## Troubleshooting
 
