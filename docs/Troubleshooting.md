@@ -159,11 +159,15 @@ curl -x http://your-proxy:3128 https://fcm.googleapis.com
 | Cause | Fix |
 |---|---|
 | Upload larger than per-file cap | Increase `FILE_UPLOAD_MAX_SIZE_MB`. |
-| Message total exceeds cap | Increase `FILE_UPLOAD_MAX_TOTAL_SIZE_MB` and align Nginx `client_max_body_size`. |
+| Message total exceeds cap | Increase `FILE_UPLOAD_MAX_TOTAL_SIZE_MB` and align Nginx `client_max_body_size` (for `STORAGE_DRIVER=local`). |
 | Too many files in one message | Increase `FILE_UPLOAD_MAX_FILES`. |
 | Uploads disabled | Set `FILE_UPLOAD=true`. |
-| Nginx rejects large bodies (`413`) | Set `client_max_body_size` to match `FILE_UPLOAD_MAX_TOTAL_SIZE_MB`. |
-| Disk full | Check free space with `npm run db:inspect` (reports disk usage) or `df -h`. |
+| Nginx rejects large bodies (`413`) | Set `client_max_body_size` to match `FILE_UPLOAD_MAX_TOTAL_SIZE_MB` (for `STORAGE_DRIVER=local`). |
+| CORS error in browser on R2/S3 upload | Configure CORS policy on your bucket allowing `PUT`, `GET`, `HEAD`, `POST`, origin domain, and `ETag` expose header. See [Object Storage CORS](./Object-Storage.md#cloudflare-r2--s3-cors-configuration-requirements). |
+| `403 Forbidden` on presigned PUT/GET | Verify `STORAGE_ACCESS_KEY_ID`, `STORAGE_SECRET_ACCESS_KEY`, bucket permissions, and system clock sync. |
+| Presigned URL generation error (500) | Check `STORAGE_ENDPOINT`, `STORAGE_BUCKET`, and server logs for S3 SDK initialization errors. |
+| Browser cannot reach storage endpoint | Ensure `STORAGE_ENDPOINT` is a public HTTPS URL accessible from end-user networks. |
+| Disk full (local storage) | Check free space with `npm run db:inspect` (reports disk usage) or `df -h`. |
 
 After changing `.env`, apply the changes (see [Environment Variables](./Environment-Variables.md#apply-changes)).
 

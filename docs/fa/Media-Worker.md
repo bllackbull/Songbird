@@ -84,7 +84,7 @@
 | `WORKER_URL` | `string` | `""` | نشانی URL پایه ورکر ریموت برای ترنسکد با HTTP Push (مثلاً `https://media-worker.example.com`). نام جایگزین: `MEDIA_WORKER_URL`. |
 | `WORKER_PORT` | `integer` | `8080` | پورت ورکر محلی. Songbird از این پورت برای ساخت نشانی `http://127.0.0.1:WORKER_PORT` استفاده میکند. |
 | `STORAGE_PROCESSING_MODE` | `string` | `auto` | استراتژی پردازش رسانه (`auto`، `local` یا `remote`). |
-| `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `30000` | مهلت زمانی تلاش مجدد به میلی ثانیه برای ارسال به ورکر ریموت پیش از انتقال به پردازش محلی در حالت `auto` یا عدم موفقیت در حالت `remote`. |
+| `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `120000` | مهلت زمانی تلاش مجدد به میلی ثانیه برای ارسال به ورکر ریموت پیش از انتقال به پردازش محلی در حالت `auto` یا عدم موفقیت در حالت `remote`. |
 | `WEBHOOK_URL` | `string` | `""` | نشانی عمومی فراخوانی Webhook سرور Songbird که به ورکر ارسال میشود (مثلاً `https://songbird.example.com/api/uploads/webhook/processed`). نام جایگزین: `WEBHOOK_CALLBACK_URL`. |
 | `WEBHOOK_SECRET` | `string` | *(تولید خودکار)* | توکن مشترک برای احراز هویت درخواست های Webhook. در صورت خالی بودن در اولین اجرا به طور خودکار تولید میشود. |
 | `FILE_UPLOAD_TRANSCODE_VIDEOS` | `boolean` | `true` | در صورت تنظیم روی `false`، فرآیند ترنسکد ویدیو کاملاً غیرفعال شده، ارسال درخواست های ترنسکد (`POST /transcode`) به ورکرهای محلی و ریموت متوقف شده و از اجرای پروسه ورکر محلی جلوگیری میشود. |

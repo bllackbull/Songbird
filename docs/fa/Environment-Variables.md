@@ -54,7 +54,7 @@ nano .env
 | `WORKER_URL` | `string` | `""` | آدرس پایه worker خارجی پردازش رسانه برای ترنسکد با HTTP push (مانند `https://worker.example.com`). |
 | `WORKER_PORT` | `integer` | `8080` | پورت سرویس Media Worker مستقل (`worker/`). در صورت خالی بودن `WORKER_URL`، پلتفرم Songbird از این مقدار برای ساخت آدرس پیشفرض ورکر محلی (`http://127.0.0.1:8080`) استفاده میکند. |
 | `STORAGE_PROCESSING_MODE` | `string` | `auto` | حالت گردش کار پردازش مدیا (`auto`، `local`، `remote`). |
-| `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `30000` | مهلت زمانی تلاش مجدد به میلی ثانیه برای ارسال کارهای ترنسکد به ورکر ریموت پیش از انتقال به ورکر محلی (در حالت `auto`) یا عدم موفقیت ارسال (در حالت `remote`). |
+| `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `120000` | مهلت زمانی تلاش مجدد به میلی ثانیه برای ارسال کارهای ترنسکد به ورکر ریموت پیش از انتقال به ورکر محلی (در حالت `auto`) یا عدم موفقیت ارسال (در حالت `remote`). |
 | `WEBHOOK_SECRET` | `string` | *(تولید خودکار)* | توکن امنیتی هدر `x-songbird-webhook-secret` برای احراز هویت ارتباطات میان Songbird و Media Worker. |
 | `WEBHOOK_URL` | `string` | `""` | آدرس بازخوانی (Callback) عمومی Webhook سرور Songbird ارسالی به workerها (مانند `https://songbird.example.com/api/uploads/webhook/processed`). |
 | `STORAGE_ENCRYPTION_MODE` | `string` | `remote` | استراتژی رمزنگاری ذخیره سازی (`remote` برای سمت ارائه دهنده، `local` برای رمزنگاری سمت اپلیکیشن). |

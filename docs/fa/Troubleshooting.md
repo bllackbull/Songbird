@@ -152,8 +152,12 @@ curl -x http://your-proxy:3128 https://fcm.googleapis.com
 | مجموع پیام از سقف فراتر میرود | `FILE_UPLOAD_MAX_TOTAL_SIZE_MB` را افزایش دهید و `client_max_body_size` در Nginx را همسو کنید. |
 | فایل های بیش از حد در یک پیام | `FILE_UPLOAD_MAX_FILES` را افزایش دهید. |
 | آپلودها غیرفعال هستند | `FILE_UPLOAD=true` را تنظیم کنید. |
-| Nginx بدنه های بزرگ را رد میکند (`413`) | `client_max_body_size` را برابر با `FILE_UPLOAD_MAX_TOTAL_SIZE_MB` تنظیم کنید. |
-| دیسک پر است | فضای آزاد را با `npm run db:inspect` (استفاده از دیسک را گزارش میکند) یا `df -h` بررسی کنید. |
+| Nginx بدنه های بزرگ را رد میکند (`413`) | برای `STORAGE_DRIVER=local` مقدار `client_max_body_size` را برابر با `FILE_UPLOAD_MAX_TOTAL_SIZE_MB` تنظیم کنید. |
+| خطای CORS در مرورگر هنگام آپلود به R2/S3 | قانون CORS باکت خود را طوری تنظیم کنید که متدهای `PUT`، `GET`، `HEAD`، `POST`، دامنه مبدا و هدر `ETag` مجاز باشند. مستندات [الزامات CORS ذخیره سازی ابری](./Object-Storage.md#الزامات-پیکربندی-cors-در-cloudflare-r2-و-s3) را ببینید. |
+| خطای `403 Forbidden` روی URLهای Presigned | مقادیر `STORAGE_ACCESS_KEY_ID`، `STORAGE_SECRET_ACCESS_KEY`، دسترسی های باکت و همگام بودن ساعت سیستم را بررسی کنید. |
+| خطای ۵۰۰ در ساخت Presigned URL | متغیرهای `STORAGE_ENDPOINT` و `STORAGE_BUCKET` و لاگ های سرور را بررسی کنید. |
+| عدم دسترسی مرورگر به اندپوینت ذخیره سازی | اطمینان حاصل کنید `STORAGE_ENDPOINT` یک آدرس عمومی HTTPS قابل دسترس از شبکه کاربران است. |
+| دیسک پر است (ذخیره سازی محلی) | فضای آزاد را با `npm run db:inspect` (استفاده از دیسک را گزارش میکند) یا `df -h` بررسی کنید. |
 
 پس از تغییر `.env`، تغییرات را اعمال کنید (به [متغیرهای محیطی](./Environment-Variables.md#apply-changes) مراجعه کنید).
 

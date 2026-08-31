@@ -84,7 +84,7 @@ Configure these variables in the Songbird backend `.env`:
 | `WORKER_URL` | `string` | `""` | Base URL of the remote Media Worker (e.g., `https://media-worker.example.com`). Fallback: `MEDIA_WORKER_URL`. |
 | `WORKER_PORT` | `integer` | `8080` | Port for the local Media Worker service. Songbird uses this to construct `http://127.0.0.1:WORKER_PORT`. |
 | `STORAGE_PROCESSING_MODE` | `string` | `auto` | Media processing strategy (`auto`, `local`, or `remote`). |
-| `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `30000` | Total retry timeout in milliseconds when dispatching transcode jobs to the remote worker before falling back to local processing in `auto` mode or failing the dispatch in `remote` mode. |
+| `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `120000` | Total retry timeout in milliseconds when dispatching transcode jobs to the remote worker before falling back to local processing in `auto` mode or failing the dispatch in `remote` mode. |
 | `WEBHOOK_URL` | `string` | `""` | Public Songbird webhook callback URL sent to external workers (e.g., `https://songbird.example.com/api/uploads/webhook/processed`). Fallback: `WEBHOOK_CALLBACK_URL`. |
 | `WEBHOOK_SECRET` | `string` | *(Auto-generated)* | Shared secret token used to authenticate webhook communications. Generated automatically on startup if omitted. |
 | `FILE_UPLOAD_TRANSCODE_VIDEOS` | `boolean` | `true` | When set to `false`, completely disables video transcoding, skips sending any transcode dispatch calls (`POST /transcode`) to either remote or local Media Workers, and prevents spawning or probing the local Media Worker process. |
