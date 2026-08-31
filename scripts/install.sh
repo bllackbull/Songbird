@@ -1663,6 +1663,69 @@ offline_source_is_newer() {
   return 1
 }
 
+offline_source_is_lower() {
+  local source_root="$1"
+  local install_root="$2"
+
+  local source_version_file="$source_root/VERSION"
+  local install_version_file="$install_root/VERSION"
+  local source_version=""
+  local install_version=""
+
+  source_version="$(read_version_value "$source_version_file")" || {
+    warn "Offline source is missing VERSION. Skipping update."
+    return 1
+  }
+
+  install_version="$(read_version_value "$install_version_file")" || install_version=""
+  if [[ -z "$install_version" ]]; then
+    log "Installed app is missing VERSION. Cannot compare versions."
+    return 1
+  fi
+
+  if dpkg --compare-versions "$source_version" lt "$install_version"; then
+    log "Offline source version ${source_version} is lower than installed version ${install_version}."
+    return 0
+  fi
+
+  log "Offline source version ${source_version} is not lower than installed version ${install_version}."
+  return 1
+}
+
+resolve_git_version_ref() {
+  local version="$1"
+  version="$(strip_surrounding_quotes "$version")"
+  version="${version#"${version%%[![:space:]]*}"}"
+  version="${version%"${version##*[![:space:]]}"}"
+  if [[ -z "$version" ]]; then
+    return 1
+  fi
+
+  local escaped_ver=""
+  escaped_ver="$(printf '%s' "$version" | tr -d "'")"
+  local ref=""
+
+  ref="$(run_in_install_dir_output "git rev-parse --verify --quiet 'refs/tags/${escaped_ver}'" 2>/dev/null | tr -d '\r\n')"
+  if [[ -n "$ref" ]]; then
+    printf "%s" "refs/tags/${escaped_ver}"
+    return 0
+  fi
+
+  ref="$(run_in_install_dir_output "git rev-parse --verify --quiet 'refs/tags/v${escaped_ver}'" 2>/dev/null | tr -d '\r\n')"
+  if [[ -n "$ref" ]]; then
+    printf "%s" "refs/tags/v${escaped_ver}"
+    return 0
+  fi
+
+  ref="$(run_in_install_dir_output "git rev-parse --verify --quiet '${escaped_ver}'" 2>/dev/null | tr -d '\r\n')"
+  if [[ -n "$ref" ]]; then
+    printf "%s" "${escaped_ver}"
+    return 0
+  fi
+
+  return 1
+}
+
 install_source_from_zip() {
   local zip_path="$1"
   prepare_install_dir_for_offline || return 1
@@ -3042,7 +3105,27 @@ update_songbird() {
     local tmp_dir="${extract_result%%|*}"
     local source_root="${extract_result#*|}"
 
-    if ! offline_source_is_newer "$source_root" "$INSTALL_DIR"; then
+    local source_ver=""
+    local install_ver=""
+    source_ver="$(read_version_value "$source_root/VERSION")" || source_ver=""
+    install_ver="$(read_version_value "$INSTALL_DIR/VERSION")" || install_ver=""
+
+    local is_downgrade="no"
+
+    if offline_source_is_newer "$source_root" "$INSTALL_DIR"; then
+      log "Offline update available. Preparing to update Songbird..."
+    elif offline_source_is_lower "$source_root" "$INSTALL_DIR"; then
+      local should_downgrade=""
+      should_downgrade="$(prompt_yes_no "Local zip version (${source_ver}) is lower than installed version (${install_ver}). Do you want to downgrade to version ${source_ver}?" "no")"
+      if [[ "$should_downgrade" != "yes" ]]; then
+        run_silent run_as_root rm -rf "$tmp_dir"
+        log "Songbird is already up to date. No rebuild needed."
+        press_enter_to_continue
+        return 0
+      fi
+      is_downgrade="yes"
+      log "Offline downgrade requested. Preparing to downgrade Songbird to ${source_ver}..."
+    else
       run_silent run_as_root rm -rf "$tmp_dir"
       log "Songbird is already up to date. No rebuild needed."
       press_enter_to_continue
@@ -3051,7 +3134,6 @@ update_songbird() {
 
     run_silent run_as_root rm -rf "$tmp_dir"
 
-    log "Offline update available. Preparing to update Songbird..."
     preserve_backup_and_restore_data
     update_source_from_zip "$offline_zip_path" || return 1
 
@@ -3097,7 +3179,7 @@ update_songbird() {
 
   # Fetch latest from remote
   log "Checking for updates..."
-  if ! run_in_install_dir "git fetch --all --prune"; then
+  if ! run_in_install_dir "git fetch --all --prune --tags"; then
     warn "Failed to fetch from remote. Check your network and credentials."
     press_enter_to_continue
     return 1
@@ -3114,28 +3196,67 @@ update_songbird() {
     return 1
   fi
 
+  local is_downgrade="no"
+  local target_ref="main"
+  local target_version=""
+
   # Check if update is available
   if [[ "$local_commit" == "$remote_commit" ]]; then
-    log "Songbird is already up to date. No rebuild needed."
-    press_enter_to_continue
-    return 0
+    log "Songbird is already up to date."
+    local should_downgrade=""
+    should_downgrade="$(prompt_yes_no "Do you want to downgrade?" "no")"
+    if [[ "$should_downgrade" != "yes" ]]; then
+      log "No rebuild needed."
+      press_enter_to_continue
+      return 0
+    fi
+
+    prompt_read "Enter version number to install: " target_version
+    target_version="${target_version#"${target_version%%[![:space:]]*}"}"
+    target_version="${target_version%"${target_version##*[![:space:]]}"}"
+
+    if [[ -z "$target_version" ]]; then
+      warn "No version specified. Downgrade canceled."
+      press_enter_to_continue
+      return 0
+    fi
+
+    target_ref="$(resolve_git_version_ref "$target_version")" || target_ref=""
+    if [[ -z "$target_ref" ]]; then
+      warn "Version '${target_version}' not found in repository."
+      press_enter_to_continue
+      return 1
+    fi
+
+    is_downgrade="yes"
   fi
 
-  # Update is available - proceed with safe update
-  log "Update available. Preparing to update Songbird..."
-  preserve_backup_and_restore_data
+  if [[ "$is_downgrade" == "yes" ]]; then
+    log "Downgrade requested. Preparing to downgrade Songbird to ${target_version}..."
+    preserve_backup_and_restore_data
 
-  # Ensure we're on main branch and pull latest
-  if ! run_in_install_dir "git checkout main"; then
-    warn "Failed to checkout main branch."
-    press_enter_to_continue
-    return 1
-  fi
+    if ! run_in_install_dir "git checkout ${target_ref}"; then
+      warn "Failed to checkout ${target_version}."
+      press_enter_to_continue
+      return 1
+    fi
+  else
+    # Update is available - proceed with safe update
+    log "Update available. Preparing to update Songbird..."
+    preserve_backup_and_restore_data
 
-  if ! run_in_install_dir "git pull --ff-only origin main"; then
-    warn "Failed to pull updates. Repository may have non-fast-forward changes."
-    press_enter_to_continue
-    return 1
+    # Ensure we're on main branch and pull latest
+    if ! run_in_install_dir "git checkout main"; then
+      warn "Failed to checkout main branch."
+      press_enter_to_continue
+      return 1
+    fi
+
+    if ! run_in_install_dir "git pull --ff-only origin main"; then
+      warn "Failed to pull updates. Repository may have non-fast-forward changes."
+      press_enter_to_continue
+      return 1
+    fi
   fi
 
   log "Installing dependencies..."

@@ -27,7 +27,7 @@ songbird-deploy
 | Option | Action | Description |
 |---|---|---|
 | 1 | 📥 Install Songbird | Full guided install: dependencies, build, Nginx, SSL, and `.env`. |
-| 2 | 🔄 Update Songbird | Pull the latest version, rebuild, and restart (optional pre-update backup). |
+| 2 | 🔄 Update Songbird | Update to latest version or downgrade to a specific version, rebuild, and restart (optional pre-update backup). |
 | 3 | ♻️ Restart Songbird | Restart the `songbird.service`. |
 | 4 | ⚙️ Edit Settings (.env) | Change ports, uploads, retention, sign-up, and other env values, then rebuild/apply. |
 | 5 | 🗃️ Manage Database | Open the database submenu (see below). |
@@ -107,9 +107,19 @@ Option **5** opens a full database manager that wraps the [database commands](./
 | Destructive Actions | Delete chats, delete users, delete files |
 | Help & Navigation | Show help, go back, exit |
 
-## Updating
+## Updating and downgrading
 
-Choose **Update Songbird** from the menu. The script can create a database backup first, then pulls the latest version, rebuilds the client, and restarts the service. See [Updating](./Updating.md) for the manual equivalent.
+Choose **Update Songbird** (Option 2) from the menu to update or downgrade your installation:
+
+1. **Database backup**: The script offers to create a timestamped backup before touching application files.
+2. **GitHub mode**:
+   - **Update**: If updates are available on `origin/main`, the script automatically pulls them (`git pull --ff-only`), installs dependencies, runs database migrations, and restarts services.
+   - **Downgrade**: If the repository is already up to date, it prompts `Do you want to downgrade? [y/N]`. If confirmed, you can specify any valid version (semver tag like `v0.11.4`, custom tag, branch, or commit SHA). The script checks out that reference, runs migrations, and rebuilds.
+3. **Offline mode**:
+   - **Update**: If the `VERSION` file in the provided zip archive is newer than the installed version, it updates files and rebuilds.
+   - **Downgrade**: If the archive `VERSION` is lower than the installed version, it prompts for confirmation before downgrading.
+
+See [Updating & Downgrading](./Updating.md) for full details and manual alternatives.
 
 ## Mirrors for restricted networks
 

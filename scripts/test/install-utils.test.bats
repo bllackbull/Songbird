@@ -495,6 +495,42 @@ setup_version_dirs() {
 }
 
 # ===========================================================================
+# offline_source_is_lower  (uses dpkg --compare-versions)
+# ===========================================================================
+
+@test "offline_source_is_lower: returns 0 when source version is lower" {
+  setup_version_dirs "0.10.0" "0.11.1"
+  run offline_source_is_lower "$SOURCE_ROOT" "$INSTALL_ROOT"
+  [ "$status" -eq 0 ]
+}
+
+@test "offline_source_is_lower: returns non-zero when source version is equal" {
+  setup_version_dirs "0.11.1" "0.11.1"
+  run offline_source_is_lower "$SOURCE_ROOT" "$INSTALL_ROOT"
+  [ "$status" -ne 0 ]
+}
+
+@test "offline_source_is_lower: returns non-zero when source version is higher" {
+  setup_version_dirs "0.12.0" "0.11.1"
+  run offline_source_is_lower "$SOURCE_ROOT" "$INSTALL_ROOT"
+  [ "$status" -ne 0 ]
+}
+
+@test "offline_source_is_lower: returns non-zero when source VERSION is missing" {
+  setup_version_dirs "0.10.0" "0.11.1"
+  rm "$SOURCE_ROOT/VERSION"
+  run offline_source_is_lower "$SOURCE_ROOT" "$INSTALL_ROOT"
+  [ "$status" -ne 0 ]
+}
+
+@test "offline_source_is_lower: returns non-zero when installed VERSION is missing" {
+  setup_version_dirs "0.10.0" "0.11.1"
+  rm "$INSTALL_ROOT/VERSION"
+  run offline_source_is_lower "$SOURCE_ROOT" "$INSTALL_ROOT"
+  [ "$status" -ne 0 ]
+}
+
+# ===========================================================================
 # resolve_offline_source_root
 # ===========================================================================
 
@@ -903,4 +939,227 @@ EOF
 
   [ "$(cat "$TEST_DIR/sudo-calls")" = "$DATA_COMMAND_LAUNCHER launcher-target" ]
   [ "$(cat "$LAUNCHER_CALLS")" = "launcher-target" ]
+}
+
+# ===========================================================================
+# resolve_git_version_ref
+# ===========================================================================
+
+setup_test_git_repo() {
+  INSTALL_DIR="$TEST_DIR/git-repo"
+  mkdir -p "$INSTALL_DIR"
+  unset -f git
+  command git init -q "$INSTALL_DIR"
+  command git -C "$INSTALL_DIR" config user.email "test@example.com"
+  command git -C "$INSTALL_DIR" config user.name "Test"
+  touch "$INSTALL_DIR/README.md"
+  command git -C "$INSTALL_DIR" add README.md
+  command git -C "$INSTALL_DIR" commit -q -m "initial commit"
+  command git -C "$INSTALL_DIR" tag v0.11.4
+  command git -C "$INSTALL_DIR" tag plain-0.10.0
+}
+
+@test "resolve_git_version_ref: resolves tag with v-prefix when input lacks v" {
+  setup_test_git_repo
+  result="$(resolve_git_version_ref "0.11.4")"
+  [ "$result" = "refs/tags/v0.11.4" ]
+}
+
+@test "resolve_git_version_ref: resolves exact tag name" {
+  setup_test_git_repo
+  result="$(resolve_git_version_ref "v0.11.4")"
+  [ "$result" = "refs/tags/v0.11.4" ]
+
+  result="$(resolve_git_version_ref "plain-0.10.0")"
+  [ "$result" = "refs/tags/plain-0.10.0" ]
+}
+
+@test "resolve_git_version_ref: resolves branch or commit directly" {
+  setup_test_git_repo
+  result="$(resolve_git_version_ref "HEAD")"
+  [ "$result" = "HEAD" ]
+}
+
+@test "resolve_git_version_ref: strips quotes and whitespace around input" {
+  setup_test_git_repo
+  result="$(resolve_git_version_ref '  "0.11.4"  ')"
+  [ "$result" = "refs/tags/v0.11.4" ]
+}
+
+@test "resolve_git_version_ref: returns non-zero for empty input" {
+  setup_test_git_repo
+  run resolve_git_version_ref ""
+  [ "$status" -ne 0 ]
+
+  run resolve_git_version_ref "   "
+  [ "$status" -ne 0 ]
+}
+
+@test "resolve_git_version_ref: returns non-zero for non-existent version" {
+  setup_test_git_repo
+  run resolve_git_version_ref "99.99.99"
+  [ "$status" -ne 0 ]
+}
+
+# ===========================================================================
+# update_songbird downgrade flows
+# ===========================================================================
+
+@test "update_songbird: git mode prompt downgrade when up to date (declined)" {
+  setup_test_git_repo
+  local hash="abcd1234abcd1234abcd1234abcd1234abcd1234"
+  run_in_install_dir_output() {
+    printf "%s\n" "$hash"
+  }
+  run_in_install_dir() { return 0; }
+  prompt_source_mode() { SOURCE_MODE="github"; }
+  ensure_songbird_stopped_for_update() { return 0; }
+  prompt_yes_no() {
+    if [[ "$1" == *"backup"* ]]; then
+      printf "no"
+    elif [[ "$1" == *"downgrade"* ]]; then
+      printf "no"
+    fi
+  }
+  press_enter_to_continue() { return 0; }
+  export -f run_in_install_dir_output run_in_install_dir prompt_source_mode ensure_songbird_stopped_for_update prompt_yes_no press_enter_to_continue
+
+  run update_songbird
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Songbird is already up to date." ]]
+  [[ "$output" =~ "No rebuild needed." ]]
+}
+
+@test "update_songbird: git mode prompt downgrade when up to date (accepted)" {
+  setup_test_git_repo
+  local hash="abcd1234abcd1234abcd1234abcd1234abcd1234"
+  local git_calls_file="$TEST_DIR/git-calls"
+  touch "$git_calls_file"
+
+  run_in_install_dir_output() {
+    case "$*" in
+      *"git rev-parse HEAD"*|*"git rev-parse origin/main"*)
+        printf "%s\n" "$hash"
+        ;;
+      *"refs/tags/v0.11.4"*)
+        printf "%s\n" "$hash"
+        ;;
+      *)
+        return 1
+        ;;
+    esac
+  }
+  run_in_install_dir() {
+    printf "%s\n" "$*" >> "$git_calls_file"
+    return 0
+  }
+  prompt_source_mode() { SOURCE_MODE="github"; }
+  ensure_songbird_stopped_for_update() { return 0; }
+  prompt_yes_no() {
+    if [[ "$1" == *"backup"* ]]; then
+      printf "no"
+    elif [[ "$1" == *"downgrade"* ]]; then
+      printf "yes"
+    fi
+  }
+  prompt_read() {
+    if [[ "$1" == *"version"* ]]; then
+      eval "$2='0.11.4'"
+    fi
+  }
+  install_songbird_dependencies() { return 0; }
+  ensure_vapid_keys() { return 0; }
+  run_migrations() { return 0; }
+  ensure_service_user_exists() { return 0; }
+  apply_ownership() { return 0; }
+  install_global_command_from_path() { return 0; }
+  show_deployment_success_frame() { return 0; }
+  press_enter_to_continue() { return 0; }
+  systemctl() { return 0; }
+  export -f run_in_install_dir_output run_in_install_dir prompt_source_mode ensure_songbird_stopped_for_update prompt_yes_no prompt_read install_songbird_dependencies ensure_vapid_keys run_migrations ensure_service_user_exists apply_ownership install_global_command_from_path show_deployment_success_frame press_enter_to_continue systemctl
+
+  run update_songbird
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Downgrade requested." ]]
+  grep -Fq "git checkout refs/tags/v0.11.4" "$git_calls_file"
+}
+
+@test "update_songbird: offline mode prompt downgrade when zip version is lower (declined)" {
+  INSTALL_DIR="$TEST_DIR/install"
+  mkdir -p "$INSTALL_DIR"
+  printf "0.12.0\n" > "$INSTALL_DIR/VERSION"
+
+  local src_dir="$TEST_DIR/zip-content"
+  mkdir -p "$src_dir/server" "$src_dir/client"
+  printf "0.10.0\n" > "$src_dir/VERSION"
+  echo '{}' > "$src_dir/package.json"
+
+  SOURCE_ZIP_PATH="$TEST_DIR/songbird.zip"
+  touch "$SOURCE_ZIP_PATH"
+
+  prompt_source_mode() { SOURCE_MODE="offline"; }
+  ensure_offline_source_ready() { return 0; }
+  ensure_songbird_stopped_for_update() { return 0; }
+  extract_offline_source_zip() { printf "%s|%s" "$TEST_DIR/tmp" "$src_dir"; }
+  prompt_yes_no() {
+    if [[ "$1" == *"backup"* ]]; then
+      printf "no"
+    elif [[ "$1" == *"downgrade"* ]]; then
+      printf "no"
+    fi
+  }
+  press_enter_to_continue() { return 0; }
+  export -f prompt_source_mode ensure_offline_source_ready ensure_songbird_stopped_for_update extract_offline_source_zip prompt_yes_no press_enter_to_continue
+
+  run update_songbird
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Songbird is already up to date. No rebuild needed." ]]
+}
+
+@test "update_songbird: offline mode prompt downgrade when zip version is lower (accepted)" {
+  INSTALL_DIR="$TEST_DIR/install"
+  mkdir -p "$INSTALL_DIR"
+  printf "0.12.0\n" > "$INSTALL_DIR/VERSION"
+
+  local src_dir="$TEST_DIR/zip-content"
+  mkdir -p "$src_dir/server" "$src_dir/client"
+  printf "0.10.0\n" > "$src_dir/VERSION"
+  echo '{}' > "$src_dir/package.json"
+
+  SOURCE_ZIP_PATH="$TEST_DIR/songbird.zip"
+  touch "$SOURCE_ZIP_PATH"
+
+  local updated_from_zip="no"
+  update_source_from_zip() {
+    updated_from_zip="yes"
+    printf "%s\n" "zip_updated" > "$TEST_DIR/zip-extracted"
+    return 0
+  }
+
+  prompt_source_mode() { SOURCE_MODE="offline"; }
+  ensure_offline_source_ready() { return 0; }
+  ensure_songbird_stopped_for_update() { return 0; }
+  extract_offline_source_zip() { printf "%s|%s" "$TEST_DIR/tmp" "$src_dir"; }
+  prompt_yes_no() {
+    if [[ "$1" == *"backup"* ]]; then
+      printf "no"
+    elif [[ "$1" == *"downgrade"* ]]; then
+      printf "yes"
+    fi
+  }
+  install_songbird_dependencies() { return 0; }
+  ensure_vapid_keys() { return 0; }
+  run_migrations() { return 0; }
+  ensure_service_user_exists() { return 0; }
+  apply_ownership() { return 0; }
+  install_global_command_from_path() { return 0; }
+  show_deployment_success_frame() { return 0; }
+  press_enter_to_continue() { return 0; }
+  systemctl() { return 0; }
+  export -f prompt_source_mode ensure_offline_source_ready ensure_songbird_stopped_for_update extract_offline_source_zip prompt_yes_no update_source_from_zip install_songbird_dependencies ensure_vapid_keys run_migrations ensure_service_user_exists apply_ownership install_global_command_from_path show_deployment_success_frame press_enter_to_continue systemctl
+
+  run update_songbird
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Offline downgrade requested." ]]
+  [ -f "$TEST_DIR/zip-extracted" ]
 }
