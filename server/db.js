@@ -2496,26 +2496,26 @@ export function createOrReuseMessage(
 }
 
 export function markMessageRead(messageId, readerId) {
-  const updateRes = run(
-    dbKnex("chat_messages")
-      .where("id", messageId)
-      .update({
-        read_at: dbKnex.raw("datetime('now')"),
-        read_by_user_id: readerId,
-      }),
-  );
-  const rowRes = getRow(
-    dbKnex("chat_messages")
-      .select("user_id", "client_request_id")
-      .where("id", messageId)
-      .first(),
-  );
-
   const processRow = (row) => {
+    if (!row) return;
     if (row?.user_id === readerId && !isRemoteMessageRow(row)) {
       return;
     }
-    return run(
+    const updateRes = run(
+      dbKnex("chat_messages")
+        .where("id", messageId)
+        .where((builder) => {
+          builder.where("user_id", "!=", readerId);
+          if (isRemoteMessageRow(row)) {
+            builder.orWhereRaw(REMOTE_MESSAGE_CLIENT_REQUEST_SQL);
+          }
+        })
+        .update({
+          read_at: dbKnex.raw("datetime('now')"),
+          read_by_user_id: readerId,
+        }),
+    );
+    const insertRes = run(
       dbKnex("chat_message_reads")
         .insert({
           message_id: messageId,
@@ -2525,10 +2525,20 @@ export function markMessageRead(messageId, readerId) {
         .onConflict(["message_id", "user_id"])
         .ignore(),
     );
+    if (isPostgresMode()) {
+      return Promise.all([updateRes, insertRes]);
+    }
   };
 
+  const rowRes = getRow(
+    dbKnex("chat_messages")
+      .select("user_id", "client_request_id")
+      .where("id", messageId)
+      .first(),
+  );
+
   if (rowRes && typeof rowRes.then === "function") {
-    return Promise.resolve(updateRes).then(() => rowRes.then(processRow));
+    return rowRes.then(processRow);
   }
   return processRow(rowRes);
 }
@@ -2696,9 +2706,11 @@ export function setMessageForwardOrigin(messageId, payload = {}) {
 }
 
 export function createMessageFiles(messageId, files = []) {
-  if (messageId === undefined || messageId === null) return;
+  if (messageId === undefined || messageId === null || !Array.isArray(files) || !files.length) {
+    return isPostgresMode() ? Promise.resolve([]) : [];
+  }
 
-  files.forEach((file) => {
+  const queries = files.map((file) => {
     const originalName = file.originalName || file.original_name || "";
     const storedName = file.storedName || file.stored_name || "";
     const mimeType = file.mimeType || file.mime_type || "";
@@ -2727,7 +2739,7 @@ export function createMessageFiles(messageId, files = []) {
     const encryptionType =
       file.encryptionType || file.encryption_type || "none";
 
-    run(
+    return run(
       dbKnex("chat_message_files").insert({
         message_id: messageId,
         kind: file.kind,
@@ -2749,6 +2761,11 @@ export function createMessageFiles(messageId, files = []) {
       }),
     );
   });
+
+  if (isPostgresMode()) {
+    return Promise.all(queries);
+  }
+  return queries;
 }
 
 export function recordPendingPresignedUpload({ storageKey, userId = null, expiresAt = null }) {

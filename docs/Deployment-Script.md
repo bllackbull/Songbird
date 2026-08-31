@@ -85,6 +85,7 @@ During install the script asks for core settings and writes them into `.env`:
 |---|---|---|
 | Server port | `SERVER_PORT` | `5174` |
 | Client port | `CLIENT_PORT` | `80` |
+| Media worker port | `WORKER_PORT` | `8080` |
 | Email for Let's Encrypt notices (certbot mode) | — | — |
 
 Encryption and push keys (`STORAGE_ENCRYPTION_KEY`, `VAPID_*`) are generated automatically. The full list of variables you can tune later lives in [Environment Variables](./Environment-Variables.md).

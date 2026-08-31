@@ -75,6 +75,10 @@ nano .env
 Songbird defaults to SQLite (`DB_CLIENT=sqlite3`). To use PostgreSQL instead, edit `.env` to set `DB_CLIENT=postgres` along with your `POSTGRES_*` environment variables, or uncomment the optional `postgres` service and `postgres-data` volume block in `docker-compose.yaml`.
 :::
 
+:::info Media Worker Container
+Songbird includes a standalone **Media Worker** microservice in `worker/` for offloading video transcoding and thumbnail generation. To configure or run the worker alongside Docker, see [Media Worker](./Media-Worker.md).
+:::
+
 ## 4. Set up TLS certificates
 
 The nginx container requires TLS certificate files before it can start. Place your certificate and private key at:

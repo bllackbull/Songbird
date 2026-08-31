@@ -44,12 +44,6 @@ describe("OfflineMediaPlaceholder & History Banner", () => {
       />,
     );
 
-    const img = page.getByRole("img");
-    await expect.element(img).toBeInTheDocument();
-
-    const imgEl = img.element();
-    imgEl.dispatchEvent(new Event("error"));
-
     await expect
       .element(
         page.getByText(

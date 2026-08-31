@@ -4834,16 +4834,23 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
     if (mimeType.startsWith("video/")) {
       return new Promise((resolve) => {
+        let objectUrl = null;
+        let resolved = false;
+        try {
+          objectUrl = URL.createObjectURL(file);
+        } catch {
+          return resolve({ width: null, height: null, durationSeconds: null });
+        }
+
         const video = document.createElement("video");
         video.preload = "metadata";
         video.muted = true;
         video.playsInline = true;
-        let reader = null;
-        let resolved = false;
 
         const resolveOnce = (metadata) => {
           if (resolved) return;
           resolved = true;
+          cleanup();
           resolve(metadata);
         };
 
@@ -4853,15 +4860,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           } catch {
             // no-op
           }
-          if ("srcObject" in video) {
-            video.srcObject = null;
-          }
           video.removeAttribute("src");
-          video.load();
-          if (reader?.readyState === FileReader.LOADING) {
-            reader.abort();
+          if (objectUrl) {
+            try {
+              URL.revokeObjectURL(objectUrl);
+            } catch {
+              // no-op
+            }
+            objectUrl = null;
           }
-          reader = null;
         };
 
         video.onloadedmetadata = () => {
@@ -4872,62 +4879,49 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               ? Number(video.duration)
               : null,
           });
-          cleanup();
         };
         video.onerror = () => {
           resolveOnce({ width: null, height: null, durationSeconds: null });
-          cleanup();
         };
 
-        try {
-          if ("srcObject" in video) {
-            video.srcObject = file;
-            return;
-          }
-          reader = new FileReader();
-          reader.onload = () => {
-            const dataUrl = typeof reader?.result === "string" ? reader.result : "";
-            if (!dataUrl) {
-              resolveOnce({ width: null, height: null, durationSeconds: null });
-              cleanup();
-              return;
-            }
-            video.src = dataUrl;
-          };
-          reader.onerror = () => {
-            resolveOnce({ width: null, height: null, durationSeconds: null });
-            cleanup();
-          };
-          reader.readAsDataURL(file);
-        } catch {
-          resolveOnce({ width: null, height: null, durationSeconds: null });
-          cleanup();
-        }
+        video.src = objectUrl;
       });
     }
     if (mimeType.startsWith("audio/")) {
       return new Promise((resolve) => {
+        let objectUrl = null;
+        let resolved = false;
+        try {
+          objectUrl = URL.createObjectURL(file);
+        } catch {
+          return resolve({ width: null, height: null, durationSeconds: null });
+        }
+
         const audio = document.createElement("audio");
         audio.preload = "metadata";
-        let reader = null;
-        let resolved = false;
 
         const resolveOnce = (metadata) => {
           if (resolved) return;
           resolved = true;
+          cleanup();
           resolve(metadata);
         };
 
         const cleanup = () => {
-          if ("srcObject" in audio) {
-            audio.srcObject = null;
+          try {
+            audio.pause();
+          } catch {
+            // no-op
           }
           audio.removeAttribute("src");
-          audio.load();
-          if (reader?.readyState === FileReader.LOADING) {
-            reader.abort();
+          if (objectUrl) {
+            try {
+              URL.revokeObjectURL(objectUrl);
+            } catch {
+              // no-op
+            }
+            objectUrl = null;
           }
-          reader = null;
         };
 
         audio.onloadedmetadata = () => {
@@ -4938,33 +4932,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               ? Number(audio.duration)
               : null,
           });
-          cleanup();
         };
         audio.onerror = () => {
           resolveOnce({ width: null, height: null, durationSeconds: null });
-          cleanup();
         };
 
-        try {
-          reader = new FileReader();
-          reader.onload = () => {
-            const dataUrl = typeof reader?.result === "string" ? reader.result : "";
-            if (!dataUrl) {
-              resolveOnce({ width: null, height: null, durationSeconds: null });
-              cleanup();
-              return;
-            }
-            audio.src = dataUrl;
-          };
-          reader.onerror = () => {
-            resolveOnce({ width: null, height: null, durationSeconds: null });
-            cleanup();
-          };
-          reader.readAsDataURL(file);
-        } catch {
-          resolveOnce({ width: null, height: null, durationSeconds: null });
-          cleanup();
-        }
+        audio.src = objectUrl;
       });
     }
     return Promise.resolve({ width: null, height: null, durationSeconds: null });

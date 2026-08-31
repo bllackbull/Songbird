@@ -39,7 +39,7 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
       const appObj = makeApp({
         deps: {
           storageProvider: localProvider,
-          storageProcessingMode: "sync",
+          storageProcessingMode: "local",
           createMessageFiles: createMessageFilesMock,
           findMessageFileById: (id) =>
             filesStore.find((f) => String(f.id) === String(id)) || null,
@@ -237,7 +237,7 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
       const appObj = makeApp({
         deps: {
           storageProvider: mockRemoteProvider,
-          storageProcessingMode: "webhook",
+          storageProcessingMode: "remote",
           webhookSecret: "super-secret-webhook-key",
           createMessageFiles: createMessageFilesMock,
           findMessageFileById: (id) =>
@@ -304,7 +304,7 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
       const fileId = presignRes.body.fileId;
       const storageKey = presignRes.body.storageKey;
 
-      // 2. Complete (status should be pending in webhook mode)
+      // 2. Complete (status should be pending in remote mode)
       const completeRes = await request(appObj.app)
         .post("/api/uploads/complete")
         .set("Cookie", [`sid=${sessionToken}`])
@@ -404,7 +404,7 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
         });
 
       expect(presignRes.status).toBe(200);
-      const storageKey = presignRes.body.storageKey;
+      expect(presignRes.body.type).toBe("remote");
 
       const uploadRes = await request(appObj.app)
         .post("/api/messages/upload")
@@ -413,9 +413,9 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
           chatId: "c0c0c0c0-d1d1-4e2e-af3f-060606060606",
           username: "s3user",
           uploadType: "media",
-          storageKeys: [
+          presignedFiles: [
             {
-              storageKey,
+              storageKey: "uploads/remote_video.mp4",
               originalName: "remote_video.mp4",
               mimeType: "video/mp4",
               sizeBytes: 5000000,
@@ -425,9 +425,9 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
 
       expect(uploadRes.status).toBe(200);
       expect(enqueueTranscodeMock).toHaveBeenCalled();
-      const insertedFile = filesStore.find((f) => f.storage_key === storageKey);
+      const insertedFile = filesStore.find((f) => (f.original_name || f.originalName) === "remote_video.mp4");
       expect(insertedFile).toBeDefined();
-      expect(insertedFile.processing_status).toBe("pending");
+      expect(insertedFile.processing_status || insertedFile.processingStatus).toBe("pending");
     });
   });
 });

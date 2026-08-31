@@ -164,79 +164,86 @@ export function createMessagePublicationService(dbApi) {
     editMessageId = null,
     username = "",
   }) {
-    const chat = findChatById(chatId);
-    if (!chat) throw new Error("Chat not found");
+    const rawChat = findChatById(chatId);
+    const processPub = (chat) => {
+      if (!chat) throw new Error("Chat not found");
 
-    let messageId = editMessageId || null;
-    let deduped = false;
+      let messageId = editMessageId || null;
+      let deduped = false;
 
-    if (editTarget) {
-      if (typeof editMessage === "function") {
-        editMessage(messageId, fallbackBody);
-      }
-      if (typeof setMessageExpiresAt === "function") {
-        setMessageExpiresAt(messageId, null);
-      }
-      if (typeof createMessageFiles === "function") {
-        createMessageFiles(messageId, normalizedFiles);
-      }
-    } else {
-      const created = createOrReuseMessage(
-        chatId,
-        userId,
-        fallbackBody,
-        replyToMessageId,
-        null,
-        clientRequestId,
-      );
-      messageId = created?.id || null;
-      deduped = Boolean(created?.deduped);
-      if (!messageId) throw new Error("Unable to create message.");
-
-      if (!deduped && typeof createMessageFiles === "function") {
-        createMessageFiles(messageId, normalizedFiles);
-      }
-      if (
-        chat.type === "saved" &&
-        !deduped &&
-        typeof markMessageRead === "function"
-      ) {
-        markMessageRead(messageId, userId);
-      }
-    }
-
-    const sseEvents = [];
-    if (editTarget) {
-      sseEvents.push({
-        chatId,
-        payload: {
-          type: "chat_message_updated",
+      if (editTarget) {
+        if (typeof editMessage === "function") {
+          editMessage(messageId, fallbackBody);
+        }
+        if (typeof setMessageExpiresAt === "function") {
+          setMessageExpiresAt(messageId, null);
+        }
+        if (typeof createMessageFiles === "function") {
+          createMessageFiles(messageId, normalizedFiles);
+        }
+      } else {
+        const created = createOrReuseMessage(
           chatId,
-          messageId,
-          username,
-          body: fallbackBody,
-        },
-      });
-    } else if (!deduped) {
-      sseEvents.push({
-        chatId,
-        payload: {
-          type: "chat_message",
-          chatId,
-          messageId,
-          username,
-          body: fallbackBody,
+          userId,
+          fallbackBody,
           replyToMessageId,
-        },
-      });
-    }
+          null,
+          clientRequestId,
+        );
+        messageId = created?.id || null;
+        deduped = Boolean(created?.deduped);
+        if (!messageId) throw new Error("Unable to create message.");
 
-    return {
-      success: true,
-      messageId,
-      deduped,
-      sseEvents,
+        if (!deduped && typeof createMessageFiles === "function") {
+          createMessageFiles(messageId, normalizedFiles);
+        }
+        if (
+          chat.type === "saved" &&
+          !deduped &&
+          typeof markMessageRead === "function"
+        ) {
+          markMessageRead(messageId, userId);
+        }
+      }
+
+      const sseEvents = [];
+      if (editTarget) {
+        sseEvents.push({
+          chatId,
+          payload: {
+            type: "chat_message_updated",
+            chatId,
+            messageId,
+            username,
+            body: fallbackBody,
+          },
+        });
+      } else if (!deduped) {
+        sseEvents.push({
+          chatId,
+          payload: {
+            type: "chat_message",
+            chatId,
+            messageId,
+            username,
+            body: fallbackBody,
+            replyToMessageId,
+          },
+        });
+      }
+
+      return {
+        success: true,
+        messageId,
+        deduped,
+        sseEvents,
+      };
     };
+
+    if (rawChat && typeof rawChat.then === "function") {
+      return rawChat.then(processPub);
+    }
+    return processPub(rawChat);
   }
 
   /**

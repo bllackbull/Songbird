@@ -2,6 +2,8 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { storageEncryption as defaultStorageEncryption } from "../lib/storageEncryption.js";
 import { dbKnex } from "../db/knex.js";
+import { dispatchMediaWorkerJob } from "../lib/mediaWorker.js";
+import { readEnvBool } from "../settings/env.js";
 
 export function registerRemoteUploadRoutes(app, deps) {
   const {
@@ -15,13 +17,26 @@ export function registerRemoteUploadRoutes(app, deps) {
     findMessageFileById,
     emitChatEvent,
     recordPendingPresignedUpload,
-    storageProcessingMode = "sync",
-    s3ProcessingMode = "sync",
+    storageProcessingMode = "auto",
+    s3ProcessingMode = "auto",
     webhookSecret,
+    workerUrl =
+      deps.workerUrl ||
+      deps.mediaWorkerUrl ||
+      process.env.WORKER_URL ||
+      process.env.MEDIA_WORKER_URL ||
+      null,
+    mediaWorkerUrl =
+      deps.workerUrl ||
+      deps.mediaWorkerUrl ||
+      process.env.WORKER_URL ||
+      process.env.MEDIA_WORKER_URL ||
+      null,
     requireSession,
     getSessionFromRequest,
     storageEncryption = defaultStorageEncryption,
     enqueueVideoTranscodeJob = deps.enqueueVideoTranscodeJob,
+    listMessageFilesByMessageIds = deps.listMessageFilesByMessageIds,
   } = deps;
 
   function toSql(builder, p = []) {
@@ -141,6 +156,10 @@ export function registerRemoteUploadRoutes(app, deps) {
       else if (mime.startsWith("video/")) kind = "video";
       else if (mime.startsWith("audio/")) kind = "audio";
 
+      const transcodeEnabled = deps.getSetting
+        ? Boolean(deps.getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS"))
+        : readEnvBool("FILE_UPLOAD_TRANSCODE_VIDEOS", true);
+
       const fileObj = {
         kind,
         originalName: name,
@@ -152,7 +171,7 @@ export function registerRemoteUploadRoutes(app, deps) {
         durationSeconds: Number.isFinite(Number(duration))
           ? Number(duration)
           : null,
-        processingStatus: "pending",
+        processingStatus: (kind === "video" && !transcodeEnabled) ? "ready" : "pending",
         storageDriver: providerType,
         storageKey: finalStorageKey,
         blurhash: clientWebpThumbBase64 || blurhash || null,
@@ -171,7 +190,8 @@ export function registerRemoteUploadRoutes(app, deps) {
       const targetMsgId = messageId || null;
       let fileId = null;
       if (targetMsgId && typeof createMessageFiles === "function") {
-        const inserted = createMessageFiles(targetMsgId, [fileObj]);
+        const rawInserted = createMessageFiles(targetMsgId, [fileObj]);
+        const inserted = rawInserted && typeof rawInserted.then === "function" ? await rawInserted : rawInserted;
         if (Array.isArray(inserted) && inserted[0]?.id) {
           fileId = inserted[0].id;
         } else if (inserted && typeof inserted === "object" && inserted.id) {
@@ -235,10 +255,12 @@ export function registerRemoteUploadRoutes(app, deps) {
 
     let file = null;
     if (typeof findMessageFileById === "function") {
-      file = findMessageFileById(fileId);
+      const raw = findMessageFileById(fileId);
+      file = raw && typeof raw.then === "function" ? await raw : raw;
     }
     if (!file && typeof adminGetRow === "function") {
-      file = callAdminGetRow(dbKnex("chat_message_files").where("id", fileId).first());
+      const raw = callAdminGetRow(dbKnex("chat_message_files").where("id", fileId).first());
+      file = raw && typeof raw.then === "function" ? await raw : raw;
     }
 
     if (!file) {
@@ -253,9 +275,10 @@ export function registerRemoteUploadRoutes(app, deps) {
       file.message_id &&
       typeof adminGetRow === "function"
     ) {
-      const msg = callAdminGetRow(
+      const rawMsg = callAdminGetRow(
         dbKnex("chat_messages").select("user_id", "username").where("id", file.message_id).first(),
       );
+      const msg = rawMsg && typeof rawMsg.then === "function" ? await rawMsg : rawMsg;
       if (
         msg &&
         msg.user_id &&
@@ -267,22 +290,24 @@ export function registerRemoteUploadRoutes(app, deps) {
     }
 
     const mode = String(
-      deps.storageProcessingMode || storageProcessingMode || "sync",
+      deps.storageProcessingMode || storageProcessingMode || "auto",
     ).toLowerCase();
     const isVideo = String(file.mime_type || file.mimeType || "")
       .toLowerCase()
       .startsWith("video/");
 
-    const transcodeFn = deps.enqueueVideoTranscodeJob || enqueueVideoTranscodeJob;
+    const defaultCallback = `http://127.0.0.1:${process.env.SERVER_PORT || process.env.PORT || "5174"}/api/uploads/webhook/processed`;
     const transcodeEnabled = deps.getSetting
-      ? deps.getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS")
-      : true;
+      ? Boolean(deps.getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS"))
+      : readEnvBool("FILE_UPLOAD_TRANSCODE_VIDEOS", true);
 
     let newStatus = "ready";
-    if (isVideo && transcodeEnabled && (mode === "local" || mode === "auto" || mode === "sync")) {
-      newStatus = typeof transcodeFn === "function" ? "pending" : "ready";
-    } else if (mode === "webhook" || mode === "remote" || mode === "async") {
-      newStatus = "pending";
+    if (transcodeEnabled) {
+      if (mode === "remote") {
+        newStatus = "pending";
+      } else if (isVideo) {
+        newStatus = "pending";
+      }
     }
 
     if (typeof adminRun === "function") {
@@ -292,17 +317,48 @@ export function registerRemoteUploadRoutes(app, deps) {
       if (typeof adminSave === "function") adminSave();
     }
 
-    if (isVideo && transcodeEnabled && (mode === "local" || mode === "auto" || mode === "sync")) {
-      if (typeof transcodeFn === "function") {
-        transcodeFn({
-          fileId,
-          storedName: file.stored_name || file.storedName,
-          storageKey: file.storage_key || storageKey,
-          storageDriver: file.storage_driver || file.storageDriver,
-          chatId: file.chat_id || file.chatId,
-          messageId: file.message_id || file.messageId,
-        });
-      }
+    if (isVideo && transcodeEnabled) {
+      dispatchMediaWorkerJob({
+        workerUrl:
+          deps.workerUrl ||
+          deps.mediaWorkerUrl ||
+          workerUrl ||
+          mediaWorkerUrl ||
+          process.env.WORKER_URL ||
+          process.env.MEDIA_WORKER_URL ||
+          null,
+        mediaWorkerUrl:
+          deps.workerUrl ||
+          deps.mediaWorkerUrl ||
+          workerUrl ||
+          mediaWorkerUrl ||
+          process.env.WORKER_URL ||
+          process.env.MEDIA_WORKER_URL ||
+          null,
+        storageProcessingMode: mode,
+        storageProcessingTimeoutMs:
+          deps.storageProcessingTimeoutMs ||
+          (process.env.STORAGE_PROCESSING_TIMEOUT_MS ? Number(process.env.STORAGE_PROCESSING_TIMEOUT_MS) : undefined),
+        workerPort: deps.workerPort || process.env.WORKER_PORT || "8080",
+        webhookSecret:
+          deps.webhookSecret !== undefined
+            ? deps.webhookSecret
+            : webhookSecret || process.env.WEBHOOK_SECRET || null,
+        callbackUrl:
+          deps.webhookCallbackUrl ||
+          process.env.WEBHOOK_URL ||
+          process.env.WEBHOOK_CALLBACK_URL ||
+          process.env.SONGBIRD_WEBHOOK_URL ||
+          process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
+          defaultCallback,
+        fileId: file.id || fileId,
+        storageKey: file.storage_key || storageKey,
+        storedName: file.stored_name || file.storedName,
+        mimeType: file.mime_type || file.mimeType || "video/mp4",
+        encryptionType: file.encryption_type || file.encryptionType || "none",
+        fetchImpl: deps.fetchImpl || globalThis.fetch,
+        transcodeEnabled,
+      }).catch(() => {});
     }
 
     if (newStatus === "pending" && mediaQueueManager?.scheduleFallbackCheck) {
@@ -330,18 +386,27 @@ export function registerRemoteUploadRoutes(app, deps) {
       }
     }
 
-    const { fileId, status, transcodedStorageKey, thumbStorageKey } =
-      req.body || {};
+    const {
+      fileId,
+      status,
+      transcodedStorageKey,
+      thumbStorageKey,
+      width,
+      height,
+      duration,
+    } = req.body || {};
     if (!fileId) {
       return res.status(400).json({ error: "fileId is required." });
     }
 
     let file = null;
     if (typeof findMessageFileById === "function") {
-      file = findMessageFileById(fileId);
+      const raw = findMessageFileById(fileId);
+      file = raw && typeof raw.then === "function" ? await raw : raw;
     }
     if (!file && typeof adminGetRow === "function") {
-      file = callAdminGetRow(dbKnex("chat_message_files").where("id", fileId).first());
+      const raw = callAdminGetRow(dbKnex("chat_message_files").where("id", fileId).first());
+      file = raw && typeof raw.then === "function" ? await raw : raw;
     }
 
     if (!file) {
@@ -351,11 +416,24 @@ export function registerRemoteUploadRoutes(app, deps) {
     const finalStatus = status || "ready";
     if (typeof adminRun === "function") {
       const updatePayload = { processing_status: finalStatus };
-      if (transcodedStorageKey) updatePayload.storage_key = transcodedStorageKey;
+      if (transcodedStorageKey) {
+        updatePayload.storage_key = transcodedStorageKey;
+        updatePayload.stored_name = path.basename(transcodedStorageKey);
+      }
       if (thumbStorageKey) updatePayload.thumb_storage_key = thumbStorageKey;
-      callAdminRun(
+      if (Number.isFinite(Number(width)) && Number(width) > 0) {
+        updatePayload.width_px = Number(width);
+      }
+      if (Number.isFinite(Number(height)) && Number(height) > 0) {
+        updatePayload.height_px = Number(height);
+      }
+      if (Number.isFinite(Number(duration)) && Number(duration) >= 0) {
+        updatePayload.duration_seconds = Number(duration);
+      }
+      const rawUpdate = callAdminRun(
         dbKnex("chat_message_files").where("id", fileId).update(updatePayload),
       );
+      if (rawUpdate && typeof rawUpdate.then === "function") await rawUpdate;
       if (typeof adminSave === "function") adminSave();
     }
 
@@ -364,14 +442,109 @@ export function registerRemoteUploadRoutes(app, deps) {
     }
 
     let chatId = null;
+    let messageRow = null;
     if (file.message_id && typeof adminGetRow === "function") {
-      const msg = callAdminGetRow(
-        dbKnex("chat_messages").select("chat_id").where("id", file.message_id).first(),
+      const rawMsg = callAdminGetRow(
+        dbKnex("chat_messages").where("id", file.message_id).first(),
       );
-      chatId = msg?.chat_id || null;
+      messageRow = rawMsg && typeof rawMsg.then === "function" ? await rawMsg : rawMsg;
+      chatId = messageRow?.chat_id || null;
     }
 
     if (typeof emitChatEvent === "function") {
+      if (chatId && file.message_id) {
+        const rawFiles = typeof listMessageFilesByMessageIds === "function"
+          ? listMessageFilesByMessageIds([file.message_id])
+          : [];
+        const filesForMessage =
+          (rawFiles && typeof rawFiles.then === "function" ? await rawFiles : rawFiles) || [];
+
+        const enc = deps.storageEncryption || defaultStorageEncryption;
+        const decryptedBody = enc
+          ? enc.decryptText(messageRow?.body || "")
+          : messageRow?.body || "";
+
+        const resolvedFiles = await Promise.all(
+          filesForMessage.map(async (f) => {
+            const isTargetFile = String(f.id) === String(fileId);
+            const driver = f.storage_driver || f.storageDriver;
+            const sKey = (isTargetFile && transcodedStorageKey)
+              ? transcodedStorageKey
+              : (f.storage_key || f.storageKey);
+            const thumbKey = (isTargetFile && thumbStorageKey)
+              ? thumbStorageKey
+              : (f.thumb_storage_key || f.thumbStorageKey);
+            const storedName = f.stored_name || f.storedName || "";
+            let fileUrl = storedName ? `/api/uploads/messages/${storedName}` : null;
+            let thumbUrl = null;
+            if (
+              (driver === "remote" || driver === "s3") &&
+              storageProvider &&
+              typeof storageProvider.getDownloadUrl === "function"
+            ) {
+              if (sKey) {
+                try {
+                  fileUrl = await storageProvider.getDownloadUrl(sKey);
+                } catch (_) {}
+              }
+              if (thumbKey) {
+                try {
+                  thumbUrl = await storageProvider.getDownloadUrl(thumbKey);
+                } catch (_) {}
+              }
+            }
+            const isThisPending = isTargetFile
+              ? finalStatus === "pending"
+              : (f.processing_status || f.processingStatus) === "pending";
+
+            const fileWidth = isTargetFile && Number.isFinite(Number(width)) && Number(width) > 0
+              ? Number(width)
+              : Number.isFinite(Number(f.width_px ?? f.widthPx))
+                ? Number(f.width_px ?? f.widthPx)
+                : null;
+            const fileHeight = isTargetFile && Number.isFinite(Number(height)) && Number(height) > 0
+              ? Number(height)
+              : Number.isFinite(Number(f.height_px ?? f.heightPx))
+                ? Number(f.height_px ?? f.heightPx)
+                : null;
+            const fileDuration = isTargetFile && Number.isFinite(Number(duration)) && Number(duration) >= 0
+              ? Number(duration)
+              : Number.isFinite(Number(f.duration_seconds ?? f.durationSeconds))
+                ? Number(f.duration_seconds ?? f.durationSeconds)
+                : null;
+
+            return {
+              id: f.id,
+              kind: f.kind,
+              name: f.original_name || f.originalName || "",
+              mimeType: f.mime_type || f.mimeType || "",
+              processing: isThisPending,
+              sizeBytes: Number(f.size_bytes || f.sizeBytes || 0),
+              width: fileWidth,
+              height: fileHeight,
+              durationSeconds: fileDuration,
+              blurhash: f.blurhash || null,
+              expiresAt: f.expires_at || f.expiresAt || null,
+              storageDriver: driver || null,
+              storageKey: sKey || null,
+              thumbStorageKey: thumbKey || null,
+              thumbUrl: thumbUrl || null,
+              url: fileUrl,
+            };
+          }),
+        );
+
+        emitChatEvent(chatId, {
+          type: "chat_message_updated",
+          chatId,
+          messageId: file.message_id,
+          username: messageRow?.username || "",
+          userId: messageRow?.user_id || null,
+          body: decryptedBody || "",
+          files: resolvedFiles,
+        });
+      }
+
       emitChatEvent(chatId, {
         type: "video:ready",
         fileId,
@@ -485,16 +658,18 @@ export function registerRemoteUploadRoutes(app, deps) {
 
     let file = null;
     if (typeof findMessageFileById === "function") {
-      file = findMessageFileById(idParam);
+      const raw = findMessageFileById(idParam);
+      file = raw && typeof raw.then === "function" ? await raw : raw;
     }
     if (!file && typeof adminGetRow === "function") {
-      file = callAdminGetRow(
+      const raw = callAdminGetRow(
         dbKnex("chat_message_files")
           .where((builder) => {
             builder.where("id", idParam).orWhere("stored_name", idParam).orWhere("storage_key", idParam);
           })
           .first(),
       );
+      file = raw && typeof raw.then === "function" ? await raw : raw;
     }
 
     if (!file) return res.status(404).end();

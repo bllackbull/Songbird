@@ -470,7 +470,7 @@ export function FocusedMediaModal({
               ref={mediaViewportRef}
               style={{ touchAction: "none" }}
             >
-              {focusedMedia.processing ? (
+              {Boolean(focusedMedia.processing) && !String(focusedMedia.url || "").includes("-h264-") ? (
                 <div
                   className="mx-auto flex items-center justify-center overflow-hidden rounded-2xl bg-slate-200/80 dark:bg-slate-800/80"
                   style={getFocusFrameStyle()}
@@ -488,22 +488,24 @@ export function FocusedMediaModal({
                   backfaceVisibility: "hidden",
                 }}
                 >
-                  <video
-                    key={focusedMedia.url}
-                    ref={focusedVideoRef}
-                    autoPlay
-                    playsInline
-                    preload="auto"
-                    crossOrigin={focusedMedia.url?.startsWith("https://") ? "anonymous" : undefined}
-                    src={focusedMedia.url}
-                    onClick={toggleFocusedVideoPlay}
-                    onLoadedMetadata={handleFocusedVideoLoadedMetadata}
-                    onLoadedData={handleFocusedVideoLoadedData}
-                    onCanPlay={handleFocusedVideoCanPlay}
-                    onError={handleFocusedVideoError}
-                    className="mx-auto block max-h-[72vh] w-auto max-w-full cursor-pointer rounded-2xl bg-transparent object-contain md:max-h-[78vh] md:transform-[translateZ(0)] md:backface-hidden"
-                    style={{ backfaceVisibility: "hidden" }}
-                  />
+                  {focusedMedia.url ? (
+                    <video
+                      key={focusedMedia.url}
+                      ref={focusedVideoRef}
+                      autoPlay
+                      playsInline
+                      preload="auto"
+                      src={focusedMedia.url}
+                      poster={focusedMedia.poster || undefined}
+                      onClick={toggleFocusedVideoPlay}
+                      onLoadedMetadata={handleFocusedVideoLoadedMetadata}
+                      onLoadedData={handleFocusedVideoLoadedData}
+                      onCanPlay={handleFocusedVideoCanPlay}
+                      onError={handleFocusedVideoError}
+                      className="mx-auto block max-h-[72vh] w-auto max-w-full cursor-pointer rounded-2xl bg-transparent object-contain md:max-h-[78vh] md:transform-[translateZ(0)] md:backface-hidden"
+                      style={{ backfaceVisibility: "hidden" }}
+                    />
+                  ) : null}
                   {!focusedMediaLoaded ? (
                     <div className="pointer-events-none absolute inset-0 animate-pulse rounded-2xl bg-slate-200/80 dark:bg-slate-800/80" />
                   ) : null}
@@ -546,7 +548,6 @@ export function FocusedMediaModal({
                 <img
                   src={focusedMedia.url}
                   alt={focusedMedia.name || "media"}
-                  crossOrigin={focusedMedia.url?.startsWith("https://") ? "anonymous" : undefined}
                   referrerPolicy="no-referrer"
                   onLoad={onFocusedImageLoad}
                   className={`mx-auto max-h-[78vh] w-auto max-w-full rounded-2xl object-contain transition-opacity duration-150 ${

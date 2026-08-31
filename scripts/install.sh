@@ -49,12 +49,15 @@ SERVICE_USER="songbird"
 SERVICE_GROUP="songbird"
 SERVICE_NAME="songbird"
 SERVICE_FILE="/etc/systemd/system/songbird.service"
+WORKER_SERVICE_NAME="songbird-worker"
+WORKER_SERVICE_FILE="/etc/systemd/system/songbird-worker.service"
 LEGO_RENEW_SERVICE_FILE="/etc/systemd/system/songbird-lego-renew.service"
 LEGO_RENEW_TIMER_FILE="/etc/systemd/system/songbird-lego-renew.timer"
 NGINX_SITE_FILE="/etc/nginx/sites-available/songbird"
 NGINX_ENABLED_FILE="/etc/nginx/sites-enabled/songbird"
 DEFAULT_SERVER_PORT="5174"
 DEFAULT_CLIENT_PORT="80"
+DEFAULT_WORKER_PORT="8080"
 DEFAULT_FILE_UPLOAD="true"
 DEFAULT_FILE_UPLOAD_MAX_SIZE_MB="25"
 DEFAULT_MAX_UPLOAD_MB="75"
@@ -98,6 +101,7 @@ DEFAULT_POSTGRES_USER="postgres"
 DEFAULT_POSTGRES_PASSWORD="postgres"
 SERVER_PORT="$DEFAULT_SERVER_PORT"
 CLIENT_PORT="$DEFAULT_CLIENT_PORT"
+WORKER_PORT="$DEFAULT_WORKER_PORT"
 FILE_UPLOAD="$DEFAULT_FILE_UPLOAD"
 MAX_UPLOAD_MB="$DEFAULT_MAX_UPLOAD_MB"
 RETENTION_DAYS="$DEFAULT_RETENTION_DAYS"
@@ -774,6 +778,27 @@ prompt_client_port() {
   done
 }
 
+prompt_worker_port() {
+  local default_port="${1:-$DEFAULT_WORKER_PORT}"
+  local value=""
+  while true; do
+    prompt_read "Enter media worker port (default: $default_port): " value
+    if [[ -z "$value" ]]; then
+      printf "%s" "$default_port"
+      return 0
+    fi
+    if [[ "$value" =~ ^[0-9]+$ ]] && (( value >= 1 && value <= 65535 )); then
+      if [[ "$value" == "$SERVER_PORT" || "$value" == "$CLIENT_PORT" ]]; then
+        printf "Media worker port cannot conflict with server port (%s) or client port (%s).\n" "$SERVER_PORT" "$CLIENT_PORT"
+        continue
+      fi
+      printf "%s" "$value"
+      return 0
+    fi
+    printf "Port must be an integer between 1 and 65535.\n"
+  done
+}
+
 normalize_path_input() {
   local value="$1"
   if [[ "$value" == "~"* ]]; then
@@ -1362,7 +1387,10 @@ ensure_service_user_exists() {
 # and read privileged logs without a password.
 ${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/systemctl restart ${SERVICE_NAME}
 ${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/systemctl stop ${SERVICE_NAME}
+${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/systemctl restart ${WORKER_SERVICE_NAME}
+${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/systemctl stop ${WORKER_SERVICE_NAME}
 ${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/journalctl -u ${SERVICE_NAME} *
+${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/journalctl -u ${WORKER_SERVICE_NAME} *
 ${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/cat /var/log/nginx/error.log
 ${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/cat /var/log/nginx/access.log
 ${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/nginx -t
@@ -1694,6 +1722,9 @@ install_songbird_dependencies() {
   log "Installing server dependencies..."
   run_in_install_dir "npm ${npm_registry_arg} --prefix server install" || return 1
 
+  log "Installing worker dependencies..."
+  run_in_install_dir "npm ${npm_registry_arg} --prefix worker install" || return 1
+
   log "Installing client dependencies..."
   run_in_install_dir "npm ${npm_registry_arg} --prefix client install" || return 1
 
@@ -1839,6 +1870,11 @@ ADMIN_API_TOKEN=${existing_admin_api_token}
 VAPID_PUBLIC_KEY=${existing_public_key}
 VAPID_PRIVATE_KEY=${existing_private_key}
 VAPID_SUBJECT=${existing_subject}
+
+# Media Processing Worker
+WORKER_PORT=${WORKER_PORT}
+WORKER_URL=http://127.0.0.1:${WORKER_PORT}
+WEBHOOK_URL=http://127.0.0.1:${SERVER_PORT}/api/uploads/webhook/processed
 
 # NOTE: All other application settings (sign-up, file uploads, retention,
 # limits, remote channel, client tuning, push proxy, etc.) are configured from
@@ -2214,6 +2250,7 @@ collect_install_options() {
   else
     CLIENT_PORT="$(prompt_client_port "443")"
   fi
+  WORKER_PORT="$(prompt_worker_port "$DEFAULT_WORKER_PORT")"
   if [[ "$CERT_MODE" != "http" ]]; then
     log "Using HTTP redirect on port 80 and HTTPS on port ${CLIENT_PORT}."
   fi
@@ -2258,9 +2295,34 @@ EOF
     return 1
   fi
 
+  log "Creating worker systemd service at ${WORKER_SERVICE_FILE}..."
+  if ! run_silent run_as_root tee "$WORKER_SERVICE_FILE" >/dev/null <<EOF
+[Unit]
+Description=Songbird media worker
+After=network.target
+
+[Service]
+Type=simple
+User=${SERVICE_USER}
+Group=${SERVICE_GROUP}
+EnvironmentFile=${INSTALL_DIR}/.env
+WorkingDirectory=${INSTALL_DIR}/worker
+ExecStart=${NODE_EXEC_PATH} ${INSTALL_DIR}/worker/index.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  then
+    return 1
+  fi
+
   run_as_root systemctl daemon-reload || return 1
   run_as_root systemctl enable --now songbird.service || return 1
+  run_as_root systemctl enable --now songbird-worker.service || return 1
   run_as_root systemctl restart songbird.service || return 1
+  run_as_root systemctl restart songbird-worker.service || return 1
 }
 
 write_nginx_site_config() {
@@ -2885,6 +2947,9 @@ ensure_songbird_stopped_for_update() {
       press_enter_to_continue
       return 1
     fi
+    if have_cmd systemctl && systemctl is-active --quiet songbird-worker.service 2>/dev/null; then
+      run_as_root systemctl stop songbird-worker.service || true
+    fi
     log "Songbird service stopped."
   fi
 
@@ -3005,8 +3070,16 @@ update_songbird() {
       warn "Failed to synchronize global command after update."
     fi
 
+    if have_cmd systemctl && [[ -f "$SERVICE_FILE" && ! -f "$WORKER_SERVICE_FILE" ]]; then
+      log "Configuring worker systemd service..."
+      configure_systemd_service || true
+    fi
+
     log "Restarting Songbird service..."
     run_as_root systemctl restart songbird.service || return 1
+    if have_cmd systemctl && systemctl list-unit-files | grep -q "^songbird-worker.service"; then
+      run_as_root systemctl restart songbird-worker.service || true
+    fi
     run_as_root systemctl reload nginx || return 1
 
     show_deployment_success_frame "update"
@@ -3080,8 +3153,16 @@ update_songbird() {
     warn "Failed to synchronize global command after update."
   fi
 
+  if have_cmd systemctl && [[ -f "$SERVICE_FILE" && ! -f "$WORKER_SERVICE_FILE" ]]; then
+    log "Configuring worker systemd service..."
+    configure_systemd_service || true
+  fi
+
   log "Restarting Songbird service..."
   run_as_root systemctl restart songbird.service || return 1
+  if have_cmd systemctl && systemctl list-unit-files | grep -q "^songbird-worker.service"; then
+    run_as_root systemctl restart songbird-worker.service || true
+  fi
   run_as_root systemctl reload nginx || return 1
 
   show_deployment_success_frame "update"
@@ -3091,6 +3172,9 @@ update_songbird() {
 restart_songbird() {
   log "Restarting Songbird service..."
   run_as_root systemctl restart songbird.service || return 1
+  if have_cmd systemctl && systemctl list-unit-files | grep -q "^songbird-worker.service"; then
+    run_as_root systemctl restart songbird-worker.service || true
+  fi
   run_as_root systemctl reload nginx || return 1
 
   log "Songbird restarted successfully."
@@ -3165,10 +3249,13 @@ remove_songbird() {
   if run_as_root systemctl list-unit-files | grep -q "^songbird.service"; then
     run_as_root systemctl disable --now songbird.service || true
   fi
+  if run_as_root systemctl list-unit-files | grep -q "^songbird-worker.service"; then
+    run_as_root systemctl disable --now songbird-worker.service || true
+  fi
   if run_as_root systemctl list-unit-files | grep -q "^songbird-lego-renew.timer"; then
     run_as_root systemctl disable --now songbird-lego-renew.timer || true
   fi
-  run_as_root rm -f "$SERVICE_FILE"
+  run_as_root rm -f "$SERVICE_FILE" "$WORKER_SERVICE_FILE"
   run_as_root rm -f "$LEGO_RENEW_SERVICE_FILE" "$LEGO_RENEW_TIMER_FILE"
   run_as_root systemctl daemon-reload
 

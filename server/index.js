@@ -28,6 +28,7 @@ import { createStorageProvider } from "./lib/storage/index.js";
 import { createMediaQueueManager } from "./lib/mediaQueue.js";
 import { createRemoteChannelManager } from "./lib/remoteChannels.js";
 import { initAutoAddWorker } from "./lib/workers/autoAddWorker.js";
+import { ensureLocalWorkerRunning } from "./lib/localWorkerManager.js";
 import { buildTimestampSchedule } from "./lib/timeUtils.js";
 import { isLoopbackRequest, parseUploadFileMetadata } from "./lib/requestUtils.js";
 import { USERNAME_REGEX } from "./lib/validation.js";
@@ -456,8 +457,20 @@ const videoTranscoder = createVideoTranscodeManager({
   debugLog,
   uploadRootDir,
   transcodeVideosToH264: TRANSCODE_VIDEOS_TO_H264,
+  getSetting,
   storageEncryption,
   storageProvider,
+  storageProcessingMode: process.env.STORAGE_PROCESSING_MODE || "auto",
+  mediaWorkerUrl: process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
+  workerUrl: process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
+  workerPort: process.env.WORKER_PORT || "8080",
+  webhookSecret: process.env.WEBHOOK_SECRET || null,
+  callbackUrl:
+    process.env.WEBHOOK_URL ||
+    process.env.WEBHOOK_CALLBACK_URL ||
+    process.env.SONGBIRD_WEBHOOK_URL ||
+    process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
+    `http://127.0.0.1:${process.env.SERVER_PORT || process.env.PORT || "5174"}/api/uploads/webhook/processed`,
 });
 const {
   enqueueVideoTranscodeJob,
@@ -502,12 +515,14 @@ const redisSessionStore = createRedisSessionStore({ redisClient, dbGetSession: g
 const mediaQueueManager = createMediaQueueManager({
   redisClient,
   storageProvider,
-  s3ProcessingMode: process.env.STORAGE_PROCESSING_MODE || "sync",
+  s3ProcessingMode: process.env.STORAGE_PROCESSING_MODE || "auto",
   s3ProcessingTimeoutMs: Number(process.env.STORAGE_PROCESSING_TIMEOUT_MS) || 30000,
   adminGetRow,
   adminRun,
   emitChatEvent,
   enqueueVideoTranscodeJob,
+  transcodeVideosToH264: TRANSCODE_VIDEOS_TO_H264,
+  getSetting,
 });
 
 async function createSessionCombined(userId, token) {
@@ -651,8 +666,17 @@ const apiDeps = {
   postgresMaintenance: null,
   storageProvider,
   mediaQueueManager,
-  storageProcessingMode: process.env.STORAGE_PROCESSING_MODE || "sync",
+  storageProcessingMode: process.env.STORAGE_PROCESSING_MODE || "auto",
+  mediaWorkerUrl: process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
+  workerUrl: process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
+  workerPort: process.env.WORKER_PORT || "8080",
   webhookSecret: process.env.WEBHOOK_SECRET || null,
+  webhookCallbackUrl:
+    process.env.WEBHOOK_URL ||
+    process.env.WEBHOOK_CALLBACK_URL ||
+    process.env.SONGBIRD_WEBHOOK_URL ||
+    process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
+    `http://127.0.0.1:${process.env.SERVER_PORT || process.env.PORT || "5174"}/api/uploads/webhook/processed`,
   ALLOWED_AVATAR_MIME_TYPES,
   redisClient,
   redisSessionStore,
@@ -1177,6 +1201,12 @@ if (REMOTE_CHANNEL) {
 
 const server = app.listen(port, bindAddress, () => {
   console.log(`Songbird server running on http://${bindAddress}:${port}`);
+  ensureLocalWorkerRunning({
+    transcodeVideos: TRANSCODE_VIDEOS_TO_H264,
+    getSetting,
+  }).catch((err) => {
+    console.warn("[server] ensureLocalWorkerRunning error:", err?.message || err);
+  });
 });
 
 const { wsHeartbeatIntervalMs, wsHeartbeatTimeoutMs } = parseEnv();

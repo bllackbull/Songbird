@@ -1,6 +1,8 @@
 import rateLimit from "express-rate-limit";
 import { validateUuidParams, validateUuidBody } from "../lib/uuidMiddleware.js";
 import { createMessagePublicationService } from "../lib/services/messagePublicationService.js";
+import { dispatchMediaWorkerJob } from "../lib/mediaWorker.js";
+import { readEnvBool } from "../settings/env.js";
 
 function registerMessageRoutes(app, deps) {
   const {
@@ -358,17 +360,25 @@ function registerMessageRoutes(app, deps) {
       if (!filesByMessageId[messageId]) filesByMessageId[messageId] = [];
 
       let fileUrl = `/api/uploads/messages/${file.stored_name}`;
+      let thumbUrl = null;
       const driver = file.storage_driver;
       const storageKey = file.storage_key;
+      const thumbKey = file.thumb_storage_key || file.thumbStorageKey;
       if (
         (driver === "remote" || driver === "s3") &&
-        storageKey &&
         deps.storageProvider &&
         typeof deps.storageProvider.getDownloadUrl === "function"
       ) {
-        try {
-          fileUrl = await deps.storageProvider.getDownloadUrl(storageKey);
-        } catch (_) {}
+        if (storageKey) {
+          try {
+            fileUrl = await deps.storageProvider.getDownloadUrl(storageKey);
+          } catch (_) {}
+        }
+        if (thumbKey) {
+          try {
+            thumbUrl = await deps.storageProvider.getDownloadUrl(thumbKey);
+          } catch (_) {}
+        }
       }
 
       filesByMessageId[messageId].push({
@@ -388,6 +398,8 @@ function registerMessageRoutes(app, deps) {
           ? Number(file.duration_seconds)
           : null,
         expiresAt: file.expires_at || null,
+        thumbStorageKey: thumbKey || null,
+        thumbUrl: thumbUrl || null,
         url: fileUrl,
       });
     }
@@ -1103,12 +1115,11 @@ function registerMessageRoutes(app, deps) {
             "none";
 
           const storageProcessingMode = String(
-            deps.storageProcessingMode || process.env.STORAGE_PROCESSING_MODE || "sync",
+            deps.storageProcessingMode || process.env.STORAGE_PROCESSING_MODE || "auto",
           ).toLowerCase();
-          const isLocalTranscodeMode =
-            storageProcessingMode === "local" ||
-            storageProcessingMode === "auto" ||
-            storageProcessingMode === "sync";
+          const transcodeVideosSetting = getSetting
+            ? Boolean(getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS"))
+            : readEnvBool("FILE_UPLOAD_TRANSCODE_VIDEOS", true);
           const isVideo =
             mimeType.startsWith("video/") ||
             (inferredMime && String(inferredMime).toLowerCase().startsWith("video/"));
@@ -1116,8 +1127,15 @@ function registerMessageRoutes(app, deps) {
           const shouldTranscodeThisFile =
             isVideo &&
             !isAlreadyTranscoded &&
-            isLocalTranscodeMode &&
-            Boolean(getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS"));
+            transcodeVideosSetting;
+
+          let rawItemStatus =
+            typeof item === "object" && item !== null
+              ? (item.processingStatus || item.processing_status)
+              : null;
+          if (isVideo && !transcodeVideosSetting) {
+            rawItemStatus = "ready";
+          }
 
           const effectiveKind = isVideo ? "media" : kind;
           const effectiveMime = isVideo && !mimeType.startsWith("video/") && inferredMime ? inferredMime : mimeType;
@@ -1135,9 +1153,7 @@ function registerMessageRoutes(app, deps) {
             storageDriver,
             storageKey: key,
             processingStatus:
-              (typeof item === "object" && item !== null
-                ? (item.processingStatus || item.processing_status)
-                : null) || (shouldTranscodeThisFile ? "pending" : "ready"),
+              rawItemStatus || (shouldTranscodeThisFile ? "pending" : "ready"),
             blurhash,
             waveform,
             thumbStorageKey,
@@ -1151,33 +1167,28 @@ function registerMessageRoutes(app, deps) {
         ];
 
         const storageProcessingMode = String(
-          deps.storageProcessingMode || process.env.STORAGE_PROCESSING_MODE || "sync",
+          deps.storageProcessingMode || process.env.STORAGE_PROCESSING_MODE || "auto",
         ).toLowerCase();
-        const isLocalTranscodeMode =
-          storageProcessingMode === "local" ||
-          storageProcessingMode === "auto" ||
-          storageProcessingMode === "sync";
-
         const hasVideoFiles = normalizedFiles.some((file) => {
           const m = String(file.mimeType || "").toLowerCase();
           const s = String(file.storedName || "").toLowerCase();
           return (m.startsWith("video/") || file.kind === "media") && !s.includes("-h264-");
         });
-        const shouldTranscodeVideos =
-          Boolean(getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS")) &&
-          isLocalTranscodeMode &&
-          hasVideoFiles;
+        const transcodeVideosEnabled = getSetting
+          ? Boolean(getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS"))
+          : readEnvBool("FILE_UPLOAD_TRANSCODE_VIDEOS", true);
+        const shouldTranscodeVideos = transcodeVideosEnabled && hasVideoFiles;
 
         debugLog("api:messages/upload:start", {
           chatId,
           username: String(username || "").toLowerCase(),
           fileCount: normalizedFiles.length,
           hasVideoFiles,
-          transcodeEnabled: shouldTranscodeVideos,
+          transcodeEnabled: transcodeVideosEnabled,
           uploadType,
         });
 
-        if (shouldTranscodeVideos && hasVideoFiles) {
+        if (shouldTranscodeVideos && typeof ensureFfmpegAvailable === "function") {
           await ensureFfmpegAvailable();
         }
 
@@ -1276,6 +1287,18 @@ function registerMessageRoutes(app, deps) {
             uploadedFiles.map(async (file, index) => {
               const norm = normalizedFiles[index];
               if (!norm) return;
+
+              const isVideo = String(norm.mimeType || "").toLowerCase().startsWith("video/");
+              const isQueuedForLocalTranscode =
+                isVideo &&
+                shouldTranscodeVideos &&
+                !String(norm.storedName || "").toLowerCase().includes("-h264-");
+
+              if (isQueuedForLocalTranscode) {
+                norm.storageDriver = "local";
+                return;
+              }
+
               const fileKey = `uploads/${file.filename}`;
               const fileBuf = await fs.promises.readFile(file.path);
               const uploadBuf = storageEncryption.decryptBuffer(fileBuf);
@@ -1301,7 +1324,8 @@ function registerMessageRoutes(app, deps) {
             fallbackBody;
           editMessage(messageId, editBody);
           setMessageExpiresAt(messageId, null);
-          createMessageFiles(messageId, normalizedFiles);
+          const rawCreate = createMessageFiles(messageId, normalizedFiles);
+          if (rawCreate && typeof rawCreate.then === "function") await rawCreate;
         } else {
           const rawCreated = createOrReuseMessage(
             chatId,
@@ -1321,7 +1345,8 @@ function registerMessageRoutes(app, deps) {
             removeUploadedFiles(uploadedFiles);
             return res.json({ id: messageId, deduped: true });
           }
-          createMessageFiles(messageId, normalizedFiles);
+          const rawCreate = createMessageFiles(messageId, normalizedFiles);
+          if (rawCreate && typeof rawCreate.then === "function") await rawCreate;
           if (chat.type === "saved") {
             markMessageRead(messageId, user.id);
           }
@@ -1338,7 +1363,7 @@ function registerMessageRoutes(app, deps) {
 
         let transcodeJobsQueued = 0;
 
-        if (shouldTranscodeVideos && hasVideoFiles) {
+        if (transcodeVideosEnabled && hasVideoFiles) {
           const rawInsertedRows = listMessageFilesByMessageIds([messageId]);
           const insertedRows = (rawInsertedRows && typeof rawInsertedRows.then === "function" ? await rawInsertedRows : rawInsertedRows) || [];
           const insertedByStoredName = new Map();
@@ -1364,17 +1389,81 @@ function registerMessageRoutes(app, deps) {
               file?.id;
             if (!fileId) return;
 
-            enqueueVideoTranscodeJob({
-              fileId,
-              storedName,
-              storageKey: file.storageKey || file.storage_key,
-              storageDriver: file.storageDriver || file.storage_driver,
-              chatId,
-              messageId,
-              username: user.username,
-            });
+            if (typeof deps.enqueueVideoTranscodeJob === "function") {
+              deps.enqueueVideoTranscodeJob({
+                fileId,
+                storedName: storedName || file.storageKey || file.storage_key,
+                storageKey: file.storageKey || file.storage_key || storedName,
+                storageDriver: file.storageDriver || file.storage_driver,
+                chatId,
+                messageId,
+                username: user.username,
+                storageProcessingMode,
+              });
+              transcodeJobsQueued += 1;
+            } else {
+              const defaultCallback = `http://127.0.0.1:${process.env.SERVER_PORT || process.env.PORT || "5174"}/api/uploads/webhook/processed`;
 
-            transcodeJobsQueued += 1;
+              dispatchMediaWorkerJob({
+                workerUrl:
+                  deps.workerUrl ||
+                  deps.mediaWorkerUrl ||
+                  process.env.WORKER_URL ||
+                  process.env.MEDIA_WORKER_URL ||
+                  null,
+                mediaWorkerUrl:
+                  deps.workerUrl ||
+                  deps.mediaWorkerUrl ||
+                  process.env.WORKER_URL ||
+                  process.env.MEDIA_WORKER_URL ||
+                  null,
+                storageProcessingMode,
+                storageProcessingTimeoutMs:
+                  deps.storageProcessingTimeoutMs ||
+                  (process.env.STORAGE_PROCESSING_TIMEOUT_MS ? Number(process.env.STORAGE_PROCESSING_TIMEOUT_MS) : undefined),
+                workerPort: deps.workerPort || process.env.WORKER_PORT || "8080",
+                webhookSecret:
+                  deps.webhookSecret !== undefined
+                    ? deps.webhookSecret
+                    : process.env.WEBHOOK_SECRET || null,
+                callbackUrl:
+                  deps.webhookCallbackUrl ||
+                  process.env.WEBHOOK_URL ||
+                  process.env.WEBHOOK_CALLBACK_URL ||
+                  process.env.SONGBIRD_WEBHOOK_URL ||
+                  process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
+                  defaultCallback,
+                fileId,
+                storageKey: file.storageKey || file.storage_key || storedName,
+                storedName: storedName || file.storageKey || file.storage_key,
+                mimeType,
+                encryptionType:
+                  file.encryptionType ||
+                  file.encryption_type ||
+                  (Boolean(deps.storageEncryption?.hasKey?.())
+                    ? "local"
+                    : "none"),
+                fetchImpl: deps.fetchImpl || globalThis.fetch,
+              })
+                .then((ok) => {
+                  if (ok) {
+                    console.log(
+                      `[messages] Dispatched transcode job for file ${fileId} (mode=${storageProcessingMode})`,
+                    );
+                  } else {
+                    console.warn(
+                      `[messages] Failed to dispatch transcode job for file ${fileId} (mode=${storageProcessingMode})`,
+                    );
+                  }
+                })
+                .catch((err) => {
+                  console.error(
+                    `[messages] Error dispatching transcode job for file ${fileId}:`,
+                    err,
+                  );
+                });
+              transcodeJobsQueued += 1;
+            }
           });
         }
 
@@ -1402,11 +1491,29 @@ function registerMessageRoutes(app, deps) {
           return storedName ? `/api/uploads/messages/${storedName}` : null;
         };
 
+        const resolveThumbUrl = async (file) => {
+          const driver = file.storage_driver || file.storageDriver;
+          const thumbKey = file.thumb_storage_key || file.thumbStorageKey;
+          if (
+            (driver === "remote" || driver === "s3") &&
+            thumbKey &&
+            deps.storageProvider &&
+            typeof deps.storageProvider.getDownloadUrl === "function"
+          ) {
+            try {
+              return await deps.storageProvider.getDownloadUrl(thumbKey);
+            } catch (_) {}
+          }
+          return null;
+        };
+
         const responseFiles = await Promise.all(
           sourceFilesForResponse.map(async (file, idx) => {
             const storedName = file.stored_name || file.storedName || "";
             const expiresAtVal = file.expires_at || file.expiresAt || expiresAtIso || null;
             const resolvedUrl = await resolveFileUrl(file);
+            const resolvedThumbUrl = await resolveThumbUrl(file);
+            const thumbKey = file.thumb_storage_key || file.thumbStorageKey || null;
             return {
               id: file.id || (idx + 1),
               kind: file.kind,
@@ -1428,6 +1535,8 @@ function registerMessageRoutes(app, deps) {
                 : null,
               expiresAt: expiresAtVal,
               expires_at: expiresAtVal,
+              thumbStorageKey: thumbKey,
+              thumbUrl: resolvedThumbUrl,
               url: resolvedUrl,
             };
           }),

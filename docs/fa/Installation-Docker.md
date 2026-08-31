@@ -75,6 +75,10 @@ nano .env
 پایگاه داده پیشفرض Songbird بر پایه SQLite است (`DB_CLIENT=sqlite3`). برای استفاده از PostgreSQL، فایل `.env` را ویرایش کرده و `DB_CLIENT=postgres` را به همراه متغیرهای `POSTGRES_*` تنظیم کنید، یا سرویس و volume اختیاری `postgres` را در `docker-compose.yaml` از حالت کامنت خارج کنید.
 :::
 
+:::info کانتینر Media Worker
+سرویس Songbird شامل یک میکروسرویس مستقل **Media Worker** در پوشه `worker/` برای offload ترنسکد ویدیوها و تولید تصویر thumbnail است. برای نحوه پیکربندی و اجرای ورکر در کنار Docker به مستندات [ورکر مدیا](./Media-Worker.md) مراجعه کنید.
+:::
+
 ## ۴. راه‌اندازی گواهی‌نامه TLS
 
 کانتینر nginx برای اجرا به فایل‌های گواهی‌نامه TLS نیاز دارد. گواهی‌نامه و کلید خصوصی خود را در مسیرهای زیر قرار دهید:

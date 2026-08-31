@@ -178,4 +178,43 @@ describe("POST /api/messages/upload with storageKeys", () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toContain("security reasons");
   });
+
+  test("does not enqueue video transcode job or call worker when FILE_UPLOAD_TRANSCODE_VIDEOS is false", async () => {
+    const enqueueJobMock = vi.fn();
+    const customApp = makeApp({
+      overrides: {
+        settings: {
+          FILE_UPLOAD_TRANSCODE_VIDEOS: false,
+        },
+      },
+      deps: {
+        isMember: () => true,
+        findChatById: () => ({ id: chatId, name: "test-chat", type: "group" }),
+        storageProvider: mockRemoteProvider,
+        enqueueVideoTranscodeJob: enqueueJobMock,
+      },
+    });
+    const uId = customApp.userStore.createUser("testuser2", "pass", "Test", null, "#fff");
+    customApp.sessionStore.createSession(uId, sessionToken);
+
+    const res = await request(customApp.app)
+      .post("/api/messages/upload")
+      .set("Cookie", [`sid=${sessionToken}`])
+      .send({
+        chatId,
+        username: "testuser2",
+        body: "Here is a video clip",
+        storageKeys: [
+          {
+            storageKey: "uploads/clip.mp4",
+            originalName: "clip.mp4",
+            mimeType: "video/mp4",
+            sizeBytes: 1024 * 1024,
+          },
+        ],
+      });
+
+    expect(res.status).toBe(200);
+    expect(enqueueJobMock).not.toHaveBeenCalled();
+  });
 });

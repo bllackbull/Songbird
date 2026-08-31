@@ -88,4 +88,41 @@ describe("MediaQueueManager (BullMQ / In-Process Fallback)", () => {
 
     await manager.close();
   });
+
+  it("marks file as ready and skips calling enqueueVideoTranscodeJob when transcodeVideosToH264 is false", async () => {
+    let runCalled = false;
+    let eventEmitted = false;
+    const enqueueJobMock = vi.fn();
+
+    const manager = createMediaQueueManager({
+      s3ProcessingMode: "auto",
+      s3ProcessingTimeoutMs: 50,
+      transcodeVideosToH264: false,
+      enqueueVideoTranscodeJob: enqueueJobMock,
+      adminGetRow: () => ({ id: FILE_ID_1, mime_type: "video/mp4", processing_status: "pending" }),
+      adminRun: (sql, params) => {
+        if (sql.includes("processing_status") && (params?.includes("ready") || sql.includes("ready"))) {
+          runCalled = true;
+        }
+      },
+      emitChatEvent: (eventName, payload) => {
+        if (payload?.type === "video:ready") {
+          eventEmitted = true;
+        }
+      },
+    });
+
+    manager.scheduleFallbackCheck({
+      fileId: FILE_ID_1,
+      storageKey: "uploads/file.mp4",
+    });
+
+    await new Promise((res) => setTimeout(res, 100));
+
+    expect(enqueueJobMock).not.toHaveBeenCalled();
+    expect(runCalled).toBe(true);
+    expect(eventEmitted).toBe(true);
+
+    await manager.close();
+  });
 });

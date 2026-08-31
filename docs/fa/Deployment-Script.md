@@ -85,6 +85,7 @@ HTTPS برای Push notifications موردنیاز است (به‌جز روی `l
 |---|---|---|
 | پورت سرور | `SERVER_PORT` | `5174` |
 | پورت کلاینت | `CLIENT_PORT` | `80` |
+| پورت Media Worker | `WORKER_PORT` | `8080` |
 | ایمیل برای اطلاعیه‌های Let's Encrypt (حالت certbot) | — | — |
 
 کلیدهای رمزنگاری و push نوتیفیکیشن (`STORAGE_ENCRYPTION_KEY`، `VAPID_*`) به‌طور خودکار تولید می‌شوند. فهرست کامل متغیرهایی که می‌توانید بعداً تنظیم کنید در [متغیرهای محیطی](./Environment-Variables.md) قرار دارد.

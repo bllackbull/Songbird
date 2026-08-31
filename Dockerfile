@@ -28,10 +28,20 @@ RUN npm config set registry https://registry.npmjs.org/ \
   && npm config set fetch-timeout 300000 \
   && npm ci --omit=dev --no-audit --no-fund --loglevel=verbose
 
+FROM node:24-bookworm-slim AS worker-deps
+WORKDIR /app/worker
+COPY worker/package*.json ./
+RUN npm config set registry https://registry.npmjs.org/ \
+  && npm config set fetch-retries 5 \
+  && npm config set fetch-retry-mintimeout 20000 \
+  && npm config set fetch-retry-maxtimeout 120000 \
+  && npm config set fetch-timeout 300000 \
+  && npm ci --omit=dev --no-audit --no-fund --loglevel=verbose
+
 FROM node:24-bookworm-slim
 WORKDIR /app
 
-# ffmpeg is required when FILE_UPLOAD_TRANSCODE_VIDEOS=true (default)
+# ffmpeg is required for video transcoding and metadata extraction in the media worker
 # postgresql-client (from PGDG apt repo) is required for PostgreSQL maintenance operations (backup, vacuum)
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
@@ -44,8 +54,12 @@ RUN apt-get update \
 
 COPY --from=server-deps /app/server/node_modules ./server/node_modules
 COPY server/ ./server/
+COPY --from=worker-deps /app/worker/node_modules ./worker/node_modules
+COPY worker/ ./worker/
 COPY scripts/run-data-command.sh ./scripts/run-data-command.sh
 RUN chmod 755 /app/scripts/run-data-command.sh
+COPY scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
+RUN chmod 755 /app/scripts/docker-entrypoint.sh
 COPY --from=client-build /app/client/dist ./client/dist
 
 # Root-level files needed at runtime for version info and changelog
@@ -64,4 +78,5 @@ EXPOSE 5174
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "require('http').get('http://localhost:5174/api/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
 
+ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]
 CMD ["node", "server/index.js"]

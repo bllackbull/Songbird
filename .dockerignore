@@ -9,6 +9,7 @@ certs
 docs
 scripts
 !scripts/run-data-command.sh
+!scripts/docker-entrypoint.sh
 # Tests and test artifacts
 **/test
 **/coverage

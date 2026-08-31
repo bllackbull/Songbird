@@ -169,11 +169,15 @@ After changing `.env`, apply the changes (see [Environment Variables](./Environm
 
 ## Video transcoding issues
 
-Songbird transcodes uploaded videos to H.264/AAC MP4 when `FILE_UPLOAD_TRANSCODE_VIDEOS=true`, which requires `ffmpeg`.
+Songbird automatically optimizes and transcodes uploaded videos to web-ready H.264/AAC MP4 when `FILE_UPLOAD_TRANSCODE_VIDEOS=true`.
 
-- Verify ffmpeg is installed: `ffmpeg -version`.
-- If videos fail to process, check the service logs for transcoding errors.
-- Set `APP_DEBUG=true` to get verbose `[app-debug]` lines covering upload/transcode events, then restart the service.
+- **Check Media Worker Health**: If using the standalone Media Worker, verify its health status via `curl http://localhost:8080/health` (or using the configured `WORKER_PORT` / `WORKER_URL/health`). The response should return `{"status": "ok", ...}`. See [Media Worker](./Media-Worker.md) for full configuration details.
+- **Verify Webhook Secret Synchronization**: Ensure the `WEBHOOK_SECRET` in the Songbird server configuration matches the `WEBHOOK_SECRET` configured in the Media Worker. If secrets mismatch, dispatch or callback requests will fail with `401 Unauthorized`.
+- **Verify Webhook Callback Reachability**: The Media Worker must be able to reach Songbird's callback endpoint (`POST /api/uploads/webhook/processed`). If Songbird is behind a reverse proxy, set `WEBHOOK_URL` (or fallback `WEBHOOK_CALLBACK_URL`) or ensure internal DNS/network routing allows worker-to-server HTTP requests.
+- **Verify FFmpeg Installation**: If running in `local` processing mode or running the worker directly from source, ensure `ffmpeg` and `ffprobe` are installed on the system (`ffmpeg -version`).
+- **Temporary Disk Space**: Ensure the worker node has sufficient temporary disk space (`/tmp` or system temp directory) for staging, transcoding, and thumbnail generation.
+- **Check Service & Worker Logs**: Look for `[worker]` or `[app-debug]` log messages in server or worker logs.
+- **Enable Debug Logging**: Set `APP_DEBUG=true` in Songbird's `.env` to receive verbose terminal logs for upload dispatch, transcode status, and real-time event broadcasts.
 
 ## Docker build issues
 

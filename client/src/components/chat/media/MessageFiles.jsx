@@ -160,7 +160,7 @@ const destroyPooledAudio = (poolKey) => {
     try {
       pooled.pause();
       pooled.currentTime = 0;
-      pooled.src = "";
+      pooled.removeAttribute("src");
     } catch (_) {
       // ignore cleanup issues
     }
@@ -1042,7 +1042,7 @@ export function MessageFiles({
 
   const handleMediaError = useCallback(
     (key, thumbKey) => {
-      setFailedMediaKeys((prev) => ({ ...prev, [key]: true }));
+      setFailedMediaKeys((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
       markMediaThumbLoaded(thumbKey);
     },
     [markMediaThumbLoaded],
@@ -1162,7 +1162,10 @@ export function MessageFiles({
           "media";
         const thumbKey = `thumb-${key}`;
         const cachedPoster =
-          isVideo && file.url ? videoPosterByUrl[file.url] : "";
+          (isVideo && file.url ? videoPosterByUrl[file.url] : "") ||
+          file?.thumbUrl ||
+          file?.posterUrl ||
+          "";
         const thumbLoaded =
           loadedMediaThumbs.has(thumbKey) || Boolean(cachedPoster);
         const mediaAspectRatio = getMediaAspectRatio(file);
@@ -1239,7 +1242,6 @@ export function MessageFiles({
                 <img
                   src={file.url}
                   alt={file.name || "image"}
-                  crossOrigin={file.url?.startsWith("https://") ? "anonymous" : undefined}
                   referrerPolicy="no-referrer"
                   onLoad={(event) => {
                     cacheMediaAspectRatio(
@@ -1324,9 +1326,10 @@ export function MessageFiles({
                   downloadUrl: `${file.url}${file.url.includes("?") ? "&" : "?"}download=1`,
                   name: mediaDownloadName,
                   type: "video",
-                  processing: Boolean(file.processing),
+                  processing: Boolean(isProcessingVideo),
                   width: file.width,
                   height: file.height,
+                  poster: cachedPoster || file.thumbUrl || null,
                   expiresAt: file.expiresAt || null,
                 })
               }
@@ -1351,7 +1354,6 @@ export function MessageFiles({
                     playsInline
                     preload={isDesktop ? "auto" : "auto"}
                     poster={videoPosterByUrl[file.url] || undefined}
-                    crossOrigin={file.url?.startsWith("https://") ? "anonymous" : undefined}
                     onLoadedMetadata={(event) => {
                       cacheMediaAspectRatio(
                         file,
@@ -1359,9 +1361,7 @@ export function MessageFiles({
                         event.currentTarget?.videoHeight,
                       );
                       handleVideoThumbLoadedMetadata(event);
-                      if (!isDesktop) {
-                        markMediaThumbLoaded(thumbKey);
-                      }
+                      markMediaThumbLoaded(thumbKey);
                     }}
                     onLoadStart={() => scheduleThumbFallback(thumbKey)}
                     onCanPlay={(event) =>
