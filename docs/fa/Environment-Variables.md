@@ -30,6 +30,7 @@ nano .env
 | `POSTGRES_DB` | `string` | `songbird` | نام پایگاه داده PostgreSQL. |
 | `POSTGRES_URL` | `string` | `null` | رشته اتصال اختیاری کامل برای PostgreSQL. |
 | `POSTGRES_SSL` | `boolean` | `false` | فعالسازی SSL برای اتصالات PostgreSQL. |
+| `NODE_EXTRA_CA_CERTS` | `string` | `""` | مسیر مطلق به یک فایل گواهی ریشه مورد اعتماد اضافی با فرمت PEM (الزامی برای پایگاه های داده مدیریت شده مانند Aiven یا AWS RDS که از CA اختصاصی/سلف سایند استفاده میکنند). |
 | `REDIS_HOST` | `string` | `""` | آدرس اختیاری هاست Redis. در صورت تنظیم، Songbird از Redis برای صف های پس زمینه BullMQ (پردازش رسانه)، مدیریت نشست ها و pub/sub به جای مکانیزم درون-فرآیندی استفاده میکند. |
 | `REDIS_PORT` | `integer` | `6379` | پورت اختیاری Redis. |
 | `REDIS_URL` | `string` | `""` | آدرس URL اختیاری اتصال به Redis (مانند `redis://user:pass@host:port`). |

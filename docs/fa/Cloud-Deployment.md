@@ -55,6 +55,28 @@
    DB_CLIENT=postgres
    POSTGRES_URL=postgres://user:password@host:5432/songbird
    ```
+
+   :::tip پایگاه داده مدیریت شده با SSL و CA سفارشی (Aiven, AWS RDS و غیره)
+   ارائه دهندگان پایگاه داده ابری (مانند **Aiven**، **AWS RDS** یا **DigitalOcean**) نیاز به اتصالات امن SSL/TLS دارند و از گواهی های صادر شده توسط مرجع گواهی (CA) اختصاصی پروژه استفاده میکنند که در مخزن پیشفرض گواهی های معتبر Node.js وجود ندارد. اتصال به این دیتابیس ها بدون ارائه CA منجر به خطای `SELF_SIGNED_CERT_IN_CHAIN` در زمان راه اندازی میشود.
+
+   **در Render:**
+   1. در پنل Aiven یا ارائه دهنده خود، **CA Certificate** را دانلود یا کپی کنید.
+   2. در داشبورد Render، به بخش **Environment** سرویس خود بروید.
+   3. در بخش **Secret Files**، یک فایل جدید اضافه کنید:
+      - **نام فایل:** `aiven-ca.pem` (یا `/etc/secrets/aiven-ca.pem`)
+      - **محتوا:** کل متن گواهی PEM را قرار دهید (`-----BEGIN CERTIFICATE----- ... -----END CERTIFICATE-----`).
+   4. متغیر محیطی زیر را به سرویس اضافه کنید:
+      ```txt
+      NODE_EXTRA_CA_CERTS=/etc/secrets/aiven-ca.pem
+      ```
+
+   **در Docker / CaaS / VPS:**
+   فایل `ca.pem` را درون کانتینر یا سرور کپی/mount کرده و متغیر محیطی را تنظیم کنید:
+   ```txt
+   NODE_EXTRA_CA_CERTS=/path/to/ca.pem
+   ```
+   :::
+
 2. یک باکت **Object Storage سازگار با S3** (مانند AWS S3، Cloudflare R2، MinIO، ArvanCloud و...) برای فایل های پیوست و آواتارها راه اندازی کنید:
    ```txt
    STORAGE_DRIVER=remote

@@ -31,6 +31,7 @@
 | ویدیوها پخش نمیشوند | FFmpeg / ترنسکد / Worker | [مشکلات ترنسکد ویدیو](#video-transcoding-issues) |
 | بیلد Docker متوقف به نظر میرسد | دانلود وابستگی ها | [مشکلات بیلد Docker](#docker-build-issues) |
 | خطاهای TLS/گواهینامه | مسیرهای گواهینامه یا تمدید | [مشکلات TLS / گواهینامه](#tls--certificate-problems) |
+| خطای SSL / گواهی CA پایگاه داده PostgreSQL | گواهی SSL / CA دیتابیس ابری | [خطاهای SSL و گواهی CA در PostgreSQL](#postgresql-ssl--ca-certificate-errors) |
 | کانال ریموت بازتاب نمیدهد | اعتبارنامه های Telegram / صف | [کانال ریموت](#remote-channel-not-mirroring) |
 | کنترل سرویس در پنل مدیریت شکست میخورد | مجوزها | [مشکلات پنل مدیریت](#مشکلات-پنل-مدیریت) |
 
@@ -196,6 +197,40 @@ docker compose -f docker-compose.yaml build --no-cache --progress=plain
 | هشدار خودامضا (پیشفرض Docker) | با گواهینامه خودامضای پیشفرض موردانتظار است. برای محیط تولید با گواهینامه های واقعی جایگزین کنید. |
 
 برای گزینه های کامل راه اندازی به [گواهینامه های SSL](./SSL-Certificates.md) مراجعه کنید.
+
+## خطاهای SSL و گواهی CA در PostgreSQL {#postgresql-ssl--ca-certificate-errors}
+
+هنگام اتصال Songbird به پایگاه های داده مدیریت شده ابری PostgreSQL (مانند **Aiven**، **AWS RDS**، **DigitalOcean**، **Supabase** یا **Neon**)، ممکن است اتصال هنگام شروع برنامه یا در حین مایگریشن های پایگاه داده با خطا مواجه شود.
+
+### خطای `self-signed certificate in certificate chain` / `SELF_SIGNED_CERT_IN_CHAIN`
+
+**نشانه:**
+```
+[db-migrations] Error initializing Postgres schema sets: Error: self-signed certificate in certificate chain
+  code: 'SELF_SIGNED_CERT_IN_CHAIN'
+Acquire connection error: Error: self-signed certificate in certificate chain
+```
+
+**علت:**
+ارائه دهندگان پایگاه داده ابری اتصالات را با استفاده از مرجع گواهی (CA) اختصاصی پروژه خود رمزنگاری میکنند. از آنجا که این CA سفارشی در مخزن پیشفرض گواهی های مورد اعتماد Node.js قرار ندارد، Node.js اتصال را رد میکند.
+
+**راه حل:**
+گواهی CA ارائه دهنده دیتابیس را از طریق متغیر محیطی `NODE_EXTRA_CA_CERTS` به Node.js معرفی کنید:
+
+1. گواهی **CA Certificate** (`ca.pem`) را از داشبورد دیتابیس ابری خود (مثلاً پنل Aiven) دانلود یا کپی کنید.
+2. **در Render یا پلتفرم های PaaS:**
+   - در داشبورد Render به تب **Environment** سرویس خود بروید.
+   - در بخش **Secret Files**، فایلی با نام `aiven-ca.pem` (یا `/etc/secrets/aiven-ca.pem`) ایجاد کرده و متن گواهی PEM را در آن قرار دهید.
+   - متغیر محیطی زیر را اضافه کنید:
+     ```txt
+     NODE_EXTRA_CA_CERTS=/etc/secrets/aiven-ca.pem
+     ```
+3. **در Docker یا VPS:**
+   - فایل گواهی CA را روی دیسک ذخیره کنید (مثلاً `/opt/songbird/certs/ca.pem` یا آن را درون کانتینر mount کنید).
+   - در فایل `.env` یا متغیرهای کانتینر مقدار زیر را تنظیم کنید:
+     ```txt
+     NODE_EXTRA_CA_CERTS=/opt/songbird/certs/ca.pem
+     ```
 
 ## کانال ریموت بازتاب نمیدهد {#remote-channel-not-mirroring}
 

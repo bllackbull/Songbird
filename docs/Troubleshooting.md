@@ -31,6 +31,7 @@ The [deployment script](./Deployment-Script.md) has a built-in **View Logs** men
 | Videos not playing | ffmpeg / transcoding | [Video transcoding](#video-transcoding-issues) |
 | Docker build seems stuck | Dependency download | [Docker build issues](#docker-build-issues) |
 | TLS/certificate errors | Cert paths or renewal | [TLS / certificate problems](#tls--certificate-problems) |
+| PostgreSQL SSL / CA error | Cloud DB SSL / CA cert | [PostgreSQL SSL & CA errors](#postgresql-ssl--ca-certificate-errors) |
 | Remote Channel not mirroring | Telegram creds / queue | [Remote Channel](#remote-channel-not-mirroring) |
 | Admin panel service control fails | Permissions | [Admin panel issues](#admin-panel-issues) |
 
@@ -206,6 +207,40 @@ Other checks:
 | Self-signed warning (Docker default) | Expected with the default self-signed cert. Replace with real certs for production. |
 
 See [SSL Certificates](./SSL-Certificates.md) for the full setup options.
+
+## PostgreSQL SSL & CA certificate errors
+
+When connecting Songbird to managed cloud PostgreSQL databases (such as **Aiven**, **AWS RDS**, **DigitalOcean**, **Supabase**, or **Neon**), the connection may fail on startup or during database migrations.
+
+### `self-signed certificate in certificate chain` / `SELF_SIGNED_CERT_IN_CHAIN`
+
+**Symptom:**
+```
+[db-migrations] Error initializing Postgres schema sets: Error: self-signed certificate in certificate chain
+  code: 'SELF_SIGNED_CERT_IN_CHAIN'
+Acquire connection error: Error: self-signed certificate in certificate chain
+```
+
+**Cause:**
+Managed database providers encrypt connections with SSL/TLS using their own project Certificate Authority (CA). Because this custom CA is not included in Node.js's built-in trusted root CA store, Node.js rejects the connection.
+
+**Fix:**
+Provide the provider's CA certificate to Node.js via the `NODE_EXTRA_CA_CERTS` environment variable:
+
+1. Download or copy the **CA certificate** (`ca.pem`) from your cloud database dashboard (e.g. Aiven console project CA).
+2. **On Render / PaaS:**
+   - Go to your service's **Environment** tab in the Render dashboard.
+   - Under **Secret Files**, add a file with name `aiven-ca.pem` (or `/etc/secrets/aiven-ca.pem`) and paste the PEM certificate content.
+   - Add the environment variable:
+     ```txt
+     NODE_EXTRA_CA_CERTS=/etc/secrets/aiven-ca.pem
+     ```
+3. **On Docker / VPS:**
+   - Save the CA certificate to disk (e.g., `/opt/songbird/certs/ca.pem` or mount it into the container).
+   - In `.env` or container environment, set:
+     ```txt
+     NODE_EXTRA_CA_CERTS=/opt/songbird/certs/ca.pem
+     ```
 
 ## Remote Channel not mirroring
 

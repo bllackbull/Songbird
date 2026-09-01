@@ -55,6 +55,28 @@ For stateless, zero-downtime PaaS deployments:
    DB_CLIENT=postgres
    POSTGRES_URL=postgres://user:password@host:5432/songbird
    ```
+
+   :::tip Managed PostgreSQL with SSL & Custom CA (Aiven, AWS RDS, etc.)
+   Managed database providers (such as **Aiven**, **AWS RDS**, or **DigitalOcean**) require SSL/TLS and use private project Certificate Authorities (CAs) that are not in the standard Node.js trust store. Connecting without providing the CA will cause a `SELF_SIGNED_CERT_IN_CHAIN` error during startup.
+
+   **On Render:**
+   1. In your Aiven/RDS dashboard, download or copy the **CA Certificate** (`ca.pem`).
+   2. In your Render Dashboard, go to your service's **Environment** settings.
+   3. Under **Secret Files**, add a new file:
+      - **Filename:** `aiven-ca.pem` (or `/etc/secrets/aiven-ca.pem`)
+      - **Contents:** Paste the full PEM certificate text (`-----BEGIN CERTIFICATE----- ... -----END CERTIFICATE-----`).
+   4. Add the environment variable to your service:
+      ```txt
+      NODE_EXTRA_CA_CERTS=/etc/secrets/aiven-ca.pem
+      ```
+
+   **On Docker / CaaS / VPS:**
+   Mount or copy your `ca.pem` into the container or server, and set:
+   ```txt
+   NODE_EXTRA_CA_CERTS=/path/to/ca.pem
+   ```
+   :::
+
 2. Provision an **S3-compatible Object Storage** bucket (AWS S3, Cloudflare R2, MinIO, etc.) for attachments and avatars:
    ```txt
    STORAGE_DRIVER=remote

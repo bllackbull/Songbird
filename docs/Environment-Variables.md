@@ -30,6 +30,7 @@ nano .env
 | `POSTGRES_DB` | `string` | `songbird` | PostgreSQL database name. |
 | `POSTGRES_URL` | `string` | `null` | Optional full PostgreSQL connection string URL. |
 | `POSTGRES_SSL` | `boolean` | `false` | Enable SSL for PostgreSQL connections. |
+| `NODE_EXTRA_CA_CERTS` | `string` | `""` | Absolute path to an additional trusted PEM CA certificate bundle or file (required for managed PostgreSQL databases with custom/self-signed CAs like Aiven or AWS RDS). |
 | `REDIS_HOST` | `string` | `""` | Optional Redis host. If set, Songbird uses Redis for BullMQ background job queues (media processing), session storage, and pub/sub instead of in-process fallback. |
 | `REDIS_PORT` | `integer` | `6379` | Optional Redis port. |
 | `REDIS_URL` | `string` | `""` | Optional Redis connection URL (e.g. `redis://user:pass@host:port`). |
