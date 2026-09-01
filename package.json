@@ -27,10 +27,10 @@
     "@semantic-release/commit-analyzer": "^13.0.1",
     "@semantic-release/github": "^12.0.9",
     "@semantic-release/release-notes-generator": "^14.1.1",
-    "concurrently": "^10.0.4",
-    "conventional-changelog-conventionalcommits": "^10.2.1",
-    "npm": "^12.0.1",
-    "semantic-release": "^25.0.5",
+    "concurrently": "^10.0.5",
+    "conventional-changelog-conventionalcommits": "^10.4.0",
+    "npm": "^12.0.2",
+    "semantic-release": "^25.0.9",
     "vitepress": "^1.6.4"
   },
   "engines": {
