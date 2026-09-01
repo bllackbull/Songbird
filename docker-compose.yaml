@@ -63,6 +63,30 @@ volumes:
   # Optional volume for PostgreSQL database:
   # postgres-data:
 
+# Optional Standalone Media Worker container service (uncomment to run worker in a separate container):
+#  media-worker:
+#    image: ${SONGBIRD_WORKER_IMAGE:-bllackbull/songbird-worker:latest}
+#    container_name: songbird-media-worker
+#    restart: unless-stopped
+#    environment:
+#      APP_ENV: ${APP_ENV:-production}
+#      WORKER_PORT: ${WORKER_PORT:-8080}
+#      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+#      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
+#      STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+#      STORAGE_BUCKET: ${STORAGE_BUCKET:-}
+#      STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-}
+#      STORAGE_REGION: ${STORAGE_REGION:-auto}
+#      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-}
+#      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-}
+#      STORAGE_FORCE_PATH_STYLE: ${STORAGE_FORCE_PATH_STYLE:-true}
+#      STORAGE_ENCRYPTION_KEY: ${STORAGE_ENCRYPTION_KEY:-}
+#      DATA_DIR: /app/data
+#    volumes:
+#      - songbird-data:/app/data
+#    expose:
+#      - "${WORKER_PORT:-8080}"
+
 # Optional PostgreSQL container service (uncomment to run PostgreSQL via Docker):
 #  postgres:
 #    image: postgres:16-alpine
