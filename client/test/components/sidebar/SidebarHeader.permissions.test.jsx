@@ -50,7 +50,7 @@ describe("SidebarHeader permission prompt banner", () => {
       />,
     );
 
-    const alertText = page.getByText("Enable notifications for message alerts");
+    const alertText = page.getByText("Enable notifications");
     await expect.element(alertText).toBeVisible();
 
     const allowBtn = page.getByRole("button", { name: "Allow" });
@@ -101,7 +101,7 @@ describe("SidebarHeader permission prompt banner", () => {
       />,
     );
 
-    const alertText = page.getByText("Enable microphone for voice messages");
+    const alertText = page.getByText("Enable microphone");
     await expect.element(alertText).toBeVisible();
 
     const allowBtn = page.getByRole("button", { name: "Allow" });
@@ -144,14 +144,14 @@ describe("SidebarHeader permission prompt banner", () => {
       />,
     );
 
-    const alertText = page.getByText("Enable notifications for message alerts");
+    const alertText = page.getByText("Enable notifications");
     await expect.element(alertText).not.toBeInTheDocument();
   });
 
   test("does not render prompt banner when permissionsPrompt is null", async () => {
     render(<SidebarHeader {...BASE_PROPS} permissionsPrompt={null} />);
 
-    const alertText = page.getByText("Enable notifications for message alerts");
+    const alertText = page.getByText("Enable notifications");
     await expect.element(alertText).not.toBeInTheDocument();
   });
 
@@ -173,7 +173,7 @@ describe("SidebarHeader permission prompt banner", () => {
       />,
     );
 
-    const alertText = page.getByText("Enable notifications for message alerts");
+    const alertText = page.getByText("Enable notifications");
     await expect.element(alertText).not.toBeInTheDocument();
   });
 });
