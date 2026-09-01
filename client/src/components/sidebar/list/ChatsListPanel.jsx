@@ -171,35 +171,35 @@ export default function ChatsListPanel({
   return (
     <div
       className={
-        showSearchMode || isEmptyState ? "min-h-full" : "mt-3 space-y-2"
+        showSearchMode || isEmptyState ? "min-h-full" : "w-full py-1"
       }
     >
       {showSearchMode ? (
         <div
           className={
             showSearchEmptyState
-              ? "flex min-h-full items-center justify-center py-8"
-              : "mb-3 space-y-3"
+              ? "flex min-h-full items-center justify-center px-4 py-8"
+              : "mb-3 space-y-0"
           }
         >
           {discoverLoading ? (
-            <p className="px-1 py-1 text-xs text-slate-500 dark:text-slate-400">
+            <p className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">
               Searching...
             </p>
           ) : null}
           {showSearchEmptyState ? (
-            <div className="text-center text-sm text-slate-500 dark:text-slate-400">
+            <div className="px-4 text-center text-sm text-slate-500 dark:text-slate-400">
               <p>Type to search users, groups, and channels.</p>
             </div>
           ) : null}
           {!showSearchEmptyState &&
           Array.isArray(discoverUsers) &&
           discoverUsers.length > 0 ? (
-            <div className="space-y-2">
-              <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-200">
+            <div className="space-y-0">
+              <p className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-200">
                 Users
               </p>
-              {discoverUsers.map((member) => {
+              {discoverUsers.map((member, userIndex) => {
                 const label = member.nickname || member.username;
                 const initials = getAvatarInitials(label);
                 const dmChatId = resolveDmChatId(member.username);
@@ -208,66 +208,75 @@ export default function ChatsListPanel({
                 const showOnlineBadge =
                   String(member.status || "").toLowerCase() === "online";
                 return (
-                  <ContextMenuSurface
+                  <div
                     key={`discover-user-${member.id}-${member.username}`}
-                    as="button"
-                    type="button"
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => onOpenDiscoveredUser?.(member)}
-                    contextMenu={{
-                      isMobile:
-                        typeof window !== "undefined" &&
-                        window.matchMedia("(max-width: 767px) and (pointer: coarse)")
-                          .matches,
-                      onOpen: ({ event, targetEl, isMobile }) =>
-                        onOpenUserContextMenu?.({
-                          kind: "user",
-                          event,
-                          targetEl,
-                          isMobile,
-                          data: {
-                            member,
-                            sourceChatType: "discover",
-                            onOpenProfile: onOpenUserProfileContext,
-                          },
-                        }),
-                    }}
-                    className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left text-sm transition ${
-                      isActive
-                        ? "border-emerald-400 bg-emerald-100 text-emerald-900 dark:border-emerald-400/60 dark:bg-emerald-500/20 dark:text-emerald-100"
-                        : "border-slate-300/80 bg-white/90 text-slate-700 hover:border-emerald-300 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:border-emerald-300 focus-visible:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:outline-hidden dark:border-emerald-500/20 dark:bg-slate-950/60 dark:text-slate-200"
-                    }`}
+                    className="relative flex w-full flex-col px-2"
                   >
-                    <Avatar
-                      src={member.avatar_url}
-                      alt={label}
-                      name={label}
-                      color={member.color || "#10b981"}
-                      initials={initials}
-                      showOnlineBadge={showOnlineBadge}
-                      className="h-9 w-9 text-xs"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <Tooltip label={label} asChild>
-                        <p
-                          className="flex items-center gap-0.5 truncate text-sm font-semibold"
-                          dir="ltr"
-                        >
-                          <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
-                          {Boolean(member.verified) && <VerifiedBadge size={14} />}
-                          <UserRoleBadge role={member.role} size={14} />
-                        </p>
-                      </Tooltip>
-                      <Tooltip label={member.username} asChild>
-                        <p
-                          className="truncate text-xs text-slate-500 dark:text-slate-400"
-                          dir="auto"
-                        >
-                          @{member.username}
-                        </p>
-                      </Tooltip>
-                    </div>
-                  </ContextMenuSurface>
+                    <ContextMenuSurface
+                      as="button"
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => onOpenDiscoveredUser?.(member)}
+                      contextMenu={{
+                        isMobile:
+                          typeof window !== "undefined" &&
+                          window.matchMedia("(max-width: 767px) and (pointer: coarse)")
+                            .matches,
+                        onOpen: ({ event, targetEl, isMobile }) =>
+                          onOpenUserContextMenu?.({
+                            kind: "user",
+                            event,
+                            targetEl,
+                            isMobile,
+                            data: {
+                              member,
+                              sourceChatType: "discover",
+                              onOpenProfile: onOpenUserProfileContext,
+                            },
+                          }),
+                      }}
+                      className={`group flex min-h-[72px] w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm transition ${
+                        isActive
+                          ? "border-emerald-400 bg-emerald-50 text-emerald-700 dark:border-emerald-400/60 dark:bg-emerald-500/10 dark:text-emerald-300"
+                          : "border-transparent text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 focus-visible:bg-emerald-50 focus-visible:outline-hidden dark:text-slate-100 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200 dark:focus-visible:bg-emerald-500/10"
+                      }`}
+                    >
+                      <div className="shrink-0">
+                        <Avatar
+                          src={member.avatar_url}
+                          alt={label}
+                          name={label}
+                          color={member.color || "#10b981"}
+                          initials={initials}
+                          showOnlineBadge={showOnlineBadge}
+                          className="h-12 w-12 text-sm font-semibold"
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <Tooltip label={label} asChild>
+                          <p
+                            className="flex items-center gap-0.5 truncate text-sm font-semibold"
+                            dir="ltr"
+                          >
+                            <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
+                            {Boolean(member.verified) && <VerifiedBadge size={14} />}
+                            <UserRoleBadge role={member.role} size={14} />
+                          </p>
+                        </Tooltip>
+                        <Tooltip label={member.username} asChild>
+                          <p
+                            className="truncate text-xs text-slate-500 dark:text-slate-400"
+                            dir="auto"
+                          >
+                            @{member.username}
+                          </p>
+                        </Tooltip>
+                      </div>
+                    </ContextMenuSurface>
+                    {userIndex < discoverUsers.length - 1 ? (
+                      <div className="my-1 ml-[72px] mr-2 border-b border-slate-200/70 dark:border-slate-800/80" />
+                    ) : null}
+                  </div>
                 );
               })}
             </div>
@@ -275,67 +284,79 @@ export default function ChatsListPanel({
           {!showSearchEmptyState &&
           Array.isArray(discoverGroups) &&
           discoverGroups.length > 0 ? (
-            <div className="space-y-2">
-              <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-200">
+            <div className="space-y-0">
+              <p className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-200">
                 Groups
               </p>
-              {discoverGroups.map((group) => {
+              {discoverGroups.map((group, groupIndex) => {
                 const label = group.name || "Group";
                 const initials = getAvatarInitials(label);
                 const isActive = String(activeChatId || "") === String(group.id || "");
                 return (
-                  <button
+                  <div
                     key={`discover-group-${group.id}`}
-                    type="button"
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => onOpenDiscoveredGroup?.(group)}
-                    className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left text-sm transition ${
-                      isActive
-                        ? "border-emerald-400 bg-emerald-100 text-emerald-900 dark:border-emerald-400/60 dark:bg-emerald-500/20 dark:text-emerald-100"
-                        : "border-slate-300/80 bg-white/90 text-slate-700 hover:border-emerald-300 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:border-emerald-300 focus-visible:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:outline-hidden dark:border-emerald-500/20 dark:bg-slate-950/60 dark:text-slate-200"
-                    }`}
+                    className="relative flex w-full flex-col px-2"
                   >
-                    {group.avatarUrl ? (
-                      <img
-                        src={group.avatarUrl}
-                        alt={label}
-                        className="h-9 w-9 rounded-full object-cover"
-                      />
-                    ) : (
-                      <div
-                        className={`flex h-9 w-9 items-center justify-center rounded-full text-xs ${hasPersian(initials) ? "font-fa" : ""}`}
-                        style={getAvatarStyle(group.color || "#10b981")}
-                      >
-                        {initials}
+                    <button
+                      key={`discover-group-${group.id}`}
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => onOpenDiscoveredGroup?.(group)}
+                      className={`group flex min-h-[72px] w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm transition ${
+                        isActive
+                          ? "border-emerald-400 bg-emerald-50 text-emerald-700 dark:border-emerald-400/60 dark:bg-emerald-500/10 dark:text-emerald-300"
+                          : "border-transparent text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 focus-visible:bg-emerald-50 focus-visible:outline-hidden dark:text-slate-100 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200 dark:focus-visible:bg-emerald-500/10"
+                      }`}
+                    >
+                      <div className="shrink-0">
+                        {group.avatarUrl ? (
+                          <img
+                            src={group.avatarUrl}
+                            alt={label}
+                            className="h-12 w-12 rounded-full object-cover"
+                          />
+                        ) : (
+                          <div
+                            className={`flex h-12 w-12 items-center justify-center rounded-full text-sm font-semibold ${hasPersian(initials) ? "font-fa" : ""}`}
+                            style={getAvatarStyle(group.color || "#10b981")}
+                          >
+                            {initials}
+                          </div>
+                        )}
                       </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <Tooltip label={label} asChild>
-                        <p
-                          className="flex items-center gap-0.5 truncate text-sm font-semibold"
-                          dir="ltr"
-                        >
-                          <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
-                          {Boolean(group.verified) && <VerifiedBadge size={14} />}
-                        </p>
-                      </Tooltip>
-                      <p
-                        className="truncate text-xs text-slate-500 dark:text-slate-400"
-                        dir="auto"
-                      >
-                        @{group.username} •{" "}
-                        {Number(group.membersCount || 0).toLocaleString(
-                          "en-US",
-                        )}{" "}
-                        members
-                      </p>
-                    </div>
-                    {group.isMember ? (
-                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">
-                        Joined
-                      </span>
+                      <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <Tooltip label={label} asChild>
+                            <p
+                              className="flex items-center gap-0.5 truncate text-sm font-semibold"
+                              dir="ltr"
+                            >
+                              <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
+                              {Boolean(group.verified) && <VerifiedBadge size={14} />}
+                            </p>
+                          </Tooltip>
+                          <p
+                            className="truncate text-xs text-slate-500 dark:text-slate-400"
+                            dir="auto"
+                          >
+                            @{group.username} •{" "}
+                            {Number(group.membersCount || 0).toLocaleString(
+                              "en-US",
+                            )}{" "}
+                            members
+                          </p>
+                        </div>
+                        {group.isMember ? (
+                          <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-950/40 dark:text-emerald-200">
+                            Joined
+                          </span>
+                        ) : null}
+                      </div>
+                    </button>
+                    {groupIndex < discoverGroups.length - 1 ? (
+                      <div className="my-1 ml-[72px] mr-2 border-b border-slate-200/70 dark:border-slate-800/80" />
                     ) : null}
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -343,112 +364,128 @@ export default function ChatsListPanel({
           {!showSearchEmptyState &&
           Array.isArray(discoverChannels) &&
           discoverChannels.length > 0 ? (
-            <div className="space-y-2">
-              <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-200">
+            <div className="space-y-0">
+              <p className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-200">
                 Channels
               </p>
-              {discoverChannels.map((channel) => {
+              {discoverChannels.map((channel, channelIndex) => {
                 const label = channel.name || "Channel";
                 const initials = getAvatarInitials(label);
                 const isActive = String(activeChatId || "") === String(channel.id || "");
                 return (
-                  <button
+                  <div
                     key={`discover-channel-${channel.id}`}
-                    type="button"
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => onOpenDiscoveredGroup?.(channel)}
-                    className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left text-sm transition ${
-                      isActive
-                        ? "border-emerald-400 bg-emerald-100 text-emerald-900 dark:border-emerald-400/60 dark:bg-emerald-500/20 dark:text-emerald-100"
-                        : "border-slate-300/80 bg-white/90 text-slate-700 hover:border-emerald-300 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:border-emerald-300 focus-visible:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:outline-hidden dark:border-emerald-500/20 dark:bg-slate-950/60 dark:text-slate-200"
-                    }`}
+                    className="relative flex w-full flex-col px-2"
                   >
-                    {channel.avatarUrl ? (
-                      <img
-                        src={channel.avatarUrl}
-                        alt={label}
-                        className="h-9 w-9 rounded-full object-cover"
-                      />
-                    ) : (
-                      <div
-                        className={`flex h-9 w-9 items-center justify-center rounded-full text-xs ${hasPersian(initials) ? "font-fa" : ""}`}
-                        style={getAvatarStyle(channel.color || "#10b981")}
-                      >
-                        {initials}
+                    <button
+                      key={`discover-channel-${channel.id}`}
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => onOpenDiscoveredGroup?.(channel)}
+                      className={`group flex min-h-[72px] w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm transition ${
+                        isActive
+                          ? "border-emerald-400 bg-emerald-50 text-emerald-700 dark:border-emerald-400/60 dark:bg-emerald-500/10 dark:text-emerald-300"
+                          : "border-transparent text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 focus-visible:bg-emerald-50 focus-visible:outline-hidden dark:text-slate-100 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200 dark:focus-visible:bg-emerald-500/10"
+                      }`}
+                    >
+                      <div className="shrink-0">
+                        {channel.avatarUrl ? (
+                          <img
+                            src={channel.avatarUrl}
+                            alt={label}
+                            className="h-12 w-12 rounded-full object-cover"
+                          />
+                        ) : (
+                          <div
+                            className={`flex h-12 w-12 items-center justify-center rounded-full text-sm font-semibold ${hasPersian(initials) ? "font-fa" : ""}`}
+                            style={getAvatarStyle(channel.color || "#10b981")}
+                          >
+                            {initials}
+                          </div>
+                        )}
                       </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <Tooltip label={label} asChild>
-                        <p
-                          className="flex items-center gap-0.5 truncate text-sm font-semibold"
-                          dir="ltr"
-                        >
-                          <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
-                          {Boolean(channel.verified) && <VerifiedBadge size={14} />}
-                        </p>
-                      </Tooltip>
-                      <p
-                        className="truncate text-xs text-slate-500 dark:text-slate-400"
-                        dir="auto"
-                      >
-                        @{channel.username} •{" "}
-                        {Number(channel.membersCount || 0).toLocaleString(
-                          "en-US",
-                        )}{" "}
-                        members
-                      </p>
-                    </div>
-                    {channel.isMember ? (
-                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">
-                        Joined
-                      </span>
+                      <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <Tooltip label={label} asChild>
+                            <p
+                              className="flex items-center gap-0.5 truncate text-sm font-semibold"
+                              dir="ltr"
+                            >
+                              <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
+                              {Boolean(channel.verified) && <VerifiedBadge size={14} />}
+                            </p>
+                          </Tooltip>
+                          <p
+                            className="truncate text-xs text-slate-500 dark:text-slate-400"
+                            dir="auto"
+                          >
+                            @{channel.username} •{" "}
+                            {Number(channel.membersCount || 0).toLocaleString(
+                              "en-US",
+                            )}{" "}
+                            subscribers
+                          </p>
+                        </div>
+                        {channel.isMember ? (
+                          <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-950/40 dark:text-emerald-200">
+                            Joined
+                          </span>
+                        ) : null}
+                      </div>
+                    </button>
+                    {channelIndex < discoverChannels.length - 1 ? (
+                      <div className="my-1 ml-[72px] mr-2 border-b border-slate-200/70 dark:border-slate-800/80" />
                     ) : null}
-                  </button>
+                  </div>
                 );
               })}
             </div>
           ) : null}
           {!showSearchEmptyState && discoverSaved ? (
-            <div className="space-y-2">
-              <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-200">
+            <div className="space-y-0">
+              <p className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-200">
                 Saved Messages
               </p>
-              <ContextMenuSurface
-                type="button"
-                as="button"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => onOpenSavedMessages?.()}
-                contextMenu={{
-                  disabled: true,
-                }}
-                className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left text-sm transition ${
-                  isSavedChatActive
-                    ? "border-emerald-400 bg-emerald-100 text-emerald-900 dark:border-emerald-400/60 dark:bg-emerald-500/20 dark:text-emerald-100"
-                    : "border-slate-300/80 bg-white/90 text-slate-700 hover:border-emerald-300 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:border-emerald-300 focus-visible:shadow-[0_0_20px_rgba(16,185,129,0.18)] focus-visible:outline-hidden dark:border-emerald-500/20 dark:bg-slate-950/60 dark:text-slate-200"
-                }`}
-              >
-                <div
-                  className="flex h-9 w-9 items-center justify-center rounded-full"
-                  style={getAvatarStyle("#10b981")}
+              <div className="relative flex w-full flex-col px-2">
+                <ContextMenuSurface
+                  type="button"
+                  as="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => onOpenSavedMessages?.()}
+                  contextMenu={{
+                    disabled: true,
+                  }}
+                  className={`group flex min-h-[72px] w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm transition ${
+                    isSavedChatActive
+                      ? "border-emerald-400 bg-emerald-50 text-emerald-700 dark:border-emerald-400/60 dark:bg-emerald-500/10 dark:text-emerald-300"
+                      : "border-transparent text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 focus-visible:bg-emerald-50 focus-visible:outline-hidden dark:text-slate-100 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200 dark:focus-visible:bg-emerald-500/10"
+                  }`}
                 >
-                  <Bookmark size={16} className="text-white" />
-                </div>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold">
-                    Saved messages
-                  </p>
-                  <p className="truncate text-xs text-slate-500 dark:text-slate-400">
-                    Personal notes
-                  </p>
-                </div>
-              </ContextMenuSurface>
+                  <div className="shrink-0">
+                    <div
+                      className="flex h-12 w-12 items-center justify-center rounded-full"
+                      style={getAvatarStyle("#10b981")}
+                    >
+                      <Bookmark size={20} className="text-white" />
+                    </div>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold">
+                      Saved messages
+                    </p>
+                    <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+                      Personal notes
+                    </p>
+                  </div>
+                </ContextMenuSurface>
+              </div>
             </div>
           ) : null}
           {!showSearchEmptyState &&
           hasDiscoverQuery &&
           !discoverLoading &&
           !hasDiscoverResults ? (
-            <p className="px-1 py-1 text-xs text-slate-500 dark:text-slate-400">
+            <p className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">
               No results.
             </p>
           ) : null}
@@ -458,15 +495,20 @@ export default function ChatsListPanel({
         Array.from({ length: 6 }).map((_, index) => (
           <div
             key={`chat-skeleton-${index}`}
-            className="w-full animate-pulse rounded-2xl border border-slate-300/80 bg-white/70 px-3 py-3 dark:border-emerald-500/20 dark:bg-slate-950/50"
+            className="relative flex w-full flex-col px-2"
           >
-            <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-full bg-emerald-100 dark:bg-emerald-900/40" />
+            <div className="flex min-h-[72px] w-full animate-pulse items-center gap-3 rounded-xl px-3 py-2.5">
+              <div className="shrink-0">
+                <div className="h-12 w-12 rounded-full bg-emerald-100 dark:bg-emerald-900/40" />
+              </div>
               <div className="flex-1 space-y-2">
                 <div className="h-3 w-1/2 rounded-sm bg-emerald-100 dark:bg-emerald-900/40" />
                 <div className="h-2 w-3/4 rounded-sm bg-emerald-100/80 dark:bg-emerald-900/30" />
               </div>
             </div>
+            {index < 5 ? (
+              <div className="my-1 ml-[72px] mr-2 border-b border-slate-200/50 dark:border-slate-800/50" />
+            ) : null}
           </div>
         ))
       ) : !showSearchMode && sidebarChats.length ? (
@@ -538,16 +580,12 @@ export default function ChatsListPanel({
           let unreadCount = conv.unread_count;
           if (unreadCount > 999) unreadCount = formatCompactCount(unreadCount);
 
-          const card = (
-            <div
-              className={`w-full min-h-[72px] rounded-2xl border px-3 py-3 text-left text-sm transition ${
-                activeChatId === conv.id
-                  ? "border-emerald-400 bg-emerald-100 text-emerald-900 dark:border-emerald-400/60 dark:bg-emerald-500/20 dark:text-emerald-100"
-                  : "border-slate-300/80 bg-white/90 text-slate-700 hover:border-emerald-300 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] dark:border-emerald-500/20 dark:bg-slate-950/60 dark:text-slate-200"
-              } ${editMode ? "animate-chat-wiggle-ios shadow-[0_0_0_1px_rgba(16,185,129,0.35),0_0_16px_rgba(16,185,129,0.22)]" : ""}`}
-              style={wiggleStyle}
-            >
-              <div className="flex items-start gap-3">
+          const isActive = activeChatId === conv.id;
+          const isLastItem = index === sidebarChats.length - 1;
+
+          const rowInner = (
+            <>
+              <div className="shrink-0">
                 <Avatar
                   src={
                     isGroup || isChannel
@@ -560,16 +598,18 @@ export default function ChatsListPanel({
                   initials={avatarInitials}
                   placeholderContent={
                     isSaved ? (
-                      <Bookmark size={16} className="text-white" />
+                      <Bookmark size={20} className="text-white" />
                     ) : isDeletedDm ? (
-                      <Ghost size={16} className="text-slate-600" />
+                      <Ghost size={20} className="text-slate-600" />
                     ) : (
                       avatarInitials
                     )
                   }
-                  className="h-9 w-9 shrink-0"
+                  className="h-12 w-12 shrink-0 text-sm font-semibold"
                   showOnlineBadge={showOnlineBadge}
                 />
+              </div>
+              <div className="flex min-w-0 flex-1 items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <p className="flex min-w-0 items-center gap-0.5 font-semibold" dir="ltr">
                     {isChannel ? (
@@ -606,7 +646,7 @@ export default function ChatsListPanel({
                     ) : null}
                   </p>
                   <p
-                    className="mt-1 w-full min-w-0 overflow-hidden whitespace-nowrap text-xs leading-[1.35] text-slate-500 dark:text-slate-400"
+                    className="mt-1 min-h-[1.35em] w-full min-w-0 overflow-hidden whitespace-nowrap text-xs leading-[1.35] text-slate-500 dark:text-slate-400"
                     style={{ unicodeBidi: "isolate" }}
                   >
                     {conv.last_message ||
@@ -712,59 +752,66 @@ export default function ChatsListPanel({
                               className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                             />
                           ) : null}
-                          <span
-                            dir="auto"
-                            className={`block min-w-0 max-w-full flex-1 truncate leading-[1.35] ${hasPersian(lastPreview.text) ? "font-fa" : ""}`}
-                            style={{ unicodeBidi: "isolate" }}
-                            dangerouslySetInnerHTML={{
-                              __html: String(lastPreviewHtml || ""),
-                            }}
-                          />
+                            <span
+                              dir="auto"
+                              className={`block min-w-0 max-w-full flex-1 truncate leading-[1.35] ${hasPersian(lastPreview.text) ? "font-fa" : ""}`}
+                              style={{ unicodeBidi: "isolate" }}
+                              dangerouslySetInnerHTML={{
+                                __html: String(lastPreviewHtml || ""),
+                              }}
+                            />
+                          </span>
+                        )
+                      ) : (
+                        <span
+                          className="invisible select-none leading-[1.35]"
+                          aria-hidden="true"
+                        >
+                          &nbsp;
                         </span>
-                      )
-                    ) : null}
-                  </p>
-                </div>
-                <div className="ml-auto flex min-w-[58px] shrink-0 flex-col items-end gap-1 self-start">
-                  <div className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
-                    {isOwnLastMessage && !isChannelOwner ? (
-                      <span
-                        className={`inline-flex items-center ${
-                          isOwnLastMessagePending
-                            ? "text-emerald-900/80 dark:text-emerald-50/80"
-                            : isOwnLastMessageSeen
-                              ? "text-sky-400"
-                              : "text-slate-500 dark:text-slate-400"
-                        } -translate-y-px`}
-                      >
-                        {isOwnLastMessagePending ? (
-                          <Clock12
-                            size={13}
-                            strokeWidth={2.4}
-                            aria-hidden="true"
-                            className="animate-spin"
-                          />
-                        ) : isOwnLastMessageSeen ? (
-                          <CheckCheck
-                            size={13}
-                            strokeWidth={2.4}
-                            aria-hidden="true"
-                          />
-                        ) : (
-                          <Check
-                            size={13}
-                            strokeWidth={2.4}
-                            aria-hidden="true"
-                          />
-                        )}
-                      </span>
-                    ) : null}
-                    <p>
-                      {conv.last_time
-                        ? formatChatTimestamp(conv.last_time)
-                        : ""}
+                      )}
                     </p>
                   </div>
+                  <div className="ml-auto flex min-w-[58px] shrink-0 flex-col items-end gap-1 self-start">
+                    <div className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
+                      {isOwnLastMessage && !isChannelOwner ? (
+                        <span
+                          className={`inline-flex items-center ${
+                            isOwnLastMessagePending
+                              ? "text-emerald-900/80 dark:text-emerald-50/80"
+                              : isOwnLastMessageSeen
+                                ? "text-sky-400"
+                                : "text-slate-500 dark:text-slate-400"
+                          } -translate-y-px`}
+                        >
+                          {isOwnLastMessagePending ? (
+                            <Clock12
+                              size={13}
+                              strokeWidth={2.4}
+                              aria-hidden="true"
+                              className="animate-spin"
+                            />
+                          ) : isOwnLastMessageSeen ? (
+                            <CheckCheck
+                              size={13}
+                              strokeWidth={2.4}
+                              aria-hidden="true"
+                            />
+                          ) : (
+                            <Check
+                              size={13}
+                              strokeWidth={2.4}
+                              aria-hidden="true"
+                            />
+                          )}
+                        </span>
+                      ) : null}
+                      <p className="whitespace-nowrap">
+                        {conv.last_time
+                          ? formatChatTimestamp(conv.last_time)
+                          : ""}
+                      </p>
+                    </div>
                   {conv.unread_count > 0 ? (
                     <span
                       className={`inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-2 text-[10px] font-bold text-white ${
@@ -778,87 +825,106 @@ export default function ChatsListPanel({
                   ) : null}
                 </div>
               </div>
-            </div>
+            </>
           );
 
           return (
-            <div key={conv.id} className="flex items-center gap-3">
-              {editMode ? (
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    requestDeleteChats([conv.id]);
-                  }}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-rose-200 bg-rose-50 text-rose-600 dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200"
-                  aria-label="Remove chat"
-                >
-                  <Minus size={16} />
-                </button>
-              ) : null}
-              <ContextMenuSurface
-                type="button"
-                as="button"
-                aria-label={`${name}${conv.unread_count > 0 ? `, ${conv.unread_count} unread` : ""}`}
-                onClick={() => {
-                  if (editMode) return;
-                  setActiveChatId(conv.id);
-                  const nextOther =
-                    conv.type === "dm"
-                      ? conv.members?.find(
-                          (member) =>
-                            String(member?.username || "").toLowerCase() !==
-                            String(user?.username || "").toLowerCase(),
-                        )
-                      : null;
-                  setActivePeer(nextOther || null);
-                  if (window.matchMedia("(max-width: 767px)").matches) {
-                    setMobileTab("chat");
-                  }
-                  setUnreadInChat(0);
-                  lastMessageIdRef.current = null;
-                }}
-                contextMenu={{
-                  disabled: editMode,
-                  isMobile:
-                    typeof window !== "undefined" &&
-                    window.matchMedia("(max-width: 767px) and (pointer: coarse)")
-                      .matches,
-                  onOpen: ({ event, targetEl, isMobile }) =>
-                    onOpenChatContextMenu?.({
-                      kind: "chat",
-                      event,
-                      targetEl,
-                      isMobile,
-                      data: { chat: conv },
-                    }),
-                }}
-                className={`min-w-0 flex-1 ${editMode ? "pointer-events-none" : ""}`}
+            <div
+              key={conv.id}
+              className="relative flex w-full flex-col px-2"
+            >
+              <div
+                className={`group flex min-h-[72px] w-full items-center rounded-xl border transition ${
+                  isActive
+                    ? "border-emerald-400 bg-emerald-50 text-emerald-700 dark:border-emerald-400/60 dark:bg-emerald-500/10 dark:text-emerald-300"
+                    : "border-transparent text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 dark:text-slate-100 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
+                } ${editMode ? "animate-chat-wiggle-ios" : ""}`}
+                style={wiggleStyle}
               >
-                {card}
-              </ContextMenuSurface>
-              {editMode ? (
-                <button
+                {editMode ? (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      requestDeleteChats([conv.id]);
+                    }}
+                    className="ml-2.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-rose-200 bg-rose-50 text-rose-600 dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200"
+                    aria-label="Remove chat"
+                  >
+                    <Minus size={16} />
+                  </button>
+                ) : null}
+                <ContextMenuSurface
                   type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    toggleSelectChat(conv.id);
+                  as="button"
+                  aria-label={`${name}${conv.unread_count > 0 ? `, ${conv.unread_count} unread` : ""}`}
+                  onClick={() => {
+                    if (editMode) return;
+                    setActiveChatId(conv.id);
+                    const nextOther =
+                      conv.type === "dm"
+                        ? conv.members?.find(
+                            (member) =>
+                              String(member?.username || "").toLowerCase() !==
+                              String(user?.username || "").toLowerCase(),
+                          )
+                        : null;
+                    setActivePeer(nextOther || null);
+                    if (window.matchMedia("(max-width: 767px)").matches) {
+                      setMobileTab("chat");
+                    }
+                    setUnreadInChat(0);
+                    lastMessageIdRef.current = null;
                   }}
-                  className={`inline-flex h-8 w-8 items-center justify-center rounded-full border ${
-                    selectedChats.includes(conv.id)
-                      ? "border-emerald-500 bg-emerald-500 text-white"
-                      : "border-emerald-200 text-emerald-600 dark:border-emerald-500/30 dark:text-emerald-200"
+                  contextMenu={{
+                    disabled: editMode,
+                    isMobile:
+                      typeof window !== "undefined" &&
+                      window.matchMedia("(max-width: 767px) and (pointer: coarse)")
+                        .matches,
+                    onOpen: ({ event, targetEl, isMobile }) =>
+                      onOpenChatContextMenu?.({
+                        kind: "chat",
+                        event,
+                        targetEl,
+                        isMobile,
+                        data: { chat: conv },
+                      }),
+                  }}
+                  className={`flex min-h-[72px] min-w-0 flex-1 items-center gap-3 py-2.5 text-left text-sm ${
+                    editMode
+                      ? "pointer-events-none pl-2 pr-3"
+                      : "cursor-pointer px-3 focus-visible:outline-hidden"
                   }`}
-                  aria-label="Select chat"
                 >
-                  {selectedChats.includes(conv.id) ? <Check size={16} /> : null}
-                </button>
+                  {rowInner}
+                </ContextMenuSurface>
+                {editMode ? (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      toggleSelectChat(conv.id);
+                    }}
+                    className={`mr-2.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${
+                      selectedChats.includes(conv.id)
+                        ? "border-emerald-500 bg-emerald-500 text-white"
+                        : "border-emerald-200 text-emerald-600 dark:border-emerald-500/30 dark:text-emerald-200"
+                    }`}
+                    aria-label="Select chat"
+                  >
+                    {selectedChats.includes(conv.id) ? <Check size={16} /> : null}
+                  </button>
+                ) : null}
+              </div>
+              {!isLastItem ? (
+                <div className="my-1 ml-[72px] mr-2 border-b border-slate-200/70 dark:border-slate-800/80" />
               ) : null}
             </div>
           );
         })
       ) : !showSearchMode ? (
-        <div className="flex min-h-full items-center justify-center py-8">
+        <div className="flex min-h-full items-center justify-center px-4 py-8">
           <div className="text-center text-sm text-slate-500 dark:text-slate-400">
             <p>Your chat list is empty.</p>
             <p className="mt-1">Search or use + button to start chatting.</p>
