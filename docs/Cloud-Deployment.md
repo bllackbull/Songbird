@@ -67,11 +67,10 @@ For stateless, zero-downtime PaaS deployments:
 
 ## 2. Deploying on CaaS & Kubernetes
 
-You can run Songbird in containerized environments using the official pre-built Docker image from Docker Hub:
+You can run Songbird in containerized environments using the official pre-built Docker images from Docker Hub:
 
-```txt
-bllackbull/songbird:latest
-```
+- **Main Application (Frontend + Backend):** `bllackbull/songbird:latest`
+- **Standalone Media Worker (FFmpeg Transcoder):** `bllackbull/songbird-worker:latest`
 
 ### Container Configuration
 

@@ -67,11 +67,10 @@
 
 ## ۲. استقرار روی CaaS و Kubernetes
 
-میتوانید Songbird را در محیط های کانتینری با استفاده از ایمیج رسمی و از پیش ساخته شده از Docker Hub اجرا کنید:
+میتوانید Songbird را در محیط های کانتینری با استفاده از ایمیج های رسمی و از پیش ساخته شده از Docker Hub اجرا کنید:
 
-```txt
-bllackbull/songbird:latest
-```
+- **برنامه اصلی (فرانت اند + بک اند):** `bllackbull/songbird:latest`
+- **ورکر مدیا مجزا (تبدیل ویدیو و FFmpeg):** `bllackbull/songbird-worker:latest`
 
 ### پیکربندی کانتینر
 

@@ -106,7 +106,37 @@
 - پروسه ورکر محلی در پس زمینه توسط `scripts/docker-entrypoint.sh` یا مدیر ورکر داخلی (`localWorkerManager`) اجرا نخواهد شد.
 :::
 
-### ۲. استقرار مجزا با Docker Compose (سرور یا کانتینر اختصاصی)
+### ۲. کانتینر مجزا و Docker Compose
+
+پروژه Songbird یک ایمیج رسمی و بسیار سبک از Media Worker را به صورت جداگانه در Docker Hub منتشر میکند:
+
+```txt
+bllackbull/songbird-worker:latest
+```
+
+این ایمیج اختصاصی مبتنی بر Alpine Linux (با حجم تقریبی ۱۲۰ مگابایت) شامل Node.js 24 و FFmpeg بوده و با تدابیر امنیتی (کاربر غیر ریشه و Healthcheck فعال) آماده به کار است.
+
+#### شروع سریع با دستور `docker run`
+
+```bash
+docker run -d \
+  --name songbird-media-worker \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -e WORKER_PORT=8080 \
+  -e WORKER_CONCURRENCY=2 \
+  -e WEBHOOK_SECRET=your-secure-webhook-secret \
+  -e STORAGE_DRIVER=remote \
+  -e STORAGE_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com \
+  -e STORAGE_BUCKET=my-songbird-bucket \
+  -e STORAGE_REGION=auto \
+  -e STORAGE_ACCESS_KEY_ID=your-access-key \
+  -e STORAGE_SECRET_ACCESS_KEY=your-secret-key \
+  -e STORAGE_FORCE_PATH_STYLE=true \
+  bllackbull/songbird-worker:latest
+```
+
+#### اجرا با Docker Compose
 
 برای اجرای Media Worker روی یک سرور مجزا با منابع CPU/RAM بالا:
 
@@ -136,6 +166,8 @@ STORAGE_FORCE_PATH_STYLE=true
 ```bash
 docker compose -f docker-compose.yaml up -d
 ```
+
+ایمیج آماده `bllackbull/songbird-worker:latest` به صورت خودکار دریافت خواهد شد (چنانچه میخواهید ایمیج را از سورس کد بسازید، بخش `build:` را در `worker/docker-compose.yaml` از حالت کامنت خارج کنید).
 
 ### ۳. استقرار روی پلتفرم های ابری (Render, Railway, Fly.io, Koyeb)
 

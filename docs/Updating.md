@@ -1,4 +1,4 @@
-# Updating and Downgrading
+# Updating
 
 How you update or downgrade depends on how you installed Songbird.
 
@@ -52,6 +52,7 @@ Choosing `yes` creates a timestamped database backup before any code changes occ
 ### 2. Updating (GitHub mode)
 
 When newer commits are available on the `main` branch, the script automatically:
+
 1. Pulls the latest commits with `git pull --ff-only origin main`.
 2. Updates client and server dependencies.
 3. Ensures VAPID keys and security credentials remain configured.
@@ -69,6 +70,7 @@ Do you want to downgrade? [y/N]
 ```
 
 If you select `yes`:
+
 1. The script prompts: `Enter version number to install: `.
 2. You can enter:
    - A semantic version tag (e.g. `0.11.4` or `v0.11.4`).
@@ -79,21 +81,23 @@ If you select `yes`:
 ### 4. Offline mode updates & downgrades
 
 When choosing **Offline** mode with a local source zip archive:
+
 - **Update**: If the `VERSION` in the archive is higher than `/opt/songbird/VERSION`, the script updates the instance.
 - **Downgrade**: If the `VERSION` in the archive is lower than the installed version, the script asks:
+
   ```txt
   Local zip version (<source_ver>) is lower than installed version (<install_ver>). Do you want to downgrade to version <source_ver>? [y/N]
   ```
+
   If confirmed, it extracts the archive, preserves your data/backups, updates dependencies, runs migrations, and restarts the services.
 
 ### 5. Updating the deployment menu
 
 To update the `songbird-deploy` CLI command itself:
+
 1. Run `songbird-deploy`.
 2. Choose option **7** (**Update menu**).
 3. The script checks GitHub for newer installer releases and updates the global command automatically (or offers to reinstall if already current).
-
----
 
 ## Docker + Compose
 
@@ -115,8 +119,6 @@ git checkout v0.11.4 # Replace with your target tag or commit hash
 docker compose -f docker-compose.yaml up -d --build
 sudo systemctl reload nginx
 ```
-
----
 
 ## Manual (systemd)
 

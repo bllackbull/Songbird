@@ -76,7 +76,7 @@ Songbird defaults to SQLite (`DB_CLIENT=sqlite3`). To use PostgreSQL instead, ed
 :::
 
 :::info Media Worker Container
-Songbird includes a standalone **Media Worker** microservice in `worker/` for offloading video transcoding and thumbnail generation. To configure or run the worker alongside Docker, see [Media Worker](./Media-Worker.md).
+Songbird automatically spawns and manages a local Media Worker child process inside the all-in-one container (`bllackbull/songbird:latest`) by default. For distributed or high-load setups, you can offload media processing to the dedicated standalone image (`bllackbull/songbird-worker:latest`) or uncomment the optional `media-worker` service in `docker-compose.yaml`. See [Media Worker](./Media-Worker.md) for details.
 :::
 
 ## 4. Set up TLS certificates

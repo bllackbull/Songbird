@@ -106,7 +106,37 @@ To disable video transcoding or save CPU and memory resources on low-spec server
 - The local background worker process is neither spawned by `scripts/docker-entrypoint.sh` nor managed/probed by `localWorkerManager`.
 :::
 
-### 2. Standalone Docker Compose (Separate Server or Container)
+### 2. Standalone Docker Container & Docker Compose
+
+Songbird provides an official, lightweight standalone Media Worker container image on Docker Hub:
+
+```txt
+bllackbull/songbird-worker:latest
+```
+
+This dedicated Alpine Linux-based image (~120 MB) comes pre-configured with Node.js 24 and FFmpeg, running under a non-root user with an active healthcheck.
+
+#### Quickstart with `docker run`
+
+```bash
+docker run -d \
+  --name songbird-media-worker \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -e WORKER_PORT=8080 \
+  -e WORKER_CONCURRENCY=2 \
+  -e WEBHOOK_SECRET=your-secure-webhook-secret \
+  -e STORAGE_DRIVER=remote \
+  -e STORAGE_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com \
+  -e STORAGE_BUCKET=my-songbird-bucket \
+  -e STORAGE_REGION=auto \
+  -e STORAGE_ACCESS_KEY_ID=your-access-key \
+  -e STORAGE_SECRET_ACCESS_KEY=your-secret-key \
+  -e STORAGE_FORCE_PATH_STYLE=true \
+  bllackbull/songbird-worker:latest
+```
+
+#### Running with Docker Compose
 
 To run the Media Worker on a dedicated server optimized for media processing (e.g., CPU/GPU-heavy instances):
 
@@ -136,6 +166,8 @@ STORAGE_FORCE_PATH_STYLE=true
 ```bash
 docker compose -f docker-compose.yaml up -d
 ```
+
+The pre-built `bllackbull/songbird-worker:latest` image will be pulled automatically. (If you prefer to build from source locally, uncomment the `build:` section in `worker/docker-compose.yaml`).
 
 ### 3. Deploying on Cloud Platforms (Render, Railway, Fly.io, Koyeb)
 
