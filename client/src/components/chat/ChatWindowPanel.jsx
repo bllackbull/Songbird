@@ -10,12 +10,10 @@ import {
   AlertCircle,
   ArrowDown,
   ArrowLeft,
-  Bell,
   Close,
   Copy,
   Ghost,
   LoaderCircle,
-  Mic,
 } from "../../icons/lucide.js";
 import { getAvatarStyle } from "../../utils/avatarColor.js";
 import { hasPersian } from "../../utils/fontUtils.js";
@@ -124,7 +122,6 @@ export default function ChatWindowPanel({
   headerAvatarColor = null,
   microphonePermissionStatus = "unknown",
   onRequestMicrophonePermission = null,
-  permissionsPrompt = null,
   copyToastVisible = false,
   registerMessageRef = null,
   showFloatingLabel = false,
@@ -252,9 +249,7 @@ export default function ChatWindowPanel({
       window.location.hostname.endsWith(".localhost"));
   const insecureTooltipRef = useRef(null);
   const [insecureTooltipHeight, setInsecureTooltipHeight] = useState(0);
-  const permissionBannerRef = useRef(null);
   const sectionRef = useRef(null);
-  const [permissionBannerHeight, setPermissionBannerHeight] = useState(0);
   useEffect(() => {
     if (typeof document === "undefined") return undefined;
     const syncComposerFocus = () => {
@@ -293,23 +288,6 @@ export default function ChatWindowPanel({
     observer.observe(node);
     return () => observer.disconnect();
   }, [insecureConnection, hideInsecureTooltip]);
-  useLayoutEffect(() => {
-    if (!permissionsPrompt?.show) {
-      setPermissionBannerHeight(0);
-      return;
-    }
-    const node = permissionBannerRef.current;
-    if (!node || typeof window === "undefined") return;
-    const measure = () => {
-      const rect = node.getBoundingClientRect();
-      setPermissionBannerHeight(Number(rect?.height || 0));
-    };
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => measure());
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [permissionsPrompt?.show]);
   const {
     focusedMedia,
     setFocusedMedia,
@@ -1476,70 +1454,6 @@ export default function ChatWindowPanel({
         </div>
       ) : null}
 
-      {permissionsPrompt?.show && activeChatId ? (
-        <div className="w-full">
-          <div
-            ref={permissionBannerRef}
-            className="flex w-full flex-col gap-2 border-y border-emerald-200/70 bg-emerald-50/70 px-4 py-3 text-xs font-semibold text-emerald-700 shadow-xs dark:border-emerald-500/30 dark:bg-slate-900/70 dark:text-emerald-200"
-          >
-            {permissionsPrompt?.notification?.show &&
-            permissionsPrompt?.mode === "notification" ? (
-              <div className="flex w-full items-center justify-between gap-3">
-                <span className="flex min-w-0 items-center gap-2">
-                  <Bell className="h-4 w-4 shrink-0" />
-                  <span className="truncate">
-                    Enable notifications for message alerts
-                  </span>
-                </span>
-                <div className="flex shrink-0 items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={permissionsPrompt.notification.onRequest}
-                    className="inline-flex h-8 items-center rounded-full bg-emerald-500 px-4 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-emerald-500/40"
-                  >
-                    Allow
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => permissionsPrompt.onDismiss?.("notification")}
-                    className="inline-flex h-8 items-center justify-center rounded-full border border-rose-200 px-3 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 hover:shadow-[0_0_16px_rgba(244,63,94,0.2)] dark:border-rose-500/30 dark:text-rose-200 dark:hover:bg-rose-500/10"
-                  >
-                    Not now
-                  </button>
-                </div>
-              </div>
-            ) : null}
-            {permissionsPrompt?.microphone?.show &&
-            permissionsPrompt?.mode === "microphone" ? (
-              <div className="flex w-full items-center justify-between gap-3">
-                <span className="flex min-w-0 items-center gap-2">
-                  <Mic className="h-4 w-4 shrink-0" />
-                  <span className="truncate">
-                    Enable microphone for voice messages
-                  </span>
-                </span>
-                <div className="flex shrink-0 items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={permissionsPrompt.microphone.onRequest}
-                    className="inline-flex h-8 items-center rounded-full bg-emerald-500 px-4 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-emerald-500/40"
-                  >
-                    Allow
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => permissionsPrompt.onDismiss?.("microphone")}
-                    className="inline-flex h-8 items-center justify-center rounded-full border border-rose-200 px-3 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 hover:shadow-[0_0_16px_rgba(244,63,94,0.2)] dark:border-rose-500/30 dark:text-rose-200 dark:hover:bg-rose-500/10"
-                  >
-                    Not now
-                  </button>
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-
       <div className="flex-1 min-h-0">
         {activeChatId && floatingDay.key && isTimelineScrollable ? (
           <div
@@ -1551,10 +1465,6 @@ export default function ChatWindowPanel({
                 !hideInsecureTooltip &&
                 !isLocalhost
                   ? Math.max(0, (insecureTooltipHeight || 56) + 16)
-                  : 0
-              }px + ${
-                permissionsPrompt?.show
-                  ? Math.max(0, (permissionBannerHeight || 48) + 12)
                   : 0
               }px)`,
               // Keep the chip in the DOM at all times so floatingChipRef always

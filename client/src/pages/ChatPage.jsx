@@ -6636,6 +6636,22 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         displayInitials={displayInitials}
         onOpenWhatsNew={handleOpenWhatsNew}
         adminPanelEnabled={adminPanelEnabled}
+        permissionsPrompt={{
+          show: showPermissionsPrompt,
+          mode: activePermissionPrompt,
+          notification: {
+            show: shouldPromptNotifications,
+            status: notificationPermission,
+            onRequest: requestNotificationsPermission,
+          },
+          microphone: {
+            show: shouldPromptMicrophone,
+            status: microphonePermission,
+            onRequest: requestMicrophonePermission,
+          },
+          onDismiss: (mode) =>
+            dismissPermissionsPrompt(mode || activePermissionPrompt),
+        }}
       />
 
       <ChatWindowPanel
@@ -6723,22 +6739,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         microphonePermissionStatus={microphonePermission}
         onRequestMicrophonePermission={requestMicrophonePermission}
         registerMessageRef={registerMessageRef}
-        permissionsPrompt={{
-          show: showPermissionsPrompt,
-          mode: activePermissionPrompt,
-          notification: {
-            show: shouldPromptNotifications,
-            status: notificationPermission,
-            onRequest: requestNotificationsPermission,
-          },
-          microphone: {
-            show: shouldPromptMicrophone,
-            status: microphonePermission,
-            onRequest: requestMicrophonePermission,
-          },
-          onDismiss: (mode) =>
-            dismissPermissionsPrompt(mode || activePermissionPrompt),
-        }}
         showFloatingLabel={showFloatingLabel}
       />
 

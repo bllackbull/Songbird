@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  Bell,
   Chat,
   Close,
   LoaderCircle,
   Megaphone,
+  Mic,
   Pencil,
   Plus,
   Search,
@@ -33,6 +35,7 @@ export default function SidebarHeader({
   onCloseSearch,
   chatsScrollable = false,
   onScrollToTop,
+  permissionsPrompt = null,
 }) {
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const createMenuRef = useRef(null);
@@ -160,7 +163,10 @@ export default function SidebarHeader({
                         }}
                         className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
                       >
-                        <Chat size={16} className="text-emerald-500 icon-anim-bob" />
+                        <Chat
+                          size={16}
+                          className="text-emerald-500 icon-anim-bob"
+                        />
                         New DM
                       </button>
                       <button
@@ -171,7 +177,10 @@ export default function SidebarHeader({
                         }}
                         className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
                       >
-                        <Users size={18} className="text-emerald-500 icon-anim-sway" />
+                        <Users
+                          size={18}
+                          className="text-emerald-500 icon-anim-sway"
+                        />
                         New group
                       </button>
                       <button
@@ -182,7 +191,10 @@ export default function SidebarHeader({
                         }}
                         className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
                       >
-                        <Megaphone size={18} className="text-emerald-500 icon-anim-swing" />
+                        <Megaphone
+                          size={18}
+                          className="text-emerald-500 icon-anim-swing"
+                        />
                         New channel
                       </button>
                     </div>
@@ -245,6 +257,68 @@ export default function SidebarHeader({
               ) : null}
             </label>
           </div>
+          {permissionsPrompt?.show ? (
+            <div className="mt-3 flex items-center justify-between gap-2 overflow-hidden rounded-2xl border border-emerald-200/80 bg-emerald-50/70 px-3 py-2 text-xs font-semibold text-emerald-800 shadow-xs dark:border-emerald-500/30 dark:bg-slate-800/60 dark:text-emerald-200">
+              {permissionsPrompt?.notification?.show &&
+              permissionsPrompt?.mode === "notification" ? (
+                <>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Bell className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                    <span className="truncate whitespace-nowrap">
+                      Enable notifications
+                    </span>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        permissionsPrompt.onDismiss?.("notification")
+                      }
+                      className="inline-flex h-7 shrink-0 items-center justify-center rounded-full border border-rose-200/80 bg-white/80 px-2.5 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 dark:border-rose-500/30 dark:bg-slate-900/80 dark:text-rose-300 dark:hover:bg-rose-500/10"
+                    >
+                      Not now
+                    </button>
+                    <button
+                      type="button"
+                      onClick={permissionsPrompt.notification.onRequest}
+                      className="inline-flex h-7 shrink-0 items-center rounded-full bg-emerald-500 px-3 text-xs font-semibold text-white shadow-md shadow-emerald-500/25 transition hover:bg-emerald-400 hover:shadow-emerald-500/35"
+                    >
+                      Allow
+                    </button>
+                  </div>
+                </>
+              ) : null}
+              {permissionsPrompt?.microphone?.show &&
+              permissionsPrompt?.mode === "microphone" ? (
+                <>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Mic className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                    <span className="truncate whitespace-nowrap">
+                      Enable microphone
+                    </span>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        permissionsPrompt.onDismiss?.("microphone")
+                      }
+                      className="inline-flex h-7 shrink-0 items-center justify-center rounded-full border border-rose-200/80 bg-white/80 px-2.5 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 dark:border-rose-500/30 dark:bg-slate-900/80 dark:text-rose-300 dark:hover:bg-rose-500/10"
+                    >
+                      Not now
+                    </button>
+                    <button
+                      type="button"
+                      onClick={permissionsPrompt.microphone.onRequest}
+                      className="inline-flex h-7 shrink-0 items-center rounded-full bg-emerald-500 px-3 text-xs font-semibold text-white shadow-md shadow-emerald-500/25 transition hover:bg-emerald-400 hover:shadow-emerald-500/35"
+                    >
+                      Allow
+                    </button>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          ) : null}
         </>
       )}
     </div>

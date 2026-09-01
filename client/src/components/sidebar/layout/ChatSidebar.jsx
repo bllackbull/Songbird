@@ -101,6 +101,7 @@ export default function ChatSidebar({
   displayInitials,
   onOpenWhatsNew,
   adminPanelEnabled = true,
+  permissionsPrompt = null,
 }) {
   const chatsScrollRef = useRef(null);
   const chatsContentRef = useRef(null);
@@ -190,6 +191,7 @@ export default function ChatSidebar({
           onScrollToTop={() => {
             chatsScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
           }}
+          permissionsPrompt={permissionsPrompt}
         />
       </div>
 
