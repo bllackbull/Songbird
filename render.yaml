@@ -1,0 +1,41 @@
+services:
+  - type: web
+    name: songbird
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: BIND_ADDRESS
+        value: 0.0.0.0
+      - key: DB_CLIENT
+        value: postgres
+      # Provide your PostgreSQL connection string (e.g. from Neon, Supabase, Aiven, or Render Postgres)
+      # Example: postgresql://user:password@ep-xyz.us-east-2.aws.neon.tech/songbird?sslmode=require
+      - key: POSTGRES_URL
+        sync: false
+      - key: POSTGRES_SSL
+        value: "true"
+      # Worker & media processing (auto-starts internal media worker inside container)
+      - key: STORAGE_PROCESSING_MODE
+        value: auto
+      - key: WORKER_PORT
+        value: 8080
+      # Storage driver: remote (S3/Cloudflare R2/MinIO recommended for stateless PaaS)
+      - key: STORAGE_DRIVER
+        value: remote
+      # Optional: Cloudflare R2 / AWS S3 object storage settings for persistent uploads
+      - key: STORAGE_ENDPOINT
+        sync: false
+      - key: STORAGE_BUCKET
+        sync: false
+      - key: STORAGE_REGION
+        value: auto
+      - key: STORAGE_ACCESS_KEY_ID
+        sync: false
+      - key: STORAGE_SECRET_ACCESS_KEY
+        sync: false
+      - key: STORAGE_PUBLIC_URL
+        sync: false
