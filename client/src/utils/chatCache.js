@@ -1,4 +1,5 @@
 import { CHAT_PAGE_CONFIG } from "../settings/chatPageConfig.js";
+import { formatDayLabel, parseServerDate } from "./chatFormat.js";
 import {
   CACHE_STORES,
   idbDelete,
@@ -7,7 +8,7 @@ import {
   isIdbAvailable,
 } from "./cacheDb.js";
 
-export const CHAT_CACHE_VERSION = 3;
+export const CHAT_CACHE_VERSION = 4;
 export const CHAT_LIST_CACHE_KEY = "songbird-chat-list-cache";
 export const CHAT_MESSAGES_CACHE_KEY = "songbird-chat-messages-cache";
 export const CHAT_MESSAGES_INDEX_KEY = "songbird-chat-messages-index";
@@ -422,6 +423,9 @@ export const sanitizeMessageForCache = (message) => {
     _serverId,
     _visibilityTime,
     _readByMe,
+    _dayLabel,
+    _dayKey,
+    _timeLabel,
     ...rest
   } = message;
   rest.body = normalizedBody;
@@ -486,12 +490,44 @@ export const normalizeMessageForRender = (message) => {
           body: normalizeMessageBody(message.replyTo.body),
         }
       : message.replyTo || null;
+  const rawCreatedAt = message.created_at || message._createdAt;
+  let dayKey = message._dayKey;
+  let dayLabel = message._dayLabel;
+  if (rawCreatedAt) {
+    const date = parseServerDate(rawCreatedAt);
+    if (!Number.isNaN(date.getTime())) {
+      dayKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+      dayLabel = formatDayLabel(rawCreatedAt);
+    }
+  }
   return {
     ...message,
+    ...(dayKey ? { _dayKey: dayKey } : {}),
+    ...(dayLabel ? { _dayLabel: dayLabel } : {}),
     body: normalizedBody,
     replyTo: normalizedReply,
   };
 };
 
-export const normalizeMessagesForRender = (messages) =>
-  (Array.isArray(messages) ? messages : []).map(normalizeMessageForRender);
+export const normalizeMessagesForRender = (messages) => {
+  const list = (Array.isArray(messages) ? messages : []).map(normalizeMessageForRender);
+  return list.sort((left, right) => {
+    const leftDate = left?.created_at || left?._createdAt || left?.createdAt;
+    const rightDate = right?.created_at || right?._createdAt || right?.createdAt;
+    const leftTimeRaw = leftDate ? parseServerDate(leftDate).getTime() : 0;
+    const rightTimeRaw = rightDate ? parseServerDate(rightDate).getTime() : 0;
+    const leftTime = Number.isFinite(leftTimeRaw) ? leftTimeRaw : 0;
+    const rightTime = Number.isFinite(rightTimeRaw) ? rightTimeRaw : 0;
+    if (leftTime !== rightTime) {
+      return leftTime - rightTime;
+    }
+    const leftId = String(left?._serverId || left?.id || "");
+    const rightId = String(right?._serverId || right?.id || "");
+    if (leftId && rightId) {
+      return leftId.localeCompare(rightId);
+    }
+    return String(left?._clientId || "").localeCompare(
+      String(right?._clientId || ""),
+    );
+  });
+};

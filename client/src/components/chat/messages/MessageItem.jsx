@@ -17,7 +17,7 @@ import {
 import { SongbirdIcon, TelegramIcon } from "../../../icons/BrandIcons.jsx";
 import { hasPersian } from "../../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../../utils/avatarInitials.js";
-import { formatCompactCount } from "../../../utils/chatFormat.js";
+import { formatCompactCount, formatDayLabel, parseServerDate } from "../../../utils/chatFormat.js";
 import ContextMenuSurface from "../../context-menu/ContextMenuSurface.jsx";
 import { MessageFiles } from "../media/MessageFiles.jsx";
 import {
@@ -588,7 +588,9 @@ export const MessageItem = memo(function MessageItem({
   const expiryBadge = formatExpiryBadge();
   const dayLabel = getMessageDayLabel
     ? getMessageDayLabel(msg)
-    : msg?._dayLabel || msg?._dayKey || "";
+    : (msg?.created_at || msg?._createdAt)
+      ? formatDayLabel(msg?.created_at || msg?._createdAt)
+      : msg?._dayLabel || msg?._dayKey || "";
   const replyTarget = msg.replyTo || null;
   const replySignature = getReplySignature(replyTarget);
   const replyDisplayName =

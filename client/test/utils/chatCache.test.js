@@ -9,6 +9,7 @@ import {
   isCacheExpired,
   isCacheableMessage,
   sanitizeMessageForCache,
+  normalizeMessageForRender,
   pruneMessagesIndex,
   CHAT_CACHE_VERSION,
   CHAT_MESSAGES_INDEX_LIMIT,
@@ -242,6 +243,9 @@ describe("sanitizeMessageForCache", () => {
       _serverId: 1,
       _visibilityTime: null,
       _readByMe: true,
+      _dayLabel: "Today",
+      _dayKey: "2026-8-1",
+      _timeLabel: "12:00 PM",
     };
     const result = sanitizeMessageForCache(msg);
     expect(result).not.toHaveProperty("_files");
@@ -250,6 +254,9 @@ describe("sanitizeMessageForCache", () => {
     expect(result).not.toHaveProperty("_delivery");
     expect(result).not.toHaveProperty("_serverId");
     expect(result).not.toHaveProperty("_readByMe");
+    expect(result).not.toHaveProperty("_dayLabel");
+    expect(result).not.toHaveProperty("_dayKey");
+    expect(result).not.toHaveProperty("_timeLabel");
   });
 
   test("preserves non-internal fields", () => {
@@ -309,6 +316,36 @@ describe("sanitizeMessageForCache", () => {
   test("returns non-object input as-is", () => {
     expect(sanitizeMessageForCache(null)).toBeNull();
     expect(sanitizeMessageForCache("string")).toBe("string");
+  });
+});
+
+// ─── normalizeMessageForRender ────────────────────────────────────────────────
+
+describe("normalizeMessageForRender", () => {
+  test("recomputes _dayKey and _dayLabel dynamically from created_at", () => {
+    const todayIso = new Date().toISOString();
+    const msg = {
+      id: "msg-today",
+      created_at: todayIso,
+      body: "Hello today",
+    };
+    const rendered = normalizeMessageForRender(msg);
+    expect(rendered._dayLabel).toBe("Today");
+    expect(typeof rendered._dayKey).toBe("string");
+  });
+
+  test("overwrites stale cached _dayLabel with fresh relative day label", () => {
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const msg = {
+      id: "msg-yesterday",
+      created_at: yesterday.toISOString(),
+      body: "Hello yesterday",
+      _dayLabel: "Today", // stale value from previous day's cache
+      _dayKey: "2020-0-1",
+    };
+    const rendered = normalizeMessageForRender(msg);
+    expect(rendered._dayLabel).toBe("Yesterday");
+    expect(rendered._dayKey).not.toBe("2020-0-1");
   });
 });
 

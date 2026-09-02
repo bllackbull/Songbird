@@ -722,14 +722,18 @@ export function useMessagesLoader({
               return leftQueuedAt - rightQueuedAt;
             }
           }
-          const leftTime = Number(
+          const leftDate = left?.created_at || left?._createdAt || left?.createdAt;
+          const rightDate = right?.created_at || right?._createdAt || right?.createdAt;
+          const leftTimeRaw = Number(
             left?._visibilityTime ||
-              parseServerDate(left?.created_at).getTime(),
+              (leftDate ? parseServerDate(leftDate).getTime() : 0),
           );
-          const rightTime = Number(
+          const rightTimeRaw = Number(
             right?._visibilityTime ||
-              parseServerDate(right?.created_at).getTime(),
+              (rightDate ? parseServerDate(rightDate).getTime() : 0),
           );
+          const leftTime = Number.isFinite(leftTimeRaw) ? leftTimeRaw : 0;
+          const rightTime = Number.isFinite(rightTimeRaw) ? rightTimeRaw : 0;
           if (leftTime !== rightTime) {
             return leftTime - rightTime;
           }

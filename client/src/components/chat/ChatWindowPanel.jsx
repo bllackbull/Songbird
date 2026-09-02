@@ -18,7 +18,7 @@ import {
 import { getAvatarStyle } from "../../utils/avatarColor.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
-import { formatCompactCount } from "../../utils/chatFormat.js";
+import { formatCompactCount, formatDayLabel, parseServerDate } from "../../utils/chatFormat.js";
 import Avatar from "../common/Avatar.jsx";
 import UserRoleBadge from "../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../common/VerifiedBadge.jsx";
@@ -339,7 +339,7 @@ export default function ChatWindowPanel({
   const groupedMessages = useMemo(() => {
     const groups = [];
     messages.forEach((msg) => {
-      const dayKey = msg?._dayKey || getMessageDayLabel(msg);
+      const dayKey = getMessageDayKey(msg);
       const dayLabel = getMessageDayLabel(msg);
       const lastGroup = groups[groups.length - 1];
       if (!lastGroup || lastGroup.dayKey !== dayKey) {
@@ -391,7 +391,7 @@ export default function ChatWindowPanel({
       setIsTimelineScrollable(canScroll);
       if (!canScroll) {
         const last = messages[messages.length - 1];
-        const key = last?._dayKey || "";
+        const key = getMessageDayKey(last);
         const label = getMessageDayLabel(last);
         setFloatingDay(key && label ? { key, label } : { key: "", label: "" });
         return;
@@ -873,17 +873,28 @@ export default function ChatWindowPanel({
     };
   }, [isDesktop]);
 
+  function getMessageDayKey(msg) {
+    const rawDate = msg?.created_at || msg?._createdAt;
+    if (rawDate) {
+      const date = parseServerDate(rawDate);
+      if (!Number.isNaN(date.getTime())) {
+        return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+      }
+    }
+    return msg?._dayKey || getMessageDayLabel(msg);
+  }
+
   function getMessageDayLabel(msg) {
+    const rawDate = msg?.created_at || msg?._createdAt;
+    if (rawDate) {
+      const date = parseServerDate(rawDate);
+      if (!Number.isNaN(date.getTime())) {
+        return formatDayLabel(rawDate);
+      }
+    }
     if (msg?._dayLabel) return msg._dayLabel;
     if (msg?._dayKey) return msg._dayKey;
-    if (!msg?.created_at) return "";
-    const date = new Date(msg.created_at);
-    if (Number.isNaN(date.getTime())) return "";
-    return date.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
+    return "";
   }
 
   const handleGroupChipClick = (groupKeyOrIndex) => {
