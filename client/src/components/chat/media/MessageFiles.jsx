@@ -1210,13 +1210,20 @@ export function MessageFiles({
                     });
                   }
                 }}
-                className="relative flex w-full items-center gap-2.5 rounded-xl border border-slate-200/80 bg-slate-100/70 p-3.5 text-left text-xs text-slate-600 transition hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-400"
+                className="relative block w-full overflow-hidden rounded-xl border border-slate-200/80 bg-slate-100/70 text-left transition hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900/70"
                 data-testid="offline-media-placeholder"
+                aria-label={`Image unavailable offline: ${file.name || ""}`.trim()}
               >
-                <WifiOff size={18} className="shrink-0 text-slate-400 dark:text-slate-500" />
-                <span className="min-w-0 flex-1 truncate font-medium">
-                  Media unavailable offline — tap to retry when online
-                </span>
+                <div className={imageFrameClass} style={mediaFrameStyle}>
+                  <div className="flex flex-col items-center justify-center gap-2 p-4 text-center">
+                    <div className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200/80 bg-white/90 text-slate-500 shadow-xs dark:border-slate-800 dark:bg-slate-800/90 dark:text-slate-400">
+                      <WifiOff size={18} className="shrink-0" />
+                    </div>
+                    <span className="max-w-[220px] text-xs font-medium text-slate-600 dark:text-slate-400">
+                      Media unavailable offline — tap to retry when online
+                    </span>
+                  </div>
+                </div>
               </button>
             );
           }
@@ -1305,13 +1312,20 @@ export function MessageFiles({
                     });
                   }
                 }}
-                className="relative flex w-full items-center gap-2.5 rounded-xl border border-slate-200/80 bg-slate-100/70 p-3.5 text-left text-xs text-slate-600 transition hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-400"
+                className="relative block w-full overflow-hidden rounded-xl border border-slate-200/80 bg-slate-100/70 text-left transition hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900/70"
                 data-testid="offline-media-placeholder"
+                aria-label={`Video unavailable offline: ${file.name || ""}`.trim()}
               >
-                <WifiOff size={18} className="shrink-0 text-slate-400 dark:text-slate-500" />
-                <span className="min-w-0 flex-1 truncate font-medium">
-                  Media unavailable offline — tap to retry when online
-                </span>
+                <div className={videoFrameClass} style={mediaFrameStyle}>
+                  <div className="flex flex-col items-center justify-center gap-2 p-4 text-center">
+                    <div className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200/80 bg-white/90 text-slate-500 shadow-xs dark:border-slate-800 dark:bg-slate-800/90 dark:text-slate-400">
+                      <WifiOff size={18} className="shrink-0" />
+                    </div>
+                    <span className="max-w-[220px] text-xs font-medium text-slate-600 dark:text-slate-400">
+                      Media unavailable offline — tap to retry when online
+                    </span>
+                  </div>
+                </div>
               </button>
             );
           }
