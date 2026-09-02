@@ -87,7 +87,7 @@ describe("ChatsListPanel — row layout & dividers", () => {
     expect(cardElements.length).toBe(0);
   });
 
-  test("renders avatar-inset divider line on intermediate rows and omits on last row", async () => {
+  test("renders avatar-inset divider line on all rows including the last row", async () => {
     const chats = [
       makeDmChat(101, "bob", "Bob"),
       makeDmChat(102, "carol", "Carol"),
@@ -99,8 +99,8 @@ describe("ChatsListPanel — row layout & dividers", () => {
     await expect.element(bobButton).toBeInTheDocument();
 
     const borders = document.querySelectorAll(".border-b");
-    // Only the first item (intermediate) has the border-b divider
-    expect(borders.length).toBe(1);
+    // All items (including the last row) have the border-b divider
+    expect(borders.length).toBe(2);
   });
 
   test("renders empty chat row (no text/messages) with the exact same height as a chat with messages", async () => {
@@ -147,7 +147,7 @@ describe("ChatsListPanel — row layout & dividers", () => {
     await expect.element(carolButton).toBeInTheDocument();
 
     const dividers = document.querySelectorAll(".border-b");
-    expect(dividers.length).toBe(2);
+    expect(dividers.length).toBe(3);
 
     const dividerAbove = dividers[0].getBoundingClientRect();
     const dividerBelow = dividers[1].getBoundingClientRect();

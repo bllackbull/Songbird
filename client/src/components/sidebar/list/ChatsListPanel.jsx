@@ -235,7 +235,7 @@ export default function ChatsListPanel({
                             },
                           }),
                       }}
-                      className={`group flex min-h-[72px] w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm transition ${
+                      className={`group flex min-h-[72px] w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition ${
                         isActive
                           ? "border-emerald-400 bg-emerald-50 text-emerald-700 dark:border-emerald-400/60 dark:bg-emerald-500/10 dark:text-emerald-300"
                           : "border-transparent text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 focus-visible:bg-emerald-50 focus-visible:outline-hidden dark:text-slate-100 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200 dark:focus-visible:bg-emerald-500/10"
@@ -249,23 +249,23 @@ export default function ChatsListPanel({
                           color={member.color || "#10b981"}
                           initials={initials}
                           showOnlineBadge={showOnlineBadge}
-                          className="h-12 w-12 text-sm font-semibold"
+                          className="h-12 w-12 text-lg font-semibold"
                         />
                       </div>
                       <div className="min-w-0 flex-1">
                         <Tooltip label={label} asChild>
                           <p
-                            className="flex items-center gap-0.5 truncate text-sm font-semibold"
+                            className="flex items-center gap-0.5 truncate text-base font-semibold"
                             dir="ltr"
                           >
                             <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
-                            {Boolean(member.verified) && <VerifiedBadge size={14} />}
-                            <UserRoleBadge role={member.role} size={14} />
+                            {Boolean(member.verified) && <VerifiedBadge size={16} />}
+                            <UserRoleBadge role={member.role} size={16} />
                           </p>
                         </Tooltip>
                         <Tooltip label={member.username} asChild>
                           <p
-                            className="truncate text-xs text-slate-500 dark:text-slate-400"
+                            className="truncate text-sm text-slate-500 dark:text-slate-400"
                             dir="auto"
                           >
                             @{member.username}
@@ -285,7 +285,7 @@ export default function ChatsListPanel({
           Array.isArray(discoverGroups) &&
           discoverGroups.length > 0 ? (
             <div className="space-y-0">
-              <p className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-200">
+              <p className="px-4 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-200">
                 Groups
               </p>
               {discoverGroups.map((group, groupIndex) => {
@@ -302,7 +302,7 @@ export default function ChatsListPanel({
                       type="button"
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => onOpenDiscoveredGroup?.(group)}
-                      className={`group flex min-h-[72px] w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm transition ${
+                      className={`group flex min-h-[72px] w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition ${
                         isActive
                           ? "border-emerald-400 bg-emerald-50 text-emerald-700 dark:border-emerald-400/60 dark:bg-emerald-500/10 dark:text-emerald-300"
                           : "border-transparent text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 focus-visible:bg-emerald-50 focus-visible:outline-hidden dark:text-slate-100 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200 dark:focus-visible:bg-emerald-500/10"
@@ -317,7 +317,7 @@ export default function ChatsListPanel({
                           />
                         ) : (
                           <div
-                            className={`flex h-12 w-12 items-center justify-center rounded-full text-sm font-semibold ${hasPersian(initials) ? "font-fa" : ""}`}
+                            className={`flex h-12 w-12 items-center justify-center rounded-full text-lg font-semibold ${hasPersian(initials) ? "font-fa" : ""}`}
                             style={getAvatarStyle(group.color || "#10b981")}
                           >
                             {initials}
@@ -328,15 +328,15 @@ export default function ChatsListPanel({
                         <div className="min-w-0 flex-1">
                           <Tooltip label={label} asChild>
                             <p
-                              className="flex items-center gap-0.5 truncate text-sm font-semibold"
+                              className="flex items-center gap-0.5 truncate text-base font-semibold"
                               dir="ltr"
                             >
                               <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
-                              {Boolean(group.verified) && <VerifiedBadge size={14} />}
+                              {Boolean(group.verified) && <VerifiedBadge size={16} />}
                             </p>
                           </Tooltip>
                           <p
-                            className="truncate text-xs text-slate-500 dark:text-slate-400"
+                            className="truncate text-sm text-slate-500 dark:text-slate-400"
                             dir="auto"
                           >
                             @{group.username} •{" "}
@@ -347,7 +347,7 @@ export default function ChatsListPanel({
                           </p>
                         </div>
                         {group.isMember ? (
-                          <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-950/40 dark:text-emerald-200">
+                          <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-950/40 dark:text-emerald-200">
                             Joined
                           </span>
                         ) : null}
@@ -365,7 +365,7 @@ export default function ChatsListPanel({
           Array.isArray(discoverChannels) &&
           discoverChannels.length > 0 ? (
             <div className="space-y-0">
-              <p className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-200">
+              <p className="px-4 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-200">
                 Channels
               </p>
               {discoverChannels.map((channel, channelIndex) => {
@@ -382,7 +382,7 @@ export default function ChatsListPanel({
                       type="button"
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => onOpenDiscoveredGroup?.(channel)}
-                      className={`group flex min-h-[72px] w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm transition ${
+                      className={`group flex min-h-[72px] w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition ${
                         isActive
                           ? "border-emerald-400 bg-emerald-50 text-emerald-700 dark:border-emerald-400/60 dark:bg-emerald-500/10 dark:text-emerald-300"
                           : "border-transparent text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 focus-visible:bg-emerald-50 focus-visible:outline-hidden dark:text-slate-100 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200 dark:focus-visible:bg-emerald-500/10"
@@ -397,7 +397,7 @@ export default function ChatsListPanel({
                           />
                         ) : (
                           <div
-                            className={`flex h-12 w-12 items-center justify-center rounded-full text-sm font-semibold ${hasPersian(initials) ? "font-fa" : ""}`}
+                            className={`flex h-12 w-12 items-center justify-center rounded-full text-lg font-semibold ${hasPersian(initials) ? "font-fa" : ""}`}
                             style={getAvatarStyle(channel.color || "#10b981")}
                           >
                             {initials}
@@ -408,15 +408,15 @@ export default function ChatsListPanel({
                         <div className="min-w-0 flex-1">
                           <Tooltip label={label} asChild>
                             <p
-                              className="flex items-center gap-0.5 truncate text-sm font-semibold"
+                              className="flex items-center gap-0.5 truncate text-base font-semibold"
                               dir="ltr"
                             >
                               <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
-                              {Boolean(channel.verified) && <VerifiedBadge size={14} />}
+                              {Boolean(channel.verified) && <VerifiedBadge size={16} />}
                             </p>
                           </Tooltip>
                           <p
-                            className="truncate text-xs text-slate-500 dark:text-slate-400"
+                            className="truncate text-sm text-slate-500 dark:text-slate-400"
                             dir="auto"
                           >
                             @{channel.username} •{" "}
@@ -427,7 +427,7 @@ export default function ChatsListPanel({
                           </p>
                         </div>
                         {channel.isMember ? (
-                          <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-950/40 dark:text-emerald-200">
+                          <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-950/40 dark:text-emerald-200">
                             Joined
                           </span>
                         ) : null}
@@ -443,7 +443,7 @@ export default function ChatsListPanel({
           ) : null}
           {!showSearchEmptyState && discoverSaved ? (
             <div className="space-y-0">
-              <p className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-200">
+              <p className="px-4 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-200">
                 Saved Messages
               </p>
               <div className="relative flex w-full flex-col px-2">
@@ -455,7 +455,7 @@ export default function ChatsListPanel({
                   contextMenu={{
                     disabled: true,
                   }}
-                  className={`group flex min-h-[72px] w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm transition ${
+                  className={`group flex min-h-[72px] w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition ${
                     isSavedChatActive
                       ? "border-emerald-400 bg-emerald-50 text-emerald-700 dark:border-emerald-400/60 dark:bg-emerald-500/10 dark:text-emerald-300"
                       : "border-transparent text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 focus-visible:bg-emerald-50 focus-visible:outline-hidden dark:text-slate-100 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200 dark:focus-visible:bg-emerald-500/10"
@@ -466,14 +466,14 @@ export default function ChatsListPanel({
                       className="flex h-12 w-12 items-center justify-center rounded-full"
                       style={getAvatarStyle("#10b981")}
                     >
-                      <Bookmark size={20} className="text-white" />
+                      <Bookmark size={22} className="text-white" />
                     </div>
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold">
+                    <p className="truncate text-base font-semibold">
                       Saved messages
                     </p>
-                    <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+                    <p className="truncate text-sm text-slate-500 dark:text-slate-400">
                       Personal notes
                     </p>
                   </div>
@@ -581,7 +581,6 @@ export default function ChatsListPanel({
           if (unreadCount > 999) unreadCount = formatCompactCount(unreadCount);
 
           const isActive = activeChatId === conv.id;
-          const isLastItem = index === sidebarChats.length - 1;
 
           const rowInner = (
             <>
@@ -598,27 +597,27 @@ export default function ChatsListPanel({
                   initials={avatarInitials}
                   placeholderContent={
                     isSaved ? (
-                      <Bookmark size={20} className="text-white" />
+                      <Bookmark size={22} className="text-white" />
                     ) : isDeletedDm ? (
-                      <Ghost size={20} className="text-slate-600" />
+                      <Ghost size={22} className="text-slate-600" />
                     ) : (
                       avatarInitials
                     )
                   }
-                  className="h-12 w-12 shrink-0 text-sm font-semibold"
+                  className="h-12 w-12 shrink-0 text-lg font-semibold"
                   showOnlineBadge={showOnlineBadge}
                 />
               </div>
               <div className="flex min-w-0 flex-1 items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
-                  <p className="flex min-w-0 items-center gap-0.5 font-semibold" dir="ltr">
+                  <p className="flex min-w-0 items-center gap-0.5 text-base font-semibold" dir="ltr">
                     {isChannel ? (
                       <Megaphone
-                        size={14}
+                        size={16}
                         className="shrink-0 text-emerald-500"
                       />
                     ) : isGroup ? (
-                      <Users size={14} className="shrink-0 text-emerald-500" />
+                      <Users size={16} className="shrink-0 text-emerald-500" />
                     ) : null}
                     <Tooltip label={name} asChild>
                       <span
@@ -629,24 +628,24 @@ export default function ChatsListPanel({
                       </span>
                     </Tooltip>
                     {conv.type === "dm" && !isDeletedDm && other && Boolean(other.user_verified) ? (
-                      <VerifiedBadge size={15} />
+                      <VerifiedBadge size={16} />
                     ) : null}
                     {conv.type === "dm" && !isDeletedDm && other ? (
-                      <UserRoleBadge role={other.user_role} size={15} />
+                      <UserRoleBadge role={other.user_role} size={16} />
                     ) : null}
                     {conv.type !== "dm" && Boolean(conv.verified) ? (
-                      <VerifiedBadge size={15} />
+                      <VerifiedBadge size={16} />
                     ) : null}
                     {conv._muted ? (
                       <VolumeX
-                        size={15}
+                        size={16}
                         className="-translate-y-px shrink-0 text-slate-400 dark:text-slate-500"
                         aria-label="Muted chat"
                       />
                     ) : null}
                   </p>
                   <p
-                    className="mt-1 min-h-[1.35em] w-full min-w-0 overflow-hidden whitespace-nowrap text-xs leading-[1.35] text-slate-500 dark:text-slate-400"
+                    className="mt-0.5 min-h-[1.35em] w-full min-w-0 overflow-hidden whitespace-nowrap text-sm leading-[1.35] text-slate-500 dark:text-slate-400"
                     style={{ unicodeBidi: "isolate" }}
                   >
                     {conv.last_message ||
@@ -663,22 +662,22 @@ export default function ChatsListPanel({
                           <span className="flex min-w-0 flex-1 items-baseline gap-1">
                             {lastPreview.icon === "voice" ? (
                               <Mic
-                                size={12}
+                                size={14}
                                 className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                               />
                             ) : lastPreview.icon === "video" ? (
                               <Video
-                                size={12}
+                                size={14}
                                 className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                               />
                             ) : lastPreview.icon === "image" ? (
                               <ImageIcon
-                                size={12}
+                                size={14}
                                 className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                               />
-                            ) : lastPreview.icon === "document" ? (
+                            ) : lastPreview.icon === "file" ? (
                               <File
-                                size={12}
+                                size={14}
                                 className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                               />
                             ) : null}
@@ -733,22 +732,22 @@ export default function ChatsListPanel({
                           ) : null}
                           {lastPreview.icon === "voice" ? (
                             <Mic
-                              size={12}
+                              size={14}
                               className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                             />
                           ) : lastPreview.icon === "video" ? (
                             <Video
-                              size={12}
+                              size={14}
                               className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                             />
                           ) : lastPreview.icon === "image" ? (
                             <ImageIcon
-                              size={12}
+                              size={14}
                               className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                             />
                           ) : lastPreview.icon === "document" ? (
                             <File
-                              size={12}
+                              size={14}
                               className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                             />
                           ) : null}
@@ -772,8 +771,8 @@ export default function ChatsListPanel({
                       )}
                     </p>
                   </div>
-                  <div className="ml-auto flex min-w-[58px] shrink-0 flex-col items-end gap-1 self-start">
-                    <div className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
+                  <div className="ml-auto flex min-w-[58px] shrink-0 flex-col items-end gap-1.5 self-start">
+                    <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
                       {isOwnLastMessage && !isChannelOwner ? (
                         <span
                           className={`inline-flex items-center ${
@@ -786,20 +785,20 @@ export default function ChatsListPanel({
                         >
                           {isOwnLastMessagePending ? (
                             <Clock12
-                              size={13}
+                              size={14}
                               strokeWidth={2.4}
                               aria-hidden="true"
                               className="animate-spin"
                             />
                           ) : isOwnLastMessageSeen ? (
                             <CheckCheck
-                              size={13}
+                              size={14}
                               strokeWidth={2.4}
                               aria-hidden="true"
                             />
                           ) : (
                             <Check
-                              size={13}
+                              size={14}
                               strokeWidth={2.4}
                               aria-hidden="true"
                             />
@@ -814,7 +813,7 @@ export default function ChatsListPanel({
                     </div>
                   {conv.unread_count > 0 ? (
                     <span
-                      className={`inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-2 text-[10px] font-bold text-white ${
+                      className={`inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-xs font-bold text-white ${
                         conv._muted
                           ? "bg-slate-400 dark:bg-slate-500"
                           : "bg-emerald-500"
@@ -891,7 +890,7 @@ export default function ChatsListPanel({
                         data: { chat: conv },
                       }),
                   }}
-                  className={`flex min-h-[72px] min-w-0 flex-1 items-center gap-3 py-2.5 text-left text-sm ${
+                  className={`flex min-h-[72px] min-w-0 flex-1 items-center gap-3 py-2.5 text-left ${
                     editMode
                       ? "pointer-events-none pl-2 pr-3"
                       : "cursor-pointer px-3 focus-visible:outline-hidden"
@@ -917,9 +916,7 @@ export default function ChatsListPanel({
                   </button>
                 ) : null}
               </div>
-              {!isLastItem ? (
-                <div className="my-1 ml-[72px] mr-2 border-b border-slate-200/70 dark:border-slate-800/80" />
-              ) : null}
+              <div className="my-1 ml-[72px] mr-2 border-b border-slate-200/70 dark:border-slate-800/80" />
             </div>
           );
         })
