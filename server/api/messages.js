@@ -1402,7 +1402,7 @@ function registerMessageRoutes(app, deps) {
               });
               transcodeJobsQueued += 1;
             } else {
-              const defaultCallback = `http://127.0.0.1:${process.env.SERVER_PORT || process.env.PORT || "5174"}/api/uploads/webhook/processed`;
+              const defaultCallback = `http://127.0.0.1:${process.env.PORT || process.env.SERVER_PORT || "5174"}/api/uploads/webhook/processed`;
 
               dispatchMediaWorkerJob({
                 workerUrl:

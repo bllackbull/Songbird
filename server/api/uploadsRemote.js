@@ -296,7 +296,7 @@ export function registerRemoteUploadRoutes(app, deps) {
       .toLowerCase()
       .startsWith("video/");
 
-    const defaultCallback = `http://127.0.0.1:${process.env.SERVER_PORT || process.env.PORT || "5174"}/api/uploads/webhook/processed`;
+    const defaultCallback = `http://127.0.0.1:${process.env.PORT || process.env.SERVER_PORT || "5174"}/api/uploads/webhook/processed`;
     const transcodeEnabled = deps.getSetting
       ? Boolean(deps.getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS"))
       : readEnvBool("FILE_UPLOAD_TRANSCODE_VIDEOS", true);

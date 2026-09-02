@@ -461,7 +461,7 @@ export function chunkArray(items = [], size = 500) {
 }
 
 export async function detectRunningServer() {
-  const port = Number(process.env.SERVER_PORT || process.env.PORT || 5174)
+  const port = Number(process.env.PORT || process.env.SERVER_PORT || 5174)
   const timeoutMs = 600
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)

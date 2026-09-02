@@ -178,7 +178,7 @@ dotenv.config({ path: path.join(serverDir, ".env"), override: true, quiet: true 
 // Must run after dotenv and after the DB module (which runs migrations).
 await loadSettings(dbGetAllSettings);
 
-const port = process.env.SERVER_PORT || process.env.PORT || 5174;
+const port = process.env.PORT || process.env.SERVER_PORT || 5174;
 const appEnv = process.env.APP_ENV || "production";
 const isProduction = appEnv === "production";
 // For Docker/container deployments, set BIND_ADDRESS=0.0.0.0
@@ -470,7 +470,7 @@ const videoTranscoder = createVideoTranscodeManager({
     process.env.WEBHOOK_CALLBACK_URL ||
     process.env.SONGBIRD_WEBHOOK_URL ||
     process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
-    `http://127.0.0.1:${process.env.SERVER_PORT || process.env.PORT || "5174"}/api/uploads/webhook/processed`,
+    `http://127.0.0.1:${process.env.PORT || process.env.SERVER_PORT || "5174"}/api/uploads/webhook/processed`,
 });
 const {
   enqueueVideoTranscodeJob,
@@ -676,7 +676,7 @@ const apiDeps = {
     process.env.WEBHOOK_CALLBACK_URL ||
     process.env.SONGBIRD_WEBHOOK_URL ||
     process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
-    `http://127.0.0.1:${process.env.SERVER_PORT || process.env.PORT || "5174"}/api/uploads/webhook/processed`,
+    `http://127.0.0.1:${process.env.PORT || process.env.SERVER_PORT || "5174"}/api/uploads/webhook/processed`,
   ALLOWED_AVATAR_MIME_TYPES,
   redisClient,
   redisSessionStore,
