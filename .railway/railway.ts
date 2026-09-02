@@ -11,7 +11,9 @@ import {
 
 export default defineRailway(() => {
   const db = postgres("postgres");
-  const uploads = bucket("uploads");
+  const uploads = bucket("storage", {
+    region: "ams",
+  });
 
   const worker = service("songbird-worker", {
     rootDirectory: "worker",
