@@ -161,7 +161,7 @@ async function processTranscodeJob({
   uploadUrl,
   thumbUploadUrl,
 }) {
-  const defaultLocalCallback = `http://127.0.0.1:${process.env.SERVER_PORT || "5174"}/api/uploads/webhook/processed`;
+  const defaultLocalCallback = `http://127.0.0.1:${process.env.PORT || process.env.SERVER_PORT || "5174"}/api/uploads/webhook/processed`;
   const targetCallback = callbackUrl || defaultLocalCallback;
   const isEncrypted =
     String(encryptionType || "").toLowerCase() === "local" ||

@@ -49,7 +49,7 @@ RUN apt-get update \
   && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /etc/apt/keyrings/postgresql.gpg \
   && echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
   && apt-get update \
-  && apt-get install -y --no-install-recommends ffmpeg postgresql-client-18 \
+  && apt-get install -y --no-install-recommends ffmpeg postgresql-client \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=server-deps /app/server/node_modules ./server/node_modules
@@ -76,7 +76,7 @@ EXPOSE 5174
 
 # Health check for container orchestrators
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:5174/api/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
+  CMD node -e "const port = process.env.PORT || process.env.SERVER_PORT || 5174; require('http').get('http://localhost:' + port + '/api/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
 
 ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]
 CMD ["node", "server/index.js"]
