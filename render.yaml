@@ -26,6 +26,8 @@ services:
       # Storage driver: remote (S3/Cloudflare R2/MinIO recommended for stateless PaaS)
       - key: STORAGE_DRIVER
         value: remote
+      - key: STORAGE_AUTO_CORS
+        value: "true"
       # Optional: Cloudflare R2 / AWS S3 object storage settings for persistent uploads
       - key: STORAGE_ENDPOINT
         sync: false
