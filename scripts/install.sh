@@ -810,24 +810,35 @@ normalize_path_input() {
 
 strip_surrounding_quotes() {
   local value="$1"
-  # Need at least two characters to have a surrounding pair; a lone quote
-  # would otherwise trigger a negative substring expression below.
-  if (( ${#value} < 2 )); then
-    printf "%s" "$value"
-    return 0
-  fi
-  local first="${value:0:1}"
-  local last="${value: -1}"
-  if [[ ( "$first" == "\"" && "$last" == "\"" ) || ( "$first" == "'" && "$last" == "'" ) ]]; then
-    printf "%s" "${value:1:${#value}-2}"
-    return 0
-  fi
+  # Strip nested layers (e.g. '"0.11.4"') so copy-pasted quoting still resolves.
+  # A lone quote can never be a surrounding pair; guard the substring below.
+  while (( ${#value} >= 2 )); do
+    local first="${value:0:1}"
+    local last="${value: -1}"
+    if [[ ( "$first" == "\"" && "$last" == "\"" ) || ( "$first" == "'" && "$last" == "'" ) ]]; then
+      value="${value:1:${#value}-2}"
+    else
+      break
+    fi
+  done
   printf "%s" "$value"
 }
 
 strip_carriage_returns() {
   local value="$1"
   printf "%s" "$value" | tr -d '\r'
+}
+
+# Canonical sanitizer: CR-strip -> trim -> unquote -> trim.
+sanitize_input_value() {
+  local value="$1"
+  value="$(strip_carriage_returns "$value")"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  value="$(strip_surrounding_quotes "$value")"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf "%s" "$value"
 }
 
 file_exists_path() {
@@ -845,11 +856,8 @@ file_exists_path() {
 resolve_file_path() {
   local raw="$1"
   local value=""
-  value="$(normalize_path_input "$raw")"
-  value="$(strip_surrounding_quotes "$value")"
-  value="${value#"${value%%[![:space:]]*}"}"
-  value="${value%"${value##*[![:space:]]}"}"
-  value="$(strip_carriage_returns "$value")"
+  value="$(sanitize_input_value "$raw")"
+  value="$(normalize_path_input "$value")"
   if [[ -z "$value" ]]; then
     return 1
   fi
@@ -1694,9 +1702,7 @@ offline_source_is_lower() {
 
 resolve_git_version_ref() {
   local version="$1"
-  version="$(strip_surrounding_quotes "$version")"
-  version="${version#"${version%%[![:space:]]*}"}"
-  version="${version%"${version##*[![:space:]]}"}"
+  version="$(sanitize_input_value "$version")"
   if [[ -z "$version" ]]; then
     return 1
   fi
@@ -2994,9 +3000,7 @@ setTimeout(() => process.exit(1), 800).unref();
 ensure_songbird_stopped_for_update() {
   local port=""
   port="$(get_existing_env_value_with_fallback "SERVER_PORT" "PORT" "$DEFAULT_SERVER_PORT")"
-  port="$(strip_surrounding_quotes "$port")"
-  port="${port#"${port%%[![:space:]]*}"}"
-  port="${port%"${port##*[![:space:]]}"}"
+  port="$(sanitize_input_value "$port")"
   if [[ ! "$port" =~ ^[0-9]+$ ]]; then
     port="$DEFAULT_SERVER_PORT"
   fi
@@ -3212,8 +3216,7 @@ update_songbird() {
     fi
 
     prompt_read "Enter version number to install: " target_version
-    target_version="${target_version#"${target_version%%[![:space:]]*}"}"
-    target_version="${target_version%"${target_version##*[![:space:]]}"}"
+    target_version="$(sanitize_input_value "$target_version")"
 
     if [[ -z "$target_version" ]]; then
       warn "No version specified. Downgrade canceled."
@@ -4582,9 +4585,9 @@ db_remote_configure() {
     return 1
   fi
 
-  current_api_id="$(strip_surrounding_quotes "$(get_existing_env_value "REMOTE_CHANNEL_TELEGRAM_API_ID" "")")"
-  current_api_hash="$(strip_surrounding_quotes "$(get_existing_env_value "REMOTE_CHANNEL_TELEGRAM_API_HASH" "")")"
-  current_proxy_url="$(strip_surrounding_quotes "$(get_existing_env_value "REMOTE_CHANNEL_TELEGRAM_PROXY_URL" "$(get_existing_env_value "REMOTE_CHANNEL_PROXY_URL" "")")")"
+  current_api_id="$(sanitize_input_value "$(get_existing_env_value "REMOTE_CHANNEL_TELEGRAM_API_ID" "")")"
+  current_api_hash="$(sanitize_input_value "$(get_existing_env_value "REMOTE_CHANNEL_TELEGRAM_API_HASH" "")")"
+  current_proxy_url="$(sanitize_input_value "$(get_existing_env_value "REMOTE_CHANNEL_TELEGRAM_PROXY_URL" "$(get_existing_env_value "REMOTE_CHANNEL_PROXY_URL" "")")")"
   [[ "$current_api_id" == "0" ]] && current_api_id=""
 
   while true; do
