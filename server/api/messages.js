@@ -2,6 +2,7 @@ import rateLimit from "express-rate-limit";
 import { validateUuidParams, validateUuidBody } from "../lib/uuidMiddleware.js";
 import { createMessagePublicationService } from "../lib/services/messagePublicationService.js";
 import { dispatchMediaWorkerJob } from "../lib/mediaWorker.js";
+import { resolveWebhookCallbackUrl } from "../lib/webhookUrl.js";
 import { readEnvBool } from "../settings/env.js";
 
 function registerMessageRoutes(app, deps) {
@@ -1402,8 +1403,6 @@ function registerMessageRoutes(app, deps) {
               });
               transcodeJobsQueued += 1;
             } else {
-              const defaultCallback = `http://127.0.0.1:${process.env.PORT || process.env.SERVER_PORT || "5174"}/api/uploads/webhook/processed`;
-
               dispatchMediaWorkerJob({
                 workerUrl:
                   deps.workerUrl ||
@@ -1427,12 +1426,7 @@ function registerMessageRoutes(app, deps) {
                     ? deps.webhookSecret
                     : process.env.WEBHOOK_SECRET || null,
                 callbackUrl:
-                  deps.webhookCallbackUrl ||
-                  process.env.WEBHOOK_URL ||
-                  process.env.WEBHOOK_CALLBACK_URL ||
-                  process.env.SONGBIRD_WEBHOOK_URL ||
-                  process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
-                  defaultCallback,
+                  deps.webhookCallbackUrl || resolveWebhookCallbackUrl(),
                 fileId,
                 storageKey: file.storageKey || file.storage_key || storedName,
                 storedName: storedName || file.storageKey || file.storage_key,

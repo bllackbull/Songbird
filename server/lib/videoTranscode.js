@@ -1,5 +1,6 @@
 import { dbKnex } from "../db/knex.js";
 import { dispatchMediaWorkerJob } from "./mediaWorker.js";
+import { resolveWebhookCallbackUrl } from "./webhookUrl.js";
 import { readEnvBool } from "../settings/env.js";
 
 export function createVideoTranscodeManager({
@@ -215,14 +216,7 @@ export function createVideoTranscodeManager({
       webhookSecret !== undefined
         ? webhookSecret
         : process.env.WEBHOOK_SECRET || null;
-    const defaultCallback = `http://127.0.0.1:${process.env.PORT || process.env.SERVER_PORT || "5174"}/api/uploads/webhook/processed`;
-    const cbUrl =
-      callbackUrl ||
-      process.env.WEBHOOK_URL ||
-      process.env.WEBHOOK_CALLBACK_URL ||
-      process.env.SONGBIRD_WEBHOOK_URL ||
-      process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
-      defaultCallback;
+    const cbUrl = callbackUrl || resolveWebhookCallbackUrl();
 
     let fileRow = null;
     if (typeof adminGetRow === "function") {
