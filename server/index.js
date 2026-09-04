@@ -18,6 +18,8 @@ import { createWebSocketGateway } from "./lib/websocketGateway.js";
 import { createPresenceTracker } from "./lib/presenceTracker.js";
 import { createPushService } from "./lib/push.js";
 import { createUploadTools } from "./lib/uploads.js";
+import { resolveAppOrigins, ensureBucketCors } from "./lib/bucketCors.js";
+import { resolveWebhookCallbackUrl } from "./lib/webhookUrl.js";
 import { createVideoTranscodeManager } from "./lib/videoTranscode.js";
 import { createMessageFileJobs } from "./lib/messageFileJobs.js";
 import { createInspector } from "./lib/inspect.js";
@@ -379,6 +381,46 @@ const MESSAGE_FILE_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 
 const storageProvider = createStorageProvider(process.env);
 
+// Self-configure bucket CORS for browser presigned uploads (remote driver
+// only). Runs in the background: never blocks or crashes boot. Opt-in via
+// STORAGE_AUTO_CORS=true (enabled in .railway/railway.ts); otherwise
+// configure the bucket manually (npm --prefix server run storage:cors).
+if (
+  (storageProvider?.type === "remote" || storageProvider?.type === "s3") &&
+  (String(process.env.STORAGE_AUTO_CORS ?? "false").toLowerCase() === "true" ||
+    String(process.env.STORAGE_AUTO_CORS ?? "false") === "1")
+) {
+  const corsOrigins = resolveAppOrigins(process.env);
+  if (corsOrigins.length === 0) {
+    console.log(
+      "[server] Bucket CORS auto-configuration skipped (no public app origin known. Set APP_PUBLIC_URL to enable it).",
+    );
+  } else {
+    ensureBucketCors(storageProvider, corsOrigins)
+      .then((result) => {
+        if (result.status === "applied") {
+          console.log(
+            `[server] Bucket CORS policy applied for ${corsOrigins.join(", ")}`,
+          );
+        } else if (result.status === "ok") {
+          console.log(
+            `[server] Bucket CORS already configured for ${corsOrigins.join(", ")}`,
+          );
+        } else if (result.status === "error") {
+          console.warn(
+            `[server] Could not configure bucket CORS automatically (${result.error}). ` +
+              `Uploads from browsers will fail until CORS is set — run: npm --prefix server run storage:cors -- --origin <your-app-url>`,
+          );
+        }
+      })
+      .catch((err) => {
+        console.warn(
+          `[server] Bucket CORS auto-configuration failed: ${err?.message || err}`,
+        );
+      });
+  }
+}
+
 const uploadTools = createUploadTools({
   fs,
   path,
@@ -465,12 +507,7 @@ const videoTranscoder = createVideoTranscodeManager({
   workerUrl: process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
   workerPort: process.env.WORKER_PORT || "8080",
   webhookSecret: process.env.WEBHOOK_SECRET || null,
-  callbackUrl:
-    process.env.WEBHOOK_URL ||
-    process.env.WEBHOOK_CALLBACK_URL ||
-    process.env.SONGBIRD_WEBHOOK_URL ||
-    process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
-    `http://127.0.0.1:${process.env.PORT || process.env.SERVER_PORT || "5174"}/api/uploads/webhook/processed`,
+  callbackUrl: resolveWebhookCallbackUrl(),
 });
 const {
   enqueueVideoTranscodeJob,
@@ -671,12 +708,7 @@ const apiDeps = {
   workerUrl: process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
   workerPort: process.env.WORKER_PORT || "8080",
   webhookSecret: process.env.WEBHOOK_SECRET || null,
-  webhookCallbackUrl:
-    process.env.WEBHOOK_URL ||
-    process.env.WEBHOOK_CALLBACK_URL ||
-    process.env.SONGBIRD_WEBHOOK_URL ||
-    process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
-    `http://127.0.0.1:${process.env.PORT || process.env.SERVER_PORT || "5174"}/api/uploads/webhook/processed`,
+  webhookCallbackUrl: resolveWebhookCallbackUrl(),
   ALLOWED_AVATAR_MIME_TYPES,
   redisClient,
   redisSessionStore,
@@ -1201,6 +1233,9 @@ if (REMOTE_CHANNEL) {
 
 const server = app.listen(port, bindAddress, () => {
   console.log(`Songbird server running on http://${bindAddress}:${port}`);
+  console.log(
+    `[server] Media worker webhook callback URL: ${apiDeps.webhookCallbackUrl}`,
+  );
   ensureLocalWorkerRunning({
     transcodeVideos: TRANSCODE_VIDEOS_TO_H264,
     getSetting,

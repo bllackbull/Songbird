@@ -5,6 +5,8 @@ import {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
+  GetBucketCorsCommand,
+  PutBucketCorsCommand,
   DeleteObjectCommand,
   HeadObjectCommand,
 } from "@aws-sdk/client-s3";
@@ -140,6 +142,37 @@ export class RemoteStorageProvider extends StorageProvider {
     });
 
     return await getSignedUrl(this.client, command, { expiresIn });
+  }
+
+  /**
+   * Read the bucket CORS policy. Returns [] when none is configured.
+   * @returns {Promise<object[]>}
+   */
+  async getCorsRules() {
+    try {
+      const res = await this.client.send(
+        new GetBucketCorsCommand({ Bucket: this.bucket }),
+      );
+      return res?.CORSRules || [];
+    } catch (err) {
+      if (err?.name === "NoSuchCORSConfiguration") return [];
+      throw err;
+    }
+  }
+
+  /**
+   * Replace the bucket CORS policy with the given rules.
+   * @param {object[]} rules
+   * @returns {Promise<boolean>}
+   */
+  async setCorsRules(rules) {
+    await this.client.send(
+      new PutBucketCorsCommand({
+        Bucket: this.bucket,
+        CORSConfiguration: { CORSRules: rules },
+      }),
+    );
+    return true;
   }
 
   /**

@@ -3,6 +3,8 @@ import path from "node:path";
 import { storageEncryption as defaultStorageEncryption } from "../lib/storageEncryption.js";
 import { dbKnex } from "../db/knex.js";
 import { dispatchMediaWorkerJob } from "../lib/mediaWorker.js";
+import { ensureBucketCorsForRequest } from "../lib/bucketCors.js";
+import { resolveWebhookCallbackUrl } from "../lib/webhookUrl.js";
 import { readEnvBool } from "../settings/env.js";
 
 export function registerRemoteUploadRoutes(app, deps) {
@@ -93,6 +95,31 @@ export function registerRemoteUploadRoutes(app, deps) {
   app.post("/api/uploads/presign", async (req, res) => {
     const session = authenticateSession(req, res);
     if (!session) return;
+
+    // Self-heal bucket CORS from the request's own origin (covers domains
+    // attached after first boot — no redeploy needed). Best-effort: presign
+    // continues regardless of the outcome. Opt-in via STORAGE_AUTO_CORS=true.
+    if (
+      String(process.env.STORAGE_AUTO_CORS ?? "false").toLowerCase() ===
+        "true" ||
+      String(process.env.STORAGE_AUTO_CORS ?? "false") === "1"
+    ) {
+      try {
+        const corsResult = await ensureBucketCorsForRequest(
+          storageProvider,
+          req,
+        );
+        if (corsResult.status === "applied") {
+          console.log(
+            `[server] Bucket CORS policy applied for presign origin (uploadsRemote).`,
+          );
+        } else if (corsResult.status === "error") {
+          console.warn(
+            `[server] Presign CORS self-heal failed: ${corsResult.error}`,
+          );
+        }
+      } catch (_) {}
+    }
 
     const {
       filename,
@@ -296,7 +323,6 @@ export function registerRemoteUploadRoutes(app, deps) {
       .toLowerCase()
       .startsWith("video/");
 
-    const defaultCallback = `http://127.0.0.1:${process.env.PORT || process.env.SERVER_PORT || "5174"}/api/uploads/webhook/processed`;
     const transcodeEnabled = deps.getSetting
       ? Boolean(deps.getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS"))
       : readEnvBool("FILE_UPLOAD_TRANSCODE_VIDEOS", true);
@@ -344,13 +370,7 @@ export function registerRemoteUploadRoutes(app, deps) {
           deps.webhookSecret !== undefined
             ? deps.webhookSecret
             : webhookSecret || process.env.WEBHOOK_SECRET || null,
-        callbackUrl:
-          deps.webhookCallbackUrl ||
-          process.env.WEBHOOK_URL ||
-          process.env.WEBHOOK_CALLBACK_URL ||
-          process.env.SONGBIRD_WEBHOOK_URL ||
-          process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
-          defaultCallback,
+        callbackUrl: deps.webhookCallbackUrl || resolveWebhookCallbackUrl(),
         fileId: file.id || fileId,
         storageKey: file.storage_key || storageKey,
         storedName: file.stored_name || file.storedName,

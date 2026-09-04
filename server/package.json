@@ -46,7 +46,8 @@
     "db:chat:inspect": "/bin/bash -p ../scripts/run-data-command.sh node scripts/inspect-db.js chat",
     "db:user:inspect": "/bin/bash -p ../scripts/run-data-command.sh node scripts/inspect-db.js user",
     "db:file:inspect": "/bin/bash -p ../scripts/run-data-command.sh node scripts/inspect-db.js file",
-    "remote:configure": "node scripts/configure-remote-channel.js"
+    "remote:configure": "node scripts/configure-remote-channel.js",
+    "storage:cors": "node scripts/configure-bucket-cors.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1103.0",
