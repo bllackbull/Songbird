@@ -165,6 +165,9 @@ curl -x http://your-proxy:3128 https://fcm.googleapis.com
 | Uploads disabled | Set `FILE_UPLOAD=true`. |
 | Nginx rejects large bodies (`413`) | Set `client_max_body_size` to match `FILE_UPLOAD_MAX_TOTAL_SIZE_MB` (for `STORAGE_DRIVER=local`). |
 | CORS error in browser on R2/S3 upload | Configure CORS policy on your bucket allowing `PUT`, `GET`, `HEAD`, `POST`, origin domain, and `ETag` expose header. See [Object Storage CORS](./Object-Storage.md#cloudflare-r2--s3-cors-configuration-requirements). |
+| CORS error in browser on Railway bucket upload | With `STORAGE_AUTO_CORS=true` (set in `.railway/railway.ts`) the server configures this itself — check server logs for `Bucket CORS policy applied` / `already configured`. If you see a CORS auto-configuration warning, apply it manually: `npm --prefix server run storage:cors -- --origin https://your-app.up.railway.app`. |
+| Worker logs `Failed to notify callback` with an empty port (`...internal:/api/...`) | Do not template `PORT` in `WEBHOOK_URL` — Railway injects it at container runtime so no IaC reference can capture it. Leave `WEBHOOK_URL` unset so the server derives it from `RAILWAY_PRIVATE_DOMAIN` + `PORT` (see `server/lib/webhookUrl.js`). |
+| Worker logs `Failed to notify callback` (connection refused) | The app must accept IPv6 private-network traffic: set `BIND_ADDRESS=::` (dual-stack) on Railway. Also confirm both services finished redeploying and the app is reachable at its `WORKER_URL`/`WEBHOOK_URL` host and port. |
 | `403 Forbidden` on presigned PUT/GET | Verify `STORAGE_ACCESS_KEY_ID`, `STORAGE_SECRET_ACCESS_KEY`, bucket permissions, and system clock sync. |
 | Presigned URL generation error (500) | Check `STORAGE_ENDPOINT`, `STORAGE_BUCKET`, and server logs for S3 SDK initialization errors. |
 | Browser cannot reach storage endpoint | Ensure `STORAGE_ENDPOINT` is a public HTTPS URL accessible from end-user networks. |

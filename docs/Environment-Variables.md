@@ -50,6 +50,8 @@ nano .env
 | `STORAGE_ACCESS_KEY_ID` | `string` | `""` | Storage Access Key ID. |
 | `STORAGE_SECRET_ACCESS_KEY` | `string` | `""` | Storage Secret Access Key. |
 | `STORAGE_PUBLIC_URL` | `string` | `""` | Optional custom CDN domain URL prefix (e.g. `https://cdn.example.com`). |
+| `APP_PUBLIC_URL` | `string` | `""` | Public origin(s) of the app UI (comma-separated) allowed to upload straight to the bucket. Auto-detected when empty. |
+| `STORAGE_AUTO_CORS` | `boolean` | `false` | Configure bucket CORS for browser uploads automatically. |
 | `STORAGE_EXPIRES_IN` | `integer` | `3600` | Expiration time in seconds for presigned URLs. |
 | `STORAGE_FORCE_PATH_STYLE` | `boolean` | `true` | Enable path-style URL syntax (`true` recommended for MinIO, R2, ArvanCloud, etc.). |
 | `WORKER_URL` | `string` | `""` | External media processing worker base URL for HTTP push transcoding (e.g. `https://worker.example.com`). |

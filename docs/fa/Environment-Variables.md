@@ -50,6 +50,8 @@ nano .env
 | `STORAGE_ACCESS_KEY_ID` | `string` | `""` | کلید دسترسی Storage Access Key ID. |
 | `STORAGE_SECRET_ACCESS_KEY` | `string` | `""` | کلید محرمانه Storage Secret Access Key. |
 | `STORAGE_PUBLIC_URL` | `string` | `""` | پیشوند URL اختیاری دامنه CDN (مانند `https://cdn.example.com`). |
+| `APP_PUBLIC_URL` | `string` | `""` | آدرس عمومی رابط کاربری (با کاما جدا شود) که مجاز به آپلود مستقیم در باکت است. در صورت خالی بودن تشخیص داده میشود. |
+| `STORAGE_AUTO_CORS` | `boolean` | `false` | تنظیم خودکار CORS باکت برای آپلود مرورگر. |
 | `STORAGE_EXPIRES_IN` | `integer` | `3600` | زمان انقضا به ثانیه برای Presigned URLها. |
 | `STORAGE_FORCE_PATH_STYLE` | `boolean` | `true` | فعال سازی ساختار URL به روش path-style (مقدار `true` برای MinIO، R2، ArvanCloud توصیه میشود). |
 | `WORKER_URL` | `string` | `""` | آدرس پایه worker خارجی پردازش رسانه برای ترنسکد با HTTP push (مانند `https://worker.example.com`). |

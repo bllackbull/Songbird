@@ -108,6 +108,51 @@ STORAGE_DRIVER=remote
 
 > **نکته**: آدرس `https://chat.example.com` را با دامین واقعی خود جایگزین کنید (یا برای تست اولیه از `*` استفاده کنید). متد `PUT`، هدرهای مجاز `*` و هدر اکسپوز شده `ETag` برای کارکرد صحیح آپلود مستقیم مرورگر ضروری هستند.
 
+### تنظیم CORS در باکت Railway
+
+ برنامه خودش سیاست CORS باکت را تنظیم میکند. هم هنگام اجرا بررسی میکند و مهم تر اینکه با هر درخواست Presigned-URL نیز با استفاده از آدرس همان درخواست بررسی مجدد میکند — پس حتی دامینی که *بعد* از اولین دیپلوی متصل شود، از همان آپلود بعدی بدون نیاز به دیپلوی مجدد کار میکند. قوانین با سیاست موجود ادغام میشود و هنگام تغییر عبارت `Bucket CORS policy applied` در لاگ نوشته میشود. پیکربندی خودکار با `STORAGE_AUTO_CORS=true` فعال میشود (در `.railway/railway.ts` از پیش تنظیم شده است).
+
+اگر در لاگ سرور هشدار پیکربندی خودکار دیدید (مثلاً دسترسی `s3:PutBucketCORS` در کلیدهای باکت نیست)، یک بار دستی از هر سیستمی که به اینترنت دسترسی دارد با اطلاعات تب **Credentials** باکت این اسکریپت را اجرا کنید (`BUCKET` همان نام هشدار S3 است، نه نام نمایشی):
+
+```shell
+npm --prefix server run storage:cors -- --origin https://your-app.up.railway.app
+```
+
+اطلاعات اتصال از روی فلگ ها یا متغیرهای محیطی خوانده میشود (`--bucket` / `STORAGE_BUCKET`، `--endpoint` / `STORAGE_ENDPOINT`، `--region` / `STORAGE_REGION`، `--access-key-id`، `--secret-access-key`)، پس میتوانید مقادیر Railway را مستقیم بدهید بدون اینکه `.env` را تغییر دهید:
+
+```shell
+STORAGE_BUCKET=<BUCKET> STORAGE_ENDPOINT=<STORAGE_ENDPOINT> STORAGE_REGION=<REGION> \
+STORAGE_ACCESS_KEY_ID=<ACCESS_KEY_ID> STORAGE_SECRET_ACCESS_KEY=<SECRET_ACCESS_KEY> \
+  npm --prefix server run storage:cors -- --origin https://your-app.up.railway.app
+```
+
+با فلگ `--show` میتوانید سیاست فعلی را بدون تغییر نمایش دهید. مقدار `--origin` را با دامین عمومی برنامه خود جایگزین کنید (دقیقاً scheme به همراه host، بدون اسلش انتهایی؛ برای چند دامین قابل تکرار است). نیازی به دیپلوی مجدد نیست — سیاست بلافاصله اعمال میشود.
+
+<details>
+<summary>روش جایگزین با AWS CLI</summary>
+
+```shell
+AWS_ACCESS_KEY_ID=<ACCESS_KEY_ID> \
+AWS_SECRET_ACCESS_KEY=<SECRET_ACCESS_KEY> \
+  aws s3api put-bucket-cors \
+  --bucket <BUCKET> \
+  --endpoint-url <STORAGE_ENDPOINT> \
+  --region <REGION> \
+  --cors-configuration '{
+    "CORSRules": [
+      {
+        "AllowedHeaders": ["*"],
+        "AllowedMethods": ["GET", "PUT", "HEAD", "POST"],
+        "AllowedOrigins": ["https://your-app.up.railway.app"],
+        "ExposeHeaders": ["ETag"],
+        "MaxAgeSeconds": 3600
+      }
+    ]
+  }'
+```
+
+</details>
+
 ## راهنمای راه اندازی Cloudflare R2
 
 سرویس Cloudflare R2 یک ذخیره سازی ابری سازگار با S3 بدون هزینه پهنای باند خروجی (Egress) است که آن را به گزینه ای عالی برای میزبانی فایل های پیوست و آواتارهای Songbird تبدیل میکند.

@@ -87,6 +87,118 @@ For stateless, zero-downtime PaaS deployments:
    STORAGE_REGION=auto
    ```
 
+### Railway (Infrastructure as Code)
+
+Songbird includes an automated **Infrastructure as Code (IaC)** configuration at `.railway/railway.ts` for one-click, reproducible multi-service deployment on [Railway](https://railway.com).
+
+#### Architecture & Resources Provisioned
+
+The Railway IaC configuration programmatically creates and interconnects a full-stack Songbird topology under a single `"songbird"` project group:
+
+```txt
+┌────────────────────────────────────────────────────────────────────────┐
+│                        Railway Project Canvas                          │
+│                                                                        │
+│   ┌─────────────────────────── "songbird" Group ──────────────────┐    │
+│   │                                                               │    │
+│   │   ┌──────────────────┐               ┌────────────────────┐   │    │
+│   │   │  PostgreSQL      │◀──────────────│  Songbird App      │   │    │
+│   │   │  (Managed DB)    │  DATABASE_URL │  (Web & API)       │   │    │
+│   │   └──────────────────┘               └────────┬───────────┘   │    │
+│   │                                               │               │    │
+│   │                                  Private Mesh │ Webhook &     │    │
+│   │                                       Network │ Worker URL    │    │
+│   │                                               │               │    │
+│   │   ┌──────────────────┐               ┌────────▼───────────┐   │    │
+│   │   │  Uploads Bucket  │◀──────────────│  Songbird Worker   │   │    │
+│   │   │  (S3 Storage)    │  S3 Driver    │  (Media Transcoder)│   │    │
+│   │   └────────▲─────────┘               └────────────────────┘   │    │
+│   │            │                                  │               │    │
+│   │            └──────────────────────────────────┘               │    │
+│   │                        S3 Driver                              │    │
+│   └───────────────────────────────────────────────────────────────┘    │
+│                                                                        │
+│                                    ▲                                   │
+│                                    │ Public Ingress                    │
+│                              Public Domain                             │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Step-by-Step Deployment Guide
+
+Follow these steps to deploy Songbird on Railway using the Railway CLI:
+
+##### Step 1: Install Railway CLI
+
+```bash
+npm i -g @railway/cli
+# or macOS Homebrew
+brew install railway
+```
+
+##### Step 2: Authenticate with Railway
+
+```bash
+railway login
+```
+
+##### Step 3: Initialize or Link the Project
+
+Navigate to your local clone of the Songbird repository and initialize a new project or link to an existing one:
+
+```bash
+railway init
+# or to link an existing project:
+railway link
+```
+
+##### Step 4: Deploy the IaC Stack
+
+Deploy the code. Railway automatically recognizes `.railway/railway.ts` and provisions the database, object storage bucket, worker, and main application:
+
+```bash
+railway up
+```
+
+##### Step 5: Expose Public Domain for Songbird App
+
+By default, Railway services run within private networking. To make Songbird accessible to users:
+
+1. In the [Railway Dashboard](https://railway.com/dashboard), click on the **songbird-server** service.
+
+2. Navigate to **Settings** > **Networking** > **Public Networking**.
+
+3. Click **Generate Domain** (or attach your own custom domain).
+
+Alternatively, generate a domain using the CLI:
+
+```bash
+railway domain --service songbird-server
+```
+
+### Render (Blueprint)
+
+Songbird ships a [Render Blueprint](https://render.com/docs/blueprints) at `render.yaml`: a single Docker web service (`songbird`) backed by managed PostgreSQL. Unlike the Railway topology there is no separate worker service — the container entrypoint auto-starts an in-container Media Worker (`WORKER_PORT=8080`) next to the app, which itself listens on Render's `PORT`, so the two never collide.
+
+#### What Gets Provisioned
+
+- **`songbird` web service** — built from the root `Dockerfile` (Vite frontend + Express backend), health check at `/api/health`.
+- **Managed PostgreSQL** — connect it via `POSTGRES_URL` (use the database's *internal* connection string) with `POSTGRES_SSL=true`.
+
+#### Setup
+
+1. Push the repository to GitHub, then in the [Render Dashboard](https://dashboard.render.com) choose **New → Blueprint** and select the repo — `render.yaml` is detected automatically.
+2. Fill in the secrets Render prompts for: `POSTGRES_URL` plus the object-storage settings (`STORAGE_ENDPOINT`, `STORAGE_BUCKET`, `STORAGE_ACCESS_KEY_ID`, `STORAGE_SECRET_ACCESS_KEY`, optional `STORAGE_PUBLIC_URL`).
+3. Deploy. No further storage wiring is needed:
+   - Bucket CORS self-configures from `RENDER_EXTERNAL_URL` (`STORAGE_AUTO_CORS=true` is pre-set in the Blueprint).
+   - The worker callback URL auto-derives to the service's public URL — `WEBHOOK_URL` can stay empty.
+
+#### Notes & Limitations
+
+- **Ephemeral filesystem**: keep `STORAGE_DRIVER=remote` with external PostgreSQL (Strategy B above). Never rely on local disk on Render.
+- **Free-plan sleeping**: the instance (and the in-container worker with it) sleeps after inactivity, so the first request or upload after idle wakes it with a cold-start delay.
+- **Single instance**: stay on one instance on free/starter plans. Horizontal scale-out needs shared PostgreSQL + object storage + Redis as described under *Deploying on CaaS & Kubernetes* below.
+
 ## 2. Deploying on CaaS & Kubernetes
 
 You can run Songbird in containerized environments using the official pre-built Docker images from Docker Hub:

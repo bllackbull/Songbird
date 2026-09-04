@@ -197,9 +197,8 @@ You can deploy the Media Worker as a standalone Web Service on any cloud contain
 
 #### Railway / Fly.io
 
-- Build from `worker/Dockerfile` with root context.
-- Expose the HTTP port defined in `WORKER_PORT` (`8080`).
-- Ensure the worker service has outbound Internet access to reach your object storage endpoint and Songbird `WEBHOOK_URL`.
+- **Automated Deployment (Railway IaC)**: Songbird includes a ready-to-use Infrastructure as Code configuration at `.railway/railway.ts` that automatically provisions the `songbird-worker` service alongside the main application, PostgreSQL, and object storage bucket with zero manual configuration. See the [Cloud Deployment Guide](./Cloud-Deployment.md#railway-infrastructure-as-code) for full details.
+- **Manual Setup (Railway / Fly.io)**: Build from `worker/Dockerfile` with root directory context `worker`. Expose the HTTP port defined in `WORKER_PORT` (`8080`). Ensure the worker service has outbound Internet access to reach your object storage endpoint and Songbird `WEBHOOK_URL`.
 
 ### 4. Manual Systemd Service (Linux VPS)
 

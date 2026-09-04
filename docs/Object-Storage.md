@@ -112,6 +112,51 @@ Apply the following CORS configuration to your Cloudflare R2 or S3 bucket:
 
 > **Note**: Replace `https://chat.example.com` with your domain (or use `*` during initial testing). The `PUT` method, `*` allowed headers, and `ETag` exposed header are required for browser presigned uploads to function properly.
 
+### Railway Bucket CORS Setup
+
+Songbird configures the bucket CORS policy itself. It checks on boot and, more importantly, re-checks on every presigned-upload request using that request's own origin — so even a domain attached *after* the first deploy starts working on the very next upload with no redeploy. Rules are merged into the existing policy without touching your other rules, and the server logs `Bucket CORS policy applied` when it changes anything. Auto-configuration is opt-in via `STORAGE_AUTO_CORS=true` (pre-configured in `.railway/railway.ts`).
+
+If the server logs a CORS auto-configuration warning instead (e.g. your bucket credentials lack the `s3:PutBucketCORS` permission), apply the policy manually once from any machine with network access using the credentials from your bucket's **Credentials** tab (`BUCKET` is the hashed S3 API name, not the display name):
+
+```shell
+npm --prefix server run storage:cors -- --origin https://your-app.up.railway.app
+```
+
+Credentials resolve from flags or environment (`--bucket` / `STORAGE_BUCKET`, `--endpoint` / `STORAGE_ENDPOINT`, `--region` / `STORAGE_REGION`, `--access-key-id`, `--secret-access-key`), so you can also pass the Railway values inline without touching `.env`:
+
+```shell
+STORAGE_BUCKET=<BUCKET> STORAGE_ENDPOINT=<STORAGE_ENDPOINT> STORAGE_REGION=<REGION> \
+STORAGE_ACCESS_KEY_ID=<ACCESS_KEY_ID> STORAGE_SECRET_ACCESS_KEY=<SECRET_ACCESS_KEY> \
+  npm --prefix server run storage:cors -- --origin https://your-app.up.railway.app
+```
+
+Use `--show` to print the live policy without changing it. Replace `--origin` with your app's public domain (exact scheme + host, no trailing slash; repeatable for multiple domains). No redeploy is needed — the policy applies immediately.
+
+<details>
+<summary>AWS CLI alternative</summary>
+
+```shell
+AWS_ACCESS_KEY_ID=<ACCESS_KEY_ID> \
+AWS_SECRET_ACCESS_KEY=<SECRET_ACCESS_KEY> \
+  aws s3api put-bucket-cors \
+  --bucket <BUCKET> \
+  --endpoint-url <STORAGE_ENDPOINT> \
+  --region <REGION> \
+  --cors-configuration '{
+    "CORSRules": [
+      {
+        "AllowedHeaders": ["*"],
+        "AllowedMethods": ["GET", "PUT", "HEAD", "POST"],
+        "AllowedOrigins": ["https://your-app.up.railway.app"],
+        "ExposeHeaders": ["ETag"],
+        "MaxAgeSeconds": 3600
+      }
+    ]
+  }'
+```
+
+</details>
+
 ## Cloudflare R2 Setup Guide
 
 Cloudflare R2 is an S3-compatible object storage service with zero egress fees, making it an ideal choice for hosting Songbird media attachments and avatars.
