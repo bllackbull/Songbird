@@ -35,7 +35,7 @@ should_start_local_worker() {
 
 if should_start_local_worker; then
   echo "[entrypoint] Starting local Songbird Media Worker on port ${WORKER_PORT}..."
-  WORKER_PORT="${WORKER_PORT}" DATA_DIR="${DATA_DIR:-/app/data}" node /app/worker/index.js &
+  WORKER_PORT="${WORKER_PORT}" PORT="${WORKER_PORT}" DATA_DIR="${DATA_DIR:-/app/data}" node /app/worker/index.js &
 fi
 
 exec "$@"

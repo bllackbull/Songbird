@@ -135,6 +135,7 @@ export async function ensureLocalWorkerRunning(options = {}) {
       env: {
         ...process.env,
         WORKER_PORT: String(workerPort),
+        PORT: String(workerPort),
         DATA_DIR: dataDir,
       },
       stdio: "ignore",
