@@ -23,7 +23,7 @@ if (typeof process.loadEnvFile === "function") {
   try { process.loadEnvFile(path.join(workerDir, ".env")); } catch {}
 }
 
-const PORT = Number(process.env.WORKER_PORT || 8080);
+const PORT = Number(process.env.PORT || process.env.WORKER_PORT || 8080);
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "";
 const WORKER_CONCURRENCY = Math.max(
   1,
@@ -106,6 +106,51 @@ export const isLoopbackUrl = (url) => {
   }
 };
 
+export const isMissingKeyError = (err) => {
+  if (!err) return false;
+  const code = String(err.Code || err.code || err.name || "");
+  if (["NoSuchKey", "NotFound", "NoSuchKeyException"].includes(code)) {
+    return true;
+  }
+  return err?.$metadata?.httpStatusCode === 404;
+};
+
+const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Download retry for the upload/download race: the job may be dispatched
+ * just before the object becomes readable (slow client upload, eventual
+ * consistency). Only missing-key errors are retried; anything else fails
+ * fast so genuinely broken jobs do not hang the queue.
+ */
+export async function downloadWithRetry(
+  downloadFn,
+  {
+    attempts = 6,
+    baseDelayMs = 1000,
+    maxDelayMs = 15000,
+    sleep = defaultSleep,
+  } = {},
+) {
+  let lastErr = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      await downloadFn();
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (!isMissingKeyError(err) || attempt === attempts) throw err;
+      const delayMs = Math.min(maxDelayMs, baseDelayMs * 2 ** (attempt - 1));
+      console.warn(
+        `[worker] Object not yet available (attempt ${attempt}/${attempts}), retrying in ${delayMs}ms:`,
+        err?.message || err,
+      );
+      await sleep(delayMs);
+    }
+  }
+  throw lastErr;
+}
+
 async function notifyCallback(url, payload, secret, maxRetries = 5) {
   if (!url) {
     console.warn(
@@ -182,17 +227,21 @@ async function processTranscodeJob({
   );
 
   try {
-    if (downloadUrl) {
-      const res = await fetch(downloadUrl);
-      if (!res.ok) {
-        throw new Error(
-          `Failed to download from downloadUrl: HTTP ${res.status}`,
-        );
+    await downloadWithRetry(async () => {
+      if (downloadUrl) {
+        const res = await fetch(downloadUrl);
+        if (!res.ok) {
+          const downloadErr = new Error(
+            `Failed to download from downloadUrl: HTTP ${res.status}`,
+          );
+          if (res.status === 404) downloadErr.code = "NotFound";
+          throw downloadErr;
+        }
+        await pipeline(res.body, fs.createWriteStream(inputPath));
+      } else {
+        await effectiveStorage.downloadToPath(storageKey, inputPath);
       }
-      await pipeline(res.body, fs.createWriteStream(inputPath));
-    } else {
-      await effectiveStorage.downloadToPath(storageKey, inputPath);
-    }
+    });
 
     let workingInputPath = inputPath;
     let decryptCleanup = () => {};
