@@ -1539,6 +1539,7 @@ prepare_install_dir_for_offline() {
 find_offline_source_zip() {
   local zip_name="songbird.zip"
   local candidates=(
+    "$(pwd)/${zip_name}"
     "$HOME/${zip_name}"
     "/root/${zip_name}"
     "/${zip_name}"
@@ -1574,20 +1575,27 @@ find_restore_backup_path() {
 
 resolve_offline_source_root() {
   local tmp_dir="$1"
-  if [[ -f "$tmp_dir/package.json" && -d "$tmp_dir/server" && -d "$tmp_dir/client" ]]; then
+  if [[ -f "$tmp_dir/package.json" && -d "$tmp_dir/server" && -d "$tmp_dir/client" && -d "$tmp_dir/worker" ]]; then
     printf "%s" "$tmp_dir"
     return 0
   fi
-  local entry_count
-  entry_count="$(find "$tmp_dir" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d '[:space:]')"
-  if [[ "$entry_count" -eq 1 ]]; then
-    local only_dir
-    only_dir="$(find "$tmp_dir" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
-    if [[ -f "$only_dir/package.json" && -d "$only_dir/server" && -d "$only_dir/client" ]]; then
-      printf "%s" "$only_dir"
-      return 0
+  local match=""
+  local dir=""
+  while IFS= read -r dir; do
+    [[ -z "$dir" ]] && continue
+    if [[ -f "$dir/package.json" && -d "$dir/server" && -d "$dir/client" && -d "$dir/worker" ]]; then
+      if [[ -n "$match" ]]; then
+        return 1
+      fi
+      match="$dir"
     fi
+  done < <(find "$tmp_dir" -mindepth 1 -maxdepth 1 -type d)
+
+  if [[ -n "$match" ]]; then
+    printf "%s" "$match"
+    return 0
   fi
+
   return 1
 }
 
@@ -1596,7 +1604,7 @@ ensure_offline_source_ready() {
   local zip_path=""
   zip_path="$(find_offline_source_zip)" || zip_path=""
   if [[ -z "$zip_path" ]]; then
-    warn "Offline ${mode_label} requires /songbird.zip to be available at the filesystem root."
+    warn "Offline ${mode_label} requires songbird.zip to be available in the current directory, user home, /root, or /."
     press_enter_to_continue
     return 1
   fi
@@ -1622,7 +1630,7 @@ extract_offline_source_zip() {
   local source_root
   source_root="$(resolve_offline_source_root "$tmp_dir")" || {
     run_silent run_as_root rm -rf "$tmp_dir"
-    warn "Source zip does not appear to contain Songbird (missing server/client/package.json)."
+    warn "Source zip does not appear to contain Songbird (missing server/client/worker/package.json)."
     return 1
   }
 

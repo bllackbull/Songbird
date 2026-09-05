@@ -455,7 +455,7 @@ setup_version_dirs() {
   SOURCE_ROOT="$TEST_DIR/source"
   INSTALL_ROOT="$TEST_DIR/installed"
   mkdir -p "$SOURCE_ROOT" "$INSTALL_ROOT"
-  mkdir -p "$SOURCE_ROOT/server" "$SOURCE_ROOT/client"
+  mkdir -p "$SOURCE_ROOT/server" "$SOURCE_ROOT/client" "$SOURCE_ROOT/worker"
   printf "%s\n" "$source_ver" > "$SOURCE_ROOT/VERSION"
   printf "%s\n" "$install_ver" > "$INSTALL_ROOT/VERSION"
   # Provide a minimal package.json so the structure is valid
@@ -536,7 +536,7 @@ setup_version_dirs() {
 
 make_valid_source_dir() {
   local dir="$1"
-  mkdir -p "$dir/server" "$dir/client"
+  mkdir -p "$dir/server" "$dir/client" "$dir/worker"
   echo '{}' > "$dir/package.json"
 }
 
@@ -555,6 +555,24 @@ make_valid_source_dir() {
   [ "$result" = "$inner" ]
 }
 
+@test "resolve_offline_source_root: ignores extra non-source directories like __MACOSX" {
+  wrapper="$TEST_DIR/wrapper_extra"
+  inner="$wrapper/Songbird-main"
+  macosx="$wrapper/__MACOSX"
+  make_valid_source_dir "$inner"
+  mkdir -p "$macosx"
+  result="$(resolve_offline_source_root "$wrapper")"
+  [ "$result" = "$inner" ]
+}
+
+@test "resolve_offline_source_root: returns non-zero when worker directory is missing" {
+  missing_worker="$TEST_DIR/missing_worker"
+  mkdir -p "$missing_worker/server" "$missing_worker/client"
+  echo '{}' > "$missing_worker/package.json"
+  run resolve_offline_source_root "$missing_worker"
+  [ "$status" -ne 0 ]
+}
+
 @test "resolve_offline_source_root: returns non-zero when no valid source found" {
   empty="$TEST_DIR/empty_dir"
   mkdir -p "$empty"
@@ -567,6 +585,42 @@ make_valid_source_dir() {
   mkdir -p "$multi/a" "$multi/b"
   run resolve_offline_source_root "$multi"
   [ "$status" -ne 0 ]
+}
+
+@test "find_offline_source_zip: finds songbird.zip in current working directory" {
+  local fake_work_dir="$TEST_DIR/work"
+  mkdir -p "$fake_work_dir"
+  touch "$fake_work_dir/songbird.zip"
+  (
+    cd "$fake_work_dir"
+    result="$(find_offline_source_zip)"
+    [ "$result" = "$fake_work_dir/songbird.zip" ]
+  )
+}
+
+@test "install_source_from_zip: copies server, client, worker directories into INSTALL_DIR" {
+  local zip_file="$TEST_DIR/songbird.zip"
+  local staging="$TEST_DIR/staging"
+  mkdir -p "$staging/server" "$staging/client" "$staging/worker"
+  echo '{"name":"songbird"}' > "$staging/package.json"
+  echo "console.log('worker');" > "$staging/worker/index.js"
+  echo "console.log('server');" > "$staging/server/index.js"
+  echo "export default {};" > "$staging/client/index.html"
+  (
+    cd "$staging"
+    zip -q -r "$zip_file" .
+  )
+
+  local target_install_dir="$TEST_DIR/test_target_install"
+  INSTALL_DIR="$target_install_dir"
+  apply_ownership() { return 0; }
+  export -f apply_ownership
+
+  run install_source_from_zip "$zip_file"
+  [ "$status" -eq 0 ]
+  [ -f "$target_install_dir/worker/index.js" ]
+  [ -f "$target_install_dir/server/index.js" ]
+  [ -f "$target_install_dir/package.json" ]
 }
 
 # ===========================================================================
@@ -1090,7 +1144,7 @@ setup_test_git_repo() {
   printf "0.12.0\n" > "$INSTALL_DIR/VERSION"
 
   local src_dir="$TEST_DIR/zip-content"
-  mkdir -p "$src_dir/server" "$src_dir/client"
+  mkdir -p "$src_dir/server" "$src_dir/client" "$src_dir/worker"
   printf "0.10.0\n" > "$src_dir/VERSION"
   echo '{}' > "$src_dir/package.json"
 
@@ -1122,7 +1176,7 @@ setup_test_git_repo() {
   printf "0.12.0\n" > "$INSTALL_DIR/VERSION"
 
   local src_dir="$TEST_DIR/zip-content"
-  mkdir -p "$src_dir/server" "$src_dir/client"
+  mkdir -p "$src_dir/server" "$src_dir/client" "$src_dir/worker"
   printf "0.10.0\n" > "$src_dir/VERSION"
   echo '{}' > "$src_dir/package.json"
 
