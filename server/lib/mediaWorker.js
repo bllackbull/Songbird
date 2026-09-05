@@ -2,7 +2,11 @@ import { readEnvBool } from "../settings/env.js";
 
 async function sendTranscodeRequest(workerUrl, payload, webhookSecret, fetchImpl) {
   if (!workerUrl) return false;
-  const endpoint = `${String(workerUrl).replace(/\/+$/, "")}/transcode`;
+  let cleanUrl = String(workerUrl).trim();
+  while (cleanUrl.endsWith("/")) {
+    cleanUrl = cleanUrl.slice(0, -1);
+  }
+  const endpoint = `${cleanUrl}/transcode`;
   const res = await fetchImpl(endpoint, {
     method: "POST",
     headers: {
@@ -147,7 +151,9 @@ export async function dispatchMediaWorkerJob({
       );
     } catch (err) {
       console.warn(
-        `[mediaWorker] Failed to dispatch to local worker (${localWorkerUrl}) for file ${fileId}:`,
+        "[mediaWorker] Failed to dispatch to local worker (%s) for file %s:",
+        localWorkerUrl,
+        fileId,
         err?.message || err,
       );
       return false;
@@ -168,7 +174,9 @@ export async function dispatchMediaWorkerJob({
       );
     } catch (err) {
       console.warn(
-        `[mediaWorker] Failed to dispatch to remote worker (${configuredRemoteUrl}) for file ${fileId}:`,
+        "[mediaWorker] Failed to dispatch to remote worker (%s) for file %s:",
+        configuredRemoteUrl,
+        fileId,
         err?.message || err,
       );
       return false;
@@ -206,7 +214,10 @@ export async function dispatchMediaWorkerJob({
         }
       } catch (err) {
         console.warn(
-          `[mediaWorker] Attempt ${attempt} to remote worker (${configuredRemoteUrl}) failed for file ${fileId}:`,
+          "[mediaWorker] Attempt %d to remote worker (%s) failed for file %s:",
+          attempt,
+          configuredRemoteUrl,
+          fileId,
           err?.message || err,
         );
       }
@@ -239,7 +250,9 @@ export async function dispatchMediaWorkerJob({
     );
   } catch (err) {
     console.warn(
-      `[mediaWorker] Failed to dispatch to local worker (${localWorkerUrl}) for file ${fileId}:`,
+      "[mediaWorker] Failed to dispatch to local worker (%s) for file %s:",
+      localWorkerUrl,
+      fileId,
       err?.message || err,
     );
     return false;

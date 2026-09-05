@@ -107,7 +107,8 @@ export function createStorage({
         }
       } catch (err) {
         console.warn(
-          `[worker] Failed to delete local file ${key}:`,
+          "[worker] Failed to delete local file %s:",
+          key,
           err?.message || err,
         );
       }
@@ -154,7 +155,8 @@ export function createStorage({
       );
     } catch (err) {
       console.warn(
-        `[worker] Failed to delete file ${key}:`,
+        "[worker] Failed to delete file %s:",
+        key,
         err?.message || err,
       );
     }

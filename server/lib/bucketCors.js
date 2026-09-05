@@ -4,9 +4,10 @@ const REQUIRED_METHODS = ["GET", "PUT", "HEAD", "POST"];
 const COVERAGE_METHODS = ["GET", "PUT", "HEAD"];
 
 export function normalizeOrigin(value) {
-  const raw = String(value || "")
-    .trim()
-    .replace(/\/+$/, "");
+  let raw = String(value || "").trim();
+  while (raw.endsWith("/")) {
+    raw = raw.slice(0, -1);
+  }
   if (!raw) return "";
   if (/^https?:\/\//i.test(raw)) return raw;
   return `https://${raw}`;

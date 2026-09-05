@@ -142,7 +142,10 @@ export async function downloadWithRetry(
       if (!isMissingKeyError(err) || attempt === attempts) throw err;
       const delayMs = Math.min(maxDelayMs, baseDelayMs * 2 ** (attempt - 1));
       console.warn(
-        `[worker] Object not yet available (attempt ${attempt}/${attempts}), retrying in ${delayMs}ms:`,
+        "[worker] Object not yet available (attempt %d/%d), retrying in %dms:",
+        attempt,
+        attempts,
+        delayMs,
         err?.message || err,
       );
       await sleep(delayMs);
@@ -183,7 +186,11 @@ async function notifyCallback(url, payload, secret, maxRetries = 5) {
       );
     } catch (err) {
       console.error(
-        `[worker] Failed to notify callback ${url} for file ${payload.fileId} (attempt ${attempt}/${maxRetries}):`,
+        "[worker] Failed to notify callback %s for file %s (attempt %d/%d):",
+        url,
+        payload.fileId,
+        attempt,
+        maxRetries,
         err?.message || err,
       );
     }
@@ -279,7 +286,8 @@ async function processTranscodeJob({
           usedTranscodedFile = true;
         } catch (faststartErr) {
           console.warn(
-            `[worker] Faststart copy skipped for file ${fileId}:`,
+            "[worker] Faststart copy skipped for file %s:",
+            fileId,
             faststartErr?.message,
           );
           finalOutputPath = workingInputPath;
@@ -313,7 +321,8 @@ async function processTranscodeJob({
         }
       } catch (thumbErr) {
         console.warn(
-          `[worker] Thumbnail generation skipped for file ${fileId}:`,
+          "[worker] Thumbnail generation skipped for file %s:",
+          fileId,
           thumbErr?.message,
         );
         thumbStorageKey = null;
@@ -359,7 +368,7 @@ async function processTranscodeJob({
         }
       }
 
-      console.log(`[worker] Process completed for file ${fileId}:`, {
+      console.log("[worker] Process completed for file %s:", fileId, {
         transcodedStorageKey,
         thumbStorageKey,
         meta,
@@ -378,9 +387,9 @@ async function processTranscodeJob({
     } finally {
       decryptCleanup();
     }
-  } catch (err) {
-    console.error(`[worker] Transcode failed for file ${fileId}:`, err);
-    await notifyCallback(targetCallback, {
+    } catch (err) {
+      console.error("[worker] Transcode failed for file %s:", fileId, err);
+      await notifyCallback(targetCallback, {
       fileId,
       status: "failed",
     }, webhookSecret);

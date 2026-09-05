@@ -1247,8 +1247,9 @@ function registerChatRoutes(app, deps) {
         }
         return res.json({ ok: true, deleted: true });
       }
-      const nextOwner =
-        remainingMembers[Math.floor(Math.random() * remainingMembers.length)];
+      const nextOwner = crypto?.randomInt
+        ? remainingMembers[crypto.randomInt(remainingMembers.length)]
+        : remainingMembers[Math.floor(Math.random() * remainingMembers.length)];
       if (nextOwner?.id) {
         await resolveMaybePromise(setChatMemberRole(chatId, nextOwner.id, "owner"));
       }

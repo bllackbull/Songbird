@@ -1,5 +1,6 @@
 import { describe, test, expect, vi, beforeEach } from "vitest";
 import {
+  normalizeOrigin,
   resolveAppOrigins,
   ruleCoversOrigins,
   ensureBucketCors,
@@ -7,6 +8,29 @@ import {
   ensureBucketCorsForRequest,
   clearBucketCorsRequestCache,
 } from "../../lib/bucketCors.js";
+
+describe("normalizeOrigin", () => {
+  test("handles empty or null values", () => {
+    expect(normalizeOrigin("")).toBe("");
+    expect(normalizeOrigin(null)).toBe("");
+    expect(normalizeOrigin(undefined)).toBe("");
+  });
+
+  test("strips single and multiple trailing slashes", () => {
+    expect(normalizeOrigin("https://example.com/")).toBe("https://example.com");
+    expect(normalizeOrigin("https://example.com///")).toBe("https://example.com");
+  });
+
+  test("adds https scheme to bare domains", () => {
+    expect(normalizeOrigin("example.com")).toBe("https://example.com");
+    expect(normalizeOrigin("example.com//")).toBe("https://example.com");
+  });
+
+  test("preserves existing http or https schemes", () => {
+    expect(normalizeOrigin("http://localhost:3000/")).toBe("http://localhost:3000");
+    expect(normalizeOrigin("https://sub.domain.org/path/")).toBe("https://sub.domain.org/path");
+  });
+});
 
 describe("resolveAppOrigins", () => {
   test("prefers explicit APP_PUBLIC_URL (comma-separated)", () => {

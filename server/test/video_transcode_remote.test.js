@@ -196,7 +196,7 @@ describe("Video Transcode Manager - Unified Worker Dispatch & Processing Checks"
     const calls = [];
     const customFetch = vi.fn(async (url) => {
       calls.push(url);
-      if (url.includes("remote-service.net")) {
+      if (new URL(url).hostname === "remote-service.net") {
         return { ok: false, status: 502 };
       }
       return { ok: true, status: 200 };

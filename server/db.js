@@ -2027,7 +2027,7 @@ async function deleteUserByIdPostgres(userId) {
         chatIdsToDelete.push(chatId);
         continue;
       }
-      const nextOwnerId = remaining[Math.floor(Math.random() * remaining.length)];
+      const nextOwnerId = remaining[crypto.randomInt(remaining.length)];
       if (nextOwnerId) ownershipTransfers.push({ chatId, nextOwnerId });
     }
 
@@ -2131,7 +2131,7 @@ function deleteUserByIdSqlite(userId) {
       return;
     }
 
-    const nextOwnerId = remaining[Math.floor(Math.random() * remaining.length)];
+    const nextOwnerId = remaining[crypto.randomInt(remaining.length)];
     if (nextOwnerId) {
       ownershipTransfers.push({
         chatId,

@@ -323,7 +323,7 @@ function registerAdminRoutes(app, deps) {
             continue;
           }
           const nextOwnerId =
-            remaining[Math.floor(Math.random() * remaining.length)];
+            remaining[crypto.randomInt(remaining.length)];
           if (nextOwnerId) {
             ownershipTransfers.push({
               chatId: chatId,

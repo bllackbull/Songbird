@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import { confirmAction, getCliArgs, getPositionalArgs, hasForceYes, hasFlag } from './_cli.js'
 import {
   openDatabase,
@@ -119,7 +120,7 @@ async function main() {
         chatIdsToDelete.push(chatId)
         continue
       }
-      const nextOwnerId = remaining[Math.floor(Math.random() * remaining.length)]
+      const nextOwnerId = remaining[crypto.randomInt(remaining.length)]
       if (nextOwnerId) {
         ownershipTransfers.push({
           chatId,
