@@ -61,7 +61,7 @@ export function createStorage({
 
   if (!isRemote) {
     const baseDataDir = resolveDataDir(dataDir);
-    const resolvedUploadDir = path.join(baseDataDir, "uploads");
+    const resolvedUploadDir = path.join(baseDataDir, "uploads", "messages");
     try {
       fs.mkdirSync(resolvedUploadDir, { recursive: true });
     } catch {
@@ -70,21 +70,49 @@ export function createStorage({
 
     const resolveLocalPath = (key) => {
       const cleanKey = String(key || "").replace(/^\/+/, "");
+      if (!cleanKey) return resolvedUploadDir;
       if (path.isAbsolute(cleanKey)) return cleanKey;
+      if (cleanKey.startsWith("uploads/messages/")) {
+        return path.join(baseDataDir, cleanKey);
+      }
+      if (cleanKey.startsWith("messages/")) {
+        return path.join(baseDataDir, "uploads", cleanKey);
+      }
       return path.join(resolvedUploadDir, cleanKey);
     };
 
-    const downloadToPath = async (key, destPath) => {
-      const srcPath = resolveLocalPath(key);
-      if (!fs.existsSync(srcPath)) {
-        const altPath = path.join(resolvedUploadDir, path.basename(key));
-        if (fs.existsSync(altPath)) {
-          await fs.promises.copyFile(altPath, destPath);
-          return;
-        }
-        throw new Error(`Local file not found: ${key} (checked ${srcPath})`);
+    const findLocalFile = (key) => {
+      if (!key) return null;
+      const cleanKey = String(key || "").replace(/^\/+/, "");
+      if (path.isAbsolute(cleanKey)) {
+        return fs.existsSync(cleanKey) ? cleanKey : null;
       }
-      await fs.promises.copyFile(srcPath, destPath);
+      const primaryPath = resolveLocalPath(key);
+      if (fs.existsSync(primaryPath)) return primaryPath;
+
+      const baseName = path.basename(cleanKey);
+      const candidates = [
+        path.join(resolvedUploadDir, baseName),
+        path.join(baseDataDir, "uploads", cleanKey),
+        path.join(baseDataDir, "uploads", baseName),
+        path.join(baseDataDir, cleanKey),
+      ];
+
+      for (const candidate of candidates) {
+        if (candidate && fs.existsSync(candidate)) {
+          return candidate;
+        }
+      }
+      return null;
+    };
+
+    const downloadToPath = async (key, destPath) => {
+      const foundPath = findLocalFile(key);
+      if (!foundPath) {
+        const checkedPath = resolveLocalPath(key);
+        throw new Error(`Local file not found: ${key} (checked ${checkedPath})`);
+      }
+      await fs.promises.copyFile(foundPath, destPath);
     };
 
     const uploadFile = async (key, srcPath, contentType) => {
@@ -96,14 +124,9 @@ export function createStorage({
     const deleteFile = async (key) => {
       if (!key) return;
       try {
-        const targetPath = resolveLocalPath(key);
-        if (fs.existsSync(targetPath)) {
-          await fs.promises.unlink(targetPath);
-        } else {
-          const altPath = path.join(resolvedUploadDir, path.basename(key));
-          if (fs.existsSync(altPath)) {
-            await fs.promises.unlink(altPath);
-          }
+        const foundPath = findLocalFile(key);
+        if (foundPath && fs.existsSync(foundPath)) {
+          await fs.promises.unlink(foundPath);
         }
       } catch (err) {
         console.warn(
@@ -114,7 +137,20 @@ export function createStorage({
       }
     };
 
-    return { type: "local", downloadToPath, uploadFile, deleteFile };
+    const exists = async (key) => {
+      if (!key) return false;
+      return Boolean(findLocalFile(key));
+    };
+
+    return {
+      type: "local",
+      driver: "local",
+      uploadDir: resolvedUploadDir,
+      downloadToPath,
+      uploadFile,
+      deleteFile,
+      exists,
+    };
   }
 
   const client = new S3Client({
