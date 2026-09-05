@@ -336,6 +336,33 @@ export default function ChatWindowPanel({
       isTimelineScrollable &&
       !isAtBottom,
   );
+  const getMessageDayLabel = useCallback((msg) => {
+    const rawDate = msg?.created_at || msg?._createdAt;
+    if (rawDate) {
+      const date = parseServerDate(rawDate);
+      if (!Number.isNaN(date.getTime())) {
+        return formatDayLabel(rawDate);
+      }
+    }
+    if (msg?._dayLabel) return msg._dayLabel;
+    if (msg?._dayKey) return msg._dayKey;
+    return "";
+  }, []);
+
+  const getMessageDayKey = useCallback(
+    (msg) => {
+      const rawDate = msg?.created_at || msg?._createdAt;
+      if (rawDate) {
+        const date = parseServerDate(rawDate);
+        if (!Number.isNaN(date.getTime())) {
+          return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+        }
+      }
+      return msg?._dayKey || getMessageDayLabel(msg);
+    },
+    [getMessageDayLabel],
+  );
+
   const groupedMessages = useMemo(() => {
     const groups = [];
     messages.forEach((msg) => {
@@ -353,7 +380,7 @@ export default function ChatWindowPanel({
       }
     });
     return groups;
-  }, [messages]);
+  }, [messages, getMessageDayKey, getMessageDayLabel]);
 
   const refreshTimelineScrollable = useCallback(() => {
     const scroller = chatScrollRef?.current;
@@ -413,6 +440,8 @@ export default function ChatWindowPanel({
     setFloatingDay,
     setIsTimelineScrollable,
     updateFloatingDayFromScroll,
+    getMessageDayKey,
+    getMessageDayLabel,
   ]);
 
   const startReachedLockRef = useRef(false);
@@ -872,30 +901,6 @@ export default function ChatWindowPanel({
       el.style.top = "";
     };
   }, [isDesktop]);
-
-  function getMessageDayKey(msg) {
-    const rawDate = msg?.created_at || msg?._createdAt;
-    if (rawDate) {
-      const date = parseServerDate(rawDate);
-      if (!Number.isNaN(date.getTime())) {
-        return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
-      }
-    }
-    return msg?._dayKey || getMessageDayLabel(msg);
-  }
-
-  function getMessageDayLabel(msg) {
-    const rawDate = msg?.created_at || msg?._createdAt;
-    if (rawDate) {
-      const date = parseServerDate(rawDate);
-      if (!Number.isNaN(date.getTime())) {
-        return formatDayLabel(rawDate);
-      }
-    }
-    if (msg?._dayLabel) return msg._dayLabel;
-    if (msg?._dayKey) return msg._dayKey;
-    return "";
-  }
 
   const handleGroupChipClick = (groupKeyOrIndex) => {
     const dayKey =

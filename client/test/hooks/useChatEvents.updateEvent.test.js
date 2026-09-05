@@ -1,5 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
-import { useChatEvents } from "../../src/hooks/chat/useChatEvents.js";
+import { describe, expect, test } from "vitest";
 
 if (typeof window === "undefined") {
   globalThis.window = new EventTarget();
@@ -15,11 +14,6 @@ if (typeof window === "undefined") {
 
 describe("useChatEvents — message update event handling for chat list cards", () => {
   test("schedules chat reload and updates chat list state when chat_message_updated is received for any chat", () => {
-    const loadChatsRef = { current: vi.fn() };
-    const setChats = vi.fn();
-    const activeChatIdRef = { current: "active-chat-123" };
-    const usernameRef = { current: "alice" };
-
     // We simulate receiving a songbird:realtime-event by invoking the handler setup logic
     const payload = {
       type: "chat_message_updated",

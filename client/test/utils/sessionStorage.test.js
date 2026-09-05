@@ -1,6 +1,5 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 import {
-  normalizeSessionUser,
   getSavedSessionUser,
   saveSessionUser,
   clearSavedSessionUser,

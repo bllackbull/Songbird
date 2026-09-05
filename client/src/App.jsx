@@ -7,7 +7,6 @@ import { setNameLimits } from './utils/nameLimits.js'
 import { setChatPageConfig } from './settings/chatPageConfig.js'
 import InstallBar from './components/pwa/InstallBar.jsx'
 import InstallGuideModal from './components/pwa/InstallGuideModal.jsx'
-import { normalizeUuid } from './utils/uuidUtils.js'
 import {
   getSavedSessionUser,
   saveSessionUser,
@@ -701,7 +700,6 @@ export default function App() {
     return () => {
       isMounted = false
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Pull live server settings that affect auth UI (e.g. sign-up on/off).

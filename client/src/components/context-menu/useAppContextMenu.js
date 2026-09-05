@@ -277,6 +277,8 @@ export function useAppContextMenu({
       onToggleChatMute,
       canDeleteMessageForEveryone,
       canEditMessage,
+      isOfflineProp,
+      sseConnected,
     ],
   );
 

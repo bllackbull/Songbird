@@ -4,7 +4,7 @@ import {
   isMessageAuthoredByUser,
   isRemoteChannelMessage,
 } from "../../utils/messageOwnership.js";
-import { normalizeUuid, isValidUuid } from "../../utils/uuidUtils.js";
+import { normalizeUuid } from "../../utils/uuidUtils.js";
 
 const patchChatAndMoveToFront = (chats, chatId, updateChat) => {
   const targetChatId = normalizeUuid(chatId) || null;

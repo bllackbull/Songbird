@@ -17,7 +17,7 @@ import {
 import { SongbirdIcon, TelegramIcon } from "../../../icons/BrandIcons.jsx";
 import { hasPersian } from "../../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../../utils/avatarInitials.js";
-import { formatCompactCount, formatDayLabel, parseServerDate } from "../../../utils/chatFormat.js";
+import { formatCompactCount, formatDayLabel } from "../../../utils/chatFormat.js";
 import ContextMenuSurface from "../../context-menu/ContextMenuSurface.jsx";
 import { MessageFiles } from "../media/MessageFiles.jsx";
 import {

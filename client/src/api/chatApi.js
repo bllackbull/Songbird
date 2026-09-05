@@ -570,7 +570,7 @@ export async function prepareFilesForMessage(files = [], options = {}) {
       (presignRes.type === "remote" || presignRes.type === "s3") &&
       presignRes.uploadUrl
     ) {
-      const onProgress = (percent, event) => {
+      const onProgress = (percent) => {
         if (typeof options.onProgress === "function") {
           options.onProgress(i, percent, item);
         }
