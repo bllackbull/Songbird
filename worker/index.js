@@ -18,6 +18,8 @@ import {
 const workerDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRootDir = path.resolve(workerDir, "..");
 
+process.title = "songbird-worker";
+
 if (typeof process.loadEnvFile === "function") {
   try { process.loadEnvFile(path.join(projectRootDir, ".env")); } catch {}
   try { process.loadEnvFile(path.join(workerDir, ".env")); } catch {}
