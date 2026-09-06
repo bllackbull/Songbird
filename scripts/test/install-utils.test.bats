@@ -778,26 +778,139 @@ make_valid_source_dir() {
 # ===========================================================================
 
 @test "ensure_local_postgres_setup: returns 0 when DB_CLIENT is sqlite3" {
-  DB_CLIENT="sqlite3"
+  cat > "$INSTALL_DIR/.env" <<EOF
+DB_CLIENT=sqlite3
+EOF
   run ensure_local_postgres_setup
   [ "$status" -eq 0 ]
 }
 
 @test "ensure_local_postgres_setup: returns 0 when POSTGRES_HOST is remote" {
-  DB_CLIENT="postgres"
-  POSTGRES_HOST="remote.db.example.com"
+  cat > "$INSTALL_DIR/.env" <<EOF
+DB_CLIENT=postgres
+POSTGRES_HOST=remote.db.example.com
+EOF
   run ensure_local_postgres_setup
   [ "$status" -eq 0 ]
 }
 
 @test "ensure_local_postgres_setup: treats 0.0.0.0 as local PostgreSQL" {
-  DB_CLIENT="postgres"
-  POSTGRES_HOST="0.0.0.0"
+  cat > "$INSTALL_DIR/.env" <<EOF
+DB_CLIENT=postgres
+POSTGRES_HOST=0.0.0.0
+POSTGRES_PORT=5432
+POSTGRES_DB=songbird
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+EOF
   sudo() { return 0; }
   psql() { return 0; }
   export -f sudo psql
   run ensure_local_postgres_setup
   [ "$status" -eq 0 ]
+}
+
+@test "ensure_local_postgres_setup: creates custom database and user when they do not exist" {
+  cat > "$INSTALL_DIR/.env" <<EOF
+DB_CLIENT=postgres
+POSTGRES_HOST=127.0.0.1
+POSTGRES_PORT=5432
+POSTGRES_DB=custom_chat_db
+POSTGRES_USER=custom_user
+POSTGRES_PASSWORD=custom_pass
+EOF
+  local calls_file="$TEST_DIR/psql_calls.log"
+  local created_db_file="$TEST_DIR/db_created"
+  local created_role_file="$TEST_DIR/role_created"
+
+  sudo() {
+    local args=("$@")
+    echo "${args[*]}" >> "$calls_file"
+
+    if [[ "${args[*]}" == *"psql -c \\q"* ]]; then
+      return 0
+    fi
+
+    if [[ "${args[*]}" == *"FROM pg_roles"* ]]; then
+      return 0
+    fi
+
+    if [[ "${args[*]}" == *"FROM pg_database"* ]]; then
+      return 0
+    fi
+
+    if [[ "${args[*]}" == *'CREATE ROLE "custom_user"'* ]]; then
+      touch "$created_role_file"
+      return 0
+    fi
+
+    if [[ "${args[*]}" == *'CREATE DATABASE "custom_chat_db"'* ]]; then
+      touch "$created_db_file"
+      return 0
+    fi
+
+    if [[ "${args[*]}" == *'GRANT ALL PRIVILEGES ON DATABASE "custom_chat_db"'* ]]; then
+      if [[ ! -f "$created_db_file" ]]; then
+        echo 'ERROR: database "custom_chat_db" does not exist' >&2
+        return 1
+      fi
+      return 0
+    fi
+
+    return 0
+  }
+  export -f sudo
+  export calls_file created_db_file created_role_file
+
+  run ensure_local_postgres_setup
+  [ "$status" -eq 0 ]
+  [ -f "$created_role_file" ]
+  [ -f "$created_db_file" ]
+}
+
+@test "ensure_local_postgres_setup: updates role and skips CREATE DATABASE when database and role already exist" {
+  cat > "$INSTALL_DIR/.env" <<EOF
+DB_CLIENT=postgres
+POSTGRES_HOST=127.0.0.1
+POSTGRES_PORT=5432
+POSTGRES_DB=existing_db
+POSTGRES_USER=existing_user
+POSTGRES_PASSWORD=updated_pass
+EOF
+  local calls_file="$TEST_DIR/psql_calls_existing.log"
+
+  sudo() {
+    local args=("$@")
+    echo "${args[*]}" >> "$calls_file"
+
+    if [[ "${args[*]}" == *"psql -c \\q"* ]]; then
+      return 0
+    fi
+
+    if [[ "${args[*]}" == *"FROM pg_roles"* ]]; then
+      echo "1"
+      return 0
+    fi
+
+    if [[ "${args[*]}" == *"FROM pg_database"* ]]; then
+      echo "1"
+      return 0
+    fi
+
+    return 0
+  }
+  export -f sudo
+  export calls_file
+
+  run ensure_local_postgres_setup
+  [ "$status" -eq 0 ]
+  # Role was altered, not created
+  grep -q 'ALTER ROLE "existing_user"' "$calls_file"
+  ! grep -q 'CREATE ROLE "existing_user"' "$calls_file"
+  # Database was not re-created
+  ! grep -q 'CREATE DATABASE "existing_db"' "$calls_file"
+  # Permissions were still granted
+  grep -q 'GRANT ALL PRIVILEGES ON DATABASE "existing_db" TO "existing_user"' "$calls_file"
 }
 
 @test "configure_systemd_service: writes EnvironmentFile to systemd unit" {

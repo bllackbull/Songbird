@@ -1095,15 +1095,23 @@ prompt_database_choice() {
       2)
         DB_CLIENT="postgres"
         prompt_read "PostgreSQL Host [$DEFAULT_POSTGRES_HOST]: " POSTGRES_HOST
+        POSTGRES_HOST="${POSTGRES_HOST#"${POSTGRES_HOST%%[![:space:]]*}"}"
+        POSTGRES_HOST="${POSTGRES_HOST%"${POSTGRES_HOST##*[![:space:]]}"}"
         POSTGRES_HOST="${POSTGRES_HOST:-$DEFAULT_POSTGRES_HOST}"
 
         prompt_read "PostgreSQL Port [$DEFAULT_POSTGRES_PORT]: " POSTGRES_PORT
+        POSTGRES_PORT="${POSTGRES_PORT#"${POSTGRES_PORT%%[![:space:]]*}"}"
+        POSTGRES_PORT="${POSTGRES_PORT%"${POSTGRES_PORT##*[![:space:]]}"}"
         POSTGRES_PORT="${POSTGRES_PORT:-$DEFAULT_POSTGRES_PORT}"
 
         prompt_read "PostgreSQL Database Name [$DEFAULT_POSTGRES_DB]: " POSTGRES_DB
+        POSTGRES_DB="${POSTGRES_DB#"${POSTGRES_DB%%[![:space:]]*}"}"
+        POSTGRES_DB="${POSTGRES_DB%"${POSTGRES_DB##*[![:space:]]}"}"
         POSTGRES_DB="${POSTGRES_DB:-$DEFAULT_POSTGRES_DB}"
 
         prompt_read "PostgreSQL Username [$DEFAULT_POSTGRES_USER]: " POSTGRES_USER
+        POSTGRES_USER="${POSTGRES_USER#"${POSTGRES_USER%%[![:space:]]*}"}"
+        POSTGRES_USER="${POSTGRES_USER%"${POSTGRES_USER##*[![:space:]]}"}"
         POSTGRES_USER="${POSTGRES_USER:-$DEFAULT_POSTGRES_USER}"
 
         prompt_read "PostgreSQL Password [$DEFAULT_POSTGRES_PASSWORD]: " POSTGRES_PASSWORD
@@ -1165,7 +1173,7 @@ install_required_packages() {
   if [[ "$DB_CLIENT" == "postgres" || "$DB_CLIENT" == "postgresql" || "$DB_CLIENT" == "pg" ]]; then
     required_pkgs+=(postgresql-client)
   fi
-  if [[ "$DB_CLIENT" == "postgres" && ( "$POSTGRES_HOST" == "127.0.0.1" || "$POSTGRES_HOST" != "0.0.0.0" || "$POSTGRES_HOST" == "localhost" ) ]]; then
+  if [[ "$DB_CLIENT" == "postgres" && ( "$POSTGRES_HOST" == "127.0.0.1" || "$POSTGRES_HOST" == "0.0.0.0" || "$POSTGRES_HOST" == "localhost" ) ]]; then
     required_pkgs+=(postgresql postgresql-contrib)
   fi
   if [[ "$CERT_MODE" == "certbot" && "$DEPLOY_MODE" == "domain" ]]; then
@@ -2204,7 +2212,7 @@ ensure_local_postgres_setup() {
   local pg_ready=false
   local i
   for (( i=1; i<=10; i++ )); do
-    if run_silent run_as_root sudo -u postgres psql -c '\q' >/dev/null 2>&1; then
+    if run_as_root sudo -u postgres psql -c '\q' >/dev/null 2>&1; then
       pg_ready=true
       break
     fi
@@ -2224,22 +2232,36 @@ ensure_local_postgres_setup() {
   safe_db_literal="$(printf '%s' "$POSTGRES_DB" | sed "s/'/''/g")"
 
   # Create role if it does not exist
-  run_silent run_as_root sudo -u postgres psql -t -A -v ON_ERROR_STOP=1 -c \
-    "SELECT 'CREATE ROLE \"${safe_user}\" WITH LOGIN PASSWORD ''${safe_pass}'';' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${safe_user_literal}');" | \
-    run_silent run_as_root sudo -u postgres psql -v ON_ERROR_STOP=1 || return 1
-
-  # Ensure password is set / updated for role
-  run_silent run_as_root sudo -u postgres psql -v ON_ERROR_STOP=1 -c \
-    "ALTER ROLE \"${safe_user}\" WITH LOGIN PASSWORD '${safe_pass}';" || return 1
+  local role_exists
+  role_exists="$(run_as_root sudo -u postgres psql -t -A -c \
+    "SELECT 1 FROM pg_roles WHERE rolname = '${safe_user_literal}';" 2>/dev/null || true)"
+  role_exists="$(printf '%s' "$role_exists" | tr -d '[:space:]')"
+  if [[ "$role_exists" != "1" ]]; then
+    run_silent run_as_root sudo -u postgres psql -v ON_ERROR_STOP=1 -c \
+      "CREATE ROLE \"${safe_user}\" WITH LOGIN PASSWORD '${safe_pass}';" || return 1
+  else
+    # Ensure password is set / updated for existing role
+    run_silent run_as_root sudo -u postgres psql -v ON_ERROR_STOP=1 -c \
+      "ALTER ROLE \"${safe_user}\" WITH LOGIN PASSWORD '${safe_pass}';" || return 1
+  fi
 
   # Create database if it does not exist
-  run_silent run_as_root sudo -u postgres psql -t -A -v ON_ERROR_STOP=1 -c \
-    "SELECT 'CREATE DATABASE \"${safe_db}\" OWNER \"${safe_user}\";' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${safe_db_literal}');" | \
-    run_silent run_as_root sudo -u postgres psql -v ON_ERROR_STOP=1 || return 1
+  local db_exists
+  db_exists="$(run_as_root sudo -u postgres psql -t -A -c \
+    "SELECT 1 FROM pg_database WHERE datname = '${safe_db_literal}';" 2>/dev/null || true)"
+  db_exists="$(printf '%s' "$db_exists" | tr -d '[:space:]')"
+  if [[ "$db_exists" != "1" ]]; then
+    run_silent run_as_root sudo -u postgres psql -v ON_ERROR_STOP=1 -c \
+      "CREATE DATABASE \"${safe_db}\" OWNER \"${safe_user}\";" || return 1
+  fi
 
   # Grant privileges on database to role
   run_silent run_as_root sudo -u postgres psql -v ON_ERROR_STOP=1 -c \
     "GRANT ALL PRIVILEGES ON DATABASE \"${safe_db}\" TO \"${safe_user}\";" || return 1
+
+  # Ensure role has permissions on public schema in the target database (PostgreSQL 15+)
+  run_silent run_as_root sudo -u postgres psql -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -c \
+    "GRANT ALL ON SCHEMA public TO \"${safe_user}\";" 2>/dev/null || true
 
   log "Local PostgreSQL database '${POSTGRES_DB}' and user '${POSTGRES_USER}' configured."
 }
