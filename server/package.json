@@ -23,7 +23,6 @@
     "db:reset": "/bin/bash -p ../scripts/run-data-command.sh node scripts/reset-db.js",
     "db:backup": "/bin/bash -p ../scripts/run-data-command.sh node scripts/backup-db.js",
     "db:restore": "/bin/bash -p ../scripts/run-data-command.sh node scripts/restore-db.js",
-    "db:convert": "/bin/bash -p ../scripts/run-data-command.sh node scripts/convert-db.js",
     "db:vacuum": "/bin/bash -p ../scripts/run-data-command.sh node scripts/vacuum-db.js",
     "db:help": "/bin/bash -p ../scripts/run-data-command.sh node scripts/db-help.js",
     "db:migrate": "/bin/bash -p ../scripts/run-data-command.sh node scripts/migrate.js",

@@ -49,8 +49,7 @@ cd /opt/songbird/server
 | `npm run db:help` | چاپ راهنمای داخلی دستورها. |
 | [`npm run db:backup`](#db-backup) | ایجاد پشتیبان سازگار با موتور پایگاه داده. |
 | [`npm run db:restore`](#db-restore) | بازیابی پشتیبان سازگار با موتور پایگاه داده. |
-| [`npm run db:vacuum`](#db-vacuum) | فشرده‌سازی SQLite یا اجرای `VACUUM ANALYZE` در PostgreSQL. |
-| [`npm run db:convert`](#db-convert) | تبدیل یک پایگاه داده SQLite موجود به PostgreSQL. |
+| [`npm run db:vacuum`](#db-vacuum) | فشردهسازی SQLite یا اجرای `VACUUM ANALYZE` در PostgreSQL. |
 | [`npm run db:migrate`](#db-migrate) | اعمال migrationهای در انتظار پایگاه داده. |
 | [`npm run db:reset`](#db-reset) | پاککردن محتوای پایگاه داده و فایلهای پیام آپلودشده. |
 | [`npm run db:delete`](#db-delete) | حذف فایل پایگاه داده. |
@@ -130,22 +129,47 @@ SQLite را با `VACUUM` فشرده می‌کند؛ در حالت PostgreSQL ا
 npm run db:vacuum -- -y
 ```
 
-### `db:convert`
+### مهاجرت از SQLite به PostgreSQL
 
-یک پایگاه داده SQLite موجود (`data/songbird.db`) را به PostgreSQL تبدیل می کند. اطلاعات اتصال PostgreSQL مقصد از `.env` (متغیرهای `DB_CLIENT=postgres` و `POSTGRES_*`) خوانده میشود.
+برای تبدیل دیتابیس SQLite به PostgreSQL، استفاده از ابزارهای استاندارد صنعتی مانند [**pgloader**](https://pgloader.readthedocs.io/) توصیه میشود که انتقال مطمئن داده ها، تبدیل خودکار انواع فیلدها و حفظ سازگاری sequenceها را به صورت امن فراهم میکنند.
 
-| آرگومان موضعی | موردنیاز | پیشفرض | توضیح |
-|---|---|---|---|
-| `<sqlite-path>` | خیر | `../data/songbird.db` | مسیر فایل پایگاه داده SQLite مبدأ. |
+#### ۱. آماده سازی پایگاه داده PostgreSQL مقصد
+
+اطلاعات اتصال PostgreSQL را در فایل `.env` تنظیم کرده (`DB_CLIENT=postgres` و متغیرهای `POSTGRES_*`) و migrationها را اجرا کنید تا اسکیما ایجاد شود:
 
 ```bash
-# اطمینان حاصل کنید تنظیمات DB_CLIENT=postgres و POSTGRES_* در .env پیکربندی شده اند:
-npm run db:convert
-
-# یا مسیر فایل پایگاه داده SQLite سفارشی را مشخص کنید:
-npm run db:convert -- /path/to/custom-songbird.db
+# اعمال migrationها برای ایجاد جداول در PostgreSQL
+npm run db:migrate
 ```
 
+#### ۲. نصب pgloader
+
+```bash
+# دبیان / اوبونتو
+sudo apt-get install -y pgloader
+```
+
+#### ۳. اجرای انتقال با pgloader
+
+```bash
+pgloader ./data/songbird.db postgresql://songbird:password@localhost:5432/songbird
+```
+
+یا با استفاده از یک فایل پیکربندی `songbird.load`:
+
+```lisp
+LOAD DATABASE
+     FROM sqlite://./data/songbird.db
+     INTO postgresql://songbird:password@localhost:5432/songbird
+
+ WITH include drop, create tables, create indexes, reset sequences
+
+  SET work_mem to '16MB', maintenance_work_mem to '512MB';
+```
+
+```bash
+pgloader songbird.load
+```
 
 ### `db:migrate`
 

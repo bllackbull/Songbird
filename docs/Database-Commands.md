@@ -50,7 +50,6 @@ Do not run individual scripts with `sudo node` or `sudo npm`. Those direct invoc
 | [`npm run db:backup`](#db-backup) | Create an engine-native database backup. |
 | [`npm run db:restore`](#db-restore) | Restore an engine-native database backup. |
 | [`npm run db:vacuum`](#db-vacuum) | Compact SQLite or run PostgreSQL `VACUUM ANALYZE`. |
-| [`npm run db:convert`](#db-convert) | Convert an existing SQLite database to PostgreSQL. |
 | [`npm run db:migrate`](#db-migrate) | Apply pending database migrations. |
 | [`npm run db:reset`](#db-reset) | Wipe database content and uploaded message files. |
 | [`npm run db:delete`](#db-delete) | Delete the database file. |
@@ -131,20 +130,46 @@ Compacts SQLite with `VACUUM`; in PostgreSQL mode it runs native `vacuumdb --ana
 npm run db:vacuum -- -y
 ```
 
-### `db:convert`
+### Migrating from SQLite to PostgreSQL
 
-Converts an existing SQLite database (`data/songbird.db`) to PostgreSQL. Target PostgreSQL connection details are read from `.env` (`DB_CLIENT=postgres` and `POSTGRES_*` variables).
+For converting a SQLite database to PostgreSQL, standard industry tools such as [**pgloader**](https://pgloader.readthedocs.io/) provide robust, battle-tested migration with automatic type mapping, sequence creation, and transaction safety.
 
-| Positional Argument | Required | Default | Description |
-|---|---|---|---|
-| `<sqlite-path>` | No | `../data/songbird.db` | Path to source SQLite `.db` file. |
+#### 1. Prepare target PostgreSQL database
+
+Configure your `.env` with PostgreSQL connection details (`DB_CLIENT=postgres` and `POSTGRES_*` variables) and run migrations to create the schema:
 
 ```bash
-# Ensure DB_CLIENT=postgres and POSTGRES_* settings are configured in .env:
-npm run db:convert
+# Apply migrations to create schema tables in PostgreSQL
+npm run db:migrate
+```
 
-# Or specify a custom SQLite database file path:
-npm run db:convert -- /path/to/custom-songbird.db
+#### 2. Install pgloader
+
+```bash
+# Debian / Ubuntu
+sudo apt-get install -y pgloader
+```
+
+#### 3. Run migration with pgloader
+
+```bash
+pgloader ./data/songbird.db postgresql://songbird:password@localhost:5432/songbird
+```
+
+Or using a `songbird.load` configuration file for fine-grained control:
+
+```lisp
+LOAD DATABASE
+     FROM sqlite://./data/songbird.db
+     INTO postgresql://songbird:password@localhost:5432/songbird
+
+ WITH include drop, create tables, create indexes, reset sequences
+
+  SET work_mem to '16MB', maintenance_work_mem to '512MB';
+```
+
+```bash
+pgloader songbird.load
 ```
 
 ### `db:migrate`
