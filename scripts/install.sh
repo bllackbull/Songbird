@@ -1909,15 +1909,137 @@ write_env_from_example() {
   CURRENT_ENV_FILE="$env_file"
 }
 
+# 32 random bytes as lowercase hex.
+generate_secret_hex() {
+  local value=""
+  value="$(od -An -tx1 -N32 /dev/urandom 2>/dev/null | tr -d ' \n' || true)"
+  if [[ ! "$value" =~ ^[0-9a-f]{64}$ ]]; then
+    return 1
+  fi
+  printf "%s" "$value"
+}
+
+# 32 random bytes as unpadded base64url.
+generate_secret_base64url() {
+  local value=""
+  value="$(head -c 32 /dev/urandom 2>/dev/null | base64 2>/dev/null | tr -d '\n' | tr '+/' '-_' | tr -d '=' || true)"
+  if [[ ! "$value" =~ ^[A-Za-z0-9_-]{43}$ ]]; then
+    return 1
+  fi
+  printf "%s" "$value"
+}
+
+# Query one secret from a PostgreSQL database.
+read_postgres_secret() {
+  local key="$1"
+  local value=""
+  value="$(PGPASSWORD="$POSTGRES_PASSWORD" psql \
+    -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" \
+    -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    -tA -c "SELECT value FROM app_settings WHERE key='${key}' LIMIT 1" 2>/dev/null || true)"
+  value="$(printf "%s" "$value" | tr -d '\r\n ' || true)"
+  if [[ -z "$value" ]]; then
+    return 1
+  fi
+  printf "%s" "$value"
+}
+
+# True when PostgreSQL is reachable.
+postgres_is_reachable() {
+  PGPASSWORD="$POSTGRES_PASSWORD" psql \
+    -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" \
+    -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    -tA -c "SELECT 1" >/dev/null 2>&1
+}
+
+is_postgres_client() {
+  [[ "$DB_CLIENT" == "postgres" || "$DB_CLIENT" == "postgresql" || "$DB_CLIENT" == "pg" ]]
+}
+
+# Ensure one secret exists in .env without ever rotating a live value.
+# Generation happens only when no keyed source exists anywhere:
+#  - a non-empty .env value always wins (never rotate live secrets);
+#  - a restored backup is authoritative (the server restores from the DB);
+#  - a reachable database holding the key is adopted, not replaced;
+#  - otherwise the database must be provably fresh (absent sqlite file, or
+#    reachable postgres with no trace of the key store).
+# Anything uncertain is left empty for the server, which applies the same
+# precedence (env > database > generate) with full database access.
+ensure_env_secret() {
+  local key="$1"
+  local format="$2"
+  local env_file="${INSTALL_DIR}/.env"
+  local current=""
+  current="$(get_existing_env_value "$key" "")"
+  if [[ -n "$current" ]]; then
+    return 0
+  fi
+
+  local generated=""
+  if is_postgres_client; then
+    local db_value=""
+    if db_value="$(read_postgres_secret "$key")"; then
+      replace_env_value "$env_file" "$key" "$db_value" || return 1
+      log "Adopted existing ${key} from the database."
+      return 0
+    fi
+    # Reachable but keyless (or schema not yet migrated) means provably fresh.
+    if postgres_is_reachable; then
+      if [[ "$format" == "hex" ]]; then
+        generated="$(generate_secret_hex || true)"
+      else
+        generated="$(generate_secret_base64url || true)"
+      fi
+    else
+      log "PostgreSQL is not reachable; leaving ${key} for the server to resolve on first boot."
+      return 0
+    fi
+  else
+    local data_dir=""
+    data_dir="$(get_existing_env_value "DATA_DIR" "${INSTALL_DIR}/data")"
+    if [[ -f "${data_dir}/songbird.db" ]]; then
+      log "Existing SQLite database found; leaving ${key} for the server to restore from it."
+      return 0
+    fi
+    if [[ "$format" == "hex" ]]; then
+      generated="$(generate_secret_hex || true)"
+    else
+      generated="$(generate_secret_base64url || true)"
+    fi
+  fi
+
+  if [[ -z "$generated" ]]; then
+    warn "Could not generate ${key}; leaving it for the server to resolve on first boot."
+    return 0
+  fi
+  replace_env_value "$env_file" "$key" "$generated" || return 1
+  log "Generated ${key} during install."
+  return 0
+}
+
+# Pre-generate server secrets into .env .
+pregenerate_missing_secrets() {
+  if [[ -n "${DB_BACKUP_PATH:-}" ]]; then
+    log "Backup was restored; leaving secrets for the server to restore from the database."
+    return 0
+  fi
+  ensure_env_secret "STORAGE_ENCRYPTION_KEY" "base64url" || true
+  ensure_env_secret "WEBHOOK_SECRET" "hex" || true
+  ensure_env_secret "ADMIN_API_TOKEN" "base64url" || true
+  return 0
+}
+
 write_env_fallback() {
   local env_file="$1"
   local existing_storage_encryption_key
   local existing_admin_api_token
+  local existing_webhook_secret
   local existing_public_key
   local existing_private_key
   local existing_subject
   existing_storage_encryption_key="$(get_existing_env_value "STORAGE_ENCRYPTION_KEY" "")"
   existing_admin_api_token="$(get_existing_env_value "ADMIN_API_TOKEN" "")"
+  existing_webhook_secret="$(get_existing_env_value "WEBHOOK_SECRET" "")"
   existing_public_key="$(get_existing_env_value "VAPID_PUBLIC_KEY" "")"
   existing_private_key="$(get_existing_env_value "VAPID_PRIVATE_KEY" "")"
   existing_subject="$(get_existing_env_value "VAPID_SUBJECT" "mailto:admin@example.com")"
@@ -1938,10 +2060,14 @@ POSTGRES_USER=${POSTGRES_USER:-postgres}
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
 
 # Security & Encryption
-# Auto-generated by the server on first boot if left empty.
+# Generated during install when safe to do so, otherwise auto-generated by
+# the server on first boot if left empty. Never edited while set: rotating
+# these would orphan encrypted data and desync the media worker.
 STORAGE_ENCRYPTION_KEY=${existing_storage_encryption_key}
-# Token gating the local-only admin endpoint. Auto-generated if left empty.
+# Token gating the local-only admin endpoint. Same generation rules as above.
 ADMIN_API_TOKEN=${existing_admin_api_token}
+# Shared secret authenticating server <-> media worker callbacks.
+WEBHOOK_SECRET=${existing_webhook_secret}
 
 # Push Notifications
 VAPID_PUBLIC_KEY=${existing_public_key}
@@ -2345,6 +2471,26 @@ apply_ownership() {
   run_silent run_as_root git config --global --add safe.directory "$INSTALL_DIR" || return 1
 }
 
+# Wait for the server to materialize generated secrets on first boot.
+wait_for_server_secrets() {
+  local env_file="${INSTALL_DIR}/.env"
+  local timeout="${1:-90}"
+  local waited=0
+  log "Waiting for the server to generate shared secrets..."
+  while (( waited < timeout )); do
+    if run_as_root test -f "$env_file" \
+      && run_as_root grep -qE '^STORAGE_ENCRYPTION_KEY=.+' "$env_file" 2>/dev/null \
+      && run_as_root grep -qE '^WEBHOOK_SECRET=.+' "$env_file" 2>/dev/null; then
+      log "Shared secrets are present. Starting the media worker."
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  warn "Timed out waiting for secrets in ${env_file}. The media worker will start without encryption keys and pick them up on its next restart once the server is healthy."
+  return 1
+}
+
 configure_systemd_service() {
   log "Creating systemd service at ${SERVICE_FILE}..."
   if [[ -z "$NODE_EXEC_PATH" ]]; then
@@ -2376,7 +2522,7 @@ EOF
   if ! run_silent run_as_root tee "$WORKER_SERVICE_FILE" >/dev/null <<EOF
 [Unit]
 Description=Songbird media worker
-After=network.target
+After=network.target ${SERVICE_NAME}.service
 
 [Service]
 Type=simple
@@ -2396,9 +2542,14 @@ EOF
   fi
 
   run_as_root systemctl daemon-reload || return 1
-  run_as_root systemctl enable --now songbird.service || return 1
-  run_as_root systemctl enable --now songbird-worker.service || return 1
+  run_as_root systemctl enable songbird.service || return 1
+  run_as_root systemctl enable songbird-worker.service || return 1
   run_as_root systemctl restart songbird.service || return 1
+  if [[ -n "${DB_BACKUP_PATH:-}" ]]; then
+    wait_for_server_secrets 600 || true
+  else
+    wait_for_server_secrets || true
+  fi
   run_as_root systemctl restart songbird-worker.service || return 1
 }
 
@@ -3082,6 +3233,9 @@ rebuild_and_restart_after_settings_change() {
 
   log "Restarting Songbird service..."
   run_as_root systemctl restart songbird.service || return 1
+  if have_cmd systemctl && systemctl list-unit-files | grep -q "^songbird-worker.service"; then
+    run_as_root systemctl restart songbird-worker.service || true
+  fi
 
   if [[ "$needs_nginx" == "yes" ]]; then
     log "Updating Nginx config for SERVER_PORT/CLIENT_PORT/MAX_UPLOAD_MB changes..."
@@ -3164,8 +3318,9 @@ update_songbird() {
       warn "Failed to synchronize global command after update."
     fi
 
-    if have_cmd systemctl && [[ -f "$SERVICE_FILE" && ! -f "$WORKER_SERVICE_FILE" ]]; then
-      log "Configuring worker systemd service..."
+    # Unit files are fully generated: refresh them on every update.
+    if have_cmd systemctl && [[ -f "$SERVICE_FILE" ]]; then
+      log "Refreshing systemd services..."
       configure_systemd_service || true
     fi
 
@@ -3285,8 +3440,9 @@ update_songbird() {
     warn "Failed to synchronize global command after update."
   fi
 
-  if have_cmd systemctl && [[ -f "$SERVICE_FILE" && ! -f "$WORKER_SERVICE_FILE" ]]; then
-    log "Configuring worker systemd service..."
+  # Unit files are fully generated: refresh them on every update.
+  if have_cmd systemctl && [[ -f "$SERVICE_FILE" ]]; then
+    log "Refreshing systemd services..."
     configure_systemd_service || true
   fi
 
@@ -3523,6 +3679,8 @@ install_songbird() {
   fi
   RESTORE_BACKUP_QUIET="no"
   ensure_vapid_keys || return 1
+  pregenerate_missing_secrets || true
+  apply_ownership || return 1
   configure_systemd_service || return 1
   log "Starting nginx setup..."
   configure_nginx || return 1
@@ -3534,7 +3692,6 @@ install_songbird() {
   else
     warn "Failed to synchronize global command after install. You can retry from the menu."
   fi
-  apply_ownership || return 1
 
   show_deployment_success_frame "install"
 
