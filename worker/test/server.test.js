@@ -3,7 +3,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import request from "supertest";
-import { createWorkerServer, isLoopbackUrl, hasEncryptedMagic } from "../index.js";
+import {
+  createWorkerServer,
+  isLoopbackUrl,
+  hasEncryptedMagic,
+  encryptThumbnail,
+} from "../index.js";
+import { isEncryptedFileBuffer } from "../encryption.js";
 
 describe("Media Worker HTTP Server", () => {
   it("GET /health returns 200 OK with worker status and queue metrics", async () => {
@@ -111,6 +117,47 @@ describe("Media Worker HTTP Server", () => {
       expect(hasEncryptedMagic(plain)).toBe(false);
       expect(hasEncryptedMagic(path.join(tmpDir, "nope.mov"))).toBe(false);
       expect(hasEncryptedMagic(null)).toBe(false);
+    });
+  });
+
+  describe("encryptThumbnail", () => {
+    let tmpDir;
+    const originalKey = process.env.STORAGE_ENCRYPTION_KEY;
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sb-thumbenc-test-"));
+      process.env.STORAGE_ENCRYPTION_KEY = "thumb-test-key";
+    });
+    afterEach(() => {
+      if (originalKey === undefined) delete process.env.STORAGE_ENCRYPTION_KEY;
+      else process.env.STORAGE_ENCRYPTION_KEY = originalKey;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("encrypts the thumbnail in place when the video is encrypted", () => {
+      const p = path.join(tmpDir, "t.jpg");
+      fs.writeFileSync(p, Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]));
+      expect(encryptThumbnail(p, true)).toBe(true);
+      expect(isEncryptedFileBuffer(fs.readFileSync(p))).toBe(true);
+    });
+
+    it("leaves the thumbnail untouched when the video is plaintext", () => {
+      const p = path.join(tmpDir, "t.jpg");
+      const plain = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+      fs.writeFileSync(p, plain);
+      expect(encryptThumbnail(p, false)).toBe(false);
+      expect(fs.readFileSync(p).equals(plain)).toBe(true);
+    });
+
+    it("is a no-op without a key or a file", () => {
+      delete process.env.STORAGE_ENCRYPTION_KEY;
+      const p = path.join(tmpDir, "t.jpg");
+      const plain = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+      fs.writeFileSync(p, plain);
+      expect(encryptThumbnail(p, true)).toBe(false);
+      expect(fs.readFileSync(p).equals(plain)).toBe(true);
+      expect(encryptThumbnail(path.join(tmpDir, "nope.jpg"), true)).toBe(
+        false,
+      );
     });
   });
 });

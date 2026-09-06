@@ -5,6 +5,7 @@ import { dbKnex } from "../db/knex.js";
 import { dispatchMediaWorkerJob } from "../lib/mediaWorker.js";
 import { ensureBucketCorsForRequest } from "../lib/bucketCors.js";
 import { resolveWebhookCallbackUrl } from "../lib/webhookUrl.js";
+import { resolveThumbUrl } from "../lib/thumbUrl.js";
 import { readEnvBool } from "../settings/env.js";
 
 export function registerRemoteUploadRoutes(app, deps) {
@@ -395,6 +396,80 @@ export function registerRemoteUploadRoutes(app, deps) {
     });
   });
 
+  // GET /api/uploads/thumbs/:fileId — serves video thumbnails.
+  app.get("/api/uploads/thumbs/:fileId", async (req, res) => {
+    const fileId = req.params?.fileId;
+    if (!fileId) return res.status(404).end();
+
+    let file = null;
+    if (typeof findMessageFileById === "function") {
+      const raw = findMessageFileById(fileId);
+      file = raw && typeof raw.then === "function" ? await raw : raw;
+    }
+    if (!file && typeof adminGetRow === "function") {
+      const raw = callAdminGetRow(dbKnex("chat_message_files").where("id", fileId).first());
+      file = raw && typeof raw.then === "function" ? await raw : raw;
+    }
+    if (!file) return res.status(404).end();
+
+    const thumbKey = file.thumb_storage_key || file.thumbStorageKey;
+    if (!thumbKey) return res.status(404).end();
+
+    const enc = storageEncryption || defaultStorageEncryption;
+    const sendJpeg = (buf) => {
+      res.setHeader("Content-Type", "image/jpeg");
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      return res.send(buf);
+    };
+    // NOTE: filesystem helpers come from deps.* (never shadow node:path).
+    const depFs = deps.fs;
+    const depPath = deps.path;
+    const depUploadRootDir = deps.uploadRootDir;
+
+    // Local disk first (covers local-driver deployments).
+    const localPaths = [];
+    if (depUploadRootDir && depPath && typeof depPath.join === "function") {
+      localPaths.push(depPath.join(depUploadRootDir, String(thumbKey)));
+      const base =
+        typeof depPath.basename === "function"
+          ? depPath.basename(String(thumbKey))
+          : String(thumbKey).split("/").pop();
+      if (base && base !== String(thumbKey)) {
+        localPaths.push(depPath.join(depUploadRootDir, base));
+      }
+    }
+    for (const candidate of localPaths) {
+      try {
+        if (depFs && typeof depFs.existsSync === "function" && depFs.existsSync(candidate)) {
+          try {
+            return sendJpeg(enc.decryptBuffer(depFs.readFileSync(candidate)));
+          } catch (_) {
+            return res.status(500).end();
+          }
+        }
+      } catch (_) {
+        return res.status(500).end();
+      }
+    }
+
+    // Remote object storage: fetch + decrypt (no-op for plaintext).
+    try {
+      if (
+        !storageProvider ||
+        typeof storageProvider.getDownloadUrl !== "function"
+      ) {
+        return res.status(404).end();
+      }
+      const url = await storageProvider.getDownloadUrl(thumbKey);
+      const fetchImpl = deps.fetch || globalThis.fetch;
+      const resp = await fetchImpl(url);
+      if (!resp || !resp.ok) return res.status(502).end();
+      return sendJpeg(enc.decryptBuffer(Buffer.from(await resp.arrayBuffer())));
+    } catch (_) {
+      return res.status(502).end();
+    }
+  });
+
   // POST /api/uploads/webhook/processed
   app.post("/api/uploads/webhook/processed", async (req, res) => {
     const expectedSecret =
@@ -503,7 +578,12 @@ export function registerRemoteUploadRoutes(app, deps) {
               : (f.thumb_storage_key || f.thumbStorageKey);
             const storedName = f.stored_name || f.storedName || "";
             let fileUrl = storedName ? `/api/uploads/messages/${storedName}` : null;
-            let thumbUrl = null;
+            let thumbUrl = await resolveThumbUrl({
+              storageProvider,
+              file: f,
+              thumbKey,
+              fileId: f?.id ?? fileId,
+            });
             if (
               (driver === "remote" || driver === "s3") &&
               storageProvider &&
@@ -512,11 +592,6 @@ export function registerRemoteUploadRoutes(app, deps) {
               if (sKey) {
                 try {
                   fileUrl = await storageProvider.getDownloadUrl(sKey);
-                } catch (_) {}
-              }
-              if (thumbKey) {
-                try {
-                  thumbUrl = await storageProvider.getDownloadUrl(thumbKey);
                 } catch (_) {}
               }
             }

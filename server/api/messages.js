@@ -4,6 +4,7 @@ import { createMessagePublicationService } from "../lib/services/messagePublicat
 import { dispatchMediaWorkerJob } from "../lib/mediaWorker.js";
 import { resolveWebhookCallbackUrl } from "../lib/webhookUrl.js";
 import { markEncryptedFileRecord } from "../lib/storageEncryption.js";
+import { resolveThumbUrl as sharedResolveThumbUrl } from "../lib/thumbUrl.js";
 import { readEnvBool } from "../settings/env.js";
 
 function registerMessageRoutes(app, deps) {
@@ -366,6 +367,12 @@ function registerMessageRoutes(app, deps) {
       const driver = file.storage_driver;
       const storageKey = file.storage_key;
       const thumbKey = file.thumb_storage_key || file.thumbStorageKey;
+      thumbUrl = await resolveThumbUrl({
+        storageProvider: deps.storageProvider,
+        file,
+        thumbKey,
+        fileId: file.id,
+      });
       if (
         (driver === "remote" || driver === "s3") &&
         deps.storageProvider &&
@@ -374,11 +381,6 @@ function registerMessageRoutes(app, deps) {
         if (storageKey) {
           try {
             fileUrl = await deps.storageProvider.getDownloadUrl(storageKey);
-          } catch (_) {}
-        }
-        if (thumbKey) {
-          try {
-            thumbUrl = await deps.storageProvider.getDownloadUrl(thumbKey);
           } catch (_) {}
         }
       }
@@ -1495,21 +1497,12 @@ function registerMessageRoutes(app, deps) {
           return storedName ? `/api/uploads/messages/${storedName}` : null;
         };
 
-        const resolveThumbUrl = async (file) => {
-          const driver = file.storage_driver || file.storageDriver;
-          const thumbKey = file.thumb_storage_key || file.thumbStorageKey;
-          if (
-            (driver === "remote" || driver === "s3") &&
-            thumbKey &&
-            deps.storageProvider &&
-            typeof deps.storageProvider.getDownloadUrl === "function"
-          ) {
-            try {
-              return await deps.storageProvider.getDownloadUrl(thumbKey);
-            } catch (_) {}
-          }
-          return null;
-        };
+        const resolveThumbUrl = async (file) =>
+          sharedResolveThumbUrl({
+            storageProvider: deps.storageProvider,
+            file,
+            fileId: file?.id,
+          });
 
         const responseFiles = await Promise.all(
           sourceFilesForResponse.map(async (file, idx) => {

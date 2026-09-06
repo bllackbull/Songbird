@@ -116,6 +116,29 @@ export const isMissingKeyError = (err) => {
 };
 
 /**
+ * Encrypt a generated thumbnail in place when the video it belongs to is
+ * stored encrypted. Mirrors the video-output rule exactly (same `isEncrypted`
+ * condition), so thumb bytes and video bytes are never split across
+ * protection states. `encryptBuffer` is a no-op without a key, and the
+ * server serves thumbs through magic-gated decrypt, so old plaintext
+ * thumbs keep working untouched.
+ *
+ * @returns {boolean} whether the thumbnail on disk is now ciphertext
+ */
+export const encryptThumbnail = (thumbPath, shouldEncrypt) => {
+  if (!shouldEncrypt) return false;
+  try {
+    if (!thumbPath || !fs.existsSync(thumbPath)) return false;
+    const encrypted = encryptBuffer(fs.readFileSync(thumbPath));
+    if (!isEncryptedFileBuffer(encrypted)) return false;
+    fs.writeFileSync(thumbPath, encrypted);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/**
  * Sniff the SBENC1 magic header directly from disk. The server is supposed
  * to send the right encryptionType flag, but records written before the
  * flag was recorded correctly (encryption_type='none' with ciphertext on
@@ -324,6 +347,10 @@ async function processTranscodeJob({
           inputPath: workingInputPath,
           outputPath: thumbPath,
         });
+        const thumbEncrypted = encryptThumbnail(thumbPath, isEncrypted);
+        if (thumbEncrypted) {
+          console.log(`[worker] Thumbnail encrypted for file ${fileId}`);
+        }
         thumbStorageKey = `${storageKey.replace(/\.[^.]*$/, "")}-thumb.jpg`;
         if (thumbUploadUrl) {
           const res = await fetch(thumbUploadUrl, {

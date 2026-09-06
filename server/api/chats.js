@@ -2,6 +2,7 @@ import { createInviteToken } from "../lib/inviteTokens.js";
 import { createMembershipService } from "../lib/services/membershipService.js";
 import { createDeletionService } from "../lib/services/deletionService.js";
 import { normalizeSongbirdSource, normalizeTelegramSource, resolveSongbirdSource } from "../lib/remoteChannels.js";
+import { resolveThumbUrl } from "../lib/thumbUrl.js";
 import { validateUuidParams, validateUuidBody } from "../lib/uuidMiddleware.js";
 
 function registerChatRoutes(app, deps) {
@@ -398,11 +399,16 @@ function registerChatRoutes(app, deps) {
       const messageId = file.message_id;
       if (!filesByMessageId[messageId]) filesByMessageId[messageId] = [];
 
-      let fileUrl = `/api/uploads/messages/${file.stored_name}`;
-      let thumbUrl = null;
       const driver = file.storage_driver;
       const storageKey = file.storage_key;
       const thumbKey = file.thumb_storage_key || file.thumbStorageKey;
+      let fileUrl = `/api/uploads/messages/${file.stored_name}`;
+      let thumbUrl = await resolveThumbUrl({
+        storageProvider: deps.storageProvider,
+        file,
+        thumbKey,
+        fileId: file.id,
+      });
       if (
         (driver === "remote" || driver === "s3") &&
         deps.storageProvider &&
@@ -411,11 +417,6 @@ function registerChatRoutes(app, deps) {
         if (storageKey) {
           try {
             fileUrl = await deps.storageProvider.getDownloadUrl(storageKey);
-          } catch (_) {}
-        }
-        if (thumbKey) {
-          try {
-            thumbUrl = await deps.storageProvider.getDownloadUrl(thumbKey);
           } catch (_) {}
         }
       }
