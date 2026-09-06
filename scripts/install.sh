@@ -3908,6 +3908,17 @@ show_service_logs() {
   press_enter_to_continue
 }
 
+show_worker_service_logs() {
+  if systemctl list-units --type=service --all | grep songbird-worker; then
+    clear
+    printf "\n  Last %s lines of songbird-worker service log:\n\n" "$LOG_LINES"
+    run_as_root journalctl -u songbird-worker --no-pager -n "$LOG_LINES"
+  else
+    printf "\n  Songbird worker service not found.\n"
+  fi
+  press_enter_to_continue
+}
+
 show_nginx_access_logs() {
   local log_file="/var/log/nginx/access.log"
 
@@ -3980,20 +3991,22 @@ show_logs_menu() {
     printf "Logs Menu\n"
     printf $'1) 📋  View script logs\n'
     printf $'2) 📋  View service logs\n'
-    printf $'3) 📋 View nginx access logs\n'
-    printf $'4) 📋  View nginx error logs\n'
-    printf $'5) ↩️  Go back\n'
+    printf $'3) 📋  View worker service logs\n'
+    printf $'4) 📋 View nginx access logs\n'
+    printf $'5) 📋  View nginx error logs\n'
+    printf $'6) ↩️  Go back\n'
     printf $'0) 🚪  Exit\n\n'
 
-    prompt_read "Choose an option [0-5]: " choice
+    prompt_read "Choose an option [0-6]: " choice
     case "$choice" in
       1) show_logs ;;
       2) show_service_logs ;;
-      3) show_nginx_access_logs ;;
-      4) show_nginx_error_logs ;;
-      5) return ;;
+      3) show_worker_service_logs ;;
+      4) show_nginx_access_logs ;;
+      5) show_nginx_error_logs ;;
+      6) return ;;
       0) exit 0 ;;
-      *) printf "Invalid choice. Select a number from 0 to 5.\n" ;;
+      *) printf "Invalid choice. Select a number from 0 to 6.\n" ;;
     esac
   done
 }
