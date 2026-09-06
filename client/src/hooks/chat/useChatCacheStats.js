@@ -97,7 +97,7 @@ export function useChatCacheStats({ user, settingsPanel, messagesCacheRef }) {
       chatListUpdatedAt = parsed?.updatedAt || null;
       const chats = Array.isArray(parsed?.chats) ? parsed.chats : [];
       chats.forEach((chat) => {
-        const chatId = Number(chat?.id || 0);
+        const chatId = String(chat?.id || "").trim();
         if (chatId) {
           chatNameById.set(
             chatId,
@@ -127,7 +127,7 @@ export function useChatCacheStats({ user, settingsPanel, messagesCacheRef }) {
       totalBytes += size;
       messageCacheSizeBytes += size;
       const parsed = entry.data;
-      const chatId = Number(parsed?.chatId || 0);
+      const chatId = String(parsed?.chatId || "").trim();
       const messageCount = Array.isArray(parsed?.messages)
         ? parsed.messages.length
         : 0;

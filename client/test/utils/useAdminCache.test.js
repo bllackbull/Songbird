@@ -17,7 +17,7 @@
  * Validates: Requirements 2.1, 2.2, 2.3
  */
 
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, vi } from "vitest";
 import fc from "fast-check";
 
 // ─── Fake fetchers ────────────────────────────────────────────────────────────
@@ -80,7 +80,7 @@ async function simulateFetch(cache, key, fetcherObj, store = null) {
 
 // ─── Bug Condition Exploration Tests ─────────────────────────────────────────
 
-describe("useAdminCache — fix verified: cache survives unmount within TTL", () => {
+describe("useAdminCache — fix verified: cache survives unmount", () => {
   /**
    * Core fix verification test.
    *
@@ -92,10 +92,9 @@ describe("useAdminCache — fix verified: cache survives unmount within TTL", ()
    *
    * FIX VERIFIED: cache.stats is NOT null on remount; data matches pre-unmount fetch.
    * loading is false (no blocking re-fetch needed).
-   * ensureFresh does NOT dispatch a new fetch (entry is still within TTL).
+   * ensureFresh does NOT dispatch a new fetch (entry exists in cache).
    */
   test("cache.stats is NOT null after unmount/remount — fix verified (was: bug condition)", async () => {
-    const TTL_MS = 10_000;
     const store = makeStore();
 
     // ── Step 1: First mount (empty store) ───────────────────────────────────
@@ -118,10 +117,6 @@ describe("useAdminCache — fix verified: cache survives unmount within TTL", ()
     expect(cacheAfterFetch.stats.loading).toBe(false);
     expect(fetchedAt).toBeGreaterThan(0);
 
-    // Verify the data is within TTL at this point
-    const elapsedBeforeUnmount = Date.now() - fetchedAt;
-    expect(elapsedBeforeUnmount).toBeLessThan(TTL_MS); // data is fresh
-
     // ── Step 3: Unmount ──────────────────────────────────────────────────────
     // React discards all component state. The module store survives because it
     // lives outside React's lifecycle (module-level `_stores` map in the fix).
@@ -140,27 +135,17 @@ describe("useAdminCache — fix verified: cache survives unmount within TTL", ()
     // settings was never fetched — still null (correct: no spurious data)
     expect(cacheAfterRemount.settings).toBeNull();
 
-    // ── ensureFresh does NOT trigger a new fetch within TTL ──────────────────
+    // ── ensureFresh does NOT trigger a new fetch ──────────────────
     const entry = cacheAfterRemount.stats;
-    const isStale = !entry || Date.now() - entry.fetchedAt > TTL_MS;
-    expect(isStale).toBe(false); // within TTL — no fetch dispatched
-
-    const elapsedAtRemount = Date.now() - fetchedAt;
-    console.log(
-      `Fix verified: After remount, cache.stats.data = ${JSON.stringify(entry.data)}, ` +
-        `elapsed = ${elapsedAtRemount} ms (TTL=${TTL_MS}ms), loading = ${entry.loading}`,
-    );
+    const isStale = !entry;
+    expect(isStale).toBe(false); // entry exists — no fetch dispatched
   });
 
   /**
    * Fix verified: ensureFresh does NOT dispatch a new fetch on remount when
-   * the cached entry is still within TTL (data survived via module store).
-   *
-   * On unfixed code this test demonstrated the bug (isStale was true, a second
-   * fetch fired). On fixed code isStale is false — only one fetch total.
+   * cached entry exists (data survived via module store).
    */
-  test("ensureFresh does NOT dispatch a new fetch on remount when within TTL — fix verified", async () => {
-    const TTL_MS = 10_000;
+  test("ensureFresh does NOT dispatch a new fetch on remount when cached entry exists — fix verified", async () => {
     let fetchCallCount = 0;
 
     const trackingFetchers = {
@@ -183,7 +168,7 @@ describe("useAdminCache — fix verified: cache survives unmount within TTL", ()
 
     // ── Remount: ensureFresh logic ───────────────────────────────────────────
     const entry = cacheAfterRemount.stats; // non-null on fixed code
-    const isStale = !entry || Date.now() - entry.fetchedAt > TTL_MS;
+    const isStale = !entry;
 
     // FIX VERIFIED: isStale is false because entry survived via module store.
     expect(entry).not.toBeNull();
@@ -200,13 +185,14 @@ describe("useAdminCache — fix verified: cache survives unmount within TTL", ()
 // ─── Additional helpers for Property 2 preservation tests ────────────────────
 
 /**
- * Reproduce the ensureFresh staleness check from useAdminCache.js:
- *   const isStale = !entry || Date.now() - entry.fetchedAt > ttlMs;
- * Returns true when the entry is stale (a fetch would be triggered).
+ * Reproduce the ensureFresh check from useAdminCache.js:
+ *   const entry = cache[key];
+ *   if (!entry) fetchKey(key);
+ * Returns true when the entry is missing (a fetch would be triggered).
  */
-function simulateEnsureFresh(cache, key, ttlMs, fetchKey) {
+function simulateEnsureFresh(cache, key, fetchKey) {
   const entry = cache[key];
-  const isStale = !entry || Date.now() - entry.fetchedAt > ttlMs;
+  const isStale = !entry;
   if (isStale) fetchKey(key);
   return isStale;
 }
@@ -234,76 +220,35 @@ function makeLoadingRef() {
 // ─── Property 2: Preservation — non-buggy behaviors unchanged ────────────────
 
 describe("useAdminCache — preservation: non-buggy behaviors unchanged", () => {
+  test("ensureFresh does NOT refetch even if elapsed time is large (TTL expiration removed)", () => {
+    const store = { stats: { data: { count: 1 }, fetchedAt: 1000, loading: false } };
+    const fetchKey = vi.fn();
+    simulateEnsureFresh(store, "stats", fetchKey);
+    expect(fetchKey).not.toHaveBeenCalled();
+  });
+
   /**
-   * Property 2a — TTL freshness gate
+   * Property 2a — Cache persistence regardless of time
    *
-   * When elapsedMs < ttlMs, the staleness formula returns false and
-   * ensureFresh must NOT trigger a fetch.
-   *
-   * Validates: Requirements 3.1, 3.2
+   * ensureFresh must NOT trigger a fetch when entry exists, no matter how much time passes.
    */
-  test("Property 2a: ensureFresh does NOT fetch when entry is within TTL", () => {
+  test("Property 2a: ensureFresh does NOT fetch when entry exists, regardless of elapsed time", () => {
     fc.assert(
       fc.property(
-        fc.integer({ min: 1, max: 60_000 }),
-        fc.nat(), // raw elapsed — constrained below
-        (ttlMs, rawElapsed) => {
-          const elapsedMs = rawElapsed % ttlMs; // 0 .. ttlMs-1 (always fresh)
-          const fetchedAt = 1_000_000; // arbitrary stable base
-
+        fc.integer({ min: 0, max: 10_000_000 }),
+        (elapsedMs) => {
+          const fetchedAt = 1_000_000;
           const originalNow = Date.now;
           Date.now = () => fetchedAt + elapsedMs;
 
           try {
-            let fetchCalled = false;
+            const fetchKey = vi.fn();
             const cache = {
               stats: { data: { count: 1 }, fetchedAt, loading: false },
             };
 
-            // Reproduce the ensureFresh staleness check
-            const entry = cache.stats;
-            const isStale = !entry || Date.now() - entry.fetchedAt > ttlMs;
-            if (isStale) fetchCalled = true;
-
-            return !fetchCalled; // must NOT fetch when fresh
-          } finally {
-            Date.now = originalNow;
-          }
-        },
-      ),
-    );
-  });
-
-  /**
-   * Property 2b — Stale detection
-   *
-   * When fetchedAt age exceeds ttlMs, ensureFresh always triggers a fetch.
-   *
-   * Validates: Requirements 3.1, 3.2
-   */
-  test("Property 2b: ensureFresh always fetches when entry is stale", () => {
-    fc.assert(
-      fc.property(
-        fc.integer({ min: 1, max: 60_000 }),
-        fc.integer({ min: 1, max: 300_000 }), // overage above ttlMs
-        (ttlMs, overage) => {
-          const now = 1_000_000_000;
-          const fetchedAt = now - ttlMs - overage; // always stale
-
-          const originalNow = Date.now;
-          Date.now = () => now;
-
-          try {
-            let fetchCalled = false;
-            const cache = {
-              stats: { data: { count: 1 }, fetchedAt, loading: false },
-            };
-
-            const entry = cache.stats;
-            const isStale = !entry || Date.now() - entry.fetchedAt > ttlMs;
-            if (isStale) fetchCalled = true;
-
-            return fetchCalled; // MUST fetch when stale
+            simulateEnsureFresh(cache, "stats", fetchKey);
+            return fetchKey.mock.calls.length === 0;
           } finally {
             Date.now = originalNow;
           }
@@ -354,7 +299,7 @@ describe("useAdminCache — preservation: non-buggy behaviors unchanged", () => 
     const cache = simulateMountCache(trackingFetchers);
     expect(cache.stats).toBeNull();
 
-    const triggered = simulateEnsureFresh(cache, "stats", 10_000, () => {
+    const triggered = simulateEnsureFresh(cache, "stats", () => {
       trackingFetchers.stats();
     });
 
@@ -445,8 +390,8 @@ describe("useAdminCache — preservation: non-buggy behaviors unchanged", () => 
     };
     const cache = { stats: freshEntry, settings: null };
 
-    // ensureFresh would NOT fetch because entry is fresh
-    const wouldFetch = simulateEnsureFresh(cache, "stats", 10_000, () => {
+    // ensureFresh would NOT fetch because entry exists
+    const wouldFetch = simulateEnsureFresh(cache, "stats", () => {
       trackingFetchers.stats();
     });
     expect(wouldFetch).toBe(false); // ensureFresh skips fresh entries

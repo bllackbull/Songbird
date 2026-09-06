@@ -5,6 +5,9 @@ import { StringSession } from "telegram/sessions/index.js";
 import { ProxyAgent } from "undici";
 import { getSetting } from "./appSettings.js";
 
+import { isValidUuid } from "./uuidUtils.js";
+import { markEncryptedFileRecord } from "./storageEncryption.js";
+
 // ─── Songbird outbound proxy ──────────────────────────────────────────────────
 // Applied per-fetch-call (no persistent connection to bake it into), so this
 // reads the live setting on every call instead of a value captured at startup.
@@ -801,7 +804,7 @@ function groupTelegramMessagesForQueue(messages = []) {
   return groups;
 }
 
-function createRemoteChannelManager(deps = {}) {
+export function createRemoteChannelManager(deps = {}) {
   const {
     config = {},
     computeExpiryIso,
@@ -848,6 +851,9 @@ function createRemoteChannelManager(deps = {}) {
     updateRemoteChannelSourceError,
     updateRemoteChannelSourceSeen,
   } = deps;
+
+  const resolveMaybePromise = async (value) =>
+    value && typeof value.then === "function" ? await value : value;
 
   const apiId = Number(config.telegramApiId || 0);
   const apiHash = String(config.telegramApiHash || "").trim();
@@ -1152,7 +1158,7 @@ function createRemoteChannelManager(deps = {}) {
   ) {
     const nextResolved =
       resolved || await resolveSource(activeClient, source, { forceRefresh: true });
-    const targetChat = findChatById(Number(source.chat_id || 0));
+    const targetChat = await resolveMaybePromise(findChatById(source.chat_id || null));
     if (
       targetChat &&
       Boolean(Number(source.sync_metadata || 0)) &&
@@ -1164,7 +1170,7 @@ function createRemoteChannelManager(deps = {}) {
         String(nextName || "") !== String(targetChat.name || "") ||
         String(nextAvatarUrl || "") !== String(targetChat.group_avatar_url || "");
       if (metadataChanged) {
-        updateChannelChat(Number(targetChat.id), {
+        await resolveMaybePromise(updateChannelChat(targetChat.id, {
           name: nextName,
           groupUsername: targetChat.group_username,
           groupVisibility: targetChat.group_visibility,
@@ -1172,15 +1178,16 @@ function createRemoteChannelManager(deps = {}) {
             Number(targetChat.allow_member_invites || 0),
           ),
           groupAvatarUrl: nextAvatarUrl,
-        });
-        listChatMembers(Number(targetChat.id))
+        }));
+        const members = (await resolveMaybePromise(listChatMembers(targetChat.id))) || [];
+        members
           .map((member) => String(member?.username || "").toLowerCase())
           .filter(Boolean)
           .forEach((memberUsername) => {
             try {
               emitSseEvent?.(memberUsername, {
                 type: "chat_list_changed",
-                chatId: Number(targetChat.id),
+                chatId: targetChat.id,
               });
             } catch {
               // ignore realtime list errors
@@ -1188,21 +1195,21 @@ function createRemoteChannelManager(deps = {}) {
           });
       }
     }
-    updateRemoteChannelSourceSeen(source.id, {
+    await resolveMaybePromise(updateRemoteChannelSourceSeen(source.id, {
       sourceChatId: nextResolved.sourceChatId,
       sourceUsername: nextResolved.username,
       sourceTitle: nextResolved.title,
       sourceAvatarUrl: nextResolved.avatarUrl,
       touch: options.touch,
       clearError: options.clearError,
-    });
+    }));
     return nextResolved;
   }
 
   async function syncSourceMetadata(sourceId) {
     const source =
       typeof getRemoteChannelSourceById === "function"
-        ? getRemoteChannelSourceById(sourceId)
+        ? await resolveMaybePromise(getRemoteChannelSourceById(sourceId))
         : null;
     if (!source?.id) throw new Error("Remote Channel source is not configured.");
     if (!Number(source.enabled || 0)) {
@@ -1221,11 +1228,11 @@ function createRemoteChannelManager(deps = {}) {
         source,
         await resolveSource(activeClient, source, { forceRefresh: true }),
       );
-      updateRemoteChannelSourceError(source.id, "");
+      await resolveMaybePromise(updateRemoteChannelSourceError(source.id, ""));
       return resolved;
     } catch (error) {
       const message = errorMessage(error);
-      updateRemoteChannelSourceError(source.id, message);
+      await resolveMaybePromise(updateRemoteChannelSourceError(source.id, message));
       markTelegramClientForReset(error, "sync-source-metadata");
       throw error;
     }
@@ -1268,7 +1275,7 @@ function createRemoteChannelManager(deps = {}) {
       data = await res.json();
     } catch (error) {
       const message = errorMessage(error);
-      updateRemoteChannelSourceError(source.id, message);
+      await resolveMaybePromise(updateRemoteChannelSourceError(source.id, message));
       throw new Error(`Songbird metadata sync failed: ${message}`);
     }
 
@@ -1318,7 +1325,7 @@ function createRemoteChannelManager(deps = {}) {
     }
 
     // Apply to the local channel if sync_metadata is enabled.
-    const targetChat = findChatById(Number(source.chat_id || 0));
+    const targetChat = await resolveMaybePromise(findChatById(source.chat_id || null));
     if (
       targetChat &&
       Boolean(Number(source.sync_metadata || 0)) &&
@@ -1330,7 +1337,7 @@ function createRemoteChannelManager(deps = {}) {
         String(nextName || "") !== String(targetChat.name || "") ||
         String(nextAvatarUrl || "") !== String(targetChat.group_avatar_url || "");
       if (metadataChanged) {
-        updateChannelChat(Number(targetChat.id), {
+        await resolveMaybePromise(updateChannelChat(targetChat.id, {
           name: nextName,
           groupUsername: targetChat.group_username,
           groupVisibility: targetChat.group_visibility,
@@ -1338,15 +1345,16 @@ function createRemoteChannelManager(deps = {}) {
             Number(targetChat.allow_member_invites || 0),
           ),
           groupAvatarUrl: nextAvatarUrl,
-        });
-        listChatMembers(Number(targetChat.id))
+        }));
+        const members = (await resolveMaybePromise(listChatMembers(targetChat.id))) || [];
+        members
           .map((member) => String(member?.username || "").toLowerCase())
           .filter(Boolean)
           .forEach((memberUsername) => {
             try {
               emitSseEvent?.(memberUsername, {
                 type: "chat_list_changed",
-                chatId: Number(targetChat.id),
+                chatId: targetChat.id,
               });
             } catch {
               // ignore realtime list errors
@@ -1355,13 +1363,13 @@ function createRemoteChannelManager(deps = {}) {
       }
     }
 
-    updateRemoteChannelSourceSeen(source.id, {
+    await resolveMaybePromise(updateRemoteChannelSourceSeen(source.id, {
       sourceUsername: channelUsername,
       sourceTitle: title,
       sourceAvatarUrl: localAvatarUrl,
       touch: true,
       clearError: true,
-    });
+    }));
 
     return { title, username: channelUsername, avatarUrl: localAvatarUrl };
   }
@@ -1390,14 +1398,14 @@ function createRemoteChannelManager(deps = {}) {
     if (!lastMessageId) {
       const latest = await activeClient.getMessages(resolved.entity, { limit: 1 });
       const latestMessageId = Number(latest?.[0]?.id || 0) || 0;
-      updateRemoteChannelSourceSeen(source.id, {
+      await resolveMaybePromise(updateRemoteChannelSourceSeen(source.id, {
         sourceChatId: resolved.sourceChatId,
         sourceUsername: resolved.username,
         sourceTitle: resolved.title,
         sourceAvatarUrl: resolved.avatarUrl,
         lastRemoteMessageId: latestMessageId,
         touch: true,
-      });
+      }));
       return { queued: 0, initialized: true };
     }
 
@@ -1442,23 +1450,23 @@ function createRemoteChannelManager(deps = {}) {
         },
         receivedAt: new Date().toISOString(),
       });
-      const row = enqueueRemoteChannelQueueItem({
+      const row = await resolveMaybePromise(enqueueRemoteChannelQueueItem({
         sourceId: source.id,
         sourceVersion: source.source_version,
         telegramMessageId,
         payloadJson,
-      });
+      }));
       if (row?.id) queued += 1;
     }
 
-    updateRemoteChannelSourceSeen(source.id, {
+    await resolveMaybePromise(updateRemoteChannelSourceSeen(source.id, {
       sourceChatId: resolved.sourceChatId,
       sourceUsername: resolved.username,
       sourceTitle: resolved.title,
       sourceAvatarUrl: resolved.avatarUrl,
       lastRemoteMessageId: maxSeenId,
       touch: maxSeenId > lastMessageId,
-    });
+    }));
 
     return { queued, initialized: false };
   }
@@ -1478,11 +1486,11 @@ function createRemoteChannelManager(deps = {}) {
       const initUrl = `${sourceUrl}/api/channels/${encodeURIComponent(channelUsername)}/messages?limit=1`;
       const data = await fetchSongbirdJson(initUrl);
       const latestId = Number(data?.messages?.[0]?.id || 0) || 0;
-      updateRemoteChannelSourceSeen(source.id, {
+      await resolveMaybePromise(updateRemoteChannelSourceSeen(source.id, {
         sourceUsername: channelUsername,
         lastRemoteMessageId: latestId,
         touch: true,
-      });
+      }));
       return { queued: 0, initialized: true };
     }
 
@@ -1519,30 +1527,30 @@ function createRemoteChannelManager(deps = {}) {
         receivedAt: new Date().toISOString(),
       });
 
-      const row = enqueueRemoteChannelQueueItem({
+      const row = await resolveMaybePromise(enqueueRemoteChannelQueueItem({
         sourceId: source.id,
         provider: "songbird",
         sourceVersion: source.source_version,
         // Reuse the telegram_message_id column for the remote message ID.
         telegramMessageId: msgId,
         payloadJson,
-      });
+      }));
       if (row?.id) queued += 1;
     }
 
     if (maxSeenId > lastMessageId) {
-      updateRemoteChannelSourceSeen(source.id, {
+      await resolveMaybePromise(updateRemoteChannelSourceSeen(source.id, {
         sourceUsername: channelUsername,
         lastRemoteMessageId: maxSeenId,
         touch: true,
-      });
+      }));
     }
 
     return { queued, initialized: false };
   }
 
   async function pollSongbirdOnce() {
-    const sources = listEnabledRemoteChannelSources("songbird");
+    const sources = (await resolveMaybePromise(listEnabledRemoteChannelSources("songbird"))) || [];
     if (!sources.length) {
       await sleep(pollIntervalMs);
       return;
@@ -1556,10 +1564,10 @@ function createRemoteChannelManager(deps = {}) {
           if (stopped) return;
           try {
             await pollSongbirdSource(source);
-            if (source.last_error) updateRemoteChannelSourceError(source.id, "");
+            if (source.last_error) await resolveMaybePromise(updateRemoteChannelSourceError(source.id, ""));
           } catch (error) {
             const message = errorMessage(error);
-            updateRemoteChannelSourceError(source.id, message);
+            await resolveMaybePromise(updateRemoteChannelSourceError(source.id, message));
             log("poll-songbird:error", { sourceId: Number(source.id), error: message });
           }
         }),
@@ -1585,7 +1593,7 @@ function createRemoteChannelManager(deps = {}) {
   }
 
   async function pollTelegramOnce() {
-    const sources = listEnabledRemoteChannelSources("telegram");
+    const sources = (await resolveMaybePromise(listEnabledRemoteChannelSources("telegram"))) || [];
     if (!sources.length) {
       await sleep(pollIntervalMs);
       return;
@@ -1605,11 +1613,11 @@ function createRemoteChannelManager(deps = {}) {
           try {
             await pollSource(activeClient, source);
             if (source.last_error) {
-              updateRemoteChannelSourceError(source.id, "");
+              await resolveMaybePromise(updateRemoteChannelSourceError(source.id, ""));
             }
           } catch (error) {
             const message = errorMessage(error);
-            updateRemoteChannelSourceError(source.id, message);
+            await resolveMaybePromise(updateRemoteChannelSourceError(source.id, message));
             log("poll-source:error", { sourceId: Number(source.id), error: message });
             if (markTelegramClientForReset(error, "poll-source")) {
               clientResetNeeded = true;
@@ -1624,17 +1632,17 @@ function createRemoteChannelManager(deps = {}) {
       }
     }
 
-    const state = getRemoteChannelProviderState("telegram") || {};
+    const state = (await resolveMaybePromise(getRemoteChannelProviderState("telegram"))) || {};
     const now = Date.now();
     if (
       state.last_error ||
       now - lastProviderStateSavedAt >= providerStateHeartbeatMs
     ) {
-      setRemoteChannelProviderState("telegram", {
+      await resolveMaybePromise(setRemoteChannelProviderState("telegram", {
         nextUpdateOffset: Number(state.next_update_offset || 0) || null,
         lastError: null,
         lastPolledAt: new Date(now).toISOString(),
-      });
+      }));
       lastProviderStateSavedAt = now;
     }
   }
@@ -1648,12 +1656,12 @@ function createRemoteChannelManager(deps = {}) {
           await pollTelegramOnce();
         } catch (error) {
           const message = errorMessage(error);
-          const state = getRemoteChannelProviderState("telegram") || {};
-          setRemoteChannelProviderState("telegram", {
+          const state = (await resolveMaybePromise(getRemoteChannelProviderState("telegram"))) || {};
+          await resolveMaybePromise(setRemoteChannelProviderState("telegram", {
             nextUpdateOffset: Number(state.next_update_offset || 0) || null,
             lastError: message,
             lastPolledAt: new Date().toISOString(),
-          });
+          }));
           lastProviderStateSavedAt = Date.now();
           log("poll:error", { error: message });
           
@@ -1672,39 +1680,40 @@ function createRemoteChannelManager(deps = {}) {
     }
   }
 
-  function resolveAuthorUserId(chat) {
-    const createdByUserId = Number(chat?.created_by_user_id || 0);
-    if (createdByUserId > 0) return createdByUserId;
-    const owner = listChatMembers(Number(chat?.id || 0)).find(
+  async function resolveAuthorUserId(chat) {
+    const createdByUserId = chat?.created_by_user_id || null;
+    if (createdByUserId) return createdByUserId;
+    const members = (await resolveMaybePromise(listChatMembers(chat?.id || null))) || [];
+    const owner = members.find(
       (member) => String(member?.role || "").toLowerCase() === "owner",
     );
-    return Number(owner?.id || 0) || null;
+    return owner?.id || null;
   }
 
   async function sendPushForMirroredPost({ chat, authorId, body }) {
     try {
-      const members = listChatMembers(Number(chat.id));
-      const mutedRows = listMutedUserIdsForChat(Number(chat.id));
+      const members = (await resolveMaybePromise(listChatMembers(chat.id))) || [];
+      const mutedRows = (await resolveMaybePromise(listMutedUserIdsForChat(chat.id))) || [];
       const mutedIds = new Set(
-        mutedRows.map((row) => Number(row?.user_id || 0)).filter(Boolean),
+        mutedRows.map((row) => row?.user_id).filter(Boolean),
       );
       const recipientIds = members
-        .map((member) => Number(member?.id || 0))
+        .map((member) => member?.id)
         .filter(
           (memberId) =>
-            memberId > 0 &&
-            Number(memberId) !== Number(authorId) &&
+            memberId &&
+            String(memberId) !== String(authorId) &&
             !mutedIds.has(memberId),
         )
         .filter((memberId) => {
-          const member = members.find((m) => Number(m?.id || 0) === memberId);
+          const member = members.find((m) => m?.id === memberId);
           return !isUserConnected(member?.username);
         });
       if (!recipientIds.length) return;
       await sendPushNotificationToUsers(recipientIds, {
         title: chat.name || "Channel",
         body: String(body || "").trim() || "New message",
-        data: { url: "/", chatId: Number(chat.id) },
+        data: { url: "/", chatId: chat.id },
       });
     } catch {
       // Push should never block queue progress.
@@ -1884,11 +1893,11 @@ function createRemoteChannelManager(deps = {}) {
     };
   }
 
-  function readExistingMessageFileStats(messageId) {
+  async function readExistingMessageFileStats(messageId) {
     if (typeof listMessageFilesByMessageIds !== "function" || !messageId) {
       return { count: 0, totalBytes: 0, names: new Set() };
     }
-    const rows = listMessageFilesByMessageIds([Number(messageId)]);
+    const rows = (await resolveMaybePromise(listMessageFilesByMessageIds([messageId]))) || [];
     return rows.reduce(
       (stats, row) => {
         stats.count += 1;
@@ -1989,6 +1998,8 @@ function createRemoteChannelManager(deps = {}) {
       }
 
       storageEncryption?.encryptFileInPlace?.(filePath);
+      // Keep the DB record in sync with the bytes on disk.
+      markEncryptedFileRecord(storageEncryption, filePath, normalized);
       return { file: normalized, filePath };
     } catch (error) {
       safeUnlink(filePath);
@@ -2017,14 +2028,14 @@ function createRemoteChannelManager(deps = {}) {
         await ensureFfmpegAvailable();
       } catch (error) {
         log("media:transcode-skip", {
-          messageId: Number(messageId),
+          messageId,
           error: errorMessage(error),
         });
         return;
       }
     }
 
-    const rows = listMessageFilesByMessageIds([Number(messageId)]);
+    const rows = (await resolveMaybePromise(listMessageFilesByMessageIds([messageId]))) || [];
     const inserted = rows.find(
       (row) => path.basename(String(row?.stored_name || "")) === file.storedName,
     );
@@ -2034,8 +2045,8 @@ function createRemoteChannelManager(deps = {}) {
     enqueueVideoTranscodeJob({
       fileId,
       storedName: file.storedName,
-      chatId: Number(chat.id),
-      messageId: Number(messageId),
+      chatId: chat.id,
+      messageId,
       username: author.username,
     });
   }
@@ -2073,7 +2084,7 @@ function createRemoteChannelManager(deps = {}) {
 
     for (let index = 0; index < mediaMessages.length; index += 1) {
       const currentMessageId = ensureMessage.peekMessageId();
-      const stats = readExistingMessageFileStats(currentMessageId);
+      const stats = await readExistingMessageFileStats(currentMessageId);
       if (stats.count >= maxMediaFilesPerMessage) break;
 
       const descriptor = getTelegramMediaDescriptor(mediaMessages[index], index);
@@ -2087,14 +2098,14 @@ function createRemoteChannelManager(deps = {}) {
       );
       if (!downloaded?.file) continue;
 
-      let targetMessageId = 0;
+      let targetMessageId = null;
       try {
         const summaryText = summarizeMediaFiles([downloaded.file]);
-        targetMessageId = ensureMessage(summaryText || "Sent a media file", {
+        targetMessageId = await ensureMessage(summaryText || "Sent a media file", {
           hasMedia: true,
           summaryText,
         });
-        const latestStats = readExistingMessageFileStats(targetMessageId);
+        const latestStats = await readExistingMessageFileStats(targetMessageId);
         if (
           latestStats.count >= maxMediaFilesPerMessage ||
           latestStats.names.has(downloaded.file.originalName) ||
@@ -2104,22 +2115,23 @@ function createRemoteChannelManager(deps = {}) {
           continue;
         }
 
-        createMessageFiles(Number(targetMessageId), [downloaded.file]);
-        setMessageExpiresAt?.(Number(targetMessageId), null);
+        await resolveMaybePromise(createMessageFiles(targetMessageId, [downloaded.file]));
+        await resolveMaybePromise(setMessageExpiresAt?.(targetMessageId, null));
         attached += 1;
 
         await maybeEnqueueRemoteVideoTranscode({
           chat,
-          messageId: Number(targetMessageId),
+          messageId: targetMessageId,
           author,
           file: downloaded.file,
         });
 
-        emitChatEvent(Number(chat.id), {
+        emitChatEvent(chat.id, {
           type: "chat_message_updated",
-          chatId: Number(chat.id),
-          messageId: Number(targetMessageId),
+          chatId: chat.id,
+          messageId: targetMessageId,
           username: author.username,
+          userId: author.id,
         });
       } catch (error) {
         safeUnlink(downloaded.filePath);
@@ -2143,23 +2155,23 @@ function createRemoteChannelManager(deps = {}) {
     throwIfAborted();
     const currentSource =
       typeof getRemoteChannelSourceById === "function"
-        ? getRemoteChannelSourceById(item.source_id)
+        ? await resolveMaybePromise(getRemoteChannelSourceById(item.source_id))
         : null;
     if (!currentSource || !Number(currentSource.enabled || 0)) {
-      markRemoteChannelQueueItemSkipped(
+      await resolveMaybePromise(markRemoteChannelQueueItemSkipped(
         item.id,
         "Remote Channel was disabled before this item was mirrored.",
-      );
+      ));
       return;
     }
     if (
       Number(currentSource.source_version || 1) !==
       Number(item.source_version || 1)
     ) {
-      markRemoteChannelQueueItemSkipped(
+      await resolveMaybePromise(markRemoteChannelQueueItemSkipped(
         item.id,
         "Remote source changed before this item was mirrored.",
-      );
+      ));
       return;
     }
 
@@ -2167,7 +2179,7 @@ function createRemoteChannelManager(deps = {}) {
     try {
       envelope = JSON.parse(String(item?.payload_json || "{}"));
     } catch {
-      markRemoteChannelQueueItemSkipped(item.id, "Invalid payload.");
+      await resolveMaybePromise(markRemoteChannelQueueItemSkipped(item.id, "Invalid payload."));
       return;
     }
 
@@ -2176,17 +2188,17 @@ function createRemoteChannelManager(deps = {}) {
       const remoteMessage = envelope?.message || {};
       const body = truncateBody(String(remoteMessage?.body || "").trim(), messageMaxChars);
       if (!body) {
-        markRemoteChannelQueueItemSkipped(item.id, "Songbird post has no text to mirror.");
+        await resolveMaybePromise(markRemoteChannelQueueItemSkipped(item.id, "Songbird post has no text to mirror."));
         return;
       }
 
-      const chat = findChatById(Number(item.chat_id));
+      const chat = await resolveMaybePromise(findChatById(item.chat_id));
       if (!chat || String(chat.type || "").toLowerCase() !== "channel") {
         throw new Error("Target channel is no longer available.");
       }
-      const authorId = resolveAuthorUserId(chat);
+      const authorId = await resolveAuthorUserId(chat);
       if (!authorId) throw new Error("Target channel has no owner to author remote posts.");
-      const author = findUserById(authorId);
+      const author = await resolveMaybePromise(findUserById(authorId));
       if (!author) throw new Error("Target channel owner no longer exists.");
 
       const remoteMessageId = Number(item.telegram_message_id || remoteMessage?.id || 0) || 0;
@@ -2200,12 +2212,12 @@ function createRemoteChannelManager(deps = {}) {
       };
 
       const expiresAt = computeTextExpiryIso(messageTextRetentionDays);
-      const created = createOrReuseMessage(Number(chat.id), authorId, body, null, expiresAt, clientRequestId);
-      const msgId = Number(created?.id || 0);
+      const created = await resolveMaybePromise(createOrReuseMessage(chat.id, authorId, body, null, expiresAt, clientRequestId));
+      const msgId = created?.id || null;
       if (!msgId) throw new Error("Unable to create mirrored message.");
 
       if (!created?.deduped) {
-        setMessageForwardOrigin(msgId, {
+        await setMessageForwardOrigin(msgId, {
           label: buildSongbirdOriginLabel(source),
           sourceChatId: null,
           sourceUserId: null,
@@ -2213,9 +2225,9 @@ function createRemoteChannelManager(deps = {}) {
           sourceAvatarUrl: currentSource.source_avatar_url || null,
           sourceColor: "#10b981",
         });
-        emitChatEvent(Number(chat.id), {
+        emitChatEvent(chat.id, {
           type: "chat_message",
-          chatId: Number(chat.id),
+          chatId: chat.id,
           messageId: msgId,
           username: author.username,
           clientRequestId,
@@ -2226,8 +2238,8 @@ function createRemoteChannelManager(deps = {}) {
         await sendPushForMirroredPost({ chat, authorId, body });
       }
 
-      markRemoteChannelQueueItemDone(item.id, msgId);
-      updateRemoteChannelSourceError(item.source_id, "");
+      await resolveMaybePromise(markRemoteChannelQueueItemDone(item.id, msgId));
+      await resolveMaybePromise(updateRemoteChannelSourceError(item.source_id, ""));
       return;
     }
 
@@ -2248,23 +2260,23 @@ function createRemoteChannelManager(deps = {}) {
       mediaMessageIds.length > 0;
 
     if (!body && !shouldStreamMedia) {
-      markRemoteChannelQueueItemSkipped(
+      await resolveMaybePromise(markRemoteChannelQueueItemSkipped(
         item.id,
         "Telegram post has no text, caption, or streamable media to mirror.",
-      );
+      ));
       return;
     }
 
-    const chat = findChatById(Number(item.chat_id));
+    const chat = await resolveMaybePromise(findChatById(item.chat_id));
     if (!chat || String(chat.type || "").toLowerCase() !== "channel") {
       throw new Error("Target channel is no longer available.");
     }
 
-    const authorId = resolveAuthorUserId(chat);
+    const authorId = await resolveAuthorUserId(chat);
     if (!authorId) {
       throw new Error("Target channel has no owner to author remote posts.");
     }
-    const author = findUserById(authorId);
+    const author = await resolveMaybePromise(findUserById(authorId));
     if (!author) {
       throw new Error("Target channel owner no longer exists.");
     }
@@ -2281,13 +2293,13 @@ function createRemoteChannelManager(deps = {}) {
       source_title: item.source_title || "",
       source_username: item.source_username || "",
     };
-    let messageId = 0;
+    let messageId = null;
     let messageBody = "";
     let initialMessageDeduped = false;
     let initialMessageEmitted = false;
     let pushSent = false;
 
-    const ensureMessage = (fallbackBody = "", options = {}) => {
+    const ensureMessage = async (fallbackBody = "", options = {}) => {
       if (messageId) return messageId;
       // Check abort before creating the message — once it's created and the
       // SSE event is emitted, the message is already visible in the channel.
@@ -2302,20 +2314,23 @@ function createRemoteChannelManager(deps = {}) {
       const expiresAt = options.hasMedia
         ? null
         : computeTextExpiryIso(messageTextRetentionDays);
-      const created = createOrReuseMessage(
-        Number(chat.id),
+      const created = await resolveMaybePromise(createOrReuseMessage(
+        chat.id,
         authorId,
         messageBody,
         null,
         expiresAt,
         clientRequestId,
-      );
-      messageId = Number(created?.id || 0);
+      ));
+      messageId = created?.id || null;
       initialMessageDeduped = Boolean(created?.deduped);
-      if (!messageId) throw new Error("Unable to create mirrored message.");
+          if (!messageId) throw new Error("Unable to create mirrored message.");
+      if (!isValidUuid(String(author?.id || authorId || ""))) {
+        throw new Error("Mirrored message author UUID is unavailable.");
+      }
 
       if (!created?.deduped) {
-        setMessageForwardOrigin(messageId, {
+        await setMessageForwardOrigin(messageId, {
           label: buildTelegramOriginLabel(source),
           sourceChatId: null,
           sourceUserId: null,
@@ -2324,9 +2339,9 @@ function createRemoteChannelManager(deps = {}) {
             envelope?.source?.avatarUrl || item.source_avatar_url || null,
           sourceColor: "#10b981",
         });
-        emitChatEvent(Number(chat.id), {
+        emitChatEvent(chat.id, {
           type: "chat_message",
-          chatId: Number(chat.id),
+          chatId: chat.id,
           messageId,
           username: author.username,
           clientRequestId,
@@ -2344,7 +2359,7 @@ function createRemoteChannelManager(deps = {}) {
     ensureMessage.peekMessageId = () => messageId;
 
     if (body) {
-      ensureMessage(body);
+      await ensureMessage(body);
       if (!initialMessageDeduped && initialMessageEmitted) {
         await sendPushForMirroredPost({
           chat,
@@ -2370,10 +2385,10 @@ function createRemoteChannelManager(deps = {}) {
     }
 
     if (!messageId) {
-      markRemoteChannelQueueItemSkipped(
+      await resolveMaybePromise(markRemoteChannelQueueItemSkipped(
         item.id,
         "Telegram post has no text, caption, or streamable media to mirror.",
-      );
+      ));
       return;
     }
 
@@ -2385,8 +2400,8 @@ function createRemoteChannelManager(deps = {}) {
       });
     }
 
-    markRemoteChannelQueueItemDone(item.id, messageId);
-    updateRemoteChannelSourceError(item.source_id, "");
+      await resolveMaybePromise(markRemoteChannelQueueItemDone(item.id, messageId));
+      await resolveMaybePromise(updateRemoteChannelSourceError(item.source_id, ""));
   }
 
   function computeBackoffMs(attempts) {
@@ -2403,19 +2418,19 @@ function createRemoteChannelManager(deps = {}) {
         // Item was manually skipped while in-flight. The DB row was already
         // marked skipped by the abort call; just clean up the in-memory set.
         abortedItemIds.delete(Number(item.id));
-        markRemoteChannelQueueItemSkipped(item.id, "Manually skipped.");
+        await resolveMaybePromise(markRemoteChannelQueueItemSkipped(item.id, "Manually skipped."));
         log("queue:aborted", { id: Number(item.id) });
         return;
       }
       const attempts = Number(item?.attempts || 0) + 1;
       const failed = attempts >= maxAttempts;
       const message = errorMessage(error);
-      markRemoteChannelQueueItemRetry(item.id, {
+      await resolveMaybePromise(markRemoteChannelQueueItemRetry(item.id, {
         failed,
         nextAttemptAt: new Date(Date.now() + computeBackoffMs(attempts)).toISOString(),
         error: message,
-      });
-      updateRemoteChannelSourceError(item.source_id, message);
+      }));
+      await resolveMaybePromise(updateRemoteChannelSourceError(item.source_id, message));
       markTelegramClientForReset(error, "queue");
       log("queue:error", { id: Number(item.id), failed, error: message });
     }
@@ -2431,7 +2446,7 @@ function createRemoteChannelManager(deps = {}) {
       now - runQueueOnce._lastStaleReleaseAt >= staleReleaseIntervalMs
     ) {
       const staleBefore = new Date(now - staleLockMs).toISOString();
-      releaseStaleRemoteChannelQueueItems(staleBefore);
+      await resolveMaybePromise(releaseStaleRemoteChannelQueueItems(staleBefore));
       runQueueOnce._lastStaleReleaseAt = now;
     }
 
@@ -2441,10 +2456,10 @@ function createRemoteChannelManager(deps = {}) {
     const items = [];
     for (let index = 0; index < queueBatchSize; index += 1) {
       if (stopped) break;
-      const item = claimNextRemoteChannelQueueItem(
+      const item = await resolveMaybePromise(claimNextRemoteChannelQueueItem(
         lockOwner,
         new Date().toISOString(),
-      );
+      ));
       if (!item?.id) break;
       items.push(item);
     }
@@ -2520,7 +2535,7 @@ function createRemoteChannelManager(deps = {}) {
   }
 
   async function testConnection(sourceId) {
-    const source = getRemoteChannelSourceById(sourceId);
+    const source = await resolveMaybePromise(getRemoteChannelSourceById(sourceId));
     if (!source?.id) {
       throw new Error("Remote channel source not found.");
     }
@@ -2594,12 +2609,12 @@ function createRemoteChannelManager(deps = {}) {
     }
   }
 
-  function abortQueueItem(sourceId) {
+  async function abortQueueItem(sourceId) {
     const id = Number(sourceId || 0);
     if (!id) return 0;
-    const itemId = getCurrentRemoteChannelQueueItemId(id);
+    const itemId = await resolveMaybePromise(getCurrentRemoteChannelQueueItemId(id));
     // Mark the lowest active item in the DB as skipped.
-    const count = skipCurrentRemoteChannelQueueItemDb(id);
+    const count = await resolveMaybePromise(skipCurrentRemoteChannelQueueItemDb(id));
     // Signal abort for the specific in-flight item only.
     if (itemId) {
       abortedItemIds.add(itemId);
@@ -2608,7 +2623,7 @@ function createRemoteChannelManager(deps = {}) {
     return count;
   }
 
-  function abortAllQueueItems(sourceId) {
+  async function abortAllQueueItems(sourceId) {
     const id = Number(sourceId || 0);
     if (!id) return 0;
     // Signal all in-flight items for this source to stop at the next yield.
@@ -2617,7 +2632,7 @@ function createRemoteChannelManager(deps = {}) {
     // any currently in-flight batch.
     setTimeout(() => abortedSourceIds.delete(id), staleLockMs);
     // Mark all pending/retry/processing DB rows as skipped.
-    return skipAllRemoteChannelQueueItemsDb(id);
+    return resolveMaybePromise(skipAllRemoteChannelQueueItemsDb(id));
   }
 
   return {
@@ -2632,7 +2647,6 @@ function createRemoteChannelManager(deps = {}) {
 }
 
 export {
-  createRemoteChannelManager,
   getTelegramClientConnectionOptions,
   normalizeSongbirdSource,
   normalizeTelegramSource,

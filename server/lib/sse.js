@@ -1,3 +1,47 @@
+import { isValidUuid } from "./uuidUtils.js";
+
+const UUID_EVENT_TYPES = new Set([
+  "chat_message",
+  "chat_message_updated",
+  "chat_message_deleted",
+  "chat_read",
+  "chat_typing",
+  "chat_updated",
+  "chat_deleted",
+  "chat_list_changed",
+  "presence_update",
+  "profile_updated",
+  "user_profile_updated",
+]);
+
+function hasValidUuidReferences(payload = {}) {
+  const type = String(payload?.type || "");
+  if (!UUID_EVENT_TYPES.has(type)) return true;
+
+  const uuidFields = ["chatId", "messageId", "userId", "replyToMessageId", "sourceChatId", "sourceUserId"];
+  for (const field of uuidFields) {
+    if (payload[field] !== undefined && payload[field] !== null && !isValidUuid(String(payload[field]))) {
+      return false;
+    }
+  }
+
+  if (Array.isArray(payload.messageIds) && payload.messageIds.some((id) => !isValidUuid(String(id)))) {
+    return false;
+  }
+
+  if (["chat_message", "chat_message_updated", "chat_message_deleted", "chat_read", "chat_typing", "chat_updated", "chat_deleted"].includes(type) && !isValidUuid(String(payload.chatId || ""))) {
+    return false;
+  }
+  if (type === "presence_update" && !isValidUuid(String(payload.userId || ""))) {
+    return false;
+  }
+  if ((type === "profile_updated" || type === "user_profile_updated") && !isValidUuid(String(payload.userId || ""))) {
+    return false;
+  }
+
+  return true;
+}
+
 export function createSseHub({ listChatMembers }) {
   const sseClientsByUsername = new Map();
   // Short-lived cache for chat member lists to avoid repeated DB queries on
@@ -20,12 +64,23 @@ export function createSseHub({ listChatMembers }) {
     if (entry && entry.expiresAt > Date.now()) {
       return entry.members;
     }
-    const members = listChatMembers(chatId);
+    const rawMembers = listChatMembers(chatId);
+    if (rawMembers && typeof rawMembers.then === "function") {
+      return rawMembers.then((members) => {
+        const list = Array.isArray(members) ? members : [];
+        memberCache.set(chatId, {
+          members: list,
+          expiresAt: Date.now() + MEMBER_CACHE_TTL_MS,
+        });
+        return list;
+      });
+    }
+    const list = Array.isArray(rawMembers) ? rawMembers : [];
     memberCache.set(chatId, {
-      members,
+      members: list,
       expiresAt: Date.now() + MEMBER_CACHE_TTL_MS,
     });
-    return members;
+    return list;
   }
 
   function addSseClient(username, res) {
@@ -48,6 +103,7 @@ export function createSseHub({ listChatMembers }) {
   }
 
   function emitSseEvent(username, payload) {
+    if (!hasValidUuidReferences(payload)) return;
     const key = String(username || "").toLowerCase();
     if (!key) return;
     const clients = sseClientsByUsername.get(key);
@@ -64,11 +120,35 @@ export function createSseHub({ listChatMembers }) {
   }
 
   function emitChatEvent(chatId, payload) {
-    const members = getCachedMembers(Number(chatId));
-    members.forEach((member) => {
-      if (!member?.username) return;
-      emitSseEvent(member.username, payload);
+    if (!isValidUuid(String(chatId || "")) || !hasValidUuidReferences(payload)) return;
+    const rawMembers = getCachedMembers(chatId);
+    const processMembers = (members) => {
+      const memberList = Array.isArray(members) ? members : [];
+      memberList.forEach((member) => {
+        if (!member?.username) return;
+        emitSseEvent(member.username, payload);
+      });
+    };
+
+    if (rawMembers && typeof rawMembers.then === "function") {
+      rawMembers.then(processMembers).catch(() => {});
+    } else {
+      processMembers(rawMembers);
+    }
+
+    listeners.forEach((listener) => {
+      try {
+        listener(chatId, payload);
+      } catch (_) {}
     });
+  }
+
+  const listeners = new Set();
+  function onChatEvent(listener) {
+    if (typeof listener === "function") {
+      listeners.add(listener);
+    }
+    return () => listeners.delete(listener);
   }
 
   // Broadcasts a payload to every currently connected SSE client.
@@ -86,6 +166,7 @@ export function createSseHub({ listChatMembers }) {
     removeSseClient,
     emitSseEvent,
     emitChatEvent,
+    onChatEvent,
     broadcastAll,
     getCachedMembers,
     isUserConnected(username) {

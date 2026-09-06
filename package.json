@@ -11,10 +11,12 @@
   },
   "homepage": "https://github.com/bllackbull/songbird#readme",
   "scripts": {
-    "dev": "concurrently \"npm --prefix client run dev\" \"npm --prefix server run dev\"",
-    "test": "concurrently \"npm --prefix client run test\" \"npm --prefix server run test\"",
+    "dev": "concurrently \"npm --prefix client run dev\" \"npm --prefix server run dev\" \"npm --prefix worker run dev\"",
+    "test": "concurrently \"npm --prefix client run test\" \"npm --prefix server run test\" \"npm --prefix worker run test\"",
+    "test:coverage": "concurrently \"npm --prefix client run test:coverage\" \"npm --prefix server run test:coverage\" \"npm --prefix worker run test:coverage\"",
+    "test:bench": "concurrently \"npm --prefix client run test:bench\" \"npm --prefix server run test:bench\" \"npm --prefix worker run test:bench\"",
     "test:scripts": "bats scripts/test/",
-    "start": "concurrently \"npm --prefix client run start\" \"npm --prefix server run start\"",
+    "start": "concurrently \"npm --prefix client run start\" \"npm --prefix server run start\" \"npm --prefix worker run start\"",
     "build": "npm --prefix client run build",
     "preview": "npm --prefix client run preview",
     "remote:configure": "npm --prefix server run remote:configure",
@@ -30,6 +32,7 @@
     "concurrently": "^10.0.4",
     "conventional-changelog-conventionalcommits": "^10.2.1",
     "npm": "^12.0.1",
+    "railway": "^3.11.0",
     "semantic-release": "^25.0.5",
     "vitepress": "^1.6.4"
   },

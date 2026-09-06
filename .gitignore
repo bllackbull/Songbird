@@ -1,5 +1,7 @@
 ﻿# Node
 node_modules/
+coverage/
+**/coverage/
 
 # Client build
 client/dist/
@@ -33,3 +35,10 @@ logs/
 
 # TLS certs
 certs/
+
+# Tools
+graphify-out/
+.opencode/
+.agents/
+paseo.json
+skills-lock.json

@@ -1,6 +1,7 @@
 import { getCliArgs, getPositionalArgs } from "./_cli.js";
 import { openDatabase, runAdminActionViaServer } from "./_db-admin.js";
 import { resolveUserRow } from "../lib/dbToolHelpers.js";
+import { dbKnex } from "../db/knex.js";
 
 async function main() {
   const args = getCliArgs();
@@ -24,24 +25,23 @@ async function main() {
 
   const dbApi = await openDatabase();
   try {
-    const user = resolveUserRow(dbApi, userSelector);
+    const user = await resolveUserRow(dbApi, userSelector);
     if (!user?.id) {
       console.error("User not found.");
       process.exit(1);
     }
 
     const nextVerified = Number(user.verified || 0) ? 0 : 1;
-    dbApi.run("UPDATE users SET verified = ? WHERE id = ?", [
-      nextVerified,
-      Number(user.id),
-    ]);
-    dbApi.save();
+    await dbApi.run(
+      dbKnex("users").where("id", user.id).update({ verified: nextVerified }),
+    );
+    await dbApi.save();
 
     console.log(
       `User ${nextVerified ? "verified" : "unverified"}: id=${user.id} username=${user.username}`,
     );
   } finally {
-    dbApi.close();
+    await dbApi.close();
   }
 }
 

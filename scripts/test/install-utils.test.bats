@@ -455,7 +455,7 @@ setup_version_dirs() {
   SOURCE_ROOT="$TEST_DIR/source"
   INSTALL_ROOT="$TEST_DIR/installed"
   mkdir -p "$SOURCE_ROOT" "$INSTALL_ROOT"
-  mkdir -p "$SOURCE_ROOT/server" "$SOURCE_ROOT/client"
+  mkdir -p "$SOURCE_ROOT/server" "$SOURCE_ROOT/client" "$SOURCE_ROOT/worker"
   printf "%s\n" "$source_ver" > "$SOURCE_ROOT/VERSION"
   printf "%s\n" "$install_ver" > "$INSTALL_ROOT/VERSION"
   # Provide a minimal package.json so the structure is valid
@@ -495,12 +495,48 @@ setup_version_dirs() {
 }
 
 # ===========================================================================
+# offline_source_is_lower  (uses dpkg --compare-versions)
+# ===========================================================================
+
+@test "offline_source_is_lower: returns 0 when source version is lower" {
+  setup_version_dirs "0.10.0" "0.11.1"
+  run offline_source_is_lower "$SOURCE_ROOT" "$INSTALL_ROOT"
+  [ "$status" -eq 0 ]
+}
+
+@test "offline_source_is_lower: returns non-zero when source version is equal" {
+  setup_version_dirs "0.11.1" "0.11.1"
+  run offline_source_is_lower "$SOURCE_ROOT" "$INSTALL_ROOT"
+  [ "$status" -ne 0 ]
+}
+
+@test "offline_source_is_lower: returns non-zero when source version is higher" {
+  setup_version_dirs "0.12.0" "0.11.1"
+  run offline_source_is_lower "$SOURCE_ROOT" "$INSTALL_ROOT"
+  [ "$status" -ne 0 ]
+}
+
+@test "offline_source_is_lower: returns non-zero when source VERSION is missing" {
+  setup_version_dirs "0.10.0" "0.11.1"
+  rm "$SOURCE_ROOT/VERSION"
+  run offline_source_is_lower "$SOURCE_ROOT" "$INSTALL_ROOT"
+  [ "$status" -ne 0 ]
+}
+
+@test "offline_source_is_lower: returns non-zero when installed VERSION is missing" {
+  setup_version_dirs "0.10.0" "0.11.1"
+  rm "$INSTALL_ROOT/VERSION"
+  run offline_source_is_lower "$SOURCE_ROOT" "$INSTALL_ROOT"
+  [ "$status" -ne 0 ]
+}
+
+# ===========================================================================
 # resolve_offline_source_root
 # ===========================================================================
 
 make_valid_source_dir() {
   local dir="$1"
-  mkdir -p "$dir/server" "$dir/client"
+  mkdir -p "$dir/server" "$dir/client" "$dir/worker"
   echo '{}' > "$dir/package.json"
 }
 
@@ -519,6 +555,24 @@ make_valid_source_dir() {
   [ "$result" = "$inner" ]
 }
 
+@test "resolve_offline_source_root: ignores extra non-source directories like __MACOSX" {
+  wrapper="$TEST_DIR/wrapper_extra"
+  inner="$wrapper/Songbird-main"
+  macosx="$wrapper/__MACOSX"
+  make_valid_source_dir "$inner"
+  mkdir -p "$macosx"
+  result="$(resolve_offline_source_root "$wrapper")"
+  [ "$result" = "$inner" ]
+}
+
+@test "resolve_offline_source_root: returns non-zero when worker directory is missing" {
+  missing_worker="$TEST_DIR/missing_worker"
+  mkdir -p "$missing_worker/server" "$missing_worker/client"
+  echo '{}' > "$missing_worker/package.json"
+  run resolve_offline_source_root "$missing_worker"
+  [ "$status" -ne 0 ]
+}
+
 @test "resolve_offline_source_root: returns non-zero when no valid source found" {
   empty="$TEST_DIR/empty_dir"
   mkdir -p "$empty"
@@ -531,6 +585,42 @@ make_valid_source_dir() {
   mkdir -p "$multi/a" "$multi/b"
   run resolve_offline_source_root "$multi"
   [ "$status" -ne 0 ]
+}
+
+@test "find_offline_source_zip: finds songbird.zip in current working directory" {
+  local fake_work_dir="$TEST_DIR/work"
+  mkdir -p "$fake_work_dir"
+  touch "$fake_work_dir/songbird.zip"
+  (
+    cd "$fake_work_dir"
+    result="$(find_offline_source_zip)"
+    [ "$result" = "$fake_work_dir/songbird.zip" ]
+  )
+}
+
+@test "install_source_from_zip: copies server, client, worker directories into INSTALL_DIR" {
+  local zip_file="$TEST_DIR/songbird.zip"
+  local staging="$TEST_DIR/staging"
+  mkdir -p "$staging/server" "$staging/client" "$staging/worker"
+  echo '{"name":"songbird"}' > "$staging/package.json"
+  echo "console.log('worker');" > "$staging/worker/index.js"
+  echo "console.log('server');" > "$staging/server/index.js"
+  echo "export default {};" > "$staging/client/index.html"
+  (
+    cd "$staging"
+    zip -q -r "$zip_file" .
+  )
+
+  local target_install_dir="$TEST_DIR/test_target_install"
+  INSTALL_DIR="$target_install_dir"
+  apply_ownership() { return 0; }
+  export -f apply_ownership
+
+  run install_source_from_zip "$zip_file"
+  [ "$status" -eq 0 ]
+  [ -f "$target_install_dir/worker/index.js" ]
+  [ -f "$target_install_dir/server/index.js" ]
+  [ -f "$target_install_dir/package.json" ]
 }
 
 # ===========================================================================
@@ -681,4 +771,657 @@ make_valid_source_dir() {
 @test "have_cmd: returns non-zero for a command that does not exist" {
   run have_cmd totally_fake_command_xyz_123
   [ "$status" -ne 0 ]
+}
+
+# ===========================================================================
+# ensure_local_postgres_setup & systemd env configuration
+# ===========================================================================
+
+@test "ensure_local_postgres_setup: returns 0 when DB_CLIENT is sqlite3" {
+  cat > "$INSTALL_DIR/.env" <<EOF
+DB_CLIENT=sqlite3
+EOF
+  run ensure_local_postgres_setup
+  [ "$status" -eq 0 ]
+}
+
+@test "ensure_local_postgres_setup: returns 0 when POSTGRES_HOST is remote" {
+  cat > "$INSTALL_DIR/.env" <<EOF
+DB_CLIENT=postgres
+POSTGRES_HOST=remote.db.example.com
+EOF
+  run ensure_local_postgres_setup
+  [ "$status" -eq 0 ]
+}
+
+@test "ensure_local_postgres_setup: treats 0.0.0.0 as local PostgreSQL" {
+  cat > "$INSTALL_DIR/.env" <<EOF
+DB_CLIENT=postgres
+POSTGRES_HOST=0.0.0.0
+POSTGRES_PORT=5432
+POSTGRES_DB=songbird
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+EOF
+  sudo() { return 0; }
+  psql() { return 0; }
+  export -f sudo psql
+  run ensure_local_postgres_setup
+  [ "$status" -eq 0 ]
+}
+
+@test "ensure_local_postgres_setup: creates custom database and user when they do not exist" {
+  cat > "$INSTALL_DIR/.env" <<EOF
+DB_CLIENT=postgres
+POSTGRES_HOST=127.0.0.1
+POSTGRES_PORT=5432
+POSTGRES_DB=custom_chat_db
+POSTGRES_USER=custom_user
+POSTGRES_PASSWORD=custom_pass
+EOF
+  local calls_file="$TEST_DIR/psql_calls.log"
+  local created_db_file="$TEST_DIR/db_created"
+  local created_role_file="$TEST_DIR/role_created"
+
+  sudo() {
+    local args=("$@")
+    echo "${args[*]}" >> "$calls_file"
+
+    if [[ "${args[*]}" == *"psql -c \\q"* ]]; then
+      return 0
+    fi
+
+    if [[ "${args[*]}" == *"FROM pg_roles"* ]]; then
+      return 0
+    fi
+
+    if [[ "${args[*]}" == *"FROM pg_database"* ]]; then
+      return 0
+    fi
+
+    if [[ "${args[*]}" == *'CREATE ROLE "custom_user"'* ]]; then
+      touch "$created_role_file"
+      return 0
+    fi
+
+    if [[ "${args[*]}" == *'CREATE DATABASE "custom_chat_db"'* ]]; then
+      touch "$created_db_file"
+      return 0
+    fi
+
+    if [[ "${args[*]}" == *'GRANT ALL PRIVILEGES ON DATABASE "custom_chat_db"'* ]]; then
+      if [[ ! -f "$created_db_file" ]]; then
+        echo 'ERROR: database "custom_chat_db" does not exist' >&2
+        return 1
+      fi
+      return 0
+    fi
+
+    return 0
+  }
+  export -f sudo
+  export calls_file created_db_file created_role_file
+
+  run ensure_local_postgres_setup
+  [ "$status" -eq 0 ]
+  [ -f "$created_role_file" ]
+  [ -f "$created_db_file" ]
+}
+
+@test "ensure_local_postgres_setup: updates role and skips CREATE DATABASE when database and role already exist" {
+  cat > "$INSTALL_DIR/.env" <<EOF
+DB_CLIENT=postgres
+POSTGRES_HOST=127.0.0.1
+POSTGRES_PORT=5432
+POSTGRES_DB=existing_db
+POSTGRES_USER=existing_user
+POSTGRES_PASSWORD=updated_pass
+EOF
+  local calls_file="$TEST_DIR/psql_calls_existing.log"
+
+  sudo() {
+    local args=("$@")
+    echo "${args[*]}" >> "$calls_file"
+
+    if [[ "${args[*]}" == *"psql -c \\q"* ]]; then
+      return 0
+    fi
+
+    if [[ "${args[*]}" == *"FROM pg_roles"* ]]; then
+      echo "1"
+      return 0
+    fi
+
+    if [[ "${args[*]}" == *"FROM pg_database"* ]]; then
+      echo "1"
+      return 0
+    fi
+
+    return 0
+  }
+  export -f sudo
+  export calls_file
+
+  run ensure_local_postgres_setup
+  [ "$status" -eq 0 ]
+  # Role was altered, not created
+  grep -q 'ALTER ROLE "existing_user"' "$calls_file"
+  ! grep -q 'CREATE ROLE "existing_user"' "$calls_file"
+  # Database was not re-created
+  ! grep -q 'CREATE DATABASE "existing_db"' "$calls_file"
+  # Permissions were still granted
+  grep -q 'GRANT ALL PRIVILEGES ON DATABASE "existing_db" TO "existing_user"' "$calls_file"
+}
+
+@test "configure_systemd_service: writes EnvironmentFile to systemd unit" {
+  INSTALL_DIR="$TEST_DIR"
+  SERVICE_FILE="$TEST_DIR/songbird.service"
+  WORKER_SERVICE_FILE="$TEST_DIR/songbird-worker.service"
+  NODE_EXEC_PATH="/usr/bin/node"
+  SERVICE_USER="songbird"
+  SERVICE_GROUP="songbird"
+  run configure_systemd_service
+  [ "$status" -eq 0 ]
+  [ -f "$SERVICE_FILE" ]
+  [ -f "$WORKER_SERVICE_FILE" ]
+  grep -q "EnvironmentFile=$TEST_DIR/\.env" "$SERVICE_FILE"
+  grep -q "EnvironmentFile=$TEST_DIR/\.env" "$WORKER_SERVICE_FILE"
+}
+
+make_data_command_launcher() {
+  DATA_COMMAND_LAUNCHER="$TEST_DIR/run-data-command"
+  LAUNCHER_CALLS="$TEST_DIR/launcher-calls"
+  LAUNCHER_MARKER="$TEST_DIR/launcher-marker"
+  export LAUNCHER_CALLS LAUNCHER_MARKER
+  cat > "$DATA_COMMAND_LAUNCHER" <<'EOF'
+#!/usr/bin/env bash
+printf 'call\n' >> "$LAUNCHER_MARKER"
+printf '%s\n' "$*" >> "$LAUNCHER_CALLS"
+EOF
+  chmod +x "$DATA_COMMAND_LAUNCHER"
+}
+
+@test "run_data_command restores execute permission on an existing deployed launcher" {
+  INSTALL_DIR="$TEST_DIR/install"
+  DATA_COMMAND_LAUNCHER="$INSTALL_DIR/scripts/run-data-command.sh"
+  mkdir -p "$INSTALL_DIR/scripts"
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'printf "%s\n" "$*" > "$TEST_DIR/launcher-args"' > "$DATA_COMMAND_LAUNCHER"
+  chmod 644 "$DATA_COMMAND_LAUNCHER"
+  export TEST_DIR
+
+  run_data_command true --example
+
+  [ "$?" -eq 0 ]
+  [ "$(stat -c '%a' "$DATA_COMMAND_LAUNCHER")" = "755" ]
+  [ "$(cat "$TEST_DIR/launcher-args")" = "true --example" ]
+}
+
+@test "run_data_command restores launcher permission through sudo before execution" {
+  INSTALL_DIR="$TEST_DIR/install"
+  DATA_COMMAND_LAUNCHER="$INSTALL_DIR/scripts/run-data-command.sh"
+  mkdir -p "$INSTALL_DIR/scripts"
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'printf "%s\n" "$*" > "$TEST_DIR/launcher-args"' > "$DATA_COMMAND_LAUNCHER"
+  chmod 644 "$DATA_COMMAND_LAUNCHER"
+  sudo() {
+    printf '%s\n' "$*" >> "$TEST_DIR/sudo-calls"
+    "$@"
+  }
+  SUDO="sudo"
+  export TEST_DIR
+
+  run_data_command true --example
+
+  [ "$(cat "$TEST_DIR/sudo-calls")" = $'chmod 755 '"$DATA_COMMAND_LAUNCHER"$'\n'"$DATA_COMMAND_LAUNCHER"' true --example' ]
+  [ "$(stat -c '%a' "$DATA_COMMAND_LAUNCHER")" = "755" ]
+  [ "$(cat "$TEST_DIR/launcher-args")" = "true --example" ]
+}
+
+@test "run_data_command rejects a symlinked launcher before privilege repair" {
+  INSTALL_DIR="$TEST_DIR/install"
+  DATA_COMMAND_LAUNCHER="$INSTALL_DIR/scripts/run-data-command.sh"
+  local target="$TEST_DIR/untrusted-launcher"
+  mkdir -p "$INSTALL_DIR/scripts"
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 99' > "$target"
+  chmod 644 "$target"
+  ln -s "$target" "$DATA_COMMAND_LAUNCHER"
+  sudo() {
+    touch "$TEST_DIR/sudo-ran"
+    "$@"
+  }
+  SUDO="sudo"
+
+  run run_data_command true
+
+  [ "$status" -ne 0 ]
+  [ ! -e "$TEST_DIR/sudo-ran" ]
+  [ "$(stat -c '%a' "$target")" = "644" ]
+}
+
+@test "run_data_command bootstraps a missing deployed launcher from the installer source" {
+  INSTALL_DIR="$TEST_DIR/install"
+  DATA_COMMAND_LAUNCHER="$INSTALL_DIR/scripts/run-data-command.sh"
+  local installer_source_dir="$TEST_DIR/installer-source"
+  local installer_source="$installer_source_dir/install.sh"
+  mkdir -p "$INSTALL_DIR/scripts" "$installer_source_dir"
+  printf '%s\n' '#!/usr/bin/env bash' > "$installer_source"
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'printf "%s\n" "$*" > "$TEST_DIR/launcher-args"' > "$installer_source_dir/run-data-command.sh"
+  chmod 644 "$installer_source_dir/run-data-command.sh"
+  CURRENT_SCRIPT_PATH="$installer_source"
+  export TEST_DIR
+
+  run_data_command true --example
+
+  [ "$?" -eq 0 ]
+  [ -x "$DATA_COMMAND_LAUNCHER" ]
+  [ "$(stat -c '%a' "$DATA_COMMAND_LAUNCHER")" = "755" ]
+  [ "$(cat "$TEST_DIR/launcher-args")" = "true --example" ]
+}
+
+@test "run_data_command bootstraps a missing launcher from a versioned remote installer URL" {
+  INSTALL_DIR="$TEST_DIR/install"
+  DATA_COMMAND_LAUNCHER="$INSTALL_DIR/scripts/run-data-command.sh"
+  CURRENT_SCRIPT_PATH="$TEST_DIR/songbird-deploy"
+  SCRIPT_REMOTE_URL="https://example.test/releases/v1/deploy.sh?channel=stable"
+  local remote_launcher="$TEST_DIR/remote-run-data-command.sh"
+  mkdir -p "$INSTALL_DIR/scripts"
+  printf '%s\n' \
+    '#!/bin/bash -p' \
+    'printf "%s\n" "$*" > "$TEST_DIR/launcher-args"' > "$remote_launcher"
+  chmod 644 "$remote_launcher"
+  curl() {
+    [[ "$1" == "-fsSL" && "$2" == "https://example.test/releases/v1/run-data-command.sh" ]] || return 1
+    cat "$remote_launcher"
+  }
+  export TEST_DIR remote_launcher
+  export -f curl
+
+  run_data_command true --example
+
+  [ "$?" -eq 0 ]
+  [ -x "$DATA_COMMAND_LAUNCHER" ]
+  [ "$(stat -c '%a' "$DATA_COMMAND_LAUNCHER")" = "755" ]
+  [ "$(cat "$TEST_DIR/launcher-args")" = "true --example" ]
+}
+
+@test "run_data_command rejects an invalid remote launcher download" {
+  INSTALL_DIR="$TEST_DIR/install"
+  DATA_COMMAND_LAUNCHER="$INSTALL_DIR/scripts/run-data-command.sh"
+  CURRENT_SCRIPT_PATH="$TEST_DIR/songbird-deploy"
+  SCRIPT_REMOTE_URL="https://example.test/releases/v1/deploy.sh"
+  mkdir -p "$INSTALL_DIR/scripts"
+  curl() {
+    printf '%s\n' '<html>unexpected response</html>'
+  }
+  export -f curl
+
+  run run_data_command true
+
+  [ "$status" -ne 0 ]
+  [ ! -e "$DATA_COMMAND_LAUNCHER" ]
+}
+
+@test "installer database helpers use the shared data command launcher" {
+  make_data_command_launcher
+
+  run_db_command true --example
+  [ "$?" -eq 0 ]
+  run_db_command_interactive true --example
+  [ "$?" -eq 0 ]
+  run_db_command_logged_quiet true --example
+  [ "$?" -eq 0 ]
+  check_owner_exists
+  [ "$?" -eq 0 ]
+  resolve_chat_visibility_for_script chat-123
+  [ "$?" -eq 0 ]
+
+  check_owner_exists() { return 1; }
+  prompt_yes_no() { printf 'yes'; }
+  prompt_non_empty() { printf '%s' "$1"; }
+  prompt_secret() { printf 'secret'; }
+  create_owner_user
+  [ "$?" -eq 0 ]
+
+  [ "$(wc -l < "$LAUNCHER_MARKER")" -eq 6 ]
+  [ "$(grep -Fc 'true --example' "$LAUNCHER_CALLS")" -eq 3 ]
+  grep -Fq "db:owner:check" "$LAUNCHER_CALLS"
+  grep -Fq "resolveChatRow" "$LAUNCHER_CALLS"
+  grep -Fq "db:user:create" "$LAUNCHER_CALLS"
+}
+
+@test "run_data_command invokes the launcher through sudo when configured" {
+  make_data_command_launcher
+  sudo() {
+    printf '%s\n' "$*" > "$TEST_DIR/sudo-calls"
+    "$@"
+  }
+  SUDO="sudo"
+
+  run_data_command launcher-target
+
+  [ "$(cat "$TEST_DIR/sudo-calls")" = "$DATA_COMMAND_LAUNCHER launcher-target" ]
+  [ "$(cat "$LAUNCHER_CALLS")" = "launcher-target" ]
+}
+
+# ===========================================================================
+# resolve_git_version_ref
+# ===========================================================================
+
+setup_test_git_repo() {
+  INSTALL_DIR="$TEST_DIR/git-repo"
+  mkdir -p "$INSTALL_DIR"
+  unset -f git
+  command git init -q "$INSTALL_DIR"
+  command git -C "$INSTALL_DIR" config user.email "test@example.com"
+  command git -C "$INSTALL_DIR" config user.name "Test"
+  touch "$INSTALL_DIR/README.md"
+  command git -C "$INSTALL_DIR" add README.md
+  command git -C "$INSTALL_DIR" commit -q -m "initial commit"
+  command git -C "$INSTALL_DIR" tag v0.11.4
+  command git -C "$INSTALL_DIR" tag plain-0.10.0
+}
+
+@test "resolve_git_version_ref: resolves tag with v-prefix when input lacks v" {
+  setup_test_git_repo
+  result="$(resolve_git_version_ref "0.11.4")"
+  [ "$result" = "refs/tags/v0.11.4" ]
+}
+
+@test "resolve_git_version_ref: resolves exact tag name" {
+  setup_test_git_repo
+  result="$(resolve_git_version_ref "v0.11.4")"
+  [ "$result" = "refs/tags/v0.11.4" ]
+
+  result="$(resolve_git_version_ref "plain-0.10.0")"
+  [ "$result" = "refs/tags/plain-0.10.0" ]
+}
+
+@test "resolve_git_version_ref: resolves branch or commit directly" {
+  setup_test_git_repo
+  result="$(resolve_git_version_ref "HEAD")"
+  [ "$result" = "HEAD" ]
+}
+
+@test "resolve_git_version_ref: strips quotes and whitespace around input" {
+  setup_test_git_repo
+  result="$(resolve_git_version_ref '  "0.11.4"  ')"
+  [ "$result" = "refs/tags/v0.11.4" ]
+}
+
+@test "resolve_git_version_ref: returns non-zero for empty input" {
+  setup_test_git_repo
+  run resolve_git_version_ref ""
+  [ "$status" -ne 0 ]
+
+  run resolve_git_version_ref "   "
+  [ "$status" -ne 0 ]
+}
+
+@test "resolve_git_version_ref: returns non-zero for non-existent version" {
+  setup_test_git_repo
+  run resolve_git_version_ref "99.99.99"
+  [ "$status" -ne 0 ]
+}
+
+# ===========================================================================
+# update_songbird downgrade flows
+# ===========================================================================
+
+@test "update_songbird: git mode prompt downgrade when up to date (declined)" {
+  setup_test_git_repo
+  local hash="abcd1234abcd1234abcd1234abcd1234abcd1234"
+  run_in_install_dir_output() {
+    printf "%s\n" "$hash"
+  }
+  run_in_install_dir() { return 0; }
+  prompt_source_mode() { SOURCE_MODE="github"; }
+  ensure_songbird_stopped_for_update() { return 0; }
+  prompt_yes_no() {
+    if [[ "$1" == *"backup"* ]]; then
+      printf "no"
+    elif [[ "$1" == *"downgrade"* ]]; then
+      printf "no"
+    fi
+  }
+  press_enter_to_continue() { return 0; }
+  export -f run_in_install_dir_output run_in_install_dir prompt_source_mode ensure_songbird_stopped_for_update prompt_yes_no press_enter_to_continue
+
+  run update_songbird
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Songbird is already up to date." ]]
+  [[ "$output" =~ "No rebuild needed." ]]
+}
+
+@test "update_songbird: git mode prompt downgrade when up to date (accepted)" {
+  setup_test_git_repo
+  local hash="abcd1234abcd1234abcd1234abcd1234abcd1234"
+  local git_calls_file="$TEST_DIR/git-calls"
+  touch "$git_calls_file"
+
+  run_in_install_dir_output() {
+    case "$*" in
+      *"git rev-parse HEAD"*|*"git rev-parse origin/main"*)
+        printf "%s\n" "$hash"
+        ;;
+      *"refs/tags/v0.11.4"*)
+        printf "%s\n" "$hash"
+        ;;
+      *)
+        return 1
+        ;;
+    esac
+  }
+  run_in_install_dir() {
+    printf "%s\n" "$*" >> "$git_calls_file"
+    return 0
+  }
+  prompt_source_mode() { SOURCE_MODE="github"; }
+  ensure_songbird_stopped_for_update() { return 0; }
+  prompt_yes_no() {
+    if [[ "$1" == *"backup"* ]]; then
+      printf "no"
+    elif [[ "$1" == *"downgrade"* ]]; then
+      printf "yes"
+    fi
+  }
+  prompt_read() {
+    if [[ "$1" == *"version"* ]]; then
+      eval "$2='0.11.4'"
+    fi
+  }
+  install_songbird_dependencies() { return 0; }
+  ensure_vapid_keys() { return 0; }
+  run_migrations() { return 0; }
+  ensure_service_user_exists() { return 0; }
+  apply_ownership() { return 0; }
+  install_global_command_from_path() { return 0; }
+  show_deployment_success_frame() { return 0; }
+  press_enter_to_continue() { return 0; }
+  systemctl() { return 0; }
+  export -f run_in_install_dir_output run_in_install_dir prompt_source_mode ensure_songbird_stopped_for_update prompt_yes_no prompt_read install_songbird_dependencies ensure_vapid_keys run_migrations ensure_service_user_exists apply_ownership install_global_command_from_path show_deployment_success_frame press_enter_to_continue systemctl
+
+  run update_songbird
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Downgrade requested." ]]
+  grep -Fq "git checkout refs/tags/v0.11.4" "$git_calls_file"
+}
+
+@test "update_songbird: offline mode prompt downgrade when zip version is lower (declined)" {
+  INSTALL_DIR="$TEST_DIR/install"
+  mkdir -p "$INSTALL_DIR"
+  printf "0.12.0\n" > "$INSTALL_DIR/VERSION"
+
+  local src_dir="$TEST_DIR/zip-content"
+  mkdir -p "$src_dir/server" "$src_dir/client" "$src_dir/worker"
+  printf "0.10.0\n" > "$src_dir/VERSION"
+  echo '{}' > "$src_dir/package.json"
+
+  SOURCE_ZIP_PATH="$TEST_DIR/songbird.zip"
+  touch "$SOURCE_ZIP_PATH"
+
+  prompt_source_mode() { SOURCE_MODE="offline"; }
+  ensure_offline_source_ready() { return 0; }
+  ensure_songbird_stopped_for_update() { return 0; }
+  extract_offline_source_zip() { printf "%s|%s" "$TEST_DIR/tmp" "$src_dir"; }
+  prompt_yes_no() {
+    if [[ "$1" == *"backup"* ]]; then
+      printf "no"
+    elif [[ "$1" == *"downgrade"* ]]; then
+      printf "no"
+    fi
+  }
+  press_enter_to_continue() { return 0; }
+  export -f prompt_source_mode ensure_offline_source_ready ensure_songbird_stopped_for_update extract_offline_source_zip prompt_yes_no press_enter_to_continue
+
+  run update_songbird
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Songbird is already up to date. No rebuild needed." ]]
+}
+
+@test "update_songbird: offline mode prompt downgrade when zip version is lower (accepted)" {
+  INSTALL_DIR="$TEST_DIR/install"
+  mkdir -p "$INSTALL_DIR"
+  printf "0.12.0\n" > "$INSTALL_DIR/VERSION"
+
+  local src_dir="$TEST_DIR/zip-content"
+  mkdir -p "$src_dir/server" "$src_dir/client" "$src_dir/worker"
+  printf "0.10.0\n" > "$src_dir/VERSION"
+  echo '{}' > "$src_dir/package.json"
+
+  SOURCE_ZIP_PATH="$TEST_DIR/songbird.zip"
+  touch "$SOURCE_ZIP_PATH"
+
+  local updated_from_zip="no"
+  update_source_from_zip() {
+    updated_from_zip="yes"
+    printf "%s\n" "zip_updated" > "$TEST_DIR/zip-extracted"
+    return 0
+  }
+
+  prompt_source_mode() { SOURCE_MODE="offline"; }
+  ensure_offline_source_ready() { return 0; }
+  ensure_songbird_stopped_for_update() { return 0; }
+  extract_offline_source_zip() { printf "%s|%s" "$TEST_DIR/tmp" "$src_dir"; }
+  prompt_yes_no() {
+    if [[ "$1" == *"backup"* ]]; then
+      printf "no"
+    elif [[ "$1" == *"downgrade"* ]]; then
+      printf "yes"
+    fi
+  }
+  install_songbird_dependencies() { return 0; }
+  ensure_vapid_keys() { return 0; }
+  run_migrations() { return 0; }
+  ensure_service_user_exists() { return 0; }
+  apply_ownership() { return 0; }
+  install_global_command_from_path() { return 0; }
+  show_deployment_success_frame() { return 0; }
+  press_enter_to_continue() { return 0; }
+  systemctl() { return 0; }
+  export -f prompt_source_mode ensure_offline_source_ready ensure_songbird_stopped_for_update extract_offline_source_zip prompt_yes_no update_source_from_zip install_songbird_dependencies ensure_vapid_keys run_migrations ensure_service_user_exists apply_ownership install_global_command_from_path show_deployment_success_frame press_enter_to_continue systemctl
+
+  run update_songbird
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Offline downgrade requested." ]]
+  [ -f "$TEST_DIR/zip-extracted" ]
+}
+
+# ===========================================================================
+# update_menu
+# ===========================================================================
+
+@test "update_menu: updates global command when newer version is available on GitHub" {
+  GLOBAL_COMMAND_PATH="$TEST_DIR/songbird-deploy"
+  SCRIPT_VERSION="0.12.0"
+
+  fetch_remote_installer_script() {
+    printf '#!/usr/bin/env bash\n# songbird-deploy-version: 0.13.0\necho remote\n' > "$1"
+    return 0
+  }
+  press_enter_to_continue() { return 0; }
+  export -f fetch_remote_installer_script press_enter_to_continue
+
+  run update_menu
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Newer version available (0.13.0 > 0.12.0)" ]]
+  [[ "$output" =~ "Menu updated to version 0.13.0." ]]
+  [ -f "$GLOBAL_COMMAND_PATH" ]
+  grep -Fq "0.13.0" "$GLOBAL_COMMAND_PATH"
+}
+
+@test "update_menu: prompts to reinstall when menu is already up to date (accepted)" {
+  GLOBAL_COMMAND_PATH="$TEST_DIR/songbird-deploy"
+  SCRIPT_VERSION="0.12.0"
+  CURRENT_SCRIPT_PATH="$TEST_DIR/current.sh"
+  printf '#!/usr/bin/env bash\n# songbird-deploy-version: 0.12.0\necho current\n' > "$CURRENT_SCRIPT_PATH"
+
+  fetch_remote_installer_script() {
+    printf '#!/usr/bin/env bash\n# songbird-deploy-version: 0.12.0\necho remote\n' > "$1"
+    return 0
+  }
+  prompt_yes_no() { printf "yes"; }
+  press_enter_to_continue() { return 0; }
+  export -f fetch_remote_installer_script prompt_yes_no press_enter_to_continue
+
+  run update_menu
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Menu is already up to date" ]]
+  [[ "$output" =~ "Menu reinstalled successfully" ]]
+  [ -f "$GLOBAL_COMMAND_PATH" ]
+}
+
+@test "update_menu: prompts to reinstall when menu is already up to date (declined)" {
+  GLOBAL_COMMAND_PATH="$TEST_DIR/songbird-deploy"
+  SCRIPT_VERSION="0.12.0"
+
+  fetch_remote_installer_script() {
+    printf '#!/usr/bin/env bash\n# songbird-deploy-version: 0.12.0\necho remote\n' > "$1"
+    return 0
+  }
+  prompt_yes_no() { printf "no"; }
+  press_enter_to_continue() { return 0; }
+  export -f fetch_remote_installer_script prompt_yes_no press_enter_to_continue
+
+  run update_menu
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Menu is already up to date" ]]
+  [[ "$output" =~ "Reinstall canceled." ]]
+}
+
+@test "update_menu: prompts to reinstall when fetch fails from GitHub (accepted)" {
+  GLOBAL_COMMAND_PATH="$TEST_DIR/songbird-deploy"
+  SCRIPT_VERSION="0.12.0"
+  CURRENT_SCRIPT_PATH="$TEST_DIR/current.sh"
+  printf '#!/usr/bin/env bash\n# songbird-deploy-version: 0.12.0\necho current\n' > "$CURRENT_SCRIPT_PATH"
+
+  fetch_remote_installer_script() { return 1; }
+  prompt_yes_no() { printf "yes"; }
+  press_enter_to_continue() { return 0; }
+  export -f fetch_remote_installer_script prompt_yes_no press_enter_to_continue
+
+  run update_menu
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Failed to fetch installer script from GitHub." ]]
+  [[ "$output" =~ "Menu reinstalled successfully" ]]
+  [ -f "$GLOBAL_COMMAND_PATH" ]
+}
+
+@test "update_menu: prompts to reinstall when fetch fails from GitHub (declined)" {
+  GLOBAL_COMMAND_PATH="$TEST_DIR/songbird-deploy"
+  SCRIPT_VERSION="0.12.0"
+
+  fetch_remote_installer_script() { return 1; }
+  prompt_yes_no() { printf "no"; }
+  press_enter_to_continue() { return 0; }
+  export -f fetch_remote_installer_script prompt_yes_no press_enter_to_continue
+
+  run update_menu
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Failed to fetch installer script from GitHub." ]]
+  [[ "$output" =~ "Reinstall canceled." ]]
 }

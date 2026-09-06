@@ -9,6 +9,7 @@ import {
   Close,
 } from "../../../icons/lucide.js";
 import Tooltip from "../../common/Tooltip.jsx";
+import { isCrossOriginUrl, saveMedia } from "../../../utils/fileDownload.js";
 
 export function FocusedMediaModal({
   focusedMedia,
@@ -300,14 +301,7 @@ export function FocusedMediaModal({
     if (!url) return;
     const filename = focusedMedia.name || "media";
     const tryFallbackDownload = () => {
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = filename;
-      link.rel = "noopener noreferrer";
-      link.target = "_blank";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      void saveMedia(url, filename);
     };
 
     const canShareFiles =
@@ -321,7 +315,9 @@ export function FocusedMediaModal({
     }
 
     try {
-      const res = await fetch(url, { credentials: "include" });
+      const res = await fetch(url, {
+        credentials: isCrossOriginUrl(url) ? "omit" : "include",
+      });
       const blob = await res.blob();
       const file = new File([blob], filename, { type: blob.type || undefined });
       if (!navigator.canShare({ files: [file] })) {
@@ -412,6 +408,13 @@ export function FocusedMediaModal({
             <a
               href={focusedMedia.downloadUrl || focusedMedia.url}
               download={focusedMedia.name || "media"}
+              onClick={(event) => {
+                event.preventDefault();
+                void saveMedia(
+                  focusedMedia.downloadUrl || focusedMedia.url,
+                  focusedMedia.name || "media",
+                );
+              }}
               className="pointer-events-auto relative z-50 group inline-flex h-9 items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-[0_0_22px_rgba(16,185,129,0.45)]"
             >
               <Download size={15} className="icon-anim-drop" />
@@ -467,7 +470,7 @@ export function FocusedMediaModal({
               ref={mediaViewportRef}
               style={{ touchAction: "none" }}
             >
-              {focusedMedia.processing ? (
+              {Boolean(focusedMedia.processing) && !String(focusedMedia.url || "").includes("-h264-") ? (
                 <div
                   className="mx-auto flex items-center justify-center overflow-hidden rounded-2xl bg-slate-200/80 dark:bg-slate-800/80"
                   style={getFocusFrameStyle()}
@@ -485,21 +488,24 @@ export function FocusedMediaModal({
                   backfaceVisibility: "hidden",
                 }}
                 >
-                  <video
-                    key={focusedMedia.url}
-                    ref={focusedVideoRef}
-                    autoPlay
-                    playsInline
-                    preload="auto"
-                    src={focusedMedia.url}
-                    onClick={toggleFocusedVideoPlay}
-                    onLoadedMetadata={handleFocusedVideoLoadedMetadata}
-                    onLoadedData={handleFocusedVideoLoadedData}
-                    onCanPlay={handleFocusedVideoCanPlay}
-                    onError={handleFocusedVideoError}
-                    className="mx-auto block max-h-[72vh] w-auto max-w-full cursor-pointer rounded-2xl bg-transparent object-contain md:max-h-[78vh] md:transform-[translateZ(0)] md:backface-hidden"
-                    style={{ backfaceVisibility: "hidden" }}
-                  />
+                  {focusedMedia.url ? (
+                    <video
+                      key={focusedMedia.url}
+                      ref={focusedVideoRef}
+                      autoPlay
+                      playsInline
+                      preload="auto"
+                      src={focusedMedia.url}
+                      poster={focusedMedia.poster || undefined}
+                      onClick={toggleFocusedVideoPlay}
+                      onLoadedMetadata={handleFocusedVideoLoadedMetadata}
+                      onLoadedData={handleFocusedVideoLoadedData}
+                      onCanPlay={handleFocusedVideoCanPlay}
+                      onError={handleFocusedVideoError}
+                      className="mx-auto block max-h-[72vh] w-auto max-w-full cursor-pointer rounded-2xl bg-transparent object-contain md:max-h-[78vh] md:transform-[translateZ(0)] md:backface-hidden"
+                      style={{ backfaceVisibility: "hidden" }}
+                    />
+                  ) : null}
                   {!focusedMediaLoaded ? (
                     <div className="pointer-events-none absolute inset-0 animate-pulse rounded-2xl bg-slate-200/80 dark:bg-slate-800/80" />
                   ) : null}
@@ -542,6 +548,7 @@ export function FocusedMediaModal({
                 <img
                   src={focusedMedia.url}
                   alt={focusedMedia.name || "media"}
+                  referrerPolicy="no-referrer"
                   onLoad={onFocusedImageLoad}
                   className={`mx-auto max-h-[78vh] w-auto max-w-full rounded-2xl object-contain transition-opacity duration-150 ${
                     focusedMediaLoaded ? "opacity-100" : "opacity-0"

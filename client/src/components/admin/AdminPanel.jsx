@@ -5,26 +5,21 @@ import {
   ArrowRight,
   ArrowRightFromLine,
   Chat,
-  Check,
-  LoaderCircle,
-  Refresh,
   ScrollText,
   Settings,
   Users,
   Wrench,
 } from "../../icons/lucide.js";
 import { api } from "./adminShared.js";
-import { pingPresence } from "../../api/chatApi.js";
 import { GaugeIcon, LayoutDashboardIcon } from "../../icons/AnimatedIcons.jsx";
-import { CHAT_PAGE_CONFIG } from "../../settings/chatPageConfig.js";
 import { useAdminCache } from "../../hooks/useAdminCache.js";
+import Tooltip from "../common/Tooltip.jsx";
 import DashboardTab from "./DashboardTab.jsx";
 import UsersTab from "./UsersTab.jsx";
 import ChatsTab from "./ChatsTab.jsx";
 import ActionsTab from "./ActionsTab.jsx";
 import LogsTab from "./LogsTab.jsx";
 import SettingsTab from "./SettingsTab.jsx";
-import Tooltip from "../common/Tooltip.jsx";
 
 const TABS = [
   { id: "dashboard", label: "Dashboard", icon: GaugeIcon,         anim: "" },
@@ -35,14 +30,9 @@ const TABS = [
   { id: "logs",      label: "Logs",      icon: ScrollText,        anim: "icon-anim-sway" },
 ];
 
-// Keep the admin's presence fresh while they're active in the panel.
-const PRESENCE_PING_INTERVAL_MS = CHAT_PAGE_CONFIG.presencePingIntervalMs;
 // Auto-exit the panel after this much inactivity (no mouse/keyboard/touch).
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 
-// Auto-refresh interval for shared admin cache (stats / active tab).
-// DashboardTab polls /api/admin/system on its own matching cadence.
-const AUTO_REFRESH_MS = 10_000;
 const ADMIN_SIDEBAR_OPEN_STORAGE_KEY = "songbird.admin.sidebar-open";
 
 function getInitialSidebarOpen() {
@@ -55,11 +45,12 @@ function getInitialSidebarOpen() {
   }
 }
 
+// Tabs that manage their own paginated data and expose a `refresh()` via ref.
+const SELF_PAGINATED_TABS = ["users", "chats", "logs"];
+
 export default function AdminPanel({ user, onBack }) {
   const [tab, setTab]                 = useState("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(getInitialSidebarOpen);
-  const [refreshState, setRefreshState] = useState(""); // "" | "loading" | "done"
-  const refreshResetRef = useRef(null);
   const tabRefs = useRef({});
 
   // ── Centralised cache ────────────────────────────────────────────────────
@@ -68,14 +59,16 @@ export default function AdminPanel({ user, onBack }) {
   // Users, chats, and logs are paginated server-side and own their own data
   // fetching (see the individual tabs), so they are intentionally NOT in this
   // shared cache. Only the small, single-shot payloads live here.
-  const { cache, ensureFresh, ensureLoaded, invalidate, refresh: refreshKey, refreshAll } = useAdminCache({
+  const { cache, ensureFresh, ensureLoaded, invalidate, refresh: refreshKey } = useAdminCache({
     stats:    () => api.get("/api/admin/stats"),
     actions:  () => api.get("/api/admin/service/available"),
     settings: () => api.get("/api/admin/settings"),
-  }, { ttlMs: AUTO_REFRESH_MS });
+  });
 
-  // Tabs that manage their own paginated data and expose a `refresh()` via ref.
-  const SELF_PAGINATED_TABS = ["users", "chats", "logs"];
+  const cacheRef = useRef(cache);
+  useEffect(() => {
+    cacheRef.current = cache;
+  }, [cache]);
 
   // Convenience aliases so downstream JSX stays readable.
   const stats = cache.stats?.data ?? null;
@@ -162,68 +155,36 @@ export default function AdminPanel({ user, onBack }) {
     else if (tab !== "dashboard" && cache[tab] !== undefined) ensureFresh(tab);
   }, [tab, ensureFresh, ensureLoaded, cache]);
 
-  // ── Background auto-refresh (10 s) ───────────────────────────────────────
-  // Refresh stats always; also refresh the current tab's data if it has a
-  // dedicated cache entry so the active view stays live. Skip while the
-  // document is hidden to avoid burning the shared API rate limit.
+  // ── Push-driven real-time refresh ──────────────────────────────────────────
+  // Stats and active tab views update in real-time on WebSocket events.
+  const debounceTimerRef = useRef(null);
   useEffect(() => {
-    const tick = () => {
-      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
-        return;
-      }
-      refreshKey("stats");
-      if (tab !== "actions" && cache[tab] !== undefined) refreshKey(tab);
-      // Self-paginated tabs refresh their current page via their own ref.
-      else if (SELF_PAGINATED_TABS.includes(tab)) tabRefs.current[tab]?.refresh?.();
+    const handleRealtimeEvent = () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = setTimeout(() => {
+        refreshKey("stats");
+        if (tab === "dashboard") {
+          tabRefs.current.dashboard?.refresh?.();
+        } else if (tab !== "actions" && cacheRef.current[tab] !== undefined) {
+          refreshKey(tab);
+        } else if (SELF_PAGINATED_TABS.includes(tab)) {
+          tabRefs.current[tab]?.refresh?.();
+        }
+      }, 300);
     };
-    const timer = setInterval(tick, AUTO_REFRESH_MS);
-    const onVisible = () => {
-      if (document.visibilityState === "visible") tick();
-    };
-    document.addEventListener("visibilitychange", onVisible);
+
+    window.addEventListener("songbird:realtime-event", handleRealtimeEvent);
     return () => {
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("songbird:realtime-event", handleRealtimeEvent);
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, refreshKey]);
-
-  // The top bar refresh button: flush stats + active tab immediately.
-  const handleManualRefresh = useCallback(async () => {
-    if (refreshResetRef.current) { clearTimeout(refreshResetRef.current); refreshResetRef.current = null; }
-    setRefreshState("loading");
-    const keys = ["stats"];
-    if (tab !== "actions" && cache[tab] !== undefined) keys.push(tab);
-    await refreshAll(...keys);
-    // Self-paginated tabs aren't in the shared cache; refresh via their ref
-    // below (handled by the tabRefs.current[tab]?.refresh?.() call).
-    // Also give the active tab ref a chance to refresh its own local state
-    // (e.g. DashboardTab's system metrics which aren't in the shared cache).
-    tabRefs.current[tab]?.refresh?.();
-    setRefreshState("done");
-    refreshResetRef.current = setTimeout(() => setRefreshState(""), 1500);
-  }, [tab, cache, refreshAll]);
-
-  useEffect(() => () => { if (refreshResetRef.current) clearTimeout(refreshResetRef.current); }, []);
 
   // Called by tabs after a mutation so sibling caches stay in sync.
   const invalidateStats = useCallback(() => invalidate("stats"), [invalidate]);
   // Stable callback for DashboardTab manual refresh (via tabRefs); auto-poll
   // of stats stays in this panel so DashboardTab does not re-trigger it.
   const refreshStats = useCallback(() => refreshKey("stats"), [refreshKey]);
-
-  // Keep the admin marked online while they're in the panel: ping presence on
-  // mount, on a fixed interval, and whenever the tab regains focus.
-  useEffect(() => {
-    const username = user?.username;
-    if (!username) return undefined;
-    const ping = () => { pingPresence(username).catch(() => {}); };
-    ping();
-    const interval = setInterval(ping, PRESENCE_PING_INTERVAL_MS);
-    const onVisible = () => { if (document.visibilityState === "visible") ping(); };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => { clearInterval(interval); document.removeEventListener("visibilitychange", onVisible); };
-  }, [user?.username]);
 
   // Auto-exit the panel after a period of inactivity. Any user interaction
   // resets the countdown; when it elapses we leave the panel via onBack.
@@ -361,16 +322,6 @@ export default function AdminPanel({ user, onBack }) {
           <span className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 px-16 md:px-14">
             <h1 className="truncate text-base font-semibold text-slate-700 dark:text-slate-200 md:text-sm">{activeTab?.label}</h1>
           </span>
-          <Tooltip label="Refresh" placement="bottom" className="ml-auto shrink-0">
-            <button type="button" onClick={handleManualRefresh} disabled={refreshState === "loading"}
-              className={`inline-flex shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-700 disabled:cursor-wait dark:text-slate-400 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300 ${isDesktopView ? "h-8 w-8" : "h-10 w-10"}`}>
-              {refreshState === "loading"
-                ? <LoaderCircle size={isDesktopView ? 14 : 16} className="animate-spin text-emerald-600 dark:text-emerald-400" />
-                : refreshState === "done"
-                  ? <Check size={isDesktopView ? 14 : 16} className="text-emerald-600 dark:text-emerald-400" />
-                  : <Refresh size={isDesktopView ? 14 : 16} className="icon-anim-spin-full" />}
-            </button>
-          </Tooltip>
         </div>
 
         <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-4 pb-[calc(104px+env(safe-area-inset-bottom)+var(--vv-bottom-offset,0px))] md:p-5 md:pb-5">

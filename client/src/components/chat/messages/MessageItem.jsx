@@ -17,7 +17,7 @@ import {
 import { SongbirdIcon, TelegramIcon } from "../../../icons/BrandIcons.jsx";
 import { hasPersian } from "../../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../../utils/avatarInitials.js";
-import { formatCompactCount } from "../../../utils/chatFormat.js";
+import { formatCompactCount, formatDayLabel } from "../../../utils/chatFormat.js";
 import ContextMenuSurface from "../../context-menu/ContextMenuSurface.jsx";
 import { MessageFiles } from "../media/MessageFiles.jsx";
 import {
@@ -169,13 +169,15 @@ export const MessageItem = memo(function MessageItem({
   canSwipeReply = true,
   onOpenContextMenu,
   visibilityRef = null,
+  sseConnected = true,
+  isOffline = false,
 }) {
   const isOwn = !isChannelChat && msg.username === user.username;
   const isRead = Boolean(msg.read_at);
   const isEdited = Boolean(Number(msg?.edited || 0) || msg?._edited);
   const deletedForwardOriginColor = "#94a3b8";
-  const forwardedFromChatId = Number(msg?.forwarded_from_chat_id || 0);
-  const forwardedFromUserId = Number(msg?.forwarded_from_user_id || 0);
+  const forwardedFromChatId = msg?.forwarded_from_chat_id ? String(msg.forwarded_from_chat_id).trim() : null;
+  const forwardedFromUserId = msg?.forwarded_from_user_id ? String(msg.forwarded_from_user_id).trim() : null;
   const storedForwardedLabel = String(msg?.forwarded_from_label || "").trim();
   const clientRequestId = String(
     msg?.client_request_id || msg?.clientRequestId || msg?._clientId || "",
@@ -189,8 +191,8 @@ export const MessageItem = memo(function MessageItem({
   );
   const remoteForwardedChatId =
     isRemoteForwardedOrigin
-      ? Number(chatId || msg?.chat_id || msg?.chatId || msg?._chatId || 0)
-      : 0;
+      ? String(chatId || msg?.chat_id || msg?.chatId || msg?._chatId || "").trim()
+      : null;
   // Derive the provider from the client_request_id prefix
   const remoteForwardedProvider = isRemoteForwardedOrigin
     ? /^remote:tg:/i.test(clientRequestId)
@@ -205,18 +207,18 @@ export const MessageItem = memo(function MessageItem({
     forwardedUser?.nickname || forwardedUser?.username || "",
   ).trim();
   const isDeletedForwardedChat =
-    forwardedFromChatId > 0 &&
+    Boolean(forwardedFromChatId) &&
     forwardedChatStatus !== "ready" &&
     !forwardedChat;
   const isDeletedForwardedUser =
-    forwardedFromUserId > 0 &&
+    Boolean(forwardedFromUserId) &&
     forwardedUserStatus !== "ready" &&
     !forwardedUser;
   const forwardedFromLabel = forwardedFromChatId
     ? isDeletedForwardedChat
       ? "Hidden"
       : liveForwardedChatName || storedForwardedLabel
-    : forwardedFromUserId > 0
+    : forwardedFromUserId
       ? isDeletedForwardedUser
         ? "Hidden"
         : liveForwardedUserName || storedForwardedLabel
@@ -226,7 +228,7 @@ export const MessageItem = memo(function MessageItem({
     ? isDeletedForwardedChat
       ? ""
       : String(forwardedChat?.group_avatar_url || "").trim()
-    : forwardedFromUserId > 0
+    : forwardedFromUserId
       ? isDeletedForwardedUser
         ? ""
         : String(forwardedUser?.avatar_url || msg?.forwarded_from_avatar_url || "").trim()
@@ -235,7 +237,7 @@ export const MessageItem = memo(function MessageItem({
     ? isDeletedForwardedChat
       ? deletedForwardOriginColor
       : String(forwardedChat?.group_color || "#10b981").trim() || "#10b981"
-    : forwardedFromUserId > 0
+    : forwardedFromUserId
       ? isDeletedForwardedUser
         ? deletedForwardOriginColor
         : String(
@@ -316,6 +318,7 @@ export const MessageItem = memo(function MessageItem({
     hasFiles &&
     (!normalizedBodyText ||
       FILE_SUMMARY_PATTERN.test(normalizedBodyText) ||
+      normalizedBodyText.startsWith("sb-enc-v1:") ||
       normalizedBodyText === generatedSummaryText ||
       (hasMixedVoiceAndOtherFiles &&
         /^Sent a voice message$/i.test(normalizedBodyText)));
@@ -585,7 +588,9 @@ export const MessageItem = memo(function MessageItem({
   const expiryBadge = formatExpiryBadge();
   const dayLabel = getMessageDayLabel
     ? getMessageDayLabel(msg)
-    : msg?._dayLabel || msg?._dayKey || "";
+    : (msg?.created_at || msg?._createdAt)
+      ? formatDayLabel(msg?.created_at || msg?._createdAt)
+      : msg?._dayLabel || msg?._dayKey || "";
   const replyTarget = msg.replyTo || null;
   const replySignature = getReplySignature(replyTarget);
   const replyDisplayName =
@@ -673,7 +678,7 @@ export const MessageItem = memo(function MessageItem({
     !isDeletedAuthor && typeof onOpenSenderProfile === "function";
   const contextMenuMobileEnabled = !isDesktop && isMobileTouchDevice;
   const senderMenuMember = {
-    id: Number(msg.user_id || 0) || null,
+    id: msg.user_id || null,
     username: msg.username || "",
     nickname: msg.nickname || "",
     avatar_url: msg.avatar_url || "",
@@ -696,6 +701,11 @@ export const MessageItem = memo(function MessageItem({
         },
       }),
   };
+  const computedIsOffline =
+    isOffline ||
+    sseConnected === false ||
+    (typeof navigator !== "undefined" && navigator.onLine === false);
+
   const messageContextMenu = {
     disabled: !onOpenContextMenu,
     isMobile: contextMenuMobileEnabled,
@@ -711,6 +721,7 @@ export const MessageItem = memo(function MessageItem({
         isMobile,
         data: {
           message: msg,
+          isOffline: computedIsOffline,
         },
       }),
   };
@@ -770,14 +781,14 @@ export const MessageItem = memo(function MessageItem({
               </span>
             </Tooltip>
             {/* Verified badge: shown for forwarded users and verified forwarded chats */}
-            {!isDeletedForwardedUser && forwardedFromUserId > 0 && Boolean(forwardedUser?.verified) && (
+            {!isDeletedForwardedUser && Boolean(forwardedFromUserId) && Boolean(forwardedUser?.verified) && (
               <VerifiedBadge size={13} />
             )}
-            {!isDeletedForwardedChat && forwardedFromChatId > 0 && Boolean(forwardedChat?.verified) && (
+            {!isDeletedForwardedChat && Boolean(forwardedFromChatId) && Boolean(forwardedChat?.verified) && (
               <VerifiedBadge size={13} />
             )}
             {/* Role badge: only for forwarded users, not chats */}
-            {!isDeletedForwardedUser && forwardedFromUserId > 0 && (
+            {!isDeletedForwardedUser && Boolean(forwardedFromUserId) && (
               <UserRoleBadge role={forwardedUser?.role} size={13} />
             )}
           </span>
@@ -894,7 +905,7 @@ export const MessageItem = memo(function MessageItem({
         isFirstInGroup ? "pt-2" : ""
       }`}
     >
-      {Number(unreadMarkerId) === Number(msg.id) ? (
+      {String(unreadMarkerId || "") === String(msg.id || "") ? (
         <div
           id={`unread-divider-${msg.id}`}
           className="flex items-center gap-3 py-3"
@@ -1486,6 +1497,8 @@ export const MessageItem = memo(function MessageItem({
   if (prev.forwardedUserStatus !== next.forwardedUserStatus) return false;
   if (prev.forwardedChat !== next.forwardedChat) return false;
   if (prev.forwardedChatStatus !== next.forwardedChatStatus) return false;
+  if (prev.isOffline !== next.isOffline) return false;
+  if (prev.sseConnected !== next.sseConnected) return false;
   if (prev.messageFilesProps !== next.messageFilesProps) {
     const prevFiles = Array.isArray(prev.msg?.files) ? prev.msg.files : [];
     const nextFiles = Array.isArray(next.msg?.files) ? next.msg.files : [];

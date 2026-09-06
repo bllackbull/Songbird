@@ -5,6 +5,36 @@ import react from "@vitejs/plugin-react";
 // Pass VITEST_HEADFUL=1 (or use the test:browser:headful script) to open a
 const headless = process.env.VITEST_HEADFUL !== "1";
 
+const isCoverage =
+  process.argv.includes("--coverage") || process.env.VITEST_COVERAGE === "1";
+
+const browserInstances = isCoverage
+  ? [
+      {
+        browser: "chromium",
+        launch: {
+          args: [
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+          ],
+        },
+      },
+    ]
+  : [
+      {
+        browser: "chromium",
+        launch: {
+          args: [
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+          ],
+        },
+      },
+      { browser: "firefox" },
+    ];
+
 // Dependencies the browser project must pre-bundle. If Vite discovers any of
 // these *during* a run instead, it re-optimizes and reloads the page mid-test,
 // which throws "Vitest failed to find the runner" and then hangs the runner
@@ -22,12 +52,28 @@ const browserOptimizeInclude = [
 export default defineConfig({
   test: {
     reporters: ["default"],
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "lcov", "html"],
+      include: ["src/**/*.{js,jsx}"],
+      exclude: [
+        "node_modules/**",
+        "dist/**",
+        "coverage/**",
+        "test/**",
+        "**/*.test.{js,jsx}",
+        "**/*.spec.{js,jsx}",
+      ],
+    },
     projects: [
       {
         // Pure utility tests — no DOM needed, runs in Node
         test: {
           name: "unit",
-          include: ["test/utils/**/*.{test,spec}.{js,jsx}"],
+          include: [
+            "test/utils/**/*.{test,spec}.{js,jsx}",
+            "test/hooks/**/*.{test,spec}.{js,jsx}",
+          ],
           environment: "node",
         },
       },
@@ -50,23 +96,7 @@ export default defineConfig({
             enabled: true,
             headless,
             provider: playwright(),
-            instances: [
-              {
-                browser: "chromium",
-                launch: {
-                  // CI runners give Chromium a 64MB /dev/shm, which it
-                  // exhausts and then a tab crashes silently — Vitest waits
-                  // forever for the dead tab. These flags avoid /dev/shm and
-                  // the crashed-GPU stalls that only surface in CI.
-                  args: [
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu",
-                  ],
-                },
-              },
-              { browser: "firefox" },
-            ],
+            instances: browserInstances,
           },
         },
       },

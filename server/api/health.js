@@ -5,15 +5,16 @@ function registerHealthRoutes(app, deps) {
     removeSseClient,
     requireSession,
     requireSessionUsernameMatch,
-    updateLastSeen,
+    connectPresence,
+    disconnectPresence,
   } = deps;
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true });
   });
 
-  app.get("/api/events", (req, res) => {
-    const session = requireSession(req, res);
+  app.get("/api/events", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const username = req.query.username?.toString()?.toLowerCase();
@@ -22,7 +23,8 @@ function registerHealthRoutes(app, deps) {
     }
 
     if (!requireSessionUsernameMatch(res, session, username)) return;
-    const user = findUserByUsername(username);
+    const rawUser = findUserByUsername(username);
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
 
     if (!user) {
       return res.status(404).json({ error: "User not found." });
@@ -36,7 +38,7 @@ function registerHealthRoutes(app, deps) {
     res.flushHeaders?.();
 
     addSseClient(username, res);
-    updateLastSeen(user.id);
+    connectPresence(username, res);
 
     res.write(`data: ${JSON.stringify({ type: "connected" })}\n\n`);
 
@@ -47,6 +49,7 @@ function registerHealthRoutes(app, deps) {
     req.on("close", () => {
       clearInterval(keepAlive);
       removeSseClient(username, res);
+      disconnectPresence(username, res);
     });
   });
 }

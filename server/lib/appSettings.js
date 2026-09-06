@@ -15,6 +15,7 @@
  */
 
 import { readEnvBool, readEnvInt } from "../settings/env.js";
+import { dbKnex } from "../db/knex.js";
 
 // ─── Setting types ────────────────────────────────────────────────────────────
 
@@ -509,10 +510,11 @@ export function validateSetting(key, raw) {
  * @param {Function} dbGetAll  – the `getAll` function from db.js (passed in to
  *                               avoid a circular import)
  */
-export function loadSettings(dbGetAll) {
-  const rows = dbGetAll("SELECT key, value FROM app_settings");
+export async function loadSettings(dbGetAll) {
+  const rawRows = typeof dbGetAll === "function" ? dbGetAll(dbKnex("app_settings").select("key", "value")) : [];
+  const rows = Array.isArray(rawRows) ? rawRows : (await rawRows) || [];
   for (const row of rows) {
-    const def = DEFS_BY_KEY[String(row.key || "")];
+    const def = DEFS_BY_KEY[String(row?.key || "")];
     if (!def) continue;
     // Env var explicitly set → it always wins; skip the DB value.
     if (isEnvExplicitlySet(def)) continue;
@@ -553,8 +555,10 @@ export function setSetting(key, rawValue, dbRun, dbSave) {
   if (!validation.valid) return { ok: false, error: validation.error };
 
   dbRun(
-    "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    [key, validation.value],
+    dbKnex("app_settings")
+      .insert({ key, value: validation.value })
+      .onConflict("key")
+      .merge({ value: validation.value }),
   );
   dbSave();
 
@@ -583,8 +587,10 @@ export function setSettings(updates, dbRun, dbSave) {
       continue;
     }
     dbRun(
-      "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-      [key, validation.value],
+      dbKnex("app_settings")
+        .insert({ key, value: validation.value })
+        .onConflict("key")
+        .merge({ value: validation.value }),
     );
     const def = DEFS_BY_KEY[key];
     _cache[key] = coerce(def, validation.value);
@@ -635,7 +641,7 @@ export function resetSetting(key, dbRun, dbSave) {
   const def = DEFS_BY_KEY[key];
   if (!def) return { ok: false, error: `Unknown setting: ${key}` };
 
-  dbRun("DELETE FROM app_settings WHERE key = ?", [key]);
+  dbRun(dbKnex("app_settings").where("key", key).del());
   dbSave();
   _cache[key] = resolveEnvDefault(def);
   return { ok: true, value: _cache[key] };

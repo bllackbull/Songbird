@@ -1,0 +1,602 @@
+import http from "node:http";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import crypto from "node:crypto";
+import { fileURLToPath } from "node:url";
+import { pipeline } from "node:stream/promises";
+import { createStorage } from "./storage.js";
+import { decryptFileToTempPath, encryptBuffer, isEncryptedFileBuffer } from "./encryption.js";
+import {
+  transcodeVideo,
+  probeVideoMetadata,
+  probeVideoDetails,
+  faststartVideo,
+  generateThumbnail,
+} from "./ffmpeg.js";
+
+const workerDir = path.dirname(fileURLToPath(import.meta.url));
+const projectRootDir = path.resolve(workerDir, "..");
+
+process.title = "songbird-worker";
+
+if (typeof process.loadEnvFile === "function") {
+  try { process.loadEnvFile(path.join(projectRootDir, ".env")); } catch {}
+  try { process.loadEnvFile(path.join(workerDir, ".env")); } catch {}
+}
+
+const PORT = Number(process.env.PORT || process.env.WORKER_PORT || 8080);
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "";
+const WORKER_CONCURRENCY = Math.max(
+  1,
+  parseInt(
+    process.env.WORKER_CONCURRENCY || process.env.CONCURRENCY || "2",
+    10,
+  ),
+);
+
+const storage = createStorage({
+  driver: process.env.STORAGE_DRIVER || process.env.STORAGE_DRIVE,
+  dataDir: process.env.DATA_DIR,
+  endpoint: process.env.STORAGE_ENDPOINT,
+  region: process.env.STORAGE_REGION,
+  bucket: process.env.STORAGE_BUCKET,
+  accessKeyId: process.env.STORAGE_ACCESS_KEY_ID,
+  secretAccessKey: process.env.STORAGE_SECRET_ACCESS_KEY,
+  forcePathStyle: process.env.STORAGE_FORCE_PATH_STYLE,
+});
+
+class AsyncQueue {
+  constructor(concurrency = 2) {
+    this.concurrency = concurrency;
+    this.running = 0;
+    this.queue = [];
+  }
+
+  push(fn) {
+    this.queue.push(fn);
+    this._next();
+  }
+
+  _next() {
+    while (this.running < this.concurrency && this.queue.length > 0) {
+      const task = this.queue.shift();
+      this.running += 1;
+      task()
+        .catch((err) => {
+          console.error("[worker] Background job execution error:", err);
+        })
+        .finally(() => {
+          this.running -= 1;
+          this._next();
+        });
+    }
+  }
+
+  get size() {
+    return this.queue.length;
+  }
+
+  get pending() {
+    return this.running;
+  }
+}
+
+const jobQueue = new AsyncQueue(WORKER_CONCURRENCY);
+
+const tmpDir = path.join(os.tmpdir(), "songbird-media-worker");
+fs.mkdirSync(tmpDir, { recursive: true });
+
+const tempPath = (suffix = "") =>
+  path.join(
+    tmpDir,
+    `${Date.now()}-${crypto.randomBytes(6).toString("hex")}${suffix}`,
+  );
+
+export const isLoopbackUrl = (url) => {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.hostname === "127.0.0.1" ||
+      parsed.hostname === "localhost" ||
+      parsed.hostname === "::1" ||
+      parsed.hostname === "0.0.0.0"
+    );
+  } catch {
+    return false;
+  }
+};
+
+export const isMissingKeyError = (err) => {
+  if (!err) return false;
+  const code = String(err.Code || err.code || err.name || "");
+  if (["NoSuchKey", "NotFound", "NoSuchKeyException"].includes(code)) {
+    return true;
+  }
+  return err?.$metadata?.httpStatusCode === 404;
+};
+
+/**
+ * Encrypt a generated thumbnail in place when the video it belongs to is
+ * stored encrypted. Mirrors the video-output rule exactly (same `isEncrypted`
+ * condition), so thumb bytes and video bytes are never split across
+ * protection states. `encryptBuffer` is a no-op without a key, and the
+ * server serves thumbs through magic-gated decrypt, so old plaintext
+ * thumbs keep working untouched.
+ *
+ * @returns {boolean} whether the thumbnail on disk is now ciphertext
+ */
+export const encryptThumbnail = (thumbPath, shouldEncrypt) => {
+  if (!shouldEncrypt) return false;
+  try {
+    if (!thumbPath || !fs.existsSync(thumbPath)) return false;
+    const encrypted = encryptBuffer(fs.readFileSync(thumbPath));
+    if (!isEncryptedFileBuffer(encrypted)) return false;
+    fs.writeFileSync(thumbPath, encrypted);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Sniff the SBENC1 magic header directly from disk. The server is supposed
+ * to send the right encryptionType flag, but records written before the
+ * flag was recorded correctly (encryption_type='none' with ciphertext on
+ * disk) would otherwise make the worker ffprobe ciphertext and fail with
+ * "moov atom not found". Disk truth wins over the flag.
+ */
+export const hasEncryptedMagic = (filePath) => {
+  try {
+    if (!filePath || !fs.existsSync(filePath)) return false;
+    const fd = fs.openSync(filePath, "r");
+    try {
+      const header = Buffer.alloc(64);
+      const bytesRead = fs.readSync(fd, header, 0, header.length, 0);
+      return isEncryptedFileBuffer(header.subarray(0, bytesRead));
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return false;
+  }
+};
+
+const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Download retry for the upload/download race: the job may be dispatched
+ * just before the object becomes readable (slow client upload, eventual
+ * consistency). Only missing-key errors are retried; anything else fails
+ * fast so genuinely broken jobs do not hang the queue.
+ */
+export async function downloadWithRetry(
+  downloadFn,
+  {
+    attempts = 6,
+    baseDelayMs = 1000,
+    maxDelayMs = 15000,
+    sleep = defaultSleep,
+  } = {},
+) {
+  let lastErr = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      await downloadFn();
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (!isMissingKeyError(err) || attempt === attempts) throw err;
+      const delayMs = Math.min(maxDelayMs, baseDelayMs * 2 ** (attempt - 1));
+      console.warn(
+        "[worker] Object not yet available (attempt %d/%d), retrying in %dms:",
+        attempt,
+        attempts,
+        delayMs,
+        err?.message || err,
+      );
+      await sleep(delayMs);
+    }
+  }
+  throw lastErr;
+}
+
+async function notifyCallback(url, payload, secret, maxRetries = 5) {
+  if (!url) {
+    console.warn(
+      `[worker] Callback notification skipped for file ${payload?.fileId}: no callbackUrl provided or configured.`,
+    );
+    return;
+  }
+  const effectiveSecret = secret || WEBHOOK_SECRET || "";
+  for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(effectiveSecret
+            ? { "x-songbird-webhook-secret": effectiveSecret }
+            : {}),
+        },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        console.log(
+          `[worker] Callback webhook delivered successfully to ${url} for file ${payload.fileId}`,
+        );
+        return;
+      }
+      const errText = await res.text();
+      console.warn(
+        `[worker] Callback webhook to ${url} returned HTTP ${res.status} (attempt ${attempt}/${maxRetries}): ${errText}`,
+      );
+    } catch (err) {
+      console.error(
+        "[worker] Failed to notify callback %s for file %s (attempt %d/%d):",
+        url,
+        payload.fileId,
+        attempt,
+        maxRetries,
+        err?.message || err,
+      );
+    }
+    if (attempt < maxRetries) {
+      const delayMs = Math.min(16000, 1000 * Math.pow(2, attempt - 1));
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+}
+
+async function processTranscodeJob({
+  fileId,
+  storageKey,
+  storedName,
+  encryptionType,
+  callbackUrl,
+  webhookSecret,
+  storageConfig,
+  downloadUrl,
+  uploadUrl,
+  thumbUploadUrl,
+}) {
+  const defaultLocalCallback = `http://127.0.0.1:${process.env.PORT || process.env.SERVER_PORT || "5174"}/api/uploads/webhook/processed`;
+  const targetCallback = callbackUrl || defaultLocalCallback;
+  const isEncrypted =
+    String(encryptionType || "").toLowerCase() === "local" ||
+    String(encryptionType || "").toLowerCase() === "aes-256-gcm" ||
+    String(encryptionType || "").toLowerCase() === "app";
+
+  const ext = path.extname(storedName || storageKey || "video.mp4");
+  const inputPath = tempPath(ext || ".mp4");
+  const outputPath = tempPath(".mp4");
+  const thumbPath = tempPath(".jpg");
+
+  const effectiveStorage = storageConfig
+    ? createStorage(storageConfig)
+    : storage;
+
+  console.log(
+    `[worker] Starting transcode job for file ${fileId} (${storageKey})`,
+  );
+
+  try {
+    await downloadWithRetry(async () => {
+      if (downloadUrl) {
+        const res = await fetch(downloadUrl);
+        if (!res.ok) {
+          const downloadErr = new Error(
+            `Failed to download from downloadUrl: HTTP ${res.status}`,
+          );
+          if (res.status === 404) downloadErr.code = "NotFound";
+          throw downloadErr;
+        }
+        await pipeline(res.body, fs.createWriteStream(inputPath));
+      } else {
+        await effectiveStorage.downloadToPath(storageKey, inputPath);
+      }
+    });
+
+    let workingInputPath = inputPath;
+    let decryptCleanup = () => {};
+    if (isEncrypted || hasEncryptedMagic(inputPath)) {
+      const decrypted = decryptFileToTempPath(
+        inputPath,
+        storedName || "video.mp4",
+      );
+      workingInputPath = decrypted.path;
+      decryptCleanup = decrypted.cleanup;
+    }
+
+    try {
+      const details = await probeVideoDetails(workingInputPath);
+      let meta = details;
+
+      let finalOutputPath = workingInputPath;
+      let usedTranscodedFile = false;
+
+      if (details.needsTranscode) {
+        console.log(
+          `[worker] File ${fileId} requires transcoding (codec=${details.videoCodec}, pix_fmt=${details.pixFmt}, format=${details.formatName})`,
+        );
+        await transcodeVideo({ inputPath: workingInputPath, outputPath });
+        meta = await probeVideoMetadata(outputPath);
+        finalOutputPath = outputPath;
+        usedTranscodedFile = true;
+      } else {
+        console.log(
+          `[worker] File ${fileId} is already web-compatible H.264/AAC. Skipping re-encoding.`,
+        );
+        try {
+          await faststartVideo({ inputPath: workingInputPath, outputPath });
+          finalOutputPath = outputPath;
+          usedTranscodedFile = true;
+        } catch (faststartErr) {
+          console.warn(
+            "[worker] Faststart copy skipped for file %s:",
+            fileId,
+            faststartErr?.message,
+          );
+          finalOutputPath = workingInputPath;
+          usedTranscodedFile = false;
+        }
+      }
+
+      let thumbStorageKey = null;
+      try {
+        await generateThumbnail({
+          inputPath: workingInputPath,
+          outputPath: thumbPath,
+        });
+        const thumbEncrypted = encryptThumbnail(thumbPath, isEncrypted);
+        if (thumbEncrypted) {
+          console.log(`[worker] Thumbnail encrypted for file ${fileId}`);
+        }
+        thumbStorageKey = `${storageKey.replace(/\.[^.]*$/, "")}-thumb.jpg`;
+        if (thumbUploadUrl) {
+          const res = await fetch(thumbUploadUrl, {
+            method: "PUT",
+            headers: { "Content-Type": "image/jpeg" },
+            body: fs.createReadStream(thumbPath),
+            duplex: "half",
+          });
+          if (!res.ok) {
+            throw new Error(`Failed to upload thumbnail: HTTP ${res.status}`);
+          }
+        } else {
+          await effectiveStorage.uploadFile(
+            thumbStorageKey,
+            thumbPath,
+            "image/jpeg",
+          );
+        }
+      } catch (thumbErr) {
+        console.warn(
+          "[worker] Thumbnail generation skipped for file %s:",
+          fileId,
+          thumbErr?.message,
+        );
+        thumbStorageKey = null;
+      }
+
+      let transcodedStorageKey = storageKey;
+      if (usedTranscodedFile) {
+        if (isEncrypted) {
+          const rawOutput = fs.readFileSync(finalOutputPath);
+          const encryptedOutput = encryptBuffer(rawOutput);
+          fs.writeFileSync(finalOutputPath, encryptedOutput);
+        }
+        transcodedStorageKey = `${storageKey.replace(/(\.[^.]*)?$/, "")}-h264-${crypto
+          .randomBytes(4)
+          .toString("hex")}.mp4`;
+
+        if (uploadUrl) {
+          const res = await fetch(uploadUrl, {
+            method: "PUT",
+            headers: { "Content-Type": "video/mp4" },
+            body: fs.createReadStream(finalOutputPath),
+            duplex: "half",
+          });
+          if (!res.ok) {
+            throw new Error(
+              `Failed to upload transcoded video: HTTP ${res.status}`,
+            );
+          }
+        } else {
+          await effectiveStorage.uploadFile(
+            transcodedStorageKey,
+            finalOutputPath,
+            "video/mp4",
+          );
+        }
+
+        // Delete the original raw file from remote storage to avoid storing duplicate orphaned video files
+        if (transcodedStorageKey !== storageKey && !uploadUrl) {
+          await effectiveStorage.deleteFile(storageKey);
+          console.log(
+            `[worker] Deleted original raw video ${storageKey} from storage`,
+          );
+        }
+      }
+
+      console.log("[worker] Process completed for file %s:", fileId, {
+        transcodedStorageKey,
+        thumbStorageKey,
+        meta,
+        transcoded: details.needsTranscode,
+      });
+
+      await notifyCallback(targetCallback, {
+        fileId,
+        status: "ready",
+        transcodedStorageKey,
+        thumbStorageKey,
+        width: Number(meta?.widthPx || meta?.width || 0) || null,
+        height: Number(meta?.heightPx || meta?.height || 0) || null,
+        duration: Number(meta?.durationSeconds || meta?.duration || 0) || null,
+      }, webhookSecret);
+    } finally {
+      decryptCleanup();
+    }
+    } catch (err) {
+      console.error("[worker] Transcode failed for file %s:", fileId, err);
+      await notifyCallback(targetCallback, {
+      fileId,
+      status: "failed",
+    }, webhookSecret);
+  } finally {
+    for (const p of [inputPath, outputPath, thumbPath]) {
+      try {
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+      } catch {}
+    }
+  }
+}
+
+function parseJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    req.on("data", (chunk) => {
+      body += String(chunk || "");
+      if (body.length > 1024 * 1024) {
+        req.destroy();
+        reject(new Error("Request body too large"));
+      }
+    });
+    req.on("end", () => {
+      try {
+        resolve(body ? JSON.parse(body) : {});
+      } catch (err) {
+        reject(err);
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+export function createWorkerServer(options = {}) {
+  const effectiveWebhookSecret =
+    options.webhookSecret !== undefined ? options.webhookSecret : WEBHOOK_SECRET;
+  const effectiveQueue = options.jobQueue || jobQueue;
+  const processJobFn = options.processTranscodeJob || processTranscodeJob;
+
+  const appServer = http.createServer(async (req, res) => {
+    const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+
+    // Health check
+    if (
+      req.method === "GET" &&
+      (url.pathname === "/health" || url.pathname === "/")
+    ) {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      return res.end(
+        JSON.stringify({
+          status: "ok",
+          service: "songbird-media-worker",
+          queue: {
+            pending: effectiveQueue.pending,
+            queued: effectiveQueue.size,
+            concurrency: effectiveQueue.concurrency,
+          },
+        }),
+      );
+    }
+
+    // Transcode dispatch endpoint
+    if (req.method === "POST" && url.pathname === "/transcode") {
+      const incomingSecret = req.headers["x-songbird-webhook-secret"];
+      if (effectiveWebhookSecret) {
+        if (incomingSecret !== effectiveWebhookSecret) {
+          res.writeHead(401, { "Content-Type": "application/json" });
+          return res.end(JSON.stringify({ error: "Unauthorized" }));
+        }
+      }
+
+      let payload;
+      try {
+        payload = await parseJsonBody(req);
+      } catch (err) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        return res.end(JSON.stringify({ error: "Invalid JSON body" }));
+      }
+
+      const {
+        fileId,
+        storageKey,
+        storedName,
+        encryptionType,
+        callbackUrl,
+        webhookSecret,
+        storageConfig,
+        downloadUrl,
+        uploadUrl,
+        thumbUploadUrl,
+      } = payload;
+      const effectiveStorageKey = storageKey || storedName;
+      const effectiveStoredName = storedName || storageKey;
+      if (!fileId || (!effectiveStorageKey && !downloadUrl)) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        return res.end(
+          JSON.stringify({
+            error:
+              "fileId and storageKey (or storedName/downloadUrl) are required",
+          }),
+        );
+      }
+
+      // Acknowledge receipt immediately (202 Accepted)
+      res.writeHead(202, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          success: true,
+          message: "Transcode job accepted",
+          fileId,
+          queuePosition: effectiveQueue.size,
+        }),
+      );
+
+      // Process via async queue with concurrency limit
+      effectiveQueue.push(() =>
+        processJobFn({
+          fileId,
+          storageKey: effectiveStorageKey,
+          storedName: effectiveStoredName,
+          encryptionType,
+          callbackUrl,
+          webhookSecret: webhookSecret || incomingSecret || null,
+          storageConfig,
+          downloadUrl,
+          uploadUrl,
+          thumbUploadUrl,
+        }),
+      );
+      return;
+    }
+
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Not found" }));
+  });
+
+  return appServer;
+}
+
+export const server = createWorkerServer();
+
+if (
+  process.argv[1] &&
+  fileURLToPath(import.meta.url) === path.resolve(process.argv[1])
+) {
+  server.listen(PORT, () => {
+    console.log(
+      `[songbird-worker] listening on port ${PORT} (storage: ${storage.type})`,
+    );
+  });
+
+  for (const sig of ["SIGINT", "SIGTERM"]) {
+    process.on(sig, () => {
+      console.log(`[worker] ${sig} received, shutting down gracefully...`);
+      server.close(() => process.exit(0));
+    });
+  }
+}

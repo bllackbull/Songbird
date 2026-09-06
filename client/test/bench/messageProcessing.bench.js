@@ -18,15 +18,15 @@ const objectBody = { text: "Hello from object body" };
 const badBody = "[object Object]";
 
 const typicalMessage = {
-  id: 42,
+  id: "d0d0d0d0-e1e1-4f2f-b040-171717171717",
   body: plainBody,
   username: "alice",
-  user_id: 1,
+  user_id: "a0a0a0a0-b1b1-4c2c-8d3d-e4e4e4e4e4e4",
   created_at: "2024-06-15T10:30:00Z",
-  replyTo: { id: 10, body: "Reply target" },
+  replyTo: { id: "e0e0e0e0-f1f1-4020-c151-282828282828", body: "Reply target" },
   files: [
     {
-      id: 1,
+      id: "f47ac10b-58cc-4372-a567-0e02b2c3d479",
       url: "/api/uploads/messages/abc.jpg",
       mimeType: "image/jpeg",
       _localUrl: null,
@@ -37,14 +37,14 @@ const typicalMessage = {
   ],
   _files: [],
   _clientId: "req-001",
-  _chatId: 5,
+  _chatId: "c0c0c0c0-d1d1-4e2e-af3f-060606060606",
   _queuedAt: Date.now(),
   _delivery: "sent",
   _uploadType: "media",
   _uploadProgress: 1,
   _awaitingServerEcho: false,
   _processingPending: false,
-  _serverId: 42,
+  _serverId: "d0d0d0d0-e1e1-4f2f-b040-171717171717",
   _visibilityTime: null,
   _readByMe: true,
 };
@@ -88,7 +88,7 @@ describe("sanitizeMessageForCache", () => {
   });
 
   bench("minimal message (no files, no replyTo)", () => {
-    sanitizeMessageForCache({ id: 1, body: "hi", username: "bob" });
+    sanitizeMessageForCache({ id: "d0d0d0d0-e1e1-4f2f-b040-171717171717", body: "hi", username: "bob" });
   });
 });
 

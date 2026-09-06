@@ -234,7 +234,7 @@ export function MessageComposer({
   ]);
 
   useEffect(() => {
-    const nextEditId = Number(editTarget?.id || 0);
+    const nextEditId = String(editTarget?.id || "").trim();
     if (!nextEditId) return;
     if (appliedEditIdRef.current === nextEditId) return;
     const nextValue =
@@ -925,16 +925,20 @@ export function MessageComposer({
                     </div>
                   ) : isVideo ? (
                     <div className="relative mb-1 flex h-24 items-center justify-center rounded-md">
-                      <video
-                        src={item.previewUrl}
-                        muted
-                        playsInline
-                        preload="auto"
-                        onLoadedMetadata={handleVideoThumbLoadedMetadata}
-                        onLoadedData={handleVideoThumbLoadedMetadata}
-                        onCanPlay={handleVideoThumbLoadedMetadata}
-                        className="h-24 w-auto max-w-full rounded-md object-contain"
-                      />
+                      {item.previewUrl ? (
+                        <video
+                          src={item.previewUrl}
+                          muted
+                          playsInline
+                          preload="auto"
+                          onLoadedMetadata={handleVideoThumbLoadedMetadata}
+                          onLoadedData={handleVideoThumbLoadedMetadata}
+                          onCanPlay={handleVideoThumbLoadedMetadata}
+                          className="h-24 w-auto max-w-full rounded-md object-contain"
+                        />
+                      ) : (
+                        <div className="flex h-24 w-24 items-center justify-center rounded-md bg-slate-200/80 dark:bg-slate-800/80" />
+                      )}
                       <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
                         <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/40 bg-black/45 text-white">
                           <Play size={14} className="translate-x-px" />

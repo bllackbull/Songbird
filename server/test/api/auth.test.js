@@ -2,6 +2,11 @@ import { describe, test, expect } from "vitest";
 import request from "supertest";
 import bcrypt from "bcryptjs";
 import { makeApp, makeUserStore } from "../helpers/makeApp.js";
+import { userEvents } from "../../lib/workers/autoAddWorker.js";
+
+// ─── Test UUIDs ───────────────────────────────────────────────────────────────
+const UUID_ALICE = "a0000000-0000-4000-8000-000000000001";
+const UUID_BOB = "b0000000-0000-4000-8000-000000000002";
 
 // ─── Helper — extract the session cookie from a Set-Cookie header ─────────────
 function extractSid(res) {
@@ -24,7 +29,9 @@ describe("POST /api/register", () => {
     });
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ username: "alice", nickname: "Alice" });
-    expect(res.body.id).toBeGreaterThan(0);
+    expect(res.body.id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
   });
 
   test("sets a session cookie on successful registration", async () => {
@@ -37,10 +44,29 @@ describe("POST /api/register", () => {
     expect(extractSid(res)).not.toBeNull();
   });
 
+  test("emits user:created event on userEvents listener when user registers", async () => {
+    const { app } = makeApp();
+    const emitted = [];
+    const handler = (data) => emitted.push(data);
+    userEvents.on("user:created", handler);
+
+    try {
+      const res = await request(app).post("/api/register").send({
+        username: "eventuser",
+        password: "password123",
+      });
+      expect(res.status).toBe(200);
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0]).toEqual({ userId: res.body.id });
+    } finally {
+      userEvents.off("user:created", handler);
+    }
+  });
+
   test("returns 409 when username is already taken", async () => {
     const userStore = makeUserStore([
       {
-        id: 1,
+        id: UUID_ALICE,
         username: "alice",
         password_hash: "x",
         nickname: null,
@@ -119,7 +145,7 @@ describe("POST /api/login", () => {
     const hash = bcrypt.hashSync(password, 4); // low cost for test speed
     const userStore = makeUserStore([
       {
-        id: 1,
+        id: UUID_ALICE,
         username,
         password_hash: hash,
         nickname: "Alice",
@@ -140,6 +166,7 @@ describe("POST /api/login", () => {
       .send({ username: "alice", password: "secret123" });
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ username: "alice", nickname: "Alice" });
+    expect(res.body.id).toBe(UUID_ALICE);
   });
 
   test("sets a session cookie on successful login", async () => {
@@ -171,7 +198,7 @@ describe("POST /api/login", () => {
     const hash = bcrypt.hashSync("secret123", 4);
     const userStore = makeUserStore([
       {
-        id: 1,
+        id: UUID_ALICE,
         username: "alice",
         password_hash: hash,
         nickname: null,
@@ -217,7 +244,7 @@ describe("GET /api/me", () => {
     const hash = bcrypt.hashSync("secret123", 4);
     const userStore = makeUserStore([
       {
-        id: 1,
+        id: UUID_ALICE,
         username: "alice",
         password_hash: hash,
         nickname: "Alice",
@@ -233,6 +260,7 @@ describe("GET /api/me", () => {
     const res = await request(app).get("/api/me").set("Cookie", cookie);
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ username: "alice", nickname: "Alice" });
+    expect(res.body.id).toBe(UUID_ALICE);
   });
 });
 

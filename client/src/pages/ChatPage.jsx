@@ -64,6 +64,7 @@ import {
   isMessageFromOtherUser,
   isRemoteChannelMessage,
 } from "../utils/messageOwnership.js";
+import { normalizeUuid, isValidUuid } from "../utils/uuidUtils.js";
 import {
   createDmChat,
   discoverUsersAndGroups,
@@ -88,7 +89,6 @@ import {
   markMessageRead,
   markMessagesRead,
   fetchFirstUnreadMessage,
-  pingPresence,
   searchUsers,
   sendTypingIndicator,
   sendMessage,
@@ -112,6 +112,7 @@ import {
   updateProfile,
   updateStatus as updateStatusRequest,
   uploadAvatar,
+  prepareFilesForMessage,
 } from "../api/chatApi.js";
 import { useMessageMaxChars } from "../settings/appConfig.js";
 import {
@@ -119,7 +120,6 @@ import {
   NEW_CHAT_SEARCH_DEBOUNCE_MS,
   NOTIFICATION_PREVIEW_MAX_CHARS,
   OPEN_CHAT_ID_KEY,
-  PRESENCE_IDLE_THRESHOLD_MS,
   UPLOAD_PROGRESS_HIDE_DELAY_MS,
 } from "../utils/chatPageConstants.js";
 
@@ -207,8 +207,8 @@ const normalizeMessagesCachePayloadForMemory = (payload) => {
   const trimmedMessages = pruneMessagesForMemory(payload.messages);
   if (trimmedMessages === payload.messages) return payload;
   const nextLastMessageId = trimmedMessages.length
-    ? Number(trimmedMessages[trimmedMessages.length - 1]?.id || 0)
-    : 0;
+    ? (trimmedMessages[trimmedMessages.length - 1]?.id || null)
+    : null;
   return {
     ...payload,
     messages: trimmedMessages,
@@ -219,23 +219,23 @@ const normalizeMessagesCachePayloadForMemory = (payload) => {
 };
 
 const readMessagesCacheMemory = (cacheMap, chatId) => {
-  const numericChatId = Number(chatId || 0);
-  if (!numericChatId || !cacheMap?.has(numericChatId)) return null;
-  const value = cacheMap.get(numericChatId);
-  cacheMap.delete(numericChatId);
-  cacheMap.set(numericChatId, value);
+  const cacheKey = String(chatId || "");
+  if (!cacheKey || !cacheMap?.has(cacheKey)) return null;
+  const value = cacheMap.get(cacheKey);
+  cacheMap.delete(cacheKey);
+  cacheMap.set(cacheKey, value);
   return value;
 };
 
 const pruneMessagesCacheMemory = (cacheMap, activeChatId = null) => {
   if (!cacheMap || !cacheMap.size) return;
-  const activeId = Number(activeChatId || 0);
+  const activeId = String(activeChatId || "");
   const now = Date.now();
   const staleKeys = [];
   cacheMap.forEach((value, key) => {
     const updatedAt = Number(value?.updatedAt || 0);
     if (!updatedAt) return;
-    if (activeId && Number(key) === activeId) return;
+    if (activeId && String(key) === activeId) return;
     if (now - updatedAt > IN_MEMORY_MESSAGES_CACHE_STALE_MS) {
       staleKeys.push(key);
     }
@@ -244,7 +244,7 @@ const pruneMessagesCacheMemory = (cacheMap, activeChatId = null) => {
   while (cacheMap.size > IN_MEMORY_MESSAGES_CACHE_MAX_CHATS) {
     const oldestKey = cacheMap.keys().next().value;
     if (oldestKey === undefined) break;
-    if (activeId && Number(oldestKey) === activeId && cacheMap.size > 1) {
+    if (activeId && String(oldestKey) === activeId && cacheMap.size > 1) {
       const activeValue = cacheMap.get(oldestKey);
       cacheMap.delete(oldestKey);
       cacheMap.set(oldestKey, activeValue);
@@ -255,22 +255,22 @@ const pruneMessagesCacheMemory = (cacheMap, activeChatId = null) => {
 };
 
 const writeMessagesCacheMemory = (cacheMap, chatId, payload, activeChatId = null) => {
-  const numericChatId = Number(chatId || 0);
-  if (!numericChatId || !payload || !cacheMap) return;
+  const cacheKey = String(chatId || "");
+  if (!cacheKey || !payload || !cacheMap) return;
   const normalized = normalizeMessagesCachePayloadForMemory(payload);
-  cacheMap.set(numericChatId, normalized);
+  cacheMap.set(cacheKey, normalized);
   if (cacheMap.size > 1) {
-    const current = cacheMap.get(numericChatId);
-    cacheMap.delete(numericChatId);
-    cacheMap.set(numericChatId, current);
+    const current = cacheMap.get(cacheKey);
+    cacheMap.delete(cacheKey);
+    cacheMap.set(cacheKey, current);
   }
-  pruneMessagesCacheMemory(cacheMap, activeChatId || numericChatId);
+  pruneMessagesCacheMemory(cacheMap, activeChatId || cacheKey);
 };
 
 const patchChatAndMoveToFront = (chats, chatId, updateChat) => {
-  const targetChatId = Number(chatId || 0);
+  const targetChatId = String(chatId || "");
   if (!targetChatId) return chats;
-  const index = chats.findIndex((chat) => Number(chat?.id) === targetChatId);
+  const index = chats.findIndex((chat) => String(chat?.id || "") === targetChatId);
   if (index < 0) return chats;
   const currentChat = chats[index];
   const nextChat = updateChat(currentChat);
@@ -827,7 +827,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const TYPING_REMOTE_TTL_MS = 5000;
 
   const clearTypingExpiryTimer = useCallback((chatId, username) => {
-    const key = `${Number(chatId || 0)}:${String(username || "").toLowerCase()}`;
+    const key = `${String(chatId || "")}:${String(username || "").toLowerCase()}`;
     const timer = typingExpiryTimersRef.current.get(key);
     if (timer) {
       window.clearTimeout(timer);
@@ -837,21 +837,21 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const removeTypingUser = useCallback((chatId, username) => {
     const normalizedUsername = String(username || "").toLowerCase();
-    const numericChatId = Number(chatId || 0);
-    if (!numericChatId || !normalizedUsername) return;
+    const chatKey = String(chatId || "");
+    if (!chatKey || !normalizedUsername) return;
     setTypingByChat((prev) => {
-      const chatTyping = prev?.[numericChatId];
+      const chatTyping = prev?.[chatKey];
       if (!chatTyping || !chatTyping[normalizedUsername]) return prev;
       const nextChatTyping = { ...chatTyping };
       delete nextChatTyping[normalizedUsername];
       if (!Object.keys(nextChatTyping).length) {
         const next = { ...prev };
-        delete next[numericChatId];
+        delete next[chatKey];
         return next;
       }
       return {
         ...prev,
-        [numericChatId]: nextChatTyping,
+        [chatKey]: nextChatTyping,
       };
     });
   }, []);
@@ -859,10 +859,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const setTypingUser = useCallback(
     (chatId, username, nickname = "") => {
       const normalizedUsername = String(username || "").toLowerCase();
-      const numericChatId = Number(chatId || 0);
-      if (!numericChatId || !normalizedUsername) return;
+      const chatKey = String(chatId || "");
+      if (!chatKey || !normalizedUsername) return;
       setTypingByChat((prev) => {
-        const chatTyping = prev?.[numericChatId] || {};
+        const chatTyping = prev?.[chatKey] || {};
         const nextChatTyping = {
           ...chatTyping,
           [normalizedUsername]: {
@@ -873,7 +873,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         };
         return {
           ...prev,
-          [numericChatId]: nextChatTyping,
+          [chatKey]: nextChatTyping,
         };
       });
     },
@@ -883,13 +883,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const scheduleTypingExpiry = useCallback(
     (chatId, username) => {
       const normalizedUsername = String(username || "").toLowerCase();
-      const numericChatId = Number(chatId || 0);
-      if (!numericChatId || !normalizedUsername) return;
-      clearTypingExpiryTimer(numericChatId, normalizedUsername);
-      const key = `${numericChatId}:${normalizedUsername}`;
+      const chatKey = String(chatId || "");
+      if (!chatKey || !normalizedUsername) return;
+      clearTypingExpiryTimer(chatKey, normalizedUsername);
+      const key = `${chatKey}:${normalizedUsername}`;
       const timer = window.setTimeout(() => {
         typingExpiryTimersRef.current.delete(key);
-        removeTypingUser(numericChatId, normalizedUsername);
+        removeTypingUser(chatKey, normalizedUsername);
       }, TYPING_REMOTE_TTL_MS);
       typingExpiryTimersRef.current.set(key, timer);
     },
@@ -898,16 +898,16 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const sendTypingSignal = useCallback(
     (chatId, isTyping) => {
-      const numericChatId = Number(chatId || 0);
+      const chatKey = String(chatId || "");
       const currentUsername = String(usernameRef.current || "").toLowerCase();
-      if (!numericChatId || !currentUsername) return;
+      if (!chatKey || !currentUsername) return;
       const activeChatType = String(activeChatTypeRef.current || "").toLowerCase();
       if (Boolean(isTyping) && activeChatType === "channel") return;
       const canBroadcastTyping =
         String(user?.status || "").toLowerCase() === "online";
       if (!canBroadcastTyping && Boolean(isTyping)) return;
       sendTypingIndicator({
-        chatId: numericChatId,
+        chatId: chatKey,
         username: currentUsername,
         isTyping: Boolean(isTyping),
       }).catch(() => null);
@@ -925,8 +925,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const stopTypingIndicator = useCallback(
     (chatIdOverride = null) => {
       const targetChatId =
-        Number(chatIdOverride || 0) ||
-        Number(typingStateRef.current.chatId || activeChatIdRef.current || 0);
+        chatIdOverride ||
+        typingStateRef.current.chatId || activeChatIdRef.current || null;
       if (!targetChatId) return;
       clearLocalTypingStopTimer();
       if (typingStateRef.current.isTyping) {
@@ -943,7 +943,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const handleStartReply = (msg) => {
     if (!msg) return;
-    const targetId = Number(msg.id || msg._serverId || 0);
+    const targetId = msg.id || msg._serverId || null;
     if (!targetId) return;
     setEditTarget(null);
     // In channel chats, show the channel name instead of the message author's name
@@ -975,7 +975,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const handleStartEdit = (msg) => {
     if (!msg) return;
-    const targetId = Number(msg.id || msg._serverId || 0);
+    const targetId = msg.id || msg._serverId || null;
     if (!targetId) return;
     setReplyTarget(null);
     setEditTarget({
@@ -1002,9 +1002,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         if (!savedChat) {
           const res = await getSavedMessagesChat(user.username);
           const data = await res.json();
-          if (res.ok && Number(data?.id || 0)) {
+          if (res.ok && data?.id) {
             savedChat = {
-              id: Number(data.id),
+              id: data.id,
               type: "saved",
               name: "Saved messages",
               members: [],
@@ -1038,7 +1038,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
     if (target.kind === "user") {
       const fallbackMember = {
-        id: Number(target.userId || 0) || null,
+        id: target.userId || null,
         username: target.username || "",
         nickname: target.nickname || "",
         avatar_url: target.avatar_url || "",
@@ -1059,7 +1059,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         const data = await res.json().catch(() => ({}));
         if (res.ok) {
           openMemberProfileFromList({
-            id: Number(data?.id || fallbackMember.id || 0) || null,
+            id: data?.id || fallbackMember.id || null,
             username: data?.username || fallbackMember.username || "",
             nickname:
               data?.nickname ||
@@ -1087,9 +1087,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       openMemberProfileFromList(fallbackMember);
       return;
     }
-    const numericChatId = Number(target.chatId || 0);
+    const numericChatId = String(target.chatId || "");
     if (!numericChatId) return;
-    let targetChat = chats.find((chat) => Number(chat.id) === numericChatId);
+    let targetChat = chats.find((chat) => String(chat.id) === numericChatId);
     if (!targetChat) {
       try {
         const res = await getChatPreview({
@@ -1101,7 +1101,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           throw new Error(data?.error || "Unable to open forwarded chat.");
         }
         targetChat = {
-          id: Number(data?.id || numericChatId),
+          id: String(data?.id || numericChatId),
           type: data?.type || "group",
           name: data?.name || "Chat",
           group_username: data?.username || "",
@@ -1197,8 +1197,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const setPendingUploadProgress = (clientId, progress, chatId = null) => {
     const nextProgress = Math.max(0, Math.min(100, Number(progress || 0)));
-    const activeId = Number(activeChatIdRef.current || 0);
-    const targetId = Number(chatId || 0);
+    const activeId = String(activeChatIdRef.current || "");
+    const targetId = String(chatId || "");
     if (!targetId || activeId === targetId) {
       setActiveUploadProgress(nextProgress);
     }
@@ -1226,7 +1226,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     createdAt = null,
     messageId = null,
   }) => {
-    const targetChatId = Number(chatId || 0);
+    const targetChatId = String(chatId || "");
     if (!targetChatId) return;
     const previewTime = createdAt || new Date().toISOString();
     const previewBody = normalizeMessageBody(body).trim();
@@ -1258,7 +1258,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         last_sender_nickname: user.nickname || user.username,
         last_sender_avatar_url: user.avatarUrl || "",
         last_message_client_request_id: null,
-        last_message_read_at: null,
+        last_message_read_at: chat?.last_message_read_at || null,
       }));
     });
   };
@@ -1297,12 +1297,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       let anchor = null;
       for (let i = current.length - 1; i >= 0; i -= 1) {
         const candidate = current[i];
-        const serverId = Number(candidate?._serverId || candidate?.id || 0);
+        const serverId = String(candidate?._serverId || candidate?.id || "");
         if (
-          Number.isFinite(serverId) &&
-          serverId > 0 &&
+          serverId &&
           candidate?.created_at &&
-          Number(candidate?._chatId || chatId) === Number(chatId)
+          String(candidate?._chatId || chatId) === String(chatId)
         ) {
           anchor = candidate;
           break;
@@ -1310,7 +1309,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }
       if (anchor) {
         deltaOptions = {
-          afterId: Number(anchor._serverId || anchor.id),
+          afterId: String(anchor._serverId || anchor.id),
           afterCreatedAt: anchor.created_at,
           tailDelta: true,
           limit: CHAT_PAGE_CONFIG.messageFetchLimit,
@@ -1495,6 +1494,31 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }));
       setChats((prev) => (prev.length ? prev : normalizedCached));
       setLoadingChats(false);
+
+      const pendingOpenChatIdRaw =
+        typeof window !== "undefined"
+          ? window.sessionStorage.getItem(OPEN_CHAT_ID_KEY)
+          : null;
+      const pendingOpenChatId = normalizeUuid(pendingOpenChatIdRaw) || pendingOpenChatIdRaw;
+      if (pendingOpenChatId && !activeChatIdRef.current) {
+        const pendingChat = normalizedCached.find(
+          (item) => item.id === pendingOpenChatId,
+        );
+        if (pendingChat) {
+          setActiveChatId(pendingOpenChatId);
+          if (pendingChat.type === "dm") {
+            const nextOther = (pendingChat.members || []).find(
+              (member) =>
+                String(member?.username || "").toLowerCase() !==
+                String(user?.username || "").toLowerCase(),
+            );
+            setActivePeer(nextOther || null);
+          } else {
+            setActivePeer(null);
+          }
+          setMobileTab("chat");
+        }
+      }
     })();
     return () => {
       isActive = false;
@@ -1521,7 +1545,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (!items.length) return;
       const now = Date.now();
       const filtered = items.filter((entry) => {
-        const chatId = Number(entry?.chatId);
+        const chatId = String(entry?.chatId || "");
         const updatedAt = Number(entry?.updatedAt);
         if (!chatId || !Number.isFinite(updatedAt)) return false;
         if (now - updatedAt > CHAT_PAGE_CONFIG.cacheTtlMs) {
@@ -1627,23 +1651,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, [user, sseConnected, isAppActive]);
 
   useEffect(() => {
-    if (!user) return;
-    if (!isAppActive) return;
-    const ping = async () => {
-      try {
-        await pingPresence(user.username);
-      } catch {
-        // ignore
-      }
-    };
-    ping();
-    const interval = setInterval(ping, CHAT_PAGE_CONFIG.presencePingIntervalMs);
-    return () => clearInterval(interval);
-  }, [user, isAppActive]);
-
-  useEffect(() => {
     if (user && activeChatId) {
-      const openedChatId = Number(activeChatId);
+      const openedChatId = activeChatId;
       const openedChat = chats.find((chat) => chat.id === openedChatId);
       let cached = readMessagesCacheMemory(messagesCacheRef.current, openedChatId) || null;
       // IDB async load below will hydrate if needed.
@@ -1656,7 +1665,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       setMessages(hasCachedMessages ? normalizeMessagesForRender(cached.messages) : []);
       setHasOlderMessages(Boolean(cached?.hasOlderMessages));
       setLoadingOlderMessages(false);
-      lastMessageIdRef.current = Number(cached?.lastMessageId || 0) || null;
+      lastMessageIdRef.current = cached?.lastMessageId || null;
       setUnreadInChat(0);
       userScrolledUpRef.current = false;
       setUserScrolledUp(false);
@@ -1690,7 +1699,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         void (async () => {
           const idbCached = await readMessagesCacheAsync(user.username, activeId);
           if (!idbCached || !Array.isArray(idbCached.messages)) return;
-          if (Number(activeChatIdRef.current) !== activeId) return;
+          if (activeChatIdRef.current !== activeId) return;
           writeMessagesCacheMemory(
             messagesCacheRef.current,
             activeId,
@@ -1791,7 +1800,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   useEffect(() => {
     const currentState = typingStateRef.current;
-    const currentChatId = Number(activeChatId || 0);
+    const currentChatId = activeChatId || null;
     if (!currentState.isTyping) return;
     if (!currentState.chatId || currentState.chatId === currentChatId) return;
     sendTypingSignal(currentState.chatId, false);
@@ -1914,7 +1923,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const containerRect = chatScrollRef.current.getBoundingClientRect();
     const ids = [];
     messages.forEach((msg) => {
-      const messageId = Number(msg?._serverId || msg?.id || 0);
+      const messageId = normalizeUuid(msg?._serverId || msg?.id) || null;
       if (!messageId) return;
       const element = document.getElementById(`message-${messageId}`);
       if (!element) return;
@@ -1931,7 +1940,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (channelSeenActiveRef.current) return;
     const nextId = channelSeenQueueRef.current.shift();
     if (!nextId) return;
-    const activeId = Number(activeChatIdRef.current || 0);
+    const activeId = activeChatIdRef.current || null;
     if (!activeId) return;
     channelSeenActiveRef.current = true;
     getMessageReadCounts({
@@ -2076,22 +2085,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const parsePresenceDate = (value) => {
     if (!value) return null;
-    if (typeof value === "string") {
-      const normalized = value.includes("T") ? value : value.replace(" ", "T");
-      return normalized.endsWith("Z")
-        ? new Date(normalized)
-        : new Date(`${normalized}Z`);
-    }
-    return new Date(value);
+    const d = parseServerDate(value);
+    return d && !isNaN(d.getTime()) ? d : null;
   };
-  const resolveOnlineOffline = (status, lastSeenInput) => {
-    const normalizedStatus = String(status || "").toLowerCase();
-    if (normalizedStatus !== "online") return "offline";
-    const parsed = parsePresenceDate(lastSeenInput);
-    const seenAt = parsed?.getTime?.() || 0;
-    if (!Number.isFinite(seenAt) || seenAt <= 0) return "offline";
-    return Date.now() - seenAt <= PRESENCE_IDLE_THRESHOLD_MS ? "online" : "offline";
-  };
+  const normalizeStatus = (status) =>
+    String(status || "").toLowerCase() === "online" ? "online" : "offline";
   const formatLastSeenLabel = (lastSeenInput) => {
     const parsed = parsePresenceDate(lastSeenInput);
     const seenAt = parsed?.getTime?.() || 0;
@@ -2120,12 +2118,16 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const targetUsername = String(payload?.username || "").toLowerCase();
     if (!targetUsername) return;
     const status = String(payload?.status || "").toLowerCase();
+    const rawStatus = String(payload?.rawStatus || status).toLowerCase();
     const rawLastSeen = String(payload?.lastSeen || "").trim();
     const parsedLastSeen = parsePresenceDate(rawLastSeen);
-    const normalizedLastSeen = parsedLastSeen?.toISOString?.() || new Date().toISOString();
-    const onlineStatus = resolveOnlineOffline(status, normalizedLastSeen);
+    const normalizedLastSeen = parsedLastSeen && !isNaN(parsedLastSeen.getTime())
+      ? parsedLastSeen.toISOString()
+      : new Date().toISOString();
+    const onlineStatus = normalizeStatus(status);
     presenceStateRef.current.set(targetUsername, {
-      status,
+      status: onlineStatus,
+      rawStatus,
       lastSeen: normalizedLastSeen,
     });
     // Evict oldest entries when the map exceeds a reasonable size to prevent
@@ -2136,37 +2138,55 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setChats((prev) =>
       prev.map((chat) => {
         const members = Array.isArray(chat?.members) ? chat.members : [];
-        if (
-          !members.some(
-            (member) => String(member?.username || "").toLowerCase() === targetUsername,
-          )
-        ) {
+        const hasMember = members.some(
+          (member) => String(member?.username || "").toLowerCase() === targetUsername,
+        );
+        const isDmMatch =
+          chat?.type === "dm" &&
+          (hasMember ||
+            String(chat?.last_sender_username || "").toLowerCase() === targetUsername ||
+            members.length === 0);
+
+        if (!hasMember && !isDmMatch) {
           return chat;
         }
+
+        const updatedMembers = hasMember
+          ? members.map((member) => {
+              if (String(member?.username || "").toLowerCase() !== targetUsername) {
+                return member;
+              }
+              return {
+                ...member,
+                status: onlineStatus,
+              };
+            })
+          : [
+              ...members,
+              {
+                username: targetUsername,
+                status: onlineStatus,
+              },
+            ];
+
         return {
           ...chat,
-          members: members.map((member) => {
-            if (String(member?.username || "").toLowerCase() !== targetUsername) {
-              return member;
-            }
-            return {
-              ...member,
-              status: onlineStatus,
-            };
-          }),
+          members: updatedMembers,
         };
       }),
     );
     if (String(activeHeaderPeer?.username || "").toLowerCase() === targetUsername) {
       setPeerPresence({
         status: onlineStatus,
-        rawStatus: status,
+        rawStatus,
         lastSeen: normalizedLastSeen,
       });
     }
   };
   const applyProfileUpdate = useCallback((payload = {}) => {
-    const userId = Number(payload?.userId || 0) || null;
+    const rawUserId = payload?.userId;
+    // Req 6.6: if userId is a legacy integer, discard
+    const userId = isValidUuid(rawUserId) ? normalizeUuid(rawUserId) : null;
     const nextUsername = String(payload?.username || "")
       .trim()
       .toLowerCase();
@@ -2182,7 +2202,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const nextStatus = String(payload?.status || "online").trim().toLowerCase() || "online";
     const usernames = new Set([nextUsername, previousUsername].filter(Boolean));
     const matchesUser = (candidateId, candidateUsername) => {
-      const normalizedCandidateId = Number(candidateId || 0) || null;
+      const normalizedCandidateId = isValidUuid(candidateId) ? normalizeUuid(candidateId) : null;
       const normalizedCandidateUsername = String(candidateUsername || "")
         .trim()
         .toLowerCase();
@@ -2193,11 +2213,16 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     };
 
     presenceStateRef.current.delete(previousUsername);
+    const previousPresence = nextUsername
+      ? presenceStateRef.current.get(nextUsername) || presenceStateRef.current.get(previousUsername)
+      : null;
+    const effectivePresenceStatus =
+      previousPresence?.status ||
+      (nextStatus === "online" || nextStatus === "offline" ? nextStatus : "offline");
+
     if (nextUsername) {
-      const previousPresence = presenceStateRef.current.get(nextUsername) ||
-        presenceStateRef.current.get(previousUsername);
       presenceStateRef.current.set(nextUsername, {
-        status: nextStatus,
+        status: effectivePresenceStatus,
         lastSeen:
           previousPresence?.lastSeen ||
           new Date().toISOString(),
@@ -2219,7 +2244,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             nickname: nextNickname || member?.nickname || member?.username || "",
             avatar_url: nextAvatarUrl,
             color: nextColor,
-            status: nextStatus,
+            status: member?.status || effectivePresenceStatus,
           };
         });
         const shouldPatchLastSender =
@@ -2345,33 +2370,21 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (matchesUser(null, activeHeaderPeer?.username)) {
       const existingPresence = presenceStateRef.current.get(nextUsername || previousUsername);
       setPeerPresence((prev) => ({
-        status: nextStatus || prev?.status || "online",
+        status: normalizeStatus(nextStatus),
         rawStatus: nextStatus || prev?.rawStatus || prev?.status || "online",
         lastSeen: existingPresence?.lastSeen || prev?.lastSeen || null,
       }));
     }
   }, [activeHeaderPeer?.username, setUser]);
-  const lastSeenAt = peerPresence.lastSeen
-    ? parsePresenceDate(peerPresence.lastSeen)?.getTime() || null
-    : null;
-  const effectivePeerIdleThreshold = PRESENCE_IDLE_THRESHOLD_MS;
-  const isIdle =
-    lastSeenAt !== null && Date.now() - lastSeenAt > effectivePeerIdleThreshold;
   const peerStatusLabel = !activeHeaderPeer || activeHeaderPeer?.isDeleted
     ? "last seen recently"
-    : isIdle
-      ? String(peerPresence.rawStatus || peerPresence.status || "").toLowerCase() === "invisible"
-        ? "last seen recently"
-        : formatLastSeenLabel(peerPresence.lastSeen)
-      : peerPresence.status === "invisible" || peerPresence.status === "offline"
-        ? String(peerPresence.rawStatus || peerPresence.status || "").toLowerCase() === "invisible"
-          ? "last seen recently"
-          : formatLastSeenLabel(peerPresence.lastSeen)
-        : peerPresence.status === "online"
-          ? "online"
-          : formatLastSeenLabel(peerPresence.lastSeen);
+    : String(peerPresence.rawStatus || peerPresence.status || "").toLowerCase() === "invisible"
+      ? "last seen recently"
+      : peerPresence.status === "online"
+        ? "online"
+        : formatLastSeenLabel(peerPresence.lastSeen);
   const activeTypingUsers = useMemo(() => {
-    const chatId = Number(activeChatId || 0);
+    const chatId = String(activeChatId || "");
     if (!chatId) return [];
     const typingMap = typingByChat?.[chatId];
     if (!typingMap || typeof typingMap !== "object") return [];
@@ -2474,8 +2487,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       Array.from(
         new Set(
           messages
-            .map((msg) => Number(msg?.forwarded_from_chat_id || 0))
-            .filter((id) => Number.isFinite(id) && id > 0),
+            .map((msg) => String(msg?.forwarded_from_chat_id || "").trim())
+            .filter(Boolean),
         ),
       ),
     [messages],
@@ -2486,7 +2499,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         new Map(
           messages
             .map((msg) => {
-              const userId = Number(msg?.forwarded_from_user_id || 0) || null;
+              const userId = String(msg?.forwarded_from_user_id || "").trim() || null;
               const username = String(msg?.forwarded_from_username || "")
                 .trim()
                 .toLowerCase();
@@ -2504,13 +2517,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const forwardedChatsById = useMemo(() => {
     const next = {};
     chats.forEach((chat) => {
-      const chatId = Number(chat?.id || 0);
+      const chatId = String(chat?.id || "").trim();
       const chatType = String(chat?.type || "").toLowerCase();
       if (!chatId || (chatType !== "group" && chatType !== "channel")) return;
       next[chatId] = chat;
     });
     Object.entries(forwardedChatPreviewById).forEach(([rawId, entry]) => {
-      const chatId = Number(rawId || 0);
+      const chatId = String(rawId || "").trim();
       if (!chatId || next[chatId] || !entry || entry.status !== "ready" || !entry.chat) {
         return;
       }
@@ -2521,13 +2534,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const forwardedChatStatusById = useMemo(() => {
     const next = {};
     chats.forEach((chat) => {
-      const chatId = Number(chat?.id || 0);
+      const chatId = String(chat?.id || "").trim();
       const chatType = String(chat?.type || "").toLowerCase();
       if (!chatId || (chatType !== "group" && chatType !== "channel")) return;
       next[chatId] = "ready";
     });
     Object.entries(forwardedChatPreviewById).forEach(([rawId, entry]) => {
-      const chatId = Number(rawId || 0);
+      const chatId = String(rawId || "").trim();
       if (!chatId || !entry?.status) return;
       next[chatId] = entry.status;
     });
@@ -2535,9 +2548,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, [chats, forwardedChatPreviewById]);
   const forwardedUsersById = useMemo(() => {
     const next = {};
-    if (Number(user?.id || 0) > 0) {
-      next[Number(user.id)] = {
-        id: Number(user.id),
+    if (user?.id) {
+      next[user.id] = {
+        id: user.id,
         username: user.username || "",
         nickname: user.nickname || user.username || "",
         avatar_url: user.avatarUrl || "",
@@ -2547,7 +2560,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
     chats.forEach((chat) => {
       (Array.isArray(chat?.members) ? chat.members : []).forEach((member) => {
-        const memberId = Number(member?.id || 0);
+        const memberId = member?.id;
         if (!memberId) return;
         next[memberId] = {
           id: memberId,
@@ -2560,7 +2573,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       });
     });
     Object.values(forwardedUserPreviewByKey).forEach((entry) => {
-      const memberId = Number(entry?.profile?.id || 0);
+      const memberId = entry?.profile?.id;
       if (!memberId || !entry?.profile || entry.status !== "ready") return;
       next[memberId] = entry.profile;
     });
@@ -2630,7 +2643,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     });
   }, [forwardedUserPreviewByKey, forwardedUserRefs]);
   useEffect(() => {
-    const liveIds = new Set(Object.keys(forwardedChatsById).map((id) => Number(id)));
+    const liveIds = new Set(Object.keys(forwardedChatsById).map((id) => String(id)));
     const now = Date.now();
     forwardedChatIds.forEach((chatId) => {
       if (liveIds.has(chatId)) return;
@@ -2646,11 +2659,19 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           const res = await getChatPreview({
             chatId,
             username: user.username,
+            allowMissing: true,
           });
           const data = await res.json().catch(() => ({}));
+          if (data?.missing) {
+            setForwardedChatPreviewById((prev) => ({
+              ...prev,
+              [chatId]: { status: "missing" },
+            }));
+            return;
+          }
           if (res.ok) {
             const nextChat = {
-              id: Number(data?.id || chatId),
+              id: data?.id || chatId,
               type: data?.type || "group",
               name: data?.name || "Chat",
               group_username: data?.username || "",
@@ -2703,8 +2724,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       : null;
   const liveMentionProfileChat = mentionProfile
     ? chats.find((chat) => {
-        const mentionChatId = Number(mentionProfile.chatId || 0);
-        const chatId = Number(chat?.id || 0);
+        const mentionChatId = String(mentionProfile.chatId || "");
+        const chatId = String(chat?.id || "");
         if (mentionChatId && chatId === mentionChatId) return true;
         const mentionUsername = String(mentionProfile.username || "")
           .trim()
@@ -2723,7 +2744,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             liveMentionProfileChat?.type ||
             mentionProfile.kind,
           id:
-            Number(liveMentionProfileChat?.id || mentionProfile.chatId || 0) || null,
+            liveMentionProfileChat?.id || mentionProfile.chatId || null,
           name:
             liveMentionProfileChat?.name ||
             mentionProfile.name ||
@@ -2792,7 +2813,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     (isActiveGroupChat || isActiveChannelChat) &&
       activeMembers.some(
         (member) =>
-          Number(member.id) === Number(user?.id || 0) &&
+          String(member.id || "") === String(user?.id || "") &&
           String(member.role || "").toLowerCase() === "owner",
       ),
   );
@@ -2805,14 +2826,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const handleMarkChatSeen = useCallback(
     async (chat) => {
-      const chatId = Number(chat?.id || 0);
+      const chatId = String(chat?.id || "");
       if (!chatId) return;
       setChats((prev) =>
         prev.map((item) =>
-          Number(item.id) === chatId ? { ...item, unread_count: 0 } : item,
+          String(item.id) === chatId ? { ...item, unread_count: 0 } : item,
         ),
       );
-      if (Number(activeChatId || 0) === chatId) {
+      if (String(activeChatId || "") === chatId) {
         setUnreadInChat(0);
       }
       try {
@@ -2865,9 +2886,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }
 
   async function handleForwardMessageSubmit(targetChatIds = []) {
-    const sourceMessageId = Number(
-      forwardMessageTarget?._serverId || forwardMessageTarget?.id || 0,
-    );
+    const sourceMessageId = normalizeUuid(
+      forwardMessageTarget?._serverId || forwardMessageTarget?.id,
+    ) || null;
     if (!sourceMessageId || !user?.username || !activeChatId) return;
 
     const originalAuthorLabel = String(
@@ -2896,11 +2917,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         sourceMessageId,
         targetChatIds,
         body,
-        forwardedFromChatId: isActiveChannelChat ? Number(activeChatId) : null,
+        forwardedFromChatId: isActiveChannelChat ? activeChatId : null,
         forwardedFromLabel: originalForwardLabel,
         forwardedFromUserId: isActiveChannelChat
           ? null
-          : Number(capturedTarget?.user_id || 0) || Number(user?.id || 0) || null,
+          : normalizeUuid(capturedTarget?.user_id) || normalizeUuid(user?.id) || null,
         forwardedFromUsername: isActiveChannelChat
           ? ""
           : String(
@@ -2928,14 +2949,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }
 
   const requestLeaveGroupById = (chatId) => {
-    const id = Number(chatId || 0);
+    const id = String(chatId || "");
     if (!id) return;
     setPendingLeaveChatId(id);
     setConfirmLeaveOpen(true);
   };
 
   const confirmLeaveGroupById = async () => {
-    const id = Number(pendingLeaveChatId || 0);
+    const id = String(pendingLeaveChatId || "");
     if (!id) return;
     setConfirmLeaveOpen(false);
     setPendingLeaveChatId(null);
@@ -2950,7 +2971,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     try {
       const groupsToLeave = chats.filter(
         (chat) =>
-          idsToHide.includes(Number(chat.id)) &&
+          idsToHide.includes(chat.id) &&
           (chat.type === "group" || chat.type === "channel"),
       );
       await Promise.all(
@@ -3024,14 +3045,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           const normalizedUsername = String(data?.username || activeHeaderPeer.username || "")
             .toLowerCase();
           const normalizedLastSeen = String(data?.lastSeen || "").trim() || new Date().toISOString();
+          const rawStatus = String(data?.rawStatus || data?.status || "online").toLowerCase();
           presenceStateRef.current.set(normalizedUsername, {
-            status: String(data?.status || "online").toLowerCase(),
+            status: normalizeStatus(data?.status),
+            rawStatus,
             lastSeen: normalizedLastSeen,
           });
-          const status = resolveOnlineOffline(data?.status, normalizedLastSeen);
-          const rawStatus = String(data?.status || "online").toLowerCase();
           setPeerPresence({
-            status,
+            status: normalizeStatus(data?.status),
             rawStatus,
             lastSeen: normalizedLastSeen,
           });
@@ -3062,14 +3083,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
     setChats((prev) =>
       prev.map((chat) => {
-        if (Number(chat?.id) !== Number(activeChat?.id)) return chat;
+        if (String(chat?.id || "") !== String(activeChat?.id || "")) return chat;
         return {
           ...chat,
           members: (chat.members || []).map((member) => {
             const username = String(member?.username || "").toLowerCase();
             const snapshot = presenceStateRef.current.get(username);
             const nextStatus = snapshot
-              ? resolveOnlineOffline(snapshot.status, snapshot.lastSeen)
+              ? normalizeStatus(snapshot.status)
               : "offline";
             return { ...member, status: nextStatus };
           }),
@@ -3108,59 +3129,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     activeChat?.type,
     activeGroupMemberUsernamesKey,
   ]);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      // Only rebuild chats state if at least one member status actually changed.
-      setChats((prev) => {
-        let anyChanged = false;
-        const next = prev.map((chat) => {
-          if (!Array.isArray(chat?.members) || chat.members.length === 0) return chat;
-          let chatChanged = false;
-          const nextMembers = chat.members.map((member) => {
-            const username = String(member?.username || "").toLowerCase();
-            if (!username) return member;
-            const snapshot = presenceStateRef.current.get(username);
-            if (!snapshot) return member;
-            const nextStatus = resolveOnlineOffline(snapshot.status, snapshot.lastSeen);
-            if (String(member?.status || "").toLowerCase() === nextStatus) return member;
-            chatChanged = true;
-            return { ...member, status: nextStatus };
-          });
-          if (!chatChanged) return chat;
-          anyChanged = true;
-          return { ...chat, members: nextMembers };
-        });
-        return anyChanged ? next : prev;
-      });
-
-      if (activeHeaderPeer?.username) {
-        const snapshot = presenceStateRef.current.get(
-          String(activeHeaderPeer.username || "").toLowerCase(),
-        );
-        if (snapshot) {
-          const nextStatus = resolveOnlineOffline(snapshot.status, snapshot.lastSeen);
-          setPeerPresence((prev) => {
-            if (
-              String(prev?.status || "").toLowerCase() === nextStatus &&
-              String(prev?.rawStatus || "").toLowerCase() ===
-                String(snapshot.status || "").toLowerCase() &&
-              String(prev?.lastSeen || "") === String(snapshot.lastSeen || "")
-            ) {
-              return prev;
-            }
-            return {
-              status: nextStatus,
-              rawStatus: String(snapshot.status || nextStatus).toLowerCase(),
-              lastSeen: snapshot.lastSeen || null,
-            };
-          });
-        }
-      }
-    }, 1500);
-
-    return () => clearInterval(interval);
-  }, [activeHeaderPeer?.username]);
 
   useEffect(() => {
     if (!activeChatId) return;
@@ -3221,7 +3189,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (!pendingScrollToUnreadRef.current) return;
     if (!unreadMarkerIdRef.current) return;
     if (loadingMessages || messages.length === 0) return;
-    const unreadId = Number(unreadMarkerIdRef.current || 0);
+    const unreadId = String(unreadMarkerIdRef.current || "").trim();
     if (!unreadId) return;
     requestAnimationFrame(() => {
       // Set lock BEFORE scrolling so handleChatScroll sees it immediately.
@@ -3272,7 +3240,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   useEffect(() => {
     if (!activeChatId) return;
-    const chatId = Number(activeChatId);
+    const chatId = activeChatId;
     return () => {
       if (!chatId || !user || !canMarkReadInCurrentView) return;
       shouldAutoMarkReadRef.current = true;
@@ -3321,7 +3289,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
     setChats((prev) =>
       prev.map((chat) =>
-        Number(chat?.id) === Number(activeId)
+        chat?.id && activeId && String(chat.id).toLowerCase() === String(activeId).toLowerCase()
           ? { ...chat, unread_count: 0 }
           : chat,
       ),
@@ -3350,15 +3318,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   // It only repositions on the next open of the chat.
   const handleMessageSeen = useCallback(
     (messageId) => {
-      const id = Number(messageId);
+      const id = normalizeUuid(messageId) || null;
       if (!id || !activeChatIdRef.current || !user?.username) return;
       if (!canMarkReadInCurrentView) return;
 
       // Mark the message as read in local state immediately
       setMessages((prev) =>
         prev.map((msg) => {
-          const serverId = Number(msg?._serverId || msg?.id || 0);
-          if (serverId !== id) return msg;
+          const serverId = normalizeUuid(msg?._serverId || msg?.id) || null;
+          if (!serverId || serverId !== id) return msg;
           if (msg._readByMe) return msg;
           return { ...msg, _readByMe: true };
         }),
@@ -3367,7 +3335,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       // Decrement the sidebar unread badge by 1 (floor at 0)
       setChats((prev) =>
         prev.map((chat) => {
-          if (Number(chat?.id) !== Number(activeChatIdRef.current)) return chat;
+          if (!chat?.id || chat.id !== activeChatIdRef.current) return chat;
           const next = Math.max(0, Number(chat?.unread_count || 0) - 1);
           return { ...chat, unread_count: next };
         }),
@@ -3405,15 +3373,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const pruneDeletedMessagesFromCache = useCallback(
     (chatId, messageIds = []) => {
-      const numericChatId = Number(chatId || 0);
+      const normalizedChatId = normalizeUuid(chatId) || null;
       const deletedIds = Array.from(
         new Set(
           (Array.isArray(messageIds) ? messageIds : [])
-            .map((id) => Number(id))
-            .filter((id) => Number.isFinite(id) && id > 0),
+            .map((id) => normalizeUuid(id))
+            .filter(Boolean),
         ),
       );
-      if (!numericChatId || !deletedIds.length) return;
+      if (!normalizedChatId || !deletedIds.length) return;
       const deletedSet = new Set(deletedIds);
 
       const pruneCachePayload = (cached) => {
@@ -3421,8 +3389,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           return { changed: false, value: cached };
         }
         const nextMessages = cached.messages.filter((msg) => {
-          const serverId = Number(msg?._serverId || msg?.id || 0);
-          return !deletedSet.has(serverId);
+          const serverId = normalizeUuid(msg?._serverId || msg?.id) || null;
+          return !serverId || !deletedSet.has(serverId);
         });
         if (nextMessages.length === cached.messages.length) {
           return { changed: false, value: cached };
@@ -3433,8 +3401,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             ...cached,
             messages: nextMessages,
             lastMessageId: nextMessages.length
-              ? Number(nextMessages[nextMessages.length - 1]?.id || 0)
-              : 0,
+              ? (normalizeUuid(nextMessages[nextMessages.length - 1]?.id) || null)
+              : null,
             updatedAt: Date.now(),
           },
         };
@@ -3442,28 +3410,28 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
       const memoryCached = readMessagesCacheMemory(
         messagesCacheRef.current,
-        numericChatId,
+        normalizedChatId,
       );
       const nextMemory = pruneCachePayload(memoryCached);
       if (nextMemory.changed) {
         writeMessagesCacheMemory(
           messagesCacheRef.current,
-          numericChatId,
+          normalizedChatId,
           nextMemory.value,
           activeChatIdRef.current,
         );
       }
 
       if (!user?.username || !canUseIdb()) return;
-      const key = buildMessagesCacheKey(user.username, numericChatId);
+      const key = buildMessagesCacheKey(user.username, normalizedChatId);
       void (async () => {
-        const idbCached = await readMessagesCacheAsync(user.username, numericChatId);
+        const idbCached = await readMessagesCacheAsync(user.username, normalizedChatId);
         const nextIdb = pruneCachePayload(idbCached);
         if (!nextIdb.changed) return;
         await writeIdbCache(CACHE_STORES.messages, key, nextIdb.value);
         await updateMessagesIndex(
           user.username,
-          numericChatId,
+          normalizedChatId,
           Number(nextIdb.value?.updatedAt || Date.now()),
         );
       })();
@@ -3472,7 +3440,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   );
 
   async function performDeleteMessage(message, scope = "self") {
-    const messageId = Number(message?.id || message?._serverId || 0);
+    const messageId = normalizeUuid(message?.id || message?._serverId) || null;
     if (!activeChatId || !messageId || !user?.username) return;
     setMessageDeleteScopeOpen(false);
     setPendingDeleteMessage(null);
@@ -3482,9 +3450,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setMessages((prev) => {
       snapshotMessages = prev;
       return prev
-        .filter((msg) => Number(msg?._serverId || msg?.id || 0) !== messageId)
+        .filter((msg) => (normalizeUuid(msg?._serverId || msg?.id) || null) !== messageId)
         .map((msg) => {
-          const replyId = Number(msg?.replyTo?.id || 0);
+          const replyId = normalizeUuid(msg?.replyTo?.id) || null;
           if (!replyId || replyId !== messageId) return msg;
           return { ...msg, replyTo: null };
         });
@@ -3495,7 +3463,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
     try {
       const res = await deleteMessage({
-        chatId: Number(activeChatId),
+        chatId: activeChatId,
         username: user.username,
         messageId,
         scope,
@@ -3538,7 +3506,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     markMessagesRead,
     isMarkingReadRef,
     onIncomingMessage: (payload, meta = {}) => {
-      const payloadChatId = Number(payload?.chatId || 0);
+      const payloadChatId = String(payload?.chatId || "");
       const sender = String(payload?.username || "").trim().toLowerCase();
       if (payloadChatId && sender) {
         clearTypingExpiryTimer(payloadChatId, sender);
@@ -3546,6 +3514,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }
       if (typeof window === "undefined" || !("Notification" in window)) return;
       if (!notificationsActive) return;
+      const rawBody = normalizeMessageBody(meta?.body ?? payload?.body).trim();
+      if (/^\[\[system:/i.test(rawBody)) return;
       const senderName = String(payload?.username || "").trim();
       const isOwnEvent =
         senderName.toLowerCase() === String(user?.username || "").toLowerCase() &&
@@ -3554,13 +3524,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       const pageFocused =
         document.visibilityState === "visible" && document.hasFocus();
       if (pageFocused) return;
-      const chat = chats.find((conv) => Number(conv.id) === payloadChatId);
+      const chat = chats.find((conv) => String(conv.id) === payloadChatId);
       if (chat?._muted) return;
       let title = "New message";
       if (chat) {
         if (chat.type === "dm") {
           const other = (chat.members || []).find(
-            (member) => member.username !== user?.username,
+            (member) =>
+              String(member?.username || "").toLowerCase() !==
+              String(user?.username || "").toLowerCase(),
           );
           title = other?.nickname || other?.username || "Deleted account";
         } else if (chat.type === "group") {
@@ -3619,15 +3591,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       }
     },
     onMessageDeleted: (payload) => {
-      const payloadChatId = Number(payload?.chatId || 0);
+      const payloadChatId = String(payload?.chatId || "");
       const messageIds = Array.isArray(payload?.messageIds)
         ? payload.messageIds
         : [];
       pruneDeletedMessagesFromCache(payloadChatId, messageIds);
     },
     onChatRead: (payload) => {
-      const payloadChatId = Number(payload?.chatId || 0);
-      const currentActiveId = Number(activeChatIdRef.current || 0);
+      const payloadChatId = String(payload?.chatId || "");
+      const currentActiveId = String(activeChatIdRef.current || "");
       if (!payloadChatId || payloadChatId !== currentActiveId) return;
       if (!isActiveChannelChat) return;
       const visible = getVisibleChannelMessageIds();
@@ -3645,11 +3617,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       applyProfileUpdate(payload);
     },
     onTypingUpdate: (payload) => {
-      const payloadChatId = Number(payload?.chatId || 0);
+      const payloadChatId = String(payload?.chatId || "");
       const sender = String(payload?.username || "").toLowerCase();
       if (!payloadChatId || !sender) return;
       if (sender === String(user?.username || "").toLowerCase()) return;
-      const chat = chats.find((item) => Number(item?.id) === payloadChatId);
+      const chat = chats.find((item) => String(item?.id) === payloadChatId);
       if (String(chat?.type || "").toLowerCase() === "channel") {
         clearTypingExpiryTimer(payloadChatId, sender);
         removeTypingUser(payloadChatId, sender);
@@ -3665,7 +3637,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       scheduleTypingExpiry(payloadChatId, sender);
     },
     onChatListChanged: (payload) => {
-      const deletedChatId = Number(payload?.chatId || 0);
+      const deletedChatId = String(payload?.chatId || "");
       if (deletedChatId) {
         setTypingByChat((prev) => {
           if (!prev?.[deletedChatId]) return prev;
@@ -3687,11 +3659,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   useEffect(() => {
     if (!profileModalOpen || !mentionProfile || mentionProfile.kind === "user") return;
-    const chatId = Number(mentionProfile.chatId || 0);
+    const chatId = String(mentionProfile.chatId || "");
     if (!chatId) return;
     if (liveMentionProfileChat) {
       setMentionProfile((prev) => {
-        if (!prev || prev.kind === "user" || Number(prev.chatId || 0) !== chatId) {
+        if (!prev || prev.kind === "user" || String(prev.chatId || "") !== chatId) {
           return prev;
         }
         const nextKind = String(
@@ -3753,12 +3725,28 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         const res = await getChatPreview({
           chatId,
           username: user.username,
+          allowMissing: true,
         });
         const data = await res.json().catch(() => ({}));
         if (!isActive) return;
+        if (data?.missing) {
+          setMentionProfile((prev) => {
+            if (!prev || prev.kind === "user" || String(prev.chatId || "") !== chatId) {
+              return prev;
+            }
+            const visibility = String(prev.visibility || "private").toLowerCase();
+            const nextActionState = visibility === "public" ? "join" : "none";
+            return {
+              ...prev,
+              isMember: false,
+              _actionState: nextActionState,
+            };
+          });
+          return;
+        }
         if (res.ok) {
           setMentionProfile((prev) => {
-            if (!prev || prev.kind === "user" || Number(prev.chatId || 0) !== chatId) {
+            if (!prev || prev.kind === "user" || String(prev.chatId || "") !== chatId) {
               return prev;
             }
             const visibility = String(
@@ -3809,7 +3797,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         }
         if (res.status === 404) {
           setMentionProfile((prev) => {
-            if (!prev || prev.kind === "user" || Number(prev.chatId || 0) !== chatId) {
+            if (!prev || prev.kind === "user" || String(prev.chatId || "") !== chatId) {
               return prev;
             }
             const visibility = String(prev.visibility || "private").toLowerCase();
@@ -3843,33 +3831,57 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const uploadPendingMessageWithProgress = (pendingMessage, targetChatId) =>
     new Promise((resolve, reject) => {
-      const form = new FormData();
-      form.append("username", user.username);
-      form.append("chatId", String(targetChatId));
-      form.append("body", pendingMessage.body || "");
-      form.append("uploadType", pendingMessage._uploadType || "document");
-      form.append("clientRequestId", String(pendingMessage._clientId || ""));
-      if (pendingMessage.replyTo?.id) {
-        form.append("replyToMessageId", String(pendingMessage.replyTo.id));
-      }
-      if (pendingMessage._editMessageId) {
-        form.append("editMessageId", String(pendingMessage._editMessageId));
-      }
-      const fileMeta = [];
-      pendingMessage._files.forEach((item) => {
-        if (item?.file instanceof Blob) {
-          const filename = item.name || item.file.name || "upload.bin";
-          form.append("files", item.file, filename);
-          fileMeta.push({
-            width: Number.isFinite(Number(item.width)) ? Number(item.width) : null,
-            height: Number.isFinite(Number(item.height)) ? Number(item.height) : null,
-            durationSeconds: Number.isFinite(Number(item.durationSeconds))
-              ? Number(item.durationSeconds)
-              : null,
-          });
+      (async () => {
+        const form = new FormData();
+        form.append("username", user.username);
+        form.append("chatId", String(targetChatId));
+        form.append("body", pendingMessage.body || "");
+        form.append("uploadType", pendingMessage._uploadType || "document");
+        form.append("clientRequestId", String(pendingMessage._clientId || ""));
+        if (pendingMessage.replyTo?.id) {
+          form.append("replyToMessageId", String(pendingMessage.replyTo.id));
         }
-      });
-      form.append("fileMeta", JSON.stringify(fileMeta));
+        if (pendingMessage._editMessageId) {
+          form.append("editMessageId", String(pendingMessage._editMessageId));
+        }
+
+        const fileItems = (pendingMessage._files || []).filter(
+          (item) => item?.file instanceof Blob,
+        );
+
+        let prepResult = { presignedFiles: [], localFiles: [], fileMeta: [] };
+        try {
+          prepResult = await prepareFilesForMessage(fileItems, {
+            onProgress: (_idx, pct) => {
+              if (typeof setPendingUploadProgress === "function") {
+                setPendingUploadProgress(pendingMessage._clientId, pct, targetChatId);
+              }
+            },
+          });
+        } catch (err) {
+          console.warn("[uploadPendingMessageWithProgress] prepareFilesForMessage failed:", err);
+        }
+
+        const { presignedFiles = [] } = prepResult;
+        const usedRemote = presignedFiles.length > 0;
+
+        if (usedRemote) {
+          form.append("storageKeys", JSON.stringify(presignedFiles));
+        } else {
+          const fileMeta = [];
+          fileItems.forEach((item) => {
+            const filename = item.name || item.file.name || "upload.bin";
+            form.append("files", item.file, filename);
+            fileMeta.push({
+              width: Number.isFinite(Number(item.width)) ? Number(item.width) : null,
+              height: Number.isFinite(Number(item.height)) ? Number(item.height) : null,
+              durationSeconds: Number.isFinite(Number(item.durationSeconds))
+                ? Number(item.durationSeconds)
+                : null,
+            });
+          });
+          form.append("fileMeta", JSON.stringify(fileMeta));
+        }
 
       const xhr = new XMLHttpRequest();
       let settled = false;
@@ -3903,8 +3915,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           }
         })();
         if (xhr.status >= 200 && xhr.status < 300) {
-          const activeId = Number(activeChatIdRef.current || 0);
-          const resolvedTargetId = Number(targetChatId || 0);
+          const activeId = String(activeChatIdRef.current || "");
+          const resolvedTargetId = String(targetChatId || "");
           if (!resolvedTargetId || activeId === resolvedTargetId) {
             setActiveUploadProgress(100);
             scheduleActiveUploadProgressHide();
@@ -3940,7 +3952,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         );
       };
 
-      xhr.send(form);
+        xhr.send(form);
+      })().catch(reject);
     });
 
   const sendPendingMessage = async (pendingMessage) => {
@@ -3949,7 +3962,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
     const clientId = pendingMessage._clientId;
     const hasFiles = Array.isArray(pendingMessage._files) && pendingMessage._files.length > 0;
-    const isEditingExistingMessage = Number(pendingMessage?._editMessageId || 0) > 0;
+    const isEditingExistingMessage = Boolean(pendingMessage?._editMessageId);
     if (!clientId || sendingClientIdsRef.current.has(clientId)) return;
 
     const maxMessageChars = messageMaxChars;
@@ -3964,13 +3977,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
 
     sendingClientIdsRef.current.add(clientId);
-    const targetChatId = Number(pendingMessage._chatId || activeChatId);
+    const targetChatId = String(pendingMessage._chatId || activeChatId || "");
     let isTargetActive = false;
     try {
       if (!targetChatId) return;
-      isTargetActive = Number(activeChatIdRef.current) === Number(targetChatId);
+      isTargetActive = String(activeChatIdRef.current || "") === targetChatId;
       const chatType =
-        chats.find((chat) => Number(chat.id) === Number(targetChatId))?.type ||
+        chats.find((chat) => String(chat.id) === targetChatId)?.type ||
         activeChatTypeRef.current ||
         null;
       const isSavedChat = String(chatType || "").toLowerCase() === "saved";
@@ -4032,8 +4045,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           data?.created_at ||
           data?.createdAt ||
           new Date().toISOString(),
-        messageId: Number(data?.id || 0) || null,
+        messageId: data?.id || null,
       });
+
+      const serverId = data?.id || data?._serverId || null;
 
       if (isTargetActive) {
         setMessages((prev) => {
@@ -4042,10 +4057,21 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           const hasMediaVideo = files.some((file) =>
             String(file?.mimeType || "").toLowerCase().startsWith("video/"),
           );
-          const keepPendingUntilServerEcho = hasFiles && uploadType === "media" && hasMediaVideo;
-          const serverId = Number(data.id) || null;
-          const awaitingServerEcho = Boolean(serverId);
-          const index = prev.findIndex((msg) => msg?._clientId === clientId);
+          const responseFiles = Array.isArray(data?.files) && data.files.length > 0 ? data.files : null;
+          const isProcessingOnServer = responseFiles
+            ? responseFiles.some((f) => f.processing === true)
+            : true;
+          const keepPendingUntilServerEcho =
+            hasFiles && uploadType === "media" && hasMediaVideo && isProcessingOnServer;
+          const awaitingServerEcho = Boolean(keepPendingUntilServerEcho);
+          const calculatedExpiresAt = data?.expiresAt || null;
+          const index = prev.findIndex(
+            (msg) =>
+              (msg?._clientId && String(msg._clientId) === String(clientId)) ||
+              (msg?.client_request_id && String(msg.client_request_id) === String(clientId)) ||
+              (msg?.id && String(msg.id) === String(clientId)) ||
+              (serverId && String(msg?._serverId || msg?.id) === String(serverId)),
+          );
           if (index >= 0) {
             return prev.map((msg, msgIndex) =>
               msgIndex === index
@@ -4059,17 +4085,21 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                       keepPendingUntilServerEcho || Boolean(msg?._processingPending),
                     _awaitingServerEcho: awaitingServerEcho,
                     _uploadProgress: keepPendingUntilServerEcho ? 100 : null,
-                    expiresAt:
-                      hasFiles
-                        ? msg.expiresAt
-                        : data?.expiresAt || msg.expiresAt || null,
+                    expiresAt: calculatedExpiresAt || msg.expiresAt || null,
+                    files: responseFiles
+                      ? responseFiles
+                      : (msg.files || []).map((file) => ({
+                          ...file,
+                          expiresAt: calculatedExpiresAt || file?.expiresAt || file?.expires_at || null,
+                          expires_at: calculatedExpiresAt || file?.expiresAt || file?.expires_at || null,
+                        })),
                     read_at:
                       isSavedChat && !msg.read_at
                         ? msg.created_at || new Date().toISOString()
                         : msg.read_at,
                     read_by_user_id:
                       isSavedChat && !msg.read_by_user_id
-                        ? Number(user?.id || 0)
+                        ? user?.id || null
                         : msg.read_by_user_id,
                   }
                 : msg,
@@ -4079,22 +4109,24 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           const pendingDate = parseServerDate(createdAt);
           const pendingDayKey = `${pendingDate.getFullYear()}-${pendingDate.getMonth()}-${pendingDate.getDate()}`;
           const pendingBody = String(pendingMessage?.body || "").trim();
-          const messageFiles = files.map((file) => ({
+          const messageFiles = (responseFiles || files).map((file) => ({
             id: file.id,
             _localId: file._localId || file.id,
             kind: file.kind,
-            name: file.name,
-            mimeType: file.mimeType,
-            sizeBytes: file.sizeBytes,
-            width: Number.isFinite(Number(file.width)) ? Number(file.width) : null,
-            height: Number.isFinite(Number(file.height)) ? Number(file.height) : null,
-            durationSeconds: Number.isFinite(Number(file.durationSeconds))
-              ? Number(file.durationSeconds)
+            name: file.name || file.original_name || file.originalName || "",
+            mimeType: file.mimeType || file.mime_type || "",
+            sizeBytes: file.sizeBytes || file.size_bytes || 0,
+            width: Number.isFinite(Number(file.width ?? file.width_px)) ? Number(file.width ?? file.width_px) : null,
+            height: Number.isFinite(Number(file.height ?? file.height_px)) ? Number(file.height ?? file.height_px) : null,
+            durationSeconds: Number.isFinite(Number(file.durationSeconds ?? file.duration_seconds))
+              ? Number(file.durationSeconds ?? file.duration_seconds)
               : null,
+            expiresAt: file.expiresAt || file.expires_at || calculatedExpiresAt || null,
+            expires_at: file.expiresAt || file.expires_at || calculatedExpiresAt || null,
             url: file.url || null,
             processing:
               keepPendingUntilServerEcho &&
-              String(file?.mimeType || "").toLowerCase().startsWith("video/"),
+              String(file?.mimeType || file?.mime_type || "").toLowerCase().startsWith("video/"),
           }));
           return [
             ...prev,
@@ -4104,10 +4136,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               body: pendingBody,
               created_at: createdAt,
               read_at: isSavedChat ? createdAt : null,
-              read_by_user_id: isSavedChat ? Number(user?.id || 0) : null,
+              read_by_user_id: isSavedChat ? user?.id || null : null,
               _clientId: clientId,
               client_request_id: clientId,
-              _chatId: Number(targetChatId),
+              _chatId: targetChatId,
               _queuedAt: Number(pendingMessage?._queuedAt || Date.now()),
               _delivery: keepPendingUntilServerEcho ? "sending" : "sent",
               _dayKey: pendingDayKey,
@@ -4119,7 +4151,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               _awaitingServerEcho: awaitingServerEcho,
               _processingPending: keepPendingUntilServerEcho,
               _serverId: serverId,
-              expiresAt: hasFiles ? null : data?.expiresAt || null,
+              expiresAt: calculatedExpiresAt || null,
               replyTo: pendingMessage.replyTo || null,
               files: messageFiles,
             },
@@ -4133,8 +4165,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           const hasMediaVideo = files.some((file) =>
             String(file?.mimeType || "").toLowerCase().startsWith("video/"),
           );
+          const responseFiles = Array.isArray(data?.files) && data.files.length > 0 ? data.files : null;
+          const isProcessingOnServer = responseFiles
+            ? responseFiles.some((f) => f.processing === true)
+            : true;
           const keepPendingUntilServerEcho =
-            uploadType === "media" && hasMediaVideo;
+            uploadType === "media" && hasMediaVideo && isProcessingOnServer;
           if (!keepPendingUntilServerEcho) {
             if (activeUploadProgressHideTimerRef.current) {
               window.clearTimeout(activeUploadProgressHideTimerRef.current);
@@ -4148,6 +4184,18 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       // Keep optimistic row stable and let SSE/polling reconcile the final server row.
       // Avoid forcing a full sidebar refresh on every successful send.
     } catch (error) {
+      const isNetworkError =
+        (typeof navigator !== "undefined" && !navigator.onLine) ||
+        error instanceof TypeError ||
+        error?.name === "TypeError" ||
+        String(error?.message || "").includes("Failed to fetch") ||
+        String(error?.message || "").includes("NetworkError");
+
+      if (isNetworkError && !isEditingExistingMessage) {
+        // Keep message in _delivery: "sending" state so it flushes when online
+        return;
+      }
+
       if (
         !isEditingExistingMessage &&
         isAmbiguousSendStatus(error?._ambiguousSendStatus)
@@ -4223,16 +4271,21 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       (msg) =>
         msg._delivery === "sending" &&
         !msg._awaitingServerEcho &&
-        !Number(msg?._serverId || 0),
+        !msg?._serverId,
     );
     if (!hasPending) return;
     const interval = setInterval(() => {
+      const isOnline =
+        (typeof navigator === "undefined" || navigator.onLine !== false) &&
+        sseConnected;
+      if (!isOnline) return;
+
       setMessages((prev) => {
         const now = Date.now();
         let changed = false;
         const next = prev.map((msg) => {
           if (msg._delivery !== "sending") return msg;
-          if (msg._awaitingServerEcho || Number(msg?._serverId || 0) > 0) {
+          if (msg._awaitingServerEcho || msg?._serverId) {
             return msg;
           }
           const queuedAt = Number(msg._queuedAt || 0);
@@ -4251,7 +4304,36 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       });
     }, CHAT_PAGE_CONFIG.pendingStatusCheckIntervalMs);
     return () => clearInterval(interval);
-  }, [activeChatId, messages]);
+  }, [activeChatId, messages, sseConnected]);
+
+  useEffect(() => {
+    if (!activeChatId || !isAppActive) return;
+    const flushPending = () => {
+      const isOnline =
+        typeof navigator === "undefined" || navigator.onLine !== false;
+      if (!isOnline && !sseConnected) return;
+      const pending = messages.filter(
+        (msg) => msg._delivery === "sending" && !msg._awaitingServerEcho,
+      );
+      if (!pending.length) return;
+      pending.forEach((msg) => {
+        void sendPendingMessage(msg);
+      });
+    };
+
+    if (sseConnected) {
+      flushPending();
+    }
+
+    const handleOnline = () => {
+      flushPending();
+    };
+
+    window.addEventListener("online", handleOnline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [activeChatId, messages, sseConnected, isAppActive]);
 
   useEffect(() => {
     if (!activeChatId || !isAppActive) return;
@@ -4291,16 +4373,16 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   useEffect(() => {
     if (!activeChatId) return;
     const cachePayload = {
-      chatId: Number(activeChatId),
+      chatId: activeChatId,
       version: CHAT_CACHE_VERSION,
       messages,
       hasOlderMessages,
-      lastMessageId: messages.length ? Number(messages[messages.length - 1]?.id || 0) : 0,
+      lastMessageId: messages.length ? String(messages[messages.length - 1]?.id || "") : "",
       updatedAt: Date.now(),
     };
     writeMessagesCacheMemory(
       messagesCacheRef.current,
-      Number(activeChatId),
+      activeChatId,
       cachePayload,
       activeChatIdRef.current,
     );
@@ -4378,15 +4460,21 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (!res.ok) {
         throw new Error(data?.error || "Failed to load chats.");
       }
-      const list = (data.chats || []).map((conv) => ({
-        ...conv,
-        id: Number(conv.id),
-        last_message: normalizeMessageBody(conv.last_message),
-        members: (conv.members || []).map((member) => ({
-          ...member,
-          id: Number(member.id),
-        })),
-      }));
+      const list = (data.chats || []).flatMap((conv) => {
+        const chatId = normalizeUuid(conv.id);
+        // Req 6.6: discard responses with non-UUID (legacy integer) IDs
+        if (!chatId) return [];
+        return [{
+          ...conv,
+          id: chatId,
+          last_message: normalizeMessageBody(conv.last_message),
+          members: (conv.members || []).flatMap((member) => {
+            const memberId = normalizeUuid(member.id);
+            if (!memberId) return [];
+            return [{ ...member, id: memberId }];
+          }),
+        }];
+      });
       list.sort((a, b) => {
         const aTime = a.last_time ? parseServerDate(a.last_time).getTime() : 0;
         const bTime = b.last_time ? parseServerDate(b.last_time).getTime() : 0;
@@ -4400,7 +4488,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           return;
         }
         const peer = (chat.members || []).find(
-          (member) => member.username !== user.username,
+          (member) =>
+            String(member?.username || "").toLowerCase() !==
+            String(user?.username || "").toLowerCase(),
         );
         const peerKey = (peer?.username || "").toLowerCase();
         if (!peerKey) {
@@ -4412,10 +4502,18 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           dmByPeer.set(peerKey, chat);
           return;
         }
-        const existingLastMessageId = Number(existing.last_message_id || 0);
-        const nextLastMessageId = Number(chat.last_message_id || 0);
+        const existingLastMessageId = existing.last_message_id || null;
+        const nextLastMessageId = chat.last_message_id || null;
         if (nextLastMessageId !== existingLastMessageId) {
-          if (nextLastMessageId > existingLastMessageId) {
+          // With UUIDs we can't compare magnitudes; prefer the chat with the
+          // more recent last_time instead, falling back to keeping existing.
+          const existingTime2 = existing.last_time
+            ? parseServerDate(existing.last_time).getTime()
+            : 0;
+          const nextTime2 = chat.last_time
+            ? parseServerDate(chat.last_time).getTime()
+            : 0;
+          if (nextTime2 > existingTime2) {
             dmByPeer.set(peerKey, chat);
           }
           return;
@@ -4426,7 +4524,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         const nextTime = chat.last_time
           ? parseServerDate(chat.last_time).getTime()
           : 0;
-        if (nextTime > existingTime || (nextTime === existingTime && chat.id > existing.id)) {
+        if (nextTime > existingTime) {
           dmByPeer.set(peerKey, chat);
         }
       });
@@ -4441,7 +4539,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         merged
           .map((chat) => {
             const isActiveChat =
-              Number(activeChatIdRef.current || 0) === Number(chat?.id || 0);
+              activeChatIdRef.current && chat?.id &&
+              String(activeChatIdRef.current).toLowerCase() === String(chat.id).toLowerCase();
             const isReadableNow =
               canMarkReadInCurrentView &&
               typeof document !== "undefined" &&
@@ -4504,19 +4603,19 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                 ...chat,
                 _lastMessagePending: true,
                 last_message_read_at: null,
-                unread_count: resolveUnread(chat?.unread_count, prevChats.find((p) => Number(p.id) === Number(chat.id))),
+                unread_count: resolveUnread(chat?.unread_count, prevChats.find((p) => p.id === chat.id)),
                 _muted: muted,
               };
             }
             if (!hasProcessingVideo || !isFromOther) {
               return {
                 ...chat,
-                unread_count: resolveUnread(chat?.unread_count, prevChats.find((p) => Number(p.id) === Number(chat.id))),
+                unread_count: resolveUnread(chat?.unread_count, prevChats.find((p) => p.id === chat.id)),
                 _muted: muted,
               };
             }
             const previous = prevChats.find(
-              (existing) => Number(existing.id) === Number(chat.id),
+              (existing) => existing.id === chat.id,
             );
             if (!previous) {
               return {
@@ -4558,30 +4657,32 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         chatListPayload,
       );
 
-      const currentActiveChatId = Number(activeChatIdRef.current || 0);
-      if (currentActiveChatId > 0) {
+      const currentActiveChatId = activeChatIdRef.current || null;
+      if (currentActiveChatId) {
         const activeChatStillExists = normalizedPatched.some(
-          (item) => Number(item.id) === currentActiveChatId,
+          (item) => item.id === currentActiveChatId,
         );
         if (!activeChatStillExists) {
           closeChat();
         }
       }
 
-      const pendingOpenChatId = Number(
+      const pendingOpenChatIdRaw =
         typeof window !== "undefined"
           ? window.sessionStorage.getItem(OPEN_CHAT_ID_KEY)
-          : 0,
-      );
-      if (pendingOpenChatId > 0) {
+          : null;
+      const pendingOpenChatId = normalizeUuid(pendingOpenChatIdRaw) || pendingOpenChatIdRaw;
+      if (pendingOpenChatId) {
         const pendingChat = normalizedPatched.find(
-          (item) => Number(item.id) === pendingOpenChatId,
+          (item) => item.id === pendingOpenChatId,
         );
         if (pendingChat) {
           setActiveChatId(pendingOpenChatId);
           if (pendingChat.type === "dm") {
             const nextOther = (pendingChat.members || []).find(
-              (member) => member.username !== user.username,
+              (member) =>
+                String(member?.username || "").toLowerCase() !==
+                String(user?.username || "").toLowerCase(),
             );
             setActivePeer(nextOther || null);
           } else {
@@ -4733,16 +4834,23 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
     if (mimeType.startsWith("video/")) {
       return new Promise((resolve) => {
+        let objectUrl = null;
+        let resolved = false;
+        try {
+          objectUrl = URL.createObjectURL(file);
+        } catch {
+          return resolve({ width: null, height: null, durationSeconds: null });
+        }
+
         const video = document.createElement("video");
         video.preload = "metadata";
         video.muted = true;
         video.playsInline = true;
-        let reader = null;
-        let resolved = false;
 
         const resolveOnce = (metadata) => {
           if (resolved) return;
           resolved = true;
+          cleanup();
           resolve(metadata);
         };
 
@@ -4752,15 +4860,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           } catch {
             // no-op
           }
-          if ("srcObject" in video) {
-            video.srcObject = null;
-          }
           video.removeAttribute("src");
-          video.load();
-          if (reader?.readyState === FileReader.LOADING) {
-            reader.abort();
+          if (objectUrl) {
+            try {
+              URL.revokeObjectURL(objectUrl);
+            } catch {
+              // no-op
+            }
+            objectUrl = null;
           }
-          reader = null;
         };
 
         video.onloadedmetadata = () => {
@@ -4771,62 +4879,49 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               ? Number(video.duration)
               : null,
           });
-          cleanup();
         };
         video.onerror = () => {
           resolveOnce({ width: null, height: null, durationSeconds: null });
-          cleanup();
         };
 
-        try {
-          if ("srcObject" in video) {
-            video.srcObject = file;
-            return;
-          }
-          reader = new FileReader();
-          reader.onload = () => {
-            const dataUrl = typeof reader?.result === "string" ? reader.result : "";
-            if (!dataUrl) {
-              resolveOnce({ width: null, height: null, durationSeconds: null });
-              cleanup();
-              return;
-            }
-            video.src = dataUrl;
-          };
-          reader.onerror = () => {
-            resolveOnce({ width: null, height: null, durationSeconds: null });
-            cleanup();
-          };
-          reader.readAsDataURL(file);
-        } catch {
-          resolveOnce({ width: null, height: null, durationSeconds: null });
-          cleanup();
-        }
+        video.src = objectUrl;
       });
     }
     if (mimeType.startsWith("audio/")) {
       return new Promise((resolve) => {
+        let objectUrl = null;
+        let resolved = false;
+        try {
+          objectUrl = URL.createObjectURL(file);
+        } catch {
+          return resolve({ width: null, height: null, durationSeconds: null });
+        }
+
         const audio = document.createElement("audio");
         audio.preload = "metadata";
-        let reader = null;
-        let resolved = false;
 
         const resolveOnce = (metadata) => {
           if (resolved) return;
           resolved = true;
+          cleanup();
           resolve(metadata);
         };
 
         const cleanup = () => {
-          if ("srcObject" in audio) {
-            audio.srcObject = null;
+          try {
+            audio.pause();
+          } catch {
+            // no-op
           }
           audio.removeAttribute("src");
-          audio.load();
-          if (reader?.readyState === FileReader.LOADING) {
-            reader.abort();
+          if (objectUrl) {
+            try {
+              URL.revokeObjectURL(objectUrl);
+            } catch {
+              // no-op
+            }
+            objectUrl = null;
           }
-          reader = null;
         };
 
         audio.onloadedmetadata = () => {
@@ -4837,33 +4932,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               ? Number(audio.duration)
               : null,
           });
-          cleanup();
         };
         audio.onerror = () => {
           resolveOnce({ width: null, height: null, durationSeconds: null });
-          cleanup();
         };
 
-        try {
-          reader = new FileReader();
-          reader.onload = () => {
-            const dataUrl = typeof reader?.result === "string" ? reader.result : "";
-            if (!dataUrl) {
-              resolveOnce({ width: null, height: null, durationSeconds: null });
-              cleanup();
-              return;
-            }
-            audio.src = dataUrl;
-          };
-          reader.onerror = () => {
-            resolveOnce({ width: null, height: null, durationSeconds: null });
-            cleanup();
-          };
-          reader.readAsDataURL(file);
-        } catch {
-          resolveOnce({ width: null, height: null, durationSeconds: null });
-          cleanup();
-        }
+        audio.src = objectUrl;
       });
     }
     return Promise.resolve({ width: null, height: null, durationSeconds: null });
@@ -4977,7 +5051,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         setUploadError("");
       }
 
-      const chatId = Number(activeChatId || 0);
+      const chatId = activeChatId || "";
       const activeType = String(activeChatTypeRef.current || "").toLowerCase();
       if (!chatId || !canSendInActiveChat || activeType === "channel") {
         stopTypingIndicator(chatId);
@@ -5033,7 +5107,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     event.preventDefault();
     if (!activeChatId) return;
     stopTypingIndicator(activeChatId);
-    const isEditingMessage = Number(editTarget?.id || 0) > 0;
+    const isEditingMessage = Boolean(editTarget?.id);
     const shouldSnapToBottom = !(isEditingMessage && userScrolledUpRef.current);
     if (shouldSnapToBottom) {
       userScrolledUpRef.current = false;
@@ -5153,10 +5227,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       const pendingMessage = {
         _clientId: tempId,
         client_request_id: tempId,
-        _chatId: Number(activeChatId),
+        _chatId: activeChatId,
         _queuedAt: queuedAt,
         _delivery: "sending",
-        _editMessageId: isEditingMessage ? Number(editTarget.id) : null,
+        _editMessageId: isEditingMessage ? String(editTarget.id) : null,
         _uploadType: effectiveUploadType,
         _files: pendingFiles,
         _createdAt: createdAt,
@@ -5164,10 +5238,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         body: trimmedBody || (isEditingMessage ? String(editTarget?.body || "") : ""),
         replyTo: replyPayload,
         read_at: isSavedChat ? createdAt : null,
-        read_by_user_id: isSavedChat ? Number(user?.id || 0) : null,
+        read_by_user_id: isSavedChat ? user?.id || null : null,
       };
       updateOwnLatestChatPreview({
-        chatId: Number(activeChatId),
+        chatId: activeChatId,
         body: pendingMessage.body,
         files: pendingFiles,
         createdAt,
@@ -5186,10 +5260,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       const pendingMessage = {
         _clientId: tempId,
         client_request_id: tempId,
-        _chatId: Number(activeChatId),
+        _chatId: activeChatId,
         _queuedAt: queuedAt,
         _delivery: "sending",
-        _editMessageId: Number(editTarget.id),
+        _editMessageId: String(editTarget.id),
         _uploadType: effectiveUploadType,
         _files: pendingFiles,
         body: trimmedBody,
@@ -5208,10 +5282,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         body: trimmedBody,
         created_at: createdAt,
         read_at: isSavedChat ? createdAt : null,
-        read_by_user_id: isSavedChat ? Number(user?.id || 0) : null,
+        read_by_user_id: isSavedChat ? user?.id || null : null,
         _clientId: tempId,
         client_request_id: tempId,
-        _chatId: Number(activeChatId),
+        _chatId: activeChatId,
         _queuedAt: queuedAt,
         _delivery: "sending",
         _dayKey: pendingDayKey,
@@ -5243,7 +5317,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setReplyTarget(null);
 
     updateOwnLatestChatPreview({
-      chatId: Number(activeChatId),
+      chatId: activeChatId,
       body: trimmedBody,
       files: pendingFiles,
       createdAt,
@@ -5256,7 +5330,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const pendingMessage = {
       _clientId: tempId,
       client_request_id: tempId,
-      _chatId: Number(activeChatId),
+      _chatId: activeChatId,
       _queuedAt: queuedAt,
       _delivery: "sending",
       _uploadType: effectiveUploadType,
@@ -5289,7 +5363,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (!data?.id) {
         throw new Error("Server did not return a chat id.");
       }
-      setActiveChatId(Number(data.id));
+      setActiveChatId(data.id);
       setActivePeer(matched);
       setNewChatUsername("");
       setNewChatOpen(false);
@@ -5485,15 +5559,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setNewChatError("");
   };
   const toggleMuteChat = async (chatId) => {
-    const id = Number(chatId || 0);
+    const id = normalizeUuid(chatId) || null;
     if (!id) return;
-    const existing = chats.find((chat) => Number(chat.id) === id);
+    const existing = chats.find((chat) => chat.id === id);
     const previousMuted = Boolean(existing?._muted);
     const nextMuted = !previousMuted;
 
     setChats((prev) =>
       prev.map((chat) =>
-        Number(chat.id) === id ? { ...chat, _muted: nextMuted } : chat,
+        chat.id === id ? { ...chat, _muted: nextMuted } : chat,
       ),
     );
 
@@ -5509,13 +5583,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       const serverMuted = Boolean(data?.muted);
       setChats((prev) =>
         prev.map((chat) =>
-          Number(chat.id) === id ? { ...chat, _muted: serverMuted } : chat,
+          chat.id === id ? { ...chat, _muted: serverMuted } : chat,
         ),
       );
     } catch {
       setChats((prev) =>
         prev.map((chat) =>
-          Number(chat.id) === id ? { ...chat, _muted: previousMuted } : chat,
+          chat.id === id ? { ...chat, _muted: previousMuted } : chat,
         ),
       );
     }
@@ -5580,7 +5654,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const openOwnProfileModal = () => {
     setProfileModalMember({
-      id: Number(user?.id || 0) || null,
+      id: normalizeUuid(user?.id) || user?.id || null,
       username: user?.username || "",
       nickname: user?.nickname || "",
       avatar_url: user?.avatarUrl || "",
@@ -5600,7 +5674,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     // Clear cached remote channel status when switching to a different chat
     setProfileRemoteChannelStatus((prev) => {
       const prevChatId = prev?._chatId;
-      return prevChatId && Number(prevChatId) !== Number(activeChat.id) ? null : prev;
+      return prevChatId && prevChatId !== activeChat.id ? null : prev;
     });
     setProfileModalOpen(true);
     if (activeChat.type === "group" || activeChat.type === "channel") {
@@ -5629,7 +5703,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const openMemberProfileFromMessage = (msg) => {
     if (!msg) return;
     const selected = {
-      id: Number(msg.user_id || 0) || null,
+      id: msg.user_id || null,
       username: msg.username || "",
       nickname: msg.nickname || "",
       avatar_url: msg.avatar_url || "",
@@ -5670,7 +5744,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const handleOpenProfileChat = () => {
     if (mentionProfileChat?.id) {
-      setActiveChatId(Number(mentionProfileChat.id));
+      setActiveChatId(mentionProfileChat.id);
       setActivePeer(null);
       setMobileTab("chat");
       closeProfileModal();
@@ -5697,7 +5771,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   };
 
   const handleLeaveGroupById = async (chatId) => {
-    const id = Number(chatId || 0);
+    const id = normalizeUuid(chatId) || null;
     if (!id) return;
     try {
       const res = await leaveGroupChat(id, { username: user.username });
@@ -5706,7 +5780,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         throw new Error(data?.error || "Unable to leave group.");
       }
       closeProfileModal();
-      if (Number(activeChat?.id || 0) === id) {
+      if (String(activeChat?.id || "") === String(id || "")) {
         closeChat();
       }
       await loadChats();
@@ -5741,14 +5815,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       setShowSettings(false);
       setSettingsPanel(null);
       let savedChat = chats.find((chat) => chat.type === "saved");
-      let chatId = Number(savedChat?.id || 0);
+      let chatId = normalizeUuid(savedChat?.id) || null;
       if (!chatId) {
         const res = await getSavedMessagesChat(user.username);
         const data = await res.json();
         if (!res.ok) {
           throw new Error(data?.error || "Unable to open saved messages.");
         }
-        chatId = Number(data?.id || 0);
+        chatId = normalizeUuid(data?.id) || null;
         await loadChats({ silent: true });
       }
       if (!chatId) return;
@@ -6060,7 +6134,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (!res.ok) {
         throw new Error(data?.error || "Unable to create group.");
       }
-      const nextChatId = Number(data?.id || activeChat?.id || 0);
+      const nextChatId = normalizeUuid(data?.id) || normalizeUuid(activeChat?.id) || null;
       if (!nextChatId) {
         throw new Error("Server did not return a group id.");
       }
@@ -6130,14 +6204,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             String(chatMember?.username || "").toLowerCase() === targetUsername,
         );
       });
-      let nextChatId = Number(existingDm?.id || 0);
+      let nextChatId = normalizeUuid(existingDm?.id) || null;
       if (!nextChatId) {
         const res = await createDmChat({ from: user.username, to: targetUsername });
         const data = await res.json();
         if (!res.ok) {
           throw new Error(data?.error || "Unable to open direct chat.");
         }
-        nextChatId = Number(data?.id || 0);
+        nextChatId = normalizeUuid(data?.id) || null;
       }
 
       if (!nextChatId) {
@@ -6152,7 +6226,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       closeProfileModal();
       await loadChats({ silent: true });
 
-      const refreshedDm = chats.find((chat) => Number(chat.id) === nextChatId);
+      const refreshedDm = chats.find((chat) => chat.id === nextChatId);
       const nextPeer = (refreshedDm?.members || []).find(
         (chatMember) =>
           String(chatMember?.username || "").toLowerCase() === targetUsername,
@@ -6170,13 +6244,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }
 
   async function openDiscoverGroup(group) {
-    const chatId = Number(group?.id || 0);
+    const chatId = normalizeUuid(group?.id) || null;
     const invitePath = buildInvitePathForChat(group);
     const alreadyMember =
       group?.isMember === true ||
       group?.isMember === 1 ||
       String(group?.isMember || "").toLowerCase() === "true";
-    if (alreadyMember && chatId > 0) {
+    if (alreadyMember && chatId) {
       if (typeof window !== "undefined") {
         window.sessionStorage.setItem(OPEN_CHAT_ID_KEY, String(chatId));
       }
@@ -6216,6 +6290,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
   }
 
+  const isOffline =
+    !sseConnected ||
+    (typeof navigator !== "undefined" && navigator.onLine === false);
+
   const { contextMenu, closeContextMenu, openContextMenu } = useAppContextMenu({
     activeChatId,
     chats,
@@ -6235,13 +6313,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     onMarkChatSeen: handleMarkChatSeen,
     onToggleChatMute: toggleMuteChat,
     onDeleteChats: requestDeleteChats,
+    isOffline,
+    sseConnected,
   });
 
   useEffect(() => {
     if (!contextMenu) return;
     if (
       contextMenu.kind === "message" &&
-      Number(contextMenu.targetChatId || 0) !== Number(activeChatId || 0)
+      String(contextMenu.targetChatId || "") !== String(activeChatId || "")
     ) {
       closeContextMenu();
       return;
@@ -6298,7 +6378,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (!activeChatId || loadingMessages || loadingOlderMessages || !hasOlderMessages) return;
     if (!allowStartReachedRef.current) return;
     const oldestMessage = messages[0];
-    const oldestId = Number(oldestMessage?.id || 0);
+    const oldestId = oldestMessage?.id || null;
     const oldestCreatedAt = oldestMessage?.created_at || "";
     if (!oldestId || !oldestCreatedAt) return;
     const scroller = chatScrollRef.current;
@@ -6556,10 +6636,28 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         displayInitials={displayInitials}
         onOpenWhatsNew={handleOpenWhatsNew}
         adminPanelEnabled={adminPanelEnabled}
+        permissionsPrompt={{
+          show: showPermissionsPrompt,
+          mode: activePermissionPrompt,
+          notification: {
+            show: shouldPromptNotifications,
+            status: notificationPermission,
+            onRequest: requestNotificationsPermission,
+          },
+          microphone: {
+            show: shouldPromptMicrophone,
+            status: microphonePermission,
+            onRequest: requestMicrophonePermission,
+          },
+          onDismiss: (mode) =>
+            dismissPermissionsPrompt(mode || activePermissionPrompt),
+        }}
       />
 
       <ChatWindowPanel
         mobileTab={mobileTab}
+        isOffline={isOffline}
+        sseConnected={sseConnected}
         activeChatId={activeChatId}
         activeChat={activeChat}
         closeChat={closeChat}
@@ -6641,22 +6739,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         microphonePermissionStatus={microphonePermission}
         onRequestMicrophonePermission={requestMicrophonePermission}
         registerMessageRef={registerMessageRef}
-        permissionsPrompt={{
-          show: showPermissionsPrompt,
-          mode: activePermissionPrompt,
-          notification: {
-            show: shouldPromptNotifications,
-            status: notificationPermission,
-            onRequest: requestNotificationsPermission,
-          },
-          microphone: {
-            show: shouldPromptMicrophone,
-            status: microphonePermission,
-            onRequest: requestMicrophonePermission,
-          },
-          onDismiss: (mode) =>
-            dismissPermissionsPrompt(mode || activePermissionPrompt),
-        }}
         showFloatingLabel={showFloatingLabel}
       />
 
@@ -6712,6 +6794,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             allowDeleteForEveryone={canDeleteMessageForEveryone(
               pendingDeleteMessage,
             )}
+            isOffline={isOffline}
+            sseConnected={sseConnected}
             onClose={() => {
               setMessageDeleteScopeOpen(false);
               setPendingDeleteMessage(null);
@@ -6753,10 +6837,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             }}
             onConfirm={confirmLeaveGroupById}
             isChannel={(() => {
-              const leaveId = Number(pendingLeaveChatId || 0);
+              const leaveId = String(pendingLeaveChatId || "");
               if (!leaveId) return false;
               return chats.some(
-                (chat) => Number(chat.id) === leaveId && chat.type === "channel",
+                (chat) => String(chat.id) === leaveId && chat.type === "channel",
               );
             })()}
           />
@@ -6869,7 +6953,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             membersBatchSize={CHAT_PAGE_CONFIG.newChatSearchMaxResults}
             remoteChannelAvailable={Boolean(
               appInfo?.remoteChannels?.enabled &&
-                !(mentionProfileChat && Number(mentionProfileChat.id) !== Number(activeChat?.id))
+                !(mentionProfileChat && String(mentionProfileChat.id || "") !== String(activeChat?.id || ""))
             )}
             onClose={closeProfileModal}
             onOpenChat={handleOpenProfileChat}
@@ -6882,7 +6966,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             onOpenMember={openMemberProfileFromList}
             onRemoveMember={handleRemoveGroupMember}
             onOpenUserContextMenu={openContextMenu}
-            onEditGroup={mentionProfileChat && Number(mentionProfileChat.id) !== Number(activeChat?.id) ? undefined : openEditGroupFromProfile}
+            onEditGroup={mentionProfileChat && String(mentionProfileChat.id || "") !== String(activeChat?.id || "") ? undefined : openEditGroupFromProfile}
             onEditSelfProfile={openSelfProfileEditor}
           />
         </Suspense>

@@ -51,7 +51,8 @@ describe("isRemoteChannelMessage", () => {
 });
 
 describe("isMessageAuthoredByUser", () => {
-  const message = { username: "alice", user_id: 1 };
+  const ALICE_ID = "11111111-1111-4111-a111-111111111111";
+  const message = { username: "alice", user_id: ALICE_ID };
 
   test("returns true when message username matches user string", () => {
     expect(isMessageAuthoredByUser(message, "alice")).toBe(true);
@@ -67,13 +68,13 @@ describe("isMessageAuthoredByUser", () => {
   });
 
   test("returns true when user object username matches message username", () => {
-    expect(isMessageAuthoredByUser(message, { username: "alice", id: 1 })).toBe(
+    expect(isMessageAuthoredByUser(message, { username: "alice", id: ALICE_ID })).toBe(
       true,
     );
   });
 
   test("returns false when user object username does not match", () => {
-    expect(isMessageAuthoredByUser(message, { username: "bob", id: 1 })).toBe(
+    expect(isMessageAuthoredByUser(message, { username: "bob", id: ALICE_ID })).toBe(
       false,
     );
   });

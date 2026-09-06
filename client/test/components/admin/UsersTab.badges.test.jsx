@@ -160,4 +160,21 @@ describe("UsersTab badge rendering", () => {
       await expect.element(page.getByLabelText("Server Owner")).not.toBeInTheDocument();
     });
   });
+
+  describe("banned badge", () => {
+    test("does not render stray zero when banned=0 (integer from DB)", async () => {
+      vi.stubGlobal("fetch", mockFetch([makeApiUser({ banned: 0 })]));
+      render(<UsersTab currentUser={CURRENT_USER} active={true} />);
+      await expect.element(page.getByText("Bob").first()).toBeInTheDocument();
+      await expect.element(page.getByText("banned")).not.toBeInTheDocument();
+      await expect.element(page.getByText(/^0$/)).not.toBeInTheDocument();
+    });
+
+    test("renders banned badge when banned=1 or true", async () => {
+      vi.stubGlobal("fetch", mockFetch([makeApiUser({ banned: 1 })]));
+      render(<UsersTab currentUser={CURRENT_USER} active={true} />);
+      await expect.element(page.getByText("Bob").first()).toBeInTheDocument();
+      await expect.element(page.getByText("banned").first()).toBeInTheDocument();
+    });
+  });
 });

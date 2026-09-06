@@ -1,4 +1,11 @@
 import rateLimit from "express-rate-limit";
+import { validateUuidParams, validateUuidBody } from "../lib/uuidMiddleware.js";
+import { createMessagePublicationService } from "../lib/services/messagePublicationService.js";
+import { dispatchMediaWorkerJob } from "../lib/mediaWorker.js";
+import { resolveWebhookCallbackUrl } from "../lib/webhookUrl.js";
+import { markEncryptedFileRecord } from "../lib/storageEncryption.js";
+import { resolveThumbUrl as sharedResolveThumbUrl } from "../lib/thumbUrl.js";
+import { readEnvBool } from "../settings/env.js";
 
 function registerMessageRoutes(app, deps) {
   const {
@@ -47,6 +54,7 @@ function registerMessageRoutes(app, deps) {
     path,
     probeVideoMetadata,
     removeUploadedFiles,
+    removePendingPresignedUploads,
     requireSession,
     requireSessionUsernameMatch,
     sanitizeDurationSeconds,
@@ -62,6 +70,60 @@ function registerMessageRoutes(app, deps) {
     markMessageRead,
   } = deps;
 
+  const safeBasename = (p) => {
+    if (path && typeof path.basename === "function") return path.basename(p);
+    return String(p || "").split("/").pop().split("\\").pop();
+  };
+  const safeInferMime =
+    typeof inferMimeFromFilename === "function"
+      ? inferMimeFromFilename
+      : () => null;
+  const safeDecodeFilename =
+    typeof decodeOriginalFilename === "function"
+      ? decodeOriginalFilename
+      : (n) => n;
+  const safeIsDangerousUploadFile =
+    typeof isDangerousUploadFile === "function"
+      ? isDangerousUploadFile
+      : () => false;
+  const safeGetUploadKind =
+    typeof getUploadKind === "function"
+      ? getUploadKind
+      : (_uploadType, mimeType) => {
+          const m = String(mimeType || "").toLowerCase();
+          if (m.startsWith("image/")) return "image";
+          if (m.startsWith("video/")) return "video";
+          if (m.startsWith("audio/")) return "audio";
+          return "document";
+        };
+  const safeSanitizePositiveInt =
+    typeof sanitizePositiveInt === "function"
+      ? sanitizePositiveInt
+      : (val) => {
+          const num = Number(val);
+          return Number.isFinite(num) && num > 0 ? Math.round(num) : null;
+        };
+  const safeSanitizeDurationSeconds =
+    typeof sanitizeDurationSeconds === "function"
+      ? sanitizeDurationSeconds
+      : (val) => {
+          const num = Number(val);
+          return Number.isFinite(num) && num >= 0 ? num : null;
+        };
+
+  const messagePubService = createMessagePublicationService({
+    createOrReuseMessage,
+    createMessageFiles,
+    editMessage,
+    findChatById,
+    findMessageById,
+    listChatMembers,
+    listMutedUserIdsForChat,
+    markMessageRead,
+    setMessageExpiresAt,
+    setMessageForwardOrigin,
+  });
+
   const computeTextExpiryIso = (createdAt) => {
     const textRetentionDays = Number(getSetting("MESSAGE_TEXT_RETENTION") || 0);
     if (textRetentionDays <= 0) return null;
@@ -73,11 +135,13 @@ function registerMessageRoutes(app, deps) {
     ).toISOString();
   };
 
-  const canUserPostInChat = (chatId, userId, chat = null) => {
-    const resolvedChat = chat || findChatById(Number(chatId));
+  const canUserPostInChat = async (chatId, userId, chat = null) => {
+    const rawChat = chat || findChatById(chatId);
+    const resolvedChat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
     if (!resolvedChat) return false;
     if (resolvedChat.type !== "channel") return true;
-    const role = String(getChatMemberRole(Number(chatId), Number(userId))).toLowerCase();
+    const rawRole = getChatMemberRole(chatId, userId);
+    const role = String(rawRole && typeof rawRole.then === "function" ? await rawRole : rawRole).toLowerCase();
     return role === "owner";
   };
 
@@ -108,7 +172,7 @@ function registerMessageRoutes(app, deps) {
     );
 
   const isMessageAuthoredByUser = (message, userId) =>
-    Number(message?.user_id || 0) === Number(userId) &&
+    String(message?.user_id || "") === String(userId) &&
     !isRemoteChannelMessage(message);
 
   const normalizeForwardOriginAvatarUrl = (userId, avatarUrl) => {
@@ -116,14 +180,14 @@ function registerMessageRoutes(app, deps) {
     return String(normalized || "").trim() || null;
   };
 
-  const deriveForwardOrigin = (sourceMessage, sourceChat) => {
+  const deriveForwardOrigin = async (sourceMessage, sourceChat) => {
     if (String(sourceChat?.type || "").toLowerCase() === "channel") {
       const label =
         String(sourceChat?.name || "").trim() ||
         String(sourceChat?.group_username || "").trim() ||
         "Channel";
       return {
-        sourceChatId: Number(sourceChat?.id || 0) || null,
+        sourceChatId: sourceChat?.id || null,
         label,
         sourceUserId: null,
         sourceUsername: null,
@@ -132,8 +196,11 @@ function registerMessageRoutes(app, deps) {
       };
     }
 
-    const sourceUser = findUserById(Number(sourceMessage?.user_id || 0));
-    const sourceUserId = Number(sourceUser?.id || sourceMessage?.user_id || 0) || null;
+    const sourceUserRaw = findUserById(sourceMessage?.user_id);
+    const sourceUser = sourceUserRaw && typeof sourceUserRaw.then === "function"
+      ? await sourceUserRaw
+      : sourceUserRaw;
+    const sourceUserId = sourceUser?.id || sourceMessage?.user_id || null;
     const sourceUsername = String(sourceUser?.username || "").trim() || null;
     const label =
       String(sourceUser?.nickname || "").trim() ||
@@ -152,12 +219,15 @@ function registerMessageRoutes(app, deps) {
     };
   };
 
-  const reuseMessageFilesForForward = (sourceMessageId, targetMessageId) => {
-    const sourceFiles = listMessageFilesByMessageIds([Number(sourceMessageId)]);
-    if (!sourceFiles.length) return [];
+  const reuseMessageFilesForForward = async (sourceMessageId, targetMessageId) => {
+    const rawSourceFiles = listMessageFilesByMessageIds([sourceMessageId]);
+    const sourceFiles = rawSourceFiles && typeof rawSourceFiles.then === "function"
+      ? await rawSourceFiles
+      : rawSourceFiles;
+    if (!sourceFiles?.length) return [];
 
     const reusedFiles = sourceFiles.flatMap((file) => {
-      const storedName = path.basename(String(file?.stored_name || "").trim());
+      const storedName = safeBasename(String(file?.stored_name || "").trim());
       if (!storedName) return [];
       const sourcePath = path.join(uploadRootDir, storedName);
       if (!fs.existsSync(sourcePath)) return [];
@@ -180,21 +250,24 @@ function registerMessageRoutes(app, deps) {
     });
 
     if (reusedFiles.length) {
-      createMessageFiles(Number(targetMessageId), reusedFiles);
+      const rawCreatedFiles = createMessageFiles(targetMessageId, reusedFiles);
+      if (rawCreatedFiles && typeof rawCreatedFiles.then === "function") {
+        await rawCreatedFiles;
+      }
     }
 
     return reusedFiles;
   };
 
   app.get("/api/messages", async (req, res) => {
-    const session = requireSession(req, res);
+    const session = await requireSession(req, res);
     if (!session) return;
 
-    const chatId = Number(req.query.chatId);
+    const chatId = req.query.chatId?.toString() || "";
     const username = req.query.username?.toString();
-    const beforeId = Number(req.query.beforeId || 0);
+    const beforeId = req.query.beforeId?.toString() || "";
     const beforeCreatedAt = req.query.beforeCreatedAt?.toString() || "";
-    const afterId = Number(req.query.afterId || 0);
+    const afterId = req.query.afterId?.toString() || "";
     const afterCreatedAt = req.query.afterCreatedAt?.toString() || "";
     const limitRaw = Number(req.query.limit || 50);
     const limit = Number.isFinite(limitRaw)
@@ -206,23 +279,27 @@ function registerMessageRoutes(app, deps) {
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
-    const user = findUserByUsername(username.toLowerCase());
+    const rawUser = findUserByUsername(username.toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    if (!isMember(chatId, user.id)) {
+    const rawIsMember = isMember(chatId, user.id);
+    const memberCheck = rawIsMember && typeof rawIsMember.then === "function" ? await rawIsMember : rawIsMember;
+    if (!memberCheck) {
       return res.status(403).json({ error: "Not a member of this chat." });
     }
 
-    let { messages, hasMore } = getMessages(chatId, {
-      beforeId: beforeId > 0 ? beforeId : null,
+    const rawMsgData = getMessages(chatId, {
+      beforeId: beforeId || null,
       beforeCreatedAt: beforeCreatedAt || null,
-      afterId: afterId > 0 ? afterId : null,
+      afterId: afterId || null,
       afterCreatedAt: afterCreatedAt || null,
       limit,
       viewerUserId: user.id,
     });
+    let { messages, hasMore } = (rawMsgData && typeof rawMsgData.then === "function" ? await rawMsgData : rawMsgData) || { messages: [], hasMore: false };
 
     // Run the missing-file cleanup in the background so it doesn't block the
     // response. If files are found missing the next fetch will reflect the
@@ -230,13 +307,13 @@ function registerMessageRoutes(app, deps) {
     setImmediate(() => {
       try {
         const cleanup = cleanupMissingMessageFiles(
-          messages.map((message) => Number(message.id)).filter(Boolean),
+          messages.map((message) => message.id).filter(Boolean),
         );
         if (cleanup.changed && cleanup.deletedByChat?.size) {
           cleanup.deletedByChat.forEach((messageIds, deletedChatId) => {
-            emitChatEvent(Number(deletedChatId), {
+            emitChatEvent(deletedChatId, {
               type: "chat_message_deleted",
-              chatId: Number(deletedChatId),
+              chatId: deletedChatId,
               messageIds,
             });
           });
@@ -250,9 +327,9 @@ function registerMessageRoutes(app, deps) {
       ...message,
       avatar_url: ensureAvatarExists(message.user_id, message.avatar_url),
       replyTo:
-        Number(message?.reply_id || 0) > 0
+        message?.reply_id
           ? {
-              id: Number(message.reply_id),
+              id: message.reply_id,
               body: message.reply_body || "",
               created_at: message.reply_created_at || null,
               username: message.reply_username || "",
@@ -269,23 +346,47 @@ function registerMessageRoutes(app, deps) {
     }));
 
     const messageIds = normalizedMessages
-      .map((message) => Number(message.id))
+      .map((message) => message.id)
       .filter(Boolean);
-    const readRows = getMessageReadByUser(messageIds, user.id);
+    const rawReadRows = getMessageReadByUser(messageIds, user.id);
+    const readRows = (rawReadRows && typeof rawReadRows.then === "function" ? await rawReadRows : rawReadRows) || [];
     const readByMe = new Set(
-      readRows.map((row) => Number(row?.message_id || 0)).filter(Boolean),
+      readRows.map((row) => row?.message_id).filter(Boolean),
     );
-    const files = await hydrateMissingVideoMetadata(
-      listMessageFilesByMessageIds(messageIds),
-    );
+    const rawFiles = listMessageFilesByMessageIds(messageIds);
+    const resolvedFiles = (rawFiles && typeof rawFiles.then === "function" ? await rawFiles : rawFiles) || [];
+    const files = await hydrateMissingVideoMetadata(resolvedFiles);
 
-    const filesByMessageId = files.reduce((acc, file) => {
-      const messageId = Number(file.message_id);
+    const filesByMessageId = {};
+    for (const file of files) {
+      const messageId = file.message_id;
+      if (!filesByMessageId[messageId]) filesByMessageId[messageId] = [];
 
-      if (!acc[messageId]) acc[messageId] = [];
+      let fileUrl = `/api/uploads/messages/${file.stored_name}`;
+      let thumbUrl = null;
+      const driver = file.storage_driver;
+      const storageKey = file.storage_key;
+      const thumbKey = file.thumb_storage_key || file.thumbStorageKey;
+      thumbUrl = await resolveThumbUrl({
+        storageProvider: deps.storageProvider,
+        file,
+        thumbKey,
+        fileId: file.id,
+      });
+      if (
+        (driver === "remote" || driver === "s3") &&
+        deps.storageProvider &&
+        typeof deps.storageProvider.getDownloadUrl === "function"
+      ) {
+        if (storageKey) {
+          try {
+            fileUrl = await deps.storageProvider.getDownloadUrl(storageKey);
+          } catch (_) {}
+        }
+      }
 
-      acc[messageId].push({
-        id: Number(file.id),
+      filesByMessageId[messageId].push({
+        id: file.id,
         kind: file.kind,
         name: file.original_name,
         mimeType: file.mime_type,
@@ -301,11 +402,11 @@ function registerMessageRoutes(app, deps) {
           ? Number(file.duration_seconds)
           : null,
         expiresAt: file.expires_at || null,
-        url: `/api/uploads/messages/${file.stored_name}`,
+        thumbStorageKey: thumbKey || null,
+        thumbUrl: thumbUrl || null,
+        url: fileUrl,
       });
-
-      return acc;
-    }, {});
+    }
 
     const enriched = normalizedMessages
       .map((message) => ({
@@ -313,8 +414,8 @@ function registerMessageRoutes(app, deps) {
         clientRequestId: message.client_request_id || null,
         read_by_me:
           isMessageAuthoredByUser(message, user.id) ||
-          readByMe.has(Number(message.id)),
-        files: filesByMessageId[Number(message.id)] || [],
+          readByMe.has(message.id),
+        files: filesByMessageId[message.id] || [],
         expiresAt: null,
       }))
       .map((message) => ({
@@ -346,8 +447,8 @@ function registerMessageRoutes(app, deps) {
 
         files.forEach((file) => {
           processingRows.push({
-            messageId: Number(message?.id || 0),
-            fileId: Number(file?.id || 0),
+            messageId: message?.id || null,
+            fileId: file?.id || null,
             mimeType: String(file?.mimeType || ""),
             url: String(file?.url || ""),
             processing: Boolean(file?.processing),
@@ -362,11 +463,13 @@ function registerMessageRoutes(app, deps) {
       });
     }
 
-    const chat = findChatById(chatId);
+    const rawChat = findChatById(chatId);
+    const chat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
     if (chat?.type === "channel" && messageIds.length) {
-      const countRows = getMessageReadCounts(messageIds);
+      const rawCountRows = getMessageReadCounts(messageIds);
+      const countRows = (rawCountRows && typeof rawCountRows.then === "function" ? await rawCountRows : rawCountRows) || [];
       const counts = countRows.reduce((acc, row) => {
-        const id = Number(row?.message_id || 0);
+        const id = row?.message_id;
         if (!id) return acc;
         acc[id] = Number(row?.count || 0);
         return acc;
@@ -375,7 +478,7 @@ function registerMessageRoutes(app, deps) {
       // For regular messages (not remote), add +1 for the author
       // For remote messages, don't add the author count (starts at 0)
       enriched.forEach((msg) => {
-        const id = Number(msg?.id || 0);
+        const id = msg?.id;
         if (!id) return;
         const isRemote = isRemoteChannelMessage(msg);
         if (!isRemote) {
@@ -384,7 +487,7 @@ function registerMessageRoutes(app, deps) {
       });
       
       enriched.forEach((msg) => {
-        const id = Number(msg?.id || 0);
+        const id = msg?.id;
         if (!id) return;
         // Remote messages start at 0 views, regular messages start at 1
         const isRemote = isRemoteChannelMessage(msg);
@@ -404,11 +507,11 @@ function registerMessageRoutes(app, deps) {
     res.json({ chatId, messages: enriched, hasMore });
   });
 
-  app.get("/api/messages/first-unread", (req, res) => {
-    const session = requireSession(req, res);
+  app.get("/api/messages/first-unread", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
-    const chatId = Number(req.query.chatId);
+    const chatId = req.query.chatId?.toString() || "";
     const username = req.query.username?.toString();
 
     if (!chatId || !username) {
@@ -416,21 +519,25 @@ function registerMessageRoutes(app, deps) {
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
-    const user = findUserByUsername(username.toLowerCase());
+    const rawUser = findUserByUsername(username.toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    if (!isMember(chatId, user.id)) {
+    const rawIsMem = isMember(chatId, user.id);
+    const memberCheck = rawIsMem && typeof rawIsMem.then === "function" ? await rawIsMem : rawIsMem;
+    if (!memberCheck) {
       return res.status(403).json({ error: "Not a member of this chat." });
     }
 
-    const firstUnread = getFirstUnreadMessage(chatId, user.id);
+    const rawFirstUnread = getFirstUnreadMessage(chatId, user.id);
+    const firstUnread = rawFirstUnread && typeof rawFirstUnread.then === "function" ? await rawFirstUnread : rawFirstUnread;
     res.json({ firstUnread: firstUnread || null });
   });
 
-  app.post("/api/messages/read", (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/messages/read", validateUuidBody([{ field: "chatId", required: true }]), async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const { chatId, username } = req.body || {};
@@ -440,28 +547,32 @@ function registerMessageRoutes(app, deps) {
 
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
-    const user = findUserByUsername(username.toLowerCase());
+    const rawUser = findUserByUsername(username.toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    if (!isMember(Number(chatId), user.id)) {
+    const rawIsMem = isMember(chatId, user.id);
+    const memberCheck = rawIsMem && typeof rawIsMem.then === "function" ? await rawIsMem : rawIsMem;
+    if (!memberCheck) {
       return res.status(403).json({ error: "Not a member of this chat." });
     }
 
-    markMessagesRead(Number(chatId), user.id);
+    const m = markMessagesRead(chatId, user.id);
+    if (m && typeof m.then === "function") await m;
 
-    emitChatEvent(Number(chatId), {
+    emitChatEvent(chatId, {
       type: "chat_read",
-      chatId: Number(chatId),
+      chatId,
       username: user.username,
     });
 
     res.json({ ok: true });
   });
 
-  app.post("/api/messages/read-one", (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/messages/read-one", validateUuidBody([{ field: "chatId", required: true }, { field: "messageId", required: true }]), async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const { chatId, username, messageId } = req.body || {};
@@ -473,34 +584,39 @@ function registerMessageRoutes(app, deps) {
 
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
-    const user = findUserByUsername(username.toLowerCase());
+    const rawUser = findUserByUsername(username.toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    if (!isMember(Number(chatId), user.id)) {
+    const rawIsMem = isMember(chatId, user.id);
+    const memberCheck = rawIsMem && typeof rawIsMem.then === "function" ? await rawIsMem : rawIsMem;
+    if (!memberCheck) {
       return res.status(403).json({ error: "Not a member of this chat." });
     }
 
-    const message = findMessageById(Number(messageId));
-    if (!message || Number(message.chat_id) !== Number(chatId)) {
+    const rawMessage = findMessageById(messageId);
+    const message = rawMessage && typeof rawMessage.then === "function" ? await rawMessage : rawMessage;
+    if (!message || message.chat_id !== chatId) {
       return res.status(404).json({ error: "Message not found in this chat." });
     }
 
-    markMessageRead(Number(messageId), user.id);
+    const m = markMessageRead(messageId, user.id);
+    if (m && typeof m.then === "function") await m;
 
-    emitChatEvent(Number(chatId), {
+    emitChatEvent(chatId, {
       type: "chat_read",
-      chatId: Number(chatId),
-      messageId: Number(messageId),
+      chatId,
+      messageId,
       username: user.username,
     });
 
     res.json({ ok: true });
   });
 
-  app.post("/api/messages/read-counts", (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/messages/read-counts", validateUuidBody([{ field: "chatId", required: true }]), async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const { chatId, username, messageIds = [] } = req.body || {};
@@ -511,25 +627,30 @@ function registerMessageRoutes(app, deps) {
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
-    const user = findUserByUsername(username.toLowerCase());
+    const rawUser = findUserByUsername(username.toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
-    if (!isMember(Number(chatId), user.id)) {
+    const rawIsMem = isMember(chatId, user.id);
+    const memberCheck = rawIsMem && typeof rawIsMem.then === "function" ? await rawIsMem : rawIsMem;
+    if (!memberCheck) {
       return res.status(403).json({ error: "Not a member of this chat." });
     }
 
-    const authors = getMessageAuthors(messageIds);
+    const rawAuthors = getMessageAuthors(messageIds);
+    const authors = (rawAuthors && typeof rawAuthors.then === "function" ? await rawAuthors : rawAuthors) || [];
     const messages = authors.reduce((acc, row) => {
-      const id = Number(row?.id || 0);
+      const id = row?.id;
       if (!id) return acc;
       acc[id] = row;
       return acc;
     }, {});
     
-    const rows = getMessageReadCounts(messageIds);
+    const rawRows = getMessageReadCounts(messageIds);
+    const rows = (rawRows && typeof rawRows.then === "function" ? await rawRows : rawRows) || [];
     const counts = rows.reduce((acc, row) => {
-      const id = Number(row?.message_id || 0);
+      const id = row?.message_id;
       if (!id) return acc;
       acc[id] = Number(row?.count || 0);
       return acc;
@@ -538,7 +659,7 @@ function registerMessageRoutes(app, deps) {
     // For regular messages (not remote), add +1 for the author
     // For remote messages, don't add the author count (starts at 0)
     Object.keys(messages).forEach((key) => {
-      const id = Number(key);
+      const id = key;
       if (!id) return;
       const msg = messages[id];
       const isRemote = isRemoteChannelMessage(msg);
@@ -550,8 +671,8 @@ function registerMessageRoutes(app, deps) {
     res.json({ ok: true, counts });
   });
 
-  app.post("/api/messages/typing", (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/messages/typing", validateUuidBody([{ field: "chatId", required: true }]), async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const { chatId, username, isTyping } = req.body || {};
@@ -562,16 +683,19 @@ function registerMessageRoutes(app, deps) {
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
-    const user = findUserByUsername(String(username || "").toLowerCase());
+    const rawUser = findUserByUsername(String(username || "").toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
-    const numericChatId = Number(chatId);
-    if (!isMember(numericChatId, user.id)) {
+    const rawMember = isMember(chatId, user.id);
+    const isMem = rawMember && typeof rawMember.then === "function" ? await rawMember : rawMember;
+    if (!isMem) {
       return res.status(403).json({ error: "Not a member of this chat." });
     }
 
-    const chat = findChatById(numericChatId);
+    const rawChat = findChatById(chatId);
+    const chat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
     if (!chat) {
       return res.status(404).json({ error: "Chat not found." });
     }
@@ -587,9 +711,9 @@ function registerMessageRoutes(app, deps) {
       return res.json({ ok: true, skipped: true });
     }
 
-    emitChatEvent(numericChatId, {
+    emitChatEvent(chatId, {
       type: "chat_typing",
-      chatId: numericChatId,
+      chatId,
       username: user.username,
       nickname: user.nickname || user.username,
       isTyping: Boolean(isTyping),
@@ -604,17 +728,13 @@ function registerMessageRoutes(app, deps) {
     messageUploadLimiter,
     uploadFiles.array("files", MESSAGE_FILE_LIMITS.maxFiles),
     async (req, res) => {
-      const session = requireSession(req, res);
+      const session = await requireSession(req, res);
       if (!session) {
         removeUploadedFiles(req.files || []);
         return;
       }
 
-      if (!Array.isArray(req.files)) {
-        return res.status(400).json({ error: "Invalid files payload." });
-      }
-
-      const uploadedFiles = req.files;
+      const uploadedFiles = Array.isArray(req.files) ? req.files : [];
 
       try {
         if (!getSetting("FILE_UPLOAD")) {
@@ -624,14 +744,45 @@ function registerMessageRoutes(app, deps) {
             .json({ error: "File uploads are disabled on this server." });
         }
 
-        const chatId = Number(req.body?.chatId);
+        const chatId = req.body?.chatId?.toString() || "";
         const username = req.body?.username?.toString();
         const uploadType = req.body?.uploadType?.toString();
         const fileMeta = parseUploadFileMetadata(req.body?.fileMeta);
+
+        let rawStorageKeys =
+          req.body?.storageKeys ??
+          req.body?.storageKey ??
+          req.body?.presignedFiles;
+        let presignedFiles = [];
+
+        if (rawStorageKeys !== undefined && rawStorageKeys !== null) {
+          if (typeof rawStorageKeys === "string") {
+            const trimmed = rawStorageKeys.trim();
+            if (trimmed) {
+              try {
+                const parsed = JSON.parse(trimmed);
+                if (Array.isArray(parsed)) {
+                  presignedFiles = parsed;
+                } else if (parsed && typeof parsed === "object") {
+                  presignedFiles = [parsed];
+                } else if (typeof parsed === "string" && parsed.trim()) {
+                  presignedFiles = [parsed.trim()];
+                }
+              } catch (_) {
+                presignedFiles = [trimmed];
+              }
+            }
+          } else if (Array.isArray(rawStorageKeys)) {
+            presignedFiles = rawStorageKeys;
+          } else if (typeof rawStorageKeys === "object") {
+            presignedFiles = [rawStorageKeys];
+          }
+        }
+
         const body = req.body?.body?.toString() || "";
         const trimmedBody = body.trim();
-        const replyToMessageId = Number(req.body?.replyToMessageId || 0) || null;
-        const editMessageId = Number(req.body?.editMessageId || 0) || null;
+        const replyToMessageId = req.body?.replyToMessageId?.toString() || null;
+        const editMessageId = req.body?.editMessageId?.toString() || null;
         const clientRequestIdRaw = String(
           req.body?.clientRequestId || "",
         ).trim();
@@ -659,13 +810,15 @@ function registerMessageRoutes(app, deps) {
           return;
         }
 
-        if (!uploadedFiles.length) {
+        const totalFilesCount = uploadedFiles.length + presignedFiles.length;
+
+        if (!totalFilesCount) {
           return res
             .status(400)
             .json({ error: "At least one file is required." });
         }
 
-        if (uploadedFiles.length > MESSAGE_FILE_LIMITS.maxFiles) {
+        if (totalFilesCount > MESSAGE_FILE_LIMITS.maxFiles) {
           removeUploadedFiles(uploadedFiles);
 
           return res.status(400).json({
@@ -673,7 +826,8 @@ function registerMessageRoutes(app, deps) {
           });
         }
 
-        const user = findUserByUsername(username.toLowerCase());
+        const rawUser = findUserByUsername(username.toLowerCase());
+        const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
 
         if (!user) {
           removeUploadedFiles(uploadedFiles);
@@ -681,18 +835,22 @@ function registerMessageRoutes(app, deps) {
           return res.status(404).json({ error: "User not found." });
         }
 
-        if (!isMember(chatId, user.id)) {
+        const rawIsMember = isMember(chatId, user.id);
+        const memberCheck = rawIsMember && typeof rawIsMember.then === "function" ? await rawIsMember : rawIsMember;
+        if (!memberCheck) {
           removeUploadedFiles(uploadedFiles);
 
           return res.status(403).json({ error: "Not a member of this chat." });
         }
-        const chat = findChatById(chatId);
+        const rawChat = findChatById(chatId);
+        const chat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
         if (!chat) {
           removeUploadedFiles(uploadedFiles);
           return res.status(404).json({ error: "Chat not found." });
         }
         if (chat.type === "channel") {
-          const role = String(getChatMemberRole(chatId, user.id)).toLowerCase();
+          const rawRole = getChatMemberRole(chatId, user.id);
+          const role = String(rawRole && typeof rawRole.then === "function" ? await rawRole : rawRole).toLowerCase();
           if (role !== "owner") {
             removeUploadedFiles(uploadedFiles);
             return res
@@ -708,7 +866,7 @@ function registerMessageRoutes(app, deps) {
         }
         if (replyToMessageId) {
           const replyTarget = findMessageById(replyToMessageId);
-          if (!replyTarget || Number(replyTarget.chat_id) !== Number(chatId)) {
+          if (!replyTarget || replyTarget.chat_id !== chatId) {
             removeUploadedFiles(uploadedFiles);
             return res
               .status(400)
@@ -718,7 +876,7 @@ function registerMessageRoutes(app, deps) {
         let editTarget = null;
         if (editMessageId) {
           editTarget = findMessageById(editMessageId);
-          if (!editTarget || Number(editTarget.chat_id) !== Number(chatId)) {
+          if (!editTarget || editTarget.chat_id !== chatId) {
             removeUploadedFiles(uploadedFiles);
             return res.status(400).json({
               error: "Edit target is not available in this chat.",
@@ -732,10 +890,33 @@ function registerMessageRoutes(app, deps) {
           }
         }
 
-        const totalBytes = uploadedFiles.reduce(
+        const localBytes = uploadedFiles.reduce(
           (sum, file) => sum + Number(file.size || 0),
           0,
         );
+
+        const presignedBytes = presignedFiles.reduce((sum, item, index) => {
+          const meta =
+            fileMeta[uploadedFiles.length + index] || fileMeta[index] || {};
+          const sz = Number(
+            (typeof item === "object" && item !== null
+              ? (item.sizeBytes ??
+                item.size_bytes ??
+                item.fileSize ??
+                item.file_size ??
+                item.size)
+              : null) ??
+              meta.sizeBytes ??
+              meta.size_bytes ??
+              meta.fileSize ??
+              meta.file_size ??
+              meta.size ??
+              0,
+          );
+          return sum + (Number.isFinite(sz) && sz > 0 ? sz : 0);
+        }, 0);
+
+        const totalBytes = localBytes + presignedBytes;
 
         if (totalBytes > MESSAGE_FILE_LIMITS.maxTotalBytes) {
           removeUploadedFiles(uploadedFiles);
@@ -745,7 +926,7 @@ function registerMessageRoutes(app, deps) {
           });
         }
 
-        if (!hasEnoughFreeDiskSpace(totalBytes)) {
+        if (localBytes > 0 && !hasEnoughFreeDiskSpace(localBytes)) {
           removeUploadedFiles(uploadedFiles);
 
           return res.status(400).json({
@@ -754,14 +935,15 @@ function registerMessageRoutes(app, deps) {
         }
 
         if (!editMessageId && clientRequestId) {
-          const existingId = findMessageIdByClientRequestId(
+          const rawExistingId = findMessageIdByClientRequestId(
             chatId,
             user.id,
             clientRequestId,
           );
+          const existingId = rawExistingId && typeof rawExistingId.then === "function" ? await rawExistingId : rawExistingId;
           if (existingId) {
             removeUploadedFiles(uploadedFiles);
-            return res.json({ id: Number(existingId), deduped: true });
+            return res.json({ id: existingId, deduped: true });
           }
         }
 
@@ -771,7 +953,7 @@ function registerMessageRoutes(app, deps) {
           getSetting("MESSAGE_FILE_RETENTION"),
         );
 
-        const normalizedFiles = uploadedFiles.map((file, index) => {
+        const normalizedLocalFiles = uploadedFiles.map((file, index) => {
           const originalName = decodeOriginalFilename(
             file.originalname || "file",
           );
@@ -788,7 +970,8 @@ function registerMessageRoutes(app, deps) {
             );
           }
 
-          const kind = getUploadKind(uploadType, mimeType);
+          const isVideo = mimeType.startsWith("video/") || (inferredMime && String(inferredMime).toLowerCase().startsWith("video/"));
+          const kind = isVideo ? "media" : getUploadKind(uploadType, mimeType);
           if (!kind) {
             throw new Error("Invalid file type for selected upload option.");
           }
@@ -798,35 +981,218 @@ function registerMessageRoutes(app, deps) {
           return {
             kind,
             originalName,
-            storedName: path.basename(file.filename),
+            storedName: safeBasename(file.filename),
             mimeType,
             sizeBytes: Number(file.size || 0),
             widthPx: sanitizePositiveInt(meta.width),
             heightPx: sanitizePositiveInt(meta.height),
             durationSeconds: sanitizeDurationSeconds(meta.durationSeconds),
             expiresAt: expiresAtIso,
+            storageDriver: "local",
           };
         });
 
-        const hasVideoFiles = normalizedFiles.some((file) =>
-          String(file.mimeType || "")
-            .toLowerCase()
-            .startsWith("video/"),
-        );
-        const shouldTranscodeVideos =
-          getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS") &&
-          String(uploadType || "").toLowerCase() === "media";
+        const normalizedPresignedFiles = presignedFiles.map((item, index) => {
+          const meta =
+            fileMeta[uploadedFiles.length + index] || fileMeta[index] || {};
+          const key =
+            typeof item === "string"
+              ? item
+              : (item?.storageKey || item?.storage_key || item?.key || "");
+          if (!key) {
+            throw new Error("Invalid storage key for file.");
+          }
+
+          const rawName =
+            (typeof item === "object" && item !== null
+              ? (item.originalName || item.original_name || item.name || item.filename)
+              : null) ||
+            meta.originalName ||
+            meta.original_name ||
+            meta.name ||
+            meta.filename ||
+            safeBasename(key) ||
+            "file";
+          const originalName = safeDecodeFilename(rawName);
+          const inferredMime = safeInferMime(originalName);
+
+          const rawMime =
+            (typeof item === "object" && item !== null
+              ? (item.mimeType || item.mime_type || item.contentType || item.content_type || item.type)
+              : null) ||
+            meta.mimeType ||
+            meta.mime_type ||
+            meta.contentType ||
+            meta.content_type ||
+            meta.type ||
+            inferredMime ||
+            "application/octet-stream";
+          const mimeType = String(rawMime).toLowerCase();
+
+          if (safeIsDangerousUploadFile(originalName, mimeType)) {
+            throw new Error(
+              "This file type is not allowed for security reasons.",
+            );
+          }
+
+          const kind = safeGetUploadKind(uploadType, mimeType);
+          if (!kind) {
+            throw new Error("Invalid file type for selected upload option.");
+          }
+
+          const sizeBytes = Number(
+            (typeof item === "object" && item !== null
+              ? (item.sizeBytes ?? item.size_bytes ?? item.fileSize ?? item.file_size ?? item.size)
+              : null) ??
+              meta.sizeBytes ??
+              meta.size_bytes ??
+              meta.fileSize ??
+              meta.file_size ??
+              meta.size ??
+              0,
+          );
+
+          const widthPx = safeSanitizePositiveInt(
+            (typeof item === "object" && item !== null
+              ? (item.widthPx ?? item.width_px ?? item.width)
+              : null) ??
+              meta.widthPx ??
+              meta.width_px ??
+              meta.width,
+          );
+
+          const heightPx = safeSanitizePositiveInt(
+            (typeof item === "object" && item !== null
+              ? (item.heightPx ?? item.height_px ?? item.height)
+              : null) ??
+              meta.heightPx ??
+              meta.height_px ??
+              meta.height,
+          );
+
+          const durationSeconds = safeSanitizeDurationSeconds(
+            (typeof item === "object" && item !== null
+              ? (item.durationSeconds ?? item.duration_seconds ?? item.duration)
+              : null) ??
+              meta.durationSeconds ??
+              meta.duration_seconds ??
+              meta.duration,
+          );
+
+          const blurhash =
+            (typeof item === "object" && item !== null ? item.blurhash : null) ||
+            meta.blurhash ||
+            null;
+
+          const rawWaveform =
+            (typeof item === "object" && item !== null ? item.waveform : null) ||
+            meta.waveform ||
+            null;
+          const waveform = rawWaveform
+            ? typeof rawWaveform === "string"
+              ? rawWaveform
+              : JSON.stringify(rawWaveform)
+            : null;
+
+          const thumbStorageKey =
+            (typeof item === "object" && item !== null
+              ? (item.thumbStorageKey || item.thumb_storage_key)
+              : null) ||
+            meta.thumbStorageKey ||
+            meta.thumb_storage_key ||
+            null;
+
+          const storageDriver =
+            (typeof item === "object" && item !== null
+              ? (item.storageDriver || item.storage_driver)
+              : null) ||
+            meta.storageDriver ||
+            meta.storage_driver ||
+            (deps.storageProvider?.type || "remote");
+
+          const encryptionType =
+            (typeof item === "object" && item !== null
+              ? (item.encryptionType || item.encryption_type)
+              : null) ||
+            meta.encryptionType ||
+            meta.encryption_type ||
+            "none";
+
+          const storageProcessingMode = String(
+            deps.storageProcessingMode || process.env.STORAGE_PROCESSING_MODE || "auto",
+          ).toLowerCase();
+          const transcodeVideosSetting = getSetting
+            ? Boolean(getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS"))
+            : readEnvBool("FILE_UPLOAD_TRANSCODE_VIDEOS", true);
+          const isVideo =
+            mimeType.startsWith("video/") ||
+            (inferredMime && String(inferredMime).toLowerCase().startsWith("video/"));
+          const isAlreadyTranscoded = safeBasename(key).toLowerCase().includes("-h264-");
+          const shouldTranscodeThisFile =
+            isVideo &&
+            !isAlreadyTranscoded &&
+            transcodeVideosSetting;
+
+          let rawItemStatus =
+            typeof item === "object" && item !== null
+              ? (item.processingStatus || item.processing_status)
+              : null;
+          if (isVideo && !transcodeVideosSetting) {
+            rawItemStatus = "ready";
+          }
+
+          const effectiveKind = isVideo ? "media" : kind;
+          const effectiveMime = isVideo && !mimeType.startsWith("video/") && inferredMime ? inferredMime : mimeType;
+
+          return {
+            kind: effectiveKind,
+            originalName,
+            storedName: safeBasename(key),
+            mimeType: effectiveMime,
+            sizeBytes,
+            widthPx,
+            heightPx,
+            durationSeconds,
+            expiresAt: expiresAtIso,
+            storageDriver,
+            storageKey: key,
+            processingStatus:
+              rawItemStatus || (shouldTranscodeThisFile ? "pending" : "ready"),
+            blurhash,
+            waveform,
+            thumbStorageKey,
+            encryptionType,
+          };
+        });
+
+        const normalizedFiles = [
+          ...normalizedLocalFiles,
+          ...normalizedPresignedFiles,
+        ];
+
+        const storageProcessingMode = String(
+          deps.storageProcessingMode || process.env.STORAGE_PROCESSING_MODE || "auto",
+        ).toLowerCase();
+        const hasVideoFiles = normalizedFiles.some((file) => {
+          const m = String(file.mimeType || "").toLowerCase();
+          const s = String(file.storedName || "").toLowerCase();
+          return (m.startsWith("video/") || file.kind === "media") && !s.includes("-h264-");
+        });
+        const transcodeVideosEnabled = getSetting
+          ? Boolean(getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS"))
+          : readEnvBool("FILE_UPLOAD_TRANSCODE_VIDEOS", true);
+        const shouldTranscodeVideos = transcodeVideosEnabled && hasVideoFiles;
 
         debugLog("api:messages/upload:start", {
           chatId,
           username: String(username || "").toLowerCase(),
           fileCount: normalizedFiles.length,
           hasVideoFiles,
-          transcodeEnabled: shouldTranscodeVideos,
+          transcodeEnabled: transcodeVideosEnabled,
           uploadType,
         });
 
-        if (shouldTranscodeVideos && hasVideoFiles) {
+        if (shouldTranscodeVideos && typeof ensureFfmpegAvailable === "function") {
           await ensureFfmpegAvailable();
         }
 
@@ -838,36 +1204,48 @@ function registerMessageRoutes(app, deps) {
               if (file.widthPx && file.heightPx && file.durationSeconds !== null)
                 return;
 
-              const storedName = path.basename(
+              const storedName = safeBasename(
                 String(file?.storedName || "").trim(),
               );
               if (!storedName) return;
 
               const inputPath = path.join(uploadRootDir, storedName);
-              const metadata = await probeVideoMetadata(inputPath);
+              if (fs.existsSync && fs.existsSync(inputPath)) {
+                const metadata = await probeVideoMetadata(inputPath);
 
-              if (!file.widthPx && metadata.widthPx) {
-                file.widthPx = metadata.widthPx;
-              }
-              if (!file.heightPx && metadata.heightPx) {
-                file.heightPx = metadata.heightPx;
-              }
-              if (
-                file.durationSeconds === null &&
-                metadata.durationSeconds !== null
-              ) {
-                file.durationSeconds = metadata.durationSeconds;
+                if (!file.widthPx && metadata.widthPx) {
+                  file.widthPx = metadata.widthPx;
+                }
+                if (!file.heightPx && metadata.heightPx) {
+                  file.heightPx = metadata.heightPx;
+                }
+                if (
+                  file.durationSeconds === null &&
+                  metadata.durationSeconds !== null
+                ) {
+                  file.durationSeconds = metadata.durationSeconds;
+                }
               }
             }),
           );
         }
 
-        normalizedFiles.forEach((file) => {
-          const storedName = path.basename(String(file?.storedName || "").trim());
+          normalizedFiles.forEach((file) => {
+            if (file.storageKey) return;
+            const storedName = safeBasename(String(file?.storedName || "").trim());
           if (!storedName) return;
 
           const inputPath = path.join(uploadRootDir, storedName);
-          storageEncryption.encryptFileInPlace(inputPath);
+          if (fs.existsSync && fs.existsSync(inputPath)) {
+            if (
+              storageEncryption &&
+              typeof storageEncryption.encryptFileInPlace === "function"
+            ) {
+              storageEncryption.encryptFileInPlace(inputPath);
+            }
+            // The DB record must reflect the bytes on disk.
+            markEncryptedFileRecord(storageEncryption, inputPath, file);
+          }
         });
 
         const summarizeFiles = (files) => {
@@ -909,7 +1287,47 @@ function registerMessageRoutes(app, deps) {
           (normalizedFiles.length === 1
             ? `Sent ${normalizedFiles[0].kind === "media" ? "a media file" : "a document"}`
             : `Sent ${normalizedFiles.length} files`);
-        let messageId = Number(editMessageId || 0);
+
+        if (
+          deps.storageProvider &&
+          (deps.storageProvider.type === "remote" ||
+            deps.storageProvider.type === "s3") &&
+          typeof deps.storageProvider.uploadBuffer === "function"
+        ) {
+          await Promise.all(
+            uploadedFiles.map(async (file, index) => {
+              const norm = normalizedFiles[index];
+              if (!norm) return;
+
+              const isVideo = String(norm.mimeType || "").toLowerCase().startsWith("video/");
+              const isQueuedForLocalTranscode =
+                isVideo &&
+                shouldTranscodeVideos &&
+                !String(norm.storedName || "").toLowerCase().includes("-h264-");
+
+              if (isQueuedForLocalTranscode) {
+                norm.storageDriver = "local";
+                return;
+              }
+
+              const fileKey = `uploads/${file.filename}`;
+              const fileBuf = await fs.promises.readFile(file.path);
+              const uploadBuf = storageEncryption.decryptBuffer(fileBuf);
+              await deps.storageProvider.uploadBuffer(
+                fileKey,
+                uploadBuf,
+                norm.mimeType || "application/octet-stream",
+              );
+              norm.storageDriver = deps.storageProvider.type || "s3";
+              norm.storageKey = fileKey;
+              norm.encryptionType = "none";
+              norm.encryption_type = "none";
+              await fs.promises.unlink(file.path).catch(() => {});
+            }),
+          );
+        }
+
+        let messageId = editMessageId || null;
         let dedupedMessage = false;
         if (editTarget) {
           const editBody =
@@ -919,9 +1337,10 @@ function registerMessageRoutes(app, deps) {
             fallbackBody;
           editMessage(messageId, editBody);
           setMessageExpiresAt(messageId, null);
-          createMessageFiles(messageId, normalizedFiles);
+          const rawCreate = createMessageFiles(messageId, normalizedFiles);
+          if (rawCreate && typeof rawCreate.then === "function") await rawCreate;
         } else {
-          const created = createOrReuseMessage(
+          const rawCreated = createOrReuseMessage(
             chatId,
             user.id,
             fallbackBody,
@@ -929,113 +1348,269 @@ function registerMessageRoutes(app, deps) {
             null,
             clientRequestId,
           );
-          messageId = Number(created?.id || 0);
+          const created = rawCreated && typeof rawCreated.then === "function" ? await rawCreated : rawCreated;
+          messageId = created?.id || null;
           dedupedMessage = Boolean(created?.deduped);
           if (!messageId) {
             throw new Error("Unable to create message.");
           }
           if (dedupedMessage) {
             removeUploadedFiles(uploadedFiles);
-            return res.json({ id: Number(messageId), deduped: true });
+            return res.json({ id: messageId, deduped: true });
           }
-          createMessageFiles(messageId, normalizedFiles);
+          const rawCreate = createMessageFiles(messageId, normalizedFiles);
+          if (rawCreate && typeof rawCreate.then === "function") await rawCreate;
           if (chat.type === "saved") {
             markMessageRead(messageId, user.id);
           }
         }
 
+        const usedStorageKeys = (normalizedFiles || [])
+          .map((f) => f.storageKey || f.storage_key)
+          .filter(Boolean);
+        if (usedStorageKeys.length > 0) {
+          if (typeof removePendingPresignedUploads === "function") {
+            removePendingPresignedUploads(usedStorageKeys);
+          }
+        }
+
         let transcodeJobsQueued = 0;
 
-        if (shouldTranscodeVideos && hasVideoFiles) {
-          const insertedRows = listMessageFilesByMessageIds([Number(messageId)]);
+        if (transcodeVideosEnabled && hasVideoFiles) {
+          const rawInsertedRows = listMessageFilesByMessageIds([messageId]);
+          const insertedRows = (rawInsertedRows && typeof rawInsertedRows.then === "function" ? await rawInsertedRows : rawInsertedRows) || [];
           const insertedByStoredName = new Map();
 
           insertedRows.forEach((row) => {
-            const key = path.basename(String(row?.stored_name || "").trim());
-            if (!key) return;
-
-            insertedByStoredName.set(key, Number(row.id));
+            const nameKey = safeBasename(String(row?.stored_name || row?.storedName || "").trim());
+            const storageKey = String(row?.storage_key || row?.storageKey || "").trim();
+            if (nameKey) insertedByStoredName.set(nameKey, row.id);
+            if (storageKey) insertedByStoredName.set(storageKey, row.id);
           });
 
           normalizedFiles.forEach((file) => {
             const mimeType = String(file?.mimeType || "").toLowerCase();
             if (!mimeType.startsWith("video/")) return;
 
-            const storedName = path.basename(
+            const storedName = safeBasename(
               String(file?.storedName || "").trim(),
             );
-            if (!storedName) return;
 
-            const fileId = Number(insertedByStoredName.get(storedName) || 0);
+            const fileId =
+              insertedByStoredName.get(file.storageKey || file.storage_key) ||
+              insertedByStoredName.get(storedName) ||
+              file?.id;
             if (!fileId) return;
 
-            enqueueVideoTranscodeJob({
-              fileId,
-              storedName,
-              chatId,
-              messageId: Number(messageId),
-              username: user.username,
-            });
-
-            transcodeJobsQueued += 1;
+            if (typeof deps.enqueueVideoTranscodeJob === "function") {
+              deps.enqueueVideoTranscodeJob({
+                fileId,
+                storedName: storedName || file.storageKey || file.storage_key,
+                storageKey: file.storageKey || file.storage_key || storedName,
+                storageDriver: file.storageDriver || file.storage_driver,
+                chatId,
+                messageId,
+                username: user.username,
+                storageProcessingMode,
+              });
+              transcodeJobsQueued += 1;
+            } else {
+              dispatchMediaWorkerJob({
+                workerUrl:
+                  deps.workerUrl ||
+                  deps.mediaWorkerUrl ||
+                  process.env.WORKER_URL ||
+                  process.env.MEDIA_WORKER_URL ||
+                  null,
+                mediaWorkerUrl:
+                  deps.workerUrl ||
+                  deps.mediaWorkerUrl ||
+                  process.env.WORKER_URL ||
+                  process.env.MEDIA_WORKER_URL ||
+                  null,
+                storageProcessingMode,
+                storageProcessingTimeoutMs:
+                  deps.storageProcessingTimeoutMs ||
+                  (process.env.STORAGE_PROCESSING_TIMEOUT_MS ? Number(process.env.STORAGE_PROCESSING_TIMEOUT_MS) : undefined),
+                workerPort: deps.workerPort || process.env.WORKER_PORT || "8080",
+                webhookSecret:
+                  deps.webhookSecret !== undefined
+                    ? deps.webhookSecret
+                    : process.env.WEBHOOK_SECRET || null,
+                callbackUrl:
+                  deps.webhookCallbackUrl || resolveWebhookCallbackUrl(),
+                fileId,
+                storageKey: file.storageKey || file.storage_key || storedName,
+                storedName: storedName || file.storageKey || file.storage_key,
+                mimeType,
+                encryptionType:
+                  file.encryptionType ||
+                  file.encryption_type ||
+                  (Boolean(deps.storageEncryption?.hasKey?.())
+                    ? "local"
+                    : "none"),
+                fetchImpl: deps.fetchImpl || globalThis.fetch,
+              })
+                .then((ok) => {
+                  if (ok) {
+                    console.log(
+                      `[messages] Dispatched transcode job for file ${fileId} (mode=${storageProcessingMode})`,
+                    );
+                  } else {
+                    console.warn(
+                      `[messages] Failed to dispatch transcode job for file ${fileId} (mode=${storageProcessingMode})`,
+                    );
+                  }
+                })
+                .catch((err) => {
+                  console.error(
+                    `[messages] Error dispatching transcode job for file ${fileId}:`,
+                    err,
+                  );
+                });
+              transcodeJobsQueued += 1;
+            }
           });
         }
+
+        const rawInsertedFiles = listMessageFilesByMessageIds([messageId]);
+        const insertedFiles = (rawInsertedFiles && typeof rawInsertedFiles.then === "function" ? await rawInsertedFiles : rawInsertedFiles) || [];
+        const hydratedFiles = typeof hydrateMissingVideoMetadata === "function"
+          ? await hydrateMissingVideoMetadata(insertedFiles)
+          : insertedFiles;
+        const sourceFilesForResponse = hydratedFiles.length ? hydratedFiles : normalizedFiles;
+
+        const resolveFileUrl = async (file) => {
+          const storedName = file.stored_name || file.storedName || "";
+          const driver = file.storage_driver || file.storageDriver;
+          const storageKey = file.storage_key || file.storageKey;
+          if (
+            (driver === "remote" || driver === "s3") &&
+            storageKey &&
+            deps.storageProvider &&
+            typeof deps.storageProvider.getDownloadUrl === "function"
+          ) {
+            try {
+              return await deps.storageProvider.getDownloadUrl(storageKey);
+            } catch (_) {}
+          }
+          return storedName ? `/api/uploads/messages/${storedName}` : null;
+        };
+
+        const resolveThumbUrl = async (file) =>
+          sharedResolveThumbUrl({
+            storageProvider: deps.storageProvider,
+            file,
+            fileId: file?.id,
+          });
+
+        const responseFiles = await Promise.all(
+          sourceFilesForResponse.map(async (file, idx) => {
+            const storedName = file.stored_name || file.storedName || "";
+            const expiresAtVal = file.expires_at || file.expiresAt || expiresAtIso || null;
+            const resolvedUrl = await resolveFileUrl(file);
+            const resolvedThumbUrl = await resolveThumbUrl(file);
+            const thumbKey = file.thumb_storage_key || file.thumbStorageKey || null;
+            return {
+              id: file.id || (idx + 1),
+              kind: file.kind,
+              name: file.original_name || file.originalName || "",
+              mimeType: file.mime_type || file.mimeType || "",
+              processing:
+                (file.storage_driver === "remote" || file.storage_driver === "s3" || file.storageDriver === "remote" || file.storageDriver === "s3")
+                  ? (file.processing_status || file.processingStatus) === "pending"
+                  : (typeof isVideoFileProcessing === "function" ? isVideoFileProcessing(file) : false),
+              sizeBytes: Number(file.size_bytes || file.sizeBytes || 0),
+              width: Number.isFinite(Number(file.width_px ?? file.widthPx))
+                ? Number(file.width_px ?? file.widthPx)
+                : null,
+              height: Number.isFinite(Number(file.height_px ?? file.heightPx))
+                ? Number(file.height_px ?? file.heightPx)
+                : null,
+              durationSeconds: Number.isFinite(Number(file.duration_seconds ?? file.durationSeconds))
+                ? Number(file.duration_seconds ?? file.durationSeconds)
+                : null,
+              expiresAt: expiresAtVal,
+              expires_at: expiresAtVal,
+              thumbStorageKey: thumbKey,
+              thumbUrl: resolvedThumbUrl,
+              url: resolvedUrl,
+            };
+          }),
+        );
+        const fileExpiresAt = responseFiles.find((f) => f.expiresAt)?.expiresAt || null;
 
         if (editTarget) {
           emitChatEvent(chatId, {
             type: "chat_message_updated",
             chatId,
-            messageId: Number(messageId),
+            messageId,
             username: user.username,
+            files: responseFiles,
+            expiresAt: fileExpiresAt,
+            expires_at: fileExpiresAt,
           });
         } else if (shouldTranscodeVideos && hasVideoFiles && transcodeJobsQueued > 0) {
           // Only show pending-conversion videos to the uploader.
           emitSseEvent(user.username, {
             type: "chat_message",
             chatId,
-            messageId: Number(messageId),
+            messageId,
             username: user.username,
+            userId: user.id,
             body: fallbackBody,
             summaryText: fileSummaryText,
             replyToMessageId,
+            files: responseFiles,
+            expiresAt: fileExpiresAt,
+            expires_at: fileExpiresAt,
           });
         } else {
           emitChatEvent(chatId, {
             type: "chat_message",
             chatId,
-            messageId: Number(messageId),
+            messageId,
             username: user.username,
+            userId: user.id,
             body: fallbackBody,
             summaryText: fileSummaryText,
             replyToMessageId,
+            files: responseFiles,
+            expiresAt: fileExpiresAt,
+            expires_at: fileExpiresAt,
           });
         }
 
         debugLog("api:messages/upload:done", {
           chatId,
-          messageId: Number(messageId),
+          messageId,
           fileCount: normalizedFiles.length,
         });
 
-        res.json({ id: Number(messageId), deduped: dedupedMessage });
+        res.json({
+          id: messageId,
+          deduped: dedupedMessage,
+          expiresAt: fileExpiresAt,
+          files: responseFiles,
+        });
 
         if (!editTarget) {
           void (async () => {
             try {
-              const members = listChatMembers(Number(chatId));
-              const mutedRows = listMutedUserIdsForChat(Number(chatId));
+              const rawMembers = listChatMembers(chatId);
+              const members = (rawMembers && typeof rawMembers.then === "function" ? await rawMembers : rawMembers) || [];
+              const rawMuted = listMutedUserIdsForChat(chatId);
+              const mutedRows = (rawMuted && typeof rawMuted.then === "function" ? await rawMuted : rawMuted) || [];
               const mutedIds = new Set(
-                mutedRows.map((row) => Number(row?.user_id || 0)).filter(Boolean),
+                mutedRows.map((row) => row?.user_id).filter(Boolean),
               );
               const recipientIds = members
-                .filter((member) => Number(member.id) !== Number(user.id))
+                .filter((member) => member.id !== user.id)
                 .filter((member) => !isUserConnected(member.username))
-                .map((member) => Number(member.id))
+                .map((member) => member.id)
                 .filter(
                   (memberId) =>
-                    Number.isFinite(memberId) &&
-                    memberId > 0 &&
-                    !mutedIds.has(Number(memberId)),
+                    memberId && !mutedIds.has(memberId),
                 );
               if (recipientIds.length) {
                 const title =
@@ -1058,6 +1633,7 @@ function registerMessageRoutes(app, deps) {
 
         return;
       } catch (error) {
+        console.error("POST /api/messages ERROR:", error);
         removeUploadedFiles(uploadedFiles);
 
         debugLog("api:messages/upload:error", {
@@ -1071,8 +1647,8 @@ function registerMessageRoutes(app, deps) {
     },
   );
 
-  app.post("/api/messages", async (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/messages", validateUuidBody([{ field: "chatId", required: true }, { field: "replyToMessageId", required: false }]), async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const { chatId, username, body, replyToMessageId } = req.body || {};
@@ -1100,21 +1676,26 @@ function registerMessageRoutes(app, deps) {
 
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
-    const user = findUserByUsername(username.toLowerCase());
+    const rawUser = findUserByUsername(username.toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    if (!isMember(Number(chatId), user.id)) {
+    const rawIsMem = isMember(chatId, user.id);
+    const memberCheck = rawIsMem && typeof rawIsMem.then === "function" ? await rawIsMem : rawIsMem;
+    if (!memberCheck) {
       return res.status(403).json({ error: "Not a member of this chat." });
     }
 
-    const chat = findChatById(Number(chatId));
+    const rawChat = findChatById(chatId);
+    const chat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
     if (!chat) {
       return res.status(404).json({ error: "Chat not found." });
     }
     if (chat.type === "channel") {
-      const role = String(getChatMemberRole(Number(chatId), user.id)).toLowerCase();
+      const rawRole = getChatMemberRole(chatId, user.id);
+      const role = String(rawRole && typeof rawRole.then === "function" ? await rawRole : rawRole).toLowerCase();
       if (role !== "owner") {
         return res
           .status(403)
@@ -1123,8 +1704,9 @@ function registerMessageRoutes(app, deps) {
     }
 
     if (replyToMessageId) {
-      const replyTarget = findMessageById(Number(replyToMessageId));
-      if (!replyTarget || Number(replyTarget.chat_id) !== Number(chatId)) {
+      const rawReplyTarget = findMessageById(replyToMessageId);
+      const replyTarget = rawReplyTarget && typeof rawReplyTarget.then === "function" ? await rawReplyTarget : rawReplyTarget;
+      if (!replyTarget || replyTarget.chat_id !== chatId) {
         return res
           .status(400)
           .json({ error: "Reply target is not available in this chat." });
@@ -1133,91 +1715,63 @@ function registerMessageRoutes(app, deps) {
 
     const createdAtIso = new Date().toISOString();
     const expiresAt = computeTextExpiryIso(createdAtIso);
-    const created = createOrReuseMessage(
-      Number(chatId),
-      user.id,
-      bodyText,
+    
+    const rawResult = messagePubService.publishTextMessage({
+      chatId,
+      userId: user.id,
+      body: bodyText,
       replyToMessageId,
       expiresAt,
       clientRequestId,
-    );
-    const id = Number(created?.id || 0);
-    if (!id) {
-      return res.status(500).json({ error: "Unable to create message." });
-    }
-    if (chat.type === "saved" && !created?.deduped) {
-      markMessageRead(id, user.id);
-    }
+      username: user.username,
+      isUserConnectedFn: isUserConnected,
+    });
+    const result = rawResult && typeof rawResult.then === "function" ? await rawResult : rawResult;
+
+    const id = result.messageId;
 
     debugLog("api:messages/send", {
-      chatId: Number(chatId),
+      chatId,
       username: user.username,
-      messageId: Number(id),
+      messageId: id,
       bodyLength: String(body || "").length,
     });
 
-    // Respond to the sender immediately — before the SSE broadcast.
-    // This lets the client clear the pending state without waiting for
-    // all member connections to be written to.
     res.json({
       id,
       expiresAt,
-      deduped: Boolean(created?.deduped),
+      deduped: result.deduped,
     });
 
-    if (!created?.deduped) {
-      emitChatEvent(Number(chatId), {
-        type: "chat_message",
-        chatId: Number(chatId),
-        messageId: Number(id),
-        username: user.username,
-        body,
-        replyToMessageId,
-      });
-    }
+    result.sseEvents.forEach((ev) => {
+      emitChatEvent(ev.chatId, ev.payload);
+    });
 
-    if (created?.deduped) {
+    if (result.deduped) {
       return;
     }
 
-    void (async () => {
-      try {
-        const members = listChatMembers(Number(chatId));
-        const mutedRows = listMutedUserIdsForChat(Number(chatId));
-        const mutedIds = new Set(
-          mutedRows.map((row) => Number(row?.user_id || 0)).filter(Boolean),
-        );
-        const recipientIds = members
-          .filter((member) => Number(member.id) !== Number(user.id))
-          .filter((member) => !isUserConnected(member.username))
-          .map((member) => Number(member.id))
-          .filter(
-            (memberId) =>
-              Number.isFinite(memberId) &&
-              memberId > 0 &&
-              !mutedIds.has(Number(memberId)),
-          );
-        if (recipientIds.length) {
+    if (result.pushRecipients.length) {
+      void (async () => {
+        try {
           const title =
             chat.type === "dm"
               ? user.nickname || user.username
               : chat.name || (chat.type === "channel" ? "Channel" : "Group");
           const trimmedBody = String(body || "").trim();
           const notifyBody = trimmedBody || "New message";
-          await sendPushNotificationToUsers(recipientIds, {
+          await sendPushNotificationToUsers(result.pushRecipients, {
             title,
             body: notifyBody,
-            data: { url: "/", chatId },
+            data: { chatId },
           });
-        }
-      } catch {
-        // ignore push failures
-      }
-    })();
+        } catch (_) {}
+      })();
+    }
   });
 
-  app.post("/api/messages/edit", messageEditLimiter, async (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/messages/edit", messageEditLimiter, validateUuidBody([{ field: "chatId", required: true }, { field: "messageId", required: true }]), async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const { chatId, username, messageId, body } = req.body || {};
@@ -1243,23 +1797,29 @@ function registerMessageRoutes(app, deps) {
       });
     }
 
-    const user = findUserByUsername(String(username || "").toLowerCase());
+    const rawUser = findUserByUsername(String(username || "").toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
-    const numericChatId = Number(chatId);
-    if (!isMember(numericChatId, user.id)) {
+    const rawIsMem = isMember(chatId, user.id);
+    const memberCheck = rawIsMem && typeof rawIsMem.then === "function" ? await rawIsMem : rawIsMem;
+    if (!memberCheck) {
       return res.status(403).json({ error: "Not a member of this chat." });
     }
-    const message = findMessageById(Number(messageId));
-    if (!message || Number(message.chat_id) !== numericChatId) {
+    const rawMessage = findMessageById(messageId);
+    const message = rawMessage && typeof rawMessage.then === "function" ? await rawMessage : rawMessage;
+    if (!message || message.chat_id !== chatId) {
       return res.status(404).json({ error: "Message not found." });
     }
-    const chat = findChatById(numericChatId);
+    const rawChat = findChatById(chatId);
+    const chat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
     if (!chat) {
       return res.status(404).json({ error: "Chat not found." });
     }
-    if (!canUserPostInChat(numericChatId, user.id, chat)) {
+    const rawCanPost = canUserPostInChat(chatId, user.id, chat);
+    const canPost = rawCanPost && typeof rawCanPost.then === "function" ? await rawCanPost : rawCanPost;
+    if (!canPost) {
       return res
         .status(403)
         .json({ error: "Only channel owner can send messages." });
@@ -1268,20 +1828,23 @@ function registerMessageRoutes(app, deps) {
       return res.status(403).json({ error: "Only the author can edit this message." });
     }
 
-    editMessage(messageId, trimmedBody);
+    const editRes = editMessage(messageId, trimmedBody);
+    if (editRes && typeof editRes.then === "function") await editRes;
 
-    emitChatEvent(numericChatId, {
+    emitChatEvent(chatId, {
       type: "chat_message_updated",
-      chatId: numericChatId,
-      messageId: Number(messageId),
+      chatId,
+      messageId,
       username: user.username,
+      body: trimmedBody,
+      summaryText: trimmedBody,
     });
 
-    res.json({ ok: true, id: Number(messageId) });
+    res.json({ ok: true, id: messageId });
   });
 
-  app.post("/api/messages/delete", async (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/messages/delete", validateUuidBody([{ field: "chatId", required: true }, { field: "messageId", required: true }]), async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const { chatId, username, messageId, scope } = req.body || {};
@@ -1292,16 +1855,19 @@ function registerMessageRoutes(app, deps) {
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
-    const user = findUserByUsername(String(username || "").toLowerCase());
+    const rawUser = findUserByUsername(String(username || "").toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
-    const numericChatId = Number(chatId);
-    if (!isMember(numericChatId, user.id)) {
+    const rawIsMem = isMember(chatId, user.id);
+    const memberCheck = rawIsMem && typeof rawIsMem.then === "function" ? await rawIsMem : rawIsMem;
+    if (!memberCheck) {
       return res.status(403).json({ error: "Not a member of this chat." });
     }
-    const message = findMessageById(Number(messageId));
-    if (!message || Number(message.chat_id) !== numericChatId) {
+    const rawMessage = findMessageById(messageId);
+    const message = rawMessage && typeof rawMessage.then === "function" ? await rawMessage : rawMessage;
+    if (!message || message.chat_id !== chatId) {
       return res.status(404).json({ error: "Message not found." });
     }
 
@@ -1310,34 +1876,40 @@ function registerMessageRoutes(app, deps) {
       : "self";
 
     if (deleteScope === "everyone") {
-      const chat = findChatById(numericChatId);
+      const rawChat = findChatById(chatId);
+      const chat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
       if (!chat) {
         return res.status(404).json({ error: "Chat not found." });
       }
-      const role = String(getChatMemberRole(numericChatId, user.id)).toLowerCase();
+      const rawRole = getChatMemberRole(chatId, user.id);
+      const role = String(rawRole && typeof rawRole.then === "function" ? await rawRole : rawRole).toLowerCase();
+      const rawCanPost = canUserPostInChat(chatId, user.id, chat);
+      const canPost = rawCanPost && typeof rawCanPost.then === "function" ? await rawCanPost : rawCanPost;
       const canDeleteForEveryone =
-        canUserPostInChat(numericChatId, user.id, chat) &&
-        (Number(message.user_id || 0) === Number(user.id) || role === "owner");
+        canPost &&
+        (message.user_id === user.id || role === "owner");
       if (!canDeleteForEveryone) {
         return res.status(403).json({
           error: "You cannot delete this message for everyone.",
         });
       }
-      hideMessageForEveryone(message.id);
-      emitChatEvent(numericChatId, {
+      const h = hideMessageForEveryone(message.id);
+      if (h && typeof h.then === "function") await h;
+      emitChatEvent(chatId, {
         type: "chat_message_deleted",
-        chatId: numericChatId,
-        messageIds: [Number(message.id)],
+        chatId,
+        messageIds: [message.id],
       });
-      return res.json({ ok: true, scope: "everyone", id: Number(message.id) });
+      return res.json({ ok: true, scope: "everyone", id: message.id });
     }
 
-    hideMessageForUser(message.id, user.id);
-    return res.json({ ok: true, scope: "self", id: Number(message.id) });
+    const hSelf = hideMessageForUser(message.id, user.id);
+    if (hSelf && typeof hSelf.then === "function") await hSelf;
+    return res.json({ ok: true, scope: "self", id: message.id });
   });
 
-  app.post("/api/messages/forward", async (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/messages/forward", validateUuidBody([{ field: "sourceMessageId", required: true }]), async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const {
@@ -1353,26 +1925,33 @@ function registerMessageRoutes(app, deps) {
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
-    const user = findUserByUsername(String(username || "").toLowerCase());
+    const rawUser = findUserByUsername(String(username || "").toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    const sourceMessage = findMessageById(Number(sourceMessageId));
+    const rawSourceMessage = findMessageById(sourceMessageId);
+    const sourceMessage = rawSourceMessage && typeof rawSourceMessage.then === "function" ? await rawSourceMessage : rawSourceMessage;
     if (!sourceMessage) {
       return res.status(404).json({ error: "Source message not found." });
     }
     if (sourceMessage.hidden_everyone_at) {
       return res.status(410).json({ error: "Source message is no longer available." });
     }
-    if (!isMember(Number(sourceMessage.chat_id), user.id)) {
+    const rawIsMem = isMember(sourceMessage.chat_id, user.id);
+    const memberCheck = rawIsMem && typeof rawIsMem.then === "function" ? await rawIsMem : rawIsMem;
+    if (!memberCheck) {
       return res.status(403).json({ error: "You cannot forward from this chat." });
     }
-    const sourceChat = findChatById(Number(sourceMessage.chat_id));
+    const rawSourceChat = findChatById(sourceMessage.chat_id);
+    const sourceChat = rawSourceChat && typeof rawSourceChat.then === "function"
+      ? await rawSourceChat
+      : rawSourceChat;
     if (!sourceChat) {
       return res.status(404).json({ error: "Source chat not found." });
     }
-    const forwardOrigin = deriveForwardOrigin(sourceMessage, sourceChat);
+    const forwardOrigin = await deriveForwardOrigin(sourceMessage, sourceChat);
 
     const forwardBody = String(body || "");
     if (!forwardBody.trim()) {
@@ -1382,30 +1961,41 @@ function registerMessageRoutes(app, deps) {
     const uniqueTargetChatIds = Array.from(
       new Set(
         targetChatIds
-          .map((id) => Number(id))
-          .filter((id) => Number.isFinite(id) && id > 0),
+          .map((id) => String(id || "").trim())
+          .filter(Boolean),
       ),
     );
     if (!uniqueTargetChatIds.length) {
       return res.status(400).json({ error: "Choose at least one target chat." });
     }
 
-    const sourceFiles = listMessageFilesByMessageIds([Number(sourceMessage.id)]);
-    const forwardExpiresAt = sourceFiles.length
+    const rawSourceFiles = listMessageFilesByMessageIds([sourceMessage.id]);
+    const sourceFiles = rawSourceFiles && typeof rawSourceFiles.then === "function"
+      ? await rawSourceFiles
+      : rawSourceFiles;
+    const forwardExpiresAt = sourceFiles?.length
       ? null
       : computeTextExpiryIso(new Date().toISOString());
 
     const forwardedIds = [];
     for (const targetChatId of uniqueTargetChatIds) {
-      if (!isMember(targetChatId, user.id)) {
+      const rawMemberCheck = isMember(targetChatId, user.id);
+      const targetMemberCheck = rawMemberCheck && typeof rawMemberCheck.then === "function"
+        ? await rawMemberCheck
+        : rawMemberCheck;
+      if (!targetMemberCheck) {
         return res.status(403).json({ error: "Cannot send to one or more selected chats." });
       }
-      const targetChat = findChatById(targetChatId);
+      const rawTargetChat = findChatById(targetChatId);
+      const targetChat = rawTargetChat && typeof rawTargetChat.then === "function"
+        ? await rawTargetChat
+        : rawTargetChat;
       if (!targetChat) {
         return res.status(404).json({ error: "One of the selected chats was not found." });
       }
       if (String(targetChat.type || "").toLowerCase() === "channel") {
-        const role = String(getChatMemberRole(targetChatId, user.id)).toLowerCase();
+        const rawRole = getChatMemberRole(targetChatId, user.id);
+        const role = String(rawRole && typeof rawRole.then === "function" ? await rawRole : rawRole).toLowerCase();
         if (role !== "owner") {
           return res.status(403).json({
             error: "You can only forward to channels you own.",
@@ -1413,17 +2003,20 @@ function registerMessageRoutes(app, deps) {
         }
       }
 
-      const nextMessageId = createMessage(
+      const rawNextMessageId = createMessage(
         targetChatId,
         user.id,
         forwardBody,
         null,
         forwardExpiresAt,
       );
+      const nextMessageId = rawNextMessageId && typeof rawNextMessageId.then === "function"
+        ? await rawNextMessageId
+        : rawNextMessageId;
       if (!nextMessageId) {
         return res.status(500).json({ error: "Unable to forward message." });
       }
-      setMessageForwardOrigin(nextMessageId, {
+      await setMessageForwardOrigin(nextMessageId, {
         sourceChatId: forwardOrigin.sourceChatId,
         label: forwardOrigin.label,
         sourceUserId: forwardOrigin.sourceUserId,
@@ -1431,21 +2024,24 @@ function registerMessageRoutes(app, deps) {
         sourceAvatarUrl: forwardOrigin.sourceAvatarUrl,
         sourceColor: forwardOrigin.sourceColor,
       });
-      reuseMessageFilesForForward(sourceMessage.id, nextMessageId);
+      await reuseMessageFilesForForward(sourceMessage.id, nextMessageId);
       if (String(targetChat.type || "").toLowerCase() === "saved") {
-        markMessageRead(nextMessageId, user.id);
-        unhideChat(user.id, targetChatId);
+        const rawRead = markMessageRead(nextMessageId, user.id);
+        if (rawRead && typeof rawRead.then === "function") await rawRead;
+        const rawUnhide = unhideChat(user.id, targetChatId);
+        if (rawUnhide && typeof rawUnhide.then === "function") await rawUnhide;
       }
 
       emitChatEvent(targetChatId, {
         type: "chat_message",
         chatId: targetChatId,
-        messageId: Number(nextMessageId),
+        messageId: nextMessageId,
         username: user.username,
+        userId: user.id,
         body: forwardBody,
         replyToMessageId: null,
       });
-      forwardedIds.push(Number(nextMessageId));
+      forwardedIds.push(nextMessageId);
     }
 
     return res.json({ ok: true, ids: forwardedIds });

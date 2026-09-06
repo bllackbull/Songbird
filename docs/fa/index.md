@@ -19,8 +19,12 @@ hero:
 features:
   - icon: 🚀
     title: نصب آسان
-    details: اسکریپت نصب تک‌خطی، وابستگی‌ها، build، Nginx و SSL را برای شما مدیریت می‌کند.
+    details: اسکریپت نصب تک خطی، وابستگی ها، build، Nginx و SSL را برای شما مدیریت میکند.
     link: /fa/Deployment-Script
+  - icon: 🐳
+    title: آماده برای Docker
+    details: ایمیج های رسمی و آماده داکر به همراه پشتیبانی از Docker Compose برای استقرار سریع و آسان در هر سرور.
+    link: /fa/Installation-Docker
   - icon: 🛡️
     title: پنل مدیریت
     details: رابط مدیریتی جامع برای کاربران، چت‌ها، تنظیمات و عملیات سیستم.
@@ -29,6 +33,10 @@ features:
     title: قابل پیکربندی
     details: پورت‌ها، آپلودها، نگه‌داری فایل‌ها، push و موارد دیگر را از طریق متغیرهای محیطی یا رابط مدیریت تنظیم کنید.
     link: /fa/Environment-Variables
+  - icon: ☁️
+    title: ذخیره سازی ابری و Media Worker
+    details: ذخیره سازی ابری سازگار با S3، میکروسرویس ترنسکد و بهینه سازی رسانه با HTTP Push و توزیع CDN.
+    link: /fa/Object-Storage
   - icon: 📡
     title: Remote Channel
     details: کانال‌های Telegram یا کانال‌های Songbird دیگر را داخل کانال‌های خودتان mirror کنید.

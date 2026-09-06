@@ -3,16 +3,11 @@
   "model": "ag/gemini-3.6-flash-high",
   "small_model": "ag/gpt-oss-120b-medium",
   "formatter": true,
-  "instructions": [
-    ".kiro/steering/conventions.md",
-    ".kiro/steering/product.md",
-    ".kiro/steering/structure.md",
-    ".kiro/steering/tech.md",
-    ".kiro/steering/testing.md"
-  ],
+  "lsp": true,
   "server": {
     "port": 4096
   },
+  "plugin": [".opencode/plugins/graphify.js"],
   "mcp": {
     "github": {
       "type": "remote",
@@ -27,6 +22,15 @@
       "type": "local",
       "enabled": true,
       "command": ["{env:CODEBASE_MEMORY_MCP_PATH}"]
+    },
+    "render": {
+      "type": "local",
+      "command": ["npx", "-y", "@betterhunt/render-mcp-server"],
+      "enabled": true,
+      "environment": {
+        "RENDER_API_TOKEN": "{env:RENDER_API_KEY}",
+        "RENDER_API_KEY": "{env:RENDER_API_KEY}"
+      }
     }
   }
 }

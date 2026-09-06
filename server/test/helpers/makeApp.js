@@ -12,6 +12,8 @@ import bcrypt from "bcryptjs";
 import { registerApiRoutes } from "../../api/index.js";
 import { createSessionHelpers } from "../../lib/sessions.js";
 import { USER_COLORS } from "../../settings/colors.js";
+import { createStorageProvider } from "../../lib/storage/index.js";
+import { generateUuid } from "../../lib/uuidUtils.js";
 
 // ─── Minimal in-memory session store ─────────────────────────────────────────
 
@@ -34,11 +36,10 @@ export function makeSessionStore() {
 
 export function makeUserStore(initialUsers = []) {
   const users = new Map(initialUsers.map((u) => [u.username, u]));
-  let nextId = initialUsers.length + 1;
   return {
     users,
     createUser: (username, passwordHash, nickname, avatarUrl, color) => {
-      const id = nextId++;
+      const id = generateUuid();
       users.set(username, {
         id,
         username,
@@ -83,6 +84,8 @@ export function makeApp(overrides = {}) {
     return userStore.findUserById(record.userId) ?? null;
   };
 
+  const pendingUploadsStore = [];
+
   const deps = {
     // ── Settings ──────────────────────────────────────────────────────────────
     getSetting: (key) => {
@@ -91,6 +94,7 @@ export function makeApp(overrides = {}) {
         USERNAME_MAX_CHARS: 16,
         NICKNAME_MAX_CHARS: 24,
         FILE_UPLOAD: true,
+        FILE_UPLOAD_TRANSCODE_VIDEOS: true,
         MESSAGE_MAX_CHARS: 4000,
         CHAT_MESSAGE_FETCH_LIMIT: 60,
         CHAT_MESSAGE_PAGE_SIZE: 60,
@@ -104,6 +108,12 @@ export function makeApp(overrides = {}) {
     // ── Crypto / bcrypt ───────────────────────────────────────────────────────
     crypto,
     bcrypt,
+
+    // ── Debug logging (no-op unless APP_DEBUG is set) ─────────────────────────
+    debugLog: () => {},
+
+    // ── Push notifications ────────────────────────────────────────────────────
+    sendPushNotificationToUsers: async () => {},
 
     // ── User helpers ──────────────────────────────────────────────────────────
     USER_COLORS,
@@ -157,6 +167,12 @@ export function makeApp(overrides = {}) {
     emitChatEvent: () => {},
     broadcastAll: () => {},
     isUserConnected: () => false,
+    connectPresence: () => {},
+    disconnectPresence: () => {},
+    broadcastPresence: () => {},
+    isConnected: () => false,
+    getConnectedUsernames: () => [],
+    getOnlineCount: () => 0,
 
     // ── Upload stubs (multer instances — .single/.array called at route
     //    registration time, so they must return valid middleware) ───────────
@@ -165,9 +181,41 @@ export function makeApp(overrides = {}) {
     uploadRootDir: "/tmp/test-uploads",
     avatarUploadRootDir: "/tmp/test-avatars",
     removeUploadedFiles: () => {},
+    storageProvider: createStorageProvider({ STORAGE_DRIVER: "local" }),
+    storageProcessingMode: "auto",
+    webhookSecret: null,
+    workerUrl: null,
+    mediaWorkerUrl: null,
 
-    // ── Misc stubs expected by other routes ───────────────────────────────
-    debugLog: () => {},
+    removeStoredFileNames: () => {},
+    removeAllMessageUploads: () => {},
+    recordPendingPresignedUpload: ({ storageKey, userId, expiresAt }) => {
+      const rec = { storage_key: storageKey, user_id: userId, created_at: new Date().toISOString(), expires_at: expiresAt };
+      pendingUploadsStore.push(rec);
+      return rec;
+    },
+    removePendingPresignedUploads: (keys = []) => {
+      const keySet = new Set((Array.isArray(keys) ? keys : [keys]).map((k) => (typeof k === "string" ? k : k?.storageKey || k?.storage_key)));
+      for (let i = pendingUploadsStore.length - 1; i >= 0; i--) {
+        if (keySet.has(pendingUploadsStore[i].storage_key)) {
+          pendingUploadsStore.splice(i, 1);
+        }
+      }
+    },
+    listPendingPresignedUploads: () => pendingUploadsStore,
+    pruneOrphanRemoteObjects: async (options = {}) => {
+      const provider = options.storageProvider || deps.storageProvider;
+      const prunedKeys = [];
+      while (pendingUploadsStore.length > 0) {
+        const rec = pendingUploadsStore.pop();
+        if (provider && typeof provider.deleteFile === "function") {
+          await provider.deleteFile(rec.storage_key);
+        }
+        prunedKeys.push(rec.storage_key);
+      }
+      return { prunedCount: prunedKeys.length, prunedKeys };
+    },
+    isLoopbackRequest: () => false,
     chunkArray: (arr) => [arr],
     decodeOriginalFilename: (name) => name,
     computeExpiryIso: () => null,
@@ -184,8 +232,8 @@ export function makeApp(overrides = {}) {
     recordMessageReads: () => {},
     markMessagesRead: () => {},
     markMessageRead: () => {},
-    createMessage: () => 1,
-    createOrReuseMessage: () => ({ id: 1 }),
+    createMessage: () => generateUuid(),
+    createOrReuseMessage: () => ({ id: generateUuid() }),
     editMessage: () => {},
     createMessageFiles: () => [],
     hideMessageForEveryone: () => {},
@@ -206,7 +254,7 @@ export function makeApp(overrides = {}) {
     searchUsers: () => [],
     searchPublicGroups: () => [],
     searchPublicChannels: () => [],
-    createChat: () => 1,
+    createChat: () => generateUuid(),
     findChatById: () => null,
     findDmChat: () => null,
     findChatByInviteToken: () => null,
@@ -262,6 +310,7 @@ export function makeApp(overrides = {}) {
     adminGetAll: () => [],
     adminGetRow: () => null,
     adminRun: () => {},
+    adminTransaction: async (callback) => callback(async () => {}),
     adminSave: () => {},
     isUserAdmin: () => false,
     isUserOwner: () => false,
@@ -278,6 +327,13 @@ export function makeApp(overrides = {}) {
     reloadDatabase: () => {},
     adminClearAllMessages: () => {},
     adminResetDatabase: () => {},
+    dbConfig: { client: "sqlite3" },
+    postgresMaintenance: {
+      backup: async () => {},
+      restore: async () => {},
+      vacuum: async () => {},
+      dropDatabase: async () => {},
+    },
     // Avoid probing the host's service manager whenever an in-memory test app
     // registers admin routes. Production resolves this once during startup.
     getServiceControlStatus: () => ({ available: false, reason: "systemctl not available." }),
@@ -301,5 +357,5 @@ export function makeApp(overrides = {}) {
   };
 
   registerApiRoutes(app, deps);
-  return { app, sessionStore, userStore, deps };
+  return { app, sessionStore, userStore, deps, pendingUploadsStore };
 }

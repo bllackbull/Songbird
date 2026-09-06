@@ -22,6 +22,18 @@ nano .env
 | `CLIENT_PORT` | `integer` | `80` | Nginx listen port (what users connect to). |
 | `BIND_ADDRESS` | `string` | `localhost` | Network interface to bind to. Use `localhost` for VPS/private networks to avoid exposing backend when firewall is disabled; use `0.0.0.0` for Docker containers. |
 | `DATA_DIR` | `string` | `<project_root>/data` | Absolute path to the data directory (database, uploads, backups). Override this on cloud platforms (Railway, Render, Fly.io) to point at the platform's persistent volume mount. |
+| `DB_CLIENT` | `string` | `sqlite3` | Database driver client (`sqlite3` or `postgres`). |
+| `POSTGRES_HOST` | `string` | `127.0.0.1` | PostgreSQL database host. |
+| `POSTGRES_PORT` | `integer` | `5432` | PostgreSQL database port. |
+| `POSTGRES_USER` | `string` | `postgres` | PostgreSQL username. |
+| `POSTGRES_PASSWORD` | `string` | `postgres` | PostgreSQL password. |
+| `POSTGRES_DB` | `string` | `songbird` | PostgreSQL database name. |
+| `POSTGRES_URL` | `string` | `null` | Optional full PostgreSQL connection string URL. |
+| `POSTGRES_SSL` | `boolean` | `false` | Enable SSL for PostgreSQL connections. |
+| `NODE_EXTRA_CA_CERTS` | `string` | `""` | Absolute path to an additional trusted PEM CA certificate bundle or file (required for managed PostgreSQL databases with custom/self-signed CAs like Aiven or AWS RDS). |
+| `REDIS_HOST` | `string` | `""` | Optional Redis host. If set, Songbird uses Redis for BullMQ background job queues (media processing), session storage, and pub/sub instead of in-process fallback. |
+| `REDIS_PORT` | `integer` | `6379` | Optional Redis port. |
+| `REDIS_URL` | `string` | `""` | Optional Redis connection URL (e.g. `redis://user:pass@host:port`). |
 | `APP_ENV` | `string` | `production` | Server runtime mode (`production` recommended/default). |
 | `APP_DEBUG` | `boolean` | `false` | Enable verbose server debug logs in terminal/stdout (`[app-debug]` lines for message send/upload/transcode/metadata events). |
 | `SIGN_UP` | `boolean` | `true` | Allow new accounts to be created via the website (`/signup`). (`ACCOUNT_CREATION` is supported as a legacy fallback.) |
@@ -31,6 +43,24 @@ nano .env
 | `FILE_UPLOAD_MAX_TOTAL_SIZE_MB` | `integer` | `75` | Per-message total upload size cap (MB). (`FILE_UPLOAD_MAX_TOTAL_SIZE` is supported as a legacy fallback in bytes.) |
 | `FILE_UPLOAD_MAX_FILES` | `integer` | `10` | Max uploaded files in one message. |
 | `FILE_UPLOAD_TRANSCODE_VIDEOS` | `boolean` | `true` | Convert uploaded videos to H.264/AAC MP4 and keep only the converted file. Requires `ffmpeg`. |
+| `STORAGE_DRIVER` | `string` | `local` | Pluggable storage driver (`local` for local disk, `remote` for remote object storage). See [Object Storage](./Object-Storage.md). |
+| `STORAGE_ENDPOINT` | `string` | `""` | S3-compatible service URL (AWS S3, Cloudflare R2, MinIO, ArvanCloud, Wasabi, etc.). |
+| `STORAGE_BUCKET` | `string` | `""` | Storage bucket name. |
+| `STORAGE_REGION` | `string` | `auto` | Storage bucket region (e.g. `us-east-1`, `eu-central-1`). |
+| `STORAGE_ACCESS_KEY_ID` | `string` | `""` | Storage Access Key ID. |
+| `STORAGE_SECRET_ACCESS_KEY` | `string` | `""` | Storage Secret Access Key. |
+| `STORAGE_PUBLIC_URL` | `string` | `""` | Optional custom CDN domain URL prefix (e.g. `https://cdn.example.com`). |
+| `APP_PUBLIC_URL` | `string` | `""` | Public origin(s) of the app UI (comma-separated) allowed to upload straight to the bucket. Auto-detected when empty. |
+| `STORAGE_AUTO_CORS` | `boolean` | `false` | Configure bucket CORS for browser uploads automatically. |
+| `STORAGE_EXPIRES_IN` | `integer` | `3600` | Expiration time in seconds for presigned URLs. |
+| `STORAGE_FORCE_PATH_STYLE` | `boolean` | `true` | Enable path-style URL syntax (`true` recommended for MinIO, R2, ArvanCloud, etc.). |
+| `WORKER_URL` | `string` | `""` | External media processing worker base URL for HTTP push transcoding (e.g. `https://worker.example.com`). |
+| `WORKER_PORT` | `integer` | `8080` | Port for the standalone Media Worker service (`worker/`). Songbird uses this port to construct the default local Media Worker URL (`http://127.0.0.1:8080`) when `WORKER_URL` is omitted. |
+| `STORAGE_PROCESSING_MODE` | `string` | `auto` | Media processing workflow mode (`auto`, `local`, `remote`). |
+| `STORAGE_PROCESSING_TIMEOUT_MS` | `integer` | `120000` | Total retry timeout in milliseconds when dispatching transcode jobs to the remote worker before falling back to the local worker (in `auto` mode) or failing the dispatch (in `remote` mode). |
+| `WEBHOOK_SECRET` | `string` | *(Auto-generated)* | Secret token (`x-songbird-webhook-secret`) to authenticate dispatch and callback requests between Songbird and the Media Worker. |
+| `WEBHOOK_URL` | `string` | `""` | Songbird public webhook callback URL sent to external workers (e.g. `https://songbird.example.com/api/uploads/webhook/processed`). |
+| `STORAGE_ENCRYPTION_MODE` | `string` | `remote` | Storage encryption strategy (`remote` for provider-side SSE-S3, `local` for application-level encryption). |
 | `MESSAGE_FILE_RETENTION` | `integer` | `7` | Auto-delete uploaded message files after N days (`0` disables). |
 | `MESSAGE_TEXT_RETENTION` | `integer` | `0` | Auto-delete text-only messages after N days (`0` disables). |
 | `MESSAGE_MAX_CHARS` | `integer` | `4000` | Max message length. |
@@ -57,20 +87,20 @@ nano .env
 | `CHAT_MESSAGE_FETCH_LIMIT` | `integer` | `60` | Max messages requested per chat fetch (initial/latest window). |
 | `CHAT_MESSAGE_PAGE_SIZE` | `integer` | `60` | Page size for loading older messages when scrolling to top. |
 | `CHAT_LIST_REFRESH_INTERVAL` | `integer` | `20000` | Chats list background refresh interval (milliseconds). |
-| `CHAT_PRESENCE_PING_INTERVAL` | `integer` | `5000` | Presence heartbeat interval (milliseconds). |
-| `CHAT_PEER_PRESENCE_POLL_INTERVAL` | `integer` | `3000` | Active peer presence poll interval (milliseconds). |
 | `CHAT_HEALTH_CHECK_INTERVAL` | `integer` | `10000` | Connection health check interval (milliseconds). |
 | `CHAT_SSE_RECONNECT_DELAY` | `integer` | `2000` | Delay before reconnecting SSE after error (milliseconds). |
+| `WS_HEARTBEAT_INTERVAL_MS` | `integer` | `30000` | Frequency of WebSocket heartbeat ping frames sent to clients. |
+| `WS_HEARTBEAT_TIMEOUT_MS` | `integer` | `10000` | Grace period before terminating un-responsive WebSocket clients. |
 | `CHAT_SEARCH_MAX_RESULTS` | `integer` | `5` | Max users shown in search results. |
 | `CHAT_VOICE_WAVEFORM_MAX_DECODE_MB` | `integer` | `5` | Max audio file size (MB) allowed for client-side waveform decode. (`CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES` is supported as a legacy fallback in bytes.) |
 | `CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS` | `integer` | `480` | Max audio duration (seconds) allowed for client-side waveform decode. |
 | `NICKNAME_MAX_CHARS` | `integer` | `24` | Max nickname length for users and groups. (`NICKNAME_MAX` is supported as a legacy fallback.) |
 | `USERNAME_MAX_CHARS` | `integer` | `16` | Max username length for users and groups. (`USERNAME_MAX` is supported as a legacy fallback.) |
-| `STORAGE_ENCRYPTION_KEY` | `string` | auto-generated | Persistent encryption-at-rest key. Changing this value without first decrypting old data will make previously encrypted content unreadable. |
-| `ADMIN_API_TOKEN` | `string` | auto-generated | Authentication token for local admin API endpoints. |
-| `VAPID_PUBLIC_KEY` | `string` | auto-generated | Web Push public key (required for push notifications). |
-| `VAPID_PRIVATE_KEY` | `string` | auto-generated | Web Push private key (required for push notifications). |
-| `VAPID_SUBJECT` | `string` | auto-generated | Contact for VAPID (email or URL). Used by push providers. |
+| `STORAGE_ENCRYPTION_KEY` | `string` | *(Auto-generated)* | Persistent encryption-at-rest key. Changing this value without first decrypting old data will make previously encrypted content unreadable. |
+| `ADMIN_API_TOKEN` | `string` | *(Auto-generated)* | Authentication token for local admin API endpoints. |
+| `VAPID_PUBLIC_KEY` | `string` | *(Auto-generated)* | Web Push public key (required for push notifications). |
+| `VAPID_PRIVATE_KEY` | `string` | *(Auto-generated)* | Web Push private key (required for push notifications). |
+| `VAPID_SUBJECT` | `string` | *(Auto-generated)* | Contact for VAPID (email or URL). Used by push providers. |
 | `PUSH_PROXY_URL` | `string` | `""` | Proxy URL for push notification delivery. Use when your server cannot directly reach push service endpoints. |
 
 :::info

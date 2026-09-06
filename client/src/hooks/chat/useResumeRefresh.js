@@ -58,8 +58,8 @@ export function useResumeRefresh({
       showUpdating: true,
       preserveActiveUnread: true,
     });
-    const activeId = Number(activeChatIdRef.current || 0);
-    if (activeId > 0) {
+    const activeId = activeChatIdRef.current || null;
+    if (activeId) {
       scheduleMessageRefreshRef.current?.(activeId, {
         delayMs: 120,
         preserveHistory: true,
