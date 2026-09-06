@@ -3522,17 +3522,75 @@ edit_settings() {
   press_enter_to_continue
 }
 
+# Print PIDs listening on a TCP port (empty when free). Requires ss.
+pids_listening_on_port() {
+  local port="$1"
+  run_as_root ss -ltnp "sport = :${port}" 2>/dev/null \
+    | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u || true
+}
+
+# Ensure nothing still holds a service port.
+free_service_port() {
+  local port="$1"
+  if [[ ! "$port" =~ ^[0-9]+$ ]]; then
+    warn "Skipping port cleanup for invalid port value: ${port:-<empty>}."
+    return 0
+  fi
+
+  if ! have_cmd ss; then
+    warn "ss not available; cannot verify port ${port} is free."
+    return 0
+  fi
+
+  local pids=""
+  pids="$(pids_listening_on_port "$port")"
+
+  if [[ -z "${pids//[[:space:]]/}" ]]; then
+    return 0
+  fi
+
+  local summary=""
+  summary="$(run_as_root ps -o pid=,comm=,args= -p $(printf "%s" "$pids" | tr '\n' ',' | sed 's/,$//') 2>/dev/null | tr '\n' ';' || true)"
+  
+  log "Port ${port} still in use (${summary:-PIDs: $pids}); terminating..."
+  run_as_root kill $pids 2>/dev/null || true
+  sleep 2
+
+  local remaining=""
+  remaining="$(pids_listening_on_port "$port")"
+
+  if [[ -n "${remaining//[[:space:]]/}" ]]; then
+    warn "Port ${port} still held after SIGTERM (${remaining}); escalating to SIGKILL."
+    run_as_root kill -9 $remaining 2>/dev/null || true
+    sleep 1
+    remaining="$(pids_listening_on_port "$port")"
+  fi
+
+  if [[ -n "${remaining//[[:space:]]/}" ]]; then
+    warn "Port ${port} is still occupied (${remaining}) after SIGKILL. Reboot or investigate manually."
+    return 1
+  fi
+  
+  log "Port ${port} is free."
+  return 0
+}
+
 remove_songbird() {
   if [[ ! -d "$INSTALL_DIR" ]]; then
     warn "No install found at ${INSTALL_DIR}."
     press_enter_to_continue
     return 0
   fi
-  
+
   if [[ "$(prompt_yes_no "This will remove Songbird from this server. Continue?" "no")" != "yes" ]]; then
     log "Removal canceled."
     return 0
   fi
+
+  # Capture ports for later.
+  local server_port worker_port
+  server_port="$(get_existing_env_value "SERVER_PORT" "$DEFAULT_SERVER_PORT")"
+  worker_port="$(get_existing_env_value "WORKER_PORT" "$DEFAULT_WORKER_PORT")"
 
   if run_as_root systemctl list-unit-files | grep -q "^songbird.service"; then
     run_as_root systemctl disable --now songbird.service || true
@@ -3546,6 +3604,9 @@ remove_songbird() {
   run_as_root rm -f "$SERVICE_FILE" "$WORKER_SERVICE_FILE"
   run_as_root rm -f "$LEGO_RENEW_SERVICE_FILE" "$LEGO_RENEW_TIMER_FILE"
   run_as_root systemctl daemon-reload
+
+  free_service_port "$server_port" || true
+  free_service_port "$worker_port" || true
 
   run_as_root rm -f "$NGINX_ENABLED_FILE"
   run_as_root rm -f "$NGINX_SITE_FILE"
