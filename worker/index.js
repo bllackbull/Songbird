@@ -6,7 +6,7 @@ import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { pipeline } from "node:stream/promises";
 import { createStorage } from "./storage.js";
-import { decryptFileToTempPath, encryptBuffer } from "./encryption.js";
+import { decryptFileToTempPath, encryptBuffer, isEncryptedFileBuffer } from "./encryption.js";
 import {
   transcodeVideo,
   probeVideoMetadata,
@@ -113,6 +113,29 @@ export const isMissingKeyError = (err) => {
     return true;
   }
   return err?.$metadata?.httpStatusCode === 404;
+};
+
+/**
+ * Sniff the SBENC1 magic header directly from disk. The server is supposed
+ * to send the right encryptionType flag, but records written before the
+ * flag was recorded correctly (encryption_type='none' with ciphertext on
+ * disk) would otherwise make the worker ffprobe ciphertext and fail with
+ * "moov atom not found". Disk truth wins over the flag.
+ */
+export const hasEncryptedMagic = (filePath) => {
+  try {
+    if (!filePath || !fs.existsSync(filePath)) return false;
+    const fd = fs.openSync(filePath, "r");
+    try {
+      const header = Buffer.alloc(64);
+      const bytesRead = fs.readSync(fd, header, 0, header.length, 0);
+      return isEncryptedFileBuffer(header.subarray(0, bytesRead));
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return false;
+  }
 };
 
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -252,7 +275,7 @@ async function processTranscodeJob({
 
     let workingInputPath = inputPath;
     let decryptCleanup = () => {};
-    if (isEncrypted) {
+    if (isEncrypted || hasEncryptedMagic(inputPath)) {
       const decrypted = decryptFileToTempPath(
         inputPath,
         storedName || "video.mp4",

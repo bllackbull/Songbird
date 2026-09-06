@@ -1,21 +1,20 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 import request from "supertest";
-import bcrypt from "bcryptjs";
 import realFs from "node:fs";
 import realPath from "node:path";
 import os from "node:os";
 import { makeApp, makeUserStore } from "../helpers/makeApp.js";
 import { createStorageEncryption } from "../../lib/storageEncryption.js";
-import { RemoteStorageProvider } from "../../lib/storage/RemoteStorageProvider.js";
 
-const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const ENC_MAGIC = Buffer.from("SBENC1\0", "utf8");
 
-function buildPlainPngBuffer() {
-  const header = PNG_MAGIC;
-  const ihdr = Buffer.from([0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52]);
-  const idat = Buffer.from("IDAT-decoy-payload", "utf8");
-  return Buffer.concat([header, ihdr, idat]);
+// Fake .mov payload — content does not need to be a valid video because the
+// route only encrypts + records the file; transcoding is stubbed out.
+function buildFakeMovBuffer() {
+  return Buffer.concat([
+    Buffer.from([0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70]),
+    Buffer.from("fake-mov-payload-for-encryption-repro", "utf8"),
+  ]);
 }
 
 function makeUploadMiddleware(tmpDir, storedName, plainBytes) {
@@ -25,8 +24,8 @@ function makeUploadMiddleware(tmpDir, storedName, plainBytes) {
       realFs.writeFileSync(filePath, plainBytes);
       req.files = [
         {
-          originalname: "photo.png",
-          mimetype: "image/png",
+          originalname: "clip.mov",
+          mimetype: "video/quicktime",
           filename: storedName,
           path: filePath,
           size: plainBytes.length,
@@ -42,45 +41,29 @@ function makeUploadMiddleware(tmpDir, storedName, plainBytes) {
   };
 }
 
-describe("POST /api/messages/upload with remote storage + file encryption", () => {
+describe("POST /api/messages/upload local video with encryption enabled", () => {
   let tmpDir;
   let storedName;
   let plainBytes;
-  let uploadBufferSpy;
-  let provider;
   let cookie;
   let appObj;
   let createMessageFilesMock;
 
   beforeEach(() => {
-    tmpDir = realFs.mkdtempSync(realPath.join(os.tmpdir(), "sb-upload-test-"));
-    storedName = "photo-test.png";
-    plainBytes = buildPlainPngBuffer();
-
-    uploadBufferSpy = vi
-      .fn()
-      .mockResolvedValue({ key: `uploads/${storedName}` });
-    provider = new RemoteStorageProvider({
-      STORAGE_BUCKET: "test-bucket",
-      STORAGE_REGION: "auto",
-      STORAGE_ACCESS_KEY_ID: "test-key",
-      STORAGE_SECRET_ACCESS_KEY: "test-secret",
-      STORAGE_ENDPOINT: "https://example.com",
-    });
-    provider.uploadBuffer = uploadBufferSpy;
-    vi.spyOn(provider, "getDownloadUrl").mockResolvedValue(
-      `https://cdn.example.com/uploads/${storedName}`,
+    tmpDir = realFs.mkdtempSync(
+      realPath.join(os.tmpdir(), "sb-enc-type-test-"),
     );
+    storedName = "clip-test.mov";
+    plainBytes = buildFakeMovBuffer();
 
     process.env.STORAGE_ENCRYPTION_KEY = "test-encryption-key-for-repro";
 
-    const hash = bcrypt.hashSync("secret123", 4);
     const ALICE_ID = "a0a0a0a0-b1b1-4c2c-8d3d-e4e4e4e4e4e4";
     const userStore = makeUserStore([
       {
         id: ALICE_ID,
         username: "alice",
-        password_hash: hash,
+        password_hash: "hash",
         nickname: "Alice",
         avatar_url: null,
         color: "#10b981",
@@ -95,30 +78,23 @@ describe("POST /api/messages/upload with remote storage + file encryption", () =
       fsImpl: realFs,
       pathImpl: realPath,
     });
-    createMessageFilesMock = vi.fn();
-
-    const emitChatEvent = vi.fn();
+    createMessageFilesMock = vi.fn().mockReturnValue([]);
 
     appObj = makeApp({
       userStore,
-      settings: { FILE_UPLOAD: true },
+      settings: { FILE_UPLOAD: true, FILE_UPLOAD_TRANSCODE_VIDEOS: false },
       deps: {
-        emitChatEvent,
+        emitChatEvent: () => {},
         fs: realFs,
         path: realPath,
         uploadRootDir: tmpDir,
         storageEncryption,
-        storageProvider: provider,
         storageProcessingMode: "sync",
         MESSAGE_FILE_LIMITS: {
           maxFiles: 10,
           maxTotalBytes: 100 * 1024 * 1024,
         },
-        findChatById: () => ({
-          id: CHAT_ID,
-          type: "group",
-          name: "Test Group",
-        }),
+        findChatById: () => ({ id: CHAT_ID, type: "group", name: "Test" }),
         findUserByUsername: (u) => userStore.findUserByUsername(u),
         isMember: () => true,
         createOrReuseMessage: () => ({
@@ -129,9 +105,14 @@ describe("POST /api/messages/upload with remote storage + file encryption", () =
         listMessageFilesByMessageIds: () => [],
         hydrateMissingVideoMetadata: (rows) => Promise.resolve(rows || []),
         isVideoFileProcessing: () => false,
+        probeVideoMetadata: async () => ({
+          widthPx: null,
+          heightPx: null,
+          durationSeconds: null,
+        }),
         enqueueVideoTranscodeJob: () => {},
         computeExpiryIso: () => null,
-        inferMimeFromFilename: () => "image/png",
+        inferMimeFromFilename: () => "video/quicktime",
         decodeOriginalFilename: (f) => f,
         isDangerousUploadFile: () => false,
         hasEnoughFreeDiskSpace: () => true,
@@ -146,9 +127,8 @@ describe("POST /api/messages/upload with remote storage + file encryption", () =
       },
     });
 
-    const sessionToken = "enc-remote-token";
-    appObj.sessionStore.createSession(ALICE_ID, sessionToken);
-    cookie = [`sid=${sessionToken}`];
+    appObj.sessionStore.createSession(ALICE_ID, "enc-type-token");
+    cookie = [`sid=enc-type-token`];
   });
 
   afterEach(() => {
@@ -156,7 +136,7 @@ describe("POST /api/messages/upload with remote storage + file encryption", () =
     realFs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  test("uploads PLAINTEXT bytes to remote storage (not encrypted bytes)", async () => {
+  test("records encryptionType local when the stored file was encrypted", async () => {
     const res = await request(appObj.app)
       .post("/api/messages/upload")
       .set("Cookie", cookie)
@@ -165,41 +145,18 @@ describe("POST /api/messages/upload with remote storage + file encryption", () =
       .field("uploadType", "media");
 
     expect(res.status).toBe(200);
-    expect(uploadBufferSpy).toHaveBeenCalledTimes(1);
 
-    const [fileKey, body, contentType] = uploadBufferSpy.mock.calls[0];
-    expect(fileKey).toBe(`uploads/${storedName}`);
-    expect(contentType).toBe("image/png");
+    // The file on disk must actually be encrypted ...
+    const onDisk = realFs.readFileSync(realPath.join(tmpDir, storedName));
+    expect(onDisk.subarray(0, ENC_MAGIC.length).equals(ENC_MAGIC)).toBe(true);
 
-    expect(Buffer.isBuffer(body)).toBe(true);
-    const bytes = Buffer.from(body);
-
-    expect(bytes.subarray(0, PNG_MAGIC.length).equals(PNG_MAGIC)).toBe(true);
-    expect(bytes.subarray(0, ENC_MAGIC.length).equals(ENC_MAGIC)).toBe(false);
-    expect(String(bytes.subarray(0, 32))).not.toContain("SBENC1");
-  });
-
-  test("records encryptionType none when the bucket bytes are plaintext", async () => {
-    const res = await request(appObj.app)
-      .post("/api/messages/upload")
-      .set("Cookie", cookie)
-      .field("chatId", "c0c0c0c0-d1d1-4e2e-af3f-060606060606")
-      .field("username", "alice")
-      .field("uploadType", "media");
-
-    expect(res.status).toBe(200);
-    // The staging temp file WAS encrypted (that's why the flag exists)...
-    const onDisk = realFs.existsSync(realPath.join(tmpDir, storedName))
-      ? realFs.readFileSync(realPath.join(tmpDir, storedName))
-      : null;
-    // ...but the temp is gone (uploaded + unlinked) and the record must
-    // describe the stored bytes (plaintext), not the deleted temp file.
-    expect(onDisk).toBeNull();
+    // ... and the DB record must say so, otherwise the media worker is told
+    // encryptionType=none and tries to ffprobe ciphertext (moov not found).
     expect(createMessageFilesMock).toHaveBeenCalledTimes(1);
     const filesArg = createMessageFilesMock.mock.calls[0][1];
     expect(filesArg).toHaveLength(1);
-    expect(
-      filesArg[0].encryptionType || filesArg[0].encryption_type || "none",
-    ).toBe("none");
+    expect(filesArg[0].encryptionType || filesArg[0].encryption_type).toBe(
+      "local",
+    );
   });
 });

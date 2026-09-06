@@ -6,6 +6,7 @@ import { ProxyAgent } from "undici";
 import { getSetting } from "./appSettings.js";
 
 import { isValidUuid } from "./uuidUtils.js";
+import { markEncryptedFileRecord } from "./storageEncryption.js";
 
 // ─── Songbird outbound proxy ──────────────────────────────────────────────────
 // Applied per-fetch-call (no persistent connection to bake it into), so this
@@ -1997,6 +1998,8 @@ export function createRemoteChannelManager(deps = {}) {
       }
 
       storageEncryption?.encryptFileInPlace?.(filePath);
+      // Keep the DB record in sync with the bytes on disk.
+      markEncryptedFileRecord(storageEncryption, filePath, normalized);
       return { file: normalized, filePath };
     } catch (error) {
       safeUnlink(filePath);

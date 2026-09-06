@@ -3,6 +3,7 @@ import { validateUuidParams, validateUuidBody } from "../lib/uuidMiddleware.js";
 import { createMessagePublicationService } from "../lib/services/messagePublicationService.js";
 import { dispatchMediaWorkerJob } from "../lib/mediaWorker.js";
 import { resolveWebhookCallbackUrl } from "../lib/webhookUrl.js";
+import { markEncryptedFileRecord } from "../lib/storageEncryption.js";
 import { readEnvBool } from "../settings/env.js";
 
 function registerMessageRoutes(app, deps) {
@@ -1234,7 +1235,14 @@ function registerMessageRoutes(app, deps) {
 
           const inputPath = path.join(uploadRootDir, storedName);
           if (fs.existsSync && fs.existsSync(inputPath)) {
-            storageEncryption.encryptFileInPlace(inputPath);
+            if (
+              storageEncryption &&
+              typeof storageEncryption.encryptFileInPlace === "function"
+            ) {
+              storageEncryption.encryptFileInPlace(inputPath);
+            }
+            // The DB record must reflect the bytes on disk.
+            markEncryptedFileRecord(storageEncryption, inputPath, file);
           }
         });
 
@@ -1310,6 +1318,8 @@ function registerMessageRoutes(app, deps) {
               );
               norm.storageDriver = deps.storageProvider.type || "s3";
               norm.storageKey = fileKey;
+              norm.encryptionType = "none";
+              norm.encryption_type = "none";
               await fs.promises.unlink(file.path).catch(() => {});
             }),
           );

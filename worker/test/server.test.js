@@ -1,6 +1,9 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import request from "supertest";
-import { createWorkerServer, isLoopbackUrl } from "../index.js";
+import { createWorkerServer, isLoopbackUrl, hasEncryptedMagic } from "../index.js";
 
 describe("Media Worker HTTP Server", () => {
   it("GET /health returns 200 OK with worker status and queue metrics", async () => {
@@ -78,6 +81,36 @@ describe("Media Worker HTTP Server", () => {
       expect(isLoopbackUrl("https://api.example.com/webhook")).toBe(false);
       expect(isLoopbackUrl(null)).toBe(false);
       expect(isLoopbackUrl("not-a-valid-url")).toBe(false);
+    });
+  });
+
+  describe("hasEncryptedMagic", () => {
+    let tmpDir;
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sb-magic-test-"));
+    });
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("detects SBENC1-prefixed ciphertext regardless of the flag", () => {
+      const p = path.join(tmpDir, "enc.mov");
+      fs.writeFileSync(
+        p,
+        Buffer.concat([Buffer.from("SBENC1\0", "utf8"), Buffer.alloc(64, 1)]),
+      );
+      expect(hasEncryptedMagic(p)).toBe(true);
+    });
+
+    it("returns false for plain video bytes and missing files", () => {
+      const plain = path.join(tmpDir, "plain.mov");
+      fs.writeFileSync(
+        plain,
+        Buffer.from([0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70]),
+      );
+      expect(hasEncryptedMagic(plain)).toBe(false);
+      expect(hasEncryptedMagic(path.join(tmpDir, "nope.mov"))).toBe(false);
+      expect(hasEncryptedMagic(null)).toBe(false);
     });
   });
 });

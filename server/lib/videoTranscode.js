@@ -283,6 +283,7 @@ export function createVideoTranscodeManager({
 
     const status = row?.processing_status || row?.processingStatus;
     if (status === "ready") return false;
+    if (status === "failed") return false;
     if (status === "pending") return true;
 
     const storageKey = String(

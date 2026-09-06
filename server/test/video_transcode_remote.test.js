@@ -79,6 +79,26 @@ describe("Video Transcode Manager - Unified Worker Dispatch & Processing Checks"
         processing_status: "pending",
       }),
     ).toBe(true);
+
+    // 6. Failed transcode is terminal and must NOT be processing, otherwise
+    // the UI spins forever (both naming conventions, both drivers).
+    expect(
+      manager.isVideoFileProcessing({
+        mime_type: "video/mp4",
+        stored_name: "raw.mp4",
+        storage_driver: "remote",
+        storage_key: "uploads/123-foo.mp4",
+        processing_status: "failed",
+      }),
+    ).toBe(false);
+    expect(
+      manager.isVideoFileProcessing({
+        mimeType: "video/mp4",
+        storedName: "raw.mp4",
+        storageDriver: "local",
+        processingStatus: "failed",
+      }),
+    ).toBe(false);
   });
 
   it("dispatches HTTP transcode job to mediaWorkerUrl upon enqueueVideoTranscodeJob", async () => {

@@ -666,6 +666,14 @@ async function backfillStorageEncryption() {
 
       if (storageEncryption.encryptFileInPlace(filePath)) {
         encryptedFiles += 1;
+        // Keep the record in sync with the bytes.
+        try {
+          adminRun(
+            dbKnex("chat_message_files")
+              .where({ id: row.id })
+              .update({ encryption_type: "local" }),
+          );
+        } catch {}
       }
     });
 

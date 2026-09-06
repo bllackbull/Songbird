@@ -402,6 +402,9 @@ export function registerRemoteUploadRoutes(app, deps) {
     if (expectedSecret) {
       const headerSecret = req.headers["x-songbird-webhook-secret"];
       if (headerSecret !== expectedSecret) {
+        console.warn(
+          `[uploads] Rejected webhook for file ${req.body?.fileId ?? "unknown"}: invalid webhook secret.`,
+        );
         return res.status(401).json({ error: "Unauthorized webhook request." });
       }
     }
@@ -418,6 +421,9 @@ export function registerRemoteUploadRoutes(app, deps) {
     if (!fileId) {
       return res.status(400).json({ error: "fileId is required." });
     }
+    console.log(
+      `[uploads] Webhook received for file ${fileId} (status=${status || "ready"}).`,
+    );
 
     let file = null;
     if (typeof findMessageFileById === "function") {
@@ -430,6 +436,7 @@ export function registerRemoteUploadRoutes(app, deps) {
     }
 
     if (!file) {
+      console.warn(`[uploads] Webhook for unknown file ${fileId}: ignored.`);
       return res.status(404).json({ error: "File not found." });
     }
 
@@ -574,6 +581,11 @@ export function registerRemoteUploadRoutes(app, deps) {
       });
     }
 
+    console.log(
+      `[uploads] Webhook processed file ${fileId}: status=${finalStatus}` +
+        (transcodedStorageKey ? ` storageKey=${transcodedStorageKey}` : "") +
+        (thumbStorageKey ? ` thumb=${thumbStorageKey}` : ""),
+    );
     return res.json({ success: true });
   });
 

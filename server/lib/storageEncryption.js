@@ -263,8 +263,52 @@ function createStorageEncryption({
 
 const storageEncryption = createStorageEncryption();
 
+/**
+ * Reflect on-disk truth onto a message-file record after an
+ * encrypt-in-place attempt. DB inserts default a missing flag to "none",
+ * which desyncs the record whenever the bytes on disk actually are
+ * ciphertext — the media worker then probes ciphertext and fails with
+ * errors like "moov atom not found". Sniffing disk state (rather than
+ * assuming the encrypt outcome) keeps the record honest.
+ *
+ * @param {object|null} storageEncryptionLike - storageEncryption instance (or stub)
+ * @param {string} filePath - path of the stored file
+ * @param {object|null} fileObj - message-file record about to be inserted
+ * @returns {boolean} whether the record was marked as locally encrypted
+ */
+function markEncryptedFileRecord(storageEncryptionLike, filePath, fileObj) {
+  let encrypted = false;
+  try {
+    if (
+      storageEncryptionLike &&
+      typeof storageEncryptionLike.isEncryptedFilePath === "function"
+    ) {
+      encrypted =
+        storageEncryptionLike.isEncryptedFilePath(filePath) === true;
+    } else if (
+      storageEncryptionLike &&
+      typeof storageEncryptionLike.hasKey === "function"
+    ) {
+      encrypted = Boolean(storageEncryptionLike.hasKey());
+    } else if (
+      storageEncryptionLike &&
+      typeof storageEncryptionLike.isEnabled === "function"
+    ) {
+      encrypted = Boolean(storageEncryptionLike.isEnabled());
+    }
+  } catch {
+    encrypted = false;
+  }
+  if (encrypted && fileObj && typeof fileObj === "object") {
+    fileObj.encryptionType = "local";
+    fileObj.encryption_type = "local";
+  }
+  return encrypted;
+}
+
 export {
   createStorageEncryption,
   ensureStorageEncryptionKey,
+  markEncryptedFileRecord,
   storageEncryption,
 };
