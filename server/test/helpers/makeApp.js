@@ -278,6 +278,7 @@ export function makeApp(overrides = {}) {
     hideChatsForUser: () => {},
     unhideChat: () => {},
     ensureSavedChatForUser: () => {},
+    removeAvatarByUrl: () => {},
     getTotalUnreadCount: () => 0,
     listMutedUserIdsForChat: () => [],
     upsertPushSubscription: () => {},

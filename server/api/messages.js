@@ -124,6 +124,9 @@ function registerMessageRoutes(app, deps) {
     setMessageForwardOrigin,
   });
 
+  const resolveMaybePromise = async (value) =>
+    value && typeof value.then === "function" ? await value : value;
+
   const computeTextExpiryIso = (createdAt) => {
     const textRetentionDays = Number(getSetting("MESSAGE_TEXT_RETENTION") || 0);
     if (textRetentionDays <= 0) return null;
@@ -865,7 +868,7 @@ function registerMessageRoutes(app, deps) {
           });
         }
         if (replyToMessageId) {
-          const replyTarget = findMessageById(replyToMessageId);
+          const replyTarget = await resolveMaybePromise(findMessageById(replyToMessageId));
           if (!replyTarget || replyTarget.chat_id !== chatId) {
             removeUploadedFiles(uploadedFiles);
             return res
@@ -875,7 +878,7 @@ function registerMessageRoutes(app, deps) {
         }
         let editTarget = null;
         if (editMessageId) {
-          editTarget = findMessageById(editMessageId);
+          editTarget = await resolveMaybePromise(findMessageById(editMessageId));
           if (!editTarget || editTarget.chat_id !== chatId) {
             removeUploadedFiles(uploadedFiles);
             return res.status(400).json({
@@ -1614,7 +1617,7 @@ function registerMessageRoutes(app, deps) {
               const rawMuted = listMutedUserIdsForChat(chatId);
               const mutedRows = (rawMuted && typeof rawMuted.then === "function" ? await rawMuted : rawMuted) || [];
               const mutedIds = new Set(
-                mutedRows.map((row) => row?.user_id).filter(Boolean),
+                mutedRows.map((row) => row?.user_id || row).filter(Boolean),
               );
               const recipientIds = members
                 .filter((member) => member.id !== user.id)

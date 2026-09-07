@@ -1695,7 +1695,7 @@ export function createRemoteChannelManager(deps = {}) {
       const members = (await resolveMaybePromise(listChatMembers(chat.id))) || [];
       const mutedRows = (await resolveMaybePromise(listMutedUserIdsForChat(chat.id))) || [];
       const mutedIds = new Set(
-        mutedRows.map((row) => row?.user_id).filter(Boolean),
+        mutedRows.map((row) => row?.user_id || row).filter(Boolean),
       );
       const recipientIds = members
         .map((member) => member?.id)

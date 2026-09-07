@@ -721,7 +721,7 @@ function registerChatRoutes(app, deps) {
 
     emitChatListChangedToChatParticipants(chatId);
 
-    const createdChat = findChatById(chatId);
+    const createdChat = await resolveMaybePromise(findChatById(chatId));
     const baseOrigin = resolveClientBaseOrigin(req);
     const inviteLink = buildGroupInviteLink(baseOrigin, createdChat, inviteToken);
     return res.json({
@@ -854,7 +854,7 @@ function registerChatRoutes(app, deps) {
       return res.status(400).json({ error: "Channel username is required." });
     }
 
-    const chat = findChatByGroupUsername(username);
+    const chat = await resolveMaybePromise(findChatByGroupUsername(username));
     if (
       !chat ||
       String(chat.type || "").toLowerCase() !== "channel" ||
@@ -885,7 +885,7 @@ function registerChatRoutes(app, deps) {
       return res.status(400).json({ error: "Channel username is required." });
     }
 
-    const chat = findChatByGroupUsername(username);
+    const chat = await resolveMaybePromise(findChatByGroupUsername(username));
     if (
       !chat ||
       String(chat.type || "").toLowerCase() !== "channel" ||
@@ -1435,17 +1435,18 @@ function registerChatRoutes(app, deps) {
           .json({ error: "Avatar must be a JPEG, PNG, GIF, WEBP, or BMP image." });
       }
 
-      const chat = findChatById(chatId);
+      const chat = await resolveMaybePromise(findChatById(chatId));
       if (!chat || (chat.type !== "group" && chat.type !== "channel")) {
         removeUploadedFiles([file], avatarUploadRootDir);
         return res.status(404).json({ error: "Chat not found." });
       }
-      const user = findUserByUsername(String(username || "").toLowerCase());
+      const user = await resolveMaybePromise(findUserByUsername(String(username || "").toLowerCase()));
       if (!user) {
         removeUploadedFiles([file], avatarUploadRootDir);
         return res.status(404).json({ error: "User not found." });
       }
-      const members = listChatMembers(chatId);
+      const rawMembers = listChatMembers(chatId);
+      const members = (rawMembers && typeof rawMembers.then === "function" ? await rawMembers : rawMembers) || [];
       const label = chat.type === "channel" ? "channel" : "group";
       const isOwner = members.some(
         (member) =>
@@ -1474,13 +1475,15 @@ function registerChatRoutes(app, deps) {
       }
 
       const updateFn = chat.type === "channel" ? updateChannelChat : updateGroupChat;
-      updateFn(chatId, {
-        name: chat.name,
-        groupUsername: chat.group_username,
-        groupVisibility: chat.group_visibility,
-        allowMemberInvites: Boolean(Number(chat.allow_member_invites || 0)),
-        groupAvatarUrl: avatarUrl,
-      });
+      await resolveMaybePromise(
+        updateFn(chatId, {
+          name: chat.name,
+          groupUsername: chat.group_username,
+          groupVisibility: chat.group_visibility,
+          allowMemberInvites: Boolean(Number(chat.allow_member_invites || 0)),
+          groupAvatarUrl: avatarUrl,
+        }),
+      );
       emitChatListChangedToChatParticipants(chatId);
 
       return res.json({
@@ -1504,15 +1507,16 @@ function registerChatRoutes(app, deps) {
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
-    const chat = findChatById(chatId);
+    const chat = await resolveMaybePromise(findChatById(chatId));
     if (!chat || (chat.type !== "group" && chat.type !== "channel")) {
       return res.status(404).json({ error: "Chat not found." });
     }
-    const user = findUserByUsername(String(username || "").toLowerCase());
+    const user = await resolveMaybePromise(findUserByUsername(String(username || "").toLowerCase()));
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
-    const members = listChatMembers(chatId);
+    const rawMembers = listChatMembers(chatId);
+    const members = (rawMembers && typeof rawMembers.then === "function" ? await rawMembers : rawMembers) || [];
     const label = chat.type === "channel" ? "channel" : "group";
     const isOwner = members.some(
       (member) =>
@@ -1529,13 +1533,15 @@ function registerChatRoutes(app, deps) {
       removeAvatarByUrl(chat.group_avatar_url);
     }
     const updateFn = chat.type === "channel" ? updateChannelChat : updateGroupChat;
-    updateFn(chatId, {
-      name: chat.name,
-      groupUsername: chat.group_username,
-      groupVisibility: chat.group_visibility,
-      allowMemberInvites: Boolean(Number(chat.allow_member_invites || 0)),
-      groupAvatarUrl: null,
-    });
+    await resolveMaybePromise(
+      updateFn(chatId, {
+        name: chat.name,
+        groupUsername: chat.group_username,
+        groupVisibility: chat.group_visibility,
+        allowMemberInvites: Boolean(Number(chat.allow_member_invites || 0)),
+        groupAvatarUrl: null,
+      }),
+    );
     emitChatListChangedToChatParticipants(chatId);
 
     return res.json({
@@ -1556,20 +1562,20 @@ function registerChatRoutes(app, deps) {
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
-    const user = findUserByUsername(String(username || "").toLowerCase());
+    const user = await resolveMaybePromise(findUserByUsername(String(username || "").toLowerCase()));
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    const chat = findChatById(chatId);
+    const chat = await resolveMaybePromise(findChatById(chatId));
     if (!chat) {
       return res.status(404).json({ error: "Chat not found." });
     }
-    if (!isMember(chatId, user.id)) {
+    if (!await resolveMaybePromise(isMember(chatId, user.id))) {
       return res.status(403).json({ error: "Not a member of this chat." });
     }
 
-    setChatMuted(user.id, chatId, muted);
+    await resolveMaybePromise(setChatMuted(user.id, chatId, muted));
     return res.json({ ok: true, chatId, muted });
   });
 
@@ -1586,12 +1592,12 @@ function registerChatRoutes(app, deps) {
 
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
-    const user = findUserByUsername(username.toLowerCase());
+    const user = await resolveMaybePromise(findUserByUsername(username.toLowerCase()));
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    hideChatsForUser(user.id, chatIds.filter(Boolean));
+    await resolveMaybePromise(hideChatsForUser(user.id, chatIds.filter(Boolean)));
 
     res.json({ ok: true });
   });
@@ -1695,7 +1701,7 @@ function registerChatRoutes(app, deps) {
       return res.status(400).json({ error: "Username and mentions are required." });
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
-    const requester = findUserByUsername(username.toLowerCase());
+    const requester = await resolveMaybePromise(findUserByUsername(username.toLowerCase()));
     if (!requester) {
       return res.status(404).json({ error: "User not found." });
     }
@@ -1710,8 +1716,8 @@ function registerChatRoutes(app, deps) {
     ).slice(0, 50);
 
     const results = [];
-    unique.forEach((mention) => {
-      const user = findUserByUsername(mention);
+    for (const mention of unique) {
+      const user = await resolveMaybePromise(findUserByUsername(mention));
       if (user) {
         results.push({
           kind: "user",
@@ -1722,14 +1728,16 @@ function registerChatRoutes(app, deps) {
           role: user.role || "user",
           verified: Boolean(user.verified),
         });
-        return;
+        continue;
       }
-      const chat = findChatByGroupUsername(mention);
-      if (!chat) return;
+      const chat = await resolveMaybePromise(findChatByGroupUsername(mention));
+      if (!chat) continue;
       const visibility = String(chat.group_visibility || "public").trim().toLowerCase();
-      const isMemberFlag = isMember(chat.id, requester.id);
-      if (visibility === "private" && !isMemberFlag) return;
-      const membersCount = listChatMembers(chat.id).length;
+      const isMemberFlag = await resolveMaybePromise(isMember(chat.id, requester.id));
+      if (visibility === "private" && !isMemberFlag) continue;
+      const rawMembers = listChatMembers(chat.id);
+      const members = (rawMembers && typeof rawMembers.then === "function" ? await rawMembers : rawMembers) || [];
+      const membersCount = members.length;
       results.push({
         kind: chat.type === "channel" ? "channel" : "group",
         chatId: chat.id,
@@ -1742,7 +1750,7 @@ function registerChatRoutes(app, deps) {
         membersCount,
         isMember: Boolean(isMemberFlag),
       });
-    });
+    }
 
     return res.json({ mentions: results });
   });

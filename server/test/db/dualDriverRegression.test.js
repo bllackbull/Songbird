@@ -1188,15 +1188,20 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
           .put("/api/chats/cccccccc-cccc-4ccc-8ccc-cccccccccccc/mute")
           .set("Cookie", ["sid=valid_alice_session"])
           .send({ username: "alice", muted: true });
-        expect(res.status).not.toBe(500);
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({
+          ok: true,
+          chatId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          muted: true,
+        });
       });
 
       test("POST /api/chats/hide under Postgres Promise DB mode", async () => {
         const res = await request(app)
           .post("/api/chats/hide")
           .set("Cookie", ["sid=valid_alice_session"])
-          .send({ username: "alice", chatId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" });
-        expect(res.status).not.toBe(500);
+          .send({ username: "alice", chatIds: ["cccccccc-cccc-4ccc-8ccc-cccccccccccc"] });
+        expect(res.status).toBe(200);
       });
 
       test("POST /api/chats/group/:chatId/join-public under Postgres Promise DB mode", async () => {

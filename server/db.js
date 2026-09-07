@@ -3313,7 +3313,26 @@ export function recordMessageReads(messageIds = [], readerId) {
 }
 
 export function hideChatsForUser(userId, chatIds = []) {
-  chatIds.forEach((chatId) => {
+  if (!userId || !Array.isArray(chatIds) || !chatIds.length) {
+    return isPostgresMode() ? Promise.resolve() : undefined;
+  }
+  const validChatIds = chatIds.filter(Boolean);
+  if (!validChatIds.length) {
+    return isPostgresMode() ? Promise.resolve() : undefined;
+  }
+  if (isPostgresMode()) {
+    return Promise.all(
+      validChatIds.map((chatId) =>
+        run(
+          dbKnex("hidden_chats")
+            .insert({ user_id: userId, chat_id: chatId })
+            .onConflict(["user_id", "chat_id"])
+            .ignore(),
+        ),
+      ),
+    );
+  }
+  validChatIds.forEach((chatId) => {
     run(
       dbKnex("hidden_chats")
         .insert({ user_id: userId, chat_id: chatId })
@@ -3324,7 +3343,10 @@ export function hideChatsForUser(userId, chatIds = []) {
 }
 
 export function unhideChat(userId, chatId) {
-  run(
+  if (!userId || !chatId) {
+    return isPostgresMode() ? Promise.resolve() : undefined;
+  }
+  return run(
     dbKnex("hidden_chats")
       .where({ user_id: userId, chat_id: chatId })
       .del(),
@@ -3332,8 +3354,11 @@ export function unhideChat(userId, chatId) {
 }
 
 export function setChatMuted(userId, chatId, muted) {
+  if (!userId || !chatId) {
+    return isPostgresMode() ? Promise.resolve() : undefined;
+  }
   if (muted) {
-    run(
+    return run(
       dbKnex("chat_mutes")
         .insert({
           user_id: userId,
@@ -3347,10 +3372,9 @@ export function setChatMuted(userId, chatId, muted) {
           updated_at: dbKnex.raw("datetime('now')"),
         }),
     );
-    return;
   }
 
-  run(
+  return run(
     dbKnex("chat_mutes")
       .where({ user_id: userId, chat_id: chatId })
       .del(),
@@ -3359,9 +3383,11 @@ export function setChatMuted(userId, chatId, muted) {
 
 export function upsertPushSubscription(userId, endpoint, p256dh, auth, messagePreview = 1) {
   const safeEndpoint = String(endpoint || "").trim();
-  if (!userId || !safeEndpoint) return;
+  if (!userId || !safeEndpoint) {
+    return isPostgresMode() ? Promise.resolve() : undefined;
+  }
   const preview = messagePreview === false || messagePreview === 0 ? 0 : 1;
-  run(
+  return run(
     dbKnex("push_subscriptions")
       .insert({
         user_id: userId,
@@ -3384,8 +3410,10 @@ export function upsertPushSubscription(userId, endpoint, p256dh, auth, messagePr
 
 export function deletePushSubscription(endpoint) {
   const safeEndpoint = String(endpoint || "").trim();
-  if (!safeEndpoint) return;
-  run(
+  if (!safeEndpoint) {
+    return isPostgresMode() ? Promise.resolve() : undefined;
+  }
+  return run(
     dbKnex("push_subscriptions")
       .where("endpoint", safeEndpoint)
       .del(),
