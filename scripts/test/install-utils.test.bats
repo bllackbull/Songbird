@@ -794,6 +794,15 @@ EOF
   [ "$status" -eq 0 ]
 }
 
+@test "ensure_local_postgres_setup: returns 0 when POSTGRES_URL is remote" {
+  cat > "$INSTALL_DIR/.env" <<EOF
+DB_CLIENT=postgres
+POSTGRES_URL=postgresql://user:pass@ep-xyz.aws.neon.tech/songbird?sslmode=require
+EOF
+  run ensure_local_postgres_setup
+  [ "$status" -eq 0 ]
+}
+
 @test "ensure_local_postgres_setup: treats 0.0.0.0 as local PostgreSQL" {
   cat > "$INSTALL_DIR/.env" <<EOF
 DB_CLIENT=postgres
@@ -1510,4 +1519,47 @@ setup_test_git_repo() {
   [[ "$output" =~ "Existing PostgreSQL tables found; leaving VAPID keys for the server to restore from the database." ]]
   result="$(get_existing_env_value "VAPID_PUBLIC_KEY" "")"
   [ "$result" = "" ]
+}
+
+@test "prompt_database_choice: detects postgresql URL and sets POSTGRES_URL and POSTGRES_SSL" {
+  prompt_read() {
+    if [[ "$1" == *"Choice"* ]]; then
+      eval "$2='2'"
+    elif [[ "$1" == *"Host"* ]]; then
+      eval "$2='postgresql://user:pass@ep-xyz.aws.neon.tech/songbird?sslmode=require'"
+    fi
+  }
+  export -f prompt_read
+
+  prompt_database_choice
+  [ "$DB_CLIENT" = "postgres" ]
+  [ "$POSTGRES_URL" = "postgresql://user:pass@ep-xyz.aws.neon.tech/songbird?sslmode=require" ]
+  [ "$POSTGRES_SSL" = "true" ]
+}
+
+@test "prompt_database_choice: prompts for SSL when remote host is provided" {
+  prompt_read() {
+    if [[ "$1" == *"Choice"* ]]; then
+      eval "$2='2'"
+    elif [[ "$1" == *"Host"* ]]; then
+      eval "$2='db.example.com'"
+    elif [[ "$1" == *"Port"* ]]; then
+      eval "$2='5432'"
+    elif [[ "$1" == *"Database Name"* ]]; then
+      eval "$2='songbird'"
+    elif [[ "$1" == *"Username"* ]]; then
+      eval "$2='user'"
+    elif [[ "$1" == *"Password"* ]]; then
+      eval "$2='pass'"
+    fi
+  }
+  prompt_yes_no() {
+    printf "yes"
+  }
+  export -f prompt_read prompt_yes_no
+
+  prompt_database_choice
+  [ "$DB_CLIENT" = "postgres" ]
+  [ "$POSTGRES_HOST" = "db.example.com" ]
+  [ "$POSTGRES_SSL" = "true" ]
 }

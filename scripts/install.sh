@@ -99,6 +99,10 @@ DEFAULT_POSTGRES_PORT="5432"
 DEFAULT_POSTGRES_DB="songbird"
 DEFAULT_POSTGRES_USER="postgres"
 DEFAULT_POSTGRES_PASSWORD="postgres"
+DEFAULT_POSTGRES_URL=""
+DEFAULT_POSTGRES_SSL="false"
+POSTGRES_URL=""
+POSTGRES_SSL="false"
 SERVER_PORT="$DEFAULT_SERVER_PORT"
 CLIENT_PORT="$DEFAULT_CLIENT_PORT"
 WORKER_PORT="$DEFAULT_WORKER_PORT"
@@ -1078,6 +1082,8 @@ prompt_database_choice() {
   POSTGRES_DB="$DEFAULT_POSTGRES_DB"
   POSTGRES_USER="$DEFAULT_POSTGRES_USER"
   POSTGRES_PASSWORD="$DEFAULT_POSTGRES_PASSWORD"
+  POSTGRES_URL="$DEFAULT_POSTGRES_URL"
+  POSTGRES_SSL="$DEFAULT_POSTGRES_SSL"
 
   printf "\n%bSelect Database Engine:%b\n" "$COLOR_LOG" "$COLOR_RESET"
   printf "  1) SQLite (Default)\n"
@@ -1094,10 +1100,18 @@ prompt_database_choice() {
         ;;
       2)
         DB_CLIENT="postgres"
-        prompt_read "PostgreSQL Host [$DEFAULT_POSTGRES_HOST]: " POSTGRES_HOST
+        prompt_read "PostgreSQL Host or URL [$DEFAULT_POSTGRES_HOST]: " POSTGRES_HOST
         POSTGRES_HOST="${POSTGRES_HOST#"${POSTGRES_HOST%%[![:space:]]*}"}"
         POSTGRES_HOST="${POSTGRES_HOST%"${POSTGRES_HOST##*[![:space:]]}"}"
         POSTGRES_HOST="${POSTGRES_HOST:-$DEFAULT_POSTGRES_HOST}"
+
+        if [[ "$POSTGRES_HOST" =~ ^postgres(ql)?:// ]]; then
+          POSTGRES_URL="$POSTGRES_HOST"
+          if [[ "$POSTGRES_URL" == *"sslmode=require"* || "$POSTGRES_URL" == *"ssl=true"* ]]; then
+            POSTGRES_SSL="true"
+          fi
+          break
+        fi
 
         prompt_read "PostgreSQL Port [$DEFAULT_POSTGRES_PORT]: " POSTGRES_PORT
         POSTGRES_PORT="${POSTGRES_PORT#"${POSTGRES_PORT%%[![:space:]]*}"}"
@@ -1116,6 +1130,16 @@ prompt_database_choice() {
 
         prompt_read "PostgreSQL Password [$DEFAULT_POSTGRES_PASSWORD]: " POSTGRES_PASSWORD
         POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$DEFAULT_POSTGRES_PASSWORD}"
+
+        local default_ssl="no"
+        if [[ "$POSTGRES_HOST" != "127.0.0.1" && "$POSTGRES_HOST" != "0.0.0.0" && "$POSTGRES_HOST" != "localhost" ]]; then
+          default_ssl="yes"
+        fi
+        if [[ "$(prompt_yes_no "Enable SSL for PostgreSQL connection?" "$default_ssl")" == "yes" ]]; then
+          POSTGRES_SSL="true"
+        else
+          POSTGRES_SSL="false"
+        fi
         break
         ;;
       *) printf "Choose 1 or 2.\n" ;;
@@ -1173,7 +1197,7 @@ install_required_packages() {
   if [[ "$DB_CLIENT" == "postgres" || "$DB_CLIENT" == "postgresql" || "$DB_CLIENT" == "pg" ]]; then
     required_pkgs+=(postgresql-client)
   fi
-  if [[ "$DB_CLIENT" == "postgres" && ( "$POSTGRES_HOST" == "127.0.0.1" || "$POSTGRES_HOST" == "0.0.0.0" || "$POSTGRES_HOST" == "localhost" ) ]]; then
+  if [[ "$DB_CLIENT" == "postgres" && -z "$POSTGRES_URL" && ( "$POSTGRES_HOST" == "127.0.0.1" || "$POSTGRES_HOST" == "0.0.0.0" || "$POSTGRES_HOST" == "localhost" ) ]]; then
     required_pkgs+=(postgresql postgresql-contrib)
   fi
   if [[ "$CERT_MODE" == "certbot" && "$DEPLOY_MODE" == "domain" ]]; then
@@ -1942,11 +1966,16 @@ read_postgres_secret() {
   local key="$1"
   local value=""
   local postgres_url
-  postgres_url="$(get_existing_env_value "POSTGRES_URL" "")"
+  postgres_url="$(get_existing_env_value "POSTGRES_URL" "${POSTGRES_URL:-}")"
+  local ssl_mode="prefer"
+  if [[ "$(get_existing_env_value "POSTGRES_SSL" "${POSTGRES_SSL:-false}")" == "true" ]]; then
+    ssl_mode="require"
+  fi
+
   if [[ -n "$postgres_url" ]]; then
     value="$(psql "$postgres_url" -tA -c "SELECT value FROM app_settings WHERE key='${key}' LIMIT 1" 2>/dev/null || true)"
   else
-    value="$(PGPASSWORD="$POSTGRES_PASSWORD" psql \
+    value="$(PGPASSWORD="$POSTGRES_PASSWORD" PGSSLMODE="$ssl_mode" psql \
       -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" \
       -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
       -tA -c "SELECT value FROM app_settings WHERE key='${key}' LIMIT 1" 2>/dev/null || true)"
@@ -1961,11 +1990,16 @@ read_postgres_secret() {
 # True when PostgreSQL is reachable.
 postgres_is_reachable() {
   local postgres_url
-  postgres_url="$(get_existing_env_value "POSTGRES_URL" "")"
+  postgres_url="$(get_existing_env_value "POSTGRES_URL" "${POSTGRES_URL:-}")"
+  local ssl_mode="prefer"
+  if [[ "$(get_existing_env_value "POSTGRES_SSL" "${POSTGRES_SSL:-false}")" == "true" ]]; then
+    ssl_mode="require"
+  fi
+
   if [[ -n "$postgres_url" ]]; then
     psql "$postgres_url" -tA -c "SELECT 1" >/dev/null 2>&1
   else
-    PGPASSWORD="$POSTGRES_PASSWORD" psql \
+    PGPASSWORD="$POSTGRES_PASSWORD" PGSSLMODE="$ssl_mode" psql \
       -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" \
       -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
       -tA -c "SELECT 1" >/dev/null 2>&1
@@ -1976,11 +2010,16 @@ postgres_is_reachable() {
 postgres_has_tables() {
   local count=""
   local postgres_url
-  postgres_url="$(get_existing_env_value "POSTGRES_URL" "")"
+  postgres_url="$(get_existing_env_value "POSTGRES_URL" "${POSTGRES_URL:-}")"
+  local ssl_mode="prefer"
+  if [[ "$(get_existing_env_value "POSTGRES_SSL" "${POSTGRES_SSL:-false}")" == "true" ]]; then
+    ssl_mode="require"
+  fi
+
   if [[ -n "$postgres_url" ]]; then
     count="$(psql "$postgres_url" -tA -c "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' LIMIT 1" 2>/dev/null || true)"
   else
-    count="$(PGPASSWORD="$POSTGRES_PASSWORD" psql \
+    count="$(PGPASSWORD="$POSTGRES_PASSWORD" PGSSLMODE="$ssl_mode" psql \
       -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" \
       -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
       -tA -c "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' LIMIT 1" 2>/dev/null || true)"
@@ -2100,6 +2139,8 @@ POSTGRES_PORT=${POSTGRES_PORT:-5432}
 POSTGRES_DB=${POSTGRES_DB:-songbird}
 POSTGRES_USER=${POSTGRES_USER:-postgres}
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+POSTGRES_URL=${POSTGRES_URL:-}
+POSTGRES_SSL=${POSTGRES_SSL:-false}
 
 # Security & Encryption
 # Generated during install when safe to do so, otherwise auto-generated by
@@ -2240,6 +2281,8 @@ sync_values_from_env() {
   POSTGRES_DB="$(get_existing_env_value "POSTGRES_DB" "$DEFAULT_POSTGRES_DB")"
   POSTGRES_USER="$(get_existing_env_value "POSTGRES_USER" "$DEFAULT_POSTGRES_USER")"
   POSTGRES_PASSWORD="$(get_existing_env_value "POSTGRES_PASSWORD" "$DEFAULT_POSTGRES_PASSWORD")"
+  POSTGRES_URL="$(get_existing_env_value "POSTGRES_URL" "$DEFAULT_POSTGRES_URL")"
+  POSTGRES_SSL="$(get_existing_env_value "POSTGRES_SSL" "$DEFAULT_POSTGRES_SSL")"
   CURRENT_ENV_FILE="$env_file"
 }
 
@@ -2247,6 +2290,11 @@ ensure_local_postgres_setup() {
   sync_values_from_env
   if [[ "$DB_CLIENT" != "postgres" && "$DB_CLIENT" != "postgresql" && "$DB_CLIENT" != "pg" ]]; then
     return 0
+  fi
+  if [[ -n "$POSTGRES_URL" ]]; then
+    if [[ "$POSTGRES_URL" != *"@127.0.0.1"* && "$POSTGRES_URL" != *"@localhost"* && "$POSTGRES_URL" != *"@0.0.0.0"* ]]; then
+      return 0
+    fi
   fi
   if [[ "$POSTGRES_HOST" != "127.0.0.1" && "$POSTGRES_HOST" != "0.0.0.0" && "$POSTGRES_HOST" != "localhost" ]]; then
     return 0
