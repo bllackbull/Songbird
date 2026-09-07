@@ -941,9 +941,9 @@ configure_mirrors_menu() {
 prompt_source_mode() {
   local mode=""
   while true; do
-    printf "\nSource Mode\n"
-    printf "1) GitHub\n"
-    printf "2) Offline\n"
+    printf "\n%bSource Mode%b\n" "$COLOR_LOG" "$COLOR_RESET"
+    printf "  1) GitHub\n"
+    printf "  2) Offline\n"
     prompt_read "Choose an option [1-2]: " mode
     mode="${mode#"${mode%%[![:space:]]*}"}"
     mode="${mode%"${mode##*[![:space:]]}"}"
@@ -964,9 +964,9 @@ prompt_source_mode() {
 prompt_deploy_mode() {
   local mode=""
   while true; do
-    printf "\nDeploy Mode\n"
-    printf "1) Domain\n"
-    printf "2) IP\n"
+    printf "\n%bDeploy Mode%b\n" "$COLOR_LOG" "$COLOR_RESET"
+    printf "  1) Domain\n"
+    printf "  2) IP\n"
     prompt_read "Choose an option [1-2]: " mode
     mode="${mode#"${mode%%[![:space:]]*}"}"
     mode="${mode%"${mode##*[![:space:]]}"}"
@@ -993,11 +993,11 @@ prompt_cert_mode() {
     else
       option_one_label="Obtain 6-day cert for IP"
     fi
-    printf "\nCertificate Mode\n"
-    printf "1) %s\n" "$option_one_label"
-    printf "2) TLS certificate files\n"
-    printf "3) HTTP only\n"
-    printf "4) Self-signed certificate (not recommended)\n"
+    printf "\n%bCertificate Mode%b\n" "$COLOR_LOG" "$COLOR_RESET"
+    printf "  1) %s\n" "$option_one_label"
+    printf "  2) TLS certificate files\n"
+    printf "  3) HTTP only\n"
+    printf "  4) Self-signed certificate (not recommended)\n"
     prompt_read "Choose an option [1-4]: " mode
     mode="${mode#"${mode%%[![:space:]]*}"}"
     mode="${mode%"${mode##*[![:space:]]}"}"
