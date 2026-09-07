@@ -189,6 +189,8 @@ export function makeApp(overrides = {}) {
 
     removeStoredFileNames: () => {},
     removeAllMessageUploads: () => {},
+    isVideoFileProcessing: () => false,
+    hydrateMissingVideoMetadata: async (files) => files,
     recordPendingPresignedUpload: ({ storageKey, userId, expiresAt }) => {
       const rec = { storage_key: storageKey, user_id: userId, created_at: new Date().toISOString(), expires_at: expiresAt };
       pendingUploadsStore.push(rec);
@@ -354,6 +356,7 @@ export function makeApp(overrides = {}) {
 
     // ── Spread any remaining overrides ───────────────────────────────────────
     ...overrides.deps,
+    ...overrides.dbOverrides,
   };
 
   registerApiRoutes(app, deps);

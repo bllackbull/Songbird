@@ -538,7 +538,12 @@ describe("GET /api/messages — replyTo shape", () => {
     };
   }
 
-  function makeGetMessagesApp({ rawMessages = [], chatType = "group" } = {}) {
+  function makeGetMessagesApp({
+    rawMessages = [],
+    chatType = "group",
+    files = [],
+    storageProvider = null,
+  } = {}) {
     const hash = bcrypt.hashSync("secret123", 4);
     const userStore = makeUserStore([
       {
@@ -561,8 +566,9 @@ describe("GET /api/messages — replyTo shape", () => {
         getMessages: () => ({ messages: rawMessages, hasMore: false }),
         getMessageReadByUser: () => [],
         getMessageReadCounts: () => [],
-        listMessageFilesByMessageIds: () => [],
-        hydrateMissingVideoMetadata: async (files) => files,
+        listMessageFilesByMessageIds: () => files,
+        hydrateMissingVideoMetadata: async (fileList) => fileList,
+        ...(storageProvider ? { storageProvider } : {}),
       },
     });
   }
@@ -676,5 +682,49 @@ describe("GET /api/messages — replyTo shape", () => {
     const replyTo = res.body.messages[0].replyTo;
     expect(replyTo.color).toBe("#3b82f6");
     expect(replyTo.color).not.toBe("#10b981");
+  });
+
+  test("correctly resolves attached message files and thumbnails", async () => {
+    const { app } = makeGetMessagesApp({
+      rawMessages: [
+        makeRawMessage({
+          id: MSG_ID,
+        }),
+      ],
+      files: [
+        {
+          id: "file-uuid-1",
+          message_id: MSG_ID,
+          stored_name: "test-file.png",
+          original_name: "test-file.png",
+          mime_type: "image/png",
+          size_bytes: 1234,
+          storage_driver: "local",
+          thumb_storage_key: null,
+        },
+        {
+          id: "file-uuid-2",
+          message_id: MSG_ID,
+          stored_name: "video.mp4",
+          original_name: "video.mp4",
+          mime_type: "video/mp4",
+          size_bytes: 5678,
+          storage_driver: "s3",
+          storage_key: "messages/video.mp4",
+          thumb_storage_key: "thumbs/video-thumb.jpg",
+          encryption_type: "remote",
+        },
+      ],
+      storageProvider: {
+        getDownloadUrl: async (key) => `https://s3.example.com/${key}`,
+      },
+    });
+    const res = await getMessages(app);
+    expect(res.status).toBe(200);
+    expect(res.body.messages[0].files).toHaveLength(2);
+    expect(res.body.messages[0].files[0].url).toBe("/api/uploads/messages/test-file.png");
+    expect(res.body.messages[0].files[0].thumbUrl).toBeNull();
+    expect(res.body.messages[0].files[1].url).toBe("https://s3.example.com/messages/video.mp4");
+    expect(res.body.messages[0].files[1].thumbUrl).toBe("https://s3.example.com/thumbs/video-thumb.jpg");
   });
 });

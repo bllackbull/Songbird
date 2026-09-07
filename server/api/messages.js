@@ -4,7 +4,7 @@ import { createMessagePublicationService } from "../lib/services/messagePublicat
 import { dispatchMediaWorkerJob } from "../lib/mediaWorker.js";
 import { resolveWebhookCallbackUrl } from "../lib/webhookUrl.js";
 import { markEncryptedFileRecord } from "../lib/storageEncryption.js";
-import { resolveThumbUrl as sharedResolveThumbUrl } from "../lib/thumbUrl.js";
+import { resolveThumbUrl } from "../lib/thumbUrl.js";
 import { readEnvBool } from "../settings/env.js";
 
 function registerMessageRoutes(app, deps) {
@@ -1497,8 +1497,8 @@ function registerMessageRoutes(app, deps) {
           return storedName ? `/api/uploads/messages/${storedName}` : null;
         };
 
-        const resolveThumbUrl = async (file) =>
-          sharedResolveThumbUrl({
+        const resolveFileThumbUrl = async (file) =>
+          resolveThumbUrl({
             storageProvider: deps.storageProvider,
             file,
             fileId: file?.id,
@@ -1509,7 +1509,7 @@ function registerMessageRoutes(app, deps) {
             const storedName = file.stored_name || file.storedName || "";
             const expiresAtVal = file.expires_at || file.expiresAt || expiresAtIso || null;
             const resolvedUrl = await resolveFileUrl(file);
-            const resolvedThumbUrl = await resolveThumbUrl(file);
+            const resolvedThumbUrl = await resolveFileThumbUrl(file);
             const thumbKey = file.thumb_storage_key || file.thumbStorageKey || null;
             return {
               id: file.id || (idx + 1),
