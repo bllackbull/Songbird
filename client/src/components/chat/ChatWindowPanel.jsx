@@ -52,7 +52,7 @@ export default function ChatWindowPanel({
   typingIndicator = null,
   isGroupChat = false,
   isChannelChat = false,
-  _isSavedChat = false,
+  isSavedChat = false,
   groupAvatarColor = null,
   groupAvatarUrl = "",
   channelSeenCounts = null,
@@ -156,14 +156,14 @@ export default function ChatWindowPanel({
   const canOpenHeaderChatMenu = Boolean(
     onOpenContextMenu &&
       activeChat &&
-      (isGroupChat || isChannelChat || _isSavedChat),
+      (isGroupChat || isChannelChat || isSavedChat),
   );
   const canOpenHeaderUserMenu = Boolean(
     onOpenContextMenu &&
       activeHeaderPeer?.username &&
       !isGroupChat &&
       !isChannelChat &&
-      !_isSavedChat,
+      !isSavedChat,
   );
   const headerUserContextMenu = {
     disabled: !canOpenHeaderUserMenu,
@@ -1070,6 +1070,7 @@ export default function ChatWindowPanel({
       canSwipeReply={canSwipeReply}
       isGroupChat={isGroupChat}
       isChannelChat={isChannelChat}
+      isSavedChat={isSavedChat}
       chatId={activeChatId}
       chatName={activeFallbackTitle}
       chatColor={groupAvatarColor}

@@ -426,6 +426,8 @@ export function useMessagesLoader({
             .map((msg) => [String(msg?.client_request_id || "").trim(), msg])
             .filter(([clientRequestId]) => Boolean(clientRequestId)),
         );
+        const isSavedChat =
+          activeChatTypeRef?.current === "saved" || activeChat?.type === "saved";
         const nextMessagesWithLocalIdentity = nextMessagesWithReplyIcons.map(
           (serverMsg) => {
             let existingLocal = prevByServerId.get(String(serverMsg.id || ""));
@@ -479,7 +481,16 @@ export function useMessagesLoader({
                 return Math.abs(localTime - serverTime) < 2 * 60 * 1000;
               });
             }
-            if (!existingLocal?._clientId) return serverMsg;
+            if (!existingLocal?._clientId) {
+              if (isSavedChat && !serverMsg.read_at) {
+                return {
+                  ...serverMsg,
+                  read_at: serverMsg.created_at || new Date().toISOString(),
+                  read_by_user_id: serverMsg.read_by_user_id || user?.id || null,
+                };
+              }
+              return serverMsg;
+            }
             const serverFiles = Array.isArray(serverMsg.files)
               ? serverMsg.files
               : [];
@@ -517,9 +528,16 @@ export function useMessagesLoader({
                 Boolean(serverMsg?.read_by_me) ||
                 Boolean(existingLocal?._readByMe) ||
                 isMessageAuthoredByUser(serverMsg, user),
-              read_at: serverMsg.read_at || existingLocal?.read_at || null,
+              read_at:
+                serverMsg.read_at ||
+                existingLocal?.read_at ||
+                (isSavedChat
+                  ? serverMsg.created_at || new Date().toISOString()
+                  : null),
               read_by_user_id:
-                serverMsg.read_by_user_id || existingLocal?.read_by_user_id || null,
+                serverMsg.read_by_user_id ||
+                existingLocal?.read_by_user_id ||
+                (isSavedChat ? user?.id || null : null),
               seenCount: Math.max(
                 Number(serverMsg?.seenCount || 0),
                 Number(existingLocal?.seenCount || 0),

@@ -561,7 +561,8 @@ export default function ChatsListPanel({
               }
             : undefined;
           const isOwnLastMessage =
-            Boolean(conv.last_message) &&
+            (Boolean(conv.last_message) ||
+              Boolean(conv.last_message_files?.length)) &&
             isMessageAuthoredByUser(
               {
                 username: conv.last_sender_username,
@@ -571,7 +572,9 @@ export default function ChatsListPanel({
             );
           const isOwnLastMessagePending =
             Boolean(conv._lastMessagePending) && isOwnLastMessage;
-          const isOwnLastMessageSeen = Boolean(conv.last_message_read_at);
+          const isOwnLastMessageSeen =
+            Boolean(conv.last_message_read_at) ||
+            (conv.type === "saved" && isOwnLastMessage);
           const lastPreview = formatLastMessagePreview(conv);
           const lastPreviewHtml = renderMarkdownInlinePlain(
             isOwnLastMessagePending ? "Processing..." : lastPreview.text,

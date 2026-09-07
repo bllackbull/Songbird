@@ -275,9 +275,12 @@ export function useChatEvents({
                     String(payload?.username || "").trim() ||
                     chat?.last_sender_username ||
                     "",
-                  last_message_read_at: isOwnEvent
-                    ? null
-                    : chat?.last_message_read_at || null,
+                  last_message_read_at:
+                    chat?.type === "saved" || payload?.chatType === "saved"
+                      ? payload?.read_at || eventTime
+                      : isOwnEvent
+                        ? null
+                        : chat?.last_message_read_at || null,
                   unread_count:
                     isReadableActiveChat
                       ? 0

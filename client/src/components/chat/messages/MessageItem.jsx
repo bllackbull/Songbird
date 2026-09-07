@@ -151,6 +151,7 @@ export const MessageItem = memo(function MessageItem({
   isMobileTouchDevice,
   isGroupChat = false,
   isChannelChat = false,
+  isSavedChat = false,
   chatId = null,
   chatName = "",
   chatColor = null,
@@ -173,7 +174,7 @@ export const MessageItem = memo(function MessageItem({
   isOffline = false,
 }) {
   const isOwn = !isChannelChat && msg.username === user.username;
-  const isRead = Boolean(msg.read_at);
+  const isRead = Boolean(msg.read_at) || isSavedChat;
   const isEdited = Boolean(Number(msg?.edited || 0) || msg?._edited);
   const deletedForwardOriginColor = "#94a3b8";
   const forwardedFromChatId = msg?.forwarded_from_chat_id ? String(msg.forwarded_from_chat_id).trim() : null;

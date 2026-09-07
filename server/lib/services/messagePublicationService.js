@@ -94,48 +94,65 @@ export function createMessagePublicationService(dbApi) {
 
         const deduped = Boolean(created?.deduped);
 
+        let readPromise = null;
         if (
           chat.type === "saved" &&
           !deduped &&
           typeof markMessageRead === "function"
         ) {
-          markMessageRead(messageId, userId);
+          const rawRead = markMessageRead(messageId, userId);
+          if (rawRead && typeof rawRead.then === "function") {
+            readPromise = rawRead;
+          }
         }
 
-        const rawPushRecipients = deduped
-          ? []
-          : calculatePushRecipients(chatId, userId, isUserConnectedFn);
+        const handleAfterRead = () => {
+          const rawPushRecipients = deduped
+            ? []
+            : calculatePushRecipients(chatId, userId, isUserConnectedFn);
 
-        const processPush = (pushRecipients) => {
-          const sseEvents = [];
-          if (!deduped) {
-            sseEvents.push({
-              chatId,
-              payload: {
-                type: "chat_message",
+          const processPush = (pushRecipients) => {
+            const sseEvents = [];
+            if (!deduped) {
+              sseEvents.push({
                 chatId,
-                messageId,
-                username,
-                userId,
-                body,
-                replyToMessageId,
-              },
-            });
-          }
+                payload: {
+                  type: "chat_message",
+                  chatId,
+                  messageId,
+                  username,
+                  userId,
+                  body,
+                  replyToMessageId,
+                  ...(chat.type === "saved"
+                    ? {
+                        read_at: new Date().toISOString(),
+                        read_by_user_id: userId,
+                      }
+                    : {}),
+                },
+              });
+            }
 
-          return {
-            success: true,
-            messageId,
-            deduped,
-            sseEvents,
-            pushRecipients: pushRecipients || [],
+            return {
+              success: true,
+              messageId,
+              deduped,
+              sseEvents,
+              pushRecipients: pushRecipients || [],
+            };
           };
+
+          if (rawPushRecipients && typeof rawPushRecipients.then === "function") {
+            return rawPushRecipients.then(processPush);
+          }
+          return processPush(rawPushRecipients);
         };
 
-        if (rawPushRecipients && typeof rawPushRecipients.then === "function") {
-          return rawPushRecipients.then(processPush);
+        if (readPromise) {
+          return readPromise.then(handleAfterRead);
         }
-        return processPush(rawPushRecipients);
+        return handleAfterRead();
       };
 
       if (rawCreated && typeof rawCreated.then === "function") {
@@ -197,13 +214,63 @@ export function createMessagePublicationService(dbApi) {
         if (!deduped && typeof createMessageFiles === "function") {
           createMessageFiles(messageId, normalizedFiles);
         }
+        let readPromise = null;
         if (
           chat.type === "saved" &&
           !deduped &&
           typeof markMessageRead === "function"
         ) {
-          markMessageRead(messageId, userId);
+          const rawRead = markMessageRead(messageId, userId);
+          if (rawRead && typeof rawRead.then === "function") {
+            readPromise = rawRead;
+          }
         }
+
+        const buildResult = () => {
+          const sseEvents = [];
+          if (editTarget) {
+            sseEvents.push({
+              chatId,
+              payload: {
+                type: "chat_message_updated",
+                chatId,
+                messageId,
+                username,
+                body: fallbackBody,
+              },
+            });
+          } else if (!deduped) {
+            sseEvents.push({
+              chatId,
+              payload: {
+                type: "chat_message",
+                chatId,
+                messageId,
+                username,
+                body: fallbackBody,
+                replyToMessageId,
+                ...(chat.type === "saved"
+                  ? {
+                      read_at: new Date().toISOString(),
+                      read_by_user_id: userId,
+                    }
+                  : {}),
+              },
+            });
+          }
+
+          return {
+            success: true,
+            messageId,
+            deduped,
+            sseEvents,
+          };
+        };
+
+        if (readPromise) {
+          return readPromise.then(buildResult);
+        }
+        return buildResult();
       }
 
       const sseEvents = [];
@@ -216,18 +283,6 @@ export function createMessagePublicationService(dbApi) {
             messageId,
             username,
             body: fallbackBody,
-          },
-        });
-      } else if (!deduped) {
-        sseEvents.push({
-          chatId,
-          payload: {
-            type: "chat_message",
-            chatId,
-            messageId,
-            username,
-            body: fallbackBody,
-            replyToMessageId,
           },
         });
       }

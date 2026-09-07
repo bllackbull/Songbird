@@ -66,7 +66,7 @@ describe("messagePublicationService", () => {
     const db = createMockDb();
     const service = createMessagePublicationService(db);
 
-    service.publishTextMessage({
+    const res = service.publishTextMessage({
       chatId: CHAT_ID_2,
       userId: ALICE_ID,
       body: "Note to self",
@@ -74,6 +74,8 @@ describe("messagePublicationService", () => {
     });
 
     expect(db.markMessageRead).toHaveBeenCalledWith(MSG_ID_100, ALICE_ID);
+    expect(res.sseEvents[0].payload.read_at).toBeTruthy();
+    expect(res.sseEvents[0].payload.read_by_user_id).toBe(ALICE_ID);
   });
 
   test("publishUploadMessage creates message and attaches files", () => {

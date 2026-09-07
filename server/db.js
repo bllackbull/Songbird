@@ -2498,16 +2498,21 @@ export function createOrReuseMessage(
 export function markMessageRead(messageId, readerId) {
   const processRow = (row) => {
     if (!row) return;
-    if (row?.user_id === readerId && !isRemoteMessageRow(row)) {
+    const isSavedChat = String(row?.chat_type || "").toLowerCase() === "saved";
+    if (row?.user_id === readerId && !isRemoteMessageRow(row) && !isSavedChat) {
       return;
     }
     const updateRes = run(
       dbKnex("chat_messages")
         .where("id", messageId)
         .where((builder) => {
-          builder.where("user_id", "!=", readerId);
-          if (isRemoteMessageRow(row)) {
-            builder.orWhereRaw(REMOTE_MESSAGE_CLIENT_REQUEST_SQL);
+          if (isSavedChat) {
+            // Allow reader to read own message in saved messages chat
+          } else {
+            builder.where("user_id", "!=", readerId);
+            if (isRemoteMessageRow(row)) {
+              builder.orWhereRaw(REMOTE_MESSAGE_CLIENT_REQUEST_SQL);
+            }
           }
         })
         .update({
@@ -2531,9 +2536,10 @@ export function markMessageRead(messageId, readerId) {
   };
 
   const rowRes = getRow(
-    dbKnex("chat_messages")
-      .select("user_id", "client_request_id")
-      .where("id", messageId)
+    dbKnex("chat_messages as cm")
+      .leftJoin("chats as c", "c.id", "cm.chat_id")
+      .select("cm.user_id", "cm.client_request_id", "c.type as chat_type")
+      .where("cm.id", messageId)
       .first(),
   );
 
@@ -3177,10 +3183,11 @@ export function markMessagesRead(chatId, readerId) {
         AND (
           user_id != ?
           OR ${REMOTE_MESSAGE_CLIENT_REQUEST_SQL}
+          OR EXISTS (SELECT 1 FROM chats WHERE chats.id = ? AND chats.type = 'saved')
         )
         AND read_at IS NULL
     `,
-      [readerId, chatId, readerId],
+      [readerId, chatId, readerId, chatId],
     );
 
   const inserted = run(
@@ -3191,6 +3198,7 @@ export function markMessagesRead(chatId, readerId) {
        AND (
          cm.user_id != ?
          OR LOWER(COALESCE(cm.client_request_id, '')) LIKE 'remote:%'
+         OR EXISTS (SELECT 1 FROM chats WHERE chats.id = ? AND chats.type = 'saved')
        )
        AND NOT EXISTS (
          SELECT 1
@@ -3198,7 +3206,7 @@ export function markMessagesRead(chatId, readerId) {
          WHERE cmr.message_id = cm.id
            AND cmr.user_id = ?
        )`,
-    [readerId, chatId, readerId, readerId],
+    [readerId, chatId, readerId, chatId, readerId],
   );
   if (inserted && typeof inserted.then === "function") {
     return inserted.then(() => updateFn());

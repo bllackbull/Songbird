@@ -1564,6 +1564,12 @@ function registerMessageRoutes(app, deps) {
             files: responseFiles,
             expiresAt: fileExpiresAt,
             expires_at: fileExpiresAt,
+            ...(chat.type === "saved"
+              ? {
+                  read_at: new Date().toISOString(),
+                  read_by_user_id: user.id,
+                }
+              : {}),
           });
         } else {
           emitChatEvent(chatId, {
@@ -1578,6 +1584,12 @@ function registerMessageRoutes(app, deps) {
             files: responseFiles,
             expiresAt: fileExpiresAt,
             expires_at: fileExpiresAt,
+            ...(chat.type === "saved"
+              ? {
+                  read_at: new Date().toISOString(),
+                  read_by_user_id: user.id,
+                }
+              : {}),
           });
         }
 
@@ -2025,7 +2037,8 @@ function registerMessageRoutes(app, deps) {
         sourceColor: forwardOrigin.sourceColor,
       });
       await reuseMessageFilesForForward(sourceMessage.id, nextMessageId);
-      if (String(targetChat.type || "").toLowerCase() === "saved") {
+      const isSavedTargetChat = String(targetChat.type || "").toLowerCase() === "saved";
+      if (isSavedTargetChat) {
         const rawRead = markMessageRead(nextMessageId, user.id);
         if (rawRead && typeof rawRead.then === "function") await rawRead;
         const rawUnhide = unhideChat(user.id, targetChatId);
@@ -2040,6 +2053,12 @@ function registerMessageRoutes(app, deps) {
         userId: user.id,
         body: forwardBody,
         replyToMessageId: null,
+        ...(isSavedTargetChat
+          ? {
+              read_at: new Date().toISOString(),
+              read_by_user_id: user.id,
+            }
+          : {}),
       });
       forwardedIds.push(nextMessageId);
     }

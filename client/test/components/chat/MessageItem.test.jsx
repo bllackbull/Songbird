@@ -286,6 +286,17 @@ describe("MessageItem — delivery status", () => {
     await expect.element(page.getByText("Sent")).toBeInTheDocument();
   });
 
+  test("shows sr-only 'Read' for saved chat own message even when read_at is null", async () => {
+    render(
+      <MessageItem
+        {...BASE_PROPS}
+        isSavedChat={true}
+        msg={makeOwnMsg({ read_at: null })}
+      />,
+    );
+    await expect.element(page.getByText("Read")).toBeInTheDocument();
+  });
+
   test("no delivery icon on messages from other users", async () => {
     render(
       <MessageItem

@@ -1247,19 +1247,24 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         }))
       : [];
     setChats((prev) => {
-      return patchChatAndMoveToFront(prev, targetChatId, (chat) => ({
-        ...chat,
-        last_message_id:
-          Number(messageId || 0) || chat?.last_message_id || null,
-        last_message: previewBody || chat?.last_message || "",
-        last_message_files: previewFiles,
-        last_time: previewTime,
-        last_sender_username: user.username,
-        last_sender_nickname: user.nickname || user.username,
-        last_sender_avatar_url: user.avatarUrl || "",
-        last_message_client_request_id: null,
-        last_message_read_at: chat?.last_message_read_at || null,
-      }));
+      return patchChatAndMoveToFront(prev, targetChatId, (chat) => {
+        const isSaved = chat?.type === "saved";
+        return {
+          ...chat,
+          last_message_id:
+            Number(messageId || 0) || chat?.last_message_id || null,
+          last_message: previewBody || chat?.last_message || "",
+          last_message_files: previewFiles,
+          last_time: previewTime,
+          last_sender_username: user.username,
+          last_sender_nickname: user.nickname || user.username,
+          last_sender_avatar_url: user.avatarUrl || "",
+          last_message_client_request_id: null,
+          last_message_read_at: isSaved
+            ? previewTime
+            : chat?.last_message_read_at || null,
+        };
+      });
     });
   };
 
