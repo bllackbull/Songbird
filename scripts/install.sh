@@ -1941,10 +1941,16 @@ generate_secret_base64url() {
 read_postgres_secret() {
   local key="$1"
   local value=""
-  value="$(PGPASSWORD="$POSTGRES_PASSWORD" psql \
-    -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" \
-    -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-    -tA -c "SELECT value FROM app_settings WHERE key='${key}' LIMIT 1" 2>/dev/null || true)"
+  local postgres_url
+  postgres_url="$(get_existing_env_value "POSTGRES_URL" "")"
+  if [[ -n "$postgres_url" ]]; then
+    value="$(psql "$postgres_url" -tA -c "SELECT value FROM app_settings WHERE key='${key}' LIMIT 1" 2>/dev/null || true)"
+  else
+    value="$(PGPASSWORD="$POSTGRES_PASSWORD" psql \
+      -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" \
+      -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+      -tA -c "SELECT value FROM app_settings WHERE key='${key}' LIMIT 1" 2>/dev/null || true)"
+  fi
   value="$(printf "%s" "$value" | tr -d '\r\n ' || true)"
   if [[ -z "$value" ]]; then
     return 1
@@ -1954,10 +1960,33 @@ read_postgres_secret() {
 
 # True when PostgreSQL is reachable.
 postgres_is_reachable() {
-  PGPASSWORD="$POSTGRES_PASSWORD" psql \
-    -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" \
-    -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-    -tA -c "SELECT 1" >/dev/null 2>&1
+  local postgres_url
+  postgres_url="$(get_existing_env_value "POSTGRES_URL" "")"
+  if [[ -n "$postgres_url" ]]; then
+    psql "$postgres_url" -tA -c "SELECT 1" >/dev/null 2>&1
+  else
+    PGPASSWORD="$POSTGRES_PASSWORD" psql \
+      -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" \
+      -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+      -tA -c "SELECT 1" >/dev/null 2>&1
+  fi
+}
+
+# True when PostgreSQL has existing tables in the public schema.
+postgres_has_tables() {
+  local count=""
+  local postgres_url
+  postgres_url="$(get_existing_env_value "POSTGRES_URL" "")"
+  if [[ -n "$postgres_url" ]]; then
+    count="$(psql "$postgres_url" -tA -c "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' LIMIT 1" 2>/dev/null || true)"
+  else
+    count="$(PGPASSWORD="$POSTGRES_PASSWORD" psql \
+      -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" \
+      -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+      -tA -c "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' LIMIT 1" 2>/dev/null || true)"
+  fi
+  count="$(printf "%s" "$count" | tr -d '\r\n ' || true)"
+  [[ "$count" == "1" ]]
 }
 
 is_postgres_client() {
@@ -1969,10 +1998,11 @@ is_postgres_client() {
 #  - a non-empty .env value always wins (never rotate live secrets);
 #  - a restored backup is authoritative (the server restores from the DB);
 #  - a reachable database holding the key is adopted, not replaced;
+#  - an existing database with tables is left for the server to restore from;
 #  - otherwise the database must be provably fresh (absent sqlite file, or
-#    reachable postgres with no trace of the key store).
+#    reachable postgres with no tables).
 # Anything uncertain is left empty for the server, which applies the same
-# precedence (env > database > generate) with full database access.
+# precedence (database > env > generate) with full database access.
 ensure_env_secret() {
   local key="$1"
   local format="$2"
@@ -1991,7 +2021,11 @@ ensure_env_secret() {
       log "Adopted existing ${key} from the database."
       return 0
     fi
-    # Reachable but keyless (or schema not yet migrated) means provably fresh.
+    if postgres_has_tables; then
+      log "Existing PostgreSQL tables found; leaving ${key} for the server to restore from it."
+      return 0
+    fi
+    # Reachable and confirmed empty of tables means provably fresh.
     if postgres_is_reachable; then
       if [[ "$format" == "hex" ]]; then
         generated="$(generate_secret_hex || true)"
@@ -2105,6 +2139,20 @@ ensure_vapid_keys() {
   private_key="$(get_existing_env_value "VAPID_PRIVATE_KEY" "")"
   if [[ -n "$public_key" && -n "$private_key" ]]; then
     log "VAPID keys already present. Skipping generation."
+    return 0
+  fi
+  if [[ -n "${DB_BACKUP_PATH:-}" ]]; then
+    log "Backup was restored; leaving VAPID keys for the server to restore from the database."
+    return 0
+  fi
+  if is_postgres_client && postgres_has_tables; then
+    log "Existing PostgreSQL tables found; leaving VAPID keys for the server to restore from the database."
+    return 0
+  fi
+  local data_dir=""
+  data_dir="$(get_existing_env_value "DATA_DIR" "${INSTALL_DIR}/data")"
+  if ! is_postgres_client && [[ -f "${data_dir}/songbird.db" ]]; then
+    log "Existing SQLite database found; leaving VAPID keys for the server to restore from the database."
     return 0
   fi
   log "Generating VAPID keys..."

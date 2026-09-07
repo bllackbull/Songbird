@@ -127,4 +127,73 @@ describe("secrets.js", () => {
     expect(dbStore.VAPID_PRIVATE_KEY).toBe("env-vapid-priv");
     expect(dbStore.VAPID_SUBJECT).toBe("mailto:env@example.com");
   });
+
+  test("ensureSystemSecrets prefers existing secrets in DB over env values to avoid rotating keys on restored or existing database", async () => {
+    process.env.ADMIN_API_TOKEN = "new-env-token";
+    process.env.STORAGE_ENCRYPTION_KEY = "new-env-storage-key";
+    process.env.WEBHOOK_SECRET = "new-env-webhook-secret";
+    process.env.VAPID_PUBLIC_KEY = "new-env-vapid-pub";
+    process.env.VAPID_PRIVATE_KEY = "new-env-vapid-priv";
+
+    const dbStore = {
+      ADMIN_API_TOKEN: "original-db-token",
+      STORAGE_ENCRYPTION_KEY: "original-db-storage-key",
+      WEBHOOK_SECRET: "original-db-webhook-secret",
+      VAPID_PUBLIC_KEY: "original-db-vapid-pub",
+      VAPID_PRIVATE_KEY: "original-db-vapid-priv",
+      VAPID_SUBJECT: "mailto:original@example.com",
+    };
+
+    const mockGetRow = async (query) => {
+      const compiled =
+        typeof query?.toSQL === "function" ? query.toSQL() : null;
+      const bindings = compiled?.bindings || query?.bindings || [];
+      const key = bindings[0];
+      if (dbStore[key]) {
+        return { value: dbStore[key] };
+      }
+      return null;
+    };
+
+    let envContent = "STORAGE_ENCRYPTION_KEY=new-env-storage-key\n";
+    let envUpdated = {};
+    const mockRun = async (query) => {
+      const compiled =
+        typeof query?.toSQL === "function" ? query.toSQL() : null;
+      const bindings = compiled?.bindings || query?.bindings || [];
+      if (bindings.length >= 2) {
+        dbStore[bindings[0]] = bindings[1];
+      }
+    };
+
+    await ensureSystemSecrets({
+      dbGetRow: mockGetRow,
+      dbRun: mockRun,
+      projectRootDir: "/tmp",
+      fsImpl: {
+        existsSync: () => true,
+        readFileSync: () => envContent,
+        writeFileSync: (_path, content) => {
+          envContent = content;
+          content.split("\n").forEach((line) => {
+            const [k, v] = line.split("=");
+            if (k && v) envUpdated[k] = v;
+          });
+        },
+      },
+    });
+
+    // DB secrets MUST win to protect existing encrypted data:
+    expect(process.env.ADMIN_API_TOKEN).toBe("original-db-token");
+    expect(process.env.STORAGE_ENCRYPTION_KEY).toBe("original-db-storage-key");
+    expect(process.env.WEBHOOK_SECRET).toBe("original-db-webhook-secret");
+    expect(process.env.VAPID_PUBLIC_KEY).toBe("original-db-vapid-pub");
+    expect(process.env.VAPID_PRIVATE_KEY).toBe("original-db-vapid-priv");
+
+    // DB store MUST NOT be overwritten:
+    expect(dbStore.STORAGE_ENCRYPTION_KEY).toBe("original-db-storage-key");
+
+    // .env file must be synchronized with the DB value:
+    expect(envUpdated.STORAGE_ENCRYPTION_KEY).toBe("original-db-storage-key");
+  });
 });

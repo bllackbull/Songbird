@@ -1425,3 +1425,89 @@ setup_test_git_repo() {
   [[ "$output" =~ "Failed to fetch installer script from GitHub." ]]
   [[ "$output" =~ "Reinstall canceled." ]]
 }
+
+# ===========================================================================
+# ensure_env_secret & postgres secret adoption
+# ===========================================================================
+
+@test "ensure_env_secret: adopts existing secret from PostgreSQL" {
+  INSTALL_DIR="$TEST_DIR/install"
+  mkdir -p "$INSTALL_DIR"
+  printf "STORAGE_ENCRYPTION_KEY=\n" > "$INSTALL_DIR/.env"
+  DB_CLIENT="postgres"
+
+  read_postgres_secret() { printf "pg-secret-key-123"; }
+  export -f read_postgres_secret
+
+  run ensure_env_secret "STORAGE_ENCRYPTION_KEY" "base64url"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Adopted existing STORAGE_ENCRYPTION_KEY from the database." ]]
+  result="$(get_existing_env_value "STORAGE_ENCRYPTION_KEY" "")"
+  [ "$result" = "pg-secret-key-123" ]
+}
+
+@test "ensure_env_secret: leaves secret for server when PostgreSQL has existing tables" {
+  INSTALL_DIR="$TEST_DIR/install"
+  mkdir -p "$INSTALL_DIR"
+  printf "STORAGE_ENCRYPTION_KEY=\n" > "$INSTALL_DIR/.env"
+  DB_CLIENT="postgres"
+
+  read_postgres_secret() { return 1; }
+  postgres_has_tables() { return 0; }
+  export -f read_postgres_secret postgres_has_tables
+
+  run ensure_env_secret "STORAGE_ENCRYPTION_KEY" "base64url"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Existing PostgreSQL tables found; leaving STORAGE_ENCRYPTION_KEY for the server to restore from it." ]]
+  result="$(get_existing_env_value "STORAGE_ENCRYPTION_KEY" "")"
+  [ "$result" = "" ]
+}
+
+@test "ensure_env_secret: generates secret when PostgreSQL is reachable and fresh (no tables)" {
+  INSTALL_DIR="$TEST_DIR/install"
+  mkdir -p "$INSTALL_DIR"
+  printf "STORAGE_ENCRYPTION_KEY=\n" > "$INSTALL_DIR/.env"
+  DB_CLIENT="postgres"
+
+  read_postgres_secret() { return 1; }
+  postgres_has_tables() { return 1; }
+  postgres_is_reachable() { return 0; }
+  generate_secret_base64url() { printf "generated-fresh-secret"; }
+  export -f read_postgres_secret postgres_has_tables postgres_is_reachable generate_secret_base64url
+
+  run ensure_env_secret "STORAGE_ENCRYPTION_KEY" "base64url"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Generated STORAGE_ENCRYPTION_KEY during install." ]]
+  result="$(get_existing_env_value "STORAGE_ENCRYPTION_KEY" "")"
+  [ "$result" = "generated-fresh-secret" ]
+}
+
+@test "ensure_vapid_keys: skips generation when backup was restored" {
+  INSTALL_DIR="$TEST_DIR/install"
+  mkdir -p "$INSTALL_DIR"
+  printf "VAPID_PUBLIC_KEY=\nVAPID_PRIVATE_KEY=\n" > "$INSTALL_DIR/.env"
+  DB_BACKUP_PATH="$TEST_DIR/backup.dump"
+
+  run ensure_vapid_keys
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Backup was restored; leaving VAPID keys for the server to restore from the database." ]]
+  result="$(get_existing_env_value "VAPID_PUBLIC_KEY" "")"
+  [ "$result" = "" ]
+}
+
+@test "ensure_vapid_keys: skips generation when existing PostgreSQL tables found" {
+  INSTALL_DIR="$TEST_DIR/install"
+  mkdir -p "$INSTALL_DIR"
+  printf "VAPID_PUBLIC_KEY=\nVAPID_PRIVATE_KEY=\n" > "$INSTALL_DIR/.env"
+  DB_CLIENT="postgres"
+  DB_BACKUP_PATH=""
+
+  postgres_has_tables() { return 0; }
+  export -f postgres_has_tables
+
+  run ensure_vapid_keys
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Existing PostgreSQL tables found; leaving VAPID keys for the server to restore from the database." ]]
+  result="$(get_existing_env_value "VAPID_PUBLIC_KEY" "")"
+  [ "$result" = "" ]
+}

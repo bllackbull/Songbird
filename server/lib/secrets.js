@@ -97,17 +97,15 @@ export async function ensureSystemSecrets({
     let current = normalizeEnvSecret(process.env[envKey]);
     const fromDb = await getDbSecret(envKey);
 
-    if (current) {
-      if (current !== fromDb) {
-        await saveDbSecret(envKey, current);
-      }
-      return current;
-    }
-
     if (fromDb) {
       process.env[envKey] = fromDb;
       if (envPath) updateEnvValue(envPath, envKey, fromDb, { fsImpl });
       return fromDb;
+    }
+
+    if (current) {
+      await saveDbSecret(envKey, current);
+      return current;
     }
 
     const generated = generator();
@@ -134,32 +132,28 @@ export async function ensureSystemSecrets({
   let subject =
     normalizeEnvSecret(process.env.VAPID_SUBJECT) || "mailto:admin@example.com";
 
-  if (pubKey && privKey) {
-    const dbPubKey = await getDbSecret("VAPID_PUBLIC_KEY");
-    const dbPrivKey = await getDbSecret("VAPID_PRIVATE_KEY");
-    const dbSub = await getDbSecret("VAPID_SUBJECT");
+  const dbPubKey = await getDbSecret("VAPID_PUBLIC_KEY");
+  const dbPrivKey = await getDbSecret("VAPID_PRIVATE_KEY");
+  const dbSub = await getDbSecret("VAPID_SUBJECT");
 
-    if (pubKey !== dbPubKey) await saveDbSecret("VAPID_PUBLIC_KEY", pubKey);
-    if (privKey !== dbPrivKey) await saveDbSecret("VAPID_PRIVATE_KEY", privKey);
-    if (subject !== dbSub) await saveDbSecret("VAPID_SUBJECT", subject);
+  if (dbPubKey && dbPrivKey) {
+    pubKey = dbPubKey;
+    privKey = dbPrivKey;
+    if (dbSub) subject = dbSub;
+    process.env.VAPID_PUBLIC_KEY = pubKey;
+    process.env.VAPID_PRIVATE_KEY = privKey;
+    process.env.VAPID_SUBJECT = subject;
+    if (envPath) {
+      updateEnvValue(envPath, "VAPID_PUBLIC_KEY", pubKey, { fsImpl });
+      updateEnvValue(envPath, "VAPID_PRIVATE_KEY", privKey, { fsImpl });
+      updateEnvValue(envPath, "VAPID_SUBJECT", subject, { fsImpl });
+    }
+  } else if (pubKey && privKey) {
+    await saveDbSecret("VAPID_PUBLIC_KEY", pubKey);
+    await saveDbSecret("VAPID_PRIVATE_KEY", privKey);
+    await saveDbSecret("VAPID_SUBJECT", subject);
   } else {
-    const dbPubKey = await getDbSecret("VAPID_PUBLIC_KEY");
-    const dbPrivKey = await getDbSecret("VAPID_PRIVATE_KEY");
-    const dbSub = await getDbSecret("VAPID_SUBJECT");
-
-    if (dbPubKey && dbPrivKey) {
-      pubKey = dbPubKey;
-      privKey = dbPrivKey;
-      if (dbSub) subject = dbSub;
-      process.env.VAPID_PUBLIC_KEY = pubKey;
-      process.env.VAPID_PRIVATE_KEY = privKey;
-      process.env.VAPID_SUBJECT = subject;
-      if (envPath) {
-        updateEnvValue(envPath, "VAPID_PUBLIC_KEY", pubKey, { fsImpl });
-        updateEnvValue(envPath, "VAPID_PRIVATE_KEY", privKey, { fsImpl });
-        updateEnvValue(envPath, "VAPID_SUBJECT", subject, { fsImpl });
-      }
-    } else {
+    try {
       const generatedKeys = webpushImpl.generateVAPIDKeys();
       pubKey = generatedKeys.publicKey;
       privKey = generatedKeys.privateKey;
@@ -176,6 +170,11 @@ export async function ensureSystemSecrets({
         updateEnvValue(envPath, "VAPID_PRIVATE_KEY", privKey, { fsImpl });
         updateEnvValue(envPath, "VAPID_SUBJECT", subject, { fsImpl });
       }
+    } catch (err) {
+      console.warn(
+        "[secrets] Unable to generate VAPID keys:",
+        err?.message || err,
+      );
     }
   }
 
