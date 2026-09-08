@@ -142,8 +142,6 @@ function SemiCircleGauge({
   );
 }
 
-const SYSTEM_REFRESH_MS = 10_000;
-
 const DashboardTab = forwardRef(function DashboardTab({ stats, onStatsChange }, ref) {
   const [sys, setSys] = useState(null);
   // Parent owns `/api/admin/stats` polling; keep a stable ref so manual refresh
@@ -173,14 +171,12 @@ const DashboardTab = forwardRef(function DashboardTab({ stats, onStatsChange }, 
       loadSys();
     };
     tick();
-    const timer = setInterval(tick, SYSTEM_REFRESH_MS);
     const onVisible = () => {
       if (document.visibilityState === "visible") tick();
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
-      clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [loadSys]);

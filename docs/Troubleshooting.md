@@ -31,10 +31,10 @@ The [deployment script](./Deployment-Script.md) has a built-in **View Logs** men
 | Videos not playing | ffmpeg / transcoding | [Video transcoding](#video-transcoding-issues) |
 | Docker build seems stuck | Dependency download | [Docker build issues](#docker-build-issues) |
 | TLS/certificate errors | Cert paths or renewal | [TLS / certificate problems](#tls--certificate-problems) |
+| PostgreSQL SSL / CA error | Cloud DB SSL / CA cert | [PostgreSQL SSL & CA errors](#postgresql-ssl--ca-certificate-errors) |
 | Remote Channel not mirroring | Telegram creds / queue | [Remote Channel](#remote-channel-not-mirroring) |
 | Admin panel service control fails | Permissions | [Admin panel issues](#admin-panel-issues) |
 
----
 
 ## Installation stuck downloading packages
 
@@ -106,7 +106,6 @@ You can use these DNS resolvers in Iran's restricted environment:
 
 :::
 
----
 
 ## App won't start / 502 Bad Gateway
 
@@ -135,7 +134,7 @@ sudo systemctl reload nginx
 
 ## Real-time updates not arriving
 
-Songbird uses Server-Sent Events (SSE) for live messages and presence. If messages only appear after a refresh, the SSE stream is likely being buffered by Nginx.
+Songbird uses a persistent WebSocket for live messages, presence, and typing indicators, with Server-Sent Events (SSE) as a fallback stream. A user is shown as online while any realtime connection is open and goes offline when the last one closes. If messages only appear after a refresh, the SSE stream is likely being buffered by Nginx.
 
 - Ensure the `/api/events` location block is present and disables buffering (`proxy_buffering off;`, `add_header X-Accel-Buffering no;`). See [Configure Nginx](./Nginx-Configuration.md).
 - Confirm any upstream proxy or CDN is not buffering or timing out the connection.
@@ -161,21 +160,32 @@ curl -x http://your-proxy:3128 https://fcm.googleapis.com
 | Cause | Fix |
 |---|---|
 | Upload larger than per-file cap | Increase `FILE_UPLOAD_MAX_SIZE_MB`. |
-| Message total exceeds cap | Increase `FILE_UPLOAD_MAX_TOTAL_SIZE_MB` and align Nginx `client_max_body_size`. |
+| Message total exceeds cap | Increase `FILE_UPLOAD_MAX_TOTAL_SIZE_MB` and align Nginx `client_max_body_size` (for `STORAGE_DRIVER=local`). |
 | Too many files in one message | Increase `FILE_UPLOAD_MAX_FILES`. |
 | Uploads disabled | Set `FILE_UPLOAD=true`. |
-| Nginx rejects large bodies (`413`) | Set `client_max_body_size` to match `FILE_UPLOAD_MAX_TOTAL_SIZE_MB`. |
-| Disk full | Check free space with `npm run db:inspect` (reports disk usage) or `df -h`. |
+| Nginx rejects large bodies (`413`) | Set `client_max_body_size` to match `FILE_UPLOAD_MAX_TOTAL_SIZE_MB` (for `STORAGE_DRIVER=local`). |
+| CORS error in browser on R2/S3 upload | Configure CORS policy on your bucket allowing `PUT`, `GET`, `HEAD`, `POST`, origin domain, and `ETag` expose header. See [Object Storage CORS](./Object-Storage.md#cloudflare-r2--s3-cors-configuration-requirements). |
+| CORS error in browser on Railway bucket upload | With `STORAGE_AUTO_CORS=true` (set in `.railway/railway.ts`) the server configures this itself — check server logs for `Bucket CORS policy applied` / `already configured`. If you see a CORS auto-configuration warning, apply it manually: `npm --prefix server run storage:cors -- --origin https://your-app.up.railway.app`. |
+| Worker logs `Failed to notify callback` with an empty port (`...internal:/api/...`) | Do not template `PORT` in `WEBHOOK_URL` — Railway injects it at container runtime so no IaC reference can capture it. Leave `WEBHOOK_URL` unset so the server derives it from `RAILWAY_PRIVATE_DOMAIN` + `PORT` (see `server/lib/webhookUrl.js`). |
+| Worker logs `Failed to notify callback` (connection refused) | The app must accept IPv6 private-network traffic: set `BIND_ADDRESS=::` (dual-stack) on Railway. Also confirm both services finished redeploying and the app is reachable at its `WORKER_URL`/`WEBHOOK_URL` host and port. |
+| `403 Forbidden` on presigned PUT/GET | Verify `STORAGE_ACCESS_KEY_ID`, `STORAGE_SECRET_ACCESS_KEY`, bucket permissions, and system clock sync. |
+| Presigned URL generation error (500) | Check `STORAGE_ENDPOINT`, `STORAGE_BUCKET`, and server logs for S3 SDK initialization errors. |
+| Browser cannot reach storage endpoint | Ensure `STORAGE_ENDPOINT` is a public HTTPS URL accessible from end-user networks. |
+| Disk full (local storage) | Check free space with `npm run db:inspect` (reports disk usage) or `df -h`. |
 
 After changing `.env`, apply the changes (see [Environment Variables](./Environment-Variables.md#apply-changes)).
 
 ## Video transcoding issues
 
-Songbird transcodes uploaded videos to H.264/AAC MP4 when `FILE_UPLOAD_TRANSCODE_VIDEOS=true`, which requires `ffmpeg`.
+Songbird automatically optimizes and transcodes uploaded videos to web-ready H.264/AAC MP4 when `FILE_UPLOAD_TRANSCODE_VIDEOS=true`.
 
-- Verify ffmpeg is installed: `ffmpeg -version`.
-- If videos fail to process, check the service logs for transcoding errors.
-- Set `APP_DEBUG=true` to get verbose `[app-debug]` lines covering upload/transcode events, then restart the service.
+- **Check Media Worker Health**: If using the standalone Media Worker, verify its health status via `curl http://localhost:8080/health` (or using the configured `WORKER_PORT` / `WORKER_URL/health`). The response should return `{"status": "ok", ...}`. See [Media Worker](./Media-Worker.md) for full configuration details.
+- **Verify Webhook Secret Synchronization**: Ensure the `WEBHOOK_SECRET` in the Songbird server configuration matches the `WEBHOOK_SECRET` configured in the Media Worker. If secrets mismatch, dispatch or callback requests will fail with `401 Unauthorized`.
+- **Verify Webhook Callback Reachability**: The Media Worker must be able to reach Songbird's callback endpoint (`POST /api/uploads/webhook/processed`). If Songbird is behind a reverse proxy, set `WEBHOOK_URL` (or fallback `WEBHOOK_CALLBACK_URL`) or ensure internal DNS/network routing allows worker-to-server HTTP requests.
+- **Verify FFmpeg Installation**: If running in `local` processing mode or running the worker directly from source, ensure `ffmpeg` and `ffprobe` are installed on the system (`ffmpeg -version`).
+- **Temporary Disk Space**: Ensure the worker node has sufficient temporary disk space (`/tmp` or system temp directory) for staging, transcoding, and thumbnail generation.
+- **Check Service & Worker Logs**: Look for `[worker]` or `[app-debug]` log messages in server or worker logs.
+- **Enable Debug Logging**: Set `APP_DEBUG=true` in Songbird's `.env` to receive verbose terminal logs for upload dispatch, transcode status, and real-time event broadcasts.
 
 ## Docker build issues
 
@@ -201,6 +211,40 @@ Other checks:
 
 See [SSL Certificates](./SSL-Certificates.md) for the full setup options.
 
+## PostgreSQL SSL & CA certificate errors
+
+When connecting Songbird to managed cloud PostgreSQL databases (such as **Aiven**, **AWS RDS**, **DigitalOcean**, **Supabase**, or **Neon**), the connection may fail on startup or during database migrations.
+
+### `self-signed certificate in certificate chain` / `SELF_SIGNED_CERT_IN_CHAIN`
+
+**Symptom:**
+```
+[db-migrations] Error initializing Postgres schema sets: Error: self-signed certificate in certificate chain
+  code: 'SELF_SIGNED_CERT_IN_CHAIN'
+Acquire connection error: Error: self-signed certificate in certificate chain
+```
+
+**Cause:**
+Managed database providers encrypt connections with SSL/TLS using their own project Certificate Authority (CA). Because this custom CA is not included in Node.js's built-in trusted root CA store, Node.js rejects the connection.
+
+**Fix:**
+Provide the provider's CA certificate to Node.js via the `NODE_EXTRA_CA_CERTS` environment variable:
+
+1. Download or copy the **CA certificate** (`ca.pem`) from your cloud database dashboard (e.g. Aiven console project CA).
+2. **On Render / PaaS:**
+   - Go to your service's **Environment** tab in the Render dashboard.
+   - Under **Secret Files**, add a file with name `aiven-ca.pem` (or `/etc/secrets/aiven-ca.pem`) and paste the PEM certificate content.
+   - Add the environment variable:
+     ```txt
+     NODE_EXTRA_CA_CERTS=/etc/secrets/aiven-ca.pem
+     ```
+3. **On Docker / VPS:**
+   - Save the CA certificate to disk (e.g., `/opt/songbird/certs/ca.pem` or mount it into the container).
+   - In `.env` or container environment, set:
+     ```txt
+     NODE_EXTRA_CA_CERTS=/opt/songbird/certs/ca.pem
+     ```
+
 ## Remote Channel not mirroring
 
 | Check | Detail |
@@ -214,7 +258,6 @@ See [SSL Certificates](./SSL-Certificates.md) for the full setup options.
 
 See [Remote Channel Setup](./Remote-Channel-Setup.md) for the complete configuration guide.
 
----
 
 ## Admin panel issues
 
@@ -284,7 +327,6 @@ sudo chown -R songbird:songbird /opt/songbird/data
 docker compose exec songbird chown -R node:node /app/data
 ```
 
----
 
 ## Still stuck?
 

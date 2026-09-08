@@ -1,3 +1,5 @@
+import { dbKnex } from "../db/knex.js";
+
 export function createInspector({ fs, dataDir, adminGetRow, adminGetAll }) {
   const getDiskUsageInfo = () => {
     try {
@@ -24,19 +26,21 @@ export function createInspector({ fs, dataDir, adminGetRow, adminGetAll }) {
     }
   };
 
-  const buildInspectSnapshot = (kind = "all", limit = 25) => {
+  const buildInspectSnapshot = async (kind = "all", limit = 25) => {
     const safeLimit = Math.max(1, Math.min(1000, Number(limit) || 25));
     const mode = String(kind || "all").toLowerCase();
 
+    const [userCount, chatCount, messageCount, fileCount] = await Promise.all([
+      adminGetRow(dbKnex("users").count({ n: "*" }).first()),
+      adminGetRow(dbKnex("chats").count({ n: "*" }).first()),
+      adminGetRow(dbKnex("chat_messages").count({ n: "*" }).first()),
+      adminGetRow(dbKnex("chat_message_files").count({ n: "*" }).first()),
+    ]);
     const counts = {
-      users: Number(adminGetRow("SELECT COUNT(*) AS n FROM users")?.n || 0),
-      chats: Number(adminGetRow("SELECT COUNT(*) AS n FROM chats")?.n || 0),
-      messages: Number(
-        adminGetRow("SELECT COUNT(*) AS n FROM chat_messages")?.n || 0,
-      ),
-      files: Number(
-        adminGetRow("SELECT COUNT(*) AS n FROM chat_message_files")?.n || 0,
-      ),
+      users: Number(userCount?.n || 0),
+      chats: Number(chatCount?.n || 0),
+      messages: Number(messageCount?.n || 0),
+      files: Number(fileCount?.n || 0),
     };
 
     const snapshot = {
@@ -47,59 +51,90 @@ export function createInspector({ fs, dataDir, adminGetRow, adminGetAll }) {
     };
 
     if (mode === "all" || mode === "user") {
-      snapshot.users = adminGetAll(
-        `SELECT id, username, nickname, status, banned, avatar_url, created_at
-         FROM users
-         ORDER BY id ASC
-         LIMIT ?`,
-        [safeLimit],
+      snapshot.users = await adminGetAll(
+        dbKnex("users")
+          .select("id", "username", "nickname", "status", "banned", "avatar_url", "created_at")
+          .orderBy("id", "asc")
+          .limit(safeLimit),
       );
     }
 
     if (mode === "all" || mode === "chat") {
-      snapshot.chats = adminGetAll(
-        `SELECT c.id, c.type, c.name,
-                (SELECT COUNT(*) FROM chat_members cm WHERE cm.chat_id = c.id) AS members,
-                (SELECT GROUP_CONCAT(cm.user_id, ',') FROM chat_members cm WHERE cm.chat_id = c.id ORDER BY cm.user_id ASC) AS member_ids_csv,
-                (SELECT COUNT(*) FROM chat_messages m WHERE m.chat_id = c.id) AS messages,
-                c.created_at
-         FROM chats c
-         ORDER BY c.id ASC
-         LIMIT ?`,
-        [safeLimit],
-      ).map((chat) => ({
+      const chats = await adminGetAll(
+        dbKnex("chats as c")
+          .select(
+            "c.id",
+            "c.type",
+            "c.name",
+            dbKnex.raw("(SELECT COUNT(*) FROM chat_messages m WHERE m.chat_id = c.id) AS messages"),
+            "c.created_at",
+          )
+          .orderBy("c.id", "asc")
+          .limit(safeLimit),
+      );
+      const chatIds = chats.map((chat) => Number(chat.id)).filter(Number.isFinite);
+      const members = chatIds.length
+        ? await adminGetAll(
+            dbKnex("chat_members")
+              .select("chat_id", "user_id")
+              .whereIn("chat_id", chatIds)
+              .orderBy("chat_id", "asc")
+              .orderBy("user_id", "asc"),
+          )
+        : [];
+      const memberIdsByChat = new Map();
+      members.forEach((member) => {
+        const chatId = Number(member.chat_id);
+        const userId = Number(member.user_id);
+        if (!Number.isFinite(chatId) || !Number.isFinite(userId) || userId <= 0) return;
+        const memberIds = memberIdsByChat.get(chatId) || [];
+        memberIds.push(userId);
+        memberIdsByChat.set(chatId, memberIds);
+      });
+      snapshot.chats = chats.map((chat) => ({
         ...chat,
-        member_ids: String(chat.member_ids_csv || "")
-          .split(",")
-          .map((id) => Number(id))
-          .filter((id) => Number.isFinite(id) && id > 0),
+        members: memberIdsByChat.get(Number(chat.id))?.length || 0,
+        member_ids: memberIdsByChat.get(Number(chat.id)) || [],
+        messages: Number(chat.messages || 0),
       }));
     }
 
     if (mode === "all" || mode === "file") {
-      snapshot.messageFiles = adminGetAll(
-        `SELECT cmf.id, cmf.message_id, cm.chat_id, cm.user_id, cmf.kind, cmf.original_name, cmf.stored_name, cmf.mime_type, cmf.size_bytes, cmf.created_at
-         FROM chat_message_files cmf
-         JOIN chat_messages cm ON cm.id = cmf.message_id
-         ORDER BY cmf.id ASC
-         LIMIT ?`,
-        [safeLimit],
+      snapshot.messageFiles = await adminGetAll(
+        dbKnex("chat_message_files as cmf")
+          .join("chat_messages as cm", "cm.id", "cmf.message_id")
+          .select(
+            "cmf.id",
+            "cmf.message_id",
+            "cm.chat_id",
+            "cm.user_id",
+            "cmf.kind",
+            "cmf.original_name",
+            "cmf.stored_name",
+            "cmf.mime_type",
+            "cmf.size_bytes",
+            "cmf.created_at",
+          )
+          .orderBy("cmf.id", "asc")
+          .limit(safeLimit),
       );
 
-      snapshot.avatarFiles = adminGetAll(
-        `SELECT id AS user_id, username, nickname, avatar_url
-         FROM users
-         WHERE avatar_url IS NOT NULL AND avatar_url != ''
-         ORDER BY id ASC
-         LIMIT ?`,
-        [safeLimit],
+      snapshot.avatarFiles = await adminGetAll(
+        dbKnex("users")
+          .select("id AS user_id", "username", "nickname", "avatar_url")
+          .whereNotNull("avatar_url")
+          .where("avatar_url", "!=", "")
+          .orderBy("id", "asc")
+          .limit(safeLimit),
       );
 
       snapshot.fileStorage = {
         messageFilesBytes: Number(
-          adminGetRow(
-            "SELECT COALESCE(SUM(size_bytes), 0) AS n FROM chat_message_files",
-          )?.n || 0,
+          (await adminGetRow(
+            dbKnex("chat_message_files")
+              .select(dbKnex.raw("COALESCE(SUM(size_bytes), 0) AS n"))
+              .first(),
+          ))?.n || 0,
         ),
       };
     }

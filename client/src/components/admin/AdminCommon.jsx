@@ -276,19 +276,19 @@ export function CustomSelect({ value, onChange, options, placeholder = "Selectâ€
   );
 }
 
-export function CompactSelect({ value, onChange, options, placeholder = "Selectâ€¦" }) {
+export function CompactSelect({ value, onChange, options, placeholder = "Selectâ€¦", inline = true }) {
   const { open, toggle, setOpen, btnRef, menuRef } = useDropdown();
   const selected = options.find(([v]) => v === value);
   const label = selected?.[1] ?? placeholder;
   return (
     <div className="relative">
       <button ref={btnRef} type="button" onClick={toggle} aria-expanded={open}
-        className="relative flex w-full items-center rounded-xl border border-emerald-200/70 bg-white/90 py-1.5 pl-3 pr-7 text-left text-xs font-semibold text-slate-600 outline-hidden transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-emerald-500/5">
+        className="relative flex w-full items-center rounded-xl border border-emerald-200/70 bg-white/90 py-2 pl-3 pr-7 text-left text-xs font-semibold text-slate-600 outline-hidden transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-emerald-500/5">
         <span className="flex-1 truncate">{label}</span>
         <ChevronDown size={12} className={`absolute right-2 top-1/2 -translate-y-1/2 text-emerald-500 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
-        <div ref={menuRef} className="absolute left-0 right-0 z-50 mt-1.5 overflow-hidden rounded-xl border border-emerald-200 bg-white p-1 text-xs font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100">
+        <div ref={menuRef} className={`${inline ? "mt-1.5 w-full" : "absolute left-0 right-0 z-50 mt-1.5"} overflow-hidden rounded-xl border border-emerald-200 bg-white p-1 text-xs font-semibold text-slate-700 shadow-lg shadow-emerald-950/5 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100`}>
           {options.map(([v, l]) => (
             <button key={v} type="button" onClick={() => { onChange(v); setOpen(false); }}
               className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200 ${v === value ? "text-emerald-700 dark:text-emerald-300" : ""}`}>
@@ -296,6 +296,65 @@ export function CompactSelect({ value, onChange, options, placeholder = "Selectâ
               {v === value && <span className="ml-2 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />}
             </button>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function FilterPopover({ sections = [], onReset }) {
+  const { open, toggle, setOpen, btnRef, menuRef } = useDropdown();
+  const activeCount = sections.filter((s) => Boolean(s.value)).length;
+
+  return (
+    <div className="relative shrink-0">
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={toggle}
+        aria-expanded={open}
+        aria-label="Filter"
+        className={`relative flex h-9 w-9 items-center justify-center rounded-xl border text-xs font-semibold outline-hidden transition sm:w-auto sm:justify-start sm:gap-1.5 sm:px-3 ${
+          activeCount > 0
+            ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/50 dark:bg-emerald-500/10 dark:text-emerald-300"
+            : "border-emerald-200/70 bg-white/90 text-slate-600 hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-emerald-500/5"
+        }`}
+      >
+        <Filter size={15} className="text-emerald-500 shrink-0 icon-anim-pop" />
+        <span className="hidden sm:inline">Filter</span>
+        <ChevronDown size={12} className={`hidden text-emerald-500 transition-transform sm:inline-flex ${open ? "rotate-180" : ""}`} />
+        {activeCount > 0 && (
+          <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-bold text-white shadow-xs">
+            {activeCount}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div
+          ref={menuRef}
+          className="absolute right-0 z-50 mt-1.5 w-56 max-h-[85vh] flex flex-col rounded-2xl border border-emerald-200 bg-white p-2.5 text-xs font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 sm:w-60"
+        >
+          <div className="flex shrink-0 items-center justify-between border-b border-slate-100 pb-2 mb-2 dark:border-white/5">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Filter Options</span>
+            {activeCount > 0 && onReset && (
+              <button
+                type="button"
+                onClick={() => { onReset(); setOpen(false); }}
+                className="rounded-full border border-rose-200/80 bg-rose-50/60 px-2 py-0.5 text-[10px] font-semibold text-rose-600 outline-hidden transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-[0_0_12px_rgba(244,63,94,0.25)] dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300 dark:hover:bg-rose-500/20"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+          <div className="space-y-2.5 overflow-y-auto pr-1">
+            {sections.map((sec) => (
+              <div key={sec.id} className="space-y-1">
+                <label className="block text-[11px] text-slate-500 dark:text-slate-400">{sec.label}</label>
+                <CompactSelect value={sec.value} onChange={sec.onChange} options={sec.options} />
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

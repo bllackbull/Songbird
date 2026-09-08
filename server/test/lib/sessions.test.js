@@ -205,7 +205,7 @@ describe("getSessionFromRequest", () => {
   });
 
   test("returns the session when sid cookie matches", () => {
-    const session = { id: 1, username: "alice" };
+    const session = { id: "11111111-1111-4111-a111-111111111111", username: "alice" };
     const { getSessionFromRequest } = makeHelpers({
       getSession: (token) => (token === "abc" ? session : null),
     });
@@ -222,7 +222,7 @@ describe("getSessionFromRequest", () => {
   test("calls touchSession when session is found", () => {
     const touchSession = vi.fn();
     const { getSessionFromRequest } = makeHelpers({
-      getSession: () => ({ id: 1, username: "alice" }),
+      getSession: () => ({ id: "11111111-1111-4111-a111-111111111111", username: "alice" }),
       touchSession,
     });
     const req = makeReq({ headers: { cookie: "sid=abc" } });

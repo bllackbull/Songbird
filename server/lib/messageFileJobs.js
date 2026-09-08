@@ -1,3 +1,5 @@
+import { dbKnex } from "../db/knex.js";
+
 export function createMessageFileJobs({
   adminGetAll,
   adminGetRow,
@@ -9,6 +11,7 @@ export function createMessageFileJobs({
   fs,
   path,
   getSetting,
+  storageProvider,
 }) {
   // Always read the live setting instead of a value captured once at startup,
   // so admin-panel changes to retention take effect without a restart.
@@ -31,24 +34,22 @@ export function createMessageFileJobs({
       ),
     );
     if (!normalized.length) return [];
-    const placeholders = normalized.map(() => "?").join(", ");
-    return adminGetAll(
-      `SELECT DISTINCT message_id
-       FROM chat_message_files
-       WHERE stored_name IN (${placeholders})`,
-      normalized,
-    )
-      .map((row) => Number(row?.message_id || 0))
-      .filter((id) => Number.isFinite(id) && id > 0);
+    const rawRes = adminGetAll(
+      dbKnex("chat_message_files")
+        .distinct("message_id")
+        .whereIn("stored_name", normalized),
+    );
+    const processRows = (rows) =>
+      (rows || []).map((row) => row?.message_id).filter(Boolean);
+
+    return rawRes && typeof rawRes.then === "function"
+      ? rawRes.then(processRows)
+      : processRows(rawRes);
   };
 
   const cleanupMissingMessageFiles = (messageIds = []) => {
     const normalized = Array.from(
-      new Set(
-        (Array.isArray(messageIds) ? messageIds : [])
-          .map((id) => Number(id))
-          .filter((id) => Number.isFinite(id) && id > 0),
-      ),
+      new Set((Array.isArray(messageIds) ? messageIds : []).filter(Boolean)),
     );
 
     if (!normalized.length)
@@ -58,89 +59,109 @@ export function createMessageFileJobs({
         changed: false,
       };
 
-    const rows = listMessageFilesByMessageIds(normalized);
-    if (!rows.length)
-      return {
-        deletedMessageIds: [],
-        deletedByChat: new Map(),
-        changed: false,
-      };
+    const rawRows = listMessageFilesByMessageIds(normalized);
+    const processRows = (rows) => {
+      const safeRows = rows || [];
+      if (!safeRows.length)
+        return {
+          deletedMessageIds: [],
+          deletedByChat: new Map(),
+          changed: false,
+        };
 
-    const missingMessageIds = new Set();
+      const missingMessageIds = new Set();
 
-    rows.forEach((row) => {
-      const stored = path.basename(String(row.stored_name || "").trim());
-      if (!stored) return;
+      safeRows.forEach((row) => {
+        const driver = String(row.storage_driver || "local").toLowerCase();
+        if (driver === "remote" || driver === "s3") return;
 
-      const filePath = path.join(uploadRootDir, stored);
+        const stored = path.basename(String(row.stored_name || "").trim());
+        if (!stored) return;
 
-      if (!fs.existsSync(filePath)) {
-        missingMessageIds.add(Number(row.message_id));
-      }
-    });
+        const filePath = path.join(uploadRootDir, stored);
 
-    if (!missingMessageIds.size) {
-      return {
-        deletedMessageIds: [],
-        deletedByChat: new Map(),
-        changed: false,
-      };
-    }
-
-    const initialMessageIds = Array.from(missingMessageIds);
-    const initialPlaceholders = initialMessageIds.map(() => "?").join(", ");
-    const allFilesRows = adminGetAll(
-      `SELECT stored_name FROM chat_message_files WHERE message_id IN (${initialPlaceholders})`,
-      initialMessageIds,
-    );
-    const storedNames = allFilesRows.map((row) => row.stored_name);
-    const targetMessageIds = Array.from(
-      new Set(resolveSharedMessageIdsByStoredNames(storedNames)),
-    );
-    const placeholders = targetMessageIds.map(() => "?").join(", ");
-    const messageChatPairs = adminGetAll(
-      `SELECT id, chat_id FROM chat_messages WHERE id IN (${placeholders})`,
-      targetMessageIds,
-    );
-    const deletedByChat = new Map();
-    messageChatPairs.forEach((row) => {
-      const chatId = Number(row?.chat_id || 0);
-      const messageId = Number(row?.id || 0);
-      if (!chatId || !messageId) return;
-      const list = deletedByChat.get(chatId) || [];
-      list.push(messageId);
-      deletedByChat.set(chatId, list);
-    });
-
-    adminRun("BEGIN");
-    try {
-      chunkArray(targetMessageIds, 500).forEach((chunk) => {
-        const chunkPlaceholders = chunk.map(() => "?").join(", ");
-
-        adminRun(
-          `DELETE FROM chat_message_files WHERE message_id IN (${chunkPlaceholders})`,
-          chunk,
-        );
-
-        adminRun(
-          `DELETE FROM chat_messages WHERE id IN (${chunkPlaceholders})`,
-          chunk,
-        );
+        if (!fs.existsSync(filePath)) {
+          missingMessageIds.add(row.message_id);
+        }
       });
-      adminRun("COMMIT");
-    } catch (error) {
-      adminRun("ROLLBACK");
-      throw error;
-    }
 
-    removeStoredFileNames(storedNames);
-    adminSave();
+      if (!missingMessageIds.size) {
+        return {
+          deletedMessageIds: [],
+          deletedByChat: new Map(),
+          changed: false,
+        };
+      }
 
-    return {
-      deletedMessageIds: targetMessageIds,
-      deletedByChat,
-      changed: true,
+      const initialMessageIds = Array.from(missingMessageIds);
+      const rawAllFiles = adminGetAll(
+        dbKnex("chat_message_files")
+          .select("stored_name")
+          .whereIn("message_id", initialMessageIds),
+      );
+      const processAllFiles = (allFilesRows) => {
+        const storedNames = (allFilesRows || []).map((row) => row.stored_name);
+        const rawTargetIds = resolveSharedMessageIdsByStoredNames(storedNames);
+        const processTargetIds = (targetMessageIds) => {
+          const uniqueTargetIds = Array.from(new Set(targetMessageIds));
+          const rawPairs = adminGetAll(
+            dbKnex("chat_messages")
+              .select("id", "chat_id")
+              .whereIn("id", uniqueTargetIds),
+          );
+          const processPairs = (messageChatPairs) => {
+            const deletedByChat = new Map();
+            (messageChatPairs || []).forEach((row) => {
+              const chatId = row?.chat_id;
+              const messageId = row?.id;
+              if (!chatId || !messageId) return;
+              const list = deletedByChat.get(chatId) || [];
+              list.push(messageId);
+              deletedByChat.set(chatId, list);
+            });
+
+            adminRun("BEGIN");
+            try {
+              chunkArray(uniqueTargetIds, 500).forEach((chunk) => {
+                adminRun(
+                  dbKnex("chat_message_files").whereIn("message_id", chunk).del(),
+                );
+
+                adminRun(
+                  dbKnex("chat_messages").whereIn("id", chunk).del(),
+                );
+              });
+              adminRun("COMMIT");
+            } catch (error) {
+              adminRun("ROLLBACK");
+              throw error;
+            }
+
+            removeStoredFileNames(storedNames);
+            adminSave();
+
+            return {
+              deletedMessageIds: uniqueTargetIds,
+              deletedByChat,
+              changed: true,
+            };
+          };
+          return rawPairs && typeof rawPairs.then === "function"
+            ? rawPairs.then(processPairs)
+            : processPairs(rawPairs);
+        };
+        return rawTargetIds && typeof rawTargetIds.then === "function"
+          ? rawTargetIds.then(processTargetIds)
+          : processTargetIds(rawTargetIds);
+      };
+      return rawAllFiles && typeof rawAllFiles.then === "function"
+        ? rawAllFiles.then(processAllFiles)
+        : processAllFiles(rawAllFiles);
     };
+
+    return rawRows && typeof rawRows.then === "function"
+      ? rawRows.then(processRows)
+      : processRows(rawRows);
   };
 
   const cleanupExpiredMessageFiles = () => {
@@ -150,81 +171,103 @@ export function createMessageFileJobs({
 
     const nowIso = new Date().toISOString();
 
-    const rows = adminGetAll(
-      `SELECT DISTINCT stored_name
-       FROM chat_message_files
-       WHERE expires_at IS NOT NULL AND expires_at != '' AND julianday(expires_at) <= julianday(?)`,
-      [nowIso],
+    const rawRows = adminGetAll(
+      dbKnex("chat_message_files")
+        .distinct("stored_name")
+        .whereNotNull("expires_at")
+        .where("expires_at", "!=", "")
+        .whereRaw("julianday(expires_at) <= julianday(?)", [nowIso]),
     );
-    const storedNames = rows.map((row) => row.stored_name);
-    const messageIds = Array.from(
-      new Set(resolveSharedMessageIdsByStoredNames(storedNames)),
-    );
+    const processRows = (rows) => {
+      const storedNames = (rows || []).map((row) => row.stored_name);
+      const rawMsgIds = resolveSharedMessageIdsByStoredNames(storedNames);
+      const processMsgIds = (messageIds) => {
+        const uniqueMsgIds = Array.from(new Set(messageIds));
+        if (!uniqueMsgIds.length) {
+          return { removedMessages: 0, removedFiles: 0 };
+        }
 
-    if (!messageIds.length) {
-      return { removedMessages: 0, removedFiles: 0 };
-    }
-
-    const placeholders = messageIds.map(() => "?").join(", ");
-    const fileRows = adminGetAll(
-      `SELECT stored_name FROM chat_message_files WHERE message_id IN (${placeholders})`,
-      messageIds,
-    );
-    const allStoredNames = fileRows.map((row) => row.stored_name);
-
-    adminRun("BEGIN");
-    try {
-      chunkArray(messageIds, 500).forEach((chunk) => {
-        const chunkPlaceholders = chunk.map(() => "?").join(", ");
-
-        adminRun(
-          `DELETE FROM chat_message_files WHERE message_id IN (${chunkPlaceholders})`,
-          chunk,
+        const rawFiles = adminGetAll(
+          dbKnex("chat_message_files")
+            .select("stored_name")
+            .whereIn("message_id", uniqueMsgIds),
         );
+        const processFileRows = (fileRows) => {
+          const allStoredNames = (fileRows || []).map((row) => row.stored_name);
 
-        adminRun(
-          `DELETE FROM chat_messages WHERE id IN (${chunkPlaceholders})`,
-          chunk,
-        );
-      });
-      adminRun("COMMIT");
-    } catch (error) {
-      adminRun("ROLLBACK");
-      throw error;
-    }
+          adminRun("BEGIN");
+          try {
+            chunkArray(uniqueMsgIds, 500).forEach((chunk) => {
+              adminRun(
+                dbKnex("chat_message_files").whereIn("message_id", chunk).del(),
+              );
 
-    removeStoredFileNames(allStoredNames);
-    adminSave();
+              adminRun(
+                dbKnex("chat_messages").whereIn("id", chunk).del(),
+              );
+            });
+            adminRun("COMMIT");
+          } catch (error) {
+            adminRun("ROLLBACK");
+            throw error;
+          }
 
-    return {
-      removedMessages: messageIds.length,
-      removedFiles: allStoredNames.length,
+          removeStoredFileNames(allStoredNames);
+          adminSave();
+
+          return {
+            removedMessages: uniqueMsgIds.length,
+            removedFiles: allStoredNames.length,
+          };
+        };
+        return rawFiles && typeof rawFiles.then === "function"
+          ? rawFiles.then(processFileRows)
+          : processFileRows(rawFiles);
+      };
+      return rawMsgIds && typeof rawMsgIds.then === "function"
+        ? rawMsgIds.then(processMsgIds)
+        : processMsgIds(rawMsgIds);
     };
+
+    return rawRows && typeof rawRows.then === "function"
+      ? rawRows.then(processRows)
+      : processRows(rawRows);
   };
 
   const backfillMessageFileExpiry = () => {
     const nowDays = getMessageFileRetentionDays();
     if (nowDays <= 0) return 0;
 
-    const row = adminGetRow(
-      `SELECT COUNT(*) AS n
-       FROM chat_message_files
-       WHERE (expires_at IS NULL OR expires_at = '')`,
+    const rawRow = adminGetRow(
+      dbKnex("chat_message_files")
+        .count("* as n")
+        .where(function () {
+          this.whereNull("expires_at").orWhere("expires_at", "");
+        })
+        .first(),
     );
+    const processRow = (row) => {
+      const pending = Number(row?.n || 0);
+      if (!pending) return 0;
 
-    const pending = Number(row?.n || 0);
-    if (!pending) return 0;
+      adminRun(
+        dbKnex("chat_message_files")
+          .where(function () {
+            this.whereNull("expires_at").orWhere("expires_at", "");
+          })
+          .update({
+            expires_at: dbKnex.raw("datetime(created_at, '+' || ? || ' days')", [nowDays]),
+          }),
+      );
 
-    adminRun(
-      `UPDATE chat_message_files
-       SET expires_at = datetime(created_at, '+' || ? || ' days')
-       WHERE (expires_at IS NULL OR expires_at = '')`,
-      [nowDays],
-    );
+      adminSave();
 
-    adminSave();
+      return pending;
+    };
 
-    return pending;
+    return rawRow && typeof rawRow.then === "function"
+      ? rawRow.then(processRow)
+      : processRow(rawRow);
   };
 
   const removeAllMessageUploads = () => {
@@ -252,6 +295,92 @@ export function createMessageFileJobs({
     return expiry.toISOString();
   };
 
+  const pruneOrphanRemoteObjects = async (options = {}) => {
+    const {
+      maxAgeMs = 60 * 60 * 1000,
+      storageProvider: activeStorageProvider = storageProvider,
+      storageKeys: customKeys = null,
+    } = options;
+
+    const cutoffIso = new Date(Date.now() - maxAgeMs).toISOString();
+
+    let keysToCheck = [];
+
+    if (Array.isArray(customKeys) && customKeys.length > 0) {
+      keysToCheck = customKeys;
+    } else {
+      const rawPending = adminGetAll(
+        dbKnex("pending_presigned_uploads")
+          .select("storage_key")
+          .where("created_at", "<=", cutoffIso),
+      );
+      const pendingRows =
+        (rawPending && typeof rawPending.then === "function"
+          ? await rawPending
+          : rawPending) || [];
+
+      keysToCheck = pendingRows.map((r) => r.storage_key).filter(Boolean);
+    }
+
+    if (!keysToCheck.length) {
+      return { prunedCount: 0, prunedKeys: [] };
+    }
+
+    const rawReferenced = adminGetAll(
+      dbKnex("chat_message_files")
+        .select("storage_key")
+        .whereIn("storage_key", keysToCheck),
+    );
+    const referencedRows =
+      (rawReferenced && typeof rawReferenced.then === "function"
+        ? await rawReferenced
+        : rawReferenced) || [];
+
+    const referencedKeysSet = new Set(
+      (referencedRows || []).map((r) => r.storage_key).filter(Boolean),
+    );
+
+    const orphanKeys = keysToCheck.filter((key) => !referencedKeysSet.has(key));
+    const claimedKeys = keysToCheck.filter((key) => referencedKeysSet.has(key));
+
+    if (claimedKeys.length) {
+      adminRun(
+        dbKnex("pending_presigned_uploads")
+          .whereIn("storage_key", claimedKeys)
+          .del(),
+      );
+    }
+
+    const prunedKeys = [];
+    for (const key of orphanKeys) {
+      try {
+        if (
+          activeStorageProvider &&
+          typeof activeStorageProvider.deleteFile === "function"
+        ) {
+          await activeStorageProvider.deleteFile(key);
+        }
+        prunedKeys.push(key);
+      } catch (_) {
+        // best effort cleanup per object
+      }
+    }
+
+    if (prunedKeys.length) {
+      adminRun(
+        dbKnex("pending_presigned_uploads")
+          .whereIn("storage_key", prunedKeys)
+          .del(),
+      );
+      if (typeof adminSave === "function") adminSave();
+    }
+
+    return {
+      prunedCount: prunedKeys.length,
+      prunedKeys,
+    };
+  };
+
   return {
     chunkArray,
     cleanupMissingMessageFiles,
@@ -259,5 +388,6 @@ export function createMessageFileJobs({
     backfillMessageFileExpiry,
     removeAllMessageUploads,
     computeExpiryIso,
+    pruneOrphanRemoteObjects,
   };
 }

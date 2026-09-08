@@ -8,7 +8,7 @@ Songbird هم فرانت‌اند ساخته‌شده و هم API را از سر
 
 - مقدار `proxy_pass` را با `SERVER_PORT` همسو نگه دارید.
 - پورت `listen` در Nginx را با `CLIENT_PORT` همسو نگه دارید.
-- مقدار `client_max_body_size` را با `FILE_UPLOAD_MAX_TOTAL_SIZE_MB` همسو نگه دارید.
+- مقدار `client_max_body_size` را در صورت استفاده از ذخیره سازی محلی (`STORAGE_DRIVER=local`) با `FILE_UPLOAD_MAX_TOTAL_SIZE_MB` همسو نگه دارید. نکته: در صورت فعال بودن `STORAGE_DRIVER=remote`، آپلودها مستقیماً با Presigned URL از مرورگر به Cloudflare R2 / S3 ارسال میشوند و محدودیتهای حجم Nginx را بایپاس میکنند.
 
 :::
 

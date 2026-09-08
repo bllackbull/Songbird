@@ -13,14 +13,14 @@ function getStore(keys) {
  * Lightweight cache for admin panel tab data.
  *
  * Each entry stores { data, fetchedAt, loading } keyed by a string ID.
- * `ttlMs` controls how long data is considered fresh (default 10 s, matching
- * the dashboard auto-refresh interval).  Switching to a tab whose cache is
- * stale triggers a refetch automatically; switching to a fresh tab is instant.
+ * Data remains fresh indefinitely in memory until explicitly invalidated or
+ * refreshed via mutations or real-time updates. Switching to a tab whose cache
+ * exists is instant; switching to an unloaded tab triggers a fetch automatically.
  *
  * After a mutation (create/edit/delete) callers should call `invalidate(key)`
  * so the next visit to that tab always gets fresh data.
  */
-export function useAdminCache(fetchers, { ttlMs = 10_000 } = {}) {
+export function useAdminCache(fetchers) {
   // Keep the module-level store stable for this hook instance without reading
   // a ref during render. The lazy initializer also preserves it on remounts.
   const [store] = useState(() => getStore(Object.keys(fetchers)));
@@ -76,14 +76,13 @@ export function useAdminCache(fetchers, { ttlMs = 10_000 } = {}) {
   }, [setAndPersistCache]);
 
   /**
-   * Ensure the cache for `key` is fresh.  Fetches immediately if stale/missing.
+   * Ensure the cache for `key` is present. Fetches immediately if missing.
    * Called whenever a tab becomes visible.
    */
   const ensureFresh = useCallback((key) => {
     const entry = cache[key];
-    const isStale = !entry || Date.now() - entry.fetchedAt > ttlMs;
-    if (isStale) fetchKey(key);
-  }, [cache, fetchKey, ttlMs]);
+    if (!entry) fetchKey(key);
+  }, [cache, fetchKey]);
 
   /**
    * Fetch a cache entry only when it has never been loaded. Use this for

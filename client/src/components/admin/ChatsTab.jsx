@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { ChevronDown, Globe, Lock, Megaphone, MessageCircleMore, Pencil, Plus, Trash, Users } from "../../icons/lucide.js";
 import { api, cardCls, btnPrimary, iconBtn, fmtDate, DEFAULT_PAGE_SIZE } from "./adminShared.js";
-import { LoadingRows, EmptyState, FilterDropdown, SortTh, Pagination, TabToolbar, TabSearchInput } from "./AdminCommon.jsx";
+import { LoadingRows, EmptyState, FilterPopover, SortTh, Pagination, TabToolbar, TabSearchInput } from "./AdminCommon.jsx";
 import AdminGroupModal from "./AdminGroupModal.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 import Avatar from "../common/Avatar.jsx";
@@ -18,6 +18,10 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
   const [loading, setLoading]         = useState(false);
   const [search, setSearch]           = useState("");
   const [typeFilter, setTypeFilter]   = useState("");
+  const [visibilityFilter, setVisibilityFilter] = useState("");
+  const [verifiedFilter, setVerifiedFilter]     = useState("");
+  const [autoAddFilter, setAutoAddFilter]       = useState("");
+  const [remoteFilter, setRemoteFilter]         = useState("");
   const [sortBy, setSortBy]           = useState("id");
   const [sortDir, setSortDir]         = useState("ASC");
   const [editChat, setEditChat]       = useState(null);
@@ -52,6 +56,10 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
     });
     if (trimmedSearch) params.set("search", trimmedSearch);
     if (typeFilter) params.set("type", typeFilter);
+    if (visibilityFilter) params.set("visibility", visibilityFilter);
+    if (verifiedFilter) params.set("verified", verifiedFilter);
+    if (autoAddFilter) params.set("auto_add", autoAddFilter);
+    if (remoteFilter) params.set("remote", remoteFilter);
     try {
       const data = await api.get(`/api/admin/chats?${params.toString()}`);
       if (requestId !== requestIdRef.current) return;
@@ -64,7 +72,7 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
     }
-  }, [trimmedSearch, typeFilter, sortBy, sortDir, pageSize]);
+  }, [trimmedSearch, typeFilter, visibilityFilter, verifiedFilter, autoAddFilter, remoteFilter, sortBy, sortDir, pageSize]);
 
   // Refetch (debounced) whenever the query or page changes while the tab is visible.
   useEffect(() => {
@@ -82,6 +90,10 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
   // keeps state — never resets the page the admin was already on.
   const changeSearch = (value) => { setSearch(value); setPage(1); };
   const changeTypeFilter = (value) => { setTypeFilter(value); setPage(1); };
+  const changeVisibilityFilter = (value) => { setVisibilityFilter(value); setPage(1); };
+  const changeVerifiedFilter = (value) => { setVerifiedFilter(value); setPage(1); };
+  const changeAutoAddFilter = (value) => { setAutoAddFilter(value); setPage(1); };
+  const changeRemoteFilter = (value) => { setRemoteFilter(value); setPage(1); };
   const changePageSize = (value) => { setPageSize(value); setPage(1); };
   const toggleSort = (field) => {
     setPage(1);
@@ -96,11 +108,64 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
     refresh(); onMutated(); onStatsChange();
   };
 
+  const chatFilterSections = [
+    {
+      id: "type",
+      label: "Chat Type",
+      value: typeFilter,
+      onChange: changeTypeFilter,
+      options: [["", "All types"], ["group", "Groups"], ["channel", "Channels"]],
+    },
+    {
+      id: "visibility",
+      label: "Privacy / Visibility",
+      value: visibilityFilter,
+      onChange: changeVisibilityFilter,
+      options: [["", "All privacy"], ["public", "Public"], ["private", "Private"]],
+    },
+    {
+      id: "verified",
+      label: "Verified Status",
+      value: verifiedFilter,
+      onChange: changeVerifiedFilter,
+      options: [["", "All"], ["1", "Verified"], ["0", "Unverified"]],
+    },
+    {
+      id: "autoAdd",
+      label: "Auto-Add New Users",
+      value: autoAddFilter,
+      onChange: changeAutoAddFilter,
+      options: [["", "All"], ["1", "Enabled"], ["0", "Disabled"]],
+    },
+    {
+      id: "remote",
+      label: "Remote Channel State",
+      value: remoteFilter,
+      onChange: changeRemoteFilter,
+      options: [
+        ["", "All remote states"],
+        ["active", "Active"],
+        ["paused", "Paused"],
+        ["disabled", "Disabled"],
+        ["none", "No remote source"],
+      ],
+    },
+  ];
+
+  const resetChatFilters = () => {
+    setTypeFilter("");
+    setVisibilityFilter("");
+    setVerifiedFilter("");
+    setAutoAddFilter("");
+    setRemoteFilter("");
+    setPage(1);
+  };
+
   return (
     <div className="space-y-3">
       <TabToolbar>
         <TabSearchInput value={search} onChange={changeSearch} placeholder="Search chats…" />
-        <FilterDropdown value={typeFilter} onChange={changeTypeFilter} options={[["", "All types"], ["group", "Groups"], ["channel", "Channels"]]} />
+        <FilterPopover sections={chatFilterSections} onReset={resetChatFilters} />
         <div ref={createMenuRef} className="relative shrink-0">
           <button type="button" onClick={() => setCreateMenuOpen((o) => !o)} aria-expanded={createMenuOpen}
             className={btnPrimary + " w-9 shrink-0 justify-center px-0 sm:w-auto sm:justify-start sm:px-3"}>

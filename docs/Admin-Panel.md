@@ -16,7 +16,11 @@ Only one user with owner role can exist at a time.
 
 ## Accessing the Admin Panel
 
-1. Create or edit a user and give them the **owner** or **admin** role (prompted on fresh install, or later via the the [Deployment Script](./Deployment-Script.md)):
+There are two primary ways to grant an account **owner** or **admin** privileges:
+
+### Option 1: CLI / Deployment Script (VPS & Shell Deployments)
+
+1. Create or edit a user and give them the **owner** or **admin** role (prompted on fresh install, or later via the [Deployment Script](./Deployment-Script.md)):
 
   ```bash
   songbird-deploy
@@ -36,9 +40,32 @@ Only one user with owner role can exist at a time.
    ```
   :::
 
-2. Log in to your Songbird instance with the promoted account
+2. Log in to your Songbird instance with the promoted account.
 
-3. Click the **Admin Panel** button in the sidebar (accessible only by owner and admins)
+3. Click the **Admin Panel** button in the sidebar (accessible only by owner and admins).
+
+### Option 2: Emergency Admin & Owner Claim (PaaS & Web UI)
+
+For deployments on PaaS providers (such as Render, Railway, or Fly.io) or container platforms where terminal access is unavailable, authenticated users can claim privileges directly via the web UI:
+
+1. Configure `ADMIN_API_TOKEN` in your environment variables (e.g., in your PaaS dashboard settings). If not set, Songbird auto-generates a token on first boot and saves it in `.env`.
+2. Log in to your registered user account.
+3. Open your browser and navigate directly to `/admin`.
+4. Enter the `ADMIN_API_TOKEN` in the Emergency Admin Access prompt.
+5. Click **Claim Privileges**.
+
+:::info Privilege Promotion Rules
+- **First Claim (Owner)**: If no user currently holds the **owner** role, the claiming user is promoted to **owner**.
+- **Subsequent Claims (Admin)**: If an owner already exists, claiming privileges promotes the user to **admin**.
+:::
+
+:::warning HTTPS Required
+Emergency Admin Claim requires a secure connection (HTTPS) or local loopback (`localhost`, `127.0.0.1`, or `::1`). Unencrypted HTTP connections on remote hosts will block the claim feature.
+:::
+
+:::danger Security Caution
+Do not share `ADMIN_API_TOKEN` and keep it private. Anyone can access the admin panel by using this token.
+:::
 
 ## Dashboard Tab
 
@@ -54,7 +81,7 @@ Manage all users in your Songbird instance:
 
 ### Features
 
-- **View All Users**: List with sorting and filtering (1000 row limit)
+- **View All Users**: Paginated List with sorting and filtering
 - **Create Users**: Create new accounts with username, nickname, password
 - **Edit Users**: 
   - Update username, nickname, avatar
@@ -62,8 +89,7 @@ Manage all users in your Songbird instance:
   - Change user role (admin/user)
   - Ban/unban users
 - **Delete Users**: Permanently remove user accounts
-- **Search & Filter**: Find users by username or nickname
-- **Sorting**: Sort by username, nickname, created date, or last seen
+- **Search & Filter**: Searching and filtering across the entire users dataset
 
 ## Chats Tab
 
@@ -71,12 +97,14 @@ Manage DMs, groups, and channels:
 
 ### Features
 
-- **View All Chats**: List with type, members, and creation date
+- **View All Chats**: Paginated list with type, member count, message count, and creation date
 - **Create Chats**: Create a new group or channel
-- **Edit Chats**: Update a chat metadata and its ownership
-- **Delete Chats**: Permanently remove chats and all messages
-- **Search & Filter**: Find chats by name, username, or type
+- **Edit Chats**: Update chat metadata and its ownership
+- **Delete Chats**: Permanently remove chats and all associated messages
+- **Search & Filter**: Searching and filtering across all groups and channels
+- **Sorting**: Sort by Name, Type, Visibility, Created Date, Member Count, or Message Count
 - **Member Management**: View and modify chat membership
+- **Auto-Add New Users**: Automatically add newly registered user accounts to public chats
 
 ## Settings Tab
 
@@ -156,15 +184,17 @@ Perform system administration tasks:
 ### Database Operations
 
 **Backup**
-- Download a timestamped backup of the database
+- Download a timestamped engine-native database backup
+- SQLite downloads a `.db` file; PostgreSQL downloads a native `.dump` archive created with `pg_dump`
 
 **Restore**
-- Upload and restore from a backup file
+- SQLite backups can be uploaded and restored while the service is running
+- PostgreSQL restore is deliberately offline-only: stop Songbird, then use `npm run db:restore -- -y --file <backup.dump>`
 
 **Vacuum**
-- Optimize database file (VACUUM operation)
-- Reclaims unused space
-- Recommended periodically for large databases
+- SQLite compacts the database file with `VACUUM`
+- PostgreSQL runs native `VACUUM ANALYZE`
+- Reclaims unused space and is recommended periodically for large databases
 
 ### System Control
 
@@ -200,11 +230,8 @@ Service control (restart/stop) requires the right setup depending on deployment:
 - Irreversible operation
 
 **Reset Database**
-- Delete entire database and all data
-- Removes all users, chats, and messages
-- Keeps uploaded files (manual cleanup needed)
+- Clears users, chats, messages, sessions, and stored message files while preserving the schema and runtime settings
 - Irreversible operation
-- Requires service restart
 
 :::danger Irreversible Actions
 
@@ -229,9 +256,10 @@ When disabled:
 ## Security Notes
 
 - Admin API uses a separate authentication token (`ADMIN_API_TOKEN`)
-- Auto-generated on first run and saved to `.env`
-- Admin endpoints are localhost-only by design
-- All admin actions are logged for audit trail
+- Auto-generated on first run and saved to `.env` (or configured via environment variables in PaaS hosts like Render)
+- Emergency admin claim endpoint (`/api/admin/claim`) verifies tokens using timing-safe comparisons and enforces HTTPS/localhost security
+- Admin endpoints are localhost-only by default or restricted to authenticated admins
+- All admin actions and emergency claims are logged for audit trail
 - Rate limiting applies (1000 req/15min as of v0.11.1)
 
 ## CLI Alternative

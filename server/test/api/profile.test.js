@@ -1,15 +1,18 @@
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, vi } from "vitest";
 import request from "supertest";
 import bcrypt from "bcryptjs";
 import { makeApp, makeUserStore } from "../helpers/makeApp.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+const ALICE_ID = "11111111-1111-4111-a111-111111111111";
+const BOB_ID = "22222222-2222-4222-a222-222222222222";
+
 function makeAppWithAlice(overrides = {}) {
   const hash = bcrypt.hashSync("secret123", 4);
   const userStore = makeUserStore([
     {
-      id: 1,
+      id: ALICE_ID,
       username: "alice",
       password_hash: hash,
       nickname: "Alice",
@@ -113,7 +116,7 @@ describe("PUT /api/profile", () => {
     const hash = bcrypt.hashSync("secret123", 4);
     const userStore = makeUserStore([
       {
-        id: 1,
+        id: ALICE_ID,
         username: "alice",
         password_hash: hash,
         nickname: null,
@@ -124,7 +127,7 @@ describe("PUT /api/profile", () => {
         banned: false,
       },
       {
-        id: 2,
+        id: BOB_ID,
         username: "bob",
         password_hash: hash,
         nickname: null,
@@ -149,7 +152,7 @@ describe("PUT /api/profile", () => {
     const hash = bcrypt.hashSync("secret123", 4);
     const userStore = makeUserStore([
       {
-        id: 1,
+        id: ALICE_ID,
         username: "alice",
         password_hash: hash,
         nickname: "Alice",
@@ -167,7 +170,7 @@ describe("PUT /api/profile", () => {
         removeAvatarByUrl: () => {},
         // Return the updated user
         findUserById: () => ({
-          id: 1,
+          id: ALICE_ID,
           username: "alice2",
           nickname: "Ali",
           avatar_url: null,
@@ -316,5 +319,19 @@ describe("PUT /api/status", () => {
       .send({ username: "alice", status: "invisible" });
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("invisible");
+  });
+});
+
+describe("PUT /api/status", () => {
+  test("broadcasts presence through the tracker after updating status", async () => {
+    const broadcastPresence = vi.fn();
+    const { app } = makeAppWithAlice({ deps: { broadcastPresence } });
+    const cookie = await loginCookie(app);
+    const res = await request(app)
+      .put("/api/status")
+      .set("Cookie", cookie)
+      .send({ username: "alice", status: "invisible" });
+    expect(res.status).toBe(200);
+    expect(broadcastPresence).toHaveBeenCalledWith("alice");
   });
 });

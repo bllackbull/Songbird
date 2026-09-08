@@ -12,12 +12,16 @@ import { render } from "vitest-browser-react";
 import { page } from "vitest/browser";
 import { MessageItem } from "../../../src/components/chat/messages/MessageItem.jsx";
 
-const ME = { id: 1, username: "alice", nickname: "Alice", color: "#10b981" };
-const BOB = { id: 2, username: "bob", nickname: "Bob", color: "#3b82f6" };
+const ME = { id: "11111111-1111-4111-a111-111111111111", username: "alice", nickname: "Alice", color: "#10b981" };
+const BOB = { id: "22222222-2222-4222-a222-222222222222", username: "bob", nickname: "Bob", color: "#3b82f6" };
+const CAROL_ID = "33333333-3333-4333-a333-333333333333";
+const CHANNEL_ID = "99999999-9999-4999-a999-999999999999";
+const MSG_ID_10 = "10000000-0000-4000-8000-000000000010";
+const MSG_ID_11 = "10000000-0000-4000-8000-000000000011";
 
 function makeMsg(overrides = {}) {
   return {
-    id: 1,
+    id: MSG_ID_10,
     user_id: BOB.id,
     username: BOB.username,
     nickname: BOB.nickname,
@@ -483,7 +487,7 @@ for (const [label, viewport] of [
 
 function makeUserForwardedMsg(overrides = {}) {
   return {
-    id: 10,
+    id: MSG_ID_10,
     user_id: BOB.id,
     username: BOB.username,
     nickname: BOB.nickname,
@@ -498,19 +502,19 @@ function makeUserForwardedMsg(overrides = {}) {
     replyTo: null,
     user_verified: 0,
     user_role: "user",
-    forwarded_from_user_id: 3,
+    forwarded_from_user_id: CAROL_ID,
     forwarded_from_label: "Carol",
     forwarded_from_username: "carol",
     forwarded_from_avatar_url: null,
     forwarded_from_color: "#f59e0b",
-    forwarded_from_chat_id: 0,
+    forwarded_from_chat_id: null,
     ...overrides,
   };
 }
 
 function makeChatForwardedMsg(overrides = {}) {
   return {
-    id: 11,
+    id: MSG_ID_11,
     user_id: BOB.id,
     username: BOB.username,
     nickname: BOB.nickname,
@@ -525,22 +529,22 @@ function makeChatForwardedMsg(overrides = {}) {
     replyTo: null,
     user_verified: 0,
     user_role: "user",
-    forwarded_from_chat_id: 99,
+    forwarded_from_chat_id: CHANNEL_ID,
     forwarded_from_label: "News Channel",
     forwarded_from_username: "news_channel",
     forwarded_from_avatar_url: null,
     forwarded_from_color: "#10b981",
-    forwarded_from_user_id: 0,
+    forwarded_from_user_id: null,
     ...overrides,
   };
 }
 
 function makeForwardedUser(overrides = {}) {
-  return { id: 3, username: "carol", nickname: "Carol", avatar_url: null, color: "#f59e0b", status: "online", verified: false, role: "user", ...overrides };
+  return { id: CAROL_ID, username: "carol", nickname: "Carol", avatar_url: null, color: "#f59e0b", status: "online", verified: false, role: "user", ...overrides };
 }
 
 function makeForwardedChat(overrides = {}) {
-  return { id: 99, name: "News Channel", type: "channel", group_avatar_url: null, group_color: "#10b981", verified: false, ...overrides };
+  return { id: CHANNEL_ID, name: "News Channel", type: "channel", group_avatar_url: null, group_color: "#10b981", verified: false, ...overrides };
 }
 
 for (const [label, viewport] of [["desktop", DESKTOP_VIEWPORT], ["mobile", MOBILE_VIEWPORT]]) {

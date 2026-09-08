@@ -80,7 +80,7 @@ export function useMessageVisibility({
 
   const reportSeen = useCallback(
     (messageId) => {
-      const id = Number(messageId);
+      const id = messageId ? String(messageId) : "";
       if (!id || reportedRef.current.has(id)) return;
       reportedRef.current.add(id);
       pendingBatchRef.current.push(id);
@@ -128,7 +128,7 @@ export function useMessageVisibility({
    */
   const registerMessageRef = useCallback(
     (msg) => {
-      const messageId = Number(msg?._serverId || msg?.id || 0);
+      const messageId = msg?._serverId || msg?.id || "";
       if (!messageId) return null;
       if (!user) return null;
       if (!isMessageFromOtherUser(msg, user)) return null;

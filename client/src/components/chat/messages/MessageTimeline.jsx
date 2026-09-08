@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { OfflineHistoryBanner } from "./MessageList.jsx";
 
 const BOTTOM_STRETCH_MAX_PX = 84;
 const BOTTOM_STRETCH_GAIN = 0.2;
@@ -14,6 +15,8 @@ export function MessageTimeline({
   messages,
   groupedMessages,
   loadingOlderMessages,
+  hasOlderMessages = false,
+  isOffline = false,
   handleGroupChipClick,
   renderMessageItem,
   chatScrollRef,
@@ -330,7 +333,13 @@ export function MessageTimeline({
               <div className="px-3 pb-3 pt-1 md:px-0">
                 <div className="mx-auto h-10 w-40 animate-pulse rounded-2xl bg-white/80 dark:bg-slate-800/80" />
               </div>
-            ) : null}
+            ) : (
+              <OfflineHistoryBanner
+                isOffline={isOffline}
+                hasOlderMessages={hasOlderMessages}
+                loadingOlderMessages={loadingOlderMessages}
+              />
+            )}
             {timelineRows.map((row) => (
               <div
                 id={row.type === "day" ? `day-group-${row.dayKey}` : undefined}

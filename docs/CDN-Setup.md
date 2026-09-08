@@ -144,7 +144,7 @@ The same pattern applies to other CDN providers (Arvan Cloud, Fastly, BunnyCDN, 
 
 ## SSE and long-lived connections
 
-Songbird uses Server-Sent Events (SSE) for real-time updates. SSE requires a persistent HTTP connection that stays open. Some CDN configurations close idle or long-running connections.
+Songbird uses WebSocket for real-time updates (messages, presence, and typing) and SSE as a fallback stream. Both require a persistent HTTP/WebSocket connection that stays open; a user's presence state is determined by their live connection. Some CDN configurations close idle or long-running connections.
 
 If users experience messages only loading after a page refresh (a sign of broken SSE), check:
 

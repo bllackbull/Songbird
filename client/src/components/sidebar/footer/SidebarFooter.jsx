@@ -38,7 +38,12 @@ export default function SidebarFooter({
                 className="flex items-center gap-0.5 truncate text-sm font-semibold text-emerald-700 transition group-hover:text-emerald-600 dark:text-emerald-200 dark:group-hover:text-emerald-300"
                 dir="ltr"
               >
-                <span className={`truncate ${hasPersian(displayName) ? "font-fa" : ""}`} dir="auto">{displayName}</span>
+                <span
+                  className={`truncate ${hasPersian(displayName) ? "font-fa" : ""}`}
+                  dir="auto"
+                >
+                  {displayName}
+                </span>
                 {Boolean(user.verified) && <VerifiedBadge size={15} />}
                 <UserRoleBadge role={user.role} size={15} />
               </p>

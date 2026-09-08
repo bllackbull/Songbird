@@ -14,6 +14,8 @@ import {
   Refresh,
   Rotate,
   Settings,
+  ShieldCheck,
+  ShieldOff,
   Tag,
   Trash,
   UserMinus,
@@ -48,6 +50,8 @@ const LOG_ACTION_META = {
   "logs.clear":          { label: "Logs cleared",      color: "rose",    icon: Trash },
   "settings.update":     { label: "Setting updated",   color: "emerald", icon: Settings },
   "settings.reset":      { label: "Setting reset",     color: "slate",   icon: Rotate },
+  "admin.claim_success": { label: "Admin claimed",     color: "emerald", icon: ShieldCheck },
+  "admin.claim_failed":  { label: "Failed to claim",   color: "rose",    icon: ShieldOff },
 };
 
 const LOG_COLORS = {

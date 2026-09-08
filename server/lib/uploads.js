@@ -1,4 +1,5 @@
 import rateLimit from "express-rate-limit";
+import { dbKnex } from "../db/knex.js";
 
 export function createUploadTools({
   fs,
@@ -14,6 +15,7 @@ export function createUploadTools({
   fileUploadMaxFiles,
   fileUploadMaxTotalSize,
   storageEncryption,
+  storageProvider,
 }) {
   const MESSAGE_FILE_LIMITS = {
     maxFiles: fileUploadMaxFiles,
@@ -167,6 +169,10 @@ export function createUploadTools({
   const getUploadKind = (uploadType, mimeType = "") => {
     const type = String(mimeType || "").toLowerCase();
 
+    if (type.startsWith("video/")) {
+      return "media";
+    }
+
     if (uploadType === "media") {
       if (
         type.startsWith("image/") ||
@@ -211,8 +217,7 @@ export function createUploadTools({
         const fileName = path.basename(String(storedName || "").trim());
         if (!fileName) return;
         const stillReferenced = adminGetRow(
-          "SELECT 1 AS found FROM chat_message_files WHERE stored_name = ? LIMIT 1",
-          [fileName],
+          dbKnex("chat_message_files").select(dbKnex.raw("1 as found")).where("stored_name", fileName).first(),
         );
         if (stillReferenced?.found) return;
 
@@ -287,10 +292,8 @@ export function createUploadTools({
 
     if (fs.existsSync(diskPath)) return normalized || null;
 
-    if (Number.isFinite(Number(userId)) && Number(userId) > 0) {
-      adminRun("UPDATE users SET avatar_url = NULL WHERE id = ?", [
-        Number(userId),
-      ]);
+    if (userId) {
+      adminRun(dbKnex("users").where("id", userId).update({ avatar_url: null }));
       adminSave();
     }
     return null;
@@ -310,19 +313,42 @@ export function createUploadTools({
     app.get(
       "/api/uploads/messages/:storedName",
       uploadDownloadLimiter,
-      (req, res) => {
+      async (req, res) => {
         const storedName = path.basename(
           String(req.params?.storedName || "").trim(),
         );
         if (!storedName) return res.status(404).end();
 
         const filePath = path.join(uploadRootDir, storedName);
-        if (!fs.existsSync(filePath)) return res.status(404).end();
 
-        const row = adminGetRow(
-          "SELECT original_name, mime_type FROM chat_message_files WHERE stored_name = ?",
-          [storedName],
-        );
+        let row = null;
+        try {
+          const rawRow = adminGetRow(
+            dbKnex("chat_message_files")
+              .select("original_name", "mime_type", "storage_key", "storage_driver")
+              .where("stored_name", storedName)
+              .first(),
+          );
+          row = (rawRow && typeof rawRow.then === "function") ? await rawRow : rawRow;
+        } catch (_) {}
+
+        const driver = row?.storage_driver || row?.storageDriver;
+        if (
+          (driver === "s3" || driver === "remote" || !fs.existsSync(filePath)) &&
+          storageProvider &&
+          (storageProvider.type === "s3" || storageProvider.type === "remote") &&
+          typeof storageProvider.getDownloadUrl === "function"
+        ) {
+          try {
+            const key = row?.storage_key || `uploads/${storedName}`;
+            const url = await storageProvider.getDownloadUrl(key);
+            if (url && url !== `/api/uploads/messages/${storedName}`) {
+              return res.redirect(302, url);
+            }
+          } catch (_) {}
+        }
+
+        if (!fs.existsSync(filePath)) return res.status(404).end();
         const originalName = buildDownloadFilename(row?.original_name);
         const fallbackName = buildAsciiFallbackFilename(originalName);
         const mimeType = String(row?.mime_type || "").trim();
@@ -331,6 +357,7 @@ export function createUploadTools({
         res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
         res.setHeader("Vary", "Accept-Encoding");
         res.setHeader("X-Content-Type-Options", "nosniff");
+        res.setHeader("Accept-Ranges", "bytes");
 
         if (mimeType) {
           res.type(mimeType);
@@ -347,9 +374,33 @@ export function createUploadTools({
           );
         }
 
+        const totalSize = storageEncryption.getDecryptedFileSize(filePath);
+        if (!totalSize) return res.status(404).end();
+
+        const rangeHeader = req.headers.range;
+        if (rangeHeader && rangeHeader.startsWith("bytes=")) {
+          const parts = rangeHeader.replace(/bytes=/, "").split("-");
+          const start = parseInt(parts[0], 10) || 0;
+          const end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
+
+          if (start >= totalSize || end >= totalSize || start > end) {
+            res.setHeader("Content-Range", `bytes */${totalSize}`);
+            return res.status(416).end();
+          }
+
+          const chunkSize = end - start + 1;
+          const chunkBuffer = storageEncryption.decryptFileRange(filePath, start, end);
+          if (!chunkBuffer) return res.status(500).end();
+
+          res.status(206);
+          res.setHeader("Content-Range", `bytes ${start}-${end}/${totalSize}`);
+          res.setHeader("Content-Length", chunkSize);
+          return res.send(chunkBuffer);
+        }
+
         const fileBuffer = storageEncryption.decryptFileToBuffer(filePath);
         if (!fileBuffer) return res.status(404).end();
-
+        res.setHeader("Content-Length", fileBuffer.length);
         return res.send(fileBuffer);
       },
     );
@@ -357,14 +408,30 @@ export function createUploadTools({
     app.get(
       "/api/uploads/avatars/:storedName",
       uploadDownloadLimiter,
-      (req, res) => {
+      async (req, res) => {
         const storedName = path.basename(
           String(req.params?.storedName || "").trim(),
         );
         if (!storedName) return res.status(404).end();
 
         const filePath = path.join(avatarUploadRootDir, storedName);
-        if (!fs.existsSync(filePath)) return res.status(404).end();
+        if (!fs.existsSync(filePath)) {
+          if (
+            storageProvider &&
+            (storageProvider.type === "s3" || storageProvider.type === "remote") &&
+            typeof storageProvider.getDownloadUrl === "function"
+          ) {
+            try {
+              const url = await storageProvider.getDownloadUrl(
+                `avatars/${storedName}`,
+              );
+              if (url && url !== `/api/uploads/file/avatars/${storedName}`) {
+                return res.redirect(302, url);
+              }
+            } catch (_) {}
+          }
+          return res.status(404).end();
+        }
 
         const fileBuffer = storageEncryption.decryptFileToBuffer(filePath);
         if (!fileBuffer) return res.status(404).end();

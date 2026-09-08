@@ -10,13 +10,15 @@ export const isRemoteChannelMessage = (message) =>
 
 export const isMessageAuthoredByUser = (message, user) => {
   const username = String(user?.username || user || "").trim().toLowerCase();
-  const userId = Number(user?.id || 0);
+  const userId = user?.id ? String(user.id).trim().toLowerCase() : null;
   if (!username && !userId) return false;
   if (isRemoteChannelMessage(message)) return false;
   if (username) {
     return String(message?.username || "").trim().toLowerCase() === username;
   }
-  return Number(message?.user_id || message?.userId || 0) === userId;
+  // Compare user IDs as case-insensitive strings (UUID-safe)
+  const msgUserId = String(message?.user_id || message?.userId || "").trim().toLowerCase();
+  return Boolean(userId && msgUserId && msgUserId === userId);
 };
 
 export const isMessageFromOtherUser = (message, user) =>

@@ -83,10 +83,6 @@ export const CHAT_PAGE_CONFIG = {
     integer: true,
     min: 1000,
   }),
-  presencePingIntervalMs: readEnvNumber("CHAT_PRESENCE_PING_INTERVAL", 5000, {
-    integer: true,
-    min: 1000,
-  }),
   newChatSearchMaxResults: readEnvNumber("CHAT_SEARCH_MAX_RESULTS", 5, {
     integer: true,
     min: 1,
@@ -94,10 +90,6 @@ export const CHAT_PAGE_CONFIG = {
   healthCheckIntervalMs: readEnvNumber("CHAT_HEALTH_CHECK_INTERVAL", 10000, {
     integer: true,
     min: 1000,
-  }),
-  peerPresencePollIntervalMs: readEnvNumber("CHAT_PEER_PRESENCE_POLL_INTERVAL", 3000, {
-    integer: true,
-    min: 500,
   }),
   sseReconnectDelayMs: readEnvNumber("CHAT_SSE_RECONNECT_DELAY", 2000, {
     integer: true,

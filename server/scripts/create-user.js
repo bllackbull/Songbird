@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import crypto from "node:crypto";
 import { getCliArgs, getPositionalArgs, getFlagValue } from "./_cli.js";
 import { openDatabase, runAdminActionViaServer } from "./_db-admin.js";
 import { setUserColor } from "../settings/colors.js";
@@ -96,7 +97,7 @@ async function main() {
 
   const dbApi = await openDatabase();
   try {
-    const exists = dbApi.getRow("SELECT id FROM users WHERE username = ?", [
+    const exists = await dbApi.getRow("SELECT id FROM users WHERE username = ?", [
       username,
     ]);
     if (exists?.id) {
@@ -106,7 +107,7 @@ async function main() {
 
     // Owner uniqueness check
     if (normalizedRole === "owner") {
-      const existingOwner = dbApi.getRow("SELECT id FROM users WHERE role = 'owner' LIMIT 1");
+      const existingOwner = await dbApi.getRow("SELECT id FROM users WHERE role = 'owner' LIMIT 1");
       if (existingOwner?.id) {
         console.error("An owner already exists. Reassign the owner role before creating another.");
         process.exit(1);
@@ -115,26 +116,47 @@ async function main() {
 
     const passwordHash = await bcrypt.hash(password, 10);
     const assignedColor = setUserColor();
-    dbApi.run(
-      'INSERT INTO users (username, nickname, avatar_url, color, status, password_hash, created_at, last_seen) VALUES (?, ?, NULL, ?, ?, ?, datetime("now"), datetime("now"))',
-      [username, nickname, assignedColor, "online", passwordHash],
+    const id = crypto.randomUUID();
+    await dbApi.run(
+      "INSERT INTO users (id, username, nickname, avatar_url, color, status, password_hash, created_at, last_seen) VALUES (?, ?, ?, NULL, ?, ?, ?, datetime('now'), datetime('now'))",
+      [id, username, nickname, assignedColor, "online", passwordHash],
     );
 
     if (normalizedRole !== "user") {
-      const newRow = dbApi.getRow("SELECT id FROM users WHERE username = ?", [username]);
-      if (newRow?.id) dbApi.run("UPDATE users SET role = ? WHERE id = ?", [normalizedRole, Number(newRow.id)]);
+      const newRow = await dbApi.getRow("SELECT id FROM users WHERE username = ?", [username]);
+      if (newRow?.id) await dbApi.run("UPDATE users SET role = ? WHERE id = ?", [normalizedRole, newRow.id]);
     }
 
-    const row = dbApi.getRow(
+    const autoAddChats = await dbApi.getAll(
+      "SELECT id, type FROM chats WHERE type IN ('group', 'channel') AND group_visibility = 'public' AND auto_add_new_users = 1"
+    );
+    if (Array.isArray(autoAddChats) && autoAddChats.length > 0) {
+      for (const chat of autoAddChats) {
+        await dbApi.run(
+          "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, 'member')",
+          [chat.id, id]
+        );
+        if (chat.type === "group") {
+          const body = `[[system:joined:${nickname || username}]]`;
+          const msgId = crypto.randomUUID();
+          await dbApi.run(
+            "INSERT INTO chat_messages (id, chat_id, user_id, body, created_at) VALUES (?, ?, ?, ?, datetime('now'))",
+            [msgId, chat.id, id, body]
+          );
+        }
+      }
+    }
+
+    const row = await dbApi.getRow(
       "SELECT id, username, nickname FROM users WHERE username = ?",
       [username],
     );
-    dbApi.save();
+    await dbApi.save();
     console.log(
       `User created: id=${row.id} username=${row.username} nickname=${row.nickname || ""} role=${normalizedRole}`,
     );
   } finally {
-    dbApi.close();
+    await dbApi.close();
   }
 }
 

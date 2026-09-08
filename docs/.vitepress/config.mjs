@@ -7,6 +7,7 @@ const enSidebar = [
     items: [
       {text: '🚀 Deployment Script', link: '/Deployment-Script'},
       {text: '🐳 Install via Docker', link: '/Installation-Docker'},
+      {text: '☁️ Cloud Deployment', link: '/Cloud-Deployment'},
       {text: '🛠️ Manual Installation', link: '/Manual-Installation'},
       {text: '🌐 Configure Nginx', link: '/Nginx-Configuration'},
       {text: '🔒 SSL Certificates', link: '/SSL-Certificates'},
@@ -19,6 +20,8 @@ const enSidebar = [
     collapsed: false,
     items: [
       {text: '🔧 Environment Variables', link: '/Environment-Variables'},
+      {text: '☁️ Object Storage', link: '/Object-Storage'},
+      {text: '🎞️ Media Worker', link: '/Media-Worker'},
       {text: '🛡️ Admin Panel', link: '/Admin-Panel'},
       {text: '📡 Remote Channel Setup', link: '/Remote-Channel-Setup'},
       {text: '🔔 Push Notification Proxy', link: '/Push-Notification-Proxy'},
@@ -42,6 +45,7 @@ const faSidebar = [
     items: [
       {text: '🚀 اسکریپت نصب', link: '/fa/Deployment-Script'},
       {text: '🐳 نصب از طریق Docker', link: '/fa/Installation-Docker'},
+      {text: '☁️ استقرار ابری', link: '/fa/Cloud-Deployment'},
       {text: '🛠️ نصب دستی', link: '/fa/Manual-Installation'},
       {text: '🌐 کانفیگ Nginx', link: '/fa/Nginx-Configuration'},
       {text: '🔒 گواهی‌های SSL', link: '/fa/SSL-Certificates'},
@@ -54,8 +58,10 @@ const faSidebar = [
     collapsed: false,
     items: [
       {text: '🔧 متغیرهای محیطی', link: '/fa/Environment-Variables'},
+      {text: '☁️ ذخیره سازی ابری', link: '/fa/Object-Storage'},
+      {text: '🎞️ ورکر مدیا', link: '/fa/Media-Worker'},
       {text: '🛡️ پنل مدیریت', link: '/fa/Admin-Panel'},
-      {text: '📡 راه‌اندازی Remote Channel', link: '/fa/Remote-Channel-Setup'},
+      {text: '📡 راهاندازی Remote Channel', link: '/fa/Remote-Channel-Setup'},
       {text: '🔔 پراکسی Push Notification', link: '/fa/Push-Notification-Proxy'},
     ],
   },
@@ -91,9 +97,10 @@ export default defineConfig({
     logo: '/songbird-logo.svg',
 
     socialLinks: [
+      {icon: 'docker', link: 'https://hub.docker.com/r/bllackbull/songbird'},
       {icon: 'github', link: 'https://github.com/bllackbull/Songbird'},
       {icon: 'telegram', link: 'https://t.me/songbirdapp'},
-      {icon: 'linkedin', link: 'https://www.linkedin.com/in/pouyakhalilii/'}
+      {icon: 'linkedin', link: 'https://www.linkedin.com/in/pouyakhalilii/'},
     ],
 
     search: {

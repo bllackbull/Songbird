@@ -8,7 +8,7 @@ Create `/etc/nginx/sites-available/songbird`:
 
 - Keep `proxy_pass` aligned with `SERVER_PORT`.
 - Keep the Nginx `listen` port aligned with `CLIENT_PORT`.
-- Keep `client_max_body_size` aligned with `FILE_UPLOAD_MAX_TOTAL_SIZE_MB`.
+- Keep `client_max_body_size` aligned with `FILE_UPLOAD_MAX_TOTAL_SIZE_MB` when using local storage (`STORAGE_DRIVER=local`). When `STORAGE_DRIVER=remote` is active, file uploads stream directly from the browser to Cloudflare R2 / S3 via presigned URLs and bypass Nginx request body limits.
 
 :::
 

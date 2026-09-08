@@ -1,5 +1,9 @@
 # Install via Docker
 
+:::tip Infrastructure Note
+This guide uses Docker Compose and is designed for **IaaS** (Infrastructure as a Service — self-hosted VPS or dedicated virtual machines running Docker Engine). If you are deploying to managed cloud platforms (PaaS / CaaS) like Render, Railway, AWS ECS, Google Cloud Run, or Kubernetes, see the [Cloud Deployment](./Cloud-Deployment.md) guide.
+:::
+
 **Prerequisites (tested on Ubuntu 22.04+):**
 
 - An Ubuntu server with sudo access
@@ -67,6 +71,14 @@ cp .env.example .env
 nano .env
 ```
 
+:::info Using PostgreSQL with Docker
+Songbird defaults to SQLite (`DB_CLIENT=sqlite3`). To use PostgreSQL instead, edit `.env` to set `DB_CLIENT=postgres` along with your `POSTGRES_*` environment variables, or uncomment the optional `postgres` service and `postgres-data` volume block in `docker-compose.yaml`.
+:::
+
+:::info Media Worker Container
+Songbird automatically spawns and manages a local Media Worker child process inside the all-in-one container (`bllackbull/songbird:latest`) by default. For distributed or high-load setups, you can offload media processing to the dedicated standalone image (`bllackbull/songbird-worker:latest`) or uncomment the optional `media-worker` service in `docker-compose.yaml`. See [Media Worker](./Media-Worker.md) for details.
+:::
+
 ## 4. Set up TLS certificates
 
 The nginx container requires TLS certificate files before it can start. Place your certificate and private key at:
@@ -74,7 +86,7 @@ The nginx container requires TLS certificate files before it can start. Place yo
 - `certs/cert.pem` — certificate (or full chain)
 - `certs/key.pem` — private key
 
-See [SSL Certificates](./SSL-Certificates.md) for the available options (Certbot, existing files, or the deploy script).
+See [SSL Certificates](./SSL-Certificates.md) for the available options.
 
 ## 5. Build and start
 
@@ -105,6 +117,29 @@ docker compose restart nginx
 ```
 
 :::
+
+## Runtime User and Persistent Data
+
+Docker deployments do not use `songbird.service`. Songbird runs as the user configured for the container (root in the current image unless Compose `user:` overrides it), and database commands run as that same container UID/GID:
+
+```bash
+docker compose exec songbird npm --prefix /app/server run db:inspect
+```
+
+To run the container as a specific non-root UID/GID, configure `user:` in your Compose service:
+
+```yaml
+services:
+  songbird:
+    user: "songbird:songbird"
+```
+
+When using a bind mount instead of the default named volume, make the host directory writable by that same UID:GID before starting Songbird. Songbird does not change host bind-mount ownership automatically:
+
+```bash
+mkdir -p ./data
+sudo chown -R songbird:songbird ./data
+```
 
 ## Admin panel service control
 

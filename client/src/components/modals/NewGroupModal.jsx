@@ -67,6 +67,7 @@ export default function NewGroupModal({
   chatId: _chatId = null,
   username: _username = "",
   extraFields = null,
+  autoAddToggleSlot = null,
   showMemberSearch = true,
   addAllMembersSelected = false,
   onToggleAddAllMembers,
@@ -711,6 +712,7 @@ export default function NewGroupModal({
                   Add Members
                 </p>
               </div>
+              {autoAddToggleSlot ? <div className="mt-2">{autoAddToggleSlot}</div> : null}
               <div className="relative mt-2">
                 <input
                   ref={groupSearchInputRef}

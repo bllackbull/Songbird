@@ -38,6 +38,17 @@ updates:
         patterns:
           - "*"
 
+  # Worker dependencies
+  - package-ecosystem: "npm"
+    directory: "/worker"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 3
+    groups:
+      dependencies:
+        patterns:
+          - "*"
+
   # GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"

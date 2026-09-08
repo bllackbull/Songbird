@@ -45,7 +45,8 @@ export function createPushService({
 
   async function sendPushNotificationToUsers(userIds = [], payload = {}) {
     if (!PUSH_ENABLED) return;
-    const targets = listPushSubscriptionsByUserIds(userIds);
+    const rawTargets = listPushSubscriptionsByUserIds(userIds);
+    const targets = (rawTargets && typeof rawTargets.then === "function" ? await rawTargets : rawTargets) || [];
     if (!targets.length) return;
 
     const badgeByUserId = {};
@@ -53,9 +54,13 @@ export function createPushService({
       const uid = sub.user_id;
       if (!(uid in badgeByUserId)) {
         try {
-          badgeByUserId[uid] = getTotalUnreadCount
+          const rawCount = getTotalUnreadCount
             ? getTotalUnreadCount(uid)
             : 1;
+          badgeByUserId[uid] =
+            rawCount && typeof rawCount.then === "function"
+              ? await rawCount
+              : rawCount;
         } catch {
           badgeByUserId[uid] = 1;
         }
@@ -104,7 +109,10 @@ export function createPushService({
             status === 410 ||
             (status === 400 && errBody.includes("VapidPkHashMismatch"));
           if (isGone) {
-            deletePushSubscription(sub.endpoint);
+            try {
+              const res = deletePushSubscription(sub.endpoint);
+              if (res && typeof res.then === "function") await res;
+            } catch {}
           }
         }
       }),

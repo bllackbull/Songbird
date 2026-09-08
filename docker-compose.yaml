@@ -17,12 +17,23 @@ services:
       APP_ENV: ${APP_ENV:-production}
       SERVER_PORT: ${SERVER_PORT:-5174}
       BIND_ADDRESS: "0.0.0.0"
+      DB_CLIENT: ${DB_CLIENT:-sqlite3}
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-songbird}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       # Tell the admin panel which container to use via the Docker API.
       # Defaults to "songbird" which matches the container_name above.
       SONGBIRD_CONTAINER_NAME: ${SONGBIRD_CONTAINER_NAME:-songbird}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+      WORKER_PORT: ${WORKER_PORT:-8080}
+      STORAGE_PROCESSING_MODE: ${STORAGE_PROCESSING_MODE:-auto}
+      WORKER_URL: ${WORKER_URL:-${MEDIA_WORKER_URL:-}}
+      WEBHOOK_URL: ${WEBHOOK_URL:-}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
     volumes:
       - songbird-data:/app/data
       # Required for the admin panel's services.
@@ -49,3 +60,43 @@ services:
 
 volumes:
   songbird-data:
+  # Optional volume for PostgreSQL database:
+  # postgres-data:
+
+# Optional Standalone Media Worker container service (uncomment to run worker in a separate container):
+#  media-worker:
+#    image: ${SONGBIRD_WORKER_IMAGE:-bllackbull/songbird-worker:latest}
+#    container_name: songbird-media-worker
+#    restart: unless-stopped
+#    environment:
+#      APP_ENV: ${APP_ENV:-production}
+#      WORKER_PORT: ${WORKER_PORT:-8080}
+#      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+#      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
+#      STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+#      STORAGE_BUCKET: ${STORAGE_BUCKET:-}
+#      STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-}
+#      STORAGE_REGION: ${STORAGE_REGION:-auto}
+#      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-}
+#      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-}
+#      STORAGE_FORCE_PATH_STYLE: ${STORAGE_FORCE_PATH_STYLE:-true}
+#      STORAGE_ENCRYPTION_KEY: ${STORAGE_ENCRYPTION_KEY:-}
+#      DATA_DIR: /app/data
+#    volumes:
+#      - songbird-data:/app/data
+#    expose:
+#      - "${WORKER_PORT:-8080}"
+
+# Optional PostgreSQL container service (uncomment to run PostgreSQL via Docker):
+#  postgres:
+#    image: postgres:16-alpine
+#    container_name: songbird-postgres
+#    restart: unless-stopped
+#    environment:
+#      POSTGRES_DB: ${POSTGRES_DB:-songbird}
+#      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+#      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+#    volumes:
+#      - postgres-data:/var/lib/postgresql/data
+#    ports:
+#      - "5432:5432"

@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { readEnvBool, readEnvInt } from "../../settings/env.js";
+import { readEnvBool, readEnvInt, parseEnv } from "../../settings/env.js";
 
 // Save and restore process.env around each test.
 let originalEnv;
@@ -133,5 +133,23 @@ describe("readEnvBool", () => {
     delete process.env.FLAG_A;
     process.env.FLAG_B = "true";
     expect(readEnvBool(["FLAG_A", "FLAG_B"], false)).toBe(true);
+  });
+});
+
+describe("parseEnv", () => {
+  test("parses WS_HEARTBEAT_INTERVAL_MS and WS_HEARTBEAT_TIMEOUT_MS with defaults", () => {
+    delete process.env.WS_HEARTBEAT_INTERVAL_MS;
+    delete process.env.WS_HEARTBEAT_TIMEOUT_MS;
+    const env = parseEnv();
+    expect(env.wsHeartbeatIntervalMs).toBe(30000);
+    expect(env.wsHeartbeatTimeoutMs).toBe(10000);
+  });
+
+  test("parses custom WS_HEARTBEAT_INTERVAL_MS and WS_HEARTBEAT_TIMEOUT_MS values", () => {
+    process.env.WS_HEARTBEAT_INTERVAL_MS = "15000";
+    process.env.WS_HEARTBEAT_TIMEOUT_MS = "5000";
+    const env = parseEnv();
+    expect(env.wsHeartbeatIntervalMs).toBe(15000);
+    expect(env.wsHeartbeatTimeoutMs).toBe(5000);
   });
 });

@@ -5,14 +5,16 @@ export default function AuthHeader({
   isDark,
   themeToggleAnimating,
   onToggleTheme,
+  title,
+  subtitle,
 }) {
   return (
     <div className="relative text-center">
       <p className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-600 dark:text-emerald-300 sm:text-sm">
-        {isLogin ? "Sign in" : "Create account"}
+        {subtitle || (isLogin ? "Sign in" : "Create account")}
       </p>
       <h1 className="mt-2 text-2xl font-bold sm:mt-3 sm:text-3xl">
-        {isLogin ? "Welcome" : "Join the flock"}
+        {title || (isLogin ? "Welcome" : "Join the flock")}
       </h1>
       <button
         type="button"

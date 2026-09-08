@@ -194,7 +194,7 @@ export function useChatScroll({
             // Clear the sidebar badge — the user has scrolled to the bottom.
             setChats((prev) =>
               prev.map((chat) =>
-                Number(chat?.id) === Number(activeId)
+                String(chat?.id || "") === String(activeId || "")
                   ? { ...chat, unread_count: 0 }
                   : chat,
               ),

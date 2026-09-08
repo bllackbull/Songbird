@@ -15,6 +15,9 @@ export default function AuthPage({
   loading,
   showSigningOverlay = false,
   allowSignup = true,
+  title,
+  subtitle,
+  children,
 }) {
   const isLogin = mode === "login";
   const canSignup = Boolean(allowSignup);
@@ -93,34 +96,42 @@ export default function AuthPage({
         isDark={isDark}
         themeToggleAnimating={themeToggleAnimating}
         onToggleTheme={handleToggleTheme}
+        title={title}
+        subtitle={subtitle}
       />
 
-      <AuthFormFields
-        isLogin={isLogin}
-        canSignup={canSignup}
-        showPassword={showPassword}
-        setShowPassword={setShowPassword}
-        showConfirmPassword={showConfirmPassword}
-        setShowConfirmPassword={setShowConfirmPassword}
-        nicknameLength={nicknameLength}
-        setNicknameLength={setNicknameLength}
-        usernameLength={usernameLength}
-        setUsernameLength={setUsernameLength}
-        loading={loading}
-        onSubmit={onSubmit}
-        onReset={() => {
-          setNicknameLength(0);
-          setUsernameLength(0);
-        }}
-      />
+      {children ? (
+        children
+      ) : (
+        <AuthFormFields
+          isLogin={isLogin}
+          canSignup={canSignup}
+          showPassword={showPassword}
+          setShowPassword={setShowPassword}
+          showConfirmPassword={showConfirmPassword}
+          setShowConfirmPassword={setShowConfirmPassword}
+          nicknameLength={nicknameLength}
+          setNicknameLength={setNicknameLength}
+          usernameLength={usernameLength}
+          setUsernameLength={setUsernameLength}
+          loading={loading}
+          onSubmit={onSubmit}
+          onReset={() => {
+            setNicknameLength(0);
+            setUsernameLength(0);
+          }}
+        />
+      )}
 
       <AuthStatusBanner status={status} />
 
-      <AuthFooter
-        isLogin={isLogin}
-        canSignup={canSignup}
-        onSwitchMode={onSwitchMode}
-      />
+      {!children && (
+        <AuthFooter
+          isLogin={isLogin}
+          canSignup={canSignup}
+          onSwitchMode={onSwitchMode}
+        />
+      )}
 
       <AuthOverlay isLogin={isLogin} show={showSigningOverlay} />
     </section>

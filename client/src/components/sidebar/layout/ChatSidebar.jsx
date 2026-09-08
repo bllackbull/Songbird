@@ -101,6 +101,7 @@ export default function ChatSidebar({
   displayInitials,
   onOpenWhatsNew,
   adminPanelEnabled = true,
+  permissionsPrompt = null,
 }) {
   const chatsScrollRef = useRef(null);
   const chatsContentRef = useRef(null);
@@ -190,6 +191,7 @@ export default function ChatSidebar({
           onScrollToTop={() => {
             chatsScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
           }}
+          permissionsPrompt={permissionsPrompt}
         />
       </div>
 
@@ -216,7 +218,7 @@ export default function ChatSidebar({
 
       <div
         className={`flex min-h-0 flex-1 flex-col overflow-hidden ${
-          mobileTab === "settings" ? "py-0 md:py-4" : "py-4"
+          mobileTab === "settings" ? "py-0 md:py-4" : "py-0"
         }`}
         style={{ overscrollBehavior: "contain" }}
       >
@@ -290,7 +292,7 @@ export default function ChatSidebar({
           <div
             key={`chats-scroll-${scrollEpoch}`}
             ref={chatsScrollRef}
-            className="app-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-6 pb-[calc(104px+env(safe-area-inset-bottom))] md:pb-6"
+            className="app-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-0 pb-[calc(104px+env(safe-area-inset-bottom))] md:pb-6"
             style={{
               overscrollBehaviorY: "contain",
               overflowAnchor: "none",

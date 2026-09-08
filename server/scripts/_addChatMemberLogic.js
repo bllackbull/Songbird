@@ -1,3 +1,6 @@
+import crypto from "node:crypto";
+import { dbKnex } from "../db/knex.js";
+
 /**
  * Pure business logic for adding members to a chat.
  *
@@ -12,28 +15,27 @@
  *   and add users who previously left the chat.
  * @returns {{ addedCount: number, skippedLeftCount: number }}
  */
-export function addChatMembers(dbApi, chat, rows, { force = false } = {}) {
+export async function addChatMembers(dbApi, chat, rows, { force = false } = {}) {
+  const members = await dbApi.getAll(
+    "SELECT user_id FROM chat_members WHERE chat_id = ? AND role = 'owner'",
+    [chat.id],
+  );
   const existingOwnerIds = new Set(
-    dbApi
-      .getAll(
-        "SELECT user_id FROM chat_members WHERE chat_id = ? AND role = 'owner'",
-        [Number(chat.id)],
-      )
-      .map((row) => Number(row.user_id)),
+    (Array.isArray(members) ? members : []).map((row) => row?.user_id),
   );
 
   let addedCount = 0;
   let skippedLeftCount = 0;
 
-  rows.forEach((row) => {
-    const existing = dbApi.getRow(
+  for (const row of rows) {
+    const existing = await dbApi.getRow(
       "SELECT role FROM chat_members WHERE chat_id = ? AND user_id = ?",
-      [Number(chat.id), Number(row.id)],
+      [chat.id, row.id],
     );
-    if (existing?.role) return;
+    if (existing?.role) continue;
 
     if (!force) {
-      const priorLeft = dbApi.getRow(
+      const priorLeft = await dbApi.getRow(
         `SELECT 1 AS prior_left
          FROM chat_left_members
          WHERE chat_id = ? AND user_id = ?
@@ -43,37 +45,38 @@ export function addChatMembers(dbApi, chat, rows, { force = false } = {}) {
          WHERE chat_id = ? AND user_id = ? AND body LIKE ?
          LIMIT 1`,
         [
-          Number(chat.id),
-          Number(row.id),
-          Number(chat.id),
-          Number(row.id),
+          chat.id,
+          row.id,
+          chat.id,
+          row.id,
           "[[system:left:%",
         ],
       );
       if (priorLeft?.prior_left) {
         skippedLeftCount += 1;
-        return;
+        continue;
       }
     }
 
-    const role = existingOwnerIds.has(Number(row.id)) ? "owner" : "member";
-    dbApi.run(
+    const role = existingOwnerIds.has(row.id) ? "owner" : "member";
+    await dbApi.run(
       "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",
-      [Number(chat.id), Number(row.id), role],
+      [chat.id, row.id, role],
     );
     if (chat.type === "group") {
-      dbApi.run(
-        "INSERT INTO chat_messages (chat_id, user_id, body) VALUES (?, ?, ?)",
+      await dbApi.run(
+        "INSERT INTO chat_messages (id, chat_id, user_id, body) VALUES (?, ?, ?, ?)",
         [
-          Number(chat.id),
-          Number(row.id),
+          crypto.randomUUID(),
+          chat.id,
+          row.id,
           `[[system:joined:${row.nickname || row.username}]]`,
         ],
       );
     }
     addedCount += 1;
-  });
+  }
 
-  dbApi.save();
+  await dbApi.save();
   return { addedCount, skippedLeftCount };
 }

@@ -1,0 +1,30 @@
+services:
+  worker:
+    # Use the pre-built image from Docker Hub (recommended):
+    image: ${SONGBIRD_WORKER_IMAGE:-bllackbull/songbird-worker:latest}
+    # Or build locally from source (uncomment and remove the image line above):
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    container_name: songbird-media-worker
+    restart: unless-stopped
+    ports:
+      - "${WORKER_PORT:-8080}:${WORKER_PORT:-8080}"
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      WORKER_PORT: ${WORKER_PORT:-8080}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-}
+      STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-}
+      STORAGE_REGION: ${STORAGE_REGION:-auto}
+      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-}
+      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-}
+      STORAGE_FORCE_PATH_STYLE: ${STORAGE_FORCE_PATH_STYLE:-true}
+      STORAGE_ENCRYPTION_KEY: ${STORAGE_ENCRYPTION_KEY:-}
+      DATA_DIR: ${DATA_DIR:-/app/data}
+    volumes:
+      # Mount local data volume if processing local filesystem storage
+      - ${LOCAL_DATA_DIR:-../data}:/app/data
+

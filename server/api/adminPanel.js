@@ -1,8 +1,13 @@
 import { normalizeHexColor, normalizeGroupUsername, normalizeVisibility, normalizeChatType } from "../lib/dbToolHelpers.js";
 import { createInviteToken } from "../lib/inviteTokens.js";
+import { validateUuidParams } from "../lib/uuidMiddleware.js";
+import { isValidUuid, generateUuid } from "../lib/uuidUtils.js";
 import { writeAdminLog, readAdminLog, clearAdminLog } from "../lib/adminLog.js";
 import { readInstallerLog, readNginxLog, readServiceLog, probeLogSources } from "../lib/systemLogs.js";
+import { userEvents } from "../lib/workers/autoAddWorker.js";
+import { dbKnex } from "../db/knex.js";
 import os from "node:os";
+import crypto from "node:crypto";
 import multer from "multer";
 import { execFile } from "node:child_process";
 
@@ -19,11 +24,17 @@ let statsCache = { data: null, fetchedAt: 0 };
 function getCachedAdminStats(getAdminStats) {
   const now = Date.now();
   if (statsCache.data && now - statsCache.fetchedAt < STATS_CACHE_TTL_MS) {
-    return statsCache.data;
+    return Promise.resolve(statsCache.data);
   }
-  const data = getAdminStats();
-  statsCache = { data, fetchedAt: now };
-  return data;
+  const result = getAdminStats();
+  if (result && typeof result.then === "function") {
+    return result.then((data) => {
+      statsCache = { data, fetchedAt: now };
+      return data;
+    });
+  }
+  statsCache = { data: result, fetchedAt: now };
+  return Promise.resolve(result);
 }
 
 function getCachedUploadsSizeBytes(fs, nodePath, uploadsRoot) {
@@ -62,10 +73,14 @@ function registerAdminPanelRoutes(app, deps) {
     findUserById,
     findUserByUsername,
     findChatById,
+    isConnected,
+    getConnectedUsernames,
     isUserAdmin,
     isUserOwner,
+    isLoopbackRequest,
     getOwnerUser,
     getAdminStats,
+    getOnlineCount,
     adminListUsers,
     adminListChats,
     adminCountUsers,
@@ -110,11 +125,37 @@ function registerAdminPanelRoutes(app, deps) {
     reloadDatabase,
     adminClearAllMessages,
     adminResetDatabase,
+    dbConfig,
+    postgresMaintenance,
     projectRootDir,
     dataDir: adminDataDir,
     path: nodePath,
     fs,
   } = deps;
+
+  const resolveMaybePromise = async (value) =>
+    value && typeof value.then === "function" ? await value : value;
+
+  function toSql(builder, p = []) {
+    if (builder && typeof builder.toSQL === "function") {
+      const c = builder.toSQL();
+      return { sql: c.sql, params: c.bindings || [] };
+    }
+    return { sql: builder, params: p };
+  }
+
+  const callAdminGetRow = (builder, p) => {
+    const { sql, params } = toSql(builder, p);
+    return adminGetRow(sql, params);
+  };
+  const callAdminGetAll = (builder, p) => {
+    const { sql, params } = toSql(builder, p);
+    return adminGetAll(sql, params);
+  };
+  const callAdminRun = (builder, p) => {
+    const { sql, params } = toSql(builder, p);
+    return adminRun(sql, params);
+  };
 
   // ─── Admin panel gate ────────────────────────────────────────────────────────
   // When ADMIN_PANEL=false is set in the environment, all /api/admin/* requests
@@ -122,6 +163,9 @@ function registerAdminPanelRoutes(app, deps) {
   // the panel cannot be re-enabled from within itself.
 
   app.use("/api/admin", (req, res, next) => {
+    // The CLI database-tools endpoint authenticates with its loopback check and
+    // ADMIN_API_TOKEN, not a browser session. Let its own route handle auth.
+    if (req.path === "/db-tools") return next();
     const raw = String(process.env.ADMIN_PANEL ?? "true").trim().toLowerCase();
     const enabled = !["0", "false", "no", "n", "off"].includes(raw);
     if (!enabled) {
@@ -130,28 +174,105 @@ function registerAdminPanelRoutes(app, deps) {
     next();
   });
 
+  // ─── Emergency Admin Claim ───────────────────────────────────────────────────
+
+  app.post("/api/admin/claim", async (req, res) => {
+    try {
+      // 1. HTTPS / Local loopback check
+      const proto = String(req.headers["x-forwarded-proto"] || "").toLowerCase();
+      const isLoopback = typeof isLoopbackRequest === "function" ? isLoopbackRequest(req) : (req.ip === "127.0.0.1" || req.ip === "::1" || req.ip === "::ffff:127.0.0.1");
+      const isHttps = proto === "https" || req.secure;
+      if (!isLoopback && !isHttps) {
+        return res.status(403).json({ error: "HTTPS connection required." });
+      }
+
+      // 2. Session check
+      const rawSession = getSessionFromRequest(req);
+      const session = rawSession && typeof rawSession.then === "function" ? await rawSession : rawSession;
+      if (!session || !session.id) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      // 3. Token validation
+      const providedToken = String(req.body?.token || "");
+      const expectedToken = String(process.env.ADMIN_API_TOKEN || "");
+      const providedBuf = Buffer.from(providedToken);
+      const expectedBuf = Buffer.from(expectedToken);
+
+      const isValid = expectedToken.length > 0 &&
+        providedBuf.length === expectedBuf.length &&
+        crypto.timingSafeEqual(providedBuf, expectedBuf);
+
+      if (!isValid) {
+        log(session, "admin.claim_failed", { details: "Invalid admin token submitted", status: "failure" });
+        return res.status(401).json({ error: "Invalid admin token" });
+      }
+
+      // 4. Role determination (owner vs admin)
+      const getRow = deps.getRow || deps.adminGetRow || adminGetRow;
+      const existingOwner = await resolveMaybePromise(getRow("SELECT id FROM users WHERE role = 'owner' LIMIT 1"));
+      const targetRole = existingOwner ? "admin" : "owner";
+
+      // 5. Apply role change
+      await resolveMaybePromise(setUserRole(session.id, targetRole));
+
+      log(session, "admin.claim_success", { details: `User promoted to ${targetRole} via admin API token`, targetType: "user", targetLabel: session.username, status: "success" });
+
+      return res.json({ ok: true, role: targetRole });
+    } catch (error) {
+      return res.status(500).json({ error: error.message || "Failed to claim admin privileges" });
+    }
+  });
+
   // ─── Auth middleware ─────────────────────────────────────────────────────────
 
+  app.use("/api/admin", async (req, res, next) => {
+    if (req.path === "/db-tools" || req.path === "/claim") return next();
+    try {
+      const rawSession = getSessionFromRequest(req);
+      const session = rawSession && typeof rawSession.then === "function"
+        ? await rawSession
+        : rawSession;
+      if (!session) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+      const rawIsAdmin = isUserAdmin(session.id);
+      const isAdmin = rawIsAdmin && typeof rawIsAdmin.then === "function"
+        ? await rawIsAdmin
+        : rawIsAdmin;
+      if (!isAdmin) {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+      req.adminSession = session;
+      next();
+    } catch (error) {
+      next(error);
+    }
+  });
+
   const requireAdmin = (req, res) => {
-    const session = getSessionFromRequest(req);
-    if (!session) {
-      res.status(401).json({ error: "Not authenticated" });
+    const session = req.adminSession || getSessionFromRequest(req);
+    if (!session || typeof session.then === "function") {
+      if (session && typeof session.then === "function") {
+        res.status(500).json({ error: "Admin authentication must be awaited." });
+      } else {
+        res.status(401).json({ error: "Not authenticated" });
+      }
       return null;
     }
-    if (!isUserAdmin(session.id)) {
-      res.status(403).json({ error: "Admin access required" });
-      return null;
-    }
-    return session;
+    if (req.adminSession || isUserAdmin(session.id) === true) return session;
+    res.status(403).json({ error: "Admin access required" });
+    return null;
   };
 
   // Returns true if the acting session belongs to the owner role.
-  const actorIsOwner = (session) => isUserOwner(session?.id);
+  const actorIsOwner = async (session) =>
+    Boolean(await resolveMaybePromise(isUserOwner(session?.id)));
 
-  const emitGroupJoinMessage = (chat, chatId, session, member) => {
+  const emitGroupJoinMessage = async (chat, chatId, session, member) => {
     if (chat.type !== "group") return;
     const body = `[[system:joined:${member.nickname || member.username}]]`;
-    createMessage(
+    await resolveMaybePromise(createMessage(
       chatId,
       session.id,
       body,
@@ -159,18 +280,20 @@ function registerAdminPanelRoutes(app, deps) {
       null,
       null,
       { allowPlaintextSystemMessage: true },
-    );
+    ));
     emitChatEvent(chatId, {
       type: "chat_message",
       chatId,
-      username: session.username,
-      body,
+          username: session.username,
+          userId: session.id,
+          body,
     });
   };
 
   // Helper to write an audit log entry (to logs/admin.log) tied to the acting admin.
   const log = (session, action, opts = {}) => {
-    writeAdminLog({
+    const writeLog = deps.writeAdminLog || writeAdminLog;
+    writeLog({
       actorUserId:   session?.id ?? null,
       actorUsername: session?.username ?? null,
       action,
@@ -183,9 +306,11 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Dashboard ───────────────────────────────────────────────────────────────
 
-  app.get("/api/admin/stats", (req, res) => {
+  app.get("/api/admin/stats", async (req, res) => {
     if (!requireAdmin(req, res)) return;
-    res.json(getCachedAdminStats(getAdminStats));
+    const stats = (await getCachedAdminStats(getAdminStats)) || {};
+    stats.onlineUsers = await getOnlineCount();
+    res.json(stats);
   });
 
   app.get("/api/admin/system", (req, res) => {
@@ -260,7 +385,7 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Users — list ────────────────────────────────────────────────────────────
 
-  app.get("/api/admin/users", (req, res) => {
+  app.get("/api/admin/users", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     const limit  = Number(req.query.limit  || 200);
     const offset = Number(req.query.offset || 0);
@@ -270,7 +395,14 @@ function registerAdminPanelRoutes(app, deps) {
     const sortDir   = String(req.query.sortDir || "").toLowerCase() === "asc" ? "ASC" : "DESC";
     const roleFilter = ["user", "admin", "owner", "banned"].includes(req.query.role) ? req.query.role : null;
     const statusFilter = ["online", "offline"].includes(req.query.status) ? req.query.status : null;
-    const { users, total } = adminListUsers({ limit, offset, search, sortBy, sortDir, roleFilter, statusFilter });
+    const verifiedFilter = ["1", "0", "true", "false"].includes(req.query.verified) ? req.query.verified : null;
+    const connectedUsernames = typeof getConnectedUsernames === "function" ? getConnectedUsernames() : null;
+    const rawResult = adminListUsers({ limit, offset, search, sortBy, sortDir, roleFilter, statusFilter, verifiedFilter, connectedUsernames });
+    const { users, total } = (rawResult && typeof rawResult.then === "function" ? await rawResult : rawResult) || { users: [], total: 0 };
+    users.forEach((u) => {
+      u.online =
+        typeof isConnected === "function" && isConnected(u.username) && String(u.status || "online").toLowerCase() !== "invisible" ? 1 : 0;
+    });
     res.json({ users, total, limit, offset });
   });
 
@@ -284,7 +416,7 @@ function registerAdminPanelRoutes(app, deps) {
     const password    = String(req.body?.password  || "");
     const requestedRole = String(req.body?.role || "user");
     // Only owners can assign the owner role; admins can assign user/admin
-    const allowedRoles = actorIsOwner(session) ? ["user", "admin", "owner"] : ["user", "admin"];
+    const allowedRoles = (await actorIsOwner(session)) ? ["user", "admin", "owner"] : ["user", "admin"];
     const role = allowedRoles.includes(requestedRole) ? requestedRole : "user";
 
     if (!rawUsername || !nickname || !password) {
@@ -305,47 +437,58 @@ function registerAdminPanelRoutes(app, deps) {
     if (USERNAME_REGEX && !USERNAME_REGEX.test(rawUsername)) {
       return res.status(400).json({ error: "Invalid username. Use lowercase letters, numbers, . and _" });
     }
-    if (adminGetRow("SELECT id FROM users WHERE username = ?", [rawUsername])?.id) {
+    if ((await callAdminGetRow(dbKnex("users").select("id").where("username", rawUsername).first()))?.id) {
       return res.status(409).json({ error: "Username already exists." });
     }
-    if (adminGetRow("SELECT id FROM chats WHERE type IN ('group','channel') AND group_username = ?", [rawUsername])?.id) {
+    if ((await callAdminGetRow(dbKnex("chats").select("id").whereIn("type", ["group", "channel"]).where("group_username", rawUsername).first()))?.id) {
       return res.status(409).json({ error: "Username already exists." });
     }
     // Only one owner is allowed at a time
-    if (role === "owner" && getOwnerUser()) {
+    if (role === "owner" && await resolveMaybePromise(getOwnerUser())) {
       return res.status(409).json({ error: "An owner already exists. Reassign the owner role first." });
     }
 
     const passwordHash   = await bcrypt.hash(password, 10);
     const suppliedColor  = normalizeHexColor(String(req.body?.color || ""));
     const assignedColor  = suppliedColor || setUserColor();
-    adminRun(
-      `INSERT INTO users (username, nickname, avatar_url, color, status, password_hash, created_at, last_seen)
-       VALUES (?, ?, NULL, ?, 'online', ?, datetime('now'), datetime('now'))`,
-      [rawUsername, nickname, assignedColor, passwordHash],
-    );
+    const verified       = req.body?.verified !== undefined ? (req.body.verified ? 1 : 0) : 0;
+    const newUserId = generateUuid();
+    await resolveMaybePromise(callAdminRun(
+      dbKnex("users").insert({
+        id: newUserId,
+        username: rawUsername,
+        nickname,
+        avatar_url: null,
+        color: assignedColor,
+        status: "online",
+        password_hash: passwordHash,
+        created_at: dbKnex.raw("datetime('now')"),
+        last_seen: dbKnex.raw("datetime('now')"),
+        verified,
+      }),
+    ));
     if (role !== "user") {
-      const newUser = adminGetRow("SELECT id FROM users WHERE username = ?", [rawUsername]);
-      if (newUser?.id) adminRun("UPDATE users SET role = ? WHERE id = ?", [role, Number(newUser.id)]);
+      const newUser = await callAdminGetRow(dbKnex("users").select("id").where("username", rawUsername).first());
+      if (newUser?.id) await resolveMaybePromise(callAdminRun(dbKnex("users").where("id", newUser.id).update({ role })));
     }
     adminSave();
-    const row = adminGetRow("SELECT id, username, nickname, color, role FROM users WHERE username = ?", [rawUsername]);
+    const row = await callAdminGetRow(dbKnex("users").select("id", "username", "nickname", "color", "role", "verified").where("username", rawUsername).first());
     log(session, "user.create", { targetType: "user", targetLabel: `@${rawUsername}`, details: `role=${role}` });
+    userEvents.emit("user:created", { userId: newUserId });
     res.status(201).json({ ok: true, user: row });
   });
 
   // ─── Users — edit ────────────────────────────────────────────────────────────
 
-  app.patch("/api/admin/users/:id", (req, res) => {
+  app.patch("/api/admin/users/:id", validateUuidParams("id"), async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const userId = Number(req.params.id);
-    if (!userId) return res.status(400).json({ error: "Invalid user ID" });
-    const user = findUserById(userId);
+    const userId = req.params.id;
+    const user = await resolveMaybePromise(findUserById(userId));
     if (!user) return res.status(404).json({ error: "User not found" });
 
     // Non-owners cannot edit the owner account
-    if (user.role === "owner" && !actorIsOwner(session)) {
+    if (user.role === "owner" && !(await actorIsOwner(session))) {
       return res.status(403).json({ error: "Cannot edit the owner account." });
     }
 
@@ -370,34 +513,40 @@ function registerAdminPanelRoutes(app, deps) {
     if (!["online", "invisible"].includes(nextStatus)) return res.status(400).json({ error: "Invalid status." });
 
     if (nextUsername !== String(user.username || "")) {
-      if (adminGetRow("SELECT id FROM users WHERE username = ? AND id != ?", [nextUsername, userId])?.id) {
+      if ((await callAdminGetRow(dbKnex("users").select("id").where("username", nextUsername).where("id", "!=", userId).first()))?.id) {
         return res.status(409).json({ error: "Username already exists." });
       }
-      if (adminGetRow("SELECT id FROM chats WHERE type IN ('group','channel') AND group_username IN (?,?)", [nextUsername, `@${nextUsername}`])?.id) {
+      if ((await callAdminGetRow(dbKnex("chats").select("id").whereIn("type", ["group", "channel"]).whereIn("group_username", [nextUsername, `@${nextUsername}`]).first()))?.id) {
         return res.status(409).json({ error: "Username already exists." });
       }
     }
 
     const nextVerified = b.verified !== undefined ? (b.verified ? 1 : 0) : (user.verified ? 1 : 0);
 
-    adminRun(
-      "UPDATE users SET username = ?, nickname = ?, status = ?, color = ?, verified = ? WHERE id = ?",
-      [nextUsername, nextNickname, nextStatus, nextColor, nextVerified, userId],
-    );
+    await resolveMaybePromise(callAdminRun(
+      dbKnex("users")
+        .where("id", userId)
+        .update({
+          username: nextUsername,
+          nickname: nextNickname,
+          status: nextStatus,
+          color: nextColor,
+          verified: nextVerified,
+        }),
+    ));
     adminSave();
-    const updated = findUserById(userId);
+    const updated = await resolveMaybePromise(findUserById(userId));
     log(session, "user.edit", { targetType: "user", targetLabel: `@${updated.username}` });
     res.json({ ok: true, user: updated });
   });
 
   // ─── Users — ban/unban ───────────────────────────────────────────────────────
 
-  app.post("/api/admin/users/:id/ban", (req, res) => {
+  app.post("/api/admin/users/:id/ban", validateUuidParams("id"), async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const userId = Number(req.params.id);
-    if (!userId) return res.status(400).json({ error: "Invalid user ID" });
-    const user = findUserById(userId);
+    const userId = req.params.id;
+    const user = await resolveMaybePromise(findUserById(userId));
     if (!user) return res.status(404).json({ error: "User not found" });
 
     // The owner cannot be banned
@@ -406,10 +555,10 @@ function registerAdminPanelRoutes(app, deps) {
     }
 
     const banned = Boolean(req.body?.banned);
-    adminBanUser(userId, banned);
+    await resolveMaybePromise(adminBanUser(userId, banned));
     // Banning revokes any elevated role; unbanning restores the default user role.
-    setUserRole(userId, "user");
-    if (banned) adminRun("DELETE FROM sessions WHERE user_id = ?", [userId]);
+    await resolveMaybePromise(setUserRole(userId, "user"));
+    if (banned) await resolveMaybePromise(callAdminRun(dbKnex("sessions").where("user_id", userId).del()));
     adminSave();
     log(session, banned ? "user.ban" : "user.unban", { targetType: "user", targetLabel: `@${user.username}` });
     res.json({ ok: true, banned });
@@ -417,36 +566,35 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Users — change role ─────────────────────────────────────────────────────
 
-  app.post("/api/admin/users/:id/role", (req, res) => {
+  app.post("/api/admin/users/:id/role", validateUuidParams("id"), async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const userId = Number(req.params.id);
+    const userId = req.params.id;
     const { role } = req.body || {};
-    if (!userId) return res.status(400).json({ error: "Invalid user ID" });
 
     // Only the owner can assign/revoke the owner role; admins can only use user/admin
-    const allowedRoles = actorIsOwner(session) ? ["user", "admin", "owner"] : ["user", "admin"];
+    const allowedRoles = (await actorIsOwner(session)) ? ["user", "admin", "owner"] : ["user", "admin"];
     if (!allowedRoles.includes(role)) {
       return res.status(400).json({ error: "Invalid role" });
     }
 
-    const user = findUserById(userId);
+    const user = await resolveMaybePromise(findUserById(userId));
     if (!user) return res.status(404).json({ error: "User not found" });
 
     // Non-owners cannot change the role of the owner
-    if (user.role === "owner" && !actorIsOwner(session)) {
+    if (user.role === "owner" && !(await actorIsOwner(session))) {
       return res.status(403).json({ error: "Cannot change the role of the owner." });
     }
 
     // Only one owner is allowed — block promoting if another owner already exists
     if (role === "owner" && user.role !== "owner") {
-      const existing = getOwnerUser();
+      const existing = await resolveMaybePromise(getOwnerUser());
       if (existing && existing.id !== userId) {
         return res.status(409).json({ error: "An owner already exists. Demote them first." });
       }
     }
 
-    setUserRole(userId, role);
+    await resolveMaybePromise(setUserRole(userId, role));
     adminSave();
     log(session, "user.role", { targetType: "user", targetLabel: `@${user.username}`, details: `role=${role}` });
     res.json({ ok: true, role });
@@ -454,24 +602,23 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Users — reset password ──────────────────────────────────────────────────
 
-  app.post("/api/admin/users/:id/reset-password", async (req, res) => {
+  app.post("/api/admin/users/:id/reset-password", validateUuidParams("id"), async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const userId = Number(req.params.id);
+    const userId = req.params.id;
     const newPassword = String(req.body?.password || "").trim();
-    if (!userId) return res.status(400).json({ error: "Invalid user ID" });
     if (!newPassword || newPassword.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters." });
-    const user = findUserById(userId);
+    const user = await resolveMaybePromise(findUserById(userId));
     if (!user) return res.status(404).json({ error: "User not found" });
 
     // Non-owners cannot reset the owner's password
-    if (user.role === "owner" && !actorIsOwner(session)) {
+    if (user.role === "owner" && !(await actorIsOwner(session))) {
       return res.status(403).json({ error: "Cannot reset the owner's password." });
     }
 
     const hash = await bcrypt.hash(newPassword, 10);
-    adminRun("UPDATE users SET password_hash = ? WHERE id = ?", [hash, userId]);
-    adminRun("DELETE FROM sessions WHERE user_id = ?", [userId]);
+    await resolveMaybePromise(callAdminRun(dbKnex("users").where("id", userId).update({ password_hash: hash })));
+    await resolveMaybePromise(callAdminRun(dbKnex("sessions").where("user_id", userId).del()));
     adminSave();
     log(session, "user.reset_password", { targetType: "user", targetLabel: `@${user.username}` });
     res.json({ ok: true });
@@ -479,25 +626,22 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Users — avatar upload (admin, bypasses ownership check) ─────────────────
 
-  app.post("/api/admin/users/:id/avatar", uploadAvatar.single("avatar"), (req, res) => {
-    const session = getSessionFromRequest(req);
-    if (!session || !isUserAdmin(session.id)) {
+  app.post("/api/admin/users/:id/avatar", validateUuidParams("id"), uploadAvatar.single("avatar"), async (req, res) => {
+    const session = await resolveMaybePromise(getSessionFromRequest(req));
+    const isAdmin = session ? await resolveMaybePromise(isUserAdmin(session.id)) : false;
+    if (!session || !isAdmin) {
       removeUploadedFiles(req.file ? [req.file] : [], avatarUploadRootDir);
       return res.status(session ? 403 : 401).json({ error: session ? "Admin access required" : "Not authenticated" });
     }
-    const userId = Number(req.params.id);
+    const userId = req.params.id;
     const file = req.file;
-    if (!userId) {
-      removeUploadedFiles(file ? [file] : [], avatarUploadRootDir);
-      return res.status(400).json({ error: "Invalid user ID" });
-    }
     if (!file) return res.status(400).json({ error: "Avatar file is required." });
     const mime = String(file.mimetype || "").toLowerCase();
     if (!ALLOWED_AVATAR_MIME_TYPES.has(mime)) {
       removeUploadedFiles([file], avatarUploadRootDir);
       return res.status(400).json({ error: "Avatar must be a JPEG, PNG, GIF, WEBP, or BMP image." });
     }
-    const user = findUserById(userId);
+    const user = await resolveMaybePromise(findUserById(userId));
     if (!user) {
       removeUploadedFiles([file], avatarUploadRootDir);
       return res.status(404).json({ error: "User not found." });
@@ -512,33 +656,31 @@ function registerAdminPanelRoutes(app, deps) {
     if (String(user.avatar_url || "").trim() && user.avatar_url !== avatarUrl) {
       removeAvatarByUrl(user.avatar_url);
     }
-    adminRun("UPDATE users SET avatar_url = ? WHERE id = ?", [avatarUrl, userId]);
+    await resolveMaybePromise(callAdminRun(dbKnex("users").where("id", userId).update({ avatar_url: avatarUrl })));
     adminSave();
     res.json({ ok: true, avatarUrl });
   });
 
-  app.delete("/api/admin/users/:id/avatar", (req, res) => {
+  app.delete("/api/admin/users/:id/avatar", validateUuidParams("id"), async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const userId = Number(req.params.id);
-    if (!userId) return res.status(400).json({ error: "Invalid user ID" });
-    const user = findUserById(userId);
+    const userId = req.params.id;
+    const user = await resolveMaybePromise(findUserById(userId));
     if (!user) return res.status(404).json({ error: "User not found." });
     if (String(user.avatar_url || "").trim()) removeAvatarByUrl(user.avatar_url);
-    adminRun("UPDATE users SET avatar_url = NULL WHERE id = ?", [userId]);
+    await resolveMaybePromise(callAdminRun(dbKnex("users").where("id", userId).update({ avatar_url: null })));
     adminSave();
     res.json({ ok: true, avatarUrl: null });
   });
 
   // ─── Users — delete ──────────────────────────────────────────────────────────
 
-  app.delete("/api/admin/users/:id", (req, res) => {
+  app.delete("/api/admin/users/:id", validateUuidParams("id"), async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const userId = Number(req.params.id);
-    if (!userId) return res.status(400).json({ error: "Invalid user ID" });
+    const userId = req.params.id;
     if (userId === session.id) return res.status(400).json({ error: "Cannot delete yourself" });
-    const user = findUserById(userId);
+    const user = await resolveMaybePromise(findUserById(userId));
     if (!user) return res.status(404).json({ error: "User not found" });
 
     // The owner cannot be deleted
@@ -546,7 +688,10 @@ function registerAdminPanelRoutes(app, deps) {
       return res.status(403).json({ error: "Cannot delete the owner account." });
     }
 
-    const { storedNames } = adminDeleteUser(userId) || {};
+    const rawDeletion = adminDeleteUser(userId);
+    const { storedNames } = rawDeletion && typeof rawDeletion.then === "function"
+      ? await rawDeletion
+      : rawDeletion || {};
     if (Array.isArray(storedNames) && storedNames.length > 0) removeStoredFileNames(storedNames);
     log(session, "user.delete", { targetType: "user", targetLabel: `@${user.username}` });
     res.json({ ok: true });
@@ -554,7 +699,7 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Chats — list ────────────────────────────────────────────────────────────
 
-  app.get("/api/admin/chats", (req, res) => {
+  app.get("/api/admin/chats", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     const limit   = Number(req.query.limit  || 200);
     const offset  = Number(req.query.offset || 0);
@@ -563,13 +708,20 @@ function registerAdminPanelRoutes(app, deps) {
       ? req.query.sortBy : "id";
     const sortDir = String(req.query.sortDir || "").toLowerCase() === "asc" ? "ASC" : "DESC";
     const typeFilter = ["group", "channel"].includes(req.query.type) ? req.query.type : null;
-    const { chats, total } = adminListChats({ limit, offset, search, sortBy, sortDir, typeFilter });
+    const visibilityFilter = ["public", "private"].includes(req.query.visibility) ? req.query.visibility : null;
+    const verifiedFilter = ["1", "0", "true", "false"].includes(req.query.verified) ? req.query.verified : null;
+    const autoAddFilter = ["1", "0", "true", "false"].includes(req.query.auto_add) ? req.query.auto_add : null;
+    const remoteFilter = ["active", "paused", "disabled", "none"].includes(req.query.remote) ? req.query.remote : null;
+    const rawResult = adminListChats({ limit, offset, search, sortBy, sortDir, typeFilter, visibilityFilter, verifiedFilter, autoAddFilter, remoteFilter });
+    const { chats, total } = (rawResult && typeof rawResult.then === "function"
+      ? await rawResult
+      : rawResult) || { chats: [], total: 0 };
     res.json({ chats, total, limit, offset });
   });
 
   // ─── Chats — create ──────────────────────────────────────────────────────────
 
-  app.post("/api/admin/chats", (req, res) => {
+  app.post("/api/admin/chats", async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
     const b = req.body || {};
@@ -583,59 +735,63 @@ function registerAdminPanelRoutes(app, deps) {
       return res.status(400).json({ error: "Name, username, and owner are required." });
     }
 
-    const owner = isNaN(Number(ownerIdOrUsername))
-      ? findUserByUsername(ownerIdOrUsername.toLowerCase())
-      : findUserById(Number(ownerIdOrUsername));
+    const owner = isValidUuid(ownerIdOrUsername)
+      ? await resolveMaybePromise(findUserById(ownerIdOrUsername))
+      : await resolveMaybePromise(findUserByUsername(ownerIdOrUsername.toLowerCase()));
     if (!owner?.id) return res.status(404).json({ error: "Owner user not found." });
 
-    if (adminGetRow("SELECT id FROM users WHERE username = ?", [username])?.id) {
+    if ((await adminGetRow(dbKnex("users").select("id").where("username", username).first()))?.id) {
       return res.status(409).json({ error: "Username already exists." });
     }
-    if (adminGetRow("SELECT id FROM chats WHERE type IN ('group','channel') AND group_username IN (?,?)", [username, `@${username}`])?.id) {
+    if ((await adminGetRow(dbKnex("chats").select("id").whereIn("type", ["group", "channel"]).whereIn("group_username", [username, `@${username}`]).first()))?.id) {
       return res.status(409).json({ error: "Username already exists." });
     }
 
     const inviteToken  = createInviteToken(crypto);
-    const ownerColor   = String(adminGetRow("SELECT color FROM users WHERE id = ?", [Number(owner.id)])?.color || "") || "#10b981";
+    const ownerColor   = String((await adminGetRow(dbKnex("users").select("color").where("id", owner.id).first()))?.color || "") || "#10b981";
     const groupColor   = normalizeHexColor(String(b.color || "")) || ownerColor;
-    const chatId       = createChat(name, type, {
+    const autoAddNewUsers = (visibility === "public" && Boolean(b.autoAddNewUsers || b.auto_add_new_users)) ? 1 : 0;
+    const chatId = await resolveMaybePromise(createChat(name, type, {
       groupUsername:     username,
       groupVisibility:   visibility,
       inviteToken,
-      createdByUserId:   Number(owner.id),
+      createdByUserId:   owner.id,
       groupColor,
-    });
+      verified:          Boolean(b.verified),
+      autoAddNewUsers,
+      auto_add_new_users: autoAddNewUsers,
+    }));
 
     if (!chatId) return res.status(500).json({ error: "Failed to create chat." });
 
-    addChatMember(chatId, Number(owner.id), "owner");
+    await resolveMaybePromise(addChatMember(chatId, owner.id, "owner"));
 
-    const memberIds = Array.isArray(b.memberIds) ? b.memberIds.map(Number).filter(Boolean) : [];
+    const memberIds = Array.isArray(b.memberIds) ? b.memberIds.filter(Boolean) : [];
     const addAllEligibleMembers = Boolean(b.addAllEligibleMembers);
-    memberIds.forEach((mid) => {
-      if (mid !== Number(owner.id)) addChatMember(chatId, mid, "member");
-    });
+    for (const mid of memberIds) {
+      if (mid !== owner.id) await resolveMaybePromise(addChatMember(chatId, mid, "member"));
+    }
     const bulkMembers = addAllEligibleMembers
-      ? addAllEligibleChatMembers(chatId)
+      ? (await resolveMaybePromise(addAllEligibleChatMembers(chatId))) || { addedUsers: [], skippedLeftCount: 0 }
       : { addedUsers: [], skippedLeftCount: 0 };
 
-    if (b.verified) adminRun("UPDATE chats SET verified = 1 WHERE id = ?", [chatId]);
+    if (b.verified) await resolveMaybePromise(adminRun(dbKnex("chats").where("id", chatId).update({ verified: 1 })));
 
     adminSave();
-    const created = findChatById(chatId);
+    const created = await resolveMaybePromise(findChatById(chatId));
     // Notify the owner so the new chat appears in their sidebar immediately.
     emitSseEvent(String(owner.username || ""), { type: "chat_list_changed" });
     // Also notify any additional members.
-    memberIds.forEach((mid) => {
-      if (mid === Number(owner.id)) return;
-      const member = findUserById(mid);
+    for (const mid of memberIds) {
+      if (mid === owner.id) continue;
+      const member = await resolveMaybePromise(findUserById(mid));
       if (member?.username) emitSseEvent(String(member.username), { type: "chat_list_changed" });
-    });
-    bulkMembers.addedUsers.forEach((member) => {
-      if (Number(member.id) !== Number(owner.id)) {
+    }
+    for (const member of bulkMembers.addedUsers) {
+      if (member.id !== owner.id) {
         emitSseEvent(String(member.username), { type: "chat_list_changed" });
       }
-    });
+    }
     log(session, "chat.create", { targetType: "chat", targetLabel: name, details: `type=${type} added_all=${bulkMembers.addedUsers.length} skipped_left=${bulkMembers.skippedLeftCount}` });
     res.status(201).json({
       ok: true,
@@ -647,12 +803,11 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Chats — edit ────────────────────────────────────────────────────────────
 
-  app.patch("/api/admin/chats/:id", (req, res) => {
+  app.patch("/api/admin/chats/:id", validateUuidParams("id"), async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const chatId = Number(req.params.id);
-    if (!chatId) return res.status(400).json({ error: "Invalid chat ID" });
-    const chat = findChatById(chatId);
+    const chatId = req.params.id;
+    const chat = await resolveMaybePromise(findChatById(chatId));
     if (!chat) return res.status(404).json({ error: "Chat not found" });
     if (!["group", "channel"].includes(chat.type)) {
       return res.status(400).json({ error: "Only groups and channels can be edited." });
@@ -665,34 +820,53 @@ function registerAdminPanelRoutes(app, deps) {
     const nextColor      = b.color !== undefined ? (normalizeHexColor(String(b.color || "")) || null) : (chat.group_color || null);
 
     if (nextUsername && nextUsername !== (chat.group_username || "")) {
-      if (adminGetRow("SELECT id FROM users WHERE username = ?", [nextUsername])?.id) {
+      if ((await adminGetRow(dbKnex("users").select("id").where("username", nextUsername).first()))?.id) {
         return res.status(409).json({ error: "Username already exists." });
       }
-      if (adminGetRow("SELECT id FROM chats WHERE type IN ('group','channel') AND group_username IN (?,?) AND id != ?", [nextUsername, `@${nextUsername}`, chatId])?.id) {
+      if ((await adminGetRow(dbKnex("chats").select("id").whereIn("type", ["group", "channel"]).whereIn("group_username", [nextUsername, `@${nextUsername}`]).where("id", "!=", chatId).first()))?.id) {
         return res.status(409).json({ error: "Username already exists." });
       }
     }
 
     let newOwnerUsername = null;
     if (b.owner !== undefined) {
-      const newOwner = isNaN(Number(b.owner))
-        ? findUserByUsername(String(b.owner).toLowerCase())
-        : findUserById(Number(b.owner));
+      const newOwner = isValidUuid(String(b.owner))
+        ? await resolveMaybePromise(findUserById(b.owner))
+        : await resolveMaybePromise(findUserByUsername(String(b.owner).toLowerCase()));
       if (!newOwner?.id) return res.status(404).json({ error: "New owner not found." });
-      adminRun("UPDATE chat_members SET role = 'member' WHERE chat_id = ? AND role = 'owner'", [chatId]);
-      adminRun("INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, 'owner')", [chatId, Number(newOwner.id)]);
-      adminRun("UPDATE chat_members SET role = 'owner' WHERE chat_id = ? AND user_id = ?", [chatId, Number(newOwner.id)]);
+      await resolveMaybePromise(adminRun(dbKnex("chat_members").where("chat_id", chatId).where("role", "owner").update({ role: "member" })));
+      await resolveMaybePromise(adminRun(dbKnex("chat_members").insert({ chat_id: chatId, user_id: newOwner.id, role: "owner" }).onConflict(["chat_id", "user_id"]).ignore()));
+      await resolveMaybePromise(adminRun(dbKnex("chat_members").where({ chat_id: chatId, user_id: newOwner.id }).update({ role: "owner" })));
       newOwnerUsername = String(newOwner.username || "");
     }
 
-    if (chat.type === "group") {
-      updateGroupChat(chatId, { name: nextName, groupUsername: nextUsername, groupVisibility: nextVisibility });
-    } else {
-      updateChannelChat(chatId, { name: nextName, groupUsername: nextUsername, groupVisibility: nextVisibility });
+    let auto_add_new_users;
+    if (nextVisibility === "private") {
+      auto_add_new_users = 0;
+    } else if (b.autoAddNewUsers !== undefined) {
+      auto_add_new_users = b.autoAddNewUsers ? 1 : 0;
+    } else if (b.auto_add_new_users !== undefined) {
+      auto_add_new_users = b.auto_add_new_users ? 1 : 0;
     }
 
-    if (nextColor) adminRun("UPDATE chats SET group_color = ? WHERE id = ?", [nextColor, chatId]);
-    if (b.verified !== undefined) adminRun("UPDATE chats SET verified = ? WHERE id = ?", [b.verified ? 1 : 0, chatId]);
+    const patchPayload = {
+      name: nextName,
+      groupUsername: nextUsername,
+      groupVisibility: nextVisibility,
+    };
+    if (auto_add_new_users !== undefined) {
+      patchPayload.auto_add_new_users = auto_add_new_users;
+      patchPayload.autoAddNewUsers = auto_add_new_users;
+    }
+
+    if (chat.type === "group") {
+      await resolveMaybePromise(updateGroupChat(chatId, patchPayload));
+    } else {
+      await resolveMaybePromise(updateChannelChat(chatId, patchPayload));
+    }
+
+    if (nextColor) await resolveMaybePromise(adminRun(dbKnex("chats").where("id", chatId).update({ group_color: nextColor })));
+    if (b.verified !== undefined) await resolveMaybePromise(adminRun(dbKnex("chats").where("id", chatId).update({ verified: b.verified ? 1 : 0 })));
     adminSave();
 
     emitChatEvent(chatId, { type: "chat_updated", chatId });
@@ -702,25 +876,22 @@ function registerAdminPanelRoutes(app, deps) {
     if (newOwnerUsername) {
       emitSseEvent(newOwnerUsername, { type: "chat_list_changed" });
     }
-    const updated = findChatById(chatId);
+    const updated = await resolveMaybePromise(findChatById(chatId));
     log(session, "chat.edit", { targetType: "chat", targetLabel: updated.name || `Chat #${chatId}` });
     res.json({ ok: true, chat: updated });
   });
 
   // ─── Chats — avatar upload (admin, bypasses owner check) ─────────────────────
 
-  app.post("/api/admin/chats/:id/avatar", uploadAvatar.single("avatar"), (req, res) => {
-    const session = getSessionFromRequest(req);
-    if (!session || !isUserAdmin(session.id)) {
+  app.post("/api/admin/chats/:id/avatar", validateUuidParams("id"), uploadAvatar.single("avatar"), async (req, res) => {
+    const session = await resolveMaybePromise(getSessionFromRequest(req));
+    const isAdmin = session ? await resolveMaybePromise(isUserAdmin(session.id)) : false;
+    if (!session || !isAdmin) {
       removeUploadedFiles(req.file ? [req.file] : [], avatarUploadRootDir);
       return res.status(session ? 403 : 401).json({ error: session ? "Admin access required" : "Not authenticated" });
     }
-    const chatId = Number(req.params.id);
+    const chatId = req.params.id;
     const file = req.file;
-    if (!chatId) {
-      removeUploadedFiles(file ? [file] : [], avatarUploadRootDir);
-      return res.status(400).json({ error: "Invalid chat ID" });
-    }
     if (!file) return res.status(400).json({ error: "Avatar file is required." });
 
     const mime = String(file.mimetype || "").toLowerCase();
@@ -729,7 +900,7 @@ function registerAdminPanelRoutes(app, deps) {
       return res.status(400).json({ error: "Avatar must be a JPEG, PNG, GIF, WEBP, or BMP image." });
     }
 
-    const chat = findChatById(chatId);
+    const chat = await resolveMaybePromise(findChatById(chatId));
     if (!chat || (chat.type !== "group" && chat.type !== "channel")) {
       removeUploadedFiles([file], avatarUploadRootDir);
       return res.status(404).json({ error: "Chat not found." });
@@ -748,25 +919,24 @@ function registerAdminPanelRoutes(app, deps) {
     }
 
     const updateFn = chat.type === "channel" ? updateChannelChat : updateGroupChat;
-    updateFn(chatId, {
+    await resolveMaybePromise(updateFn(chatId, {
       name: chat.name,
       groupUsername: chat.group_username,
       groupVisibility: chat.group_visibility,
       allowMemberInvites: Boolean(Number(chat.allow_member_invites || 0)),
       groupAvatarUrl: avatarUrl,
-    });
+    }));
     adminSave();
     emitChatEvent(chatId, { type: "chat_updated", chatId });
     log(session, "chat.edit", { targetType: "chat", targetLabel: chat.name || `Chat #${chatId}`, details: "avatar updated" });
     res.json({ ok: true, avatarUrl });
   });
 
-  app.delete("/api/admin/chats/:id/avatar", (req, res) => {
+  app.delete("/api/admin/chats/:id/avatar", validateUuidParams("id"), async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const chatId = Number(req.params.id);
-    if (!chatId) return res.status(400).json({ error: "Invalid chat ID" });
-    const chat = findChatById(chatId);
+    const chatId = req.params.id;
+    const chat = await resolveMaybePromise(findChatById(chatId));
     if (!chat || (chat.type !== "group" && chat.type !== "channel")) {
       return res.status(404).json({ error: "Chat not found." });
     }
@@ -774,13 +944,13 @@ function registerAdminPanelRoutes(app, deps) {
       removeAvatarByUrl(chat.group_avatar_url);
     }
     const updateFn = chat.type === "channel" ? updateChannelChat : updateGroupChat;
-    updateFn(chatId, {
+    await resolveMaybePromise(updateFn(chatId, {
       name: chat.name,
       groupUsername: chat.group_username,
       groupVisibility: chat.group_visibility,
       allowMemberInvites: Boolean(Number(chat.allow_member_invites || 0)),
       groupAvatarUrl: null,
-    });
+    }));
     adminSave();
     emitChatEvent(chatId, { type: "chat_updated", chatId });
     res.json({ ok: true, avatarUrl: null });
@@ -788,34 +958,32 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Chats — members list ────────────────────────────────────────────────────
 
-  app.get("/api/admin/chats/:id/members", (req, res) => {
+  app.get("/api/admin/chats/:id/members", validateUuidParams("id"), async (req, res) => {
     if (!requireAdmin(req, res)) return;
-    const chatId = Number(req.params.id);
-    if (!chatId) return res.status(400).json({ error: "Invalid chat ID" });
-    const members = listChatMembers(chatId);
+    const chatId = req.params.id;
+    const members = (await resolveMaybePromise(listChatMembers(chatId))) || [];
     res.json({ members });
   });
 
   // ─── Chats — add member ──────────────────────────────────────────────────────
 
-  app.post("/api/admin/chats/:id/members", (req, res) => {
+  app.post("/api/admin/chats/:id/members", validateUuidParams("id"), async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const chatId = Number(req.params.id);
-    if (!chatId) return res.status(400).json({ error: "Invalid chat ID" });
-    const chat = findChatById(chatId);
+    const chatId = req.params.id;
+    const chat = await resolveMaybePromise(findChatById(chatId));
     if (!chat) return res.status(404).json({ error: "Chat not found" });
     if (!["group", "channel"].includes(chat.type)) {
       return res.status(400).json({ error: "Only groups and channels can have members." });
     }
 
     if (req.body?.all) {
-      const result = addAllEligibleChatMembers(chatId);
+      const result = (await resolveMaybePromise(addAllEligibleChatMembers(chatId))) || { addedUsers: [], skippedLeftCount: 0 };
       adminSave();
-      result.addedUsers.forEach((user) => {
+      for (const user of result.addedUsers) {
         emitSseEvent(String(user.username), { type: "chat_list_changed" });
-        emitGroupJoinMessage(chat, chatId, session, user);
-      });
+        await emitGroupJoinMessage(chat, chatId, session, user);
+      }
       if (result.addedUsers.length > 0) {
         emitChatEvent(chatId, { type: "chat_updated", chatId });
       }
@@ -831,14 +999,15 @@ function registerAdminPanelRoutes(app, deps) {
       });
     }
 
-    const userId = Number(req.body?.userId);
+    const userId = req.body?.userId;
     if (!userId) return res.status(400).json({ error: "userId required" });
-    const user = findUserById(userId);
+    if (!isValidUuid(userId)) return res.status(400).json({ error: "Field 'userId' is not a valid UUID." });
+    const user = await resolveMaybePromise(findUserById(userId));
     if (!user) return res.status(404).json({ error: "User not found" });
-    const added = addChatMember(chatId, userId, "member") > 0;
+    const added = (await resolveMaybePromise(addChatMember(chatId, userId, "member"))) > 0;
     adminSave();
     if (added) {
-      emitGroupJoinMessage(chat, chatId, session, user);
+      await emitGroupJoinMessage(chat, chatId, session, user);
     }
     // Notify the added user so the chat appears in their sidebar immediately.
     emitSseEvent(String(user.username), { type: "chat_list_changed" });
@@ -850,37 +1019,35 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Chats — remove member ───────────────────────────────────────────────────
 
-  app.delete("/api/admin/chats/:id/members/:userId", (req, res) => {
+  app.delete("/api/admin/chats/:id/members/:userId", validateUuidParams("id", "userId"), async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const chatId = Number(req.params.id);
-    const userId = Number(req.params.userId);
-    if (!chatId || !userId) return res.status(400).json({ error: "Invalid IDs" });
-    const chat = findChatById(chatId);
-    const user = findUserById(userId);
-    removeChatMember(chatId, userId);
+    const chatId = req.params.id;
+    const userId = req.params.userId;
+    const chat = await resolveMaybePromise(findChatById(chatId));
+    const user = await resolveMaybePromise(findUserById(userId));
+    await resolveMaybePromise(removeChatMember(chatId, userId));
     adminSave();
     // Notify the removed user so the chat disappears from their sidebar.
     if (user?.username) emitSseEvent(String(user.username), { type: "chat_list_changed" });
     // Notify remaining members that the member list changed.
     emitChatEvent(chatId, { type: "chat_updated", chatId });
-    log(session, "chat.member_remove", { targetType: "chat", targetLabel: chat?.name || `Chat #${chatId}`, details: user ? `-@${user.username}` : `-#${userId}` });
+    log(session, "chat.member_remove", { targetType: "chat", targetLabel: chat?.name || `Chat #${chatId}`, details: user ? `-@${user.username}` : `-${userId}` });
     res.json({ ok: true });
   });
 
   // ─── Chats — set member role ─────────────────────────────────────────────────
 
-  app.patch("/api/admin/chats/:id/members/:userId", (req, res) => {
+  app.patch("/api/admin/chats/:id/members/:userId", validateUuidParams("id", "userId"), async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const chatId = Number(req.params.id);
-    const userId = Number(req.params.userId);
+    const chatId = req.params.id;
+    const userId = req.params.userId;
     const { role } = req.body || {};
-    if (!chatId || !userId) return res.status(400).json({ error: "Invalid IDs" });
     if (!["owner", "admin", "member"].includes(role)) return res.status(400).json({ error: "Invalid role" });
-    const chat = findChatById(chatId);
-    const user = findUserById(userId);
-    setChatMemberRole(chatId, userId, role);
+    const chat = await resolveMaybePromise(findChatById(chatId));
+    const user = await resolveMaybePromise(findUserById(userId));
+    await resolveMaybePromise(setChatMemberRole(chatId, userId, role));
     adminSave();
     // Notify the affected user and all other members of the role change.
     emitChatEvent(chatId, { type: "chat_updated", chatId });
@@ -890,13 +1057,13 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Chats — delete ──────────────────────────────────────────────────────────
 
-  app.delete("/api/admin/chats/:id", (req, res) => {
+  app.delete("/api/admin/chats/:id", validateUuidParams("id"), async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    const chatId = Number(req.params.id);
-    if (!chatId) return res.status(400).json({ error: "Invalid chat ID" });
-    const chat = findChatById(chatId);
-    const { storedNames } = adminDeleteChat(chatId) || {};
+    const chatId = req.params.id;
+    const chat = await resolveMaybePromise(findChatById(chatId));
+    const deletion = await resolveMaybePromise(adminDeleteChat(chatId));
+    const { storedNames } = deletion || {};
     if (Array.isArray(storedNames) && storedNames.length > 0) removeStoredFileNames(storedNames);
     log(session, "chat.delete", { targetType: "chat", targetLabel: chat?.name || `Chat #${chatId}` });
     res.json({ ok: true });
@@ -916,10 +1083,10 @@ function registerAdminPanelRoutes(app, deps) {
     res.json({ logs: entries, total, limit, offset });
   });
 
-  app.delete("/api/admin/logs", (req, res) => {
+  app.delete("/api/admin/logs", async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
-    if (!actorIsOwner(session)) {
+    if (!(await actorIsOwner(session))) {
       return res.status(403).json({ error: "Owner access required" });
     }
     clearAdminLog();
@@ -953,57 +1120,83 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Maintenance ─────────────────────────────────────────────────────────────
 
-  app.post("/api/admin/maintenance/vacuum", (req, res) => {
+  app.get("/api/admin/maintenance/info", (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const postgres = dbConfig?.client === "postgres";
+    res.json({
+      engine: postgres ? "postgres" : "sqlite",
+      backupExtension: postgres ? ".dump" : ".db",
+      restoreAccept: postgres ? ".dump,application/octet-stream" : ".db,application/x-sqlite3,application/vnd.sqlite3",
+      deleteAvailable: postgres,
+      offlineRestoreRequired: postgres,
+      offlineDeleteRequired: postgres,
+    });
+  });
+
+  app.post("/api/admin/maintenance/vacuum", async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
     try {
-      vacuumDatabase();
+      if (dbConfig?.client === "postgres") await postgresMaintenance.vacuum();
+      else await resolveMaybePromise(vacuumDatabase());
       log(session, "db.vacuum", { targetType: "system" });
       res.json({ ok: true });
     } catch (err) {
-      log(session, "db.vacuum", { targetType: "system", status: "error", details: String(err?.message || err) });
+      log(session, "db.vacuum", { targetType: "system", status: "error", details: "maintenance command failed" });
       res.status(500).json({ error: "Vacuum failed." });
     }
   });
 
   // Danger zone — clear all messages & their files (keeps users and chats).
-  app.post("/api/admin/maintenance/clear-messages", (req, res) => {
+  app.post("/api/admin/maintenance/clear-messages", async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
     if (req.body?.confirm !== "clear messages") {
       return res.status(400).json({ error: "Confirmation phrase required." });
     }
     try {
-      const { storedNames } = adminClearAllMessages() || {};
+      const { storedNames } = (await resolveMaybePromise(adminClearAllMessages())) || {};
       if (Array.isArray(storedNames) && storedNames.length > 0) removeStoredFileNames(storedNames);
       log(session, "db.clear_messages", { targetType: "system", details: `${storedNames?.length || 0} files removed` });
       // Notify all connected clients so chat windows refresh their message list.
       broadcastAll({ type: "chat_list_changed" });
       res.json({ ok: true });
     } catch (err) {
-      log(session, "db.clear_messages", { targetType: "system", status: "error", details: String(err?.message || err) });
+      log(session, "db.clear_messages", { targetType: "system", status: "error", details: "maintenance command failed" });
       res.status(500).json({ error: "Failed to clear messages." });
     }
   });
 
   // Danger zone — full reset: wipes users, chats, messages, sessions.
-  app.post("/api/admin/maintenance/reset", (req, res) => {
+  app.post("/api/admin/maintenance/reset", async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
     if (req.body?.confirm !== "reset everything") {
       return res.status(400).json({ error: "Confirmation phrase required." });
     }
     try {
-      const { storedNames } = adminResetDatabase() || {};
+      const { storedNames } = (await resolveMaybePromise(adminResetDatabase())) || {};
       if (Array.isArray(storedNames) && storedNames.length > 0) removeStoredFileNames(storedNames);
       log(session, "db.reset", { targetType: "system", details: `${storedNames?.length || 0} files removed` });
-      // Force every connected client to log out immediately.
       broadcastAll({ type: "session_revoked" });
       res.json({ ok: true });
     } catch (err) {
-      log(session, "db.reset", { targetType: "system", status: "error", details: String(err?.message || err) });
+      log(session, "db.reset", { targetType: "system", status: "error", details: "maintenance command failed" });
       res.status(500).json({ error: "Reset failed." });
     }
+  });
+
+  app.post("/api/admin/maintenance/delete", async (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    if (dbConfig?.client !== "postgres") {
+      return res.status(400).json({ error: "Database deletion is only available in PostgreSQL mode." });
+    }
+    // dropdb --force terminates this server's own pool. Run it only after the
+    // process has stopped, using the CLI command that enforces that condition.
+    return res.status(409).json({
+      error: "Stop Songbird, then run npm run db:delete -- -y to delete a PostgreSQL database.",
+    });
   });
 
   // ─── Service control ─────────────────────────────────────────────────────────
@@ -1227,17 +1420,36 @@ function registerAdminPanelRoutes(app, deps) {
   });
 
   // Download the live database file directly to the admin's device.
-  app.get("/api/admin/maintenance/download-db", (req, res) => {
+  app.get("/api/admin/maintenance/download-db", async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+
+    if (dbConfig?.client === "postgres") {
+      const effectiveDataDir = adminDataDir || nodePath.join(projectRootDir, "data");
+      const backupDir = nodePath.join(effectiveDataDir, "backups");
+      const backupPath = nodePath.join(backupDir, `songbird-backup-${stamp}.dump`);
+      try {
+        if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+        await postgresMaintenance.backup(backupPath);
+        log(session, "db.backup", { targetType: "system", targetLabel: nodePath.basename(backupPath) });
+        res.download(backupPath, nodePath.basename(backupPath), () => {
+          try { fs.rmSync(backupPath, { force: true }); } catch {}
+        });
+      } catch (error) {
+        try { fs.rmSync(backupPath, { force: true }); } catch {}
+        log(session, "db.backup", { targetType: "system", status: "error", details: error?.message || "maintenance command failed" });
+        if (!res.headersSent) res.status(500).json({ error: error?.message || "Backup failed." });
+      }
+      return;
+    }
+
     const effectiveDataDir = adminDataDir || nodePath.join(projectRootDir, "data");
     const dbPath = nodePath.join(effectiveDataDir, "songbird.db");
     if (!fs.existsSync(dbPath)) {
       return res.status(404).json({ error: "Database file not found." });
     }
-    // Flush any pending in-memory writes so the downloaded file is current.
-    try { vacuumDatabase(); } catch {}
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    try { await resolveMaybePromise(vacuumDatabase()); } catch {}
     const downloadName = `songbird-backup-${stamp}.db`;
     log(session, "db.backup", { targetType: "system", targetLabel: downloadName });
     res.download(dbPath, downloadName, (err) => {
@@ -1254,10 +1466,20 @@ function registerAdminPanelRoutes(app, deps) {
 
   app.post(
     "/api/admin/maintenance/restore",
-    // Gate auth before multer buffers the upload
-    (req, res, next) => { if (!requireAdmin(req, res)) return; next(); },
+    // Gate auth before multer buffers the upload.
+    (req, res, next) => {
+      if (!requireAdmin(req, res)) return;
+      // pg_restore --clean cannot safely run through the process that owns live
+      // database connections. The offline CLI detects a running server first.
+      if (dbConfig?.client === "postgres") {
+        return res.status(409).json({
+          error: "Stop Songbird, then run npm run db:restore -- -y --file <backup.dump>.",
+        });
+      }
+      next();
+    },
     dbUpload.single("database"),
-    (req, res) => {
+    async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
 
@@ -1266,7 +1488,6 @@ function registerAdminPanelRoutes(app, deps) {
       return res.status(400).json({ error: "No database file uploaded." });
     }
 
-    // Validate it's a real SQLite database: header is "SQLite format 3\0".
     const header = file.buffer.subarray(0, 16).toString("latin1");
     if (header !== "SQLite format 3\0") {
       log(session, "db.restore", { targetType: "system", status: "error", details: "Not a valid SQLite file" });
@@ -1278,17 +1499,11 @@ function registerAdminPanelRoutes(app, deps) {
 
     try {
       if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-      // Write atomically: temp file then rename over the live db.
       const tmpPath = nodePath.join(dataDir, `.restore-${Date.now()}.db`);
       fs.writeFileSync(tmpPath, file.buffer);
       fs.renameSync(tmpPath, dbPath);
-
-      // Hot-reload the in-memory DB from the restored file.
       reloadDatabase();
-
-      // Force every connected client to log out and re-authenticate against the restored database.
       broadcastAll({ type: "session_revoked" });
-
       log(session, "db.restore", { targetType: "system", targetLabel: file.originalname || "uploaded.db" });
       res.json({ ok: true });
     } catch (e) {

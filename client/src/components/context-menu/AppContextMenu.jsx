@@ -135,21 +135,26 @@ export default function AppContextMenu({ menu, onClose }) {
         <div className="py-1.5">
           {menu.items.map((item, index) => {
             const Icon = item.icon;
+            const isDisabled = Boolean(item.disabled);
             return (
               <button
                 key={item.id}
                 type="button"
                 role="menuitem"
+                disabled={isDisabled}
                 tabIndex={focusedIndex === index ? 0 : -1}
                 onClick={() => {
+                  if (isDisabled) return;
                   item.onSelect?.();
                   onClose?.();
                 }}
                 onFocus={() => setFocusedIndex(index)}
                 className={`flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition ${
-                  item.danger
-                    ? "text-rose-600 dark:text-rose-300 hover:bg-black/5 dark:hover:bg-white/10"
-                    : "hover:bg-black/5 dark:hover:bg-white/10"
+                  isDisabled
+                    ? "cursor-not-allowed opacity-50 text-slate-400 dark:text-slate-500"
+                    : item.danger
+                      ? "text-rose-600 dark:text-rose-300 hover:bg-black/5 dark:hover:bg-white/10"
+                      : "hover:bg-black/5 dark:hover:bg-white/10"
                 }`}
               >
                 {Icon ? (

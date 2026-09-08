@@ -292,12 +292,12 @@ export default function ChatProfileModal({
   const membersCount = Number.isFinite(membersCountRaw)
     ? membersCountRaw
     : members.length;
-  const ownerId = Number(
-    members.find(
-      (member) => String(member.role || "").toLowerCase() === "owner",
-    )?.id || 0,
+  const ownerMember = members.find(
+    (member) => String(member.role || "").toLowerCase() === "owner",
   );
-  const isOwner = Number(currentUser?.id || 0) === ownerId;
+  const ownerId = ownerMember?.id ? String(ownerMember.id).trim().toLowerCase() : null;
+  const currentUserId = currentUser?.id ? String(currentUser.id).trim().toLowerCase() : null;
+  const isOwner = Boolean(ownerId && currentUserId && ownerId === currentUserId);
   const isReadOnly = Boolean(readOnly);
   const canSeeMembers =
     showMembers && !isReadOnly && (isGroup || (isChannel && isOwner));

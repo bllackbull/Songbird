@@ -33,13 +33,13 @@ export default function ForwardMessageModal({
   const availableChats = useMemo(() => {
     const baseChats = excludeForwardSourceChat(chats, sourceChatId);
     const withSaved =
-      savedChat && Number(savedChat?.id || 0) !== Number(sourceChatId || 0)
+      savedChat && String(savedChat?.id || "") !== String(sourceChatId || "")
         ? [savedChat, ...baseChats]
         : baseChats;
     const deduped = withSaved.filter(
       (chat, index, list) =>
         list.findIndex(
-          (item) => Number(item?.id || 0) === Number(chat?.id || 0),
+          (item) => String(item?.id || "") === String(chat?.id || ""),
         ) === index,
     );
     const filtered = deduped.filter((chat) =>
@@ -87,7 +87,7 @@ export default function ForwardMessageModal({
         <div className="chat-scroll mt-4 grid max-h-60 grid-cols-4 gap-1.5 overflow-y-auto">
           {availableChats.map((chat) => {
             const display = getForwardChatDisplay(chat, currentUser?.username);
-            const selected = selectedChatIds.includes(Number(chat.id));
+            const selected = selectedChatIds.includes(chat.id);
             return (
               <ForwardChatGridItem
                 key={chat.id}
@@ -102,7 +102,7 @@ export default function ForwardMessageModal({
                 selected={selected}
                 onClick={() => {
                   if (submitting) return;
-                  const chatId = Number(chat.id);
+                  const chatId = chat.id;
                   setSelectedChatIds((prev) =>
                     prev.includes(chatId)
                       ? prev.filter((id) => id !== chatId)

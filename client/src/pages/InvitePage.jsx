@@ -6,6 +6,7 @@ import { getAvatarInitials } from "../utils/avatarInitials.js";
 import { hasPersian } from "../utils/fontUtils.js";
 import Tooltip from "../components/common/Tooltip.jsx";
 import VerifiedBadge from "../components/common/VerifiedBadge.jsx";
+import { normalizeUuid } from "../utils/uuidUtils.js";
 
 export default function InvitePage({
   token,
@@ -131,16 +132,16 @@ export default function InvitePage({
         if (
           checkRes.ok &&
           checkData?.alreadyMember &&
-          Number(checkData?.group?.id || 0)
+          normalizeUuid(checkData?.group?.id)
         ) {
-          onNavigateChat?.(Number(checkData.group.id));
+          onNavigateChat?.(normalizeUuid(checkData.group.id));
           return;
         }
         throw new Error(
           normalizeInviteError(data?.error || "Unable to join this chat."),
         );
       }
-      onNavigateChat?.(Number(data?.id || 0));
+      onNavigateChat?.(normalizeUuid(data?.id) || data?.id);
     } catch (err) {
       setError(normalizeInviteError(err.message || "Unable to join this chat."));
     } finally {
