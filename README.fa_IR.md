@@ -2,12 +2,15 @@
 
 <div align="center">
 
-# <img src="./client/public/songbird-logo.svg"> Songbird
+# <img src="./client/public/songbird-logo.svg" alt="Songbird"> Songbird
 
 [![Version](https://img.shields.io/github/v/release/bllackbull/Songbird?label=version&color=blue)](https://github.com/bllackbull/Songbird/releases)
 ![Build](https://img.shields.io/github/actions/workflow/status/bllackbull/Songbird/build.yml)
 [![Last commit](https://img.shields.io/github/last-commit/bllackbull/Songbird)](https://github.com/bllackbull/Songbird/commits/main/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-red.svg)](https://opensource.org/licenses/MIT)
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/bllackbull/Songbird)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy?repo=https://github.com/bllackbull/Songbird)
 
 **پلتفرم پیام‌رسان امن و سبک برای میزبانی شخصی**
 
@@ -22,6 +25,7 @@
 - 🛡️ **پنل مدیریت**: رابط مدیریتی کامل با نقش مالک (نسخه v0.11.0+)
 - 🔒 **امنیت**: رمزنگاری، هش bcrypt، محدودیت نرخ
 - 📱 **PWA**: اپلیکیشن وب نصب‌شدنی
+- ☁️ **نصب ابری**: نصب به صورت PaaS و CaaS با پشتیبانی از فضای ابری
 - 🌍 **چندزبانه**: پشتیبانی از انگلیسی و فارسی
 
 ## نصب سریع
@@ -47,12 +51,15 @@ songbird-deploy
 
 - [اسکریپت نصب](https://docs.songbird.website/fa/Deployment-Script)
 - [نصب از طریق Docker](https://docs.songbird.website/fa/Installation-Docker)
+- [نصب ابری](https://docs.songbird.website/fa/Cloud-Deployment)
 - [نصب دستی](https://docs.songbird.website/fa/Manual-Installation)
 - [کانفیگ Nginx](https://docs.songbird.website/fa/Nginx-Configuration)
 - [گواهی‌های SSL](https://docs.songbird.website/fa/SSL-Certificates)
 - [اجرا پشت CDN](https://docs.songbird.website/fa/CDN-Setup)
 - [اجرا روی دامنه + subpath](https://docs.songbird.website/fa/Subpath-Hosting)
 - [متغیرهای محیطی](https://docs.songbird.website/fa/Environment-Variables)
+- [فضای ابری](https://docs.songbird.website/fa/Object-Storage)
+- [ورکر مدیا](https://docs.songbird.website/fa/Media-Worker)
 - [پنل مدیریت](https://docs.songbird.website/fa/Admin-Panel)
 - [راه‌اندازی Remote Channel](https://docs.songbird.website/fa/Remote-Channel-Setup)
 - [پراکسی Push Notification](https://docs.songbird.website/fa/Push-Notification-Proxy)

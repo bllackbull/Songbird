@@ -1,3 +1,35 @@
+## 0.12.0
+
+### New Features
+
+- 🐘 PostgreSQL database support
+- 🪣 S3-compatible object storage for file uploads
+- 🎬 Standalone media worker for video transcoding
+- 📴 Offline-first chat with pending message queue, auto-resend on reconnect, and cached history access
+- 🔌 Bidirectional WebSocket realtime gateway
+- 🛡️ Emergency admin claim endpoint and UI for recovering admin access
+- 👥 Auto-add new users to public chats from the admin panel
+- 🔎 Unified filter popover for admin users and chats lists
+- 🔴 Redis support for background queues, caching, and sessions
+- 📦 Installer update menu with downgrade support, secret generation, and worker service logs
+- 📥️ One-click Railway and Render deployment blueprints
+
+### Improvements
+
+- 🆔 UUID primary keys for users, chats, and messages
+- 🔒 Auto-generated secrets stored in the database instead of secondary env files
+- 🎨 Chat list redesign with borderless rows, larger typography, and permission prompts moved to the header
+- 📅 Smarter message date labels with dynamic day grouping
+- 🐋 Docker images with PostgreSQL client v18, improved health checks, and dedicated worker image
+- 💾 More reliable Docker database backups with proper error reporting
+- 🔧 Encrypted thumbnails and improved file encryption handling
+- 📖 Cloud deployment, PostgreSQL SSL, and media worker documentation
+
+### Bug Fixes
+
+- 🚪 Stay signed in with a clear offline state instead of redirecting to login when the server is unreachable
+- 📨 Keep pending messages in sending state on network errors instead of failing them
+
 ## 0.11.4
 
 ### New Features
