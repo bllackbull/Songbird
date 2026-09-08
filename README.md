@@ -10,7 +10,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-red.svg)](https://opensource.org/licenses/MIT)
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/bllackbull/Songbird)
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy?repo=https://github.com/bllackbull/Songbird)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/songbird)
 
 **Secure, lightweight and self-hosted chat platform**
 
