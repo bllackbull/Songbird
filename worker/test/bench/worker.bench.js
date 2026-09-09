@@ -1,4 +1,4 @@
-import { describe, bench, afterAll } from "vitest";
+import { describe, test, afterAll } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -55,82 +55,119 @@ afterAll(() => {
 // ─── isEncryptedFileBuffer Benchmarks ─────────────────────────────────────────
 
 describe("isEncryptedFileBuffer", () => {
-  bench("null / undefined guard (early exit)", () => {
-    isEncryptedFileBuffer(null);
-    isEncryptedFileBuffer(undefined);
+  test("null / undefined guard (early exit)", async ({ bench }) => {
+    await bench("null / undefined guard (early exit)", () => {
+      isEncryptedFileBuffer(null);
+      isEncryptedFileBuffer(undefined);
+    }).run();
   });
 
-  bench("small buffer (< 35 bytes header)", () => {
-    isEncryptedFileBuffer(Buffer.from("short"));
+  test("small buffer (< 35 bytes header)", async ({ bench }) => {
+    await bench("small buffer (< 35 bytes header)", () => {
+      isEncryptedFileBuffer(Buffer.from("short"));
+    }).run();
   });
 
-  bench("plain unencrypted buffer (64 KB)", () => {
-    isEncryptedFileBuffer(mediumPlain);
+  test("plain unencrypted buffer (64 KB)", async ({ bench }) => {
+    await bench("plain unencrypted buffer (64 KB)", () => {
+      isEncryptedFileBuffer(mediumPlain);
+    }).run();
   });
 
-  bench("valid encrypted header (64 KB)", () => {
-    isEncryptedFileBuffer(encryptedMediumBuffer);
+  test("valid encrypted header (64 KB)", async ({ bench }) => {
+    await bench("valid encrypted header (64 KB)", () => {
+      isEncryptedFileBuffer(encryptedMediumBuffer);
+    }).run();
   });
 });
 
 // ─── Buffer Encryption Benchmarks ─────────────────────────────────────────────
 
 describe("Buffer Encryption (AES-256-GCM)", () => {
-  bench("encryptBuffer — 4 KB payload", () => {
-    encryptBuffer(smallPlain);
+  test("encryptBuffer — 4 KB payload", async ({ bench }) => {
+    await bench("encryptBuffer — 4 KB payload", () => {
+      encryptBuffer(smallPlain);
+    }).run();
   });
 
-  bench("encryptBuffer — 64 KB payload", () => {
-    encryptBuffer(mediumPlain);
+  test("encryptBuffer — 64 KB payload", async ({ bench }) => {
+    await bench("encryptBuffer — 64 KB payload", () => {
+      encryptBuffer(mediumPlain);
+    }).run();
   });
 
-  bench("encryptBuffer — 512 KB payload", () => {
-    encryptBuffer(largePlain);
+  test("encryptBuffer — 512 KB payload", async ({ bench }) => {
+    await bench("encryptBuffer — 512 KB payload", () => {
+      encryptBuffer(largePlain);
+    }).run();
   });
 });
 
 // ─── File Decryption Benchmarks ───────────────────────────────────────────────
 
 describe("File Decryption to Temp Path", () => {
-  bench("decryptFileToTempPath — 4 KB encrypted payload", () => {
-    const res = decryptFileToTempPath(smallEncryptedFile, "test.txt");
-    res.cleanup();
+  test("decryptFileToTempPath — 4 KB encrypted payload", async ({
+    bench,
+  }) => {
+    await bench("decryptFileToTempPath — 4 KB encrypted payload", () => {
+      const res = decryptFileToTempPath(smallEncryptedFile, "test.txt");
+      res.cleanup();
+    }).run();
   });
 
-  bench("decryptFileToTempPath — 64 KB encrypted payload", () => {
-    const res = decryptFileToTempPath(mediumEncryptedFile, "test.bin");
-    res.cleanup();
+  test("decryptFileToTempPath — 64 KB encrypted payload", async ({
+    bench,
+  }) => {
+    await bench("decryptFileToTempPath — 64 KB encrypted payload", () => {
+      const res = decryptFileToTempPath(mediumEncryptedFile, "test.bin");
+      res.cleanup();
+    }).run();
   });
 
-  bench("decryptFileToTempPath — unencrypted bypass (no-op fast path)", () => {
-    const res = decryptFileToTempPath(unencryptedFile, "plain.txt");
-    res.cleanup();
+  test("decryptFileToTempPath — unencrypted bypass (no-op fast path)", async ({
+    bench,
+  }) => {
+    await bench(
+      "decryptFileToTempPath — unencrypted bypass (no-op fast path)",
+      () => {
+        const res = decryptFileToTempPath(unencryptedFile, "plain.txt");
+        res.cleanup();
+      },
+    ).run();
   });
 });
 
 // ─── Storage Configuration & Resolution Benchmarks ───────────────────────────
 
 describe("Storage Resolution & Factory", () => {
-  bench("resolveDataDir with custom data dir", () => {
-    resolveDataDir("/var/songbird/data");
+  test("resolveDataDir with custom data dir", async ({ bench }) => {
+    await bench("resolveDataDir with custom data dir", () => {
+      resolveDataDir("/var/songbird/data");
+    }).run();
   });
 
-  bench("resolveDataDir fallback to project data dir", () => {
-    resolveDataDir();
+  test("resolveDataDir fallback to project data dir", async ({ bench }) => {
+    await bench("resolveDataDir fallback to project data dir", () => {
+      resolveDataDir();
+    }).run();
   });
 
-  bench("createStorage (local driver)", () => {
-    createStorage({ driver: "local", dataDir: tempBenchDir });
+  test("createStorage (local driver)", async ({ bench }) => {
+    await bench("createStorage (local driver)", () => {
+      createStorage({ driver: "local", dataDir: tempBenchDir });
+    }).run();
   });
 
-  bench("createStorage (remote S3 driver)", () => {
-    createStorage({
-      driver: "s3",
-      endpoint: "https://s3.example.com",
-      region: "us-east-1",
-      bucket: "songbird-media",
-      accessKeyId: "AKIATEST1234",
-      secretAccessKey: "SECRETKEY1234",
-    });
+  test("createStorage (remote S3 driver)", async ({ bench }) => {
+    await bench("createStorage (remote S3 driver)", () => {
+      createStorage({
+        driver: "s3",
+        endpoint: "https://s3.example.com",
+        region: "us-east-1",
+        bucket: "songbird-media",
+        accessKeyId: "AKIATEST1234",
+        secretAccessKey: "SECRETKEY1234",
+      });
+    }).run();
   });
 });

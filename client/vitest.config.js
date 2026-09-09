@@ -78,11 +78,7 @@ export default defineConfig({
         },
       },
       {
-        // Component tests — runs in a real Chromium browser via Playwright.
-        // plugins + optimizeDeps must live on the project itself: the browser
-        // project runs its own Vite server and does NOT inherit them from the
-        // root config.
-        plugins: [react()],
+        // Component tests — runs in a real browser via Playwright.
         optimizeDeps: {
           include: browserOptimizeInclude,
         },
@@ -97,6 +93,9 @@ export default defineConfig({
             headless,
             provider: playwright(),
             instances: browserInstances,
+            locators: {
+              exact: false,
+            },
           },
         },
       },
