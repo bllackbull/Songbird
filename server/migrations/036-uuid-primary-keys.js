@@ -157,6 +157,24 @@ async function postgresUp(ctx) {
     }
   }
 
+  // Delete any orphaned rows before recreating composite primary keys and clean up invalid references
+  await db.run("DELETE FROM chat_members WHERE chat_id IS NULL OR user_id IS NULL");
+  await db.run("DELETE FROM chat_left_members WHERE chat_id IS NULL OR user_id IS NULL");
+  await db.run("DELETE FROM chat_message_reads WHERE message_id IS NULL OR user_id IS NULL");
+  await db.run("DELETE FROM hidden_chat_messages WHERE user_id IS NULL OR message_id IS NULL");
+  await db.run("DELETE FROM chat_mutes WHERE user_id IS NULL OR chat_id IS NULL");
+  await db.run("DELETE FROM hidden_chats WHERE user_id IS NULL OR chat_id IS NULL");
+  await db.run("DELETE FROM group_removed_members WHERE chat_id IS NULL OR user_id IS NULL");
+  if (hasColumn("sessions", "user_id")) {
+    await db.run("DELETE FROM sessions WHERE user_id IS NULL");
+  }
+  if (hasColumn("chat_message_files", "message_id")) {
+    await db.run("DELETE FROM chat_message_files WHERE message_id IS NULL");
+  }
+  if (hasColumn("chat_messages", "chat_id")) {
+    await db.run("DELETE FROM chat_messages WHERE chat_id IS NULL");
+  }
+
   // Recreate composite PKs
   await db.run("ALTER TABLE chat_members ADD PRIMARY KEY (chat_id, user_id)");
   await db.run("ALTER TABLE chat_left_members ADD PRIMARY KEY (chat_id, user_id)");
@@ -295,6 +313,7 @@ function sqliteUp(ctx) {
     "chat_left_members_new", "hidden_chat_messages_new", "chat_message_reads_new",
     "chat_message_files_new", "push_subscriptions_new", "remote_channel_sources_new",
     "chat_mutes_new", "hidden_chats_new", "group_removed_members_new",
+    "sessions_new",
   ];
   for (const t of newTables) {
     if (tableExists(t)) {
@@ -389,7 +408,7 @@ function sqliteUp(ctx) {
     CREATE TABLE chat_messages_new (
       id TEXT NOT NULL PRIMARY KEY,
       chat_id TEXT NOT NULL,
-      user_id TEXT NOT NULL,
+      user_id TEXT,
       body TEXT,
       reply_to_message_id TEXT,
       client_request_id TEXT,
@@ -429,6 +448,7 @@ function sqliteUp(ctx) {
     LEFT JOIN users ru ON ru.id = m.read_by_user_id
     LEFT JOIN chats fch ON fch.id = m.forwarded_from_chat_id
     LEFT JOIN users fu ON fu.id = m.forwarded_from_user_id
+    WHERE ch.uuid IS NOT NULL
   `);
 
   // ─── Phase 5: Rebuild chat_members ───────────────────────────────────
@@ -469,7 +489,7 @@ function sqliteUp(ctx) {
 
   if (tableExists("chat_message_files")) {
     db.run(`CREATE TABLE chat_message_files_new (id INTEGER PRIMARY KEY AUTOINCREMENT, message_id TEXT NOT NULL, kind TEXT NOT NULL, original_name TEXT NOT NULL, stored_name TEXT NOT NULL, mime_type TEXT NOT NULL, size_bytes INTEGER NOT NULL, width_px INTEGER, height_px INTEGER, duration_seconds REAL, expires_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), storage_driver TEXT DEFAULT 'local', storage_key TEXT, processing_status TEXT DEFAULT 'ready', blurhash TEXT, waveform TEXT, thumb_storage_key TEXT, encryption_type TEXT DEFAULT 'none')`);
-    db.run(`INSERT INTO chat_message_files_new (id, message_id, kind, original_name, stored_name, mime_type, size_bytes, width_px, height_px, duration_seconds, expires_at, created_at, storage_driver, storage_key, processing_status, blurhash, waveform, thumb_storage_key, encryption_type) SELECT cmf.id, m.uuid, cmf.kind, cmf.original_name, cmf.stored_name, cmf.mime_type, cmf.size_bytes, cmf.width_px, cmf.height_px, cmf.duration_seconds, cmf.expires_at, cmf.created_at, cmf.storage_driver, cmf.storage_key, cmf.processing_status, cmf.blurhash, cmf.waveform, cmf.thumb_storage_key, cmf.encryption_type FROM chat_message_files cmf LEFT JOIN chat_messages m ON m.id = cmf.message_id`);
+    db.run(`INSERT INTO chat_message_files_new (id, message_id, kind, original_name, stored_name, mime_type, size_bytes, width_px, height_px, duration_seconds, expires_at, created_at, storage_driver, storage_key, processing_status, blurhash, waveform, thumb_storage_key, encryption_type) SELECT cmf.id, m.uuid, cmf.kind, cmf.original_name, cmf.stored_name, cmf.mime_type, cmf.size_bytes, cmf.width_px, cmf.height_px, cmf.duration_seconds, cmf.expires_at, cmf.created_at, cmf.storage_driver, cmf.storage_key, cmf.processing_status, cmf.blurhash, cmf.waveform, cmf.thumb_storage_key, cmf.encryption_type FROM chat_message_files cmf LEFT JOIN chat_messages m ON m.id = cmf.message_id WHERE m.uuid IS NOT NULL`);
   }
 
   if (tableExists("push_subscriptions")) {
@@ -497,9 +517,18 @@ function sqliteUp(ctx) {
     db.run(`INSERT OR IGNORE INTO group_removed_members_new (chat_id, user_id, removed_at) SELECT ch.uuid, u.uuid, grm.removed_at FROM group_removed_members grm LEFT JOIN chats ch ON ch.id = grm.chat_id LEFT JOIN users u ON u.id = grm.user_id WHERE ch.uuid IS NOT NULL AND u.uuid IS NOT NULL`);
   }
 
+  if (tableExists("sessions")) {
+    db.run(`CREATE TABLE sessions_new (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, token TEXT UNIQUE NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), last_seen TEXT NOT NULL DEFAULT (datetime('now')))`);
+    db.run(`INSERT OR IGNORE INTO sessions_new (id, user_id, token, created_at, last_seen) SELECT s.id, u.uuid, s.token, s.created_at, s.last_seen FROM sessions s LEFT JOIN users u ON u.id = s.user_id WHERE u.uuid IS NOT NULL`);
+  }
+
   // ─── Phase 7: Drop old tables, rename new tables ─────────────────────
   db.run("PRAGMA foreign_keys = OFF");
 
+  if (tableExists("sessions") && tableExists("sessions_new")) {
+    db.run("DROP TABLE sessions");
+    db.run("ALTER TABLE sessions_new RENAME TO sessions");
+  }
   if (tableExists("group_removed_members") && tableExists("group_removed_members_new")) {
     db.run("DROP TABLE group_removed_members");
     db.run("ALTER TABLE group_removed_members_new RENAME TO group_removed_members");
@@ -593,6 +622,10 @@ function sqliteUp(ctx) {
   }
   if (tableExists("group_removed_members")) {
     db.run("CREATE INDEX IF NOT EXISTS idx_group_removed_members_user ON group_removed_members(user_id, chat_id)");
+  }
+  if (tableExists("sessions")) {
+    db.run("CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token)");
+    db.run("CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)");
   }
 }
 

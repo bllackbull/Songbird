@@ -1,4 +1,4 @@
-import { describe, bench } from "vitest";
+import { describe, test } from "vitest";
 import {
   normalizeMessageBody,
   sanitizeMessageForCache,
@@ -63,105 +63,147 @@ const mixedFiles = [
 // ─── normalizeMessageBody ─────────────────────────────────────────────────────
 
 describe("normalizeMessageBody", () => {
-  bench("plain string (most common path)", () => {
-    normalizeMessageBody(plainBody);
+  test("plain string (most common path)", async ({ bench }) => {
+    await bench("plain string (most common path)", () => {
+      normalizeMessageBody(plainBody);
+    }).run();
   });
 
-  bench("object with .text property", () => {
-    normalizeMessageBody(objectBody);
+  test("object with .text property", async ({ bench }) => {
+    await bench("object with .text property", () => {
+      normalizeMessageBody(objectBody);
+    }).run();
   });
 
-  bench("[object Object] guard", () => {
-    normalizeMessageBody(badBody);
+  test("[object Object] guard", async ({ bench }) => {
+    await bench("[object Object] guard", () => {
+      normalizeMessageBody(badBody);
+    }).run();
   });
 
-  bench("null", () => {
-    normalizeMessageBody(null);
+  test("null", async ({ bench }) => {
+    await bench("null", () => {
+      normalizeMessageBody(null);
+    }).run();
   });
 });
 
 // ─── sanitizeMessageForCache ──────────────────────────────────────────────────
 
 describe("sanitizeMessageForCache", () => {
-  bench("typical message with files and replyTo", () => {
-    sanitizeMessageForCache(typicalMessage);
+  test("typical message with files and replyTo", async ({ bench }) => {
+    await bench("typical message with files and replyTo", () => {
+      sanitizeMessageForCache(typicalMessage);
+    }).run();
   });
 
-  bench("minimal message (no files, no replyTo)", () => {
-    sanitizeMessageForCache({ id: "d0d0d0d0-e1e1-4f2f-b040-171717171717", body: "hi", username: "bob" });
+  test("minimal message (no files, no replyTo)", async ({ bench }) => {
+    await bench("minimal message (no files, no replyTo)", () => {
+      sanitizeMessageForCache({ id: "d0d0d0d0-e1e1-4f2f-b040-171717171717", body: "hi", username: "bob" });
+    }).run();
   });
 });
 
 // ─── summarizeFiles ───────────────────────────────────────────────────────────
 
 describe("summarizeFiles", () => {
-  bench("single image", () => {
-    summarizeFiles([{ mimeType: "image/jpeg" }]);
+  test("single image", async ({ bench }) => {
+    await bench("single image", () => {
+      summarizeFiles([{ mimeType: "image/jpeg" }]);
+    }).run();
   });
 
-  bench("3 images", () => {
-    summarizeFiles(imageFiles);
+  test("3 images", async ({ bench }) => {
+    await bench("3 images", () => {
+      summarizeFiles(imageFiles);
+    }).run();
   });
 
-  bench("mixed types (image + video + audio)", () => {
-    summarizeFiles(mixedFiles);
+  test("mixed types (image + video + audio)", async ({ bench }) => {
+    await bench("mixed types (image + video + audio)", () => {
+      summarizeFiles(mixedFiles);
+    }).run();
   });
 
-  bench("empty array", () => {
-    summarizeFiles([]);
+  test("empty array", async ({ bench }) => {
+    await bench("empty array", () => {
+      summarizeFiles([]);
+    }).run();
   });
 });
 
 // ─── getAvatarInitials ────────────────────────────────────────────────────────
 
 describe("getAvatarInitials", () => {
-  bench("two Latin words", () => {
-    getAvatarInitials("John Doe");
+  test("two Latin words", async ({ bench }) => {
+    await bench("two Latin words", () => {
+      getAvatarInitials("John Doe");
+    }).run();
   });
 
-  bench("single Latin word", () => {
-    getAvatarInitials("Alice");
+  test("single Latin word", async ({ bench }) => {
+    await bench("single Latin word", () => {
+      getAvatarInitials("Alice");
+    }).run();
   });
 
-  bench("Persian name", () => {
-    getAvatarInitials("علی رضا");
+  test("Persian name", async ({ bench }) => {
+    await bench("Persian name", () => {
+      getAvatarInitials("علی رضا");
+    }).run();
   });
 
-  bench("mixed-script name", () => {
-    getAvatarInitials("Ali علی");
+  test("mixed-script name", async ({ bench }) => {
+    await bench("mixed-script name", () => {
+      getAvatarInitials("Ali علی");
+    }).run();
   });
 
-  bench("empty string (fallback path)", () => {
-    getAvatarInitials("");
+  test("empty string (fallback path)", async ({ bench }) => {
+    await bench("empty string (fallback path)", () => {
+      getAvatarInitials("");
+    }).run();
   });
 });
 
 // ─── compareVersions / normalizeVersion ──────────────────────────────────────
 
 describe("compareVersions", () => {
-  bench("equal versions", () => {
-    compareVersions("1.2.3", "1.2.3");
+  test("equal versions", async ({ bench }) => {
+    await bench("equal versions", () => {
+      compareVersions("1.2.3", "1.2.3");
+    }).run();
   });
 
-  bench("major difference", () => {
-    compareVersions("2.0.0", "1.9.9");
+  test("major difference", async ({ bench }) => {
+    await bench("major difference", () => {
+      compareVersions("2.0.0", "1.9.9");
+    }).run();
   });
 
-  bench("prerelease vs stable", () => {
-    compareVersions("1.0.0-beta.1", "1.0.0");
+  test("prerelease vs stable", async ({ bench }) => {
+    await bench("prerelease vs stable", () => {
+      compareVersions("1.0.0-beta.1", "1.0.0");
+    }).run();
   });
 
-  bench("v-prefixed inputs", () => {
-    compareVersions("v2.1.0", "v2.0.9");
+  test("v-prefixed inputs", async ({ bench }) => {
+    await bench("v-prefixed inputs", () => {
+      compareVersions("v2.1.0", "v2.0.9");
+    }).run();
   });
 });
 
 describe("normalizeVersion", () => {
-  bench("strip v prefix", () => {
-    normalizeVersion("v1.2.3");
+  test("strip v prefix", async ({ bench }) => {
+    await bench("strip v prefix", () => {
+      normalizeVersion("v1.2.3");
+    }).run();
   });
 
-  bench("no-op on plain version", () => {
-    normalizeVersion("1.2.3");
+  test("no-op on plain version", async ({ bench }) => {
+    await bench("no-op on plain version", () => {
+      normalizeVersion("1.2.3");
+    }).run();
   });
 });

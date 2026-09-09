@@ -117,7 +117,7 @@ Choose **Update Songbird** (Option 2) from the menu to update or downgrade your 
    - **Downgrade**: If the repository is already up to date, it prompts `Do you want to downgrade? [y/N]`. If confirmed, you can specify any valid version (semver tag like `v0.11.4`, custom tag, branch, or commit SHA). The script checks out that reference, runs migrations, and rebuilds.
 3. **Offline mode**:
    - **Update**: If the `VERSION` file in the provided zip archive is newer than the installed version, it updates files and rebuilds.
-   - **Downgrade**: If the archive `VERSION` is lower than the installed version, it prompts for confirmation before downgrading.
+   - **Downgrade**: If the archive `VERSION` is the same or lower than the installed version, it prompts for confirmation before downgrading.
 
 See [Updating & Downgrading](./Updating.md) for full details and manual alternatives.
 

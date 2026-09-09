@@ -1682,62 +1682,86 @@ read_version_value() {
   printf "%s" "$version"
 }
 
-offline_source_is_newer() {
-  local source_root="$1"
-  local install_root="$2"
+compare_offline_source_version() {
+  local __cosv_source_root="$1"
+  local __cosv_install_root="$2"
+  local __cosv_op_or_var="${3:-}"
 
-  local source_version_file="$source_root/VERSION"
-  local install_version_file="$install_root/VERSION"
-  local source_version=""
-  local install_version=""
+  local __cosv_source_version_file="${__cosv_source_root}/VERSION"
+  local __cosv_install_version_file="${__cosv_install_root}/VERSION"
+  local __cosv_source_version=""
+  local __cosv_install_version=""
 
-  source_version="$(read_version_value "$source_version_file")" || {
+  __cosv_source_version="$(read_version_value "$__cosv_source_version_file")" || {
     warn "Offline source is missing VERSION. Skipping update."
     return 1
   }
 
-  install_version="$(read_version_value "$install_version_file")" || install_version=""
-  if [[ -z "$install_version" ]]; then
-    log "Installed app is missing VERSION. Treating offline source ${source_version} as newer."
-    return 0
+  __cosv_install_version="$(read_version_value "$__cosv_install_version_file")" || __cosv_install_version=""
+  if [[ -z "$__cosv_install_version" ]]; then
+    log "Installed app is missing VERSION. Treating offline source ${__cosv_source_version} as newer."
+    case "$__cosv_op_or_var" in
+      gt|newer|higher) return 0 ;;
+      lt|lower|eq|same|equal) return 1 ;;
+      "")
+        printf "%s\n" "newer"
+        return 0
+        ;;
+      *)
+        printf -v "$__cosv_op_or_var" "%s" "newer"
+        return 0
+        ;;
+    esac
   fi
 
-  if dpkg --compare-versions "$source_version" gt "$install_version"; then
-    log "Offline source version ${source_version} is newer than installed version ${install_version}."
-    return 0
+  local __cosv_relation=""
+  if dpkg --compare-versions "$__cosv_source_version" gt "$__cosv_install_version"; then
+    log "Offline source version ${__cosv_source_version} is newer than installed version ${__cosv_install_version}."
+    __cosv_relation="newer"
+  elif dpkg --compare-versions "$__cosv_source_version" lt "$__cosv_install_version"; then
+    log "Offline source version ${__cosv_source_version} is lower than installed version ${__cosv_install_version}."
+    __cosv_relation="lower"
+  elif dpkg --compare-versions "$__cosv_source_version" eq "$__cosv_install_version"; then
+    log "Offline source version ${__cosv_source_version} is the same as installed version ${__cosv_install_version}."
+    __cosv_relation="same"
+  else
+    return 1
   fi
 
-  log "Offline source version ${source_version} is not newer than installed version ${install_version}."
-  return 1
+  case "$__cosv_op_or_var" in
+    gt|newer|higher)
+      [[ "$__cosv_relation" == "newer" ]]
+      return $?
+      ;;
+    lt|lower)
+      [[ "$__cosv_relation" == "lower" ]]
+      return $?
+      ;;
+    eq|same|equal)
+      [[ "$__cosv_relation" == "same" ]]
+      return $?
+      ;;
+    "")
+      printf "%s\n" "$__cosv_relation"
+      return 0
+      ;;
+    *)
+      printf -v "$__cosv_op_or_var" "%s" "$__cosv_relation"
+      return 0
+      ;;
+  esac
+}
+
+offline_source_is_newer() {
+  compare_offline_source_version "$1" "$2" "newer"
 }
 
 offline_source_is_lower() {
-  local source_root="$1"
-  local install_root="$2"
+  compare_offline_source_version "$1" "$2" "lower"
+}
 
-  local source_version_file="$source_root/VERSION"
-  local install_version_file="$install_root/VERSION"
-  local source_version=""
-  local install_version=""
-
-  source_version="$(read_version_value "$source_version_file")" || {
-    warn "Offline source is missing VERSION. Skipping update."
-    return 1
-  }
-
-  install_version="$(read_version_value "$install_version_file")" || install_version=""
-  if [[ -z "$install_version" ]]; then
-    log "Installed app is missing VERSION. Cannot compare versions."
-    return 1
-  fi
-
-  if dpkg --compare-versions "$source_version" lt "$install_version"; then
-    log "Offline source version ${source_version} is lower than installed version ${install_version}."
-    return 0
-  fi
-
-  log "Offline source version ${source_version} is not lower than installed version ${install_version}."
-  return 1
+offline_source_is_same() {
+  compare_offline_source_version "$1" "$2" "same"
 }
 
 resolve_git_version_ref() {
@@ -2041,7 +2065,6 @@ is_postgres_client() {
 #  - otherwise the database must be provably fresh (absent sqlite file, or
 #    reachable postgres with no tables).
 # Anything uncertain is left empty for the server, which applies the same
-# precedence (database > env > generate) with full database access.
 ensure_env_secret() {
   local key="$1"
   local format="$2"
@@ -3395,26 +3418,47 @@ update_songbird() {
     install_ver="$(read_version_value "$INSTALL_DIR/VERSION")" || install_ver=""
 
     local is_downgrade="no"
+    local version_rel=""
+    if ! compare_offline_source_version "$source_root" "$INSTALL_DIR" version_rel; then
+      run_silent run_as_root rm -rf "$tmp_dir"
+      press_enter_to_continue
+      return 0
+    fi
 
-    if offline_source_is_newer "$source_root" "$INSTALL_DIR"; then
-      log "Offline update available. Preparing to update Songbird..."
-    elif offline_source_is_lower "$source_root" "$INSTALL_DIR"; then
-      local should_downgrade=""
-      should_downgrade="$(prompt_yes_no "Local zip version (${source_ver}) is lower than installed version (${install_ver}). Do you want to downgrade to version ${source_ver}?" "no")"
-      if [[ "$should_downgrade" != "yes" ]]; then
+    case "$version_rel" in
+      newer)
+        log "Offline update available. Preparing to update Songbird..."
+        ;;
+      lower)
+        local should_downgrade=""
+        should_downgrade="$(prompt_yes_no "Local zip version (${source_ver}) is lower than installed version (${install_ver}). Do you want to downgrade to version ${source_ver}?" "no")"
+        if [[ "$should_downgrade" != "yes" ]]; then
+          run_silent run_as_root rm -rf "$tmp_dir"
+          log "Songbird is already up to date. No rebuild needed."
+          press_enter_to_continue
+          return 0
+        fi
+        is_downgrade="yes"
+        log "Offline downgrade requested. Preparing to downgrade Songbird to ${source_ver}..."
+        ;;
+      same)
+        local should_update=""
+        should_update="$(prompt_yes_no "Local zip version (${source_ver}) is the same as installed version (${install_ver}). Do you want to update to version ${source_ver}?" "no")"
+        if [[ "$should_update" != "yes" ]]; then
+          run_silent run_as_root rm -rf "$tmp_dir"
+          log "Songbird is already up to date. No rebuild needed."
+          press_enter_to_continue
+          return 0
+        fi
+        log "Offline update requested. Preparing to update Songbird to ${source_ver}..."
+        ;;
+      *)
         run_silent run_as_root rm -rf "$tmp_dir"
         log "Songbird is already up to date. No rebuild needed."
         press_enter_to_continue
         return 0
-      fi
-      is_downgrade="yes"
-      log "Offline downgrade requested. Preparing to downgrade Songbird to ${source_ver}..."
-    else
-      run_silent run_as_root rm -rf "$tmp_dir"
-      log "Songbird is already up to date. No rebuild needed."
-      press_enter_to_continue
-      return 0
-    fi
+        ;;
+    esac
 
     run_silent run_as_root rm -rf "$tmp_dir"
 

@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach } from "vitest";
-import { normalizeEnvSecret, ensureSystemSecrets } from "../../lib/secrets.js";
+import { normalizeEnvSecret, ensureSystemSecrets, updateEnvValue } from "../../lib/secrets.js";
 
 describe("secrets.js", () => {
   beforeEach(() => {
@@ -17,7 +17,7 @@ describe("secrets.js", () => {
     expect(normalizeEnvSecret("  secret  ")).toBe("secret");
   });
 
-  test("ensureSystemSecrets loads existing secrets from database if process.env is missing", async () => {
+  test("ensureSystemSecrets loads existing secrets from database if process.env is missing and writes them to .env", async () => {
     const dbStore = {
       ADMIN_API_TOKEN: "db-admin-token",
       STORAGE_ENCRYPTION_KEY: "db-storage-key",
@@ -37,21 +37,30 @@ describe("secrets.js", () => {
     };
 
     const mockRun = async () => {};
+    let writtenEnv = {};
 
     await ensureSystemSecrets({
       dbGetRow: mockGetRow,
       dbRun: mockRun,
       projectRootDir: "/tmp",
       fsImpl: {
-        existsSync: () => false,
+        existsSync: () => true,
         readFileSync: () => "",
-        writeFileSync: () => {},
+        writeFileSync: (_path, content) => {
+          content.split("\n").forEach((line) => {
+            const [k, v] = line.split("=");
+            if (k && v) writtenEnv[k] = v;
+          });
+        },
       },
     });
 
     expect(process.env.ADMIN_API_TOKEN).toBe("db-admin-token");
     expect(process.env.STORAGE_ENCRYPTION_KEY).toBe("db-storage-key");
     expect(process.env.WEBHOOK_SECRET).toBe("db-webhook-secret");
+    expect(writtenEnv.ADMIN_API_TOKEN).toBe("db-admin-token");
+    expect(writtenEnv.STORAGE_ENCRYPTION_KEY).toBe("db-storage-key");
+    expect(writtenEnv.WEBHOOK_SECRET).toBe("db-webhook-secret");
   });
 
   test("ensureSystemSecrets generates new secrets when missing from process.env and DB", async () => {
@@ -128,7 +137,7 @@ describe("secrets.js", () => {
     expect(dbStore.VAPID_SUBJECT).toBe("mailto:env@example.com");
   });
 
-  test("ensureSystemSecrets prefers existing secrets in DB over env values to avoid rotating keys on restored or existing database", async () => {
+  test("ensureSystemSecrets prefers env secrets over DB values and updates DB with env secret without overwriting .env", async () => {
     process.env.ADMIN_API_TOKEN = "new-env-token";
     process.env.STORAGE_ENCRYPTION_KEY = "new-env-storage-key";
     process.env.WEBHOOK_SECRET = "new-env-webhook-secret";
@@ -183,17 +192,38 @@ describe("secrets.js", () => {
       },
     });
 
-    // DB secrets MUST win to protect existing encrypted data:
-    expect(process.env.ADMIN_API_TOKEN).toBe("original-db-token");
-    expect(process.env.STORAGE_ENCRYPTION_KEY).toBe("original-db-storage-key");
-    expect(process.env.WEBHOOK_SECRET).toBe("original-db-webhook-secret");
-    expect(process.env.VAPID_PUBLIC_KEY).toBe("original-db-vapid-pub");
-    expect(process.env.VAPID_PRIVATE_KEY).toBe("original-db-vapid-priv");
+    // Env secrets MUST win (order of truth: env > database > generate):
+    expect(process.env.ADMIN_API_TOKEN).toBe("new-env-token");
+    expect(process.env.STORAGE_ENCRYPTION_KEY).toBe("new-env-storage-key");
+    expect(process.env.WEBHOOK_SECRET).toBe("new-env-webhook-secret");
+    expect(process.env.VAPID_PUBLIC_KEY).toBe("new-env-vapid-pub");
+    expect(process.env.VAPID_PRIVATE_KEY).toBe("new-env-vapid-priv");
 
-    // DB store MUST NOT be overwritten:
-    expect(dbStore.STORAGE_ENCRYPTION_KEY).toBe("original-db-storage-key");
+    // DB store MUST be updated to the env values:
+    expect(dbStore.ADMIN_API_TOKEN).toBe("new-env-token");
+    expect(dbStore.STORAGE_ENCRYPTION_KEY).toBe("new-env-storage-key");
+    expect(dbStore.WEBHOOK_SECRET).toBe("new-env-webhook-secret");
+    expect(dbStore.VAPID_PUBLIC_KEY).toBe("new-env-vapid-pub");
+    expect(dbStore.VAPID_PRIVATE_KEY).toBe("new-env-vapid-priv");
 
-    // .env file must be synchronized with the DB value:
-    expect(envUpdated.STORAGE_ENCRYPTION_KEY).toBe("original-db-storage-key");
+    // .env file must NOT be overwritten with the old DB value:
+    expect(envUpdated.STORAGE_ENCRYPTION_KEY).toBeUndefined();
+  });
+
+  test("updateEnvValue does not write to file if content is unchanged", () => {
+    let writeCount = 0;
+    const mockFs = {
+      existsSync: () => true,
+      readFileSync: () => "FOO=bar\nBAZ=qux\n",
+      writeFileSync: () => {
+        writeCount++;
+      },
+    };
+
+    updateEnvValue("/tmp/.env", "FOO", "bar", { fsImpl: mockFs });
+    expect(writeCount).toBe(0);
+
+    updateEnvValue("/tmp/.env", "FOO", "new_val", { fsImpl: mockFs });
+    expect(writeCount).toBe(1);
   });
 });

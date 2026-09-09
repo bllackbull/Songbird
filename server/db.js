@@ -2992,7 +2992,8 @@ export function getFirstUnreadMessage(chatId, viewerUserId) {
     FROM chat_messages cm
     WHERE cm.chat_id = ?
       AND (
-        cm.user_id != ?
+        cm.user_id IS NULL
+        OR cm.user_id != ?
         OR LOWER(COALESCE(cm.client_request_id, '')) LIKE 'remote:%'
       )
       AND cm.hidden_everyone_at IS NULL

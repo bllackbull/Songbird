@@ -2,6 +2,7 @@
 node_modules/
 coverage/
 **/coverage/
+**/.vitest/
 
 # Client build
 client/dist/
