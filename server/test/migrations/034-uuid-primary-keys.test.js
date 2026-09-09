@@ -1,6 +1,6 @@
 import { describe, expect, test, afterEach } from "vitest";
 import { createRawTestDb, migrations } from "../db/testDbHelper.js";
-import { isValidUuid } from "../../lib/uuidUtils.js";
+import { isValidUuid, generateUuid } from "../../lib/uuidUtils.js";
 
 describe("Migration 036: UUID Primary Keys", () => {
   let activeDb = null;
@@ -174,6 +174,64 @@ describe("Migration 036: UUID Primary Keys", () => {
 
     const msg = getAll("SELECT forwarded_from_chat_id FROM chat_messages WHERE id = ?", [msgUuid])[0];
     expect(msg.forwarded_from_chat_id).toBeNull();
+  });
+
+  test("handles orphaned user_id in chat_messages from deleted users", async () => {
+    const dbInst = await setupDbUpTo35();
+    const { db, getAll } = dbInst.migrationContext;
+
+    db.run("ALTER TABLE users ADD COLUMN uuid TEXT");
+    db.run("ALTER TABLE chats ADD COLUMN uuid TEXT");
+    db.run("ALTER TABLE chat_messages ADD COLUMN uuid TEXT");
+
+    const userUuid = "11111111-1111-4111-a111-111111111111";
+    const chatUuid = "22222222-2222-4222-a222-222222222222";
+    const orphanedMsgUuid = "33333333-3333-4333-a333-333333333333";
+
+    db.run(
+      "INSERT INTO users (id, username, password_hash, uuid) VALUES (1, 'active_user', 'hash', ?)",
+      [userUuid],
+    );
+    db.run(
+      "INSERT INTO users (id, username, password_hash, uuid) VALUES (2, 'to_be_deleted', 'hash', ?)",
+      [generateUuid()],
+    );
+    db.run(
+      "INSERT INTO chats (id, name, type, uuid) VALUES (1, 'general', 'group', ?)",
+      [chatUuid],
+    );
+    // Message from user 2
+    db.run(
+      "INSERT INTO chat_messages (id, chat_id, user_id, body, uuid) VALUES (1, 1, 2, 'hello from deleted user', ?)",
+      [orphanedMsgUuid],
+    );
+    // Sessions: one active, one orphaned
+    db.run(
+      "INSERT INTO sessions (id, user_id, token) VALUES (1, 1, 'tok_active')",
+    );
+    db.run(
+      "INSERT INTO sessions (id, user_id, token) VALUES (2, 2, 'tok_orphaned')",
+    );
+    // User 2 gets deleted while messages remain (foreign keys temporarily off or deleted via admin script)
+    db.run("PRAGMA foreign_keys = OFF");
+    db.run("DELETE FROM users WHERE id = 2");
+    db.run("PRAGMA foreign_keys = ON");
+
+    const m36 = migrations.find((m) => m.version === 36);
+    await expect(m36.up(dbInst.migrationContext)).resolves.not.toThrow();
+
+    const msg = getAll("SELECT id, chat_id, user_id, body FROM chat_messages WHERE id = ?", [orphanedMsgUuid])[0];
+    expect(msg).toBeDefined();
+    expect(msg.chat_id).toBe(chatUuid);
+    expect(msg.user_id).toBeNull();
+    expect(msg.body).toBe("hello from deleted user");
+
+    const sessionActive = getAll("SELECT user_id, token FROM sessions WHERE token = 'tok_active'")[0];
+    expect(sessionActive).toBeDefined();
+    expect(sessionActive.user_id).toBe(userUuid);
+
+    const sessionOrphaned = getAll("SELECT user_id, token FROM sessions WHERE token = 'tok_orphaned'");
+    expect(sessionOrphaned.length).toBe(0);
   });
 
   test("idempotency guard (safe to run on already-migrated DB)", async () => {
