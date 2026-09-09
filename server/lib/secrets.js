@@ -44,8 +44,12 @@ export function updateEnvValue(targetPath, key, value, { fsImpl = fs } = {}) {
   const next = updated.filter(
     (line, index, arr) => line.length > 0 || index < arr.length - 1,
   );
+  const nextContent = `${next.join("\n")}\n`;
+  if (contents === nextContent) {
+    return;
+  }
   try {
-    fsImpl.writeFileSync(targetPath, `${next.join("\n")}\n`);
+    fsImpl.writeFileSync(targetPath, nextContent);
   } catch (err) {
     // Best-effort write to .env (e.g. read-only filesystem)
   }

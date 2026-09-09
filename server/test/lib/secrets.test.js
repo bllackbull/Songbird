@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach } from "vitest";
-import { normalizeEnvSecret, ensureSystemSecrets } from "../../lib/secrets.js";
+import { normalizeEnvSecret, ensureSystemSecrets, updateEnvValue } from "../../lib/secrets.js";
 
 describe("secrets.js", () => {
   beforeEach(() => {
@@ -195,5 +195,22 @@ describe("secrets.js", () => {
 
     // .env file must be synchronized with the DB value:
     expect(envUpdated.STORAGE_ENCRYPTION_KEY).toBe("original-db-storage-key");
+  });
+
+  test("updateEnvValue does not write to file if content is unchanged", () => {
+    let writeCount = 0;
+    const mockFs = {
+      existsSync: () => true,
+      readFileSync: () => "FOO=bar\nBAZ=qux\n",
+      writeFileSync: () => {
+        writeCount++;
+      },
+    };
+
+    updateEnvValue("/tmp/.env", "FOO", "bar", { fsImpl: mockFs });
+    expect(writeCount).toBe(0);
+
+    updateEnvValue("/tmp/.env", "FOO", "new_val", { fsImpl: mockFs });
+    expect(writeCount).toBe(1);
   });
 });
