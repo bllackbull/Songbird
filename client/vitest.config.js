@@ -1,6 +1,5 @@
 import { defineConfig } from "vitest/config";
 import { playwright } from "@vitest/browser-playwright";
-import react from "@vitejs/plugin-react";
 
 // Pass VITEST_HEADFUL=1 (or use the test:browser:headful script) to open a
 const headless = process.env.VITEST_HEADFUL !== "1";
