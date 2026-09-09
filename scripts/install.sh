@@ -2041,7 +2041,6 @@ is_postgres_client() {
 #  - otherwise the database must be provably fresh (absent sqlite file, or
 #    reachable postgres with no tables).
 # Anything uncertain is left empty for the server, which applies the same
-# precedence (database > env > generate) with full database access.
 ensure_env_secret() {
   local key="$1"
   local format="$2"
