@@ -1,3 +1,11 @@
+## 0.12.1
+
+### Bug Fixes
+
+- 🧹 Clean up orphaned rows during migration
+- ⚙️ Prefer env values over database secrets and avoid unnecessary file writes
+- 🛠️ Refactored installer version comparison logic
+
 ## 0.12.0
 
 ### New Features
