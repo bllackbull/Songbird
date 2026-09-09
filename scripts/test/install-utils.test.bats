@@ -446,7 +446,7 @@ teardown() {
 }
 
 # ===========================================================================
-# offline_source_is_newer  (uses dpkg --compare-versions)
+# compare_offline_source_version  (uses dpkg --compare-versions)
 # ===========================================================================
 
 setup_version_dirs() {
@@ -461,6 +461,48 @@ setup_version_dirs() {
   # Provide a minimal package.json so the structure is valid
   echo '{}' > "$SOURCE_ROOT/package.json"
 }
+
+@test "compare_offline_source_version: outputs 'newer' when source is higher" {
+  setup_version_dirs "0.12.0" "0.11.1"
+  run compare_offline_source_version "$SOURCE_ROOT" "$INSTALL_ROOT"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "newer" ]]
+}
+
+@test "compare_offline_source_version: outputs 'lower' when source is lower" {
+  setup_version_dirs "0.10.0" "0.11.1"
+  run compare_offline_source_version "$SOURCE_ROOT" "$INSTALL_ROOT"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "lower" ]]
+}
+
+@test "compare_offline_source_version: outputs 'same' when versions match" {
+  setup_version_dirs "0.11.1" "0.11.1"
+  run compare_offline_source_version "$SOURCE_ROOT" "$INSTALL_ROOT"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "same" ]]
+}
+
+@test "compare_offline_source_version: assigns to variable reference when variable name is passed" {
+  setup_version_dirs "0.12.0" "0.11.1"
+  local rel=""
+  compare_offline_source_version "$SOURCE_ROOT" "$INSTALL_ROOT" rel
+  [ "$rel" = "newer" ]
+}
+
+@test "compare_offline_source_version: supports operator arguments" {
+  setup_version_dirs "0.12.0" "0.11.1"
+  run compare_offline_source_version "$SOURCE_ROOT" "$INSTALL_ROOT" "gt"
+  [ "$status" -eq 0 ]
+  run compare_offline_source_version "$SOURCE_ROOT" "$INSTALL_ROOT" "lt"
+  [ "$status" -ne 0 ]
+  run compare_offline_source_version "$SOURCE_ROOT" "$INSTALL_ROOT" "eq"
+  [ "$status" -ne 0 ]
+}
+
+# ===========================================================================
+# offline_source_is_newer  (uses dpkg --compare-versions)
+# ===========================================================================
 
 @test "offline_source_is_newer: returns 0 when source version is higher" {
   setup_version_dirs "0.12.0" "0.11.1"
@@ -527,6 +569,42 @@ setup_version_dirs() {
   setup_version_dirs "0.10.0" "0.11.1"
   rm "$INSTALL_ROOT/VERSION"
   run offline_source_is_lower "$SOURCE_ROOT" "$INSTALL_ROOT"
+  [ "$status" -ne 0 ]
+}
+
+# ===========================================================================
+# offline_source_is_same  (uses dpkg --compare-versions)
+# ===========================================================================
+
+@test "offline_source_is_same: returns 0 when source version is equal" {
+  setup_version_dirs "0.11.1" "0.11.1"
+  run offline_source_is_same "$SOURCE_ROOT" "$INSTALL_ROOT"
+  [ "$status" -eq 0 ]
+}
+
+@test "offline_source_is_same: returns non-zero when source version is lower" {
+  setup_version_dirs "0.10.0" "0.11.1"
+  run offline_source_is_same "$SOURCE_ROOT" "$INSTALL_ROOT"
+  [ "$status" -ne 0 ]
+}
+
+@test "offline_source_is_same: returns non-zero when source version is higher" {
+  setup_version_dirs "0.12.0" "0.11.1"
+  run offline_source_is_same "$SOURCE_ROOT" "$INSTALL_ROOT"
+  [ "$status" -ne 0 ]
+}
+
+@test "offline_source_is_same: returns non-zero when source VERSION is missing" {
+  setup_version_dirs "0.11.1" "0.11.1"
+  rm "$SOURCE_ROOT/VERSION"
+  run offline_source_is_same "$SOURCE_ROOT" "$INSTALL_ROOT"
+  [ "$status" -ne 0 ]
+}
+
+@test "offline_source_is_same: returns non-zero when installed VERSION is missing" {
+  setup_version_dirs "0.11.1" "0.11.1"
+  rm "$INSTALL_ROOT/VERSION"
+  run offline_source_is_same "$SOURCE_ROOT" "$INSTALL_ROOT"
   [ "$status" -ne 0 ]
 }
 
@@ -1337,6 +1415,86 @@ setup_test_git_repo() {
   run update_songbird
   [ "$status" -eq 0 ]
   [[ "$output" =~ "Offline downgrade requested." ]]
+  [ -f "$TEST_DIR/zip-extracted" ]
+}
+
+@test "update_songbird: offline mode prompt update when zip version is the same (declined)" {
+  INSTALL_DIR="$TEST_DIR/install"
+  mkdir -p "$INSTALL_DIR"
+  printf "0.12.0\n" > "$INSTALL_DIR/VERSION"
+
+  local src_dir="$TEST_DIR/zip-content"
+  mkdir -p "$src_dir/server" "$src_dir/client" "$src_dir/worker"
+  printf "0.12.0\n" > "$src_dir/VERSION"
+  echo '{}' > "$src_dir/package.json"
+
+  SOURCE_ZIP_PATH="$TEST_DIR/songbird.zip"
+  touch "$SOURCE_ZIP_PATH"
+
+  prompt_source_mode() { SOURCE_MODE="offline"; }
+  ensure_offline_source_ready() { return 0; }
+  ensure_songbird_stopped_for_update() { return 0; }
+  extract_offline_source_zip() { printf "%s|%s" "$TEST_DIR/tmp" "$src_dir"; }
+  prompt_yes_no() {
+    if [[ "$1" == *"backup"* ]]; then
+      printf "no"
+    elif [[ "$1" == *"same"* ]]; then
+      printf "no"
+    fi
+  }
+  press_enter_to_continue() { return 0; }
+  export -f prompt_source_mode ensure_offline_source_ready ensure_songbird_stopped_for_update extract_offline_source_zip prompt_yes_no press_enter_to_continue
+
+  run update_songbird
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Songbird is already up to date. No rebuild needed." ]]
+}
+
+@test "update_songbird: offline mode prompt update when zip version is the same (accepted)" {
+  INSTALL_DIR="$TEST_DIR/install"
+  mkdir -p "$INSTALL_DIR"
+  printf "0.12.0\n" > "$INSTALL_DIR/VERSION"
+
+  local src_dir="$TEST_DIR/zip-content"
+  mkdir -p "$src_dir/server" "$src_dir/client" "$src_dir/worker"
+  printf "0.12.0\n" > "$src_dir/VERSION"
+  echo '{}' > "$src_dir/package.json"
+
+  SOURCE_ZIP_PATH="$TEST_DIR/songbird.zip"
+  touch "$SOURCE_ZIP_PATH"
+
+  local updated_from_zip="no"
+  update_source_from_zip() {
+    updated_from_zip="yes"
+    printf "%s\n" "zip_updated" > "$TEST_DIR/zip-extracted"
+    return 0
+  }
+
+  prompt_source_mode() { SOURCE_MODE="offline"; }
+  ensure_offline_source_ready() { return 0; }
+  ensure_songbird_stopped_for_update() { return 0; }
+  extract_offline_source_zip() { printf "%s|%s" "$TEST_DIR/tmp" "$src_dir"; }
+  prompt_yes_no() {
+    if [[ "$1" == *"backup"* ]]; then
+      printf "no"
+    elif [[ "$1" == *"same"* ]]; then
+      printf "yes"
+    fi
+  }
+  install_songbird_dependencies() { return 0; }
+  ensure_vapid_keys() { return 0; }
+  run_migrations() { return 0; }
+  ensure_service_user_exists() { return 0; }
+  apply_ownership() { return 0; }
+  install_global_command_from_path() { return 0; }
+  show_deployment_success_frame() { return 0; }
+  press_enter_to_continue() { return 0; }
+  systemctl() { return 0; }
+  export -f prompt_source_mode ensure_offline_source_ready ensure_songbird_stopped_for_update extract_offline_source_zip prompt_yes_no update_source_from_zip install_songbird_dependencies ensure_vapid_keys run_migrations ensure_service_user_exists apply_ownership install_global_command_from_path show_deployment_success_frame press_enter_to_continue systemctl
+
+  run update_songbird
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "Offline update requested." ]]
   [ -f "$TEST_DIR/zip-extracted" ]
 }
 
