@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import path from "node:path";
+import rateLimit from "express-rate-limit";
 import { storageEncryption as defaultStorageEncryption } from "../lib/storageEncryption.js";
 import { dbKnex } from "../db/knex.js";
 import { dispatchMediaWorkerJob } from "../lib/mediaWorker.js";
@@ -92,9 +93,18 @@ export function registerRemoteUploadRoutes(app, deps) {
     return session;
   };
 
+  const presignRateLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (_req, res) =>
+      res.status(429).json({ error: "Too many upload requests. Please slow down." }),
+  });
+
   // POST /api/uploads/presign
-  app.post("/api/uploads/presign", async (req, res) => {
-    const session = authenticateSession(req, res);
+  app.post("/api/uploads/presign", presignRateLimiter, async (req, res) => {
+    const session = await authenticateSession(req, res);
     if (!session) return;
 
     // Self-heal bucket CORS from the request's own origin (covers domains
@@ -273,7 +283,7 @@ export function registerRemoteUploadRoutes(app, deps) {
 
   // POST /api/uploads/complete
   app.post("/api/uploads/complete", async (req, res) => {
-    const session = authenticateSession(req, res);
+    const session = await authenticateSession(req, res);
     if (!session) return;
 
     const { fileId, storageKey } = req.body || {};
@@ -666,7 +676,7 @@ export function registerRemoteUploadRoutes(app, deps) {
 
   // POST /api/uploads (fallback multipart upload)
   app.post("/api/uploads", async (req, res) => {
-    const session = authenticateSession(req, res);
+    const session = await authenticateSession(req, res);
     if (!session) return;
 
     if (deps.getSetting && !deps.getSetting("FILE_UPLOAD")) {
