@@ -3,6 +3,16 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
+import pg from "pg";
+
+// node-pg returns BIGINT (int8) columns as strings by default, but "0" is
+// truthy in JS, which breaks flag checks (e.g. users.banned, users.verified)
+// and diverges from better-sqlite3, which returns numbers. Parse int8 as a
+// Number so both drivers behave the same. All bigint values in this schema
+// (flags, counts) are well within Number-safe range.
+pg.types.setTypeParser(pg.types.builtins.INT8, (value) =>
+  value === null ? null : Number.parseInt(value, 10),
+);
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRootDir = path.resolve(serverDir, "..", "..");

@@ -123,7 +123,9 @@ function registerAuthRoutes(app, deps) {
     const rawUser = findUserByUsername(trimmed);
     const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
 
-    if (user?.banned) {
+    // NB: Postgres returns BIGINT columns (e.g. users.banned) as strings,
+    // and "0" is truthy in JS, so coerce to Number before the check.
+    if (user && Number(user.banned)) {
       return res.status(403).json({ error: "Account is banned." });
     }
 

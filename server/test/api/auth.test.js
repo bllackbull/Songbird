@@ -217,6 +217,53 @@ describe("POST /api/login", () => {
     expect(res.body.error).toMatch(/banned/i);
   });
 
+  test("allows login when banned is the Postgres bigint string '0'", async () => {
+    // node-pg returns BIGINT columns as strings; "0" must not count as banned.
+    const hash = bcrypt.hashSync("secret123", 4);
+    const userStore = makeUserStore([
+      {
+        id: UUID_ALICE,
+        username: "alice",
+        password_hash: hash,
+        nickname: null,
+        avatar_url: null,
+        color: "#10b981",
+        status: "online",
+        role: "user",
+        banned: "0",
+      },
+    ]);
+    const { app } = makeApp({ userStore });
+    const res = await request(app)
+      .post("/api/login")
+      .send({ username: "alice", password: "secret123" });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ username: "alice" });
+  });
+
+  test("returns 403 when banned is the Postgres bigint string '1'", async () => {
+    const hash = bcrypt.hashSync("secret123", 4);
+    const userStore = makeUserStore([
+      {
+        id: UUID_ALICE,
+        username: "alice",
+        password_hash: hash,
+        nickname: null,
+        avatar_url: null,
+        color: "#10b981",
+        status: "online",
+        role: "user",
+        banned: "1",
+      },
+    ]);
+    const { app } = makeApp({ userStore });
+    const res = await request(app)
+      .post("/api/login")
+      .send({ username: "alice", password: "secret123" });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/banned/i);
+  });
+
   test("returns 400 when credentials are missing", async () => {
     const { app } = makeAppWithUser();
     const res = await request(app).post("/api/login").send({});
