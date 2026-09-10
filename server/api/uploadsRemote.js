@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import path from "node:path";
+import rateLimit from "express-rate-limit";
 import { storageEncryption as defaultStorageEncryption } from "../lib/storageEncryption.js";
 import { dbKnex } from "../db/knex.js";
 import { dispatchMediaWorkerJob } from "../lib/mediaWorker.js";
@@ -92,8 +93,16 @@ export function registerRemoteUploadRoutes(app, deps) {
     return session;
   };
 
+  const presignRateLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many upload requests. Please slow down." },
+  });
+
   // POST /api/uploads/presign
-  app.post("/api/uploads/presign", async (req, res) => {
+  app.post("/api/uploads/presign", presignRateLimiter, async (req, res) => {
     const session = authenticateSession(req, res);
     if (!session) return;
 
