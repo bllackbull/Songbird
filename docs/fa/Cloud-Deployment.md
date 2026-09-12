@@ -12,7 +12,7 @@
 
 | مدل معماری | توضیحات | پلتفرم های مناسب | پشتیبانی در Songbird |
 |---|---|---|---|
-| **IaaS** *(زیرساخت به عنوان سرویس)* | ماشینهای مجازی مدیریت کننده Docker یا systemd توسط کاربر | AWS EC2, DigitalOcean Droplets, Hetzner | پشتیبانی کامل |
+| **IaaS** *(زیرساخت به عنوان سرویس)* | ماشین های مجازی مدیریت کننده Docker یا systemd توسط کاربر | AWS EC2, DigitalOcean Droplets, Hetzner | پشتیبانی کامل |
 | **PaaS** *(پلتفرم به عنوان سرویس)* | استقرار مستقیم از روی سورس کد مخزن Git | Render, Railway, Heroku, Fly.io | پشتیبانی کامل |
 | **CaaS** *(کانتینر به عنوان سرویس)* | استقرار ایمیج های از پیش ساخته شده کانتینر با ارکستراسیون مدیریت شده | AWS ECS / Fargate, Google Cloud Run, Azure Container Apps, Kubernetes | پشتیبانی کامل |
 
@@ -283,13 +283,7 @@ REDIS_URL=redis://:password@redis.internal:6379
 پلتفرم هایی مانند **AWS Lambda**، **Vercel Serverless Functions** یا **Netlify Functions** کد را در پاسخ به درخواست های مجزای HTTP اجرا کرده و بلافاصله پس از آن محیط اجرا را متوقف میکنند.
 
 :::danger محیط های FaaS پشتیبانی نمیشوند
-استقرار Songbird به عنوان یک برنامه FaaS (مثلاً روی Vercel Functions یا AWS Lambda) **پشتیبانی نمیشود**. FaaS یک ضد الگو (Anti-pattern) معماری برای پلتفرم های چت همزمان مانند Songbird است، زیرا:
-
-۱. **اتصالات پایدار (Persistent Connections):** سرویس Songbird برای تحویل آنی پیام ها به اتصالات طولانی مدت WebSocket و Server-Sent Events (SSE) متکی است. محیط های FaaS تایم اوت های سختی روی اتصالات اعمال میکنند (معمولاً ۱۵ ثانیه تا ۱۵ دقیقه) و اتصالات کاربران را قطع میکنند.
-
-۲. **فرآیندهای پس زمینه (Background Processes):** سرویس Songbird از تایمرهای پس زمینه حافظه برای heartbeatها، صف های پخش SSE و همگام سازی Remote Channel استفاده میکند. FaaS فرآیند برنامه را بین درخواست ها متوقف کرده یا میکشد که باعث اختلال در ارسال پیام ها میشود.
-
-۳. **وضعیت و حافظه (State & Memory):** کش های درون حافظه و ثبت نام اتصالات با خاموش شدن نمونه های FaaS از بین میروند.
+استقرار Songbird به عنوان یک برنامه FaaS (مثلاً روی Vercel Functions یا AWS Lambda) **پشتیبانی نمیشود**. FaaS یک ضد الگو (Anti-pattern) معماری برای پلتفرم های چت همزمان مانند Songbird است.
 :::
 
 ### کانتینرهای Serverless — پشتیبانی کامل

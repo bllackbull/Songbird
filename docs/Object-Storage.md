@@ -110,7 +110,11 @@ Apply the following CORS configuration to your Cloudflare R2 or S3 bucket:
 ]
 ```
 
-> **Note**: Replace `https://chat.example.com` with your domain (or use `*` during initial testing). The `PUT` method, `*` allowed headers, and `ETag` exposed header are required for browser presigned uploads to function properly.
+:::info
+
+Replace `https://chat.example.com` with your domain (or use `*` during initial testing). The `PUT` method, `*` allowed headers, and `ETag` exposed header are required for browser presigned uploads to function properly.
+
+:::
 
 ### Railway Bucket CORS Setup
 

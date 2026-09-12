@@ -45,19 +45,19 @@ STORAGE_DRIVER=remote
 2. **آپلود مستقیم مرورگر (`PUT <uploadUrl>`)**:
    - مرورگر کلاینت باره (payload) فایل را مستقیماً با استفاده از Presigned URL به اندپوینت ذخیره سازی Cloudflare R2 / S3 آپلود میکند.
 3. **تکمیل آپلود (`POST /api/uploads/complete` یا ثبت پیام)**:
-   - پس از موفقیتآمیز بودن HTTP `PUT`، کلاینت به Songbird اطلاع میدهد یا فایل را به درخواست پیام متصل میکند.
-   - سرویس Songbird کلید `storageKey` را به دیتابیس فایلهای پیام (`chat_message_files`) متصل کرده و تابع `removePendingPresignedUploads` را برای پاکسازی رکورد معلق فراخوانی میکند.
+   - پس از موفقیت آمیز بودن HTTP `PUT`، کلاینت به Songbird اطلاع میدهد یا فایل را به درخواست پیام متصل میکند.
+   - سرویس Songbird کلید `storageKey` را به دیتابیس فایل های پیام (`chat_message_files`) متصل کرده و تابع `removePendingPresignedUploads` را برای پاکسازی رکورد معلق فراخوانی میکند.
 
 ### مزایای آپلود مستقیم با Presigned URL
-- **عدم مصرف منابع سرور (Zero Overhead)**: انتقال فایلهای سنگین هیچ مقدار از RAM یا CPU سرور Node.js را اشغال نمیکند.
-- **بایپاس محدودیتهای سرور و پروکسی**: حجم آپلود محدود به محدودیتهای body-parser در Nginx یا Express (`client_max_body_size`) نمیشود.
-- **پهنای باند و سرعت بالاتر**: کلاینتها با حداکثر پهنای باند شبکه به شبکه لبه جهانی Cloudflare یا زیرساخت S3 متصل میشوند.
+- **عدم مصرف منابع سرور (Zero Overhead)**: انتقال فایل های سنگین هیچ مقدار از RAM یا CPU سرور Node.js را اشغال نمیکند.
+- **بایپاس محدودیت های سرور و پروکسی**: حجم آپلود محدود به محدودیت های body-parser در Nginx یا Express (`client_max_body_size`) نمیشود.
+- **پهنای باند و سرعت بالاتر**: کلاینت ها با حداکثر پهنای باند شبکه به شبکه لبه جهانی Cloudflare یا زیرساخت S3 متصل میشوند.
 
 ### جریان دانلود Presigned و CDN Fallback
-برای دانلود فایلها و استریم رسانه:
-- **`GET /api/uploads/presign-download`**: یک Presigned URL موقت از نوع `GET` برای فایلهای خصوصی تولید میکند.
-- **هنگام تنظیم `STORAGE_PUBLIC_URL`**: اگر یک CDN عمومی یا دامین اختصاصی تنظیم شده باشد (مانند `STORAGE_PUBLIC_URL=https://media.example.com`)، Songbird آدرسهای مستقیم CDN عمومی (`https://media.example.com/uploads/...`) را بدون نیاز به امضای دیجیتال تولید میکند.
-- **عدم تنظیم `STORAGE_PUBLIC_URL`**: آدرسهای امضاشده S3 با مدت اعتبار `STORAGE_EXPIRES_IN` به ثانیه (پیش فرض: 3600 ثانیه / 1 ساعت) تولید میشوند.
+برای دانلود فایل ها و استریم رسانه:
+- **`GET /api/uploads/presign-download`**: یک Presigned URL موقت از نوع `GET` برای فایل های خصوصی تولید میکند.
+- **هنگام تنظیم `STORAGE_PUBLIC_URL`**: اگر یک CDN عمومی یا دامین اختصاصی تنظیم شده باشد (مانند `STORAGE_PUBLIC_URL=https://media.example.com`)، Songbird آدرس های مستقیم CDN عمومی (`https://media.example.com/uploads/...`) را بدون نیاز به امضای دیجیتال تولید میکند.
+- **عدم تنظیم `STORAGE_PUBLIC_URL`**: آدرس های امضاشده S3 با مدت اعتبار `STORAGE_EXPIRES_IN` به ثانیه (پیش فرض: 3600 ثانیه / 1 ساعت) تولید میشوند.
 
 ## پیکربندی ذخیره سازی ابری ریموت
 
@@ -71,8 +71,8 @@ STORAGE_DRIVER=remote
 | `STORAGE_REGION` | `string` | `auto` | منطقه جغرافیایی باکت (پیش فرض `auto` برای Cloudflare R2، MinIO، ArvanCloud؛ کاربران AWS S3 منطقه خود مانند `us-east-1` را تنظیم کنند). |
 | `STORAGE_ACCESS_KEY_ID` | `string` | `""` | کلید دسترسی (Access Key ID) برای احراز هویت باکت. |
 | `STORAGE_SECRET_ACCESS_KEY` | `string` | `""` | کلید سرّی (Secret Access Key) برای احراز هویت باکت. |
-| `STORAGE_PUBLIC_URL` | `string` | `""` | پیشوند URL اختیاری CDN یا دامین اختصاصی (مانند `https://media.example.com`). در صورت تنظیم، لینکهای دانلود به جای Presigned URL از این پیشوند استفاده میکنند. |
-| `STORAGE_EXPIRES_IN` | `integer` | `3600` | مدت زمان اعتبار لینکهای Presigned برای آپلود و دانلود به ثانیه. |
+| `STORAGE_PUBLIC_URL` | `string` | `""` | پیشوند URL اختیاری CDN یا دامین اختصاصی (مانند `https://media.example.com`). در صورت تنظیم، لینک های دانلود به جای Presigned URL از این پیشوند استفاده میکنند. |
+| `STORAGE_EXPIRES_IN` | `integer` | `3600` | مدت زمان اعتبار لینک های Presigned برای آپلود و دانلود به ثانیه. |
 | `STORAGE_FORCE_PATH_STYLE` | `boolean` | `true` | فعالسازی ساختار URL مبتنی بر مسیر (`endpoint/bucket/key`). برای Cloudflare R2، MinIO، ArvanCloud و Wasabi مقدار `true` و برای AWS S3 مقدار `false` قرار دهید. |
 
 ## الزامات پیکربندی CORS در Cloudflare R2 و S3
@@ -106,7 +106,11 @@ STORAGE_DRIVER=remote
 ]
 ```
 
-> **نکته**: آدرس `https://chat.example.com` را با دامین واقعی خود جایگزین کنید (یا برای تست اولیه از `*` استفاده کنید). متد `PUT`، هدرهای مجاز `*` و هدر اکسپوز شده `ETag` برای کارکرد صحیح آپلود مستقیم مرورگر ضروری هستند.
+:::info
+
+آدرس `https://chat.example.com` را با دامین واقعی خود جایگزین کنید (یا برای تست اولیه از `*` استفاده کنید). متد `PUT`، هدرهای مجاز `*` و هدر اکسپوز شده `ETag` برای کارکرد صحیح آپلود مستقیم مرورگر ضروری هستند.
+
+:::
 
 ### تنظیم CORS در باکت Railway
 
@@ -164,7 +168,7 @@ AWS_SECRET_ACCESS_KEY=<SECRET_ACCESS_KEY> \
 3. روی **Create bucket** کلیک کنید.
 4. نام باکت (مانند `songbird-media`) را وارد کرده و روی **Create Bucket** کلیک کنید.
 
-### گام 2: ساخت کلیدها و توکنهای API
+### گام 2: ساخت کلیدها و توکن های API
 
 1. در صفحه R2 Overview روی **Manage R2 API Tokens** کلیک کنید.
 2. روی **Create API Token** کلیک کنید.
@@ -199,13 +203,13 @@ STORAGE_EXPIRES_IN=3600
 
 ### گام 5: (اختیاری) دامین اختصاصی یا URL عمومی R2
 
-به صورت پیش فرض Songbird لینک های امن Presigned برای دانلود فایلها تولید میکند. اگر **Public Access** یا **Custom Domain** (مانند `media.example.com`) را در تنظیمات R2 فعال کرده اید، متغیر `STORAGE_PUBLIC_URL` را مقداردهی کنید:
+به صورت پیش فرض Songbird لینک های امن Presigned برای دانلود فایل ها تولید میکند. اگر **Public Access** یا **Custom Domain** (مانند `media.example.com`) را در تنظیمات R2 فعال کرده اید، متغیر `STORAGE_PUBLIC_URL` را مقداردهی کنید:
 
 ```txt
 STORAGE_PUBLIC_URL=https://media.example.com
 ```
 
-## نمونه های پیکربندی سرویسدهندگان
+## نمونه های پیکربندی سرویس دهندگان
 
 ### AWS S3
 
@@ -297,18 +301,18 @@ STORAGE_ENCRYPTION_MODE=remote
 STORAGE_ENCRYPTION_MODE=local
 ```
 
-## استفاده از Redis و صفهای کاری (BullMQ)
+## استفاده از Redis و صف های کاری (BullMQ)
 
 Songbird از **BullMQ** برای مدیریت کارهای پس زمینه استفاده میکند.
 
-### حالتهای کاری BullMQ
+### حالت های کاری BullMQ
 
 1. **فعال بودن Redis (`REDIS_HOST` یا `REDIS_URL` تنظیم شده):**
-   - به Redis متصل شده و صفهای BullMQ و ورکرهای ماندگار را فعال میکند.
+   - به Redis متصل شده و صف های BullMQ و ورکرهای ماندگار را فعال میکند.
    - کارهای پردازش رسانه به صورت ایمن بین چند سرور توزیع میشوند.
 
 2. **حالت Fallback بدون Redis:**
-   - در صورت عدم تنظیم Redis، به صف درون برنامهای (In-Memory) سوییچ میکند و بدون نیاز به نصب هیچ نرمافزار اضافی کار میکند.
+   - در صورت عدم تنظیم Redis، به صف درون برنامه ای (In-Memory) سوییچ میکند و بدون نیاز به نصب هیچ نرم افزار اضافی کار میکند.
 
 ```txt
 # تنظیمات اختیاری Redis برای توزیع بار در چند سرور

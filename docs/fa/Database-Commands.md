@@ -49,27 +49,27 @@ cd /opt/songbird/server
 | `npm run db:help` | چاپ راهنمای داخلی دستورها. |
 | [`npm run db:backup`](#db-backup) | ایجاد پشتیبان سازگار با موتور پایگاه داده. |
 | [`npm run db:restore`](#db-restore) | بازیابی پشتیبان سازگار با موتور پایگاه داده. |
-| [`npm run db:vacuum`](#db-vacuum) | فشردهسازی SQLite یا اجرای `VACUUM ANALYZE` در PostgreSQL. |
+| [`npm run db:vacuum`](#db-vacuum) | فشرده سازی SQLite یا اجرای `VACUUM ANALYZE` در PostgreSQL. |
 | [`npm run db:migrate`](#db-migrate) | اعمال migrationهای در انتظار پایگاه داده. |
-| [`npm run db:reset`](#db-reset) | پاککردن محتوای پایگاه داده و فایلهای پیام آپلودشده. |
+| [`npm run db:reset`](#db-reset) | پاک کردن محتوای پایگاه داده و فایل های پیام آپلودشده. |
 | [`npm run db:delete`](#db-delete) | حذف فایل پایگاه داده. |
-| [`npm run db:inspect`](#db-inspect-و-دستورهای-مرتبط) | چاپ یک خلاصه کامل (کاربران، چتها، پیامها، فایلها، دیسک). |
-| [`npm run db:chat:inspect`](#db-inspect-و-دستورهای-مرتبط) | بازرسی فقط چتها. |
+| [`npm run db:inspect`](#db-inspect-و-دستورهای-مرتبط) | چاپ یک خلاصه کامل (کاربران، چت ها، پیام ها، فایل ها، دیسک). |
+| [`npm run db:chat:inspect`](#db-inspect-و-دستورهای-مرتبط) | بازرسی فقط چت ها. |
 | [`npm run db:user:inspect`](#db-inspect-و-دستورهای-مرتبط) | بازرسی فقط کاربران. |
-| [`npm run db:file:inspect`](#db-inspect-و-دستورهای-مرتبط) | بازرسی فقط فایلها. |
+| [`npm run db:file:inspect`](#db-inspect-و-دستورهای-مرتبط) | بازرسی فقط فایل ها. |
 | [`npm run db:user:create`](#db-user-create) | ایجاد یک کاربر منفرد. |
 | [`npm run db:user:generate`](#db-user-generate) | تولید کاربران آزمایشی تصادفی. |
 | [`npm run db:user:edit`](#db-user-edit) | ویرایش پروفایل یک کاربر. |
 | [`npm run db:user:ban`](#db-user-ban) | تغییر وضعیت مسدودیت یک کاربر. |
-| [`npm run db:user:verify`](#db-user-verify) | تغییر وضعیت تأییدشدهبودن یک کاربر. |
+| [`npm run db:user:verify`](#db-user-verify) | تغییر وضعیت تأییدشده بودن یک کاربر. |
 | [`npm run db:user:delete`](#db-user-delete) | حذف یک، چند یا همه کاربران. |
 | [`npm run db:chat:create`](#db-chat-create) | ایجاد یک گروه یا کانال (بهصورت اختیاری یک کانال ریموت). |
 | [`npm run db:chat:add`](#db-chat-add) | افزودن اعضا به یک گروه یا کانال. |
 | [`npm run db:chat:edit`](#db-chat-edit) | ویرایش پروفایل چت، مالکیت، یا پیکربندی کانال ریموت. |
-| [`npm run db:chat:verify`](#db-chat-verify) | تغییر وضعیت تأییدشدهبودن یک چت. |
-| [`npm run db:chat:delete`](#db-chat-delete) | حذف یک، چند یا همه چتها. |
-| [`npm run db:file:delete`](#db-file-delete) | حذف فایلهای پیام آپلودشده و/یا آواتارها. |
-| [`npm run db:message:generate`](#db-message-generate) | تولید پیامهای تصادفی بین دو کاربر. |
+| [`npm run db:chat:verify`](#db-chat-verify) | تغییر وضعیت تأییدشده بودن یک چت. |
+| [`npm run db:chat:delete`](#db-chat-delete) | حذف یک، چند یا همه چت ها. |
+| [`npm run db:file:delete`](#db-file-delete) | حذف فایل های پیام آپلودشده و/یا آواتارها. |
+| [`npm run db:message:generate`](#db-message-generate) | تولید پیام های تصادفی بین دو کاربر. |
 | [`npm run remote:configure`](#remote-configure) | پیکربندی اعتبارنامه های Telegram برای کانال ریموت. |
 
 ## پشتیبان‌گیری و بازیابی

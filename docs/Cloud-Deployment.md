@@ -280,11 +280,7 @@ Understanding how Songbird interacts with serverless execution models is critica
 Platforms like **AWS Lambda**, **Vercel Serverless Functions**, or **Netlify Functions** execute code in response to individual HTTP requests and terminate execution contexts immediately after.
 
 :::danger FaaS Runtimes Are Not Supported
-Deploying Songbird as a FaaS application (e.g., on Vercel Functions or AWS Lambda) is **not supported**. FaaS is an architectural anti-pattern for real-time chat platforms like Songbird because:
-
-1. **Persistent Connections:** Songbird relies on long-lived WebSocket and Server-Sent Events (SSE) connections for instant message delivery. FaaS runtimes enforce strict connection timeouts (typically 15s to 15m) and disconnect persistent clients.
-2. **Background Processes:** Songbird uses in-memory background timers for heartbeats, SSE broadcast queues, and remote channel synchronization. FaaS freezes or kills process execution between requests, causing message delivery failures.
-3. **State & Memory:** In-memory caching and connection registries are wiped when FaaS instances spin down.
+Deploying Songbird as a FaaS application (e.g., on Vercel Functions or AWS Lambda) is **not supported**. FaaS is an architectural anti-pattern for real-time chat platforms like Songbird.
 :::
 
 ### Serverless Containers — Fully Supported

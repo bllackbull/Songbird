@@ -154,11 +154,11 @@ https://mirror-nodejs.runflare.com/dist/v24.18.0/node-v24.18.0-linux-x64.tar.gz
 ```
 - APT:
 ```
-http://repo.iut.ac.ir/ubuntu/
+http://ubuntu.pars.host/ubuntu/
 ```
 - NPM:
 ```
-https://npm.devneeds.ir/
+https://package-mirror.liara.ir/repository/npm/
 ```
 
 :::
