@@ -1,4 +1,4 @@
-# Object Storage & Media Processing
+# Object Storage
 
 Songbird supports a pluggable storage architecture that allows you to choose between local disk storage and S3-compatible remote object storage. When combined with the unified **Songbird Media Worker**, Songbird provides high-performance, asynchronous video transcoding, thumbnail extraction, and media optimization across single-server or distributed cloud environments.
 
@@ -24,14 +24,14 @@ When `STORAGE_DRIVER=remote` is active, Songbird uses a direct client-to-bucket 
 +--------+            1. POST /api/uploads/presign            +-----------------+
 |        | -------------------------------------------------> |                 |
 |        | <------------------------------------------------- |                 |
-|        |         2. Return presigned PUT upload URL         |  Songbird App   |
+|        |         2. Return presigned POST policy          |  Songbird App   |
 |        |                                                    |     Server      |
 | Client |            4. POST /api/uploads/complete           | (Node.js / API) |
 | Browser| -------------------------------------------------> |                 |
 |        | <------------------------------------------------- |                 |
 |        |             5. File linked in database             +-----------------+
 |        |                                                             
-|        |            3. HTTP PUT (Direct file upload)        +-----------------+
+|        |            3. HTTP POST form (Direct upload)       +-----------------+
 |        | -------------------------------------------------> | Cloudflare R2 / |
 |        | <------------------------------------------------- | S3 Storage      |
 +--------+                 200 OK Response                    +-----------------+
@@ -39,14 +39,14 @@ When `STORAGE_DRIVER=remote` is active, Songbird uses a direct client-to-bucket 
 
 ### Direct Upload Flow
 
-1. **Presign Request (`POST /api/uploads/presign`)**:
+1. **Presign Request**:
    - The client browser sends file metadata (`filename`, `mimeType`, `fileSize`, etc.) to the Songbird backend.
-   - The server validates authentication, checks file size limits (`FILE_UPLOAD_MAX_SIZE_MB`), generates a unique storage key (`uploads/messages/<timestamp>_<hash>.<ext>` for chat files, `uploads/avatars/<name>.<ext>` for avatars), and generates a temporary S3 presigned `PUT` URL via `@aws-sdk/s3-request-presigner`.
+   - The server validates authentication, checks file size limits (`FILE_UPLOAD_MAX_SIZE_MB`), generates a unique storage key, and generates a temporary presigned **POST** policy. (Falls back to a presigned `PUT` URL when POST signing is unavailable.)
    - The server records a pending upload record in the `pending_presigned_uploads` database table.
-2. **Direct Browser Upload (`PUT <uploadUrl>`)**:
-   - The client browser uploads the file payload directly to the Cloudflare R2 / S3 storage endpoint using the presigned URL.
-3. **Upload Completion (`POST /api/uploads/complete` or Message Submit)**:
-   - Once the HTTP `PUT` succeeds, the client notifies Songbird or attaches the file to a message request.
+2. **Direct Browser Upload**:
+   - The client browser uploads the file payload directly to the Cloudflare R2 / S3 storage endpoint.
+3. **Upload Completion**:
+   - Once the upload succeeds, the client notifies Songbird or attaches the file to a message request.
    - Songbird links the `storageKey` to the message file database (`chat_message_files`) and calls `removePendingPresignedUploads` to clean up the pending tracking record.
 
 ### Advantages of Direct Presigned Uploads
@@ -81,7 +81,7 @@ When `STORAGE_DRIVER=remote` is enabled, configure the following environment var
 
 ## Cloudflare R2 & S3 CORS Configuration Requirements
 
-Because client browsers upload files directly to Cloudflare R2 or S3 endpoints using presigned HTTP `PUT` requests, **Cross-Origin Resource Sharing (CORS) must be configured on your storage bucket**. Without proper CORS settings, browsers will block upload requests with origin/CORS preflight errors.
+Because client browsers upload files directly to Cloudflare R2 or S3 endpoints using presigned uploads, **Cross-Origin Resource Sharing (CORS) must be configured on your storage bucket**. Without proper CORS settings, browsers will block upload requests with origin/CORS preflight errors.
 
 ### Mandatory CORS JSON Configuration
 
@@ -112,7 +112,7 @@ Apply the following CORS configuration to your Cloudflare R2 or S3 bucket:
 
 :::info
 
-Replace `https://chat.example.com` with your domain (or use `*` during initial testing). The `PUT` method, `*` allowed headers, and `ETag` exposed header are required for browser presigned uploads to function properly.
+Replace `https://chat.example.com` with your domain (or use `*` during initial testing). The `PUT`/`POST` methods, `*` allowed headers, and `ETag` exposed header are required for browser presigned uploads to function properly.
 
 :::
 

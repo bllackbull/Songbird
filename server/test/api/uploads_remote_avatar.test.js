@@ -102,6 +102,37 @@ describe("POST /api/uploads/presign with uploadType: 'avatar'", () => {
     );
   });
 
+  test("avatar presign uses POST policy capped at the avatar size limit", async () => {
+    const postProvider = {
+      type: "s3",
+      getPresignedPost: vi.fn(async ({ key, contentType, maxSizeBytes }) => ({
+        url: `https://test-bucket.s3.amazonaws.com/?presigned-post=true`,
+        fields: { key, "Content-Type": contentType, policy: "p" },
+      })),
+      getUploadUrl: vi.fn(),
+    };
+    appObj = createApp(postProvider);
+    const res = await request(appObj.app)
+      .post("/api/uploads/presign")
+      .set("Cookie", [`sid=${sessionToken}`])
+      .send({
+        uploadType: "avatar",
+        filename: "my-photo.png",
+        contentType: "image/png",
+        fileSize: 1024,
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.fields).toBeDefined();
+    expect(res.body.fields.key).toBe(res.body.storageKey);
+    // Policy max comes from the server-side avatar limit (5MB here),
+    // not the client-declared fileSize.
+    expect(postProvider.getPresignedPost).toHaveBeenCalledWith(
+      expect.objectContaining({ maxSizeBytes: 5 * 1024 * 1024 }),
+    );
+    expect(postProvider.getUploadUrl).not.toHaveBeenCalled();
+  });
+
   test("returns type: 'local' when local storage is configured", async () => {
     appObj = createApp(mockLocalProvider);
     const res = await request(appObj.app)

@@ -208,6 +208,18 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
         },
       );
 
+      vi.spyOn(mockRemoteProvider, "getPresignedPost").mockImplementation(
+        async ({ key, contentType }) => ({
+          url: `https://my-bucket.s3.us-west-2.amazonaws.com/?presigned-post=true`,
+          fields: {
+            key,
+            "Content-Type": contentType,
+            policy: "mock-policy",
+            "x-amz-signature": "mock-signature",
+          },
+        }),
+      );
+
       vi.spyOn(mockRemoteProvider, "getDownloadUrl").mockImplementation(
         async (key) => {
           return `https://my-bucket.s3.us-west-2.amazonaws.com/${key}?download=true`;

@@ -104,6 +104,37 @@ export function registerRemoteUploadRoutes(app, deps) {
       res.status(429).json({ error: "Too many upload requests. Please slow down." }),
   });
 
+  // Presign a direct-to-bucket upload target. Prefers presigned POST with a
+  // bucket-enforced content-length-range policy. Falls back to a presigned
+  // PUT URL when the provider has no POST support or POST signing fails.
+  const presignUploadTarget = async ({ key, contentType, maxSizeBytes }) => {
+    if (
+      storageProvider &&
+      typeof storageProvider.getPresignedPost === "function"
+    ) {
+      try {
+        const post = await storageProvider.getPresignedPost({
+          key,
+          contentType,
+          maxSizeBytes,
+        });
+        if (post?.url && post?.fields) {
+          return { uploadUrl: post.url, fields: post.fields };
+        }
+      } catch (err) {
+        console.warn(
+          `[uploads] Presigned POST failed, falling back to PUT: ${err?.message || err}`,
+        );
+      }
+    }
+    const put = await storageProvider.getUploadUrl({
+      filename: key,
+      contentType,
+      key,
+    });
+    return { uploadUrl: put.uploadUrl, fields: null };
+  };
+
   // POST /api/uploads/presign
   app.post("/api/uploads/presign", presignRateLimiter, async (req, res) => {
     const session = await authenticateSession(req, res);
@@ -204,16 +235,14 @@ export function registerRemoteUploadRoutes(app, deps) {
       const generatedKey = `uploads/avatars/${generatedName}`;
 
       try {
-        const uploadResult = await storageProvider.getUploadUrl({
-          filename: generatedName,
-          contentType: mime,
-          fileSize: size,
+        const target = await presignUploadTarget({
           key: generatedKey,
+          contentType: mime,
+          maxSizeBytes: avatarLimit,
         });
 
-        const finalStorageKey =
-          uploadResult.storageKey || uploadResult.key || generatedKey;
-        const providerType = storageProvider.type || uploadResult.type || "s3";
+        const finalStorageKey = generatedKey;
+        const providerType = storageProvider.type || "s3";
 
         if (typeof recordPendingPresignedUpload === "function") {
           try {
@@ -238,7 +267,8 @@ export function registerRemoteUploadRoutes(app, deps) {
         return res.json({
           success: true,
           type: providerType,
-          uploadUrl: uploadResult.uploadUrl,
+          uploadUrl: target.uploadUrl,
+          ...(target.fields ? { fields: target.fields } : {}),
           storageKey: finalStorageKey,
           avatarUrl: `/api/uploads/avatars/${generatedName}`,
         });
@@ -273,16 +303,14 @@ export function registerRemoteUploadRoutes(app, deps) {
     }
 
     try {
-      const uploadResult = await storageProvider.getUploadUrl({
-        filename: name,
-        contentType: mime,
-        fileSize: size,
+      const target = await presignUploadTarget({
         key: generatedKey,
+        contentType: mime,
+        maxSizeBytes: maxLimit,
       });
 
-      const finalStorageKey =
-        uploadResult.storageKey || uploadResult.key || generatedKey;
-      const providerType = storageProvider.type || uploadResult.type || "s3";
+      const finalStorageKey = generatedKey;
+      const providerType = storageProvider.type || "s3";
 
       let kind = "document";
       if (mime.startsWith("image/")) kind = "image";
@@ -365,7 +393,8 @@ export function registerRemoteUploadRoutes(app, deps) {
       return res.json({
         success: true,
         type: providerType,
-        uploadUrl: uploadResult.uploadUrl,
+        uploadUrl: target.uploadUrl,
+        ...(target.fields ? { fields: target.fields } : {}),
         storageKey: finalStorageKey,
         fileId,
       });

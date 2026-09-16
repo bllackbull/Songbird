@@ -320,6 +320,33 @@ describe("chatApi.uploadFileToPresignedUrl", () => {
 
     await expect(uploadFileToPresignedUrl(uploadUrl, file)).rejects.toThrow("S3 upload failed with status 403");
   });
+
+  test("uploads file using POST form when presigned fields are present", async () => {
+    const file = new File(["binary content"], "file.bin", { type: "application/octet-stream" });
+    const uploadUrl = "https://my-bucket.s3.amazonaws.com";
+    const fields = {
+      key: "uploads/messages/a.bin",
+      "Content-Type": "application/octet-stream",
+      policy: "mock-policy",
+      "x-amz-signature": "mock-sig",
+    };
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+    globalThis.fetch = fetchMock;
+
+    const result = await uploadFileToPresignedUrl(uploadUrl, file, { fields });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [calledUrl, opts] = fetchMock.mock.calls[0];
+    expect(calledUrl).toBe(uploadUrl);
+    expect(opts.method).toBe("POST");
+    expect(opts.headers).toBeUndefined();
+    expect(opts.body).toBeInstanceOf(FormData);
+    expect(opts.body.get("key")).toBe("uploads/messages/a.bin");
+    expect(opts.body.get("Content-Type")).toBe("application/octet-stream");
+    const names = [...opts.body.entries()].map(([k]) => k);
+    expect(names[names.length - 1]).toBe("file");
+    expect(result.ok).toBe(true);
+  });
 });
 
 describe("chatApi.prepareFilesForMessage", () => {

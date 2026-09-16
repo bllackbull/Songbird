@@ -30,6 +30,21 @@ describe("Remote Uploads & File Management Routes", () => {
       },
     );
 
+    // Mock presigned POST signing (offline-friendly stand-in for
+    // createPresignedPost) so presign routes take the POST-policy path.
+    vi.spyOn(mockRemoteProvider, "getPresignedPost").mockImplementation(
+      async ({ key, contentType, maxSizeBytes }) => ({
+        url: `https://test-bucket.s3.amazonaws.com/?presigned-post=true`,
+        fields: {
+          key,
+          "Content-Type": contentType,
+          policy: "mock-policy",
+          "x-amz-signature": "mock-signature",
+          "max-size": String(maxSizeBytes),
+        },
+      }),
+    );
+
     vi.spyOn(mockRemoteProvider, "getDownloadUrl").mockImplementation(
       async (key) => {
         return `https://test-bucket.s3.amazonaws.com/${key}?download=true`;
@@ -178,6 +193,79 @@ describe("Remote Uploads & File Management Routes", () => {
       expect(res.body.uploadUrl).toBeTruthy();
       expect(res.body.fileId).toBeNull();
       expect(createMessageFilesMock).not.toHaveBeenCalled();
+    });
+
+    test("presign uses POST policy capped at the server-side size limit", async () => {
+      const customApp = makeApp({
+        deps: {
+          storageProvider: mockRemoteProvider,
+          storageProcessingMode: "remote",
+          MESSAGE_FILE_LIMITS: { maxFileSizeBytes: 50 * 1024 * 1024 },
+        },
+      });
+      const uId = customApp.userStore.createUser(
+        "sizecap",
+        "pass",
+        "SizeCap",
+        null,
+        "#fff",
+      );
+      customApp.sessionStore.createSession(uId, sessionToken);
+
+      const res = await request(customApp.app)
+        .post("/api/uploads/presign")
+        .set("Cookie", [`sid=${sessionToken}`])
+        .send({
+          filename: "declared-small.png",
+          contentType: "image/png",
+          // Lies about the size: policy max must still be the server limit.
+          fileSize: 1024,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.fields).toBeDefined();
+      expect(res.body.fields.key).toBe(res.body.storageKey);
+      expect(mockRemoteProvider.getPresignedPost).toHaveBeenCalledWith(
+        expect.objectContaining({ maxSizeBytes: 50 * 1024 * 1024 }),
+      );
+    });
+
+    test("presign falls back to PUT when the provider has no POST support", async () => {
+      const putOnlyProvider = {
+        type: "s3",
+        getUploadUrl: vi.fn(async ({ key }) => ({
+          type: "remote",
+          uploadUrl: `https://fallback.example.com/${key}?put=true`,
+        })),
+      };
+      const customApp = makeApp({
+        deps: {
+          storageProvider: putOnlyProvider,
+          MESSAGE_FILE_LIMITS: { maxFileSizeBytes: 50 * 1024 * 1024 },
+        },
+      });
+      const uId = customApp.userStore.createUser(
+        "putfallback",
+        "pass",
+        "PutFallback",
+        null,
+        "#fff",
+      );
+      customApp.sessionStore.createSession(uId, sessionToken);
+
+      const res = await request(customApp.app)
+        .post("/api/uploads/presign")
+        .set("Cookie", [`sid=${sessionToken}`])
+        .send({
+          filename: "clip.mp4",
+          contentType: "video/mp4",
+          fileSize: 1024,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.uploadUrl).toContain("fallback.example.com");
+      expect(res.body.fields).toBeUndefined();
+      expect(res.body.storageKey).toMatch(/^uploads\/messages\//);
     });
 
     test("presign returns remote upload URL for video when storageProcessingMode is 'local'", async () => {

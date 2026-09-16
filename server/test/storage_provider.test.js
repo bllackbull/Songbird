@@ -143,6 +143,47 @@ describe("RemoteStorageProvider", () => {
     expect(sendSpy).toHaveBeenCalled();
   });
 
+  it("creates presigned POST with bucket-enforced size policy", async () => {
+    const provider = new RemoteStorageProvider(s3Config);
+    const maxBytes = 10 * 1024 * 1024;
+    const { url, fields } = await provider.getPresignedPost({
+      key: "uploads/messages/a.png",
+      contentType: "image/png",
+      maxSizeBytes: maxBytes,
+    });
+    expect(url).toBeTypeOf("string");
+    expect(fields.key).toBe("uploads/messages/a.png");
+    expect(fields["Content-Type"]).toBe("image/png");
+    const policy = JSON.parse(
+      Buffer.from(fields.Policy, "base64").toString("utf8"),
+    );
+    expect(policy.conditions).toContainEqual([
+      "eq",
+      "$key",
+      "uploads/messages/a.png",
+    ]);
+    expect(policy.conditions).toContainEqual([
+      "eq",
+      "$Content-Type",
+      "image/png",
+    ]);
+    expect(policy.conditions).toContainEqual([
+      "content-length-range",
+      1,
+      maxBytes,
+    ]);
+  });
+
+  it("rejects presigned POST without key or maxSizeBytes", async () => {
+    const provider = new RemoteStorageProvider(s3Config);
+    await expect(
+      provider.getPresignedPost({ contentType: "image/png", maxSizeBytes: 100 }),
+    ).rejects.toThrow();
+    await expect(
+      provider.getPresignedPost({ key: "a.png", contentType: "image/png" }),
+    ).rejects.toThrow();
+  });
+
   it("checks file existence using HeadObjectCommand", async () => {
     const provider = new RemoteStorageProvider(s3Config);
 

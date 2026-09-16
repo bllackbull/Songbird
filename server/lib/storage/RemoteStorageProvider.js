@@ -17,6 +17,7 @@ import {
   CopyObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
 import { StorageProvider } from "./StorageProvider.js";
 
 export class RemoteStorageProvider extends StorageProvider {
@@ -164,6 +165,42 @@ export class RemoteStorageProvider extends StorageProvider {
       type: "remote",
       uploadUrl,
     };
+  }
+
+  /**
+   * Presigned POST (browser form upload) with a bucket-enforced policy.
+   * @param {object} fileInfo { key, contentType, maxSizeBytes, expiresIn }
+   * @returns {Promise<{url: string, fields: object}>}
+   */
+  async getPresignedPost(fileInfo = {}) {
+    const cleanKey = String(fileInfo?.key || "").replace(/^\//, "");
+    if (!cleanKey) {
+      throw new Error("getPresignedPost requires a key.");
+    }
+    const contentType = String(
+      fileInfo?.contentType || "application/octet-stream",
+    );
+    const maxSizeBytes = Number(fileInfo?.maxSizeBytes);
+    if (!Number.isFinite(maxSizeBytes) || maxSizeBytes <= 0) {
+      throw new Error("getPresignedPost requires a positive maxSizeBytes.");
+    }
+    const expiresIn =
+      Number(fileInfo?.expiresIn) || this.expiresIn || 3600;
+
+    const { url, fields } = await createPresignedPost(this.client, {
+      Bucket: this.bucket,
+      Key: cleanKey,
+      Conditions: [
+        ["eq", "$key", cleanKey],
+        ["eq", "$Content-Type", contentType],
+        ["content-length-range", 1, Math.floor(maxSizeBytes)],
+      ],
+      Fields: {
+        "Content-Type": contentType,
+      },
+      Expires: expiresIn,
+    });
+    return { url, fields };
   }
 
   /**

@@ -476,11 +476,27 @@ export async function uploadFileToPresignedUrl(uploadUrlOrOptions, file, options
     fileBlob?.type ||
     "application/octet-stream";
 
+  const postFields =
+    opts.fields && typeof opts.fields === "object" ? opts.fields : null;
+
   if (typeof opts.onProgress === "function" && typeof XMLHttpRequest !== "undefined") {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      xhr.open("PUT", url);
-      xhr.setRequestHeader("Content-Type", contentType);
+      let form = null;
+      if (postFields) {
+        // Presigned POST: multipart form with policy fields, file last.
+        // Never set Content-Type manually here — the browser must set the
+        // multipart boundary or the signature won't match.
+        xhr.open("POST", url);
+        form = new FormData();
+        Object.entries(postFields).forEach(([k, v]) => {
+          form.append(k, String(v));
+        });
+        form.append("file", fileBlob);
+      } else {
+        xhr.open("PUT", url);
+        xhr.setRequestHeader("Content-Type", contentType);
+      }
       if (opts.headers && typeof opts.headers === "object") {
         Object.entries(opts.headers).forEach(([k, v]) => {
           xhr.setRequestHeader(k, v);
@@ -508,8 +524,27 @@ export async function uploadFileToPresignedUrl(uploadUrlOrOptions, file, options
         }
       };
 
-      xhr.send(fileBlob);
+      xhr.send(postFields ? form : fileBlob);
     });
+  }
+
+  if (postFields) {
+    const form = new FormData();
+    Object.entries(postFields).forEach(([k, v]) => {
+      form.append(k, String(v));
+    });
+    form.append("file", fileBlob);
+    const uploadRes = await fetch(url, {
+      method: "POST",
+      body: form,
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    });
+
+    if (!uploadRes.ok) {
+      throw new Error(`S3 upload failed with status ${uploadRes.status}`);
+    }
+
+    return { ok: true, status: uploadRes.status };
   }
 
   const uploadRes = await fetch(url, {
@@ -580,6 +615,7 @@ export async function uploadAvatarFile(file, options = {}) {
     ) {
       await uploadFileToPresignedUrl(presignRes.uploadUrl, fileObj, {
         contentType: options.contentType || fileObj?.type || "image/png",
+        ...(presignRes.fields ? { fields: presignRes.fields } : {}),
         onProgress: options.onProgress,
       });
       return {
@@ -650,6 +686,7 @@ export async function prepareFilesForMessage(files = [], options = {}) {
 
       await uploadFileToPresignedUrl(presignRes.uploadUrl, fileObj, {
         contentType: fileOptions.contentType,
+        ...(presignRes.fields ? { fields: presignRes.fields } : {}),
         onProgress,
       });
 
