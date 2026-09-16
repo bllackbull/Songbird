@@ -4,6 +4,7 @@ import {
   ArrowLeftFromLine,
   ArrowRight,
   ArrowRightFromLine,
+  Blocks,
   Chat,
   ScrollText,
   Settings,
@@ -20,12 +21,14 @@ import ChatsTab from "./ChatsTab.jsx";
 import ActionsTab from "./ActionsTab.jsx";
 import LogsTab from "./LogsTab.jsx";
 import SettingsTab from "./SettingsTab.jsx";
+import ServicesTab from "./ServicesTab.jsx";
 
 const TABS = [
   { id: "dashboard", label: "Dashboard", icon: GaugeIcon,         anim: "" },
   { id: "users",     label: "Users",     icon: Users,             anim: "icon-anim-pop" },
   { id: "chats",     label: "Chats",     icon: Chat,              anim: "icon-anim-bob" },
   { id: "actions",   label: "Actions",   icon: Wrench,            anim: "icon-anim-wiggle" },
+  { id: "services",  label: "Services",  icon: Blocks,            anim: "icon-anim-bob" },
   { id: "settings",  label: "Settings",  icon: Settings,          anim: "icon-anim-spin-dir" },
   { id: "logs",      label: "Logs",      icon: ScrollText,        anim: "icon-anim-sway" },
 ];
@@ -63,6 +66,7 @@ export default function AdminPanel({ user, onBack }) {
     stats:    () => api.get("/api/admin/stats"),
     actions:  () => api.get("/api/admin/service/available"),
     settings: () => api.get("/api/admin/settings"),
+    services: () => api.get("/api/admin/services"),
   });
 
   const cacheRef = useRef(cache);
@@ -327,6 +331,13 @@ export default function AdminPanel({ user, onBack }) {
         <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-4 pb-[calc(104px+env(safe-area-inset-bottom)+var(--vv-bottom-offset,0px))] md:p-5 md:pb-5">
             <Activity mode={tab === "dashboard" ? "visible" : "hidden"}>
               <DashboardTab ref={(r) => { tabRefs.current.dashboard = r; }} stats={stats} onStatsChange={refreshStats} />
+            </Activity>
+            <Activity mode={tab === "services" ? "visible" : "hidden"}>
+              <ServicesTab
+                ref={(r) => { tabRefs.current.services = r; }}
+                data={cache.services?.data ?? null}
+                onSetupRemoteChannel={() => selectTab("settings")}
+              />
             </Activity>
             <Activity mode={tab === "users" ? "visible" : "hidden"}>
               <UsersTab

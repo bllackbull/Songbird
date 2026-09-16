@@ -7,6 +7,7 @@ function registerRemoteChannelRoutes(app, deps) {
     REMOTE_CHANNELS,
     findChatById,
     findUserByUsername,
+    getChatMemberRole,
     getRemoteChannelQueueSummary,
     getRemoteChannelSourceByChatId,
     isMember,
@@ -19,6 +20,21 @@ function registerRemoteChannelRoutes(app, deps) {
     updateRemoteChannelSourcePaused,
     upsertRemoteChannelSource,
   } = deps;
+
+  const resolveOwner = async (chatId, userId) => {
+    if (typeof getChatMemberRole === "function") {
+      const raw = getChatMemberRole(chatId, userId);
+      const role = raw && typeof raw.then === "function" ? await raw : raw;
+      return String(role || "").toLowerCase() === "owner";
+    }
+    const rawMembers = listChatMembers(chatId);
+    const members = Array.isArray(rawMembers) ? rawMembers : (await rawMembers) || [];
+    return members.some(
+      (member) =>
+        member.id === userId &&
+        String(member.role || "").toLowerCase() === "owner",
+    );
+  };
 
   // Telegram requires API credentials; Songbird just needs the feature enabled.
   const isTelegramAvailable = () =>
@@ -64,13 +80,7 @@ function registerRemoteChannelRoutes(app, deps) {
       return null;
     }
 
-    const rawMembers = listChatMembers(chatId);
-    const members = Array.isArray(rawMembers) ? rawMembers : (await rawMembers) || [];
-    const isOwner = members.some(
-      (member) =>
-        member.id === user.id &&
-        String(member.role || "").toLowerCase() === "owner",
-    );
+    const isOwner = await resolveOwner(chatId, user.id);
 
     if (!isOwner) {
       res
@@ -139,13 +149,7 @@ function registerRemoteChannelRoutes(app, deps) {
       return res.status(403).json({ error: "Not a member of this channel." });
     }
 
-    const rawMembers = listChatMembers(chatId);
-    const members = Array.isArray(rawMembers) ? rawMembers : (await rawMembers) || [];
-    const isOwner = members.some(
-      (member) =>
-        member.id === user.id &&
-        String(member.role || "").toLowerCase() === "owner",
-    );
+    const isOwner = await resolveOwner(chatId, user.id);
 
     const rawSource = getRemoteChannelSourceByChatId(chatId);
     const source = rawSource && typeof rawSource.then === "function" ? await rawSource : rawSource;
@@ -163,6 +167,32 @@ function registerRemoteChannelRoutes(app, deps) {
       proxyConfigured: Boolean(REMOTE_CHANNELS?.proxyConfigured),
       source: serialized,
     });
+  });
+
+  app.get("/api/chats/:chatId/remote-channel/queue", validateUuidParams('chatId'), async (req, res) => {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    const chatId = req.params.chatId;
+    const username = String(req.query?.username || session.username || "").trim();
+    if (!chatId || !username) {
+      return res.status(400).json({ error: "Channel id and username are required." });
+    }
+    if (!requireSessionUsernameMatch(res, session, username)) return;
+    const rawUser = findUserByUsername(username.toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
+    if (!user) return res.status(404).json({ error: "User not found." });
+    const rawIsMem = isMember(chatId, user.id);
+    const isMem = typeof rawIsMem?.then === "function" ? await rawIsMem : rawIsMem;
+    if (!isMem) return res.status(403).json({ error: "Not a member of this channel." });
+    if (!(await resolveOwner(chatId, user.id))) {
+      return res.status(403).json({ error: "Only channel owner can view Remote Channel queue." });
+    }
+    const rawSource = getRemoteChannelSourceByChatId(chatId);
+    const source = rawSource && typeof rawSource.then === "function" ? await rawSource : rawSource;
+    if (!source?.id) return res.json({ queue: null });
+    const rawQueue = getRemoteChannelQueueSummary(source.id);
+    const queue = rawQueue && typeof rawQueue.then === "function" ? await rawQueue : rawQueue;
+    return res.json({ queue: queue || null });
   });
 
   app.put("/api/chats/:chatId/remote-channel", validateUuidParams('chatId'), async (req, res) => {

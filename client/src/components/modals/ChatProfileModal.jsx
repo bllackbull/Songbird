@@ -120,7 +120,10 @@ export default function ChatProfileModal({
     };
 
     fetchRemoteStatus();
-    const intervalId = setInterval(fetchRemoteStatus, 10000);
+    const intervalId = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      fetchRemoteStatus();
+    }, 30000);
 
     return () => clearInterval(intervalId);
   }, [open, chat?.id, chat?.type, currentUser?.username, remoteChannelAvailable, onRemoteChannelStatusChange]);

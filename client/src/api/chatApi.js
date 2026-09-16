@@ -258,6 +258,13 @@ export const getRemoteChannelSettings = ({ chatId, username }) =>
     )}`,
   );
 
+export const getRemoteChannelQueue = ({ chatId, username }) =>
+  apiFetch(
+    `${API_BASE}/api/chats/${encodeURIComponent(chatId)}/remote-channel/queue?username=${encodeURIComponent(
+      username,
+    )}`,
+  );
+
 export const updateRemoteChannelSettings = (chatId, payload) =>
   apiFetch(`${API_BASE}/api/chats/${encodeURIComponent(chatId)}/remote-channel`, {
     method: "PUT",

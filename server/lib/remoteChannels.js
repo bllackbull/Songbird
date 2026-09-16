@@ -2635,10 +2635,26 @@ export function createRemoteChannelManager(deps = {}) {
     return resolveMaybePromise(skipAllRemoteChannelQueueItemsDb(id));
   }
 
+  async function getHealth() {
+    const telegramConfigured = Boolean(apiId && apiHash && sessionString);
+    return {
+      enabled,
+      telegramConfigured,
+      telegramConnected: Boolean(client),
+      pollLoopRunning,
+      queueLoopRunning,
+      pollIntervalMs,
+      queueIntervalMs,
+      queueBatchSize,
+      queueConcurrency,
+    };
+  }
+
   return {
     start,
     stop,
     isEnabled: () => enabled,
+    getHealth,
     syncSourceMetadata,
     testConnection,
     abortQueueItem,

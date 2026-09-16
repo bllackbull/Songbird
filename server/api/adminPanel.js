@@ -388,6 +388,63 @@ function registerAdminPanelRoutes(app, deps) {
     });
   });
 
+  // ─── Services — health overview ──────────────────────────────────────────
+  // Aggregates media worker, remote channel, storage and redis status so the
+  // admin Services tab can render one card per service without N round-trips.
+  // Short-TTL cached like stats to avoid probing the worker on every poll.
+  const SERVICES_CACHE_TTL_MS = 10_000;
+  let servicesCache = { data: null, fetchedAt: 0 };
+
+  app.get("/api/admin/services", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const now = Date.now();
+    if (servicesCache.data && now - servicesCache.fetchedAt < SERVICES_CACHE_TTL_MS) {
+      return res.json(servicesCache.data);
+    }
+    const workerBaseUrl = String(
+      deps.workerUrl || deps.mediaWorkerUrl || process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || "",
+    ).trim().replace(/\/+$/, "");
+    let mediaWorker = { configured: Boolean(workerBaseUrl), reachable: false, latencyMs: null };
+    if (workerBaseUrl) {
+      const started = Date.now();
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 3000);
+        const response = await fetch(`${workerBaseUrl}/health`, { signal: controller.signal });
+        clearTimeout(timer);
+        const body = await response.json().catch(() => ({}));
+        mediaWorker = {
+          configured: true,
+          reachable: Boolean(response.ok),
+          latencyMs: Date.now() - started,
+          queue: body?.queue || null,
+        };
+      } catch {
+        mediaWorker = { configured: true, reachable: false, latencyMs: Date.now() - started };
+      }
+    }
+    let remoteChannel = { enabled: false };
+    try {
+      const manager = deps.remoteChannelManager;
+      if (manager?.getHealth) {
+        remoteChannel = await resolveMaybePromise(manager.getHealth());
+      } else {
+        remoteChannel = { enabled: Boolean(manager?.isEnabled?.()) };
+      }
+    } catch {
+      remoteChannel = { enabled: false, error: "health probe failed" };
+    }
+    const storageProvider = deps.storageProvider;
+    const payload = {
+      mediaWorker,
+      remoteChannel,
+      storage: { driver: storageProvider?.type || process.env.STORAGE_DRIVER || "local" },
+      fetchedAt: new Date().toISOString(),
+    };
+    servicesCache = { data: payload, fetchedAt: now };
+    return res.json(payload);
+  });
+
   // ─── Users — list ────────────────────────────────────────────────────────────
 
   app.get("/api/admin/users", async (req, res) => {
