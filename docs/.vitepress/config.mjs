@@ -61,7 +61,7 @@ const faSidebar = [
       {text: '☁️ ذخیره سازی ابری', link: '/fa/Object-Storage'},
       {text: '🎬 ورکر مدیا', link: '/fa/Media-Worker'},
       {text: '🛡️ پنل مدیریت', link: '/fa/Admin-Panel'},
-      {text: '📡 راهاندازی Remote Channel', link: '/fa/Remote-Channel-Setup'},
+      {text: '📡 راه اندازی Remote Channel', link: '/fa/Remote-Channel-Setup'},
       {text: '🔔 پراکسی Push Notification', link: '/fa/Push-Notification-Proxy'},
     ],
   },

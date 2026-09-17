@@ -40,9 +40,21 @@ It is recommended to not use your main personal Telegram account for this.
 
 :::
 
-### 2. Configure Remote Channel
+### 2. Connect Telegram
 
-Run the configuration helper and follow the prompts. It asks for the Telegram API ID, API hash, optional proxy URL, and Telegram login code, then writes the Remote Channel settings into `.env`. For systemd installs, it restarts `songbird.service` after saving.
+It is recommended to use the [admin panel](./Admin-Panel.md) to setup the connection.
+
+To do so, go to **Services** tab in the admin panel and click on **Telegram connection** card. A guided modal walks through the whole flow:
+
+1. Enter the **API ID** and **API hash**, plus the account phone number in E.164 format.
+2. Enter the **login code** sent to that Telegram account.
+3. If the account has two-factor authentication, enter the **2FA password**.
+4. On success, a confirmation page appears — click **Done**.
+
+You can later use the **Test connection** button to confirm your connection or use **Disconnect** to destory the connection.
+
+<details>
+<summary>CLI alternative (<code>remote:configure</code>)</summary>
 
 ```bash
 cd /opt/songbird
@@ -58,6 +70,7 @@ docker compose run --rm -v "$PWD/.env:/app/.env" songbird npm --prefix /app/serv
 ```
 
 Keep the generated session value private. It authorizes Songbird to read Telegram channels that the logged-in Telegram account can access.
+</details>
 
 ### 3. Connect a Songbird channel
 

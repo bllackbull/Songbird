@@ -315,6 +315,7 @@ Dispatches a media file for asynchronous processing.
 Sent by the worker to Songbird upon completion.
 
 **Headers:**
+
 - `Content-Type: application/json`
 - `x-songbird-webhook-secret: <WEBHOOK_SECRET>`
 
@@ -340,6 +341,15 @@ Sent by the worker to Songbird upon completion.
   "status": "failed"
 }
 ```
+
+### 4. Remote Channel Mirror Handoff
+
+Remote Channel Telegram mirroring reuses this worker for heavy media work and offloads size enforcement, video probing, and bucket upload to the worker.
+
+- **Dispatch:** `POST /mirror-media` accepts a job with a per-job secret.
+- **Byte pull:** the worker fetches the decrypted source bytes from the server via the secret-gated `GET /api/remote-channel/blob/:jobId`.
+- **Result callback:** `POST /api/remote-channel/webhook/mirror-done` attaches the files, emits SSE updates, and dedupes repeat deliveries.
+- **Fallback:** when a remote worker is not available, the server uses the local inline path with a timeout timer as fallback. Also, Mirrored media uses local-disk fallback so media is never lost. Mirrored videos still enter the normal transcode pipeline.
 
 ## Security & Best Practices
 

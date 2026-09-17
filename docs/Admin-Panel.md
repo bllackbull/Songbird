@@ -106,6 +106,14 @@ Manage DMs, groups, and channels:
 - **Member Management**: View and modify chat membership
 - **Auto-Add New Users**: Automatically add newly registered user accounts to public chats
 
+## Services Tab
+
+Health cards for backend services (Media worker, Telegram connection, Storage driver):
+
+- **Media worker**: worker reachability and queue status.
+- **Telegram connection**: Telegram account connection status for remote channels with a setup feature to establish the connection.
+- **Storage**: active storage driver status.
+
 ## Settings Tab
 
 Configure runtime settings through the UI (replaces most `.env` variables):
