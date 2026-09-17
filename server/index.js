@@ -1014,6 +1014,7 @@ const remoteChannelManager = createRemoteChannelManager({
   setMessageForwardOrigin,
   setRemoteChannelProviderState,
   storageEncryption,
+  storageProvider,
   updateChannelChat,
   updateRemoteChannelSourceError,
   updateRemoteChannelSourceSeen,

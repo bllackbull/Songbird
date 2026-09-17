@@ -847,6 +847,7 @@ export function createRemoteChannelManager(deps = {}) {
     setMessageForwardOrigin,
     setRemoteChannelProviderState,
     storageEncryption,
+    storageProvider,
     updateChannelChat,
     updateRemoteChannelSourceError,
     updateRemoteChannelSourceSeen,
@@ -921,6 +922,57 @@ export function createRemoteChannelManager(deps = {}) {
   const abortedSourceIds = new Set();
 
   const log = (...args) => debugLog("remote-channel", ...args);
+
+  function isRemoteStorage() {
+    const type = storageProvider?.type;
+    return (
+      (type === "remote" || type === "s3") &&
+      typeof storageProvider?.uploadBuffer === "function"
+    );
+  }
+
+  // Upload a mirrored file to bucket storage (remote driver only) and remove the local copy.
+  async function uploadMirroredFileToBucket({ filePath, storageKey, mimeType }) {
+    if (!isRemoteStorage() || !filePath || !storageKey) return null;
+    try {
+      const readFile =
+        fs?.promises?.readFile?.bind(fs.promises) || fs?.readFileSync?.bind(fs);
+      const unlinkFile =
+        fs?.promises?.unlink?.bind(fs.promises) || fs?.unlinkSync?.bind(fs);
+      if (typeof readFile !== "function") return null;
+      const encryptedBytes = await readFile(filePath);
+      const uploadBytes =
+        typeof storageEncryption?.decryptBuffer === "function"
+          ? storageEncryption.decryptBuffer(encryptedBytes)
+          : encryptedBytes;
+      await storageProvider.uploadBuffer(
+        storageKey,
+        uploadBytes,
+        mimeType || "application/octet-stream",
+      );
+      if (typeof unlinkFile === "function") {
+        try {
+          await unlinkFile(filePath);
+        } catch {
+          // Local cleanup is best-effort; the bucket copy already succeeded.
+        }
+      }
+      return {
+        storageDriver: storageProvider.type || "s3",
+        storage_driver: storageProvider.type || "s3",
+        storageKey,
+        storage_key: storageKey,
+        encryptionType: "none",
+        encryption_type: "none",
+      };
+    } catch (error) {
+      log("storage:upload-skip", {
+        storageKey,
+        error: errorMessage(error),
+      });
+      return null;
+    }
+  }
 
   function createClient() {
     const telegramClient = new TelegramClient(new StringSession(sessionString), apiId, apiHash, {
@@ -1117,6 +1169,12 @@ export function createRemoteChannelManager(deps = {}) {
       fs.mkdirSync(avatarUploadRootDir, { recursive: true });
       fs.writeFileSync(filePath, buffer);
       storageEncryption?.encryptFileInPlace?.(filePath);
+      // Same URL shape as user avatars on bucket deployments.
+      await uploadMirroredFileToBucket({
+        filePath,
+        storageKey: `uploads/avatars/${fileName}`,
+        mimeType: "image/jpeg",
+      });
       return `/api/uploads/avatars/${fileName}`;
     } catch {
       return source?.source_avatar_url || "";
@@ -1316,6 +1374,11 @@ export function createRemoteChannelManager(deps = {}) {
             fs.mkdirSync(avatarUploadRootDir, { recursive: true });
             fs.writeFileSync(filePath, buffer);
             storageEncryption?.encryptFileInPlace?.(filePath);
+            await uploadMirroredFileToBucket({
+              filePath,
+              storageKey: `uploads/avatars/${fileName}`,
+              mimeType: "image/jpeg",
+            });
             localAvatarUrl = `/api/uploads/avatars/${fileName}`;
           }
         }
@@ -1979,6 +2042,11 @@ export function createRemoteChannelManager(deps = {}) {
           typeof computeExpiryIso === "function"
             ? computeExpiryIso(new Date().toISOString(), messageFileRetentionDays)
             : null,
+        // Local disk by default; replaced with bucket coordinates below.
+        storageDriver: "local",
+        storage_driver: "local",
+        storageKey: null,
+        storage_key: null,
       };
 
       if (
@@ -2000,6 +2068,17 @@ export function createRemoteChannelManager(deps = {}) {
       storageEncryption?.encryptFileInPlace?.(filePath);
       // Keep the DB record in sync with the bytes on disk.
       markEncryptedFileRecord(storageEncryption, filePath, normalized);
+      // On bucket-backed deployments the local copy must not be the record
+      // of truth (ephemeral disks, multi-node) — upload and drop it.
+      const bucketFields = await uploadMirroredFileToBucket({
+        filePath,
+        storageKey: `uploads/messages/${storedName}`,
+        mimeType: normalized.mimeType,
+      });
+      if (bucketFields) {
+        Object.assign(normalized, bucketFields);
+        return { file: normalized, filePath: null };
+      }
       return { file: normalized, filePath };
     } catch (error) {
       safeUnlink(filePath);
@@ -2680,6 +2759,8 @@ export function createRemoteChannelManager(deps = {}) {
     isEnabled: () => enabled,
     reloadConfig,
     getHealth,
+    downloadTelegramMediaFile,
+    cacheSourceAvatar,
     syncSourceMetadata,
     testConnection,
     abortQueueItem,
