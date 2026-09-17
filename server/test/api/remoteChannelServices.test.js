@@ -23,6 +23,7 @@ function setupProfileApp({ role = "owner" } = {}) {
   sessionStore.createSession("u-owner", "sid-owner");
   const listChatMembers = vi.fn(() => []);
   const getChatMemberRole = vi.fn(() => role);
+  const getRemoteChannelQueueSummary = vi.fn(() => ({ pending: 2 }));
   const { app } = makeApp({
     sessionStore,
     userStore,
@@ -39,7 +40,7 @@ function setupProfileApp({ role = "owner" } = {}) {
         source_raw: "@src",
         source_username: "src",
       }),
-      getRemoteChannelQueueSummary: () => ({ pending: 2 }),
+      getRemoteChannelQueueSummary,
       REMOTE_CHANNELS: {
         enabled: true,
         telegramConfigured: true,
@@ -48,7 +49,7 @@ function setupProfileApp({ role = "owner" } = {}) {
       isUserAdmin: () => true,
     },
   });
-  return { app, listChatMembers, getChatMemberRole };
+  return { app, listChatMembers, getChatMemberRole, getRemoteChannelQueueSummary };
 }
 
 describe("remote channel profile perf", () => {
@@ -74,6 +75,54 @@ describe("remote channel profile perf", () => {
       .query({ username: "owner" });
     expect(res.status).toBe(403);
     expect(listChatMembers).not.toHaveBeenCalled();
+  });
+
+  test("pause notifies open modals via remote_channel_queue", async () => {
+    const emitChatEvent = vi.fn();
+    const sessionStore = makeSessionStore();
+    const userStore = makeUserStore([
+      { id: "u-owner", username: "owner", nickname: "Owner", role: "user", status: "online" },
+    ]);
+    sessionStore.createSession("u-owner", "sid-owner");
+    const { app } = makeApp({
+      sessionStore,
+      userStore,
+      deps: {
+        findChatById: () => ({ id: CHAT_ID, type: "channel" }),
+        findUserByUsername: (name) =>
+          name === "owner" ? { id: "u-owner", username: "owner" } : null,
+        isMember: () => true,
+        getChatMemberRole: () => "owner",
+        getRemoteChannelSourceByChatId: () => ({ id: 7, enabled: 1 }),
+        updateRemoteChannelSourcePaused: () => {},
+        emitChatEvent,
+      },
+    });
+    const res = await request(app)
+      .post(`/api/chats/${CHAT_ID}/remote-channel/pause`)
+      .set("Cookie", "sid=sid-owner")
+      .send({ username: "owner" });
+    expect(res.status).toBe(200);
+    expect(emitChatEvent).toHaveBeenCalledWith(
+      CHAT_ID,
+      expect.objectContaining({ type: "remote_channel_queue", sourceId: 7 }),
+    );
+  });
+
+  test("repeated status reads collapse into one summary query", async () => {
+    const { app, getRemoteChannelQueueSummary } = setupProfileApp({
+      role: "owner",
+    });
+    const get = () =>
+      request(app)
+        .get(`/api/chats/${CHAT_ID}/remote-channel`)
+        .set("Cookie", "sid=sid-owner")
+        .query({ username: "owner" });
+    const [first, second] = await Promise.all([get(), get()]);
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    // Single-flight + TTL cache: concurrent and back-to-back reads share one query.
+    expect(getRemoteChannelQueueSummary).toHaveBeenCalledTimes(1);
   });
 });
 

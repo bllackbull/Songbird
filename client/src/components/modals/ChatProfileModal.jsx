@@ -97,7 +97,8 @@ export default function ChatProfileModal({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chat?.id]);
 
-  // Fetch remote channel status for channels
+  // Fetch remote channel status for channels. Queue changes arrive over SSE.
+  // The interval below is only a safety net for missed events and reconnects.
   useEffect(() => {
     if (!open || chat?.type !== "channel" || !remoteChannelAvailable || !currentUser?.username) {
       return undefined;
@@ -123,9 +124,20 @@ export default function ChatProfileModal({
     const intervalId = setInterval(() => {
       if (typeof document !== "undefined" && document.hidden) return;
       fetchRemoteStatus();
-    }, 30000);
+    }, 60000);
 
-    return () => clearInterval(intervalId);
+    const handleRealtimeEvent = (event) => {
+      const payload = event?.detail;
+      if (payload?.type !== "remote_channel_queue") return;
+      if (String(payload?.chatId || "") !== String(chat.id || "")) return;
+      fetchRemoteStatus();
+    };
+    window.addEventListener("songbird:realtime-event", handleRealtimeEvent);
+
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener("songbird:realtime-event", handleRealtimeEvent);
+    };
   }, [open, chat?.id, chat?.type, currentUser?.username, remoteChannelAvailable, onRemoteChannelStatusChange]);
 
   // (Connection test is triggered manually by clicking the Queue Status box)

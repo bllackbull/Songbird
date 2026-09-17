@@ -2626,6 +2626,22 @@ export function createRemoteChannelManager(deps = {}) {
         ),
       ),
     );
+
+    // Notify members of touched channels so open profile 
+    // modals refresh from the cached status endpoint.
+    for (const [sourceId, sourceItems] of bySource) {
+      const chatId = sourceItems[0]?.chat_id || null;
+      if (!chatId) continue;
+      try {
+        emitChatEvent?.(chatId, {
+          type: "remote_channel_queue",
+          chatId,
+          sourceId,
+        });
+      } catch {
+        // Realtime notify must never break queue progress.
+      }
+    }
   }
 
   async function runQueueLoop() {
@@ -2824,6 +2840,7 @@ export function createRemoteChannelManager(deps = {}) {
     isEnabled: () => enabled,
     reloadConfig,
     getHealth,
+    runQueueOnce,
     // Staged media pipeline (also reused by the worker webhook + fallback).
     downloadTelegramMediaFile,
     fetchTelegramMediaToTemp,

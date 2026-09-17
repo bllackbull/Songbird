@@ -196,7 +196,8 @@ export function useChatEvents({
           payload.type !== "presence_update" &&
           payload.type !== "profile_updated" &&
           payload.type !== "chat_typing" &&
-          payload.type !== "session_revoked"
+          payload.type !== "session_revoked" &&
+          payload.type !== "remote_channel_queue"
         ) {
           return;
         }

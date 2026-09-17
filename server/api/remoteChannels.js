@@ -8,6 +8,7 @@ function registerRemoteChannelRoutes(app, deps) {
     findChatById,
     findUserByUsername,
     getChatMemberRole,
+    emitChatEvent,
     getRemoteChannelQueueSummary,
     getRemoteChannelSourceByChatId,
     isMember,
@@ -34,6 +35,20 @@ function registerRemoteChannelRoutes(app, deps) {
         member.id === userId &&
         String(member.role || "").toLowerCase() === "owner",
     );
+  };
+
+  // Push queue changes to open profile modals (they refresh on this event).
+  const notifyQueueChanged = (chatIdValue, sourceId) => {
+    if (!chatIdValue || !sourceId) return;
+    try {
+      emitChatEvent?.(chatIdValue, {
+        type: "remote_channel_queue",
+        chatId: chatIdValue,
+        sourceId: Number(sourceId),
+      });
+    } catch {
+      // Realtime notify must never break the API response.
+    }
   };
 
   // Telegram requires API credentials; Songbird just needs the feature enabled.
@@ -92,11 +107,37 @@ function registerRemoteChannelRoutes(app, deps) {
     return { chat, chatId, user };
   };
 
+  // Short-TTL cache for the queue summary.
+  const queueSummaryCache = new Map(); // sourceId -> { at, summary }
+  const QUEUE_SUMMARY_TTL_MS = 5000;
+
+  const getCachedQueueSummary = async (sourceId) => {
+    const key = Number(sourceId || 0);
+    if (!key) return null;
+    const now = Date.now();
+    const hit = queueSummaryCache.get(key);
+    if (hit && now - hit.at < QUEUE_SUMMARY_TTL_MS) return hit.summary;
+    // Single-flight: concurrent misses share one query.
+    if (hit?.pending) return hit.pending;
+    const pending = (async () => {
+      const raw = getRemoteChannelQueueSummary(key);
+      return raw && typeof raw.then === "function" ? await raw : raw;
+    })();
+    queueSummaryCache.set(key, { at: now, summary: null, pending });
+    try {
+      const summary = await pending;
+      queueSummaryCache.set(key, { at: Date.now(), summary });
+      return summary;
+    } catch {
+      queueSummaryCache.delete(key);
+      return null;
+    }
+  };
+
   const serializeSource = async (source) => {
     if (!source?.id) return null;
 
-    const rawQueue = getRemoteChannelQueueSummary(source.id);
-    const queue = rawQueue && typeof rawQueue.then === "function" ? await rawQueue : rawQueue;
+    const queue = await getCachedQueueSummary(source.id);
 
     return {
       id: Number(source.id),
@@ -190,8 +231,7 @@ function registerRemoteChannelRoutes(app, deps) {
     const rawSource = getRemoteChannelSourceByChatId(chatId);
     const source = rawSource && typeof rawSource.then === "function" ? await rawSource : rawSource;
     if (!source?.id) return res.json({ queue: null });
-    const rawQueue = getRemoteChannelQueueSummary(source.id);
-    const queue = rawQueue && typeof rawQueue.then === "function" ? await rawQueue : rawQueue;
+    const queue = await getCachedQueueSummary(source.id);
     return res.json({ queue: queue || null });
   });
 
@@ -314,6 +354,7 @@ function registerRemoteChannelRoutes(app, deps) {
     }
 
     await updateRemoteChannelSourcePaused(source.id, true);
+    notifyQueueChanged(context.chatId, source.id);
 
     return res.json({
       ok: true,
@@ -333,6 +374,7 @@ function registerRemoteChannelRoutes(app, deps) {
     }
 
     await updateRemoteChannelSourcePaused(source.id, false);
+    notifyQueueChanged(context.chatId, source.id);
 
     return res.json({
       ok: true,
@@ -357,6 +399,7 @@ function registerRemoteChannelRoutes(app, deps) {
       typeof remoteChannelManager?.abortQueueItem === "function"
         ? await remoteChannelManager.abortQueueItem(source.id)
         : await skipCurrentRemoteChannelQueueItem(source.id);
+    notifyQueueChanged(context.chatId, source.id);
 
     return res.json({
       ok: true,
@@ -382,6 +425,7 @@ function registerRemoteChannelRoutes(app, deps) {
       typeof remoteChannelManager?.abortAllQueueItems === "function"
         ? await remoteChannelManager.abortAllQueueItems(source.id)
         : await skipAllRemoteChannelQueueItems(source.id);
+    notifyQueueChanged(context.chatId, source.id);
 
     return res.json({
       ok: true,
