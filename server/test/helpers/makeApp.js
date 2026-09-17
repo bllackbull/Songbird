@@ -340,6 +340,8 @@ export function makeApp(overrides = {}) {
     updateUserPassword: () => {},
     updateUserStatus: () => {},
     // Remote channel stubs
+    remoteChannelManager: null,
+    mirrorJobRegistry: null,
     upsertRemoteChannelSource: () => {},
     getRemoteChannelSourceByChatId: () => null,
     getRemoteChannelSourceById: () => null,

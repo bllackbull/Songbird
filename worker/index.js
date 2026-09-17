@@ -454,6 +454,136 @@ async function processTranscodeJob({
   }
 }
 
+/**
+ * Mirror job for Remote Channel media (Option A handoff).
+ *
+ * The server keeps the Telegram session: it downloads the bytes itself and
+ * hands the worker a pull URL. The worker probes (video only), enforces the
+ * size cap, uploads to the final destination, and reports back — no Telegram
+ * credentials ever leave the server, and buckets keep holding raw bytes per
+ * the message-upload convention.
+ */
+export async function processMirrorJob({
+  jobId,
+  downloadUrl,
+  downloadSecret,
+  storageKey,
+  storedName,
+  mimeType,
+  widthPx,
+  heightPx,
+  durationSeconds,
+  maxBytes,
+  probeVideo = false,
+  callbackUrl,
+  webhookSecret,
+  storageConfig,
+  uploadUrl,
+  uploadContentType,
+}) {
+  const defaultLocalCallback = `http://127.0.0.1:${process.env.PORT || process.env.SERVER_PORT || "5174"}/api/remote-channel/webhook/mirror-done`;
+  const targetCallback = callbackUrl || defaultLocalCallback;
+  const fail = async (error) => {
+    console.error("[worker] Mirror failed for job %s:", jobId, error?.message || error);
+    await notifyCallback(targetCallback, {
+      jobId,
+      status: "failed",
+      error: String(error?.message || error || "mirror failed"),
+    }, webhookSecret);
+  };
+
+  const ext = path.extname(storedName || storageKey || ".bin") || ".bin";
+  const inputPath = tempPath(ext);
+  const effectiveStorage = storageConfig ? createStorage(storageConfig) : storage;
+  const sizeCap = Math.max(1, Number(maxBytes || 25 * 1024 * 1024));
+
+  console.log(`[worker] Starting mirror job ${jobId} (${storageKey})`);
+
+  try {
+    await downloadWithRetry(async () => {
+      const headers = downloadSecret
+        ? { "x-songbird-mirror-secret": downloadSecret }
+        : {};
+      const res = await fetch(downloadUrl, { headers });
+      if (!res.ok) {
+        const downloadErr = new Error(
+          `Failed to download mirror bytes: HTTP ${res.status}`,
+        );
+        if (res.status === 404) downloadErr.code = "NotFound";
+        throw downloadErr;
+      }
+      await pipeline(res.body, fs.createWriteStream(inputPath));
+    });
+
+    const stat = fs.statSync(inputPath);
+    const sizeBytes = Number(stat?.size || 0);
+    if (sizeBytes <= 0) throw new Error("Mirror bytes are empty.");
+    if (sizeBytes > sizeCap) {
+      throw new Error(
+        `Mirror bytes exceed the ${sizeCap}-byte cap (${sizeBytes} bytes).`,
+      );
+    }
+
+    let outWidth = Number(widthPx || 0) || null;
+    let outHeight = Number(heightPx || 0) || null;
+    let outDuration = Number(durationSeconds || 0) || null;
+    const isVideo = String(mimeType || "").toLowerCase().startsWith("video/");
+    if (probeVideo && isVideo) {
+      try {
+        const details = await probeVideoDetails(inputPath);
+        outWidth = outWidth || Number(details?.widthPx || details?.width || 0) || null;
+        outHeight = outHeight || Number(details?.heightPx || details?.height || 0) || null;
+        outDuration = outDuration || Number(details?.durationSeconds || details?.duration || 0) || null;
+      } catch (probeErr) {
+        console.warn(
+          "[worker] Mirror probe skipped for job %s:",
+          jobId,
+          probeErr?.message,
+        );
+      }
+    }
+
+    const contentType = uploadContentType || mimeType || "application/octet-stream";
+    if (uploadUrl) {
+      const res = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": contentType },
+        body: fs.createReadStream(inputPath),
+        duplex: "half",
+      });
+      if (!res.ok) {
+        throw new Error(`Failed to upload mirror bytes: HTTP ${res.status}`);
+      }
+    } else {
+      await effectiveStorage.uploadFile(storageKey, inputPath, contentType);
+    }
+
+    console.log("[worker] Mirror completed for job %s:", jobId, {
+      storageKey,
+      sizeBytes,
+    });
+
+    await notifyCallback(targetCallback, {
+      jobId,
+      status: "ready",
+      storageKey,
+      storageDriver: storageConfig?.driver || storage?.type || null,
+      storedName: storedName || null,
+      mimeType: mimeType || null,
+      sizeBytes,
+      widthPx: outWidth,
+      heightPx: outHeight,
+      durationSeconds: outDuration,
+    }, webhookSecret);
+  } catch (err) {
+    await fail(err);
+  } finally {
+    try {
+      if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+    } catch {}
+  }
+}
+
 function parseJsonBody(req) {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -480,6 +610,17 @@ export function createWorkerServer(options = {}) {
     options.webhookSecret !== undefined ? options.webhookSecret : WEBHOOK_SECRET;
   const effectiveQueue = options.jobQueue || jobQueue;
   const processJobFn = options.processTranscodeJob || processTranscodeJob;
+  const processMirrorFn = options.processMirrorJob || processMirrorJob;
+
+  const checkSecret = (req, res) => {
+    const incomingSecret = req.headers["x-songbird-webhook-secret"];
+    if (effectiveWebhookSecret && incomingSecret !== effectiveWebhookSecret) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Unauthorized" }));
+      return false;
+    }
+    return true;
+  };
 
   const appServer = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
@@ -505,13 +646,8 @@ export function createWorkerServer(options = {}) {
 
     // Transcode dispatch endpoint
     if (req.method === "POST" && url.pathname === "/transcode") {
+      if (!checkSecret(req, res)) return;
       const incomingSecret = req.headers["x-songbird-webhook-secret"];
-      if (effectiveWebhookSecret) {
-        if (incomingSecret !== effectiveWebhookSecret) {
-          res.writeHead(401, { "Content-Type": "application/json" });
-          return res.end(JSON.stringify({ error: "Unauthorized" }));
-        }
-      }
 
       let payload;
       try {
@@ -569,6 +705,81 @@ export function createWorkerServer(options = {}) {
           downloadUrl,
           uploadUrl,
           thumbUploadUrl,
+        }),
+      );
+      return;
+    }
+
+    // Mirror dispatch endpoint (Remote Channel media handoff)
+    if (req.method === "POST" && url.pathname === "/mirror-media") {
+      if (!checkSecret(req, res)) return;
+      const incomingSecret = req.headers["x-songbird-webhook-secret"];
+
+      let payload;
+      try {
+        payload = await parseJsonBody(req);
+      } catch (err) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        return res.end(JSON.stringify({ error: "Invalid JSON body" }));
+      }
+
+      const {
+        jobId,
+        downloadUrl,
+        downloadSecret,
+        storageKey,
+        storedName,
+        mimeType,
+        widthPx,
+        heightPx,
+        durationSeconds,
+        maxBytes,
+        probeVideo,
+        callbackUrl,
+        webhookSecret,
+        storageConfig,
+        uploadUrl,
+        uploadContentType,
+      } = payload;
+      if (!jobId || (!storageKey && !downloadUrl)) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        return res.end(
+          JSON.stringify({
+            error: "jobId and storageKey (or downloadUrl) are required",
+          }),
+        );
+      }
+
+      // Acknowledge receipt immediately (202 Accepted)
+      res.writeHead(202, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          success: true,
+          message: "Mirror job accepted",
+          jobId,
+          queuePosition: effectiveQueue.size,
+        }),
+      );
+
+      // Process via async queue with concurrency limit
+      effectiveQueue.push(() =>
+        processMirrorFn({
+          jobId,
+          downloadUrl,
+          downloadSecret,
+          storageKey,
+          storedName,
+          mimeType,
+          widthPx,
+          heightPx,
+          durationSeconds,
+          maxBytes,
+          probeVideo,
+          callbackUrl,
+          webhookSecret: webhookSecret || incomingSecret || null,
+          storageConfig,
+          uploadUrl,
+          uploadContentType,
         }),
       );
       return;

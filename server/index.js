@@ -161,6 +161,8 @@ import {
   dbGetSetting,
 } from "./db.js";
 import { resolveTelegramSecrets } from "./lib/remoteChannelSecrets.js";
+import { createMirrorJobRegistry } from "./lib/remoteMirrorJobs.js";
+import { dispatchMirrorJob } from "./lib/remoteMirrorDispatch.js";
 import {
   loadSettings,
   getSetting,
@@ -972,6 +974,78 @@ apiDeps.postgresMaintenance = apiDeps.dbConfig.client === "postgres"
   ? createPostgresMaintenance({ config: apiDeps.dbConfig })
   : null;
 
+// Mirror-job registry + worker dispatch (Option A). The manager is created
+// below; the ref is filled right after so the fallback can finish inline.
+const mirrorJobRegistry = createMirrorJobRegistry({});
+const mirrorManagerRef = {};
+const dispatchMirrorMedia = async ({
+  descriptor,
+  storedName,
+  filePath,
+  actualSize,
+  messageId,
+  chatId,
+  authorId,
+  authorUsername,
+}) => {
+  const { dispatched } = await dispatchMirrorJob({
+    workerUrl: process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
+    storageProcessingMode: process.env.STORAGE_PROCESSING_MODE || "auto",
+    workerPort: process.env.WORKER_PORT || "8080",
+    serverPort: process.env.PORT || process.env.SERVER_PORT || "5174",
+    processingTimeoutMs: Number(process.env.STORAGE_PROCESSING_TIMEOUT_MS) || 120000,
+    webhookSecret: process.env.WEBHOOK_SECRET || null,
+    registry: mirrorJobRegistry,
+    storageKey: `uploads/messages/${storedName}`,
+    jobMeta: {
+      filePath,
+      storedName,
+      mimeType: descriptor?.mimeType || null,
+      kind: descriptor?.kind || null,
+      originalName: descriptor?.originalName || null,
+      widthPx: descriptor?.widthPx ?? null,
+      heightPx: descriptor?.heightPx ?? null,
+      durationSeconds: descriptor?.durationSeconds ?? null,
+      maxBytes: FILE_UPLOAD_MAX_SIZE,
+      actualSize,
+      descriptor,
+      messageId,
+      chatId,
+      authorId,
+      authorUsername,
+    },
+    onFallback: async () => {
+      const manager = mirrorManagerRef.current;
+      if (!manager) return;
+      const finished = await manager.finishMirroredMediaFile({
+        descriptor,
+        storedName,
+        filePath,
+        actualSize,
+      });
+      if (finished?.file) {
+        await manager.attachMirroredMedia({
+          messageId,
+          chatId,
+          authorId,
+          authorUsername,
+          file: finished.file,
+        });
+      }
+    },
+  });
+  return dispatched;
+};
+// Reap orphaned mirror temps (e.g. after an unclean shutdown).
+const mirrorSweepTimer = setInterval(() => {
+  try {
+    mirrorJobRegistry.sweep();
+  } catch {
+    // Best effort only.
+  }
+}, 5 * 60 * 1000);
+if (typeof mirrorSweepTimer.unref === "function") mirrorSweepTimer.unref();
+
 const remoteChannelManager = createRemoteChannelManager({
   config: REMOTE_CHANNEL_CONFIG,
   computeExpiryIso,
@@ -979,6 +1053,7 @@ const remoteChannelManager = createRemoteChannelManager({
   createOrReuseMessage,
   crypto,
   debugLog,
+  dispatchMirrorMedia,
   emitChatEvent,
   emitSseEvent,
   enqueueVideoTranscodeJob,
@@ -1021,6 +1096,8 @@ const remoteChannelManager = createRemoteChannelManager({
 });
 
 apiDeps.remoteChannelManager = remoteChannelManager;
+apiDeps.mirrorJobRegistry = mirrorJobRegistry;
+mirrorManagerRef.current = remoteChannelManager;
 
 if (isProduction) {
   app.use("/api", apiLimiter);
