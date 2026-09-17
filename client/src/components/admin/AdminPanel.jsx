@@ -336,7 +336,7 @@ export default function AdminPanel({ user, onBack }) {
               <ServicesTab
                 ref={(r) => { tabRefs.current.services = r; }}
                 data={cache.services?.data ?? null}
-                onSetupRemoteChannel={() => selectTab("settings")}
+                onMutated={() => refreshKey("services")}
               />
             </Activity>
             <Activity mode={tab === "users" ? "visible" : "hidden"}>

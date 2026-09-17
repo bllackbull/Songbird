@@ -36,7 +36,7 @@ import { buildTimestampSchedule } from "./lib/timeUtils.js";
 import { isLoopbackRequest, parseUploadFileMetadata } from "./lib/requestUtils.js";
 import { USERNAME_REGEX } from "./lib/validation.js";
 import { USER_COLORS, setUserColor } from "./settings/colors.js";
-import { readEnvInt, readDbConfig, parseEnv } from "./settings/env.js";
+import { readDbConfig, parseEnv } from "./settings/env.js";
 import { createPostgresMaintenance } from "./lib/postgresMaintenance.js";
 import { dbKnex } from "./db/knex.js";
 import {
@@ -158,7 +158,9 @@ import {
   dbGetAllSettings,
   dbSetSetting,
   dbDeleteSetting,
+  dbGetSetting,
 } from "./db.js";
+import { resolveTelegramSecrets } from "./lib/remoteChannelSecrets.js";
 import {
   loadSettings,
   getSetting,
@@ -325,18 +327,12 @@ const FILE_UPLOAD = getSetting("FILE_UPLOAD");
 const REMOTE_CHANNEL = getSetting("REMOTE_CHANNEL");
 const REMOTE_CHANNEL_UI = getSetting("REMOTE_CHANNEL_UI");
 const REMOTE_CHANNEL_MEDIA_STREAM = getSetting("REMOTE_CHANNEL_MEDIA_STREAM");
-// Telegram credentials remain in .env (secrets — never stored in DB)
-const REMOTE_CHANNEL_TELEGRAM_API_ID = readEnvInt(
-  "REMOTE_CHANNEL_TELEGRAM_API_ID",
-  0,
-  { min: 1 },
-);
-const REMOTE_CHANNEL_TELEGRAM_API_HASH = String(
-  process.env.REMOTE_CHANNEL_TELEGRAM_API_HASH || "",
-).trim();
-const REMOTE_CHANNEL_TELEGRAM_SESSION_STRING = String(
-  process.env.REMOTE_CHANNEL_TELEGRAM_SESSION_STRING || "",
-).trim();
+// Telegram credentials live outside the settings registry (Services setup or
+// .env). Env vars win when set, otherwise the DB rows written by the setup flow.
+const REMOTE_CHANNEL_SECRETS = await resolveTelegramSecrets({ dbGetSetting });
+const REMOTE_CHANNEL_TELEGRAM_API_ID = REMOTE_CHANNEL_SECRETS.apiId;
+const REMOTE_CHANNEL_TELEGRAM_API_HASH = REMOTE_CHANNEL_SECRETS.apiHash;
+const REMOTE_CHANNEL_TELEGRAM_SESSION_STRING = REMOTE_CHANNEL_SECRETS.sessionString;
 const REMOTE_CHANNEL_PROXY_URL = String(
   getSetting("REMOTE_CHANNEL_TELEGRAM_PROXY_URL") || "",
 ).trim();
@@ -965,6 +961,9 @@ const apiDeps = {
   resetSetting,
   validateSetting,
   SETTING_DEFS,
+  dbGetSetting,
+  dbSetSetting,
+  dbDeleteSetting,
   dbRun: adminRun,
   dbSave: adminSave,
 };

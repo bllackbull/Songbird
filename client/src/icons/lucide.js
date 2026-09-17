@@ -67,6 +67,7 @@ import {
   MessageCircle as Chat,
   MessageCircleMore,
   MessageCircleX,
+  PackageOpen,
   Paperclip,
   Pause,
   Pencil,
@@ -92,6 +93,7 @@ import {
   ToggleRight,
   Trash,
   TriangleAlert,
+  Unplug,
   Upload,
   User,
   UserMinus,
@@ -105,6 +107,7 @@ import {
   Wrench,
   X as Close,
   XCircle as CloseCircle,
+  Zap,
 } from "lucide-react";
 
 export {
@@ -176,6 +179,7 @@ export {
   Moon,
   MessageCircleMore,
   MessageCircleX,
+  PackageOpen,
   Paperclip,
   Pause,
   Pencil,
@@ -202,6 +206,7 @@ export {
   ToggleRight,
   Trash,
   TriangleAlert,
+  Unplug,
   Upload,
   User,
   UserMinus,
@@ -215,4 +220,5 @@ export {
   Wrench,
   Close,
   CloseCircle,
+  Zap,
 };

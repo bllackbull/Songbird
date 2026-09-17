@@ -4153,6 +4153,17 @@ export function dbGetAllSettings() {
   return getAll(dbKnex("app_settings").select("key", "value"));
 }
 
+export function dbGetSetting(key) {
+  const row = getRow(
+    dbKnex("app_settings").select("value").where({ key: String(key) }).first(),
+  );
+  if (row && typeof row.then === "function") {
+    return row.then((r) => (r?.value !== undefined && r?.value !== null ? String(r.value) : null));
+  }
+  if (row?.value === undefined || row?.value === null) return null;
+  return String(row.value);
+}
+
 export function dbSetSetting(key, value) {
   run(
     dbKnex("app_settings")

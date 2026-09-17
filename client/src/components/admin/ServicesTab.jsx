@@ -3,17 +3,33 @@ import {
   AlertCircle,
   Check,
   Clapper,
-  Database,
+  KeyRound,
   LoaderCircle,
-  SatelliteDish,
+  PackageOpen,
 } from "../../icons/lucide.js";
+import { TelegramIcon } from "../../icons/BrandIcons.jsx";
+import Tooltip from "../common/Tooltip.jsx";
 import { api } from "./adminShared.js";
 import { SectionHeading } from "./AdminCommon.jsx";
+import RemoteChannelSetupModal from "./RemoteChannelSetupModal.jsx";
 
 // ─── Status badge — mirrors ActionsTab ───────────────────────────────────────
 
 function StatusBadge({ status }) {
   if (!status) return null;
+  // "env" mirrors the Settings tab EnvLockBadge for env-managed values.
+  if (status.type === "env") {
+    return (
+      <Tooltip label="Managed via environment variables">
+        <span
+          tabIndex={0}
+          className="inline-flex cursor-help items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-white/10 dark:text-slate-400"
+        >
+          <KeyRound size={9} /> set in .env
+        </span>
+      </Tooltip>
+    );
+  }
   const { type, label } = status;
   const cls =
     type === "error"
@@ -73,10 +89,11 @@ function ServiceRow({
 }
 
 const ServicesTab = forwardRef(function ServicesTab(
-  { data, onSetupRemoteChannel },
+  { data, onMutated },
   ref,
 ) {
   const [rowStatus, setRowStatus] = useState({});
+  const [setupOpen, setSetupOpen] = useState(false);
   const statusTimers = useRef({});
 
   const flashStatus = (key, type, label, ms = 3000) => {
@@ -107,9 +124,16 @@ const ServicesTab = forwardRef(function ServicesTab(
       : "Configured but unreachable."
     : "Local fallback mode — no external worker configured.";
 
-  const remoteDescription = remoteChannel?.enabled
-    ? `Enabled${remoteChannel.telegramConfigured ? " · Telegram linked" : " · Songbird only"}`
-    : "Disabled — set up to link Telegram.";
+  const remoteFeatureOn = Boolean(remoteChannel?.enabled);
+  const remoteLinked = Boolean(remoteChannel?.telegramConfigured);
+  const remoteEnvManaged = Boolean(remoteChannel?.telegramManagedByEnv);
+  const remoteDescription = !remoteFeatureOn
+    ? "Remote channel is disabled"
+    : remoteEnvManaged
+      ? "Telegram credentials are set in .env"
+      : remoteLinked
+        ? `Telegram linked${remoteChannel.telegramConnected ? " · connected" : ""}`
+        : "Not linked — set up to link Telegram.";
 
   const handleWorkerCheck = async () => {
     flashStatus("worker", "busy", "Checking…");
@@ -145,22 +169,27 @@ const ServicesTab = forwardRef(function ServicesTab(
             }
           />
           <ServiceRow
-            icon={SatelliteDish}
+            icon={TelegramIcon}
             iconAnim="icon-anim-sway"
-            label="Remote channel"
+            label="Telegram connection"
             description={remoteDescription}
-            onClick={() => onSetupRemoteChannel?.()}
+            onClick={() => setSetupOpen(true)}
+            disabled={!remoteFeatureOn || remoteEnvManaged}
             status={
-              rowStatus.remote ||
-              (remoteChannel
-                ? remoteChannel.enabled
-                  ? { type: "success", label: "Active" }
-                  : { type: "error", label: "Inactive" }
-                : null)
+              !remoteFeatureOn
+                ? { type: "error", label: "Disabled" }
+                : remoteEnvManaged
+                  ? { type: "env" }
+                  : rowStatus.remote ||
+                    (remoteChannel
+                      ? remoteLinked
+                        ? { type: "success", label: "Connected" }
+                        : { type: "error", label: "Not configured" }
+                      : null)
             }
           />
           <ServiceRow
-            icon={Database}
+            icon={PackageOpen}
             iconAnim="icon-anim-drop"
             label="Storage"
             description={`Driver: ${storage?.driver || "local"}`}
@@ -169,6 +198,11 @@ const ServicesTab = forwardRef(function ServicesTab(
           />
         </div>
       </div>
+      <RemoteChannelSetupModal
+        open={setupOpen}
+        onClose={() => setSetupOpen(false)}
+        onChanged={() => onMutated?.()}
+      />
     </div>
   );
 });

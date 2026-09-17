@@ -855,9 +855,9 @@ export function createRemoteChannelManager(deps = {}) {
   const resolveMaybePromise = async (value) =>
     value && typeof value.then === "function" ? await value : value;
 
-  const apiId = Number(config.telegramApiId || 0);
-  const apiHash = String(config.telegramApiHash || "").trim();
-  const sessionString = String(config.telegramSessionString || "").trim();
+  let apiId = Number(config.telegramApiId || 0);
+  let apiHash = String(config.telegramApiHash || "").trim();
+  let sessionString = String(config.telegramSessionString || "").trim();
   // The manager is enabled if the feature is on — Songbird sources work without
   // Telegram credentials. Telegram sources additionally require apiId/hash/session.
   const enabled = Boolean(config.enabled);
@@ -2650,10 +2650,35 @@ export function createRemoteChannelManager(deps = {}) {
     };
   }
 
+  // Hot-reload Telegram credentials saved from the admin panel (no restart).
+  // Drops the live MTProto client so the next poll loop reconnects with the
+  // new identity; poll/queue loops keep running.
+  async function reloadConfig(nextConfig = {}) {
+    if (nextConfig.telegramApiId !== undefined) apiId = Number(nextConfig.telegramApiId || 0);
+    if (nextConfig.telegramApiHash !== undefined) apiHash = String(nextConfig.telegramApiHash || "").trim();
+    if (nextConfig.telegramSessionString !== undefined) {
+      sessionString = String(nextConfig.telegramSessionString || "").trim();
+    }
+    clientResetRequired = true;
+    clientResetReason = "credentials updated";
+    if (client) {
+      const staleClient = client;
+      client = null;
+      await destroyTelegramClient(staleClient, "credentials updated").catch(() => {});
+    }
+    // If the feature just got credentials while running, ensure the Telegram
+    // poll loop is active.
+    if (enabled && !stopped && apiId && apiHash && sessionString && !pollLoopRunning) {
+      void runPollLoop();
+    }
+    return getHealth();
+  }
+
   return {
     start,
     stop,
     isEnabled: () => enabled,
+    reloadConfig,
     getHealth,
     syncSourceMetadata,
     testConnection,

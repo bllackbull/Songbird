@@ -392,6 +392,7 @@ export function makeApp(overrides = {}) {
     // registers admin routes. Production resolves this once during startup.
     getServiceControlStatus: () => ({ available: false, reason: "systemctl not available." }),
     dbGetAllSettings: () => [],
+    dbGetSetting: () => null,
     dbSetSetting: () => {},
     dbDeleteSetting: () => {},
     getAllSettings: () => [],

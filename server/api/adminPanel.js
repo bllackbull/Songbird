@@ -434,6 +434,15 @@ function registerAdminPanelRoutes(app, deps) {
     } catch {
       remoteChannel = { enabled: false, error: "health probe failed" };
     }
+    // Env-managed Telegram creds can't be edited from the panel.
+    remoteChannel.telegramManagedByEnv = [
+      "REMOTE_CHANNEL_TELEGRAM_API_ID",
+      "REMOTE_CHANNEL_TELEGRAM_API_HASH",
+      "REMOTE_CHANNEL_TELEGRAM_SESSION_STRING",
+    ].some((key) => {
+      const raw = process.env[key];
+      return raw !== undefined && raw !== null && String(raw).trim() !== "";
+    });
     const storageProvider = deps.storageProvider;
     const payload = {
       mediaWorker,
