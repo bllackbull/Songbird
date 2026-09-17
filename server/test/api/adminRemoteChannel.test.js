@@ -122,9 +122,15 @@ describe("admin remote-channel setup", () => {
     expect(res.body.error).toMatch(/code first/i);
   });
 
-  test("DELETE session clears and hot-reloads the manager", async () => {
+  test("DELETE session clears, hot-reloads, and flips the live flag", async () => {
+    const remoteChannels = { enabled: true, telegramConfigured: true };
     const { app, reloadConfig, store, dbDeleteSetting } = setupAdminApp({
-      secrets: { REMOTE_CHANNEL_TELEGRAM_SESSION_STRING: "sess" },
+      secrets: {
+        REMOTE_CHANNEL_TELEGRAM_API_ID: "123",
+        REMOTE_CHANNEL_TELEGRAM_API_HASH: "hash",
+        REMOTE_CHANNEL_TELEGRAM_SESSION_STRING: "sess",
+      },
+      deps: { REMOTE_CHANNELS: remoteChannels },
     });
     expect(store.has("REMOTE_CHANNEL_TELEGRAM_SESSION_STRING")).toBe(true);
     const res = await request(app)
@@ -136,6 +142,8 @@ describe("admin remote-channel setup", () => {
     );
     expect(store.has("REMOTE_CHANNEL_TELEGRAM_SESSION_STRING")).toBe(false);
     expect(reloadConfig).toHaveBeenCalled();
+    // Channel routes gate on this live object — no restart required.
+    expect(remoteChannels.telegramConfigured).toBe(false);
   });
 
   test("test without credentials fails fast without network", async () => {

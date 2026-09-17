@@ -93,6 +93,17 @@ function registerAdminRemoteChannelRoutes(app, deps) {
     }
   };
 
+  // The channel routes gate on the REMOTE_CHANNELS snapshot captured at boot.
+  // Re-sync the live object after setup changes so newly linked credentials
+  // take effect without a restart.
+  const syncChannelFlag = async () => {
+    if (!deps.REMOTE_CHANNELS || typeof deps.REMOTE_CHANNELS !== "object") return;
+    const creds = await readCreds();
+    deps.REMOTE_CHANNELS.telegramConfigured = Boolean(
+      creds.apiId && creds.apiHash && creds.sessionString,
+    );
+  };
+
   const buildClient = (apiId, apiHash) => {
     const proxyUrl = String(
       getSetting("REMOTE_CHANNEL_TELEGRAM_PROXY_URL") || "",
@@ -306,6 +317,7 @@ function registerAdminRemoteChannelRoutes(app, deps) {
         const saved = await saveCreds({ sessionString });
         if (!saved) throw new Error("Could not persist the session on this server.");
         await reloadManager();
+        await syncChannelFlag();
         pendingLogins.delete(session.id);
         await client.destroy?.().catch(() => {});
         log(session, "remoteChannel.setup_signed_in", {
@@ -397,6 +409,7 @@ function registerAdminRemoteChannelRoutes(app, deps) {
         .json({ error: "Could not clear the session on this server." });
     }
     await reloadManager();
+    await syncChannelFlag();
     log(session, "remoteChannel.disconnected", {
       details: "Telegram session cleared",
     });
