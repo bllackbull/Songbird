@@ -99,6 +99,34 @@ describe("dispatchMirrorJob", () => {
     expect(body.downloadUrl.startsWith("https://app.example.com")).toBe(true);
   });
 
+  test("a full WEBHOOK_URL callback path is reduced to the server origin", async () => {
+    const registry = makeRegistry();
+    const fetchImpl = vi.fn(async () => ({ ok: true, status: 202 }));
+    const res = await dispatchMirrorJob({
+      storageProcessingMode: "remote",
+      workerUrl: "https://worker.example.com",
+      // Production WEBHOOK_URL is the uploads-callback URL; the mirror flow
+      // must not append its own paths to it (worker got 404s on blob +
+      // mirror-done and every photo fell back to the 120s inline timer).
+      webhookBaseUrl:
+        "https://app.example.com/api/uploads/webhook/processed",
+      fetchImpl,
+      registry,
+      storageKey: "uploads/messages/x.bin",
+      jobMeta: baseJob,
+    });
+    expect(res.dispatched).toBe(true);
+    const [, opts] = fetchImpl.mock.calls[0];
+    const body = JSON.parse(opts.body);
+    expect(body.callbackUrl).toBe(
+      "https://app.example.com/api/remote-channel/webhook/mirror-done",
+    );
+    expect(body.downloadUrl).toContain(
+      "https://app.example.com/api/remote-channel/blob/",
+    );
+    expect(body.downloadUrl).not.toContain("/api/uploads/webhook/processed");
+  });
+
   test("local mode always targets loopback", async () => {
     const registry = makeRegistry();
     const fetchImpl = vi.fn(async () => ({ ok: true, status: 202 }));

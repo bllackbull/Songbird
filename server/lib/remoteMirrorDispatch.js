@@ -35,14 +35,22 @@ function cleanBaseUrl(url) {
 }
 
 function resolveWebhookBase(explicit) {
-  return (
+  const raw =
     explicit ||
     process.env.WEBHOOK_URL ||
     process.env.WEBHOOK_CALLBACK_URL ||
     process.env.SONGBIRD_WEBHOOK_URL ||
     process.env.SONGBIRD_WEBHOOK_CALLBACK_URL ||
-    null
-  );
+    null;
+  if (!raw) return null;
+  // Reduce any absolute URL to its origin — otherwise the worker gets 404s on both endpoints.
+  const trimmed = String(raw).trim();
+  if (!trimmed) return null;
+  try {
+    return new URL(trimmed).origin;
+  } catch {
+    return trimmed;
+  }
 }
 
 /**
