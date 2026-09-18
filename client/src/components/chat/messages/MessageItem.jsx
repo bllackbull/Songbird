@@ -31,6 +31,7 @@ import {
 } from "../../../utils/messageContent.js";
 import { resolveMention, getCachedMention } from "../../../utils/mentions.js";
 import { summarizeFiles } from "../../../utils/messagePreview.js";
+import { resolveForwardedTarget } from "../../../utils/forwardOrigin.js";
 import Avatar from "../../common/Avatar.jsx";
 import UserRoleBadge from "../../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../../common/VerifiedBadge.jsx";
@@ -247,37 +248,20 @@ export const MessageItem = memo(function MessageItem({
       : isRemoteForwardedOrigin
         ? "#10b981"
         : String(msg?.forwarded_from_color || "#10b981").trim() || "#10b981";
-  const forwardedTarget =
-    isDeletedForwardedChat || isDeletedForwardedUser
-      ? null
-      : forwardedFromChatId
-    ? {
-        kind: "chat",
-        chatId: forwardedFromChatId,
-        label: forwardedFromLabel,
-        avatar_url: forwardedOriginAvatarUrl,
-        color: forwardedOriginColor,
-      }
-    : forwardedFromUserId
-      ? {
-          kind: "user",
-          userId: forwardedFromUserId,
-          username: forwardedFromUsername,
-          nickname: forwardedFromLabel,
-          avatar_url: forwardedOriginAvatarUrl,
-          color: forwardedOriginColor,
-        }
-      : remoteForwardedChatId > 0 && storedForwardedLabel
-        ? {
-            kind: "chat",
-            chatId: remoteForwardedChatId,
-            label: chatName || forwardedFromLabel,
-            avatar_url: "",
-            color: chatColor || "#10b981",
-          }
-        : storedForwardedLabel
-          ? { kind: "self" }
-        : null;
+  const forwardedTarget = resolveForwardedTarget({
+    forwardedFromChatId,
+    forwardedFromUserId,
+    forwardedFromUsername,
+    forwardedFromLabel,
+    forwardedOriginAvatarUrl,
+    forwardedOriginColor,
+    remoteForwardedChatId,
+    storedForwardedLabel,
+    chatName,
+    chatColor,
+    isDeletedForwardedChat,
+    isDeletedForwardedUser,
+  });
   const isForwarded = forwardedFromChatId
     ? Boolean(forwardedFromLabel)
     : forwardedFromUserId
