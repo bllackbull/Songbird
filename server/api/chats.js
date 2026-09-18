@@ -691,27 +691,29 @@ function registerChatRoutes(app, deps) {
     if (remoteChannelConfig.shouldSave) {
       let remoteSource = null;
       try {
-        remoteSource = upsertRemoteChannelSource({
-          chatId,
-          provider: remoteChannelConfig.provider,
-          sourceRaw: remoteChannelConfig.sourceRaw,
-          sourceChatId: remoteChannelConfig.sourceChatId,
-          sourceUsername: remoteChannelConfig.sourceUsername,
-          sourceUrl: remoteChannelConfig.sourceUrl || "",
-          syncMetadata: remoteChannelConfig.syncMetadata,
-          streamMedia: remoteChannelConfig.streamMedia,
-          enabled: remoteChannelConfig.enabled,
-        });
+        remoteSource = await resolveMaybePromise(
+          upsertRemoteChannelSource({
+            chatId,
+            provider: remoteChannelConfig.provider,
+            sourceRaw: remoteChannelConfig.sourceRaw,
+            sourceChatId: remoteChannelConfig.sourceChatId,
+            sourceUsername: remoteChannelConfig.sourceUsername,
+            sourceUrl: remoteChannelConfig.sourceUrl || "",
+            syncMetadata: remoteChannelConfig.syncMetadata,
+            streamMedia: remoteChannelConfig.streamMedia,
+            enabled: remoteChannelConfig.enabled,
+          }),
+        );
         if (
           remoteChannelConfig.enabled &&
           remoteChannelConfig.provider === "telegram" &&
           remoteChannelConfig.syncMetadata &&
           typeof remoteChannelManager?.syncSourceMetadata === "function"
         ) {
-          await remoteChannelManager.syncSourceMetadata(remoteSource.id);
+          await remoteChannelManager.syncSourceMetadata(remoteSource?.id);
         }
       } catch (error) {
-        deleteChatById(chatId);
+        await resolveMaybePromise(deleteChatById(chatId));
         return res.status(400).json({
           error: remoteChannelConfig.syncMetadata
             ? `Unable to sync Telegram metadata: ${

@@ -311,7 +311,7 @@ function registerRemoteChannelRoutes(app, deps) {
       }
     }
 
-    let source = upsertRemoteChannelSource({
+    const upsertedRaw = upsertRemoteChannelSource({
       chatId: context.chatId,
       provider,
       sourceRaw: normalized.sourceRaw,
@@ -322,6 +322,12 @@ function registerRemoteChannelRoutes(app, deps) {
       streamMedia,
       enabled,
     });
+    // The DB driver is async under Postgres — resolve before reading `.id`
+    // (otherwise the id is undefined and the metadata sync queries `NaN`).
+    const source =
+      upsertedRaw && typeof upsertedRaw.then === "function"
+        ? await upsertedRaw
+        : upsertedRaw;
 
     if (
       enabled &&
@@ -329,7 +335,7 @@ function registerRemoteChannelRoutes(app, deps) {
       typeof remoteChannelManager?.syncSourceMetadata === "function"
     ) {
       // Run metadata sync in the background — works for both Telegram and Songbird.
-      const sourceId = source.id;
+      const sourceId = source?.id;
       remoteChannelManager.syncSourceMetadata(sourceId).catch(() => {
         // Errors are recorded on the source record by syncSourceMetadata itself.
       });

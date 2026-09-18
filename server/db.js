@@ -937,6 +937,13 @@ export function getRemoteChannelSourceByChatId(chatId) {
 }
 
 export function getRemoteChannelSourceById(sourceId) {
+  const id = Number(sourceId);
+  // Guard against undefined/NaN ids (e.g. from an un-awaited upsert result).
+  // Postgres rejects `WHERE id = 'NaN'` with "invalid input syntax for type
+  // integer", so return null instead of issuing the query.
+  if (!Number.isFinite(id) || id <= 0) {
+    return isPostgresMode() ? Promise.resolve(null) : null;
+  }
   return getRow(
     dbKnex("remote_channel_sources")
       .select(
@@ -945,7 +952,7 @@ export function getRemoteChannelSourceById(sourceId) {
         "enabled", "paused", "source_version", "sync_metadata", "stream_media",
         "last_error", "last_seen_at", "created_at", "updated_at"
       )
-      .where("id", Number(sourceId))
+      .where("id", id)
       .first(),
   );
 }
@@ -962,25 +969,7 @@ export function upsertRemoteChannelSource(payload = {}) {
   const enabled = payload.enabled ? 1 : 0;
   const syncMetadata = payload.syncMetadata ? 1 : 0;
   const streamMedia = payload.streamMedia ? 1 : 0;
-  const current = getRemoteChannelSourceByChatId(chatId);
-  const sourceChanged = Boolean(
-    current?.id &&
-      (String(current.source_raw || "") !== String(sourceRaw || "") ||
-        String(current.source_chat_id || "") !== String(sourceChatId || "") ||
-        String(current.source_username || "") !== String(sourceUsername || "") ||
-        String(current.source_url || "") !== String(sourceUrl || "") ||
-        String(current.provider || "telegram") !== provider),
-  );
-  const currentSourceVersion = Math.max(
-    1,
-    Number(current?.source_version || 1) || 1,
-  );
-  const sourceVersion = sourceChanged
-    ? currentSourceVersion + 1
-    : currentSourceVersion;
-
-  run(
-    `INSERT INTO remote_channel_sources (
+  const upsertSql = `INSERT INTO remote_channel_sources (
        chat_id, provider, source_raw, source_chat_id, source_username,
        source_url, source_version, sync_metadata, stream_media, enabled,
        last_error, updated_at
@@ -1024,8 +1013,29 @@ export function upsertRemoteChannelSource(payload = {}) {
        stream_media = excluded.stream_media,
        enabled = excluded.enabled,
        last_error = NULL,
-       updated_at = datetime('now')`,
-    [
+       updated_at = datetime('now')`;
+
+  // Runs the INSERT/UPSERT and the follow-up queue cleanup against a resolved
+  // `current` row. Awaits each write when the driver is async (Postgres) so
+  // the final SELECT cannot race ahead of the INSERT.
+  const applyUpsert = (resolvedCurrent) => {
+    const sourceChanged = Boolean(
+      resolvedCurrent?.id &&
+        (String(resolvedCurrent.source_raw || "") !== String(sourceRaw || "") ||
+          String(resolvedCurrent.source_chat_id || "") !== String(sourceChatId || "") ||
+          String(resolvedCurrent.source_username || "") !== String(sourceUsername || "") ||
+          String(resolvedCurrent.source_url || "") !== String(sourceUrl || "") ||
+          String(resolvedCurrent.provider || "telegram") !== provider),
+    );
+    const currentSourceVersion = Math.max(
+      1,
+      Number(resolvedCurrent?.source_version || 1) || 1,
+    );
+    const sourceVersion = sourceChanged
+      ? currentSourceVersion + 1
+      : currentSourceVersion;
+
+    const write = run(upsertSql, [
       chatId,
       provider,
       sourceRaw,
@@ -1036,30 +1046,48 @@ export function upsertRemoteChannelSource(payload = {}) {
       syncMetadata,
       streamMedia,
       enabled,
-    ],
-  );
+    ]);
 
-  if (current?.id && (sourceChanged || !enabled)) {
-    run(
-      `UPDATE remote_channel_queue
-       SET status = 'skipped',
-           locked_at = NULL,
-           lock_owner = NULL,
-           last_error = ?,
-           processed_at = datetime('now')
-       WHERE source_id = ?
-         AND status IN ('pending', 'retry', 'processing')`,
-      [
-        sourceChanged
-          ? "Remote source changed before this item was mirrored."
-          : "Remote Channel was disabled before this item was mirrored.",
-        Number(current.id),
-      ],
-    );
+    const afterWrite = () => {
+      const skipStaleQueue = () => {
+        if (!(resolvedCurrent?.id && (sourceChanged || !enabled))) return null;
+        return run(
+          `UPDATE remote_channel_queue
+           SET status = 'skipped',
+               locked_at = NULL,
+               lock_owner = NULL,
+               last_error = ?,
+               processed_at = datetime('now')
+           WHERE source_id = ?
+             AND status IN ('pending', 'retry', 'processing')`,
+          [
+            sourceChanged
+              ? "Remote source changed before this item was mirrored."
+              : "Remote Channel was disabled before this item was mirrored.",
+            Number(resolvedCurrent.id),
+          ],
+        );
+      };
+
+      const afterSkip = () => {
+        saveDatabase();
+        return getRemoteChannelSourceByChatId(chatId);
+      };
+
+      const skip = skipStaleQueue();
+      if (skip && typeof skip.then === "function") return skip.then(afterSkip);
+      return afterSkip();
+    };
+
+    if (write && typeof write.then === "function") return write.then(afterWrite);
+    return afterWrite();
+  };
+
+  const current = getRemoteChannelSourceByChatId(chatId);
+  if (current && typeof current.then === "function") {
+    return current.then(applyUpsert);
   }
-  saveDatabase();
-
-  return getRemoteChannelSourceByChatId(chatId);
+  return applyUpsert(current);
 }
 
 export function listEnabledRemoteChannelSources(provider = "telegram") {
@@ -1083,6 +1111,15 @@ export function updateRemoteChannelSourceSeen(sourceId, payload = {}) {
   if (!id) return 0;
 
   const current = getRemoteChannelSourceById(id);
+  if (current && typeof current.then === "function") {
+    return current.then((resolved) =>
+      applyRemoteChannelSourceSeen(id, resolved, payload),
+    );
+  }
+  return applyRemoteChannelSourceSeen(id, current, payload);
+}
+
+function applyRemoteChannelSourceSeen(id, current, payload = {}) {
   if (!current?.id) return 0;
 
   const sourceChatId = normalizeRemoteSourceChatId(payload.sourceChatId);
@@ -1174,6 +1211,15 @@ export function updateRemoteChannelSourceError(sourceId, error) {
 
   const nextError = String(error || "").slice(0, 1000) || null;
   const current = getRemoteChannelSourceById(id);
+  if (current && typeof current.then === "function") {
+    return current.then((resolved) =>
+      applyRemoteChannelSourceError(id, resolved, nextError),
+    );
+  }
+  return applyRemoteChannelSourceError(id, current, nextError);
+}
+
+function applyRemoteChannelSourceError(id, current, nextError) {
   if (!current?.id) return 0;
   if (String(current.last_error || "") === String(nextError || "")) return 0;
 
