@@ -2170,6 +2170,15 @@ export function createRemoteChannelManager(deps = {}) {
     return requestedIds.map((id) => byId.get(id)).filter(Boolean);
   }
 
+  async function hasMirroredFile(messageId, originalName) {
+    const name = String(originalName || "").trim();
+    if (!messageId || !name || typeof listMessageFilesByMessageIds !== "function") {
+      return false;
+    }
+    const rows = (await resolveMaybePromise(listMessageFilesByMessageIds([messageId]))) || [];
+    return rows.some((row) => String(row?.original_name || "").trim() === name);
+  }
+
   // Attach a finished file record to its message, clear expiry, kick off
   // video transcoding, and notify clients. Shared by the inline path, the
   // worker webhook, and the local fallback timer.
@@ -2846,6 +2855,7 @@ export function createRemoteChannelManager(deps = {}) {
     fetchTelegramMediaToTemp,
     finishMirroredMediaFile,
     attachMirroredMedia,
+    hasMirroredFile,
     streamTelegramMediaFiles,
     cacheSourceAvatar,
     syncSourceMetadata,

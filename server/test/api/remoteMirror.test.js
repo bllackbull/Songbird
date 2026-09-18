@@ -22,10 +22,12 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-function setupMirrorApp({ webhookSecret = null, attachImpl = null } = {}) {
+function setupMirrorApp({ webhookSecret = null, attachImpl = null, hasMirroredFile = null } = {}) {
   const sessionStore = makeSessionStore();
   const userStore = makeUserStore();
   const attachMirroredMedia = attachImpl || vi.fn(async () => 1);
+  const remoteChannelManager = { attachMirroredMedia };
+  if (hasMirroredFile) remoteChannelManager.hasMirroredFile = hasMirroredFile;
   const { app } = makeApp({
     sessionStore,
     userStore,
@@ -33,7 +35,7 @@ function setupMirrorApp({ webhookSecret = null, attachImpl = null } = {}) {
       fs,
       webhookSecret,
       mirrorJobRegistry: registry,
-      remoteChannelManager: { attachMirroredMedia },
+      remoteChannelManager,
     },
   });
   return { app, attachMirroredMedia };
@@ -111,6 +113,68 @@ describe("remote mirror blob + webhook", () => {
         storageKey: "uploads/messages/a.jpg",
       });
     expect(again.body).toEqual({ ok: true, deduped: true });
+    expect(attachMirroredMedia).toHaveBeenCalledTimes(1);
+  });
+
+  test("webhook skips attach when the file is already on the message", async () => {
+    const filePath = path.join(tmpDir, "a.bin");
+    fs.writeFileSync(filePath, "mirror-bytes");
+    const entry = registry.create({
+      filePath,
+      storedName: "b.jpg",
+      mimeType: "image/jpeg",
+      kind: "image",
+      originalName: "telegram-563-media-563.jpg",
+      messageId: 42,
+      chatId: "c1",
+      authorId: "u1",
+      authorUsername: "owner",
+    });
+
+    const hasMirroredFile = vi.fn(async () => true);
+    const { app, attachMirroredMedia } = setupMirrorApp({ hasMirroredFile });
+    const res = await request(app)
+      .post("/api/remote-channel/webhook/mirror-done")
+      .send({
+        jobId: entry.jobId,
+        status: "ready",
+        storageKey: "uploads/messages/b.jpg",
+        storageDriver: "remote",
+        sizeBytes: 12,
+      });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, attached: false, deduped: true });
+    expect(hasMirroredFile).toHaveBeenCalledWith(42, "telegram-563-media-563.jpg");
+    expect(attachMirroredMedia).not.toHaveBeenCalled();
+  });
+
+  test("webhook attaches when the file is not yet on the message", async () => {
+    const filePath = path.join(tmpDir, "a.bin");
+    fs.writeFileSync(filePath, "mirror-bytes");
+    const entry = registry.create({
+      filePath,
+      storedName: "c.jpg",
+      mimeType: "image/jpeg",
+      kind: "image",
+      originalName: "telegram-563-media-563.jpg",
+      messageId: 43,
+      chatId: "c1",
+      authorId: "u1",
+      authorUsername: "owner",
+    });
+    const { app, attachMirroredMedia } = setupMirrorApp({
+      hasMirroredFile: async () => false,
+    });
+    const res = await request(app)
+      .post("/api/remote-channel/webhook/mirror-done")
+      .send({
+        jobId: entry.jobId,
+        status: "ready",
+        storageKey: "uploads/messages/c.jpg",
+        storageDriver: "remote",
+        sizeBytes: 12,
+      });
+    expect(res.body).toEqual({ ok: true, attached: true });
     expect(attachMirroredMedia).toHaveBeenCalledTimes(1);
   });
 

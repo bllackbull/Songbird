@@ -1017,6 +1017,20 @@ const dispatchMirrorMedia = async ({
     onFallback: async () => {
       const manager = mirrorManagerRef.current;
       if (!manager) return;
+      // The queue item may have been retried while the worker was slow —
+      // skip when the file is already attached (the temp is swept later).
+      try {
+        if (
+          await manager.hasMirroredFile?.(
+            messageId,
+            descriptor?.originalName || storedName,
+          )
+        ) {
+          return;
+        }
+      } catch {
+        // Best effort — fall through to the attach attempt.
+      }
       const finished = await manager.finishMirroredMediaFile({
         descriptor,
         storedName,

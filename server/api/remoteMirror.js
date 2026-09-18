@@ -95,6 +95,18 @@ function registerRemoteMirrorRoutes(app, deps) {
       );
       return res.json({ ok: true, attached: false });
     }
+    // A retried queue item may dispatch the same file twice while a previous
+    // delivery is still in flight — skip when the file is already attached.
+    try {
+      const alreadyAttached =
+        await remoteChannelManager?.hasMirroredFile?.(
+          entry.messageId,
+          entry.originalName || entry.storedName || "file",
+        );
+      if (alreadyAttached) return res.json({ ok: true, attached: false, deduped: true });
+    } catch {
+      // Best effort — fall through to the attach attempt.
+    }
     try {
       await remoteChannelManager?.attachMirroredMedia?.({
         messageId: entry.messageId,

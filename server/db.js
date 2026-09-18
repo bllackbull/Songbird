@@ -1381,31 +1381,37 @@ export function enqueueRemoteChannelQueueItem(payload = {}) {
       payloadJson,
     ],
   );
-  if (!inserted) return null;
 
-  return getRow(
-    `SELECT id, source_id, provider, telegram_update_id, telegram_message_id,
-            source_version, payload_json, status, attempts, next_attempt_at,
-            locked_at, lock_owner, last_error, created_message_id, created_at,
-            processed_at
-     FROM remote_channel_queue
-     WHERE source_id = ?
-       AND source_version = ?
-       AND (
-         (? IS NOT NULL AND telegram_update_id = ?)
-         OR (? IS NOT NULL AND telegram_message_id = ?)
-       )
-     ORDER BY id DESC
-     LIMIT 1`,
-    [
-      sourceId,
-      sourceVersion,
-      telegramUpdateId,
-      telegramUpdateId,
-      telegramMessageId,
-      telegramMessageId,
-    ],
-  );
+  const fetchInsertedRow = () =>
+    getRow(
+      `SELECT id, source_id, provider, telegram_update_id, telegram_message_id,
+              source_version, payload_json, status, attempts, next_attempt_at,
+              locked_at, lock_owner, last_error, created_message_id, created_at,
+              processed_at
+       FROM remote_channel_queue
+       WHERE source_id = ?
+         AND source_version = ?
+         AND (
+           (CAST(? AS BIGINT) IS NOT NULL AND telegram_update_id = CAST(? AS BIGINT))
+           OR (CAST(? AS BIGINT) IS NOT NULL AND telegram_message_id = CAST(? AS BIGINT))
+         )
+       ORDER BY id DESC
+       LIMIT 1`,
+      [
+        sourceId,
+        sourceVersion,
+        telegramUpdateId,
+        telegramUpdateId,
+        telegramMessageId,
+        telegramMessageId,
+      ],
+    );
+    
+  if (inserted && typeof inserted.then === "function") {
+    return inserted.then((count) => (count ? fetchInsertedRow() : null));
+  }
+  if (!inserted) return null;
+  return fetchInsertedRow();
 }
 
 export function getRemoteChannelQueueSummary(sourceId) {
