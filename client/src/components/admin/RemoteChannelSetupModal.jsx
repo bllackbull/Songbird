@@ -173,7 +173,7 @@ export default function RemoteChannelSetupModal({ open, onClose, onChanged }) {
   if (!open) return null;
 
   return (
-    <Modal title="Remote channel setup" onClose={onClose} wide>
+    <Modal title="Telegram connection" onClose={onClose} wide>
       {loading ? (
         <div className="flex items-center justify-center gap-2 py-8 text-sm text-slate-400">
           <LoaderCircle size={16} className="animate-spin" /> Loading status…

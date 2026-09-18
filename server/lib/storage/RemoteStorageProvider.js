@@ -285,6 +285,11 @@ export class RemoteStorageProvider extends StorageProvider {
    * @param {string} fileKey
    * @returns {Promise<boolean>}
    */
+  async checkHealth() {
+    await this.exists("songbird-storage-health-probe");
+    return true;
+  }
+
   async exists(fileKey) {
     const cleanKey = String(fileKey || "").replace(/^\//, "");
     const command = new HeadObjectCommand({

@@ -444,10 +444,41 @@ function registerAdminPanelRoutes(app, deps) {
       return raw !== undefined && raw !== null && String(raw).trim() !== "";
     });
     const storageProvider = deps.storageProvider;
+    const storageDriver =
+      storageProvider?.type || process.env.STORAGE_DRIVER || "local";
+
+    let storage = { driver: storageDriver, reachable: null, latencyMs: null };
+    if (typeof storageProvider?.checkHealth === "function") {
+      const started = Date.now();
+      const timeout = new Promise((_, reject) => {
+        const timer = setTimeout(
+          () => reject(new Error("storage health check timed out")),
+          3000,
+        );
+        if (typeof timer.unref === "function") timer.unref();
+      });
+      try {
+        await Promise.race([
+          Promise.resolve().then(() => storageProvider.checkHealth()),
+          timeout,
+        ]);
+        storage = {
+          driver: storageDriver,
+          reachable: true,
+          latencyMs: Date.now() - started,
+        };
+      } catch {
+        storage = {
+          driver: storageDriver,
+          reachable: false,
+          latencyMs: Date.now() - started,
+        };
+      }
+    }
     const payload = {
       mediaWorker,
       remoteChannel,
-      storage: { driver: storageProvider?.type || process.env.STORAGE_DRIVER || "local" },
+      storage,
       fetchedAt: new Date().toISOString(),
     };
     servicesCache = { data: payload, fetchedAt: now };

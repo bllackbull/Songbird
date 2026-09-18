@@ -82,6 +82,15 @@ export class LocalStorageProvider extends StorageProvider {
    * @param {string} fileKey
    * @returns {Promise<boolean>}
    */
+  async checkHealth() {
+    try {
+      await fs.promises.access(this.uploadDir, fs.constants.W_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async exists(fileKey) {
     const filePath = path.isAbsolute(fileKey)
       ? fileKey

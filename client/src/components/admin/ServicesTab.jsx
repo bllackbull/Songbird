@@ -148,6 +148,24 @@ const ServicesTab = forwardRef(function ServicesTab(
     }
   };
 
+  const storageReachable = storage?.reachable;
+  const storageDescription =
+    `Driver: ${storage?.driver || "local"}` +
+    (storageReachable && storage?.latencyMs != null ? ` · ${storage.latencyMs}ms` : "");
+  const handleStorageCheck = async () => {
+    flashStatus("storage", "busy", "Checking…");
+    try {
+      const payload = await api.get("/api/admin/services");
+      if (payload?.storage?.reachable === false) {
+        flashStatus("storage", "error", "Unreachable");
+      } else {
+        flashStatus("storage", "success", "Active");
+      }
+    } catch {
+      flashStatus("storage", "error", "Check failed");
+    }
+  };
+
   return (
     <div className="space-y-5">
       <div>
@@ -192,9 +210,16 @@ const ServicesTab = forwardRef(function ServicesTab(
             icon={PackageOpen}
             iconAnim="icon-anim-drop"
             label="Storage"
-            description={`Driver: ${storage?.driver || "local"}`}
-            onClick={() => flashStatus("storage", "success", "Active")}
-            status={rowStatus.storage || (storage ? { type: "success", label: "Active" } : null)}
+            description={storageDescription}
+            onClick={handleStorageCheck}
+            status={
+              rowStatus.storage ||
+              (storage
+                ? storageReachable === false
+                  ? { type: "error", label: "Unreachable" }
+                  : { type: "success", label: "Active" }
+                : null)
+            }
           />
         </div>
       </div>

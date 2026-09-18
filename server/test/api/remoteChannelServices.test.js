@@ -166,6 +166,59 @@ describe("admin services status", () => {
     expect(res.body.remoteChannel).toBeDefined();
     expect(res.body.storage).toBeDefined();
   });
+
+  test("GET /api/admin/services reports storage reachability from checkHealth", async () => {
+    const sessionStore = makeSessionStore();
+    const userStore = makeUserStore([
+      {
+        id: "u-admin",
+        username: "admin",
+        nickname: "Admin",
+        role: "admin",
+        status: "online",
+      },
+    ]);
+    sessionStore.createSession("u-admin", "sid-admin");
+    const healthyApp = makeApp({
+      sessionStore,
+      userStore,
+      deps: {
+        isUserAdmin: () => true,
+        storageProvider: { type: "remote", checkHealth: async () => true },
+        workerUrl: null,
+        mediaWorkerUrl: null,
+        remoteChannelManager: null,
+      },
+    });
+    const ok = await request(healthyApp.app)
+      .get("/api/admin/services")
+      .set("Cookie", "sid=sid-admin");
+    expect(ok.status).toBe(200);
+    expect(ok.body.storage).toMatchObject({ driver: "remote", reachable: true });
+    expect(typeof ok.body.storage.latencyMs).toBe("number");
+
+    const failingApp = makeApp({
+      sessionStore,
+      userStore,
+      deps: {
+        isUserAdmin: () => true,
+        storageProvider: {
+          type: "remote",
+          checkHealth: async () => {
+            throw new Error("Forbidden");
+          },
+        },
+        workerUrl: null,
+        mediaWorkerUrl: null,
+        remoteChannelManager: null,
+      },
+    });
+    const bad = await request(failingApp.app)
+      .get("/api/admin/services")
+      .set("Cookie", "sid=sid-admin");
+    expect(bad.status).toBe(200);
+    expect(bad.body.storage).toMatchObject({ driver: "remote", reachable: false });
+  });
 });
 
 describe("remote manager health", () => {

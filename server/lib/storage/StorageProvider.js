@@ -67,6 +67,16 @@ export class StorageProvider {
   }
 
   /**
+   * Read-only reachability probe for admin health checks.
+   * Resolves true when the backing store answers, rejects otherwise.
+   * Must not write or mutate anything.
+   * @returns {Promise<boolean>}
+   */
+  async checkHealth() {
+    throw new Error("checkHealth not implemented");
+  }
+
+  /**
    * Server-side copy of one stored object to a new key.
    * Used by the legacy storage-layout migration
    * (avatars/* + uploads/* → uploads/avatars/* + uploads/messages/*).
