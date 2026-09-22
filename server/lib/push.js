@@ -107,6 +107,8 @@ export function createPushService({
           const isGone =
             status === 404 ||
             status === 410 ||
+            status === 401 ||
+            status === 403 ||
             (status === 400 && errBody.includes("VapidPkHashMismatch"));
           if (isGone) {
             try {
