@@ -903,11 +903,18 @@ function registerChatRoutes(app, deps) {
     const limitRaw = Number(req.query.limit || 50);
     const limit = Math.max(1, Math.min(100, Number.isFinite(limitRaw) ? limitRaw : 50));
 
-    const { messages } = getMessages(chat.id, {
-      afterId: afterId || null,
-      limit,
-      viewerUserId: null,
-    });
+    const msgData = await resolveMaybePromise(
+      getMessages(chat.id, {
+        afterId: afterId || null,
+        limit,
+        viewerUserId: null,
+      }),
+    );
+    const messages = Array.isArray(msgData?.messages)
+      ? msgData.messages
+      : Array.isArray(msgData)
+        ? msgData
+        : [];
 
     // Return only the fields the remote poller needs — no auth-sensitive data.
     const publicMessages = messages.map((msg) => ({

@@ -426,3 +426,49 @@ describe("GET /api/chats/:chatId/preview missing-chat compatibility", () => {
     expect(res.body).toEqual({ missing: true });
   });
 });
+
+describe("GET /api/channels/:username/messages", () => {
+  test("awaits getMessages when it returns a Promise (Postgres mode)", async () => {
+    const { app } = makeApp({
+      deps: {
+        findChatByGroupUsername: async (username) =>
+          username === "news"
+            ? {
+                id: "12121212-1212-4212-8212-121212121212",
+                type: "channel",
+                group_username: "news",
+                is_public: 1,
+              }
+            : null,
+        getMessages: async () => ({
+          messages: [
+            {
+              id: "msg-1",
+              body: "Breaking news",
+              created_at: "2026-09-22T10:00:00.000Z",
+              client_request_id: null,
+            },
+          ],
+          hasMore: false,
+        }),
+      },
+    });
+
+    const res = await request(app).get("/api/channels/news/messages");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      channelUsername: "news",
+      messages: [
+        {
+          id: "msg-1",
+          body: "Breaking news",
+          createdAt: "2026-09-22T10:00:00.000Z",
+          clientRequestId: null,
+        },
+      ],
+      hasMore: false,
+    });
+  });
+});
+
