@@ -327,10 +327,13 @@ export function createUploadTools({
 
     if (fs.existsSync(diskPath)) return normalized || null;
 
-    if (
-      storageProvider &&
-      (storageProvider.type === "remote" || storageProvider.type === "s3")
-    ) {
+    const isRemote =
+      (storageProvider &&
+        (storageProvider.type === "remote" || storageProvider.type === "s3")) ||
+      (!storageProvider &&
+        (process.env.STORAGE_DRIVER === "remote" ||
+          process.env.STORAGE_DRIVER === "s3"));
+    if (isRemote) {
       return normalized || null;
     }
 
