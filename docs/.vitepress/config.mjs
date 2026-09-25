@@ -98,9 +98,11 @@ export default defineConfig({
 
     socialLinks: [
       {icon: 'docker', link: 'https://hub.docker.com/r/bllackbull/songbird'},
+      {icon: 'railway', link: 'https://railway.app/template/songbird'},
       {icon: 'github', link: 'https://github.com/bllackbull/Songbird'},
       {icon: 'telegram', link: 'https://t.me/songbirdapp'},
       {icon: 'linkedin', link: 'https://www.linkedin.com/in/pouyakhalilii/'},
+
     ],
 
     search: {

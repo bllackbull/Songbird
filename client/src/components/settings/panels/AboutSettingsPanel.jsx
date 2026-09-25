@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { Check, Copy, Heart } from "../../../icons/lucide.js";
 import {
+  DockerIcon,
   GithubIcon,
+  LinkedinIcon,
+  RailwayIcon,
   SongbirdIcon,
   TelegramIcon,
 } from "../../../icons/BrandIcons.jsx";
@@ -10,9 +13,12 @@ import { copyTextToClipboard } from "../../../utils/clipboard.js";
 import Tooltip from "../../common/Tooltip.jsx";
 
 const SOCIAL_ICONS = {
+  docker: DockerIcon,
+  railway: RailwayIcon,
   github: GithubIcon,
   telegram: TelegramIcon,
   songbird: SongbirdIcon,
+  linkedin: LinkedinIcon,
 };
 
 function WalletRow({ label, address }) {
