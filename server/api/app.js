@@ -30,6 +30,14 @@ function registerAppRoutes(app, deps) {
       chatMessageFetchLimit: Number(getSetting("CHAT_MESSAGE_FETCH_LIMIT")) || 60,
       chatMessagePageSize: Number(getSetting("CHAT_MESSAGE_PAGE_SIZE")) || 60,
       chatCacheTtlHours: Number(getSetting("CHAT_CACHE_TTL")) || 24,
+      chatListRefreshIntervalMs: Number(getSetting("CHAT_LIST_REFRESH_INTERVAL")) || 20000,
+      chatHealthCheckIntervalMs: Number(getSetting("CHAT_HEALTH_CHECK_INTERVAL")) || 10000,
+      chatSseReconnectDelayMs: Number(getSetting("CHAT_SSE_RECONNECT_DELAY")) || 2000,
+      chatSearchMaxResults: Number(getSetting("CHAT_SEARCH_MAX_RESULTS")) || 5,
+      chatPendingTextTimeoutMs: Number(getSetting("CHAT_PENDING_TEXT_TIMEOUT")) || 300000,
+      chatPendingFileTimeoutMs: Number(getSetting("CHAT_PENDING_FILE_TIMEOUT")) || 1200000,
+      chatPendingRetryIntervalMs: Number(getSetting("CHAT_PENDING_RETRY_INTERVAL")) || 4000,
+      chatPendingStatusCheckIntervalMs: Number(getSetting("CHAT_PENDING_STATUS_CHECK_INTERVAL")) || 1000,
       remoteChannels: {
         // enabled/telegramConfigured/proxyConfigured stay restart-scoped
         // (Telegram credentials + remoteChannelManager are wired once at

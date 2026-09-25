@@ -99,7 +99,8 @@ Choose DNS resolvers that are reachable and not blocked from your server's netwo
 :::tip
 
 You can use these DNS resolvers in Iran's restricted environment:
-```
+
+```txt
 217.218.127.127
 217.218.155.155
 ```
@@ -112,10 +113,12 @@ You can use these DNS resolvers in Iran's restricted environment:
 A `502` from Nginx almost always means the Node server is not reachable on the expected port.
 
 1. Confirm the service is running:
+
    ```bash
    sudo systemctl status songbird
    sudo journalctl -u songbird -n 100 --no-pager
    ```
+
 2. Confirm the proxy target matches `SERVER_PORT`. Nginx's `proxy_pass` port must equal `SERVER_PORT` in `.env`.
 3. Confirm the listen port matches `CLIENT_PORT`.
 
@@ -218,7 +221,8 @@ When connecting Songbird to managed cloud PostgreSQL databases (such as **Aiven*
 ### `self-signed certificate in certificate chain` / `SELF_SIGNED_CERT_IN_CHAIN`
 
 **Symptom:**
-```
+
+```txt
 [db-migrations] Error initializing Postgres schema sets: Error: self-signed certificate in certificate chain
   code: 'SELF_SIGNED_CERT_IN_CHAIN'
 Acquire connection error: Error: self-signed certificate in certificate chain
@@ -235,12 +239,15 @@ Provide the provider's CA certificate to Node.js via the `NODE_EXTRA_CA_CERTS` e
    - Go to your service's **Environment** tab in the Render dashboard.
    - Under **Secret Files**, add a file with name `aiven-ca.pem` (or `/etc/secrets/aiven-ca.pem`) and paste the PEM certificate content.
    - Add the environment variable:
+
      ```txt
      NODE_EXTRA_CA_CERTS=/etc/secrets/aiven-ca.pem
      ```
+
 3. **On Docker / VPS:**
    - Save the CA certificate to disk (e.g., `/opt/songbird/certs/ca.pem` or mount it into the container).
    - In `.env` or container environment, set:
+
      ```txt
      NODE_EXTRA_CA_CERTS=/opt/songbird/certs/ca.pem
      ```
@@ -258,7 +265,6 @@ Provide the provider's CA certificate to Node.js via the `NODE_EXTRA_CA_CERTS` e
 
 See [Remote Channel Setup](./Remote-Channel-Setup.md) for the complete configuration guide.
 
-
 ## Admin panel issues
 
 The admin panel's service control features (restart/stop) and system log viewing require specific permissions depending on how Songbird is deployed.
@@ -272,23 +278,30 @@ If you encounter any of the issues mentioned below, reinstalling the app via the
 ### Service control not working
 
 **Systemd deployments:**
+
 - The service user needs `sudo` privileges for `systemctl` commands
 - Create a sudoers file for the songbird user:
+
   ```bash
   sudo visudo -f /etc/sudoers.d/songbird
   ```
+
 - Add these lines (replace `songbird` if using a different service user):
-  ```
+
+  ```txt
   songbird ALL=(ALL) NOPASSWD: /bin/systemctl restart songbird.service
   songbird ALL=(ALL) NOPASSWD: /bin/systemctl stop songbird.service
   songbird ALL=(ALL) NOPASSWD: /bin/systemctl status songbird.service
   ```
+
 - Save and ensure permissions are correct:
+
   ```bash
   sudo chmod 0440 /etc/sudoers.d/songbird
   ```
 
 **PM2 deployments:**
+
 - The process must have access to the PM2 runtime
 - Ensure PM2 is running as the same user that runs Songbird
 - The user should have permission to execute `pm2 restart` and `pm2 stop`
@@ -296,37 +309,30 @@ If you encounter any of the issues mentioned below, reinstalling the app via the
 ### System logs not showing
 
 **Systemd:**
+
 - The service user needs permission to read journal logs and nginx logs
 - Add the user to the `systemd-journal` group:
+
   ```bash
   sudo usermod -a -G systemd-journal songbird
   ```
+
 - Add the user to the `adm` group:
+
   ```bash
   sudo usermod -a -G adm songbird
   ```
 
 - Restart the service:
+
   ```bash
   sudo systemctl restart songbird
   ```
 
 **Docker:**
+
 - Ensure the Docker socket is mounted (same as service control above)
 - The container needs access to read logs via the Docker API
-
-### Log file permission errors
-
-If the admin panel cannot write audit logs to `data/logs/`:
-
-```bash
-# Ensure the data directory and subdirectories are owned by the service user
-sudo chown -R songbird:songbird /opt/songbird/data
-
-# Or for Docker installs, ensure proper ownership in the volume
-docker compose exec songbird chown -R node:node /app/data
-```
-
 
 ## Still stuck?
 

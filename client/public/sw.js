@@ -1,4 +1,4 @@
-const CACHE_VERSION = "0.12.2";
+const CACHE_VERSION = "0.12.3";
 const CACHE_NAME = `songbird-${CACHE_VERSION}`;
 const APP_SHELL = [
   "/manifest.webmanifest",

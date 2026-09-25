@@ -134,6 +134,14 @@ export function setChatPageConfig({
   fileUploadMaxFiles,
   fileUploadMaxSizeMb,
   fileUploadMaxTotalSizeMb,
+  listRefreshIntervalMs,
+  healthCheckIntervalMs,
+  sseReconnectDelayMs,
+  searchMaxResults,
+  pendingTextTimeoutMs,
+  pendingFileTimeoutMs,
+  pendingRetryIntervalMs,
+  pendingStatusCheckIntervalMs,
 } = {}) {
   if (Number.isFinite(messageFetchLimit) && messageFetchLimit > 0) {
     CHAT_PAGE_CONFIG.messageFetchLimit = Math.trunc(messageFetchLimit);
@@ -155,5 +163,29 @@ export function setChatPageConfig({
   }
   if (Number.isFinite(fileUploadMaxTotalSizeMb) && fileUploadMaxTotalSizeMb > 0) {
     CHAT_PAGE_CONFIG.maxTotalUploadBytes = Math.trunc(fileUploadMaxTotalSizeMb) * MB;
+  }
+  if (Number.isFinite(listRefreshIntervalMs) && listRefreshIntervalMs > 0) {
+    CHAT_PAGE_CONFIG.chatsRefreshIntervalMs = Math.trunc(listRefreshIntervalMs);
+  }
+  if (Number.isFinite(healthCheckIntervalMs) && healthCheckIntervalMs > 0) {
+    CHAT_PAGE_CONFIG.healthCheckIntervalMs = Math.trunc(healthCheckIntervalMs);
+  }
+  if (Number.isFinite(sseReconnectDelayMs) && sseReconnectDelayMs > 0) {
+    CHAT_PAGE_CONFIG.sseReconnectDelayMs = Math.trunc(sseReconnectDelayMs);
+  }
+  if (Number.isFinite(searchMaxResults) && searchMaxResults > 0) {
+    CHAT_PAGE_CONFIG.newChatSearchMaxResults = Math.trunc(searchMaxResults);
+  }
+  if (Number.isFinite(pendingTextTimeoutMs) && pendingTextTimeoutMs > 0) {
+    CHAT_PAGE_CONFIG.pendingTextTimeoutMs = Math.trunc(pendingTextTimeoutMs);
+  }
+  if (Number.isFinite(pendingFileTimeoutMs) && pendingFileTimeoutMs > 0) {
+    CHAT_PAGE_CONFIG.pendingFileTimeoutMs = Math.trunc(pendingFileTimeoutMs);
+  }
+  if (Number.isFinite(pendingRetryIntervalMs) && pendingRetryIntervalMs > 0) {
+    CHAT_PAGE_CONFIG.pendingRetryIntervalMs = Math.trunc(pendingRetryIntervalMs);
+  }
+  if (Number.isFinite(pendingStatusCheckIntervalMs) && pendingStatusCheckIntervalMs > 0) {
+    CHAT_PAGE_CONFIG.pendingStatusCheckIntervalMs = Math.trunc(pendingStatusCheckIntervalMs);
   }
 }

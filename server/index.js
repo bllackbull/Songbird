@@ -143,6 +143,9 @@ import {
   isUserAdmin,
   isUserOwner,
   getOwnerUser,
+  writeAdminAuditLog,
+  readAdminAuditLogs,
+  clearAdminAuditLogs,
   getAdminStats,
   adminListUsers,
   adminListChats,
@@ -185,6 +188,41 @@ dotenv.config({ path: path.join(serverDir, ".env"), override: true, quiet: true 
 // Load runtime settings from DB (env vars remain as fallback defaults).
 // Must run after dotenv and after the DB module (which runs migrations).
 await loadSettings(dbGetAllSettings);
+
+// One-time import of the legacy file audit log (logs/admin.log) into the
+// DB-backed admin_audit_logs table. Best effort: only runs when the table is
+// empty and a legacy file exists, and never crashes boot.
+try {
+  const existing = await readAdminAuditLogs({ limit: 1, offset: 0 });
+  if (Number(existing?.total || 0) === 0) {
+    const legacyPath = path.join(projectRootDir, "logs", "admin.log");
+    if (fs.existsSync(legacyPath)) {
+      const raw = fs.readFileSync(legacyPath, "utf8");
+      const lines = raw.split("\n").filter((l) => l.trim());
+      // File is oldest-first; insert in order so autoincrement ids stay chronological.
+      for (const line of lines) {
+        let parsed;
+        try { parsed = JSON.parse(line); } catch { continue; }
+        if (!parsed?.action) continue;
+        try {
+          await writeAdminAuditLog({
+            ts: parsed.ts ?? null,
+            actorUserId: parsed.actorUserId ?? null,
+            actorUsername: parsed.actorUsername ?? null,
+            action: String(parsed.action || ""),
+            targetType: parsed.targetType ?? null,
+            targetLabel: parsed.targetLabel ?? null,
+            details: parsed.details ?? null,
+            status: parsed.status ?? "success",
+          });
+        } catch { break; }
+      }
+      if (lines.length > 0) console.log(`[server] Imported ${lines.length} legacy admin audit log entr(ies) from logs/admin.log.`);
+    }
+  }
+} catch {
+  // Best effort only — file fallback in admin routes keeps working.
+}
 
 const port = process.env.PORT || process.env.SERVER_PORT || 5174;
 const appEnv = process.env.APP_ENV || "production";
@@ -379,7 +417,13 @@ const REMOTE_CHANNEL_CONFIG = {
 };
 const MESSAGE_FILE_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 
-const storageProvider = createStorageProvider(process.env);
+const storageProvider = createStorageProvider({
+  ...process.env,
+  // Admin-panel DB values win when the env var is absent (getSetting resolves
+  // env → DB → default). Restart required — S3 client is constructed once.
+  STORAGE_EXPIRES_IN: getSetting("STORAGE_EXPIRES_IN"),
+  STORAGE_PROXY_URL: getSetting("STORAGE_PROXY_URL") || process.env.STORAGE_PROXY_URL,
+});
 
 // Self-configure bucket CORS for browser presigned uploads (remote driver
 // only). Runs in the background: never blocks or crashes boot. Opt-in via
@@ -387,7 +431,8 @@ const storageProvider = createStorageProvider(process.env);
 // configure the bucket manually (npm --prefix server run storage:cors).
 if (
   (storageProvider?.type === "remote" || storageProvider?.type === "s3") &&
-  (String(process.env.STORAGE_AUTO_CORS ?? "false").toLowerCase() === "true" ||
+  (getSetting("STORAGE_AUTO_CORS") ||
+    String(process.env.STORAGE_AUTO_CORS ?? "false").toLowerCase() === "true" ||
     String(process.env.STORAGE_AUTO_CORS ?? "false") === "1")
 ) {
   const corsOrigins = resolveAppOrigins(process.env);
@@ -543,8 +588,8 @@ const videoTranscoder = createVideoTranscodeManager({
   storageEncryption,
   storageProvider,
   storageProcessingMode: process.env.STORAGE_PROCESSING_MODE || "auto",
-  mediaWorkerUrl: process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
-  workerUrl: process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
+  mediaWorkerUrl: getSetting("WORKER_URL") || process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
+  workerUrl: getSetting("WORKER_URL") || process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
   workerPort: process.env.WORKER_PORT || "8080",
   webhookSecret: process.env.WEBHOOK_SECRET || null,
   callbackUrl: resolveWebhookCallbackUrl(),
@@ -594,7 +639,7 @@ const mediaQueueManager = createMediaQueueManager({
   redisClient,
   storageProvider,
   s3ProcessingMode: process.env.STORAGE_PROCESSING_MODE || "auto",
-  s3ProcessingTimeoutMs: Number(process.env.STORAGE_PROCESSING_TIMEOUT_MS) || 120000,
+  s3ProcessingTimeoutMs: Number(getSetting("STORAGE_PROCESSING_TIMEOUT_MS")) || 120000,
   adminGetRow,
   adminRun,
   emitChatEvent,
@@ -753,8 +798,8 @@ const apiDeps = {
   storageProvider,
   mediaQueueManager,
   storageProcessingMode: process.env.STORAGE_PROCESSING_MODE || "auto",
-  mediaWorkerUrl: process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
-  workerUrl: process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
+  mediaWorkerUrl: getSetting("WORKER_URL") || process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
+  workerUrl: getSetting("WORKER_URL") || process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
   workerPort: process.env.WORKER_PORT || "8080",
   webhookSecret: process.env.WEBHOOK_SECRET || null,
   webhookCallbackUrl: resolveWebhookCallbackUrl(),
@@ -943,6 +988,9 @@ const apiDeps = {
   isUserAdmin,
   isUserOwner,
   getOwnerUser,
+  writeAdminAuditLog,
+  readAdminAuditLogs,
+  clearAdminAuditLogs,
   getAdminStats,
   adminListUsers,
   adminListChats,
@@ -989,11 +1037,11 @@ const dispatchMirrorMedia = async ({
   authorUsername,
 }) => {
   const { dispatched } = await dispatchMirrorJob({
-    workerUrl: process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
+    workerUrl: getSetting("WORKER_URL") || process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
     storageProcessingMode: process.env.STORAGE_PROCESSING_MODE || "auto",
     workerPort: process.env.WORKER_PORT || "8080",
     serverPort: process.env.PORT || process.env.SERVER_PORT || "5174",
-    processingTimeoutMs: Number(process.env.STORAGE_PROCESSING_TIMEOUT_MS) || 120000,
+    processingTimeoutMs: Number(getSetting("STORAGE_PROCESSING_TIMEOUT_MS")) || 120000,
     webhookSecret: process.env.WEBHOOK_SECRET || null,
     registry: mirrorJobRegistry,
     storageKey: `uploads/messages/${storedName}`,
@@ -1390,7 +1438,11 @@ const server = app.listen(port, bindAddress, () => {
   });
 });
 
-const { wsHeartbeatIntervalMs, wsHeartbeatTimeoutMs } = parseEnv();
+// Admin-panel DB values win when the env var is absent (getSetting resolves
+// env → DB → default). Restart required — gateway timers are wired once.
+const _wsEnv = parseEnv();
+const wsHeartbeatIntervalMs = Number(getSetting("WS_HEARTBEAT_INTERVAL_MS")) || _wsEnv.wsHeartbeatIntervalMs;
+const wsHeartbeatTimeoutMs = Number(getSetting("WS_HEARTBEAT_TIMEOUT_MS")) || _wsEnv.wsHeartbeatTimeoutMs;
 const wsGateway = createWebSocketGateway({
   server,
   sseHub,

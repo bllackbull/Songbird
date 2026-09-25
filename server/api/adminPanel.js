@@ -2,7 +2,6 @@ import { normalizeHexColor, normalizeGroupUsername, normalizeVisibility, normali
 import { createInviteToken } from "../lib/inviteTokens.js";
 import { validateUuidParams } from "../lib/uuidMiddleware.js";
 import { isValidUuid, generateUuid } from "../lib/uuidUtils.js";
-import { writeAdminLog, readAdminLog, clearAdminLog } from "../lib/adminLog.js";
 import { readInstallerLog, readNginxLog, readServiceLog, readWorkerLog, probeLogSources } from "../lib/systemLogs.js";
 import { userEvents } from "../lib/workers/autoAddWorker.js";
 import { dbKnex } from "../db/knex.js";
@@ -295,18 +294,23 @@ function registerAdminPanelRoutes(app, deps) {
     });
   };
 
-  // Helper to write an audit log entry (to logs/admin.log) tied to the acting admin.
+  // Helper to write an audit log entry (DB-backed) tied to the acting admin.
   const log = (session, action, opts = {}) => {
-    const writeLog = deps.writeAdminLog || writeAdminLog;
-    writeLog({
-      actorUserId:   session?.id ?? null,
-      actorUsername: session?.username ?? null,
-      action,
-      targetType:    opts.targetType ?? null,
-      targetLabel:   opts.targetLabel ?? null,
-      details:       opts.details ?? null,
-      status:        opts.status ?? "success",
-    });
+    const writeLog = deps.writeAdminAuditLog;
+    try {
+      const result = writeLog({
+        actorUserId:   session?.id ?? null,
+        actorUsername: session?.username ?? null,
+        action,
+        targetType:    opts.targetType ?? null,
+        targetLabel:   opts.targetLabel ?? null,
+        details:       opts.details ?? null,
+        status:        opts.status ?? "success",
+      });
+      if (result && typeof result.catch === "function") result.catch(() => {});
+    } catch {
+      // Logging must never break the request flow.
+    }
   };
 
   // ─── Dashboard ───────────────────────────────────────────────────────────────
@@ -389,7 +393,7 @@ function registerAdminPanelRoutes(app, deps) {
   });
 
   // ─── Services — health overview ──────────────────────────────────────────
-  // Aggregates media worker, remote channel, storage and redis status so the
+  // Aggregates media worker, remote channel, storage and database status so the
   // admin Services tab can render one card per service without N round-trips.
   // Short-TTL cached like stats to avoid probing the worker on every poll.
   const SERVICES_CACHE_TTL_MS = 10_000;
@@ -402,7 +406,7 @@ function registerAdminPanelRoutes(app, deps) {
       return res.json(servicesCache.data);
     }
     const workerBaseUrl = String(
-      deps.workerUrl || deps.mediaWorkerUrl || process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || "",
+      (typeof getSetting === "function" && getSetting("WORKER_URL")) || deps.workerUrl || deps.mediaWorkerUrl || process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || "",
     ).trim().replace(/\/+$/, "");
     let mediaWorker = { configured: Boolean(workerBaseUrl), reachable: false, latencyMs: null };
     if (workerBaseUrl) {
@@ -475,10 +479,51 @@ function registerAdminPanelRoutes(app, deps) {
         };
       }
     }
+    // ── Database — postgres ping (sqlite mode has no external DB to ping) ──
+    // `dbConfig` is resolved once at startup from DB_CLIENT; fall back to the
+    // env so the card still renders correctly when deps omit it (tests).
+    const rawDbClient = String(
+      dbConfig?.client || process.env.DB_CLIENT || "sqlite3",
+    ).trim().toLowerCase();
+    const dbClient = ["postgres", "postgresql", "pg"].includes(rawDbClient)
+      ? "postgres"
+      : "sqlite3";
+    const isPostgres = dbClient === "postgres";
+    let database = { client: dbClient, configured: isPostgres, reachable: null, latencyMs: null };
+    if (isPostgres) {
+      const started = Date.now();
+      const timeout = new Promise((_, reject) => {
+        const timer = setTimeout(
+          () => reject(new Error("database health check timed out")),
+          3000,
+        );
+        if (typeof timer.unref === "function") timer.unref();
+      });
+      try {
+        await Promise.race([
+          resolveMaybePromise(adminGetRow("SELECT 1 AS ok")),
+          timeout,
+        ]);
+        database = {
+          client: dbClient,
+          configured: true,
+          reachable: true,
+          latencyMs: Date.now() - started,
+        };
+      } catch {
+        database = {
+          client: dbClient,
+          configured: true,
+          reachable: false,
+          latencyMs: Date.now() - started,
+        };
+      }
+    }
     const payload = {
       mediaWorker,
       remoteChannel,
       storage,
+      database,
       fetchedAt: new Date().toISOString(),
     };
     servicesCache = { data: payload, fetchedAt: now };
@@ -1245,13 +1290,13 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Logs ──────────────────────────────────────────────────────────────────
 
-  // Admin panel audit log (from logs/admin.log)
-  app.get("/api/admin/logs", (req, res) => {
+  // Admin panel audit log (DB-backed).
+  app.get("/api/admin/logs", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     const limit  = Number(req.query.limit || 200);
     const offset = Number(req.query.offset || 0);
     const search = String(req.query.search || "").trim();
-    const { entries, total } = readAdminLog({ limit, offset, search });
+    const { entries, total } = await deps.readAdminAuditLogs({ limit, offset, search });
     res.json({ logs: entries, total, limit, offset });
   });
 
@@ -1261,7 +1306,7 @@ function registerAdminPanelRoutes(app, deps) {
     if (!(await actorIsOwner(session))) {
       return res.status(403).json({ error: "Owner access required" });
     }
-    clearAdminLog();
+    await deps.clearAdminAuditLogs();
     log(session, "logs.clear", { targetType: "system" });
     res.json({ ok: true });
   });

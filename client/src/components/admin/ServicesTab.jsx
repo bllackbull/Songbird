@@ -3,6 +3,7 @@ import {
   AlertCircle,
   Check,
   Clapper,
+  Database,
   KeyRound,
   LoaderCircle,
   PackageOpen,
@@ -117,6 +118,7 @@ const ServicesTab = forwardRef(function ServicesTab(
   const mediaWorker = data?.mediaWorker || null;
   const remoteChannel = data?.remoteChannel || null;
   const storage = data?.storage || null;
+  const database = data?.database || null;
 
   const workerDescription = mediaWorker?.configured
     ? mediaWorker.reachable
@@ -163,6 +165,31 @@ const ServicesTab = forwardRef(function ServicesTab(
       }
     } catch {
       flashStatus("storage", "error", "Check failed");
+    }
+  };
+
+  // Database ping is postgres-only; in sqlite mode there is no external
+  // database to probe so the card stays disabled and grayed out.
+  const isPostgres =
+    database?.configured === true || database?.client === "postgres";
+  const databaseReachable = database?.reachable;
+  const databaseDescription = !isPostgres
+    ? "SQLite mode — local file database."
+    : databaseReachable === false
+      ? "PostgreSQL configured but unreachable."
+      : `PostgreSQL` +
+        (databaseReachable && database?.latencyMs != null ? ` · ${database.latencyMs}ms` : "");
+  const handleDatabaseCheck = async () => {
+    flashStatus("database", "busy", "Checking…");
+    try {
+      const payload = await api.get("/api/admin/services");
+      if (payload?.database?.reachable === false) {
+        flashStatus("database", "error", "Unreachable");
+      } else {
+        flashStatus("database", "success", "Active");
+      }
+    } catch {
+      flashStatus("database", "error", "Check failed");
     }
   };
 
@@ -219,6 +246,26 @@ const ServicesTab = forwardRef(function ServicesTab(
                   ? { type: "error", label: "Unreachable" }
                   : { type: "success", label: "Active" }
                 : null)
+            }
+          />
+        </div>
+        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <ServiceRow
+            icon={Database}
+            iconAnim="icon-anim-drop"
+            label="Database"
+            description={databaseDescription}
+            onClick={handleDatabaseCheck}
+            disabled={!isPostgres}
+            status={
+              !isPostgres
+                ? { type: "error", label: "Disabled" }
+                : rowStatus.database ||
+                  (database
+                    ? databaseReachable === false
+                      ? { type: "error", label: "Unreachable" }
+                      : { type: "success", label: "Active" }
+                    : null)
             }
           />
         </div>

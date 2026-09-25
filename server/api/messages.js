@@ -1420,12 +1420,14 @@ function registerMessageRoutes(app, deps) {
             } else {
               dispatchMediaWorkerJob({
                 workerUrl:
+                  (typeof getSetting === "function" && getSetting("WORKER_URL")) ||
                   deps.workerUrl ||
                   deps.mediaWorkerUrl ||
                   process.env.WORKER_URL ||
                   process.env.MEDIA_WORKER_URL ||
                   null,
                 mediaWorkerUrl:
+                  (typeof getSetting === "function" && getSetting("WORKER_URL")) ||
                   deps.workerUrl ||
                   deps.mediaWorkerUrl ||
                   process.env.WORKER_URL ||
@@ -1433,6 +1435,7 @@ function registerMessageRoutes(app, deps) {
                   null,
                 storageProcessingMode,
                 storageProcessingTimeoutMs:
+                  (typeof getSetting === "function" && Number(getSetting("STORAGE_PROCESSING_TIMEOUT_MS"))) ||
                   deps.storageProcessingTimeoutMs ||
                   (process.env.STORAGE_PROCESSING_TIMEOUT_MS ? Number(process.env.STORAGE_PROCESSING_TIMEOUT_MS) : undefined),
                 workerPort: deps.workerPort || process.env.WORKER_PORT || "8080",

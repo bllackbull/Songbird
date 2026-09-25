@@ -398,9 +398,9 @@ export function FilterDropdown({ value, onChange, options, icon: Icon = Filter }
 export function Modal({ title, onClose, children, wide = false }) {
   if (typeof document === "undefined") return null;
   return createPortal(
-    <div className="fixed inset-0 z-200 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4"
+    <div className="fixed inset-0 z-200 flex items-center justify-center bg-black/40 px-6 py-6"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className={`app-scroll relative w-full ${wide ? "sm:max-w-lg" : "sm:max-w-sm"} max-h-[90dvh] overflow-y-auto rounded-t-2xl sm:rounded-2xl border border-emerald-100/70 bg-white shadow-xl dark:border-emerald-500/30 dark:bg-slate-950`}>
+      <div className={`app-scroll relative w-full ${wide ? "max-w-lg" : "max-w-sm"} max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl border border-emerald-100/70 bg-white shadow-xl dark:border-emerald-500/30 dark:bg-slate-950`}>
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-white/5">
           <h3 className="text-sm font-semibold text-emerald-700 dark:text-emerald-200">{title}</h3>
           <button type="button" onClick={onClose}

@@ -730,6 +730,14 @@ export default function App() {
           fileUploadMaxFiles: data?.fileUploadMaxFiles,
           fileUploadMaxSizeMb: data?.fileUploadMaxSizeMb,
           fileUploadMaxTotalSizeMb: data?.fileUploadMaxTotalSizeMb,
+          listRefreshIntervalMs: data?.chatListRefreshIntervalMs,
+          healthCheckIntervalMs: data?.chatHealthCheckIntervalMs,
+          sseReconnectDelayMs: data?.chatSseReconnectDelayMs,
+          searchMaxResults: data?.chatSearchMaxResults,
+          pendingTextTimeoutMs: data?.chatPendingTextTimeoutMs,
+          pendingFileTimeoutMs: data?.chatPendingFileTimeoutMs,
+          pendingRetryIntervalMs: data?.chatPendingRetryIntervalMs,
+          pendingStatusCheckIntervalMs: data?.chatPendingStatusCheckIntervalMs,
         })
       })
       .catch(() => {

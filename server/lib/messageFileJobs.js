@@ -164,7 +164,150 @@ export function createMessageFileJobs({
       : processRows(rawRows);
   };
 
-  const cleanupExpiredMessageFiles = () => {
+  const collectRemoteKeysFromFileRows = (fileRows = []) => {
+    const keys = new Set();
+    (fileRows || []).forEach((row) => {
+      const driver = String(
+        row?.storage_driver ?? row?.storageDriver ?? "local",
+      ).toLowerCase();
+      if (driver !== "remote" && driver !== "s3") return;
+
+      const storageKey = String(
+        row?.storage_key ?? row?.storageKey ?? "",
+      ).trim();
+      if (storageKey) {
+        keys.add(storageKey);
+      } else {
+        const stored = path.basename(String(row?.stored_name || "").trim());
+        if (stored) keys.add(`uploads/messages/${stored}`);
+      }
+
+      const thumbKey = String(
+        row?.thumb_storage_key ?? row?.thumbStorageKey ?? "",
+      ).trim();
+      if (thumbKey) keys.add(thumbKey);
+    });
+    return Array.from(keys);
+  };
+
+  const activeStorageProviderDelete = (provider) =>
+    provider && typeof provider.deleteFile === "function"
+      ? provider.deleteFile.bind(provider)
+      : null;
+
+  const deleteRemoteKeysBestEffort = async (keys = [], activeProvider) => {
+    if (
+      !keys.length ||
+      !activeProvider ||
+      typeof activeStorageProviderDelete(activeProvider) !== "function"
+    ) {
+      return [];
+    }
+    // Re-check the DB after the message/file rows were deleted so a key
+    // shared with a non-expired message is never removed from the bucket.
+    let stillReferenced = new Set();
+    try {
+      const rawRemaining = adminGetAll(
+        dbKnex("chat_message_files")
+          .select("storage_key", "thumb_storage_key")
+          .where(function () {
+            this.whereIn("storage_key", keys).orWhereIn(
+              "thumb_storage_key",
+              keys,
+            );
+          }),
+      );
+      const remaining =
+        rawRemaining && typeof rawRemaining.then === "function"
+          ? await rawRemaining
+          : rawRemaining;
+      (remaining || []).forEach((row) => {
+        const sk = String(row?.storage_key || "").trim();
+        if (sk) stillReferenced.add(sk);
+        const tk = String(row?.thumb_storage_key || "").trim();
+        if (tk) stillReferenced.add(tk);
+      });
+    } catch (_) {
+      // Best effort — if the check fails, fall through and attempt deletion
+      // of the keys collected from the expired rows.
+    }
+
+    const toDelete = keys.filter((key) => !stillReferenced.has(key));
+    const deleted = [];
+    const doDelete = activeStorageProviderDelete(activeProvider);
+    for (const key of toDelete) {
+      try {
+        await doDelete(key);
+        deleted.push(key);
+      } catch (_) {
+        // best effort per object — a missing object or transient S3 error
+        // must not fail retention cleanup
+      }
+    }
+    return deleted;
+  };
+
+  const removeLocalThumbFiles = (fileRows = []) => {
+    const thumbKeys = new Set();
+    (fileRows || []).forEach((row) => {
+      const driver = String(
+        row?.storage_driver ?? row?.storageDriver ?? "local",
+      ).toLowerCase();
+      if (driver === "remote" || driver === "s3") return;
+      const thumbKey = String(
+        row?.thumb_storage_key ?? row?.thumbStorageKey ?? "",
+      ).trim();
+      if (thumbKey) thumbKeys.add(thumbKey);
+    });
+    if (!thumbKeys.size) return 0;
+
+    // Don't remove a thumb still referenced by a live (non-expired) row.
+    const stillReferenced = new Set();
+    try {
+      const rawRemaining = adminGetAll(
+        dbKnex("chat_message_files")
+          .select("thumb_storage_key")
+          .whereIn("thumb_storage_key", Array.from(thumbKeys)),
+      );
+      if (rawRemaining && typeof rawRemaining.then === "function") {
+      } else {
+        (rawRemaining || []).forEach((row) => {
+          const key = String(row?.thumb_storage_key || "").trim();
+          if (key) stillReferenced.add(key);
+        });
+      }
+    } catch (_) {
+      // best effort — fall through and attempt deletion
+    }
+
+    let removed = 0;
+    thumbKeys.forEach((thumbKey) => {
+      if (stillReferenced.has(thumbKey)) return;
+      const base = path.basename(String(thumbKey));
+      const candidates =
+        base && base !== String(thumbKey)
+          ? [
+              path.join(uploadRootDir, String(thumbKey)),
+              path.join(uploadRootDir, base),
+            ]
+          : [path.join(uploadRootDir, String(thumbKey))];
+      for (const candidate of candidates) {
+        try {
+          if (fs.existsSync(candidate)) {
+            fs.unlinkSync(candidate);
+            removed += 1;
+            break;
+          }
+        } catch (_) {
+          // best effort cleanup
+          break;
+        }
+      }
+    });
+    return removed;
+  };
+
+  const cleanupExpiredMessageFiles = (options = {}) => {
     if (getMessageFileRetentionDays() <= 0) {
       return { removedMessages: 0, removedFiles: 0 };
     }
@@ -189,11 +332,20 @@ export function createMessageFileJobs({
 
         const rawFiles = adminGetAll(
           dbKnex("chat_message_files")
-            .select("stored_name")
+            .select(
+              "stored_name",
+              "storage_key",
+              "storage_driver",
+              "thumb_storage_key",
+            )
             .whereIn("message_id", uniqueMsgIds),
         );
         const processFileRows = (fileRows) => {
-          const allStoredNames = (fileRows || []).map((row) => row.stored_name);
+          const safeFileRows = fileRows || [];
+          const allStoredNames = safeFileRows.map((row) => row.stored_name);
+          const remoteKeys = collectRemoteKeysFromFileRows(safeFileRows);
+          const activeProvider =
+            (options && options.storageProvider) || storageProvider;
 
           adminRun("BEGIN");
           try {
@@ -213,12 +365,26 @@ export function createMessageFileJobs({
           }
 
           removeStoredFileNames(allStoredNames);
+          const removedLocalThumbs = removeLocalThumbFiles(safeFileRows);
           adminSave();
 
-          return {
+          const result = {
             removedMessages: uniqueMsgIds.length,
             removedFiles: allStoredNames.length,
+            removedLocalThumbs,
           };
+
+          if (!remoteKeys.length || !activeStorageProviderDelete(activeProvider)) {
+            return result;
+          }
+
+          return deleteRemoteKeysBestEffort(remoteKeys, activeProvider).then(
+            (deletedKeys) => ({
+              ...result,
+              removedRemoteFiles: deletedKeys.length,
+              removedRemoteKeys: deletedKeys,
+            }),
+          );
         };
         return rawFiles && typeof rawFiles.then === "function"
           ? rawFiles.then(processFileRows)

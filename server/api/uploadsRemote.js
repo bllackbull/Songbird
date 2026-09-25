@@ -113,6 +113,7 @@ export function registerRemoteUploadRoutes(app, deps) {
     // attached after first boot — no redeploy needed). Best-effort: presign
     // continues regardless of the outcome. Opt-in via STORAGE_AUTO_CORS=true.
     if (
+      (deps.getSetting && deps.getSetting("STORAGE_AUTO_CORS")) ||
       String(process.env.STORAGE_AUTO_CORS ?? "false").toLowerCase() ===
         "true" ||
       String(process.env.STORAGE_AUTO_CORS ?? "false") === "1"
@@ -452,6 +453,7 @@ export function registerRemoteUploadRoutes(app, deps) {
     if (isVideo && transcodeEnabled) {
       dispatchMediaWorkerJob({
         workerUrl:
+          (deps.getSetting && deps.getSetting("WORKER_URL")) ||
           deps.workerUrl ||
           deps.mediaWorkerUrl ||
           workerUrl ||
@@ -460,6 +462,7 @@ export function registerRemoteUploadRoutes(app, deps) {
           process.env.MEDIA_WORKER_URL ||
           null,
         mediaWorkerUrl:
+          (deps.getSetting && deps.getSetting("WORKER_URL")) ||
           deps.workerUrl ||
           deps.mediaWorkerUrl ||
           workerUrl ||
@@ -469,6 +472,7 @@ export function registerRemoteUploadRoutes(app, deps) {
           null,
         storageProcessingMode: mode,
         storageProcessingTimeoutMs:
+          (deps.getSetting && Number(deps.getSetting("STORAGE_PROCESSING_TIMEOUT_MS"))) ||
           deps.storageProcessingTimeoutMs ||
           (process.env.STORAGE_PROCESSING_TIMEOUT_MS ? Number(process.env.STORAGE_PROCESSING_TIMEOUT_MS) : undefined),
         workerPort: deps.workerPort || process.env.WORKER_PORT || "8080",

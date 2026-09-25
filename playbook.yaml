@@ -27,7 +27,7 @@
     # Set to an explicit tag (e.g. "v0.12.1") to pin a version instead.
     songbird_version: "latest"
     # Used only when "latest" is requested but the GitHub API is unreachable.
-    songbird_version_fallback: "v0.12.2"
+    songbird_version_fallback: "v0.12.3"
     songbird_src: "/root/songbird"
     songbird_domain: "{{ external_domain | default('') }}"
     songbird_http_port: 80

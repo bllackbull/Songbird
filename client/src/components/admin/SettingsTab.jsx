@@ -7,11 +7,14 @@ import {
   Boxes,
   Bug,
   Check,
+  Clapper,
   Clock12,
   ClockFading,
   Database,
   Download,
+  File,
   Files,
+  HeartPulse,
   ImageIcon,
   Info,
   KeyRound,
@@ -19,16 +22,19 @@ import {
   LoaderCircle,
   Lock,
   MessageCircleMore,
+  PackageOpen,
   Paperclip,
   Pencil,
   Refresh,
   Rotate,
   SatelliteDish,
+  Search,
   SquareStack,
   ToggleRight,
   UserPlus,
   Video,
 } from "../../icons/lucide.js";
+import { TelegramIcon, SongbirdIcon } from "../../icons/BrandIcons.jsx";
 import { api, cardCls, btnPrimary, btnSecondary } from "./adminShared.js";
 import { SectionHeading } from "./AdminCommon.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
@@ -43,8 +49,10 @@ const GROUP_META = {
   retention: { label: "Message Retention", order: 3 },
   limits: { label: "Limits", order: 4 },
   client: { label: "Client Behavior", order: 5 },
-  push: { label: "Push Notifications", order: 6 },
-  remote_channel: { label: "Remote Channel", order: 7 },
+  remote_channel: { label: "Remote Channel", order: 6 },
+  storage: { label: "Object Storage & Worker", order: 7 },
+  realtime: { label: "Realtime", order: 8 },
+  proxy: { label: "Proxies", order: 9 },
 };
 
 // Icon for each setting key
@@ -62,8 +70,16 @@ const SETTING_ICONS = {
   USERNAME_MAX_CHARS: AtSign,
   NICKNAME_MAX_CHARS: Pencil,
   CHAT_MESSAGE_FETCH_LIMIT: Download,
-  CHAT_MESSAGE_PAGE_SIZE: SquareStack,
+  CHAT_MESSAGE_PAGE_SIZE: File,
   CHAT_CACHE_TTL: Database,
+  CHAT_LIST_REFRESH_INTERVAL: Refresh,
+  CHAT_HEALTH_CHECK_INTERVAL: HeartPulse,
+  CHAT_SSE_RECONNECT_DELAY: Rotate,
+  CHAT_SEARCH_MAX_RESULTS: Search,
+  CHAT_PENDING_TEXT_TIMEOUT: ClockFading,
+  CHAT_PENDING_FILE_TIMEOUT: ClockFading,
+  CHAT_PENDING_RETRY_INTERVAL: Rotate,
+  CHAT_PENDING_STATUS_CHECK_INTERVAL: Clock12,
   REMOTE_CHANNEL: SatelliteDish,
   REMOTE_CHANNEL_UI: ToggleRight,
   REMOTE_CHANNEL_MEDIA_STREAM: ImageIcon,
@@ -74,9 +90,16 @@ const SETTING_ICONS = {
   REMOTE_CHANNEL_QUEUE_BATCH_SIZE: Box,
   REMOTE_CHANNEL_QUEUE_CONCURRENCY: SquareStack,
   REMOTE_CHANNEL_QUEUE_STALE_LOCK_MS: Lock,
-  REMOTE_CHANNEL_TELEGRAM_PROXY_URL: SatelliteDish,
-  REMOTE_CHANNEL_SONGBIRD_PROXY_URL: SatelliteDish,
+  REMOTE_CHANNEL_TELEGRAM_PROXY_URL: TelegramIcon,
+  REMOTE_CHANNEL_SONGBIRD_PROXY_URL: SongbirdIcon,
   PUSH_PROXY_URL: Bell,
+  STORAGE_EXPIRES_IN: Clock12,
+  STORAGE_PROXY_URL: PackageOpen,
+  STORAGE_AUTO_CORS: ToggleRight,
+  WORKER_URL: Clapper,
+  STORAGE_PROCESSING_TIMEOUT_MS: Clock12,
+  WS_HEARTBEAT_INTERVAL_MS: Clock12,
+  WS_HEARTBEAT_TIMEOUT_MS: Clock12,
 };
 
 // Per-icon hover animation
@@ -96,6 +119,14 @@ const SETTING_ICON_ANIM = {
   CHAT_MESSAGE_FETCH_LIMIT: "icon-anim-drop",
   CHAT_MESSAGE_PAGE_SIZE: "icon-anim-lift",
   CHAT_CACHE_TTL: "icon-anim-lift",
+  CHAT_LIST_REFRESH_INTERVAL: "icon-anim-swing",
+  CHAT_HEALTH_CHECK_INTERVAL: "icon-anim-swing",
+  CHAT_SSE_RECONNECT_DELAY: "icon-anim-spin-full",
+  CHAT_SEARCH_MAX_RESULTS: "icon-anim-lift",
+  CHAT_PENDING_TEXT_TIMEOUT: "icon-anim-swing",
+  CHAT_PENDING_FILE_TIMEOUT: "icon-anim-swing",
+  CHAT_PENDING_RETRY_INTERVAL: "icon-anim-spin-full",
+  CHAT_PENDING_STATUS_CHECK_INTERVAL: "icon-anim-swing",
   REMOTE_CHANNEL: "icon-anim-sway",
   REMOTE_CHANNEL_UI: "icon-anim-lift",
   REMOTE_CHANNEL_MEDIA_STREAM: "icon-anim-pop",
@@ -109,6 +140,13 @@ const SETTING_ICON_ANIM = {
   REMOTE_CHANNEL_TELEGRAM_PROXY_URL: "icon-anim-swing",
   REMOTE_CHANNEL_SONGBIRD_PROXY_URL: "icon-anim-swing",
   PUSH_PROXY_URL: "icon-anim-swing",
+  STORAGE_EXPIRES_IN: "icon-anim-swing",
+  STORAGE_PROXY_URL: "icon-anim-swing",
+  STORAGE_AUTO_CORS: "icon-anim-lift",
+  WORKER_URL: "icon-anim-beat",
+  STORAGE_PROCESSING_TIMEOUT_MS: "icon-anim-swing",
+  WS_HEARTBEAT_INTERVAL_MS: "icon-anim-swing",
+  WS_HEARTBEAT_TIMEOUT_MS: "icon-anim-swing",
 };
 
 // Keys that act as the master enable/disable toggle for their whole group.
@@ -420,7 +458,7 @@ function SettingRow({ def, localVal, onChange, groupDisabled = false, childDefs 
         </div>
       )}
 
-      {/* ── Sub-rows for nullable string (proxy URL) ──────────────────────── */}
+      {/* ── Sub-rows for nullable string (proxy / worker URL) ─────────────── */}
       {isNullable && def.type === "string" && (
         <div
           className={`settings-row flex items-start gap-3 border-t px-4 py-3 ${
@@ -432,17 +470,19 @@ function SettingRow({ def, localVal, onChange, groupDisabled = false, childDefs 
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">
-              Proxy URL
+              {def.key.includes("WORKER") ? "Worker URL" : def.key.includes("PROXY") ? "Proxy URL" : "URL"}
             </p>
             <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
-              HTTPS, SOCKS4, or SOCKS5 proxy address.
+              {def.key.includes("WORKER")
+                ? "Base URL of the external media worker."
+                : "HTTPS, SOCKS4, or SOCKS5 proxy address."}
             </p>
             <input
               type="text"
               value={isEnabled ? localVal : ""}
               disabled={!isEnabled || controlDisabled}
               onChange={(e) => onChange(e.target.value)}
-              placeholder="https://proxy.example.com:8080"
+              placeholder={def.key.includes("WORKER") ? "https://worker.example.com" : "https://proxy.example.com:8080"}
               className="mt-2 w-full rounded-xl border border-emerald-200/70 bg-white/90 px-3 py-2 text-sm text-slate-700 outline-hidden transition placeholder:text-slate-300 hover:border-emerald-300 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/40 disabled:cursor-not-allowed dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200 dark:placeholder-slate-600"
             />
           </div>

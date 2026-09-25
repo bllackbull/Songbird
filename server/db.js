@@ -4106,6 +4106,119 @@ export function adminDeleteChat(chatId) {
   return deleteChatById(chatId);
 }
 
+// ─── Admin Audit Logs (DB-backed, survives ephemeral disks) ───────────────────
+
+function serializeAuditDetails(details) {
+  if (details === undefined || details === null) return null;
+  if (typeof details === "string") return details;
+  try {
+    return JSON.stringify(details);
+  } catch {
+    return String(details);
+  }
+}
+
+function mapAuditRow(row) {
+  if (!row) return row;
+  const { _total, ...rest } = row;
+  return {
+    ts: rest.ts ?? null,
+    actorUserId: rest.actor_user_id ?? null,
+    actorUsername: rest.actor_username ?? null,
+    action: rest.action ?? "",
+    targetType: rest.target_type ?? null,
+    targetLabel: rest.target_label ?? null,
+    details: rest.details ?? null,
+    status: rest.status ?? "success",
+  };
+}
+
+// Append a single admin action. Logging must never break the request flow,
+// so write failures resolve silently instead of rejecting/throwing.
+export function writeAdminAuditLog({
+  ts = null,
+  actorUserId = null,
+  actorUsername = null,
+  action,
+  targetType = null,
+  targetLabel = null,
+  details = null,
+  status = "success",
+} = {}) {
+  const entry = {
+    ts: ts || new Date().toISOString(),
+    actor_user_id: actorUserId ?? null,
+    actor_username: actorUsername ?? null,
+    action: String(action || ""),
+    target_type: targetType ?? null,
+    target_label: targetLabel ?? null,
+    details: serializeAuditDetails(details),
+    status: status ?? "success",
+  };
+  try {
+    const result = run(dbKnex("admin_audit_logs").insert(entry));
+    if (result && typeof result.catch === "function") {
+      return result.catch(() => {});
+    }
+    return result;
+  } catch {
+    return isPostgresMode() ? Promise.resolve() : undefined;
+  }
+}
+
+function applyAuditLogSearch(qb, search) {
+  const needle = String(search || "").trim();
+  if (!needle) return qb;
+  const like = `%${escapeLikePattern(needle)}%`;
+  return qb.where((builder) => {
+    builder
+      .whereRaw("actor_username LIKE ? ESCAPE '\\'", [like])
+      .orWhereRaw("action LIKE ? ESCAPE '\\'", [like])
+      .orWhereRaw("target_label LIKE ? ESCAPE '\\'", [like])
+      .orWhereRaw("details LIKE ? ESCAPE '\\'", [like]);
+  });
+}
+
+export function readAdminAuditLogs({ limit = 200, offset = 0, search = "" } = {}) {
+  const safeLimit = Math.max(1, Number(limit) || 200);
+  const safeOffset = Math.max(0, Number(offset) || 0);
+  let qb = dbKnex("admin_audit_logs").select(
+    "ts",
+    "actor_user_id",
+    "actor_username",
+    "action",
+    "target_type",
+    "target_label",
+    "details",
+    "status",
+    dbKnex.raw("COUNT(*) OVER() AS _total"),
+  );
+  qb = applyAuditLogSearch(qb, search);
+  qb = qb.orderBy("id", "desc").limit(safeLimit).offset(safeOffset);
+  const rawRows = getAll(qb);
+  const processRows = (rows) => {
+    const list = rows || [];
+    const total = list.length > 0 ? Number(list[0]._total || 0) : 0;
+    return { entries: list.map(mapAuditRow), total };
+  };
+  if (rawRows && typeof rawRows.then === "function") {
+    return rawRows.then(processRows).catch(() => ({ entries: [], total: 0 }));
+  }
+  try {
+    return processRows(rawRows);
+  } catch {
+    return { entries: [], total: 0 };
+  }
+}
+
+export function clearAdminAuditLogs() {
+  try {
+    return run(dbKnex("admin_audit_logs").del());
+  } catch {
+    return isPostgresMode() ? Promise.resolve() : undefined;
+  }
+}
+
 // ─── Admin Maintenance ─────────────────────────────────────────────────────────
 
 export async function vacuumDatabase() {

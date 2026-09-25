@@ -208,7 +208,8 @@ docker compose -f docker-compose.yaml build --no-cache --progress=plain
 ### خطای `self-signed certificate in certificate chain` / `SELF_SIGNED_CERT_IN_CHAIN`
 
 **نشانه:**
-```
+
+```txt
 [db-migrations] Error initializing Postgres schema sets: Error: self-signed certificate in certificate chain
   code: 'SELF_SIGNED_CERT_IN_CHAIN'
 Acquire connection error: Error: self-signed certificate in certificate chain
@@ -225,12 +226,15 @@ Acquire connection error: Error: self-signed certificate in certificate chain
    - در داشبورد Render به تب **Environment** سرویس خود بروید.
    - در بخش **Secret Files**، فایلی با نام `aiven-ca.pem` (یا `/etc/secrets/aiven-ca.pem`) ایجاد کرده و متن گواهی PEM را در آن قرار دهید.
    - متغیر محیطی زیر را اضافه کنید:
+
      ```txt
      NODE_EXTRA_CA_CERTS=/etc/secrets/aiven-ca.pem
      ```
+
 3. **در Docker یا VPS:**
    - فایل گواهی CA را روی دیسک ذخیره کنید (مثلاً `/opt/songbird/certs/ca.pem` یا آن را درون کانتینر mount کنید).
    - در فایل `.env` یا متغیرهای کانتینر مقدار زیر را تنظیم کنید:
+
      ```txt
      NODE_EXTRA_CA_CERTS=/opt/songbird/certs/ca.pem
      ```
@@ -248,7 +252,6 @@ Acquire connection error: Error: self-signed certificate in certificate chain
 
 برای راهنمای کامل پیکربندی به [راه اندازی کانال ریموت](./Remote-Channel-Setup.md) مراجعه کنید.
 
-
 ## مشکلات پنل مدیریت {#مشکلات-پنل-مدیریت}
 
 قابلیت های کنترل سرویس (ریستارت/توقف) و مشاهده لاگ های سیستم در پنل مدیریت بسته به نحوه استقرار Songbird به مجوزهای خاصی نیاز دارند.
@@ -262,23 +265,30 @@ Acquire connection error: Error: self-signed certificate in certificate chain
 ### کنترل سرویس کار نمیکند
 
 **استقرارهای Systemd:**
+
 - کاربر سرویس به مجوزهای `sudo` برای دستورات `systemctl` نیاز دارد
 - یک فایل sudoers برای کاربر songbird ایجاد کنید:
+
   ```bash
   sudo visudo -f /etc/sudoers.d/songbird
   ```
+
 - این خطوط را اضافه کنید (اگر از کاربر سرویس متفاوتی استفاده میکنید `songbird` را جایگزین کنید):
-  ```
+
+  ```txt
   songbird ALL=(ALL) NOPASSWD: /bin/systemctl restart songbird.service
   songbird ALL=(ALL) NOPASSWD: /bin/systemctl stop songbird.service
   songbird ALL=(ALL) NOPASSWD: /bin/systemctl status songbird.service
   ```
+
 - ذخیره کنید و مطمئن شوید مجوزها صحیح هستند:
+
   ```bash
   sudo chmod 0440 /etc/sudoers.d/songbird
   ```
 
 **استقرارهای PM2:**
+
 - پروسه باید به runtime PM2 دسترسی داشته باشد
 - اطمینان حاصل کنید PM2 با همان کاربری که Songbird را اجرا میکند، در حال اجراست
 - کاربر باید مجوز اجرای `pm2 restart` و `pm2 stop` را داشته باشد
@@ -286,37 +296,30 @@ Acquire connection error: Error: self-signed certificate in certificate chain
 ### لاگ های سیستم نمایش داده نمیشوند
 
 **Systemd:**
+
 - کاربر سرویس به مجوز خواندن لاگ های journal و لاگ های nginx نیاز دارد
 - کاربر را به گروه `systemd-journal` اضافه کنید:
+
   ```bash
   sudo usermod -a -G systemd-journal songbird
   ```
+
 - کاربر را به گروه `adm` اضافه کنید:
+
   ```bash
   sudo usermod -a -G adm songbird
   ```
 
 - سرویس را راه اندازی مجدد کنید:
+
   ```bash
   sudo systemctl restart songbird
   ```
 
 **Docker:**
+
 - اطمینان حاصل کنید که سوکت Docker mount شده است (همانند کنترل سرویس بالا)
 - کانتینر باید برای خواندن لاگ ها از طریق API Docker دسترسی داشته باشد
-
-### خطاهای مجوز فایل لاگ
-
-اگر پنل مدیریت نمیتواند لاگ های ممیزی را در `data/logs/` بنویسد:
-
-```bash
-# اطمینان حاصل کنید دایرکتوری data و زیردایرکتوری ها متعلق به کاربر سرویس هستند
-sudo chown -R songbird:songbird /opt/songbird/data
-
-# یا برای نصب های Docker، مالکیت مناسب را در volume اطمینان حاصل کنید
-docker compose exec songbird chown -R node:node /app/data
-```
-
 
 ## هنوز گیر کرده اید؟
 

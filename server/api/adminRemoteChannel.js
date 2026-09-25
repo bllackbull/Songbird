@@ -7,8 +7,6 @@ import {
   resolveTelegramSecrets,
   saveTelegramSecrets,
 } from "../lib/remoteChannelSecrets.js";
-import { writeAdminLog } from "../lib/adminLog.js";
-
 // Guided Telegram setup for Remote Channel (Services tab). Replaces the
 // `remote:configure` CLI script: send a login code, verify it (+ 2FA), and
 // persist the credentials outside the settings registry with a hot-reload
@@ -66,15 +64,21 @@ function registerAdminRemoteChannelRoutes(app, deps) {
   };
 
   const log = (session, action, opts = {}) => {
-    (deps.writeAdminLog || writeAdminLog)({
-      actorUserId: session?.id ?? null,
-      actorUsername: session?.username ?? null,
-      action,
-      targetType: opts.targetType ?? "system",
-      targetLabel: opts.targetLabel ?? "remote-channel",
-      details: opts.details ?? null,
-      status: opts.status ?? "success",
-    });
+    const writeLog = deps.writeAdminAuditLog;
+    try {
+      const result = writeLog({
+        actorUserId: session?.id ?? null,
+        actorUsername: session?.username ?? null,
+        action,
+        targetType: opts.targetType ?? "system",
+        targetLabel: opts.targetLabel ?? "remote-channel",
+        details: opts.details ?? null,
+        status: opts.status ?? "success",
+      });
+      if (result && typeof result.catch === "function") result.catch(() => {});
+    } catch {
+      // Logging must never break the request flow.
+    }
   };
 
   const readCreds = () => resolveTelegramSecrets({ dbGetSetting });

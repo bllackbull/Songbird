@@ -221,6 +221,83 @@ describe("admin services status", () => {
   });
 });
 
+describe("admin services database status", () => {
+  function setupServicesApp({ dbConfig = { client: "sqlite3" }, adminGetRow = () => null } = {}) {
+    const sessionStore = makeSessionStore();
+    const userStore = makeUserStore([
+      {
+        id: "u-admin",
+        username: "admin",
+        nickname: "Admin",
+        role: "admin",
+        status: "online",
+      },
+    ]);
+    sessionStore.createSession("u-admin", "sid-admin");
+    const { app } = makeApp({
+      sessionStore,
+      userStore,
+      deps: {
+        isUserAdmin: () => true,
+        storageProvider: { type: "local" },
+        workerUrl: null,
+        mediaWorkerUrl: null,
+        remoteChannelManager: null,
+        dbConfig,
+        adminGetRow,
+      },
+    });
+    return { app };
+  }
+
+  const getServices = (app) =>
+    request(app).get("/api/admin/services").set("Cookie", "sid=sid-admin");
+
+  test("sqlite mode reports database as unconfigured without pinging", async () => {
+    const adminGetRow = vi.fn(() => null);
+    const { app } = setupServicesApp({ dbConfig: { client: "sqlite3" }, adminGetRow });
+    const res = await getServices(app);
+    expect(res.status).toBe(200);
+    expect(res.body.database).toMatchObject({
+      client: "sqlite3",
+      configured: false,
+      reachable: null,
+    });
+    expect(adminGetRow).not.toHaveBeenCalled();
+  });
+
+  test("postgres mode pings the database and reports reachability", async () => {
+    const { app } = setupServicesApp({
+      dbConfig: { client: "postgres" },
+      adminGetRow: vi.fn(async () => ({ ok: 1 })),
+    });
+    const res = await getServices(app);
+    expect(res.status).toBe(200);
+    expect(res.body.database).toMatchObject({
+      client: "postgres",
+      configured: true,
+      reachable: true,
+    });
+    expect(typeof res.body.database.latencyMs).toBe("number");
+  });
+
+  test("postgres mode reports unreachable when the ping fails", async () => {
+    const { app } = setupServicesApp({
+      dbConfig: { client: "postgres" },
+      adminGetRow: vi.fn(async () => {
+        throw new Error("connection refused");
+      }),
+    });
+    const res = await getServices(app);
+    expect(res.status).toBe(200);
+    expect(res.body.database).toMatchObject({
+      client: "postgres",
+      configured: true,
+      reachable: false,
+    });
+  });
+});
+
 describe("remote manager health", () => {
   test("getHealth reports enabled + telegram flags without network", async () => {
     const manager = createRemoteChannelManager({

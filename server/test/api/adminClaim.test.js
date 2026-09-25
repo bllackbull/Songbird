@@ -12,7 +12,7 @@ describe("POST /api/admin/claim", () => {
       getSessionFromRequest: (...args) => deps.onGetSession(...args),
       setUserRole: (...args) => deps.onSetUserRole(...args),
       getRow: (...args) => deps.onGetRow(...args),
-      writeAdminLog: () => {},
+      writeAdminAuditLog: () => {},
     };
     deps.onGetSession = () => ({ id: "42424242-4242-4242-a242-424242424242", username: "testuser" });
     deps.onSetUserRole = async (id, role) => ({ id, role });
