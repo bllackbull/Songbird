@@ -180,7 +180,7 @@ const ServicesTab = forwardRef(function ServicesTab(
       : `PostgreSQL` +
         (databaseReachable && database?.latencyMs != null ? ` · ${database.latencyMs}ms` : "");
   const handleDatabaseCheck = async () => {
-    flashStatus("database", "busy", "Pinging…");
+    flashStatus("database", "busy", "Checking…");
     try {
       const payload = await api.get("/api/admin/services");
       if (payload?.database?.reachable === false) {
@@ -189,7 +189,7 @@ const ServicesTab = forwardRef(function ServicesTab(
         flashStatus("database", "success", "Active");
       }
     } catch {
-      flashStatus("database", "error", "Ping failed");
+      flashStatus("database", "error", "Check failed");
     }
   };
 
