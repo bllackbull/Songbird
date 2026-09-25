@@ -368,6 +368,49 @@ export function makeApp(overrides = {}) {
     adminRun: () => {},
     adminTransaction: async (callback) => callback(async () => {}),
     adminSave: () => {},
+    // In-memory admin audit log store (mirrors the DB-backed API in db.js).
+    // Keeps route tests off the real filesystem (logs/admin.log).
+    ...(() => {
+      const auditLogStore = [];
+      const toEntry = (e) => ({
+        ts: e.ts || new Date().toISOString(),
+        actorUserId: e.actorUserId ?? null,
+        actorUsername: e.actorUsername ?? null,
+        action: String(e.action || ""),
+        targetType: e.targetType ?? null,
+        targetLabel: e.targetLabel ?? null,
+        details: e.details ?? null,
+        status: e.status ?? "success",
+      });
+      const readAuditStore = ({ limit = 200, offset = 0, search = "" } = {}) => {
+        const needle = String(search || "").toLowerCase();
+        const filtered = [...auditLogStore].reverse().filter((entry) => {
+          if (!needle) return true;
+          return [entry.actorUsername, entry.action, entry.targetLabel, entry.details]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase()
+            .includes(needle);
+        });
+        const safeLimit = Math.max(1, Number(limit) || 200);
+        const safeOffset = Math.max(0, Number(offset) || 0);
+        return {
+          entries: filtered.slice(safeOffset, safeOffset + safeLimit),
+          total: filtered.length,
+        };
+      };
+      return {
+        __auditLogStore: auditLogStore,
+        writeAdminAuditLog: (e = {}) => {
+          auditLogStore.push(toEntry(e));
+        },
+        readAdminAuditLogs: ({ limit = 200, offset = 0, search = "" } = {}) =>
+          readAuditStore({ limit, offset, search }),
+        clearAdminAuditLogs: () => {
+          auditLogStore.length = 0;
+        },
+      };
+    })(),
     isUserAdmin: () => false,
     isUserOwner: () => false,
     getOwnerUser: () => null,

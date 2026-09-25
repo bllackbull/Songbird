@@ -2,7 +2,6 @@ import { normalizeHexColor, normalizeGroupUsername, normalizeVisibility, normali
 import { createInviteToken } from "../lib/inviteTokens.js";
 import { validateUuidParams } from "../lib/uuidMiddleware.js";
 import { isValidUuid, generateUuid } from "../lib/uuidUtils.js";
-import { writeAdminLog, readAdminLog, clearAdminLog } from "../lib/adminLog.js";
 import { readInstallerLog, readNginxLog, readServiceLog, readWorkerLog, probeLogSources } from "../lib/systemLogs.js";
 import { userEvents } from "../lib/workers/autoAddWorker.js";
 import { dbKnex } from "../db/knex.js";
@@ -295,18 +294,23 @@ function registerAdminPanelRoutes(app, deps) {
     });
   };
 
-  // Helper to write an audit log entry (to logs/admin.log) tied to the acting admin.
+  // Helper to write an audit log entry (DB-backed) tied to the acting admin.
   const log = (session, action, opts = {}) => {
-    const writeLog = deps.writeAdminLog || writeAdminLog;
-    writeLog({
-      actorUserId:   session?.id ?? null,
-      actorUsername: session?.username ?? null,
-      action,
-      targetType:    opts.targetType ?? null,
-      targetLabel:   opts.targetLabel ?? null,
-      details:       opts.details ?? null,
-      status:        opts.status ?? "success",
-    });
+    const writeLog = deps.writeAdminAuditLog;
+    try {
+      const result = writeLog({
+        actorUserId:   session?.id ?? null,
+        actorUsername: session?.username ?? null,
+        action,
+        targetType:    opts.targetType ?? null,
+        targetLabel:   opts.targetLabel ?? null,
+        details:       opts.details ?? null,
+        status:        opts.status ?? "success",
+      });
+      if (result && typeof result.catch === "function") result.catch(() => {});
+    } catch {
+      // Logging must never break the request flow.
+    }
   };
 
   // ─── Dashboard ───────────────────────────────────────────────────────────────
@@ -1286,13 +1290,13 @@ function registerAdminPanelRoutes(app, deps) {
 
   // ─── Logs ──────────────────────────────────────────────────────────────────
 
-  // Admin panel audit log (from logs/admin.log)
-  app.get("/api/admin/logs", (req, res) => {
+  // Admin panel audit log (DB-backed).
+  app.get("/api/admin/logs", async (req, res) => {
     if (!requireAdmin(req, res)) return;
     const limit  = Number(req.query.limit || 200);
     const offset = Number(req.query.offset || 0);
     const search = String(req.query.search || "").trim();
-    const { entries, total } = readAdminLog({ limit, offset, search });
+    const { entries, total } = await deps.readAdminAuditLogs({ limit, offset, search });
     res.json({ logs: entries, total, limit, offset });
   });
 
@@ -1302,7 +1306,7 @@ function registerAdminPanelRoutes(app, deps) {
     if (!(await actorIsOwner(session))) {
       return res.status(403).json({ error: "Owner access required" });
     }
-    clearAdminLog();
+    await deps.clearAdminAuditLogs();
     log(session, "logs.clear", { targetType: "system" });
     res.json({ ok: true });
   });

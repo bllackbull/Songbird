@@ -167,7 +167,8 @@ View audit logs and system logs:
 
 ### Audit Logs
 
-File-based logs of admin actions:
+Database-backed logs of admin actions:
+
 - User CRUD operations
 - Chat CRUD operations
 - Settings changes

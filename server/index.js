@@ -143,6 +143,9 @@ import {
   isUserAdmin,
   isUserOwner,
   getOwnerUser,
+  writeAdminAuditLog,
+  readAdminAuditLogs,
+  clearAdminAuditLogs,
   getAdminStats,
   adminListUsers,
   adminListChats,
@@ -185,6 +188,41 @@ dotenv.config({ path: path.join(serverDir, ".env"), override: true, quiet: true 
 // Load runtime settings from DB (env vars remain as fallback defaults).
 // Must run after dotenv and after the DB module (which runs migrations).
 await loadSettings(dbGetAllSettings);
+
+// One-time import of the legacy file audit log (logs/admin.log) into the
+// DB-backed admin_audit_logs table. Best effort: only runs when the table is
+// empty and a legacy file exists, and never crashes boot.
+try {
+  const existing = await readAdminAuditLogs({ limit: 1, offset: 0 });
+  if (Number(existing?.total || 0) === 0) {
+    const legacyPath = path.join(projectRootDir, "logs", "admin.log");
+    if (fs.existsSync(legacyPath)) {
+      const raw = fs.readFileSync(legacyPath, "utf8");
+      const lines = raw.split("\n").filter((l) => l.trim());
+      // File is oldest-first; insert in order so autoincrement ids stay chronological.
+      for (const line of lines) {
+        let parsed;
+        try { parsed = JSON.parse(line); } catch { continue; }
+        if (!parsed?.action) continue;
+        try {
+          await writeAdminAuditLog({
+            ts: parsed.ts ?? null,
+            actorUserId: parsed.actorUserId ?? null,
+            actorUsername: parsed.actorUsername ?? null,
+            action: String(parsed.action || ""),
+            targetType: parsed.targetType ?? null,
+            targetLabel: parsed.targetLabel ?? null,
+            details: parsed.details ?? null,
+            status: parsed.status ?? "success",
+          });
+        } catch { break; }
+      }
+      if (lines.length > 0) console.log(`[server] Imported ${lines.length} legacy admin audit log entr(ies) from logs/admin.log.`);
+    }
+  }
+} catch {
+  // Best effort only — file fallback in admin routes keeps working.
+}
 
 const port = process.env.PORT || process.env.SERVER_PORT || 5174;
 const appEnv = process.env.APP_ENV || "production";
@@ -943,6 +981,9 @@ const apiDeps = {
   isUserAdmin,
   isUserOwner,
   getOwnerUser,
+  writeAdminAuditLog,
+  readAdminAuditLogs,
+  clearAdminAuditLogs,
   getAdminStats,
   adminListUsers,
   adminListChats,
