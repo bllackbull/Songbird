@@ -1,3 +1,24 @@
+## 0.12.3
+
+### New Features
+
+- 🗃️ Postgres database ping card in the Services tab
+- ⚙️ New configuration options in admin settings
+- 🗄️ Admin audit logs persisted in the database instead of the log file
+
+### Improvements
+
+- 🔁 Retry mirror dispatch logic for remote workers
+- 📋 New log actions for remote channel events and nginx reload
+- 🔗 Docker and Railway social links in settings
+
+### Bug Fixes
+
+- 🧹 Delete remote bucket objects and local video thumbnails on message file retention expiry
+- 🖼️ Prevent avatar URL clearing when remote storage is configured
+- 🔕 Prune stale push subscriptions on 401/403 auth errors without warning logs for expired entries
+- 📨 Fix public channel messages endpoint hanging on un-awaited messages promise
+
 ## 0.12.2
 
 ### New Features
