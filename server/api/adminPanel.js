@@ -406,7 +406,7 @@ function registerAdminPanelRoutes(app, deps) {
       return res.json(servicesCache.data);
     }
     const workerBaseUrl = String(
-      deps.workerUrl || deps.mediaWorkerUrl || process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || "",
+      (typeof getSetting === "function" && getSetting("WORKER_URL")) || deps.workerUrl || deps.mediaWorkerUrl || process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || "",
     ).trim().replace(/\/+$/, "");
     let mediaWorker = { configured: Boolean(workerBaseUrl), reachable: false, latencyMs: null };
     if (workerBaseUrl) {

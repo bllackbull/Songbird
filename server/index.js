@@ -417,7 +417,13 @@ const REMOTE_CHANNEL_CONFIG = {
 };
 const MESSAGE_FILE_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 
-const storageProvider = createStorageProvider(process.env);
+const storageProvider = createStorageProvider({
+  ...process.env,
+  // Admin-panel DB values win when the env var is absent (getSetting resolves
+  // env → DB → default). Restart required — S3 client is constructed once.
+  STORAGE_EXPIRES_IN: getSetting("STORAGE_EXPIRES_IN"),
+  STORAGE_PROXY_URL: getSetting("STORAGE_PROXY_URL") || process.env.STORAGE_PROXY_URL,
+});
 
 // Self-configure bucket CORS for browser presigned uploads (remote driver
 // only). Runs in the background: never blocks or crashes boot. Opt-in via
@@ -425,7 +431,8 @@ const storageProvider = createStorageProvider(process.env);
 // configure the bucket manually (npm --prefix server run storage:cors).
 if (
   (storageProvider?.type === "remote" || storageProvider?.type === "s3") &&
-  (String(process.env.STORAGE_AUTO_CORS ?? "false").toLowerCase() === "true" ||
+  (getSetting("STORAGE_AUTO_CORS") ||
+    String(process.env.STORAGE_AUTO_CORS ?? "false").toLowerCase() === "true" ||
     String(process.env.STORAGE_AUTO_CORS ?? "false") === "1")
 ) {
   const corsOrigins = resolveAppOrigins(process.env);
@@ -581,8 +588,8 @@ const videoTranscoder = createVideoTranscodeManager({
   storageEncryption,
   storageProvider,
   storageProcessingMode: process.env.STORAGE_PROCESSING_MODE || "auto",
-  mediaWorkerUrl: process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
-  workerUrl: process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
+  mediaWorkerUrl: getSetting("WORKER_URL") || process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
+  workerUrl: getSetting("WORKER_URL") || process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
   workerPort: process.env.WORKER_PORT || "8080",
   webhookSecret: process.env.WEBHOOK_SECRET || null,
   callbackUrl: resolveWebhookCallbackUrl(),
@@ -632,7 +639,7 @@ const mediaQueueManager = createMediaQueueManager({
   redisClient,
   storageProvider,
   s3ProcessingMode: process.env.STORAGE_PROCESSING_MODE || "auto",
-  s3ProcessingTimeoutMs: Number(process.env.STORAGE_PROCESSING_TIMEOUT_MS) || 120000,
+  s3ProcessingTimeoutMs: Number(getSetting("STORAGE_PROCESSING_TIMEOUT_MS")) || 120000,
   adminGetRow,
   adminRun,
   emitChatEvent,
@@ -791,8 +798,8 @@ const apiDeps = {
   storageProvider,
   mediaQueueManager,
   storageProcessingMode: process.env.STORAGE_PROCESSING_MODE || "auto",
-  mediaWorkerUrl: process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
-  workerUrl: process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
+  mediaWorkerUrl: getSetting("WORKER_URL") || process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
+  workerUrl: getSetting("WORKER_URL") || process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
   workerPort: process.env.WORKER_PORT || "8080",
   webhookSecret: process.env.WEBHOOK_SECRET || null,
   webhookCallbackUrl: resolveWebhookCallbackUrl(),
@@ -1030,11 +1037,11 @@ const dispatchMirrorMedia = async ({
   authorUsername,
 }) => {
   const { dispatched } = await dispatchMirrorJob({
-    workerUrl: process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
+    workerUrl: getSetting("WORKER_URL") || process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
     storageProcessingMode: process.env.STORAGE_PROCESSING_MODE || "auto",
     workerPort: process.env.WORKER_PORT || "8080",
     serverPort: process.env.PORT || process.env.SERVER_PORT || "5174",
-    processingTimeoutMs: Number(process.env.STORAGE_PROCESSING_TIMEOUT_MS) || 120000,
+    processingTimeoutMs: Number(getSetting("STORAGE_PROCESSING_TIMEOUT_MS")) || 120000,
     webhookSecret: process.env.WEBHOOK_SECRET || null,
     registry: mirrorJobRegistry,
     storageKey: `uploads/messages/${storedName}`,
@@ -1431,7 +1438,11 @@ const server = app.listen(port, bindAddress, () => {
   });
 });
 
-const { wsHeartbeatIntervalMs, wsHeartbeatTimeoutMs } = parseEnv();
+// Admin-panel DB values win when the env var is absent (getSetting resolves
+// env → DB → default). Restart required — gateway timers are wired once.
+const _wsEnv = parseEnv();
+const wsHeartbeatIntervalMs = Number(getSetting("WS_HEARTBEAT_INTERVAL_MS")) || _wsEnv.wsHeartbeatIntervalMs;
+const wsHeartbeatTimeoutMs = Number(getSetting("WS_HEARTBEAT_TIMEOUT_MS")) || _wsEnv.wsHeartbeatTimeoutMs;
 const wsGateway = createWebSocketGateway({
   server,
   sseHub,

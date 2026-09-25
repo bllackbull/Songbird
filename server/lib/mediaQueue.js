@@ -143,9 +143,13 @@ export function createMediaQueueManager({
   function scheduleFallbackCheck({ fileId, storageKey }) {
     if (s3ProcessingMode === "remote") return; // Pure remote, no local fallback timer
 
+    // Read live so admin-panel changes apply without a restart.
+    const liveTimeoutMs = typeof getSetting === "function"
+      ? Number(getSetting("STORAGE_PROCESSING_TIMEOUT_MS"))
+      : 0;
     enqueueJob(
       { fileId, storageKey, reason: "fallback_timer" },
-      effectiveTimeoutMs,
+      Number.isFinite(liveTimeoutMs) && liveTimeoutMs > 0 ? liveTimeoutMs : effectiveTimeoutMs,
     );
   }
 

@@ -300,7 +300,7 @@ export default function AdminUserModal({ mode = "edit", user = null, onClose, on
             >
               <span className="inline-flex items-center gap-2">
                 <BadgeCheck size={18} className="shrink-0 icon-anim-pop" aria-hidden="true" />
-                Verified
+                Verify
               </span>
               <span
                 className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition ${

@@ -120,40 +120,69 @@ Configure runtime settings through the UI (replaces most `.env` variables):
 
 ### Categories
 
-**General**
+#### General
+
 - Debug logging
 - Sign up {Public Server}
 
-**File Upload**
+#### File Upload
+
 - File upload feature enabled
 - Max file size per upload
 - Max total size per message
 - Max files per message
 - Video transcoding enabled
 
-**Message Retention**
+#### Message Retention
+
 - File retention period (days)
 - Text message retention period (days)
 
-**Limits**
+#### Limits
+
 - Max message length (characters)
 - Max username length
 - Max nickname length
 
-**Client Behavior**
+#### Client Behavior
+
 - Message fetch limits
 - Message page size
 - Cache TTL
+- Chat list refresh interval
+- Connection health check interval
+- SSE reconnect delay
+- Search max results
+- Pending text message timeout
+- Pending file message timeout
+- Pending retry interval
+- Pending status check interval
 
-**Push Notifications**
-- Proxy URL for push delivery
+#### Storage (Object Storage & Worker)
 
-**Remote Channel**
+- Presigned URL expiry in seconds — restart required
+- Auto-configure bucket CORS — restart required
+- External media worker URL (nullable, live)
+- Worker fallback timeout in ms (live)
+
+#### Realtime (restart required)
+
+- WebSocket heartbeat interval in ms
+- WebSocket heartbeat timeout in ms
+
+#### Remote Channel
+
 - Remote Channel feature enabled
 - Allow UI toggle for channel owners
 - Allow media streaming option
 - Polling and queue configuration
-- Proxy URLs for Telegram and Songbird
+
+#### Proxies
+
+- Push notification proxy URL (nullable) — restart required
+- Object storage proxy URL (nullable) — restart required
+- Telegram proxy URL (nullable) — restart required
+- Songbird server-to-server proxy URL (nullable, live)
 
 :::info Environment Override
 
