@@ -63,9 +63,13 @@ export async function dispatchMirrorJob({
   workerPort,
   serverPort,
   processingTimeoutMs,
+  wakeTimeoutMs,
+  wakeRetryDelayMs = 2000,
+  wakeRequestTimeoutMs = 15000,
   webhookSecret,
   webhookBaseUrl,
   fetchImpl = globalThis.fetch,
+  sleepImpl = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   registry,
   storageKey,
   jobMeta = {},
@@ -134,8 +138,8 @@ export async function dispatchMirrorJob({
     webhookSecret: webhookSecret || null,
   };
 
-  try {
-    const res = await fetchImpl(`${target}/mirror-media`, {
+  const postToWorker = () =>
+    fetchImpl(`${target}/mirror-media`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -144,14 +148,58 @@ export async function dispatchMirrorJob({
           : {}),
       },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(wakeRequestTimeoutMs),
     });
-    if (!res?.ok)
-      throw new Error(`Worker returned HTTP ${res?.status || "?"}.`);
-  } catch (error) {
-    registry.remove(entry.jobId);
-    log("mirror:dispatch-failed", { error: error?.message || String(error) });
-    return { dispatched: false };
+
+  if (!isLoopbackAddress(target)) {
+    const wakeBudgetMs = Math.max(
+      0,
+      Number(
+        wakeTimeoutMs !== undefined
+          ? wakeTimeoutMs
+          : processingTimeoutMs !== undefined
+            ? processingTimeoutMs
+            : process.env.STORAGE_PROCESSING_TIMEOUT_MS || 90000,
+      ) || 90000,
+    );
+    const retryDelayMs = Math.max(0, Number(wakeRetryDelayMs) || 0);
+    const startedAt = Date.now();
+    let attempt = 0;
+    for (;;) {
+      attempt += 1;
+      try {
+        const res = await postToWorker();
+        if (res?.ok) break;
+        throw new Error(`Worker returned HTTP ${res?.status || "?"}.`);
+      } catch (error) {
+        const elapsed = Date.now() - startedAt;
+        if (elapsed >= wakeBudgetMs) {
+          registry.remove(entry.jobId);
+          log("mirror:dispatch-failed", {
+            error: error?.message || String(error),
+            attempts: attempt,
+          });
+          return { dispatched: false };
+        }
+        log("mirror:wake-retry", {
+          attempt,
+          error: error?.message || String(error),
+        });
+        if (retryDelayMs > 0) {
+          await sleepImpl(Math.min(retryDelayMs, wakeBudgetMs - elapsed));
+        }
+      }
+    }
+  } else {
+    try {
+      const res = await postToWorker();
+      if (!res?.ok)
+        throw new Error(`Worker returned HTTP ${res?.status || "?"}.`);
+    } catch (error) {
+      registry.remove(entry.jobId);
+      log("mirror:dispatch-failed", { error: error?.message || String(error) });
+      return { dispatched: false };
+    }
   }
 
   if (mode !== "remote" && typeof onFallback === "function") {

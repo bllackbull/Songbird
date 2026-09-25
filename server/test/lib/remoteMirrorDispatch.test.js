@@ -143,4 +143,47 @@ describe("dispatchMirrorJob", () => {
       "http://127.0.0.1:8080/mirror-media",
     );
   });
+
+  test("sleeping remote worker is retried until it wakes (serverless cold start)", async () => {
+    const registry = makeRegistry();
+    let calls = 0;
+    const fetchImpl = vi.fn(async () => {
+      calls += 1;
+      if (calls < 3) throw new Error("fetch failed");
+      return { ok: true, status: 202 };
+    });
+    const res = await dispatchMirrorJob({
+      storageProcessingMode: "remote",
+      workerUrl: "https://worker.example.com",
+      webhookBaseUrl: "https://app.example.com",
+      fetchImpl,
+      sleepImpl: async () => {},
+      wakeRetryDelayMs: 1,
+      wakeTimeoutMs: 5000,
+      registry,
+      storageKey: "uploads/messages/x.bin",
+      jobMeta: baseJob,
+    });
+    expect(res.dispatched).toBe(true);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  test("sleeping remote worker gives up after the wake budget", async () => {
+    const registry = makeRegistry();
+    const fetchImpl = vi.fn(async () => ({ ok: false, status: 503 }));
+    const res = await dispatchMirrorJob({
+      storageProcessingMode: "remote",
+      workerUrl: "https://worker.example.com",
+      webhookBaseUrl: "https://app.example.com",
+      fetchImpl,
+      sleepImpl: async () => {},
+      wakeRetryDelayMs: 1,
+      wakeTimeoutMs: 20,
+      registry,
+      storageKey: "uploads/messages/x.bin",
+      jobMeta: baseJob,
+    });
+    expect(res).toEqual({ dispatched: false });
+    expect(fetchImpl.mock.calls.length).toBeGreaterThan(1);
+  });
 });
