@@ -187,7 +187,7 @@ function EnvLockBadge({ envVar }) {
         tabIndex={0}
         className="inline-flex cursor-help items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-white/10 dark:text-slate-400"
       >
-        <KeyRound size={9} /> set in .env
+        <KeyRound size={9} /> environment
       </span>
     </Tooltip>
   );
