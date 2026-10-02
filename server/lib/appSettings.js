@@ -201,7 +201,7 @@ export const SETTING_DEFS = [
     key: "REMOTE_CHANNEL_UI",
     type: TYPE_BOOL,
     label: "Remote Channel UI",
-    description: "Allow channel owners to configure Remote Channel in the UI.",
+    description: "Show Remote Channel settings to channel owners in the UI. When off, only server admins can configure mirroring (via the admin panel).",
     group: "remote_channel",
     envKey: "REMOTE_CHANNEL_UI",
     defaultVal: true,

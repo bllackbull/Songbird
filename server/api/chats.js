@@ -181,6 +181,15 @@ function registerChatRoutes(app, deps) {
         status: 503,
       };
     }
+    // REMOTE_CHANNEL_UI=false hides the user-facing UI; only server admins
+    // (admin panel routes) may configure mirroring then.
+    if (!getSetting("REMOTE_CHANNEL_UI")) {
+      return {
+        shouldSave: true,
+        error: "Remote Channel is managed by server admins.",
+        status: 403,
+      };
+    }
     if (enabled && String(visibility || "").toLowerCase() === "private") {
       return {
         shouldSave: true,
