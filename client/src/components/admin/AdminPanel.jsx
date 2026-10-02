@@ -362,6 +362,7 @@ export default function AdminPanel({ user, onBack }) {
                 cachedData={cache.settings?.data ?? null}
                 isLoading={cache.settings?.loading ?? false}
                 hasData={Boolean(cache.settings?.data)}
+                currentUser={user}
                 onMutated={() => invalidate("settings")}
               />
             </Activity>

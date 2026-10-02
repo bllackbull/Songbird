@@ -12,6 +12,8 @@ import {
   ClockFading,
   Database,
   Download,
+  Eye,
+  EyeOff,
   File,
   Files,
   HeartPulse,
@@ -83,6 +85,7 @@ const SETTING_ICONS = {
   REMOTE_CHANNEL: SatelliteDish,
   REMOTE_CHANNEL_UI: ToggleRight,
   REMOTE_CHANNEL_MEDIA_STREAM: ImageIcon,
+  REMOTE_CHANNEL_TICK_MODE: Clock12,
   REMOTE_CHANNEL_POLL_INTERVAL_MS: Clock12,
   REMOTE_CHANNEL_TELEGRAM_POLL_LIMIT: Download,
   REMOTE_CHANNEL_QUEUE_INTERVAL_MS: Clock12,
@@ -130,6 +133,7 @@ const SETTING_ICON_ANIM = {
   REMOTE_CHANNEL: "icon-anim-sway",
   REMOTE_CHANNEL_UI: "icon-anim-lift",
   REMOTE_CHANNEL_MEDIA_STREAM: "icon-anim-pop",
+  REMOTE_CHANNEL_TICK_MODE: "icon-anim-swing",
   REMOTE_CHANNEL_POLL_INTERVAL_MS: "icon-anim-swing",
   REMOTE_CHANNEL_TELEGRAM_POLL_LIMIT: "icon-anim-drop",
   REMOTE_CHANNEL_QUEUE_INTERVAL_MS: "icon-anim-swing",
@@ -555,9 +559,76 @@ function SettingGroup({ groupKey, defs, effectiveVals, onChange }) {
   );
 }
 
+// ─── Secrets section (owner-only) ─────────────────────────────────────────────
+// One card per secret, mirroring SettingRow. Values stay masked until revealed.
+
+const SECRET_ROWS = [
+  {
+    id: "cronSecret",
+    icon: KeyRound,
+    iconAnim: "icon-anim-sway",
+    label: "Remote channel tick secret",
+    description: "Header x-songbird-cron-secret for POST /api/internal/remote-channel/tick.",
+  },
+  {
+    id: "webhookSecret",
+    icon: KeyRound,
+    iconAnim: "icon-anim-sway",
+    label: "Worker webhook secret",
+    description: "Authenticates the media worker callbacks (x-songbird-webhook-secret).",
+  },
+  {
+    id: "adminApiToken",
+    icon: KeyRound,
+    iconAnim: "icon-anim-sway",
+    label: "Admin API token",
+    description: "Token for the admin authentication and endpoint.",
+  },
+];
+
+function SecretCard({ row, value, visible, onToggle }) {
+  const Icon = row.icon ?? KeyRound;
+  return (
+    <div className={cardCls}>
+      <div className="settings-row flex items-center gap-3 p-4">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center text-emerald-600 dark:text-emerald-400">
+          <Icon size={22} className={row.iconAnim} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+            {row.label}
+          </p>
+          <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
+            {row.description}
+          </p>
+          <div className="relative mt-2">
+            <input
+              type={visible ? "text" : "password"}
+              value={value || ""}
+              readOnly
+              autoComplete="off"
+              placeholder="Not available yet — restart the server once."
+              className="w-full cursor-default rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 pr-12 font-mono text-sm text-slate-500 outline-hidden transition placeholder:font-sans placeholder:text-slate-300 focus:border-slate-300 dark:border-white/10 dark:bg-white/5 dark:text-slate-400 dark:placeholder-slate-600 dark:focus:border-white/20"
+            />
+            <button
+              type="button"
+              onClick={onToggle}
+              disabled={!value}
+              aria-label={visible ? `Hide ${row.label}` : `Show ${row.label}`}
+              className="absolute right-1 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+            >
+              {visible ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main tab ─────────────────────────────────────────────────────────────────
 
-const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cachedIsLoading, hasData: _hasData, onMutated }, ref) {
+const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cachedIsLoading, hasData: _hasData, currentUser, onMutated }, ref) {
   const [settings, setSettings] = useState([]);
   const [localVals, setLocalVals] = useState({});
   const [loading, setLoading] = useState(true);
@@ -570,6 +641,10 @@ const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cac
   const [restartOpen, setRestartOpen] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const toastRef = useRef(null);
+  const iAmOwner = currentUser?.role === "owner";
+  const [secrets, setSecrets] = useState(null);
+  const [secretsError, setSecretsError] = useState("");
+  const [visibleSecrets, setVisibleSecrets] = useState({});
 
   const flash = (msg, type = "ok") => {
     if (toastRef.current) clearTimeout(toastRef.current);
@@ -638,6 +713,24 @@ const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cac
       if (toastRef.current) clearTimeout(toastRef.current);
     };
   }, [fetchSettings]);
+
+  // Owner-only system secrets (cron/webhook/admin token). Fetched once per
+  // mount — never cached alongside settings, and never rendered for admins.
+  useEffect(() => {
+    if (!iAmOwner) return;
+    let cancelled = false;
+    api.get("/api/admin/secrets")
+      .then((data) => {
+        if (cancelled) return;
+        if (data?.error) setSecretsError(data.error);
+        else setSecrets(data);
+      })
+      .catch(() => {
+        if (!cancelled) setSecretsError("Failed to load secrets.");
+      });
+    return () => { cancelled = true; };
+  }, [iAmOwner]);
+
 
   useImperativeHandle(ref, () => ({ refresh: fetchSettings }), [fetchSettings]);
 
@@ -865,6 +958,39 @@ const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cac
           onChange={handleChange}
         />
       ))}
+
+      {/* ── Secrets (owner-only) ──────────────────────────────────────────── */}
+      {iAmOwner && (
+        <div>
+          <SectionHeading>
+            Secrets
+            <Tooltip label="Only the server owner can see this section.">
+              <span
+                tabIndex={0}
+                className="ml-2 inline-flex cursor-help items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-slate-500 dark:bg-white/10 dark:text-slate-400"
+              >
+                <Lock size={9} /> owner only
+              </span>
+            </Tooltip>
+          </SectionHeading>
+          {secretsError && (
+            <p className="mb-2 text-[11px] text-rose-600 dark:text-rose-300">
+              {secretsError}
+            </p>
+          )}
+          <div className="space-y-2">
+            {SECRET_ROWS.map((row) => (
+              <SecretCard
+                key={row.id}
+                row={row}
+                value={secrets?.[row.id] || ""}
+                visible={Boolean(visibleSecrets[row.id])}
+                onToggle={() => setVisibleSecrets((prev) => ({ ...prev, [row.id]: !prev[row.id] }))}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Restore defaults modal ────────────────────────────────────────── */}
       <ConfirmModal
