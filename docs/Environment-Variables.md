@@ -73,7 +73,9 @@ nano .env
 | `REMOTE_CHANNEL_TELEGRAM_SESSION_STRING` | `string` | `""` | Telegram StringSession. Treat it like a password. |
 | `REMOTE_CHANNEL_TELEGRAM_PROXY_URL` | `string` | `""` | Telegram MTProto proxy URL. (`REMOTE_CHANNEL_PROXY_URL` is supported as a legacy fallback.) |
 | `REMOTE_CHANNEL_SONGBIRD_PROXY_URL` | `string` | `""` | HTTP/HTTPS proxy for outbound requests from this server to remote Songbird servers. |
-| `REMOTE_CHANNEL_POLL_INTERVAL_MS` | `integer` | `5000` | How often the poller checks enabled Remote Channel sources. |
+| `REMOTE_CHANNEL_TICK_MODE` | `boolean` | `false` | When `true`, background poll loops stay off so a serverless host can sleep. |
+| `REMOTE_CHANNEL_CRON_SECRET` | `string` | *(Auto-generated)* | Shared secret for the tick endpoint. |
+| `REMOTE_CHANNEL_POLL_INTERVAL_MS` | `integer` | `5000` | How often the poller checks enabled Remote Channel sources (`1000`-`900000`). |
 | `REMOTE_CHANNEL_TELEGRAM_POLL_LIMIT` | `integer` | `50` | Max Telegram posts fetched per poll for each source (`1`-`100`). |
 | `REMOTE_CHANNEL_QUEUE_INTERVAL_MS` | `integer` | `1000` | How often the mirror queue worker processes pending remote posts. |
 | `REMOTE_CHANNEL_QUEUE_MAX_ATTEMPTS` | `integer` | `10` | Max retry attempts before a queued remote post is marked failed. |

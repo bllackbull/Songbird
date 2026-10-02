@@ -199,6 +199,12 @@ Songbird ships a [Render Blueprint](https://render.com/docs/blueprints) at `rend
 - **Free-plan sleeping**: the instance (and the in-container worker with it) sleeps after inactivity, so the first request or upload after idle wakes it with a cold-start delay.
 - **Single instance**: stay on one instance on free/starter plans. Horizontal scale-out needs shared PostgreSQL + object storage + Redis as described under *Deploying on CaaS & Kubernetes* below.
 
+:::warning Remote Channel tick mode
+
+Remote Channel continuous polling prevents the app from sleeping and burns the monthly hour allowance. Use Remote Channel tick mode to fix this. See [Remote Channel Setup](./Remote-Channel-Setup.md#sleep-friendly-polling) for more information.
+
+:::
+
 ## 2. Deploying on CaaS & Kubernetes
 
 You can run Songbird in containerized environments using the official pre-built Docker images from Docker Hub:

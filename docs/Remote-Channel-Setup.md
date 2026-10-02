@@ -88,3 +88,26 @@ Optional channel settings:
 Posts with no text/caption are mirrored only when media streaming is enabled and at least one supported media file can be stored.
 
 :::
+
+## Sleep-friendly polling
+
+Real-time mirroring needs the app awake: by default the poll loops and the Telegram MTProto connection run continuously, so a free service never sleeps and burns through its monthly hour allowance. Tick mode fixes this:
+
+1. Set `REMOTE_CHANNEL_TICK_MODE=true` and restart so background poll loops would stay off.
+
+2. Open the admin panel **Settings → Secrets** section (owner-only) — it shows the auto-generated tick secret.
+
+3. Add a **free external cron** (e.g. cron-job.org) that calls:
+
+   ```bash
+   curl -X POST https://your-app.onrender.com/api/internal/remote-channel/tick \
+     -H "x-songbird-cron-secret: <secret-from-settings>"
+   ```
+
+   Each tick wakes the app, mirrors everything since the last mirrored message, drains the queue, then disconnects Telegram so the app can sleep again.
+
+:::info Interval math on Render free
+
+sleeps after ~15 min idle — each inbound tick keeps it warm ~15 min: every 10 min ≈ always awake (~720h, no saving); every 30 min ≈ ~360h; every 60 min ≈ ~180h. Mirroring delay equals the cron interval plus a cold-start (~30–60s).
+
+:::

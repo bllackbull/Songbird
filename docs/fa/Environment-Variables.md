@@ -73,7 +73,9 @@ nano .env
 | `REMOTE_CHANNEL_TELEGRAM_SESSION_STRING` | `string` | `""` | StringSession مربوط به Telegram. با آن مانند یک رمز عبور رفتار کنید. |
 | `REMOTE_CHANNEL_TELEGRAM_PROXY_URL` | `string` | `""` | نشانی پراکسی MTProto مربوط به Telegram. (`REMOTE_CHANNEL_PROXY_URL` به‌عنوان جایگزین قدیمی پشتیبانی می‌شود.) |
 | `REMOTE_CHANNEL_SONGBIRD_PROXY_URL` | `string` | `""` | پراکسی HTTP/HTTPS برای درخواست‌های خروجی از این سرور به سرورهای ریموت Songbird. |
-| `REMOTE_CHANNEL_POLL_INTERVAL_MS` | `integer` | `5000` | فاصله زمانی بررسی منابع فعال کانال ریموت توسط poller. |
+| `REMOTE_CHANNEL_TICK_MODE` | `boolean` | `false` | وقتی `true` باشد، حلقه‌های poll پس‌زمینه خاموش می‌مانند تا میزبان serverless بتواند sleep شود.  |
+| `REMOTE_CHANNEL_CRON_SECRET` | `string` | *(تولید خودکار)* | secret مشترک برای endpoint مربوط به tick. |
+| `REMOTE_CHANNEL_POLL_INTERVAL_MS` | `integer` | `5000` | فاصله زمانی بررسی منابع فعال کانال ریموت توسط poller (`1000`-`900000`). |
 | `REMOTE_CHANNEL_TELEGRAM_POLL_LIMIT` | `integer` | `50` | حداکثر تعداد پست‌های Telegram دریافت‌شده در هر poll برای هر منبع (`1`-`100`). |
 | `REMOTE_CHANNEL_QUEUE_INTERVAL_MS` | `integer` | `1000` | فاصله زمانی پردازش پست‌های ریموت در انتظار توسط worker صف بازتاب. |
 | `REMOTE_CHANNEL_QUEUE_MAX_ATTEMPTS` | `integer` | `10` | حداکثر تعداد تلاش مجدد پیش از آنکه یک پست ریموت در صف به‌عنوان ناموفق علامت‌گذاری شود. |

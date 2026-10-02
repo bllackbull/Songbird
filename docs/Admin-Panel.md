@@ -184,6 +184,10 @@ Configure runtime settings through the UI (replaces most `.env` variables):
 - Telegram proxy URL (nullable) — restart required
 - Songbird server-to-server proxy URL (nullable, live)
 
+#### Secrets (owner-only)
+
+- Read-only system secrets: Remote channel tick secret, Worker webhook secret, Admin API token. Visible only to the server owner, never to admins.
+
 :::info Environment Override
 
 [Environment variables](./Environment-Variables.md) in `.env` take precedence over database settings. Locked fields indicate an env override is active.
