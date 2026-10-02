@@ -174,7 +174,7 @@
 - انقضای Presigned URL بر حسب ثانیه — نیازمند restart
 - پیکربندی خودکار CORS برای bucket — نیازمند restart
 - نشانی Worker خارجی برای مدیا (قابل خالی بودن، live)
-- timeout fallback برای Worker بر حسب ms (live)
+- timeout fallback برای Worker بر حسب ms
 
 #### Realtime (نیازمند restart)
 
@@ -186,6 +186,7 @@
 - قابلیت کانال ریموت فعال شده
 - اجازه تغییر در رابط کاربری برای مالکان کانال
 - اجازه گزینه استریم رسانه
+- حالت tick
 - پیکربندی polling و صف
 
 #### پراکسی‌ها

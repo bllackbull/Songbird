@@ -93,9 +93,9 @@ Posts with no text/caption are mirrored only when media streaming is enabled and
 
 Real-time mirroring needs the app awake: by default the poll loops and the Telegram MTProto connection run continuously, so a free service never sleeps and burns through its monthly hour allowance. Tick mode fixes this:
 
-1. Set `REMOTE_CHANNEL_TICK_MODE=true` and restart so background poll loops would stay off.
+1. Open the admin panel **Settings → Remote Channel** section and enable **Tick Mode** option and restart so background poll loops would stay off.
 
-2. Open the admin panel **Settings → Secrets** section (owner-only) — it shows the auto-generated tick secret.
+2. Go to **Secrets** section (owner-only) and copy the tick secret.
 
 3. Add a **free external cron** (e.g. cron-job.org) that calls:
 

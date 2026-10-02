@@ -175,6 +175,7 @@ Configure runtime settings through the UI (replaces most `.env` variables):
 - Remote Channel feature enabled
 - Allow UI toggle for channel owners
 - Allow media streaming option
+- Tick mode
 - Polling and queue configuration
 
 #### Proxies

@@ -158,6 +158,7 @@ const SETTING_ICON_ANIM = {
 const GROUP_MASTER = {
   uploads:        "FILE_UPLOAD",
   remote_channel: "REMOTE_CHANNEL",
+  storage:        "WORKER_URL",
 };
 
 // Keys that should be rendered as sub-rows inside their master's card,
@@ -172,6 +173,7 @@ const GROUP_CHILDREN = {
   remote_channel: [
     "REMOTE_CHANNEL_UI",
     "REMOTE_CHANNEL_MEDIA_STREAM",
+    "REMOTE_CHANNEL_TICK_MODE",
     "REMOTE_CHANNEL_POLL_INTERVAL_MS",
     "REMOTE_CHANNEL_TELEGRAM_POLL_LIMIT",
     "REMOTE_CHANNEL_QUEUE_INTERVAL_MS",
@@ -179,6 +181,9 @@ const GROUP_CHILDREN = {
     "REMOTE_CHANNEL_QUEUE_BATCH_SIZE",
     "REMOTE_CHANNEL_QUEUE_CONCURRENCY",
     "REMOTE_CHANNEL_QUEUE_STALE_LOCK_MS",
+  ],
+  storage: [
+    "STORAGE_PROCESSING_TIMEOUT_MS",
   ],
 };
 
@@ -521,7 +526,9 @@ function SettingGroup({ groupKey, defs, effectiveVals, onChange }) {
   const masterDef = masterKey ? defs.find((d) => d.key === masterKey) : null;
   const masterEnvLocked = Boolean(masterDef?.envLocked);
   const masterOff = masterKey && !masterEnvLocked
-    ? effectiveVals[masterKey] === "false"
+    ? (masterDef?.type === "string"
+        ? effectiveVals[masterKey] === ""
+        : effectiveVals[masterKey] === "false")
     : false;
 
   // Standalone rows = defs that are NOT child keys (includes the master itself)
