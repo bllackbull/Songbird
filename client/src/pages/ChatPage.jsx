@@ -6680,6 +6680,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           onDismiss: (mode) =>
             dismissPermissionsPrompt(mode || activePermissionPrompt),
         }}
+        insecureConnection={
+          typeof window !== "undefined" && window.location.protocol !== "https:"
+        }
       />
 
       <ChatWindowPanel
@@ -6719,9 +6722,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         onJumpToLatest={handleJumpToLatest}
         isConnected={isConnected}
         isDark={isDark}
-        insecureConnection={
-          typeof window !== "undefined" && window.location.protocol !== "https:"
-        }
         pendingUploadFiles={pendingUploadFiles}
         pendingUploadType={pendingUploadType}
         pendingVoiceMessage={pendingVoiceMessage}
