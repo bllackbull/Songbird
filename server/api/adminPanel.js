@@ -530,6 +530,26 @@ function registerAdminPanelRoutes(app, deps) {
     return res.json(payload);
   });
 
+  // ─── Secrets — owner-only read-only values ─────────────────────────────────
+  // System secrets (auto-generated at boot, persisted to app_settings) that an
+  // owner needs to copy into external integrations — e.g. the tick-mode cron
+  // secret for POST /api/internal/remote-channel/tick. Never editable here;
+  // rotate by setting the env var and restarting. Admins are denied: these
+  // credentials outrank the admin role.
+  app.get("/api/admin/secrets", async (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    if (!(await actorIsOwner(session))) {
+      return res.status(403).json({ error: "Owner access required." });
+    }
+    log(session, "secrets.viewed");
+    return res.json({
+      cronSecret: String(process.env.REMOTE_CHANNEL_CRON_SECRET || ""),
+      webhookSecret: String(process.env.WEBHOOK_SECRET || ""),
+      adminApiToken: String(process.env.ADMIN_API_TOKEN || ""),
+    });
+  });
+
   // ─── Users — list ────────────────────────────────────────────────────────────
 
   app.get("/api/admin/users", async (req, res) => {

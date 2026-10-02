@@ -225,7 +225,18 @@ export const SETTING_DEFS = [
     envKey: "REMOTE_CHANNEL_POLL_INTERVAL_MS",
     defaultVal: 5000,
     min: 1000,
-    max: 60000,
+    max: 900000,
+    restart: true,
+  },
+  {
+    key: "REMOTE_CHANNEL_TICK_MODE",
+    type: TYPE_BOOL,
+    label: "Tick mode",
+    description:
+      "When on, background poll loops stay off so a serverless host (e.g. Render free) can sleep; an external cron calls POST /api/internal/remote-channel/tick to poll on demand.",
+    group: "remote_channel",
+    envKey: "REMOTE_CHANNEL_TICK_MODE",
+    defaultVal: false,
     restart: true,
   },
   {
