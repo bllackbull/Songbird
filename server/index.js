@@ -395,6 +395,7 @@ const REMOTE_CHANNEL_CONFIG = {
   telegramApiHash: REMOTE_CHANNEL_TELEGRAM_API_HASH,
   telegramSessionString: REMOTE_CHANNEL_TELEGRAM_SESSION_STRING,
   proxyUrl: REMOTE_CHANNEL_PROXY_URL,
+  tickMode: getSetting("REMOTE_CHANNEL_TICK_MODE"),
   pollIntervalMs: getSetting("REMOTE_CHANNEL_POLL_INTERVAL_MS"),
   telegramPollLimit: getSetting("REMOTE_CHANNEL_TELEGRAM_POLL_LIMIT"),
   queueIntervalMs: getSetting("REMOTE_CHANNEL_QUEUE_INTERVAL_MS"),

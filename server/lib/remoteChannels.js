@@ -863,6 +863,7 @@ export function createRemoteChannelManager(deps = {}) {
   // The manager is enabled if the feature is on — Songbird sources work without
   // Telegram credentials. Telegram sources additionally require apiId/hash/session.
   const enabled = Boolean(config.enabled);
+  const tickMode = Boolean(config.tickMode);
   const pollIntervalMs = Math.max(1000, Number(config.pollIntervalMs || 5000));
   const pollLimit = Math.max(1, Math.min(100, Number(config.telegramPollLimit || 50)));
   // Sync metadata once every 60 poll cycles (e.g., every 5 minutes if polling every 5s)
@@ -1613,10 +1614,10 @@ export function createRemoteChannelManager(deps = {}) {
     return { queued, initialized: false };
   }
 
-  async function pollSongbirdOnce() {
+  async function pollSongbirdOnce(options = {}) {
     const sources = (await resolveMaybePromise(listEnabledRemoteChannelSources("songbird"))) || [];
     if (!sources.length) {
-      await sleep(pollIntervalMs);
+      if (!options.skipSleep) await sleep(pollIntervalMs);
       return;
     }
 
@@ -1656,10 +1657,10 @@ export function createRemoteChannelManager(deps = {}) {
     }
   }
 
-  async function pollTelegramOnce() {
+  async function pollTelegramOnce(options = {}) {
     const sources = (await resolveMaybePromise(listEnabledRemoteChannelSources("telegram"))) || [];
     if (!sources.length) {
-      await sleep(pollIntervalMs);
+      if (!options.skipSleep) await sleep(pollIntervalMs);
       return;
     }
 
@@ -2671,10 +2672,15 @@ export function createRemoteChannelManager(deps = {}) {
     if (!stopped) return;
     stopped = false;
     log("starting", {
+      tickMode,
       pollIntervalMs,
       pollLimit,
       proxy: Boolean(connectionOptions.proxy),
     });
+    if (tickMode) {
+      log("tick-mode: background loops disabled, waiting for tick requests");
+      return;
+    }
     // Run Telegram poll loop only when Telegram credentials are configured.
     if (apiId && apiHash && sessionString) {
       void runPollLoop();
@@ -2808,6 +2814,7 @@ export function createRemoteChannelManager(deps = {}) {
     const telegramConfigured = Boolean(apiId && apiHash && sessionString);
     return {
       enabled,
+      tickMode,
       telegramConfigured,
       telegramConnected: Boolean(client),
       pollLoopRunning,
@@ -2817,6 +2824,72 @@ export function createRemoteChannelManager(deps = {}) {
       queueBatchSize,
       queueConcurrency,
     };
+  }
+
+  // Close the persistent MTProto connection so the host can go idle/sleep.
+  // The next tick or poll cycle reconnects on demand.
+  async function disconnectTelegramClient(reason = "tick-done") {
+    if (clientConnectPromise) {
+      try {
+        await clientConnectPromise;
+      } catch {
+        // Connect failure — still clear the handle below.
+      }
+    }
+    if (!client) return false;
+    const staleClient = client;
+    client = null;
+    clientResetRequired = false;
+    clientResetReason = "";
+    log("client:disconnect", { reason });
+    await destroyTelegramClient(staleClient, reason);
+    return true;
+  }
+
+  // One on-demand poll+queue cycle for tick mode (external cron). Runs the
+  // same poll/queue steps as the background loops, drains a few queue
+  // batches, then disconnects the MTProto client so the process can idle.
+  async function tickOnce(options = {}) {
+    if (!enabled) throw new Error("Remote Channel is disabled.");
+    const drainBatches = Math.max(1, Math.min(10, Number(options.drainBatches || 3)));
+    const summary = { telegram: null, songbird: null, queueBatches: 0, disconnected: false };
+    const wasStopped = stopped;
+    stopped = false;
+    try {
+      if (apiId && apiHash && sessionString) {
+        try {
+          await pollTelegramOnce({ skipSleep: true });
+          summary.telegram = "polled";
+        } catch (error) {
+          const message = errorMessage(error);
+          log("tick:telegram-error", { error: message });
+          summary.telegram = `error: ${message}`;
+        }
+      } else {
+        summary.telegram = "not-configured";
+      }
+      try {
+        await pollSongbirdOnce({ skipSleep: true });
+        summary.songbird = "polled";
+      } catch (error) {
+        const message = errorMessage(error);
+        log("tick:songbird-error", { error: message });
+        summary.songbird = `error: ${message}`;
+      }
+      for (let i = 0; i < drainBatches; i += 1) {
+        if (stopped && !wasStopped) break;
+        const before = summary.queueBatches;
+        await runQueueOnce();
+        summary.queueBatches = before + 1;
+        // runQueueOnce is a no-op when the queue is empty; one extra empty
+        // pass is enough to confirm drain — stop early on second empty pass.
+        if (i > 0) break;
+      }
+    } finally {
+      summary.disconnected = await disconnectTelegramClient("tick-done");
+      if (wasStopped && tickMode) stopped = true;
+    }
+    return summary;
   }
 
   // Hot-reload Telegram credentials saved from the admin panel (no restart).
@@ -2836,8 +2909,8 @@ export function createRemoteChannelManager(deps = {}) {
       await destroyTelegramClient(staleClient, "credentials updated").catch(() => {});
     }
     // If the feature just got credentials while running, ensure the Telegram
-    // poll loop is active.
-    if (enabled && !stopped && apiId && apiHash && sessionString && !pollLoopRunning) {
+    // poll loop is active (no-op in tick mode — ticks connect on demand).
+    if (enabled && !stopped && !tickMode && apiId && apiHash && sessionString && !pollLoopRunning) {
       void runPollLoop();
     }
     return getHealth();
@@ -2847,9 +2920,12 @@ export function createRemoteChannelManager(deps = {}) {
     start,
     stop,
     isEnabled: () => enabled,
+    isTickMode: () => tickMode,
     reloadConfig,
     getHealth,
     runQueueOnce,
+    tickOnce,
+    disconnectTelegramClient,
     // Staged media pipeline (also reused by the worker webhook + fallback).
     downloadTelegramMediaFile,
     fetchTelegramMediaToTemp,
