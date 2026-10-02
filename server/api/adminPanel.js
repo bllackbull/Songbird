@@ -2,6 +2,7 @@ import { normalizeHexColor, normalizeGroupUsername, normalizeVisibility, normali
 import { createInviteToken } from "../lib/inviteTokens.js";
 import { validateUuidParams } from "../lib/uuidMiddleware.js";
 import { isValidUuid, generateUuid } from "../lib/uuidUtils.js";
+import { normalizeSongbirdSource, normalizeTelegramSource, resolveSongbirdSource } from "../lib/remoteChannels.js";
 import { readInstallerLog, readNginxLog, readServiceLog, readWorkerLog, probeLogSources } from "../lib/systemLogs.js";
 import { userEvents } from "../lib/workers/autoAddWorker.js";
 import { dbKnex } from "../db/knex.js";
@@ -139,6 +140,106 @@ function registerAdminPanelRoutes(app, deps) {
 
   const resolveMaybePromise = async (value) =>
     value && typeof value.then === "function" ? await value : value;
+
+  // ─── Remote channel helpers (admin bypasses channel-owner check) ──────────
+  // Mirrors normalizeCreateRemoteChannel in server/api/chats.js so the admin
+  // create/edit modals accept the same { enabled, provider, source,
+  // syncMetadata, streamMedia } payload as the client modals.
+  const isRemoteChannelAvailable = () => Boolean(deps.REMOTE_CHANNELS?.enabled);
+  const isTelegramAvailable = () =>
+    Boolean(deps.REMOTE_CHANNELS?.enabled && deps.REMOTE_CHANNELS?.telegramConfigured);
+
+  const normalizeAdminRemoteChannel = async ({ remoteChannel, chatType, visibility }) => {
+    if (chatType !== "channel" || !remoteChannel || typeof remoteChannel !== "object") {
+      return { shouldSave: false };
+    }
+    const enabled = Boolean(remoteChannel.enabled);
+    const rawSource = String(remoteChannel.source || remoteChannel.sourceRaw || "").trim();
+    const syncMetadata = enabled && Boolean(remoteChannel.syncMetadata);
+    const streamMedia = enabled && Boolean(getSetting("FILE_UPLOAD") && remoteChannel.streamMedia);
+    const shouldSave = Boolean(enabled || rawSource || syncMetadata || streamMedia);
+    if (!shouldSave) return { shouldSave: false };
+    if (!isRemoteChannelAvailable()) {
+      return { shouldSave: true, error: "Remote Channel is not configured on this server.", status: 503 };
+    }
+    if (enabled && String(visibility || "").toLowerCase() === "private") {
+      return { shouldSave: true, error: "Remote Channel can only be enabled for public channels.", status: 400 };
+    }
+    const provider = String(remoteChannel.provider || "telegram").toLowerCase();
+    if (provider !== "telegram" && provider !== "songbird") {
+      return { shouldSave: true, error: "Remote Channel source is invalid.", status: 400 };
+    }
+    if (provider === "telegram" && !isTelegramAvailable()) {
+      return { shouldSave: true, error: "Telegram Remote Channel is not configured on this server.", status: 503 };
+    }
+    let normalized = { ok: true, sourceRaw: rawSource, sourceChatId: "", sourceUsername: "", sourceUrl: "" };
+    if (provider === "telegram") {
+      if (enabled) {
+        normalized = normalizeTelegramSource(rawSource);
+        if (!normalized.ok) return { shouldSave: true, error: normalized.error, status: 400 };
+      } else if (rawSource) {
+        const opt = normalizeTelegramSource(rawSource);
+        if (opt.ok) normalized = opt;
+      }
+      if (enabled && !normalized.sourceChatId && !normalized.sourceUsername) {
+        return { shouldSave: true, error: "Telegram source is required.", status: 400 };
+      }
+    } else {
+      if (enabled) {
+        normalized = normalizeSongbirdSource(rawSource);
+        if (!normalized.ok) return { shouldSave: true, error: normalized.error, status: 400 };
+        const resolved = await resolveSongbirdSource(normalized.sourceUrl, normalized.inviteTarget);
+        if (!resolved.ok) return { shouldSave: true, error: resolved.error, status: 400 };
+        normalized = { ...normalized, sourceUsername: resolved.sourceUsername };
+      } else if (rawSource) {
+        const opt = normalizeSongbirdSource(rawSource);
+        if (opt.ok) normalized = opt;
+      }
+      if (enabled && !normalized.sourceUrl) {
+        return { shouldSave: true, error: "Songbird source URL is required.", status: 400 };
+      }
+    }
+    return {
+      shouldSave: true, enabled, provider,
+      sourceRaw: normalized.sourceRaw, sourceChatId: normalized.sourceChatId || "",
+      sourceUsername: normalized.sourceUsername || "", sourceUrl: normalized.sourceUrl || "",
+      syncMetadata, streamMedia,
+    };
+  };
+
+  const saveAdminRemoteChannel = async (chatId, config) => {
+    const source = await resolveMaybePromise(deps.upsertRemoteChannelSource({
+      chatId, provider: config.provider, sourceRaw: config.sourceRaw,
+      sourceChatId: config.sourceChatId, sourceUsername: config.sourceUsername,
+      sourceUrl: config.sourceUrl || "", syncMetadata: config.syncMetadata,
+      streamMedia: config.streamMedia, enabled: config.enabled,
+    }));
+    if (config.enabled && config.syncMetadata && typeof deps.remoteChannelManager?.syncSourceMetadata === "function") {
+      deps.remoteChannelManager.syncSourceMetadata(source?.id).catch(() => {});
+    }
+    return source;
+  };
+
+  const serializeAdminRemoteSource = async (source) => {
+    if (!source?.id) return null;
+    let queue = null;
+    try {
+      const raw = deps.getRemoteChannelQueueSummary?.(source.id);
+      queue = raw && typeof raw.then === "function" ? await raw : raw;
+    } catch { queue = null; }
+    return {
+      id: Number(source.id), enabled: Boolean(Number(source.enabled || 0)),
+      paused: Boolean(Number(source.paused || 0)), provider: source.provider || "telegram",
+      sourceRaw: source.source_raw || "", sourceChatId: source.source_chat_id || "",
+      sourceUsername: source.source_username || "", sourceUrl: source.source_url || "",
+      sourceTitle: source.source_title || "", sourceAvatarUrl: source.source_avatar_url || "",
+      lastRemoteMessageId: Number(source.last_remote_message_id || 0) || null,
+      syncMetadata: Boolean(Number(source.sync_metadata || 0)),
+      streamMedia: Boolean(getSetting("FILE_UPLOAD") && Number(source.stream_media || 0)),
+      lastError: source.last_error || "", lastSeenAt: source.last_seen_at || null,
+      queue, updatedAt: source.updated_at || null,
+    };
+  };
 
   function toSql(builder, p = []) {
     if (builder && typeof builder.toSQL === "function") {
@@ -955,6 +1056,14 @@ function registerAdminPanelRoutes(app, deps) {
     const ownerColor   = String((await adminGetRow(dbKnex("users").select("color").where("id", owner.id).first()))?.color || "") || "#10b981";
     const groupColor   = normalizeHexColor(String(b.color || "")) || ownerColor;
     const autoAddNewUsers = (visibility === "public" && Boolean(b.autoAddNewUsers || b.auto_add_new_users)) ? 1 : 0;
+    const remoteChannelConfig = await normalizeAdminRemoteChannel({
+      remoteChannel: b.remoteChannel,
+      chatType: type,
+      visibility,
+    });
+    if (remoteChannelConfig.error) {
+      return res.status(remoteChannelConfig.status || 400).json({ error: remoteChannelConfig.error });
+    }
     const chatId = await resolveMaybePromise(createChat(name, type, {
       groupUsername:     username,
       groupVisibility:   visibility,
@@ -980,6 +1089,15 @@ function registerAdminPanelRoutes(app, deps) {
       : { addedUsers: [], skippedLeftCount: 0 };
 
     if (b.verified) await resolveMaybePromise(adminRun(dbKnex("chats").where("id", chatId).update({ verified: 1 })));
+
+    if (remoteChannelConfig.shouldSave) {
+      try {
+        await saveAdminRemoteChannel(chatId, remoteChannelConfig);
+      } catch (error) {
+        await resolveMaybePromise(deps.deleteChatById?.(chatId));
+        return res.status(400).json({ error: error?.message || "Unable to configure Remote Channel." });
+      }
+    }
 
     adminSave();
     const created = await resolveMaybePromise(findChatById(chatId));
@@ -1071,6 +1189,24 @@ function registerAdminPanelRoutes(app, deps) {
 
     if (nextColor) await resolveMaybePromise(adminRun(dbKnex("chats").where("id", chatId).update({ group_color: nextColor })));
     if (b.verified !== undefined) await resolveMaybePromise(adminRun(dbKnex("chats").where("id", chatId).update({ verified: b.verified ? 1 : 0 })));
+
+    if (b.remoteChannel !== undefined && chat.type === "channel") {
+      const remoteChannelConfig = await normalizeAdminRemoteChannel({
+        remoteChannel: b.remoteChannel,
+        chatType: chat.type,
+        visibility: nextVisibility,
+      });
+      if (remoteChannelConfig.error) {
+        return res.status(remoteChannelConfig.status || 400).json({ error: remoteChannelConfig.error });
+      }
+      if (remoteChannelConfig.shouldSave) {
+        try {
+          await saveAdminRemoteChannel(chatId, remoteChannelConfig);
+        } catch (error) {
+          return res.status(400).json({ error: error?.message || "Unable to configure Remote Channel." });
+        }
+      }
+    }
     adminSave();
 
     emitChatEvent(chatId, { type: "chat_updated", chatId });
@@ -1083,6 +1219,131 @@ function registerAdminPanelRoutes(app, deps) {
     const updated = await resolveMaybePromise(findChatById(chatId));
     log(session, "chat.edit", { targetType: "chat", targetLabel: updated.name || `Chat #${chatId}` });
     res.json({ ok: true, chat: updated });
+  });
+
+  // ─── Chats — remote channel (admin, bypasses channel-owner check) ─────────
+  // Lets admins view/edit mirroring + queue for channels they don't own.
+
+  app.get("/api/admin/chats/:id/remote-channel", validateUuidParams("id"), async (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const chatId = req.params.id;
+    const chat = await resolveMaybePromise(findChatById(chatId));
+    if (!chat || String(chat.type || "").toLowerCase() !== "channel") {
+      return res.status(404).json({ error: "Channel not found." });
+    }
+    const rawSource = deps.getRemoteChannelSourceByChatId?.(chatId);
+    const source = rawSource && typeof rawSource.then === "function" ? await rawSource : rawSource;
+    return res.json({
+      available: isRemoteChannelAvailable(),
+      uiEnabled: Boolean(getSetting("REMOTE_CHANNEL_UI")),
+      mediaStreamEnabled: Boolean(getSetting("REMOTE_CHANNEL_MEDIA_STREAM")),
+      telegramConfigured: Boolean(deps.REMOTE_CHANNELS?.telegramConfigured),
+      songbirdConfigured: isRemoteChannelAvailable(),
+      proxyConfigured: Boolean(deps.REMOTE_CHANNELS?.proxyConfigured),
+      source: await serializeAdminRemoteSource(source),
+    });
+  });
+
+  app.put("/api/admin/chats/:id/remote-channel", validateUuidParams("id"), async (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const chatId = req.params.id;
+    const chat = await resolveMaybePromise(findChatById(chatId));
+    if (!chat || String(chat.type || "").toLowerCase() !== "channel") {
+      return res.status(404).json({ error: "Channel not found." });
+    }
+    const config = await normalizeAdminRemoteChannel({
+      remoteChannel: req.body || {},
+      chatType: "channel",
+      visibility: chat.group_visibility || "public",
+    });
+    if (config.error) return res.status(config.status || 400).json({ error: config.error });
+    if (!config.shouldSave) return res.json({ ok: true, source: null });
+    try {
+      const source = await saveAdminRemoteChannel(chatId, config);
+      adminSave();
+      emitChatEvent(chatId, { type: "chat_updated", chatId });
+      log(session, "chat.remote_edit", { targetType: "chat", targetLabel: chat.name || `Chat #${chatId}` });
+      return res.json({ ok: true, source: await serializeAdminRemoteSource(source) });
+    } catch (error) {
+      return res.status(400).json({ error: error?.message || "Unable to configure Remote Channel." });
+    }
+  });
+
+  const requireAdminRemoteSource = async (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return null;
+    const chatId = req.params.id;
+    const chat = await resolveMaybePromise(findChatById(chatId));
+    if (!chat || String(chat.type || "").toLowerCase() !== "channel") {
+      res.status(404).json({ error: "Channel not found." });
+      return null;
+    }
+    const rawSource = deps.getRemoteChannelSourceByChatId?.(chatId);
+    const source = rawSource && typeof rawSource.then === "function" ? await rawSource : rawSource;
+    if (!source?.id) {
+      res.status(404).json({ error: "Remote channel not found." });
+      return null;
+    }
+    return { session, chatId, chat, source };
+  };
+
+  const notifyAdminQueueChanged = (chatId, sourceId) => {
+    try {
+      emitChatEvent(chatId, { type: "remote_channel_queue", chatId, sourceId: Number(sourceId) });
+    } catch { /* realtime notify must never break the response */ }
+  };
+
+  app.post("/api/admin/chats/:id/remote-channel/pause", validateUuidParams("id"), async (req, res) => {
+    const ctx = await requireAdminRemoteSource(req, res);
+    if (!ctx) return;
+    await resolveMaybePromise(deps.updateRemoteChannelSourcePaused?.(ctx.source.id, true));
+    notifyAdminQueueChanged(ctx.chatId, ctx.source.id);
+    res.json({ ok: true });
+  });
+
+  app.post("/api/admin/chats/:id/remote-channel/resume", validateUuidParams("id"), async (req, res) => {
+    const ctx = await requireAdminRemoteSource(req, res);
+    if (!ctx) return;
+    await resolveMaybePromise(deps.updateRemoteChannelSourcePaused?.(ctx.source.id, false));
+    notifyAdminQueueChanged(ctx.chatId, ctx.source.id);
+    res.json({ ok: true });
+  });
+
+  app.post("/api/admin/chats/:id/remote-channel/skip", validateUuidParams("id"), async (req, res) => {
+    const ctx = await requireAdminRemoteSource(req, res);
+    if (!ctx) return;
+    const skipped = typeof deps.remoteChannelManager?.abortQueueItem === "function"
+      ? await deps.remoteChannelManager.abortQueueItem(ctx.source.id)
+      : await resolveMaybePromise(deps.skipCurrentRemoteChannelQueueItem?.(ctx.source.id));
+    notifyAdminQueueChanged(ctx.chatId, ctx.source.id);
+    res.json({ ok: true, skipped: Number(skipped || 0) });
+  });
+
+  app.post("/api/admin/chats/:id/remote-channel/skip-all", validateUuidParams("id"), async (req, res) => {
+    const ctx = await requireAdminRemoteSource(req, res);
+    if (!ctx) return;
+    const skipped = typeof deps.remoteChannelManager?.abortAllQueueItems === "function"
+      ? await deps.remoteChannelManager.abortAllQueueItems(ctx.source.id)
+      : await resolveMaybePromise(deps.skipAllRemoteChannelQueueItems?.(ctx.source.id));
+    notifyAdminQueueChanged(ctx.chatId, ctx.source.id);
+    res.json({ ok: true, skipped: Number(skipped || 0) });
+  });
+
+  app.post("/api/admin/chats/:id/remote-channel/test", validateUuidParams("id"), async (req, res) => {
+    const ctx = await requireAdminRemoteSource(req, res);
+    if (!ctx) return;
+    if (!ctx.source.enabled) return res.status(400).json({ error: "Remote channel is disabled." });
+    try {
+      if (typeof deps.remoteChannelManager?.testConnection === "function") {
+        await deps.remoteChannelManager.testConnection(ctx.source.id);
+        return res.json({ ok: true });
+      }
+      return res.status(501).json({ error: "Test connection not implemented." });
+    } catch (error) {
+      return res.status(400).json({ error: `Connection test failed: ${error?.message || "Unknown error"}` });
+    }
   });
 
   // ─── Chats — avatar upload (admin, bypasses owner check) ─────────────────────
