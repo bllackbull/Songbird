@@ -1,3 +1,22 @@
+## 0.12.4
+
+### New Features
+
+- 📡 On-demand remote channel polling with tick endpoint for sleep-friendly deployments
+- 🔑 Owner-only secrets section in the admin panel settings tab
+- 🛠️ Remote channel management directly in the admin panel channel modal
+- ⏱️ Remote channel tick mode option in settings
+
+### Improvements
+
+- 🔒 Reworked `REMOTE_CHANNEL_UI` flag to restrict UI and API to admins when disabled
+- 🎨 Moved insecure connection warning banner to the chats list
+- 🧹 Removed unused dependencies and updated package versions
+
+### Bug Fixes
+
+- 🔴 Forward Redis auth to BullMQ connections
+
 ## 0.12.3
 
 ### New Features
