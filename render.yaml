@@ -23,6 +23,10 @@ services:
         value: auto
       - key: WORKER_PORT
         value: 8080
+      # Remote Channel sleep-friendly mode (Render free): tick mode leaves the
+      # background poll loops off so the service can sleep.
+      - key: REMOTE_CHANNEL_TICK_MODE
+        value: "true"
       # Storage driver: remote (S3/Cloudflare R2/MinIO recommended for stateless PaaS)
       - key: STORAGE_DRIVER
         value: remote
