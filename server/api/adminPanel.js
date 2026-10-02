@@ -542,7 +542,6 @@ function registerAdminPanelRoutes(app, deps) {
     if (!(await actorIsOwner(session))) {
       return res.status(403).json({ error: "Owner access required." });
     }
-    log(session, "secrets.viewed");
     return res.json({
       cronSecret: String(process.env.REMOTE_CHANNEL_CRON_SECRET || ""),
       webhookSecret: String(process.env.WEBHOOK_SECRET || ""),

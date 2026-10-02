@@ -347,11 +347,11 @@ const LogsTab = forwardRef(function LogsTab({ currentUser, active = true }, ref)
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-nowrap gap-1 overflow-x-auto pb-0.5 [scrollbar-width:none] [touch-action:pan-x_pan-y] sm:gap-1.5 [&::-webkit-scrollbar]:hidden">
         {visibleSources.map(({ id, label, disabled }) => (
           <button key={id} type="button" onClick={() => !disabled && setSource(id)}
             disabled={disabled}
-            className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
+            className={`shrink-0 whitespace-nowrap rounded-xl border px-2 py-1.5 text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 sm:px-3 sm:text-xs ${
               source === id
                 ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300"
                 : "border-transparent text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5"
