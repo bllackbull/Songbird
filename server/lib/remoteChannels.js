@@ -1618,26 +1618,31 @@ export function createRemoteChannelManager(deps = {}) {
     const sources = (await resolveMaybePromise(listEnabledRemoteChannelSources("songbird"))) || [];
     if (!sources.length) {
       if (!options.skipSleep) await sleep(pollIntervalMs);
-      return;
+      return { queued: 0 };
     }
 
+    let totalQueued = 0;
     for (let i = 0; i < sources.length; i += queueConcurrency) {
-      if (stopped) return;
+      if (stopped) break;
       const batch = sources.slice(i, i + queueConcurrency);
-      await Promise.all(
+      const results = await Promise.all(
         batch.map(async (source) => {
-          if (stopped) return;
+          if (stopped) return 0;
           try {
-            await pollSongbirdSource(source);
+            const result = await pollSongbirdSource(source);
             if (source.last_error) await resolveMaybePromise(updateRemoteChannelSourceError(source.id, ""));
+            return Number(result?.queued || 0);
           } catch (error) {
             const message = errorMessage(error);
             await resolveMaybePromise(updateRemoteChannelSourceError(source.id, message));
             log("poll-songbird:error", { sourceId: Number(source.id), error: message });
+            return 0;
           }
         }),
       );
+      totalQueued += results.reduce((sum, n) => sum + (Number(n) || 0), 0);
     }
+    return { queued: totalQueued };
   }
 
   async function runSongbirdPollLoop() {
@@ -1661,7 +1666,7 @@ export function createRemoteChannelManager(deps = {}) {
     const sources = (await resolveMaybePromise(listEnabledRemoteChannelSources("telegram"))) || [];
     if (!sources.length) {
       if (!options.skipSleep) await sleep(pollIntervalMs);
-      return;
+      return { queued: 0 };
     }
 
     const activeClient = await ensureClient();
@@ -1669,17 +1674,19 @@ export function createRemoteChannelManager(deps = {}) {
     // Poll all sources concurrently (up to queueConcurrency at a time) so that
     // a slow or large source does not delay all subsequent sources.
     let clientResetNeeded = false;
+    let totalQueued = 0;
     for (let i = 0; i < sources.length; i += queueConcurrency) {
-      if (stopped) return;
+      if (stopped) break;
       const batch = sources.slice(i, i + queueConcurrency);
-      await Promise.all(
+      const results = await Promise.all(
         batch.map(async (source) => {
-          if (stopped) return;
+          if (stopped) return 0;
           try {
-            await pollSource(activeClient, source);
+            const result = await pollSource(activeClient, source);
             if (source.last_error) {
               await resolveMaybePromise(updateRemoteChannelSourceError(source.id, ""));
             }
+            return Number(result?.queued || 0);
           } catch (error) {
             const message = errorMessage(error);
             await resolveMaybePromise(updateRemoteChannelSourceError(source.id, message));
@@ -1687,9 +1694,11 @@ export function createRemoteChannelManager(deps = {}) {
             if (markTelegramClientForReset(error, "poll-source")) {
               clientResetNeeded = true;
             }
+            return 0;
           }
         }),
       );
+      totalQueued += results.reduce((sum, n) => sum + (Number(n) || 0), 0);
       // If any source triggered a client reset, propagate the error so the
       // poll loop can reconnect before attempting the next batch.
       if (clientResetNeeded) {
@@ -1710,6 +1719,7 @@ export function createRemoteChannelManager(deps = {}) {
       }));
       lastProviderStateSavedAt = now;
     }
+    return { queued: totalQueued };
   }
 
   async function runPollLoop() {
@@ -2617,7 +2627,7 @@ export function createRemoteChannelManager(deps = {}) {
       if (!item?.id) break;
       items.push(item);
     }
-    if (!items.length) return;
+    if (!items.length) return 0;
 
     // Group by source_id so each source's items run in order.
     const bySource = new Map();
@@ -2637,7 +2647,7 @@ export function createRemoteChannelManager(deps = {}) {
       ),
     );
 
-    // Notify members of touched channels so open profile 
+    // Notify members of touched channels so open profile
     // modals refresh from the cached status endpoint.
     for (const [sourceId, sourceItems] of bySource) {
       const chatId = sourceItems[0]?.chat_id || null;
@@ -2652,6 +2662,7 @@ export function createRemoteChannelManager(deps = {}) {
         // Realtime notify must never break queue progress.
       }
     }
+    return items.length;
   }
 
   async function runQueueLoop() {
@@ -2846,44 +2857,67 @@ export function createRemoteChannelManager(deps = {}) {
     return true;
   }
 
-  // One on-demand poll+queue cycle for tick mode (external cron). Runs the
-  // same poll/queue steps as the background loops, drains a few queue
-  // batches, then disconnects the MTProto client so the process can idle.
+  // One on-demand poll+queue cycle for tick mode (external cron). Polls all
+  // sources, then drains the mirror queue until empty (a single poll only
+  // fetches up to pollLimit messages, so repeat poll+queue rounds until no
+  // new messages are queued). Disconnects the MTProto client afterwards so
+  // the process can idle/sleep again.
   async function tickOnce(options = {}) {
     if (!enabled) throw new Error("Remote Channel is disabled.");
-    const drainBatches = Math.max(1, Math.min(10, Number(options.drainBatches || 3)));
-    const summary = { telegram: null, songbird: null, queueBatches: 0, disconnected: false };
+    const rawRounds = options.maxPollRounds ?? options.drainBatches ?? 10;
+    const maxPollRounds = Math.max(1, Math.min(20, Number(rawRounds || 10)));
+    const rawQueueCap = options.maxQueueBatches ?? Math.max(maxPollRounds * 5, 20);
+    const maxQueueBatches = Math.max(1, Math.min(100, Number(rawQueueCap || 20)));
+    const summary = {
+      telegram: null,
+      songbird: null,
+      queueBatches: 0,
+      disconnected: false,
+      pollRounds: 0,
+      queued: 0,
+      processed: 0,
+    };
     const wasStopped = stopped;
     stopped = false;
     try {
-      if (apiId && apiHash && sessionString) {
+      const telegramConfigured = Boolean(apiId && apiHash && sessionString);
+      if (!telegramConfigured) summary.telegram = "not-configured";
+      for (let round = 0; round < maxPollRounds; round += 1) {
+        if (stopped && !wasStopped) break;
+        let roundQueued = 0;
+        if (telegramConfigured) {
+          try {
+            const result = await pollTelegramOnce({ skipSleep: true });
+            roundQueued += Number(result?.queued || 0);
+            summary.telegram = "polled";
+          } catch (error) {
+            const message = errorMessage(error);
+            log("tick:telegram-error", { error: message });
+            summary.telegram = `error: ${message}`;
+          }
+        }
         try {
-          await pollTelegramOnce({ skipSleep: true });
-          summary.telegram = "polled";
+          const result = await pollSongbirdOnce({ skipSleep: true });
+          roundQueued += Number(result?.queued || 0);
+          summary.songbird = "polled";
         } catch (error) {
           const message = errorMessage(error);
-          log("tick:telegram-error", { error: message });
-          summary.telegram = `error: ${message}`;
+          log("tick:songbird-error", { error: message });
+          summary.songbird = `error: ${message}`;
         }
-      } else {
-        summary.telegram = "not-configured";
-      }
-      try {
-        await pollSongbirdOnce({ skipSleep: true });
-        summary.songbird = "polled";
-      } catch (error) {
-        const message = errorMessage(error);
-        log("tick:songbird-error", { error: message });
-        summary.songbird = `error: ${message}`;
-      }
-      for (let i = 0; i < drainBatches; i += 1) {
-        if (stopped && !wasStopped) break;
-        const before = summary.queueBatches;
-        await runQueueOnce();
-        summary.queueBatches = before + 1;
-        // runQueueOnce is a no-op when the queue is empty; one extra empty
-        // pass is enough to confirm drain — stop early on second empty pass.
-        if (i > 0) break;
+        summary.queued += roundQueued;
+        summary.pollRounds += 1;
+        // Drain the queue until empty (runQueueOnce returns 0 when empty)
+        while (summary.queueBatches < maxQueueBatches) {
+          if (stopped && !wasStopped) break;
+          const processed = Number(await runQueueOnce() || 0);
+          summary.queueBatches += 1;
+          summary.processed += processed;
+          if (processed === 0) break;
+        }
+        // No new messages polled and queue just drained → fully caught up.
+        if (roundQueued === 0) break;
+        if (summary.queueBatches >= maxQueueBatches) break;
       }
     } finally {
       summary.disconnected = await disconnectTelegramClient("tick-done");

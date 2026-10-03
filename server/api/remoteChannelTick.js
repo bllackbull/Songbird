@@ -64,9 +64,13 @@ function registerRemoteChannelTickRoutes(app, deps) {
           .json({ error: "Remote Channel manager unavailable." });
       }
       try {
-        const summary = await remoteChannelManager.tickOnce({
-          drainBatches: Number(req.body?.drainBatches || 3),
-        });
+        const body = req.body || {};
+        const options = {};
+        // Legacy param — still honored as max poll rounds (see tickOnce).
+        if (body.drainBatches !== undefined) options.drainBatches = Number(body.drainBatches);
+        if (body.maxPollRounds !== undefined) options.maxPollRounds = Number(body.maxPollRounds);
+        if (body.maxQueueBatches !== undefined) options.maxQueueBatches = Number(body.maxQueueBatches);
+        const summary = await remoteChannelManager.tickOnce(options);
         return res.json({ ok: true, ...summary });
       } catch (error) {
         return res

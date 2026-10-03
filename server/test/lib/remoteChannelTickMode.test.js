@@ -62,4 +62,26 @@ describe("remote channel tick mode", () => {
     });
     await expect(manager.tickOnce()).rejects.toThrow("disabled");
   });
+
+  test("tickOnce drains the full queue until empty, not just two batches", async () => {
+    let remaining = 12;
+    const manager = makeManager(
+      { tickMode: true, queueBatchSize: 5 },
+      {
+        claimNextRemoteChannelQueueItem: async () => {
+          if (remaining <= 0) return null;
+          remaining -= 1;
+          return { id: 100 - remaining, source_id: 1, chat_id: "c1", attempts: 0, payload_json: "{}" };
+        },
+        getRemoteChannelSourceById: async () => null,
+        markRemoteChannelQueueItemSkipped: async () => 0,
+      },
+    );
+    manager.start();
+    const summary = await manager.tickOnce({ drainBatches: 10 });
+    manager.stop();
+    expect(remaining).toBe(0);
+    expect(summary.processed).toBe(12);
+    expect(summary.queueBatches).toBeGreaterThan(2);
+  });
 });
