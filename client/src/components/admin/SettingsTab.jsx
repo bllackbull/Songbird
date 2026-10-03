@@ -10,6 +10,7 @@ import {
   Clapper,
   Clock12,
   ClockFading,
+  Copy,
   Database,
   Download,
   Eye,
@@ -36,6 +37,7 @@ import {
   UserPlus,
   Video,
 } from "../../icons/lucide.js";
+import { copyTextToClipboard } from "../../utils/clipboard.js";
 import { TelegramIcon, SongbirdIcon } from "../../icons/BrandIcons.jsx";
 import { api, cardCls, btnPrimary, btnSecondary } from "./adminShared.js";
 import { SectionHeading } from "./AdminCommon.jsx";
@@ -595,6 +597,21 @@ const SECRET_ROWS = [
 
 function SecretCard({ row, value, visible, onToggle }) {
   const Icon = row.icon ?? KeyRound;
+  const [copied, setCopied] = useState(false);
+  const copyTimer = useRef(null);
+  useEffect(() => () => {
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+  }, []);
+
+  const handleCopy = async () => {
+    if (!value) return;
+    const ok = await copyTextToClipboard(value);
+    if (!ok) return;
+    setCopied(true);
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+    copyTimer.current = setTimeout(() => setCopied(false), 1500);
+  };
+
   return (
     <div className={cardCls}>
       <div className="settings-row flex items-center gap-3 p-4">
@@ -615,8 +632,24 @@ function SecretCard({ row, value, visible, onToggle }) {
               readOnly
               autoComplete="off"
               placeholder="Not available yet — restart the server once."
-              className="w-full cursor-default rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 pr-12 font-mono text-sm text-slate-500 outline-hidden transition placeholder:font-sans placeholder:text-slate-300 focus:border-slate-300 dark:border-white/10 dark:bg-white/5 dark:text-slate-400 dark:placeholder-slate-600 dark:focus:border-white/20"
+              onFocus={(e) => e.target.select()}
+              className="w-full cursor-text rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 pr-24 font-mono text-sm text-slate-500 outline-hidden transition select-text placeholder:font-sans placeholder:text-slate-300 focus:border-slate-300 dark:border-white/10 dark:bg-white/5 dark:text-slate-400 dark:placeholder-slate-600 dark:focus:border-white/20"
+              style={{
+                userSelect: "text",
+                WebkitUserSelect: "text",
+                WebkitTouchCallout: "default",
+              }}
             />
+            <button
+              type="button"
+              onClick={handleCopy}
+              disabled={!value}
+              aria-label={copied ? `${row.label} copied` : `Copy ${row.label}`}
+              title={copied ? "Copied" : "Copy"}
+              className="absolute right-11 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+            >
+              {copied ? <Check size={16} /> : <Copy size={16} />}
+            </button>
             <button
               type="button"
               onClick={onToggle}
