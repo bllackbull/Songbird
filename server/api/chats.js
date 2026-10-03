@@ -28,6 +28,7 @@ function registerChatRoutes(app, deps) {
     findChatById,
     findChatByGroupUsername,
     findChatByInviteToken,
+    findMessageById,
     findDmChat,
     findUserByUsername,
     findUserById,
@@ -912,9 +913,22 @@ function registerChatRoutes(app, deps) {
     const limitRaw = Number(req.query.limit || 50);
     const limit = Math.max(1, Math.min(100, Number.isFinite(limitRaw) ? limitRaw : 50));
 
+    let afterCreatedAt = null;
+    if (afterId && typeof findMessageById === "function") {
+      try {
+        const anchor = await resolveMaybePromise(findMessageById(afterId));
+        if (anchor && String(anchor.chat_id || "") === String(chat.id || "")) {
+          afterCreatedAt = anchor.created_at || null;
+        }
+      } catch {
+        afterCreatedAt = null;
+      }
+    }
+
     const msgData = await resolveMaybePromise(
       getMessages(chat.id, {
         afterId: afterId || null,
+        afterCreatedAt: afterCreatedAt || null,
         limit,
         viewerUserId: null,
       }),

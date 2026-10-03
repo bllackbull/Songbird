@@ -470,5 +470,67 @@ describe("GET /api/channels/:username/messages", () => {
       hasMore: false,
     });
   });
+
+  test("passes the anchor created_at so afterId pages oldest-first", async () => {
+    const seen = {};
+    const { app } = makeApp({
+      deps: {
+        findChatByGroupUsername: async (username) =>
+          username === "news"
+            ? {
+                id: "12121212-1212-4212-8212-121212121212",
+                type: "channel",
+                group_username: "news",
+                is_public: 1,
+              }
+            : null,
+        findMessageById: async (id) =>
+          String(id) === "50"
+            ? {
+                id: 50,
+                chat_id: "12121212-1212-4212-8212-121212121212",
+                created_at: "2026-09-22 10:00:00",
+              }
+            : null,
+        getMessages: async (chatId, options) => {
+          Object.assign(seen, options || {});
+          return { messages: [], hasMore: false };
+        },
+      },
+    });
+
+    const res = await request(app).get("/api/channels/news/messages?afterId=50&limit=50");
+
+    expect(res.status).toBe(200);
+    // Without afterCreatedAt, getMessages silently ignores afterId and
+    // returns the newest window (cursor jump → permanent gap on backlog).
+    expect(seen.afterId).toBe("50");
+    expect(seen.afterCreatedAt).toBe("2026-09-22 10:00:00");
+  });
+
+  test("falls back gracefully when the afterId anchor is gone", async () => {
+    const seen = {};
+    const { app } = makeApp({
+      deps: {
+        findChatByGroupUsername: async () => ({
+          id: "12121212-1212-4212-8212-121212121212",
+          type: "channel",
+          group_username: "news",
+          is_public: 1,
+        }),
+        findMessageById: async () => null,
+        getMessages: async (chatId, options) => {
+          Object.assign(seen, options || {});
+          return { messages: [], hasMore: false };
+        },
+      },
+    });
+
+    const res = await request(app).get("/api/channels/news/messages?afterId=50&limit=50");
+
+    expect(res.status).toBe(200);
+    expect(seen.afterId).toBe("50");
+    expect(seen.afterCreatedAt || null).toBeNull();
+  });
 });
 
