@@ -50,13 +50,13 @@
     "storage:migrate": "/bin/bash -p ../scripts/run-data-command.sh node scripts/migrate-storage-layout.js"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1127.0",
-    "@aws-sdk/s3-request-presigner": "^3.1127.0",
+    "@aws-sdk/client-s3": "^3.1143.0",
+    "@aws-sdk/s3-request-presigner": "^3.1143.0",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^13.0.3",
-    "bullmq": "^6.3.4",
-    "compression": "^1.8.1",
-    "dotenv": "^17.4.2",
+    "bullmq": "^6.3.10",
+    "compression": "^1.8.2",
+    "dotenv": "^18.0.4",
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.0",
     "https-proxy-agent": "^9.1.0",
@@ -66,15 +66,15 @@
     "pg": "^8.23.0",
     "sql.js": "^1.14.2",
     "telegram": "^2.26.22",
-    "undici": "^8.10.2",
+    "undici": "^8.11.2",
     "web-push": "^3.6.7",
-    "ws": "^8.21.3"
+    "ws": "^8.22.0"
   },
   "devDependencies": {
-    "@vitest/coverage-v8": "^5.0.0",
+    "@vitest/coverage-v8": "^5.0.3",
     "@vitest/ui": "^5.0.0",
-    "fast-check": "^4.9.0",
-    "supertest": "^7.2.2",
+    "fast-check": "^4.10.2",
+    "supertest": "^7.3.0",
     "vitest": "^5.0.0"
   }
 }
