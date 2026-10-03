@@ -141,6 +141,12 @@ export async function ensureSystemSecrets({
     cryptoImpl.randomBytes(32).toString("hex"),
   );
 
+  const remoteChannelCronSecret = await resolveSecret(
+    "REMOTE_CHANNEL_CRON_SECRET",
+    () => cryptoImpl.randomBytes(32).toString("hex"),
+    { immutable: true },
+  );
+
   let pubKey = normalizeEnvSecret(process.env.VAPID_PUBLIC_KEY);
   let privKey = normalizeEnvSecret(process.env.VAPID_PRIVATE_KEY);
   const dbPubKey = await getDbSecret("VAPID_PUBLIC_KEY");
@@ -216,6 +222,7 @@ export async function ensureSystemSecrets({
     ADMIN_API_TOKEN: adminToken,
     STORAGE_ENCRYPTION_KEY: storageKey,
     WEBHOOK_SECRET: webhookSecret,
+    REMOTE_CHANNEL_CRON_SECRET: remoteChannelCronSecret,
     VAPID_PUBLIC_KEY: pubKey,
     VAPID_PRIVATE_KEY: privKey,
     VAPID_SUBJECT: subject,

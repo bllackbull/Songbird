@@ -62,6 +62,7 @@ export default function NewGroupModal({
   remoteChannelAvailable = true,
   remoteChannelTelegramAvailable = true,
   remoteChannelMediaStreamAllowed = false,
+  remoteQueueSlot = null,
   entityLabel = "Group",
   onDeleteChat,
   chatId: _chatId = null,
@@ -704,6 +705,8 @@ export default function NewGroupModal({
                 ) : null}
               </div>
             ) : null}
+
+            {showRemoteChannelSettings && remoteQueueSlot ? remoteQueueSlot : null}
 
             {showMemberSearch ? (
             <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">

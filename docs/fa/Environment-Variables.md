@@ -66,14 +66,16 @@ nano .env
 | `MESSAGE_TEXT_RETENTION` | `integer` | `0` | حذف خودکار پیام‌های فقط‌متنی پس از N روز (`0` غیرفعال می‌کند). |
 | `MESSAGE_MAX_CHARS` | `integer` | `4000` | حداکثر طول پیام. |
 | `REMOTE_CHANNEL` | `boolean` | `false` | فعال‌کردن worker سمت‌سرور کانال ریموت. |
-| `REMOTE_CHANNEL_UI` | `boolean` | `true` | اجازه به مالکان کانال برای فعال‌کردن کانال ریموت در رابط کاربری. وقتی `false` باشد، کلید کانال ریموت برای همه کانال‌ها غیرفعال و قفل می‌شود، و کانال‌های موجود که آن را فعال دارند به‌طور خودکار در رابط کاربری خاموش‌شدن آن را می‌بینند. |
+| `REMOTE_CHANNEL_UI` | `boolean` | `true` | نمایش تنظیمات کانال ریموت به مالکان کانال در رابط کاربری. وقتی `false` باشد، این بخش از کاربران عادی پنهان می‌شود (و درخواست‌های API کاربران رد می‌شود) — فقط ادمین‌های سرور می‌توانند میرورینگ را از طریق پنل ادمین پیکربندی کنند. |
 | `REMOTE_CHANNEL_MEDIA_STREAM` | `boolean` | `true` | اجازه به مالکان کانال برای فعال‌کردن گزینه «Stream Media Files» در رابط کاربری. وقتی `false` باشد، این گزینه برای همه کانال‌ها غیرفعال و قفل می‌شود. |
 | `REMOTE_CHANNEL_TELEGRAM_API_ID` | `integer` | `0` | API ID مربوط به Telegram. |
 | `REMOTE_CHANNEL_TELEGRAM_API_HASH` | `string` | `""` | API hash مربوط به Telegram. |
 | `REMOTE_CHANNEL_TELEGRAM_SESSION_STRING` | `string` | `""` | StringSession مربوط به Telegram. با آن مانند یک رمز عبور رفتار کنید. |
 | `REMOTE_CHANNEL_TELEGRAM_PROXY_URL` | `string` | `""` | نشانی پراکسی MTProto مربوط به Telegram. (`REMOTE_CHANNEL_PROXY_URL` به‌عنوان جایگزین قدیمی پشتیبانی می‌شود.) |
 | `REMOTE_CHANNEL_SONGBIRD_PROXY_URL` | `string` | `""` | پراکسی HTTP/HTTPS برای درخواست‌های خروجی از این سرور به سرورهای ریموت Songbird. |
-| `REMOTE_CHANNEL_POLL_INTERVAL_MS` | `integer` | `5000` | فاصله زمانی بررسی منابع فعال کانال ریموت توسط poller. |
+| `REMOTE_CHANNEL_TICK_MODE` | `boolean` | `false` | وقتی `true` باشد، حلقه‌های poll پس‌زمینه خاموش می‌مانند تا میزبان serverless بتواند sleep شود.  |
+| `REMOTE_CHANNEL_CRON_SECRET` | `string` | *(تولید خودکار)* | secret مشترک برای endpoint مربوط به tick. |
+| `REMOTE_CHANNEL_POLL_INTERVAL_MS` | `integer` | `5000` | فاصله زمانی بررسی منابع فعال کانال ریموت توسط poller (`1000`-`900000`). |
 | `REMOTE_CHANNEL_TELEGRAM_POLL_LIMIT` | `integer` | `50` | حداکثر تعداد پست‌های Telegram دریافت‌شده در هر poll برای هر منبع (`1`-`100`). |
 | `REMOTE_CHANNEL_QUEUE_INTERVAL_MS` | `integer` | `1000` | فاصله زمانی پردازش پست‌های ریموت در انتظار توسط worker صف بازتاب. |
 | `REMOTE_CHANNEL_QUEUE_MAX_ATTEMPTS` | `integer` | `10` | حداکثر تعداد تلاش مجدد پیش از آنکه یک پست ریموت در صف به‌عنوان ناموفق علامت‌گذاری شود. |

@@ -95,6 +95,28 @@ docker compose run --rm -v "$PWD/.env:/app/.env" songbird npm --prefix /app/serv
 
 کار سنگین رسانه به Media Worker موجود سپرده می‌شود (**Option A**): سرور polling، صف، دانلود MTProto و ساخت پیام را نگه می‌دارد، در حالی که اعمال محدودیت اندازه، بررسی ویدیو و بارگذاری در باکت روی worker با `POST /mirror-media` انجام می‌شود (پذیرش با 202، secret اختصاصی هر کار، callback نتیجه). worker بایت‌ها را از مسیر محافظت شده با secret یعنی `GET /api/remote-channel/blob/:jobId` می‌گیرد و نتیجه را با `POST /api/remote-channel/webhook/mirror-done` گزارش می‌دهد (اتصال فایل‌ها، انتشار SSE، حذف تکراری‌ها). ارسال بر اساس `STORAGE_PROCESSING_MODE` به صورت mode-aware است (`auto` / `local` / `remote`؛ worker های remote به `WEBHOOK_URL` نیاز دارند) و مسیر inline محلی با تایمر timeout به عنوان fallback عمل می‌کند. session مربوط به Telegram هرگز از سرور خارج نمی‌شود. آیتم‌های صف در همان نقاط قبلی کامل می‌شوند، رسانه best-effort باقی می‌ماند و ویدیوها همچنان وارد pipeline ترنسکد می‌شوند.
 
+## polling کم‌مصرف
+
+بازتاب بلادرنگ نیاز دارد که اپ بیدار باشد: به‌صورت پیش‌فرض حلقه‌های poll و اتصال MTProto مربوط به Telegram به‌صورت پیوسته اجرا می‌شوند، پس یک سرویس رایگان هرگز sleep نمی‌شود و سهم ساعت ماهانه تمام می‌شود. حالت tick این مشکل را حل می‌کند:
+
+1. بخش **Settings → Remote Channel** پنل ادمین را باز کنید و **Tick Mode** را فعال کنید و ری‌استارت کنید تا حلقه‌های poll پس‌زمینه خاموش بمانند.
+
+2. به بخش **Secrets** (فقط مالک) بروید و مقدار tick secret را کپی کنید.
+
+3. یک **cron خارجی رایگان** (مثل cron-job.org) اضافه کنید که این endpoint را صدا بزند:
+
+   ```bash
+   curl -X POST https://your-app.onrender.com/api/internal/remote-channel/tick \
+     -H "x-songbird-cron-secret: <secret-از-بخش-secrets>"
+   ```
+
+   هر tick برنامه را بیدار می‌کند، همه پیام‌های جدید از آخرین پیام بازتاب شده به بعد را بازتاب می‌دهد، صف را خالی می‌کند، سپس اتصال Telegram را قطع می‌کند تا برنامه دوباره sleep شود.
+
+:::info محاسبه بازه در پلن رایگان Render
+
+بعد از ~۱۵ دقیقه بدون ترافیک sleep می‌شود — هر tick ورودی حدود ۱۵ دقیقه آن را بیدار نگه می‌دارد: هر ۱۰ دقیقه ≈ همیشه بیدار (~۷۲۰ ساعت، بدون صرفه‌جویی)؛ هر ۳۰ دقیقه ≈ ~۳۶۰ ساعت؛ هر ۶۰ دقیقه ≈ ~۱۸۰ ساعت. تأخیر بازتاب برابر بازه cron به‌علاوه cold-start (حدود ۳۰ تا ۶۰ ثانیه) است.
+:::
+
 ## سلامت و عملکرد پروفایل چت
 
 - `GET /api/admin/services` (با کش ۱۰ ثانیه‌ای) وضعیت worker (بررسی `/health`)، کانال ریموت (`getHealth()` با پرچم‌های `enabled` / `telegramConfigured` / `telegramConnected` / حلقه‌ها) و وضعیت درایور ذخیره سازی را گزارش می‌دهد و کارت‌های سلامت تب **Services** را تغذیه می‌کند.

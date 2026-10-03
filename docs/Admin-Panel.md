@@ -175,6 +175,7 @@ Configure runtime settings through the UI (replaces most `.env` variables):
 - Remote Channel feature enabled
 - Allow UI toggle for channel owners
 - Allow media streaming option
+- Tick mode
 - Polling and queue configuration
 
 #### Proxies
@@ -183,6 +184,10 @@ Configure runtime settings through the UI (replaces most `.env` variables):
 - Object storage proxy URL (nullable) — restart required
 - Telegram proxy URL (nullable) — restart required
 - Songbird server-to-server proxy URL (nullable, live)
+
+#### Secrets (owner-only)
+
+- Read-only system secrets: Remote channel tick secret, Worker webhook secret, Admin API token. Visible only to the server owner, never to admins.
 
 :::info Environment Override
 

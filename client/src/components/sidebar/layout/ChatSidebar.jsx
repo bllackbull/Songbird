@@ -102,6 +102,7 @@ export default function ChatSidebar({
   onOpenWhatsNew,
   adminPanelEnabled = true,
   permissionsPrompt = null,
+  insecureConnection = false,
 }) {
   const chatsScrollRef = useRef(null);
   const chatsContentRef = useRef(null);
@@ -192,6 +193,7 @@ export default function ChatSidebar({
             chatsScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
           }}
           permissionsPrompt={permissionsPrompt}
+          insecureConnection={insecureConnection}
         />
       </div>
 

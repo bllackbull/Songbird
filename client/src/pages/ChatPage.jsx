@@ -5875,7 +5875,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       remoteChannelSyncMetadata: false,
       remoteChannelStreamMedia: false,
       remoteChannelStatus: null,
-      remoteChannelLoading: activeChat.type === "channel" && Boolean(appInfo?.remoteChannels?.enabled),
+      remoteChannelLoading: activeChat.type === "channel" && Boolean(appInfo?.remoteChannels?.enabled && appInfo?.remoteChannels?.uiEnabled),
     });
     setNewGroupMembers([]);
     setNewGroupSearch("");
@@ -5898,7 +5898,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     } catch {
       // ignore invite fetch errors in edit modal
     }
-    if (activeChat.type === "channel" && appInfo?.remoteChannels?.enabled) {
+    if (activeChat.type === "channel" && appInfo?.remoteChannels?.enabled && appInfo?.remoteChannels?.uiEnabled) {
       try {
         const res = await getRemoteChannelSettings({
           chatId: activeChat.id,
@@ -6090,6 +6090,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const shouldSaveRemoteChannel = Boolean(
       isChannel &&
         appInfo?.remoteChannels?.enabled &&
+        appInfo?.remoteChannels?.uiEnabled &&
         (editingGroup
           ? remoteChannelChanged
           : remoteChannelEnabled ||
@@ -6680,6 +6681,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           onDismiss: (mode) =>
             dismissPermissionsPrompt(mode || activePermissionPrompt),
         }}
+        insecureConnection={
+          typeof window !== "undefined" && window.location.protocol !== "https:"
+        }
       />
 
       <ChatWindowPanel
@@ -6719,9 +6723,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         onJumpToLatest={handleJumpToLatest}
         isConnected={isConnected}
         isDark={isDark}
-        insecureConnection={
-          typeof window !== "undefined" && window.location.protocol !== "https:"
-        }
         pendingUploadFiles={pendingUploadFiles}
         pendingUploadType={pendingUploadType}
         pendingVoiceMessage={pendingVoiceMessage}
@@ -6919,7 +6920,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             regeneratingInviteLink={regeneratingGroupInviteLink}
             onRegenerateInvite={editingGroup ? handleRegenerateGroupInvite : null}
             showRemoteChannelSettings={Boolean(
-              groupModalType === "channel",
+              groupModalType === "channel" && appInfo?.remoteChannels?.uiEnabled,
             )}
             remoteChannelAvailable={Boolean(
               appInfo?.remoteChannels?.enabled &&
@@ -6981,6 +6982,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             membersBatchSize={CHAT_PAGE_CONFIG.newChatSearchMaxResults}
             remoteChannelAvailable={Boolean(
               appInfo?.remoteChannels?.enabled &&
+                appInfo?.remoteChannels?.uiEnabled &&
                 !(mentionProfileChat && String(mentionProfileChat.id || "") !== String(activeChat?.id || ""))
             )}
             onClose={closeProfileModal}

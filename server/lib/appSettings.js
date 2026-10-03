@@ -201,7 +201,7 @@ export const SETTING_DEFS = [
     key: "REMOTE_CHANNEL_UI",
     type: TYPE_BOOL,
     label: "Remote Channel UI",
-    description: "Allow channel owners to configure Remote Channel in the UI.",
+    description: "Show Remote Channel settings to channel owners in the UI. When off, only server admins can configure mirroring (via the admin panel).",
     group: "remote_channel",
     envKey: "REMOTE_CHANNEL_UI",
     defaultVal: true,
@@ -225,7 +225,18 @@ export const SETTING_DEFS = [
     envKey: "REMOTE_CHANNEL_POLL_INTERVAL_MS",
     defaultVal: 5000,
     min: 1000,
-    max: 60000,
+    max: 900000,
+    restart: true,
+  },
+  {
+    key: "REMOTE_CHANNEL_TICK_MODE",
+    type: TYPE_BOOL,
+    label: "Tick mode",
+    description:
+      "When enabled, background poll loops stay off so a serverless host can sleep.",
+    group: "remote_channel",
+    envKey: "REMOTE_CHANNEL_TICK_MODE",
+    defaultVal: false,
     restart: true,
   },
   {

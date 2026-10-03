@@ -58,6 +58,14 @@ function registerRemoteChannelRoutes(app, deps) {
     Boolean(REMOTE_CHANNELS?.enabled);
   const isRemoteChannelAvailable = () =>
     isTelegramAvailable() || isSongbirdAvailable();
+  // REMOTE_CHANNEL_UI=false hides the user-facing UI; only server admins
+  // (admin panel routes) may configure mirroring then.
+  const isUiEnabled = () => Boolean(getSetting("REMOTE_CHANNEL_UI"));
+  const requireUiEnabled = (res) => {
+    if (isUiEnabled()) return true;
+    res.status(403).json({ error: "Remote Channel is managed by server admins." });
+    return false;
+  };
 
   const requireChannelOwner = async (req, res) => {
     const session = await requireSession(req, res);
@@ -163,6 +171,7 @@ function registerRemoteChannelRoutes(app, deps) {
   app.get("/api/chats/:chatId/remote-channel", validateUuidParams('chatId'), async (req, res) => {
     // Any channel member can view the connection status.
     // Queue details are only included for the channel owner.
+    if (!requireUiEnabled(res)) return;
     const session = await requireSession(req, res);
     if (!session) return;
 
@@ -211,6 +220,7 @@ function registerRemoteChannelRoutes(app, deps) {
   });
 
   app.get("/api/chats/:chatId/remote-channel/queue", validateUuidParams('chatId'), async (req, res) => {
+    if (!requireUiEnabled(res)) return;
     const session = await requireSession(req, res);
     if (!session) return;
     const chatId = req.params.chatId;
@@ -236,6 +246,7 @@ function registerRemoteChannelRoutes(app, deps) {
   });
 
   app.put("/api/chats/:chatId/remote-channel", validateUuidParams('chatId'), async (req, res) => {
+    if (!requireUiEnabled(res)) return;
     const context = await requireChannelOwner(req, res);
     if (!context) return;
 
@@ -350,6 +361,7 @@ function registerRemoteChannelRoutes(app, deps) {
 
   // Pause remote channel mirroring
   app.post("/api/chats/:chatId/remote-channel/pause", validateUuidParams('chatId'), async (req, res) => {
+    if (!requireUiEnabled(res)) return;
     const context = await requireChannelOwner(req, res);
     if (!context) return;
 
@@ -370,6 +382,7 @@ function registerRemoteChannelRoutes(app, deps) {
 
   // Resume remote channel mirroring
   app.post("/api/chats/:chatId/remote-channel/resume", validateUuidParams('chatId'), async (req, res) => {
+    if (!requireUiEnabled(res)) return;
     const context = await requireChannelOwner(req, res);
     if (!context) return;
 
@@ -390,6 +403,7 @@ function registerRemoteChannelRoutes(app, deps) {
 
   // Skip current queue item
   app.post("/api/chats/:chatId/remote-channel/skip", validateUuidParams('chatId'), async (req, res) => {
+    if (!requireUiEnabled(res)) return;
     const context = await requireChannelOwner(req, res);
     if (!context) return;
 
@@ -416,6 +430,7 @@ function registerRemoteChannelRoutes(app, deps) {
 
   // Skip all queue items
   app.post("/api/chats/:chatId/remote-channel/skip-all", validateUuidParams('chatId'), async (req, res) => {
+    if (!requireUiEnabled(res)) return;
     const context = await requireChannelOwner(req, res);
     if (!context) return;
 
@@ -442,6 +457,7 @@ function registerRemoteChannelRoutes(app, deps) {
 
   // Test connection to remote channel
   app.post("/api/chats/:chatId/remote-channel/test", validateUuidParams('chatId'), async (req, res) => {
+    if (!requireUiEnabled(res)) return;
     const context = await requireChannelOwner(req, res);
     if (!context) return;
 

@@ -4,6 +4,7 @@ import { searchUsers, apiFetch, uploadAvatarFile } from "../../api/chatApi.js";
 import { CHAT_PAGE_CONFIG } from "../../settings/chatPageConfig.js";
 import { api, inputCls } from "./adminShared.js";
 import Avatar from "../common/Avatar.jsx";
+import RemoteChannelQueueStatus from "../modals/RemoteChannelQueueStatus.jsx";
 import UserRoleBadge from "../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../common/VerifiedBadge.jsx";
 import Tooltip from "../common/Tooltip.jsx";
@@ -188,6 +189,80 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
   const [autoAddNewUsers, setAutoAddNewUsers] = useState(
     editing ? Boolean(chat?.auto_add_new_users) : false
   );
+  // Remote channel availability flags (from public /api/app/info) and queue
+  // action state. Mirrors the client ChatPage modal but uses the admin
+  // endpoints so admins don't need to own the channel.
+  const [remoteFlags, setRemoteFlags] = useState({
+    enabled: false, uiEnabled: false, telegramConfigured: false, mediaStreamEnabled: false,
+  });
+  const [queueActionLoading, setQueueActionLoading] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+  const [testLoading, setTestLoading] = useState(false);
+
+  const isChannel = type === "channel";
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch("/api/app/info").then((r) => r.json()).then((d) => {
+      if (cancelled) return;
+      const rc = d?.remoteChannels || {};
+      setRemoteFlags({
+        enabled: Boolean(rc.enabled),
+        uiEnabled: Boolean(rc.uiEnabled),
+        telegramConfigured: Boolean(rc.telegramConfigured),
+        mediaStreamEnabled: Boolean(rc.mediaStreamEnabled),
+      });
+      // Default provider to telegram only when configured (mirrors ChatPage).
+      setForm((f) => ({
+        ...f,
+        remoteChannelProvider: rc.telegramConfigured ? "telegram" : "songbird",
+      }));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  // Load existing mirroring config when editing a channel. Mirrors the
+  // client ChatPage modal: don't fetch when the feature is off so the
+  // toggle stays OFF + disabled instead of showing stale ON state.
+  useEffect(() => {
+    if (!editing || !isChannel || !chat?.id) return undefined;
+    if (!remoteFlags.enabled) {
+      setForm((f) => ({
+        ...f,
+        remoteChannelEnabled: false,
+        remoteChannelStatus: null,
+        remoteChannelLoading: false,
+      }));
+      return undefined;
+    }
+    let cancelled = false;
+    setForm((f) => ({ ...f, remoteChannelLoading: true }));
+    api.get(`/api/admin/chats/${chat.id}/remote-channel`).then((data) => {
+      if (cancelled) return;
+      const source = data?.source || null;
+      setForm((f) => ({
+        ...f,
+        remoteChannelEnabled: Boolean(source?.enabled),
+        remoteChannelProvider: source?.provider || (remoteFlags.telegramConfigured ? "telegram" : "songbird"),
+        remoteChannelSource: source?.sourceRaw
+          || (source?.sourceUsername ? `@${source.sourceUsername}` : "")
+          || source?.sourceChatId || "",
+        remoteChannelSyncMetadata: Boolean(source?.syncMetadata),
+        remoteChannelStreamMedia: Boolean(source?.streamMedia),
+        remoteChannelStatus: data,
+        remoteChannelLoading: false,
+      }));
+    }).catch(() => {
+      if (cancelled) return;
+      setForm((f) => ({
+        ...f,
+        remoteChannelStatus: { available: false, source: null, error: "Unable to load Remote Channel settings." },
+        remoteChannelLoading: false,
+      }));
+    });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, isChannel, chat?.id, remoteFlags.enabled]);
 
   useEffect(() => {
     if (form.visibility !== "public") {
@@ -294,6 +369,34 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
       if (!name || !username) { setError("Name and username are required."); setBusy(false); return; }
       if (!owner?.id) { setError("Please select an owner."); setBusy(false); return; }
 
+      // Remote channel payload (channels only, mirrors ChatPage logic).
+      const remoteSource = String(form.remoteChannelSource || "").trim();
+      const remoteEnabled = form.visibility !== "private" && Boolean(form.remoteChannelEnabled);
+      const remoteProvider = String(form.remoteChannelProvider || "songbird").toLowerCase();
+      const remoteSync = remoteEnabled && Boolean(form.remoteChannelSyncMetadata);
+      const remoteStream = remoteEnabled && fileUploadEnabled && remoteFlags.mediaStreamEnabled
+        && Boolean(form.remoteChannelStreamMedia);
+      const original = editing ? (form.remoteChannelStatus?.source || null) : null;
+      const origSource = original?.sourceRaw
+        || (original?.sourceUsername ? `@${original.sourceUsername}` : "")
+        || original?.sourceChatId || "";
+      const remoteChanged = original
+        ? (remoteEnabled !== Boolean(original.enabled)
+          || remoteProvider !== String(original.provider || "songbird").toLowerCase()
+          || remoteSource !== origSource
+          || remoteSync !== Boolean(original.syncMetadata)
+          || remoteStream !== Boolean(original.streamMedia))
+        : Boolean(remoteEnabled || remoteSource || remoteSync || remoteStream);
+      const shouldSaveRemote = isChannel && remoteFlags.enabled
+        && (editing ? remoteChanged : Boolean(remoteEnabled || remoteSource || remoteSync || remoteStream));
+      if (shouldSaveRemote && remoteEnabled && !remoteSource) {
+        setError("Remote Channel source is required."); setBusy(false); return;
+      }
+      const remotePayload = {
+        enabled: remoteEnabled, provider: remoteProvider, source: remoteSource,
+        syncMetadata: remoteSync, streamMedia: remoteStream,
+      };
+
       if (editing) {
         const payload = {
           name,
@@ -306,6 +409,10 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
         if (owner?.id && owner.id !== initialOwnerId) payload.owner = owner.id;
         const r = await api.patch(`/api/admin/chats/${chat.id}`, payload);
         if (!r.ok) { const d = await r.json(); setError(d.error || "Failed"); setBusy(false); return; }
+        if (shouldSaveRemote) {
+          const rr = await api.put(`/api/admin/chats/${chat.id}/remote-channel`, remotePayload);
+          if (!rr.ok) { const d = await rr.json().catch(() => ({})); setError(d.error || "Failed to save Remote Channel."); setBusy(false); return; }
+        }
         for (const member of members) {
           const memberResponse = await api.post(`/api/admin/chats/${chat.id}/members`, {
             userId: member.id,
@@ -345,6 +452,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
           addAllEligibleMembers,
           autoAddNewUsers,
         };
+        if (shouldSaveRemote) payload.remoteChannel = remotePayload;
         const r = await api.post("/api/admin/chats", payload);
         if (!r.ok) { const d = await r.json(); setError(d.error || "Failed"); setBusy(false); return; }
         const d = await r.json().catch(() => ({}));
@@ -357,7 +465,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
     } catch {
       setError("Request failed."); setBusy(false);
     }
-  }, [editing, form, owner, type, members, addAllEligibleMembers, chat, onSaved, onClose, fileUploadEnabled, pendingAvatarFile, avatarRemoved, uploadAvatarTo, initialOwnerId, verified, autoAddNewUsers]);
+  }, [editing, form, owner, type, isChannel, members, addAllEligibleMembers, chat, onSaved, onClose, fileUploadEnabled, pendingAvatarFile, avatarRemoved, uploadAvatarTo, initialOwnerId, verified, autoAddNewUsers, remoteFlags.enabled, remoteFlags.mediaStreamEnabled]);
 
   const extraFields = (
     <div className="space-y-3">
@@ -440,6 +548,68 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
     </button>
   );
 
+  // Queue actions (edit mode only, admin endpoints bypass owner check).
+  const refreshRemoteStatus = useCallback(async () => {
+    if (!editing || !chat?.id) return;
+    try {
+      const data = await api.get(`/api/admin/chats/${chat.id}/remote-channel`);
+      setForm((f) => ({ ...f, remoteChannelStatus: data }));
+    } catch { /* keep stale status on failure */ }
+  }, [editing, chat]);
+
+  const runQueueAction = useCallback(async (action) => {
+    if (!editing || !chat?.id) return;
+    setQueueActionLoading(true);
+    try {
+      const r = await api.post(`/api/admin/chats/${chat.id}/remote-channel/${action}`, {});
+      if (r.ok) await refreshRemoteStatus();
+      else {
+        const d = await r.json().catch(() => ({}));
+        setError(d.error || "Queue action failed.");
+      }
+    } catch {
+      setError("Queue action failed.");
+    } finally {
+      setQueueActionLoading(false);
+    }
+  }, [editing, chat, refreshRemoteStatus]);
+
+  const handleTestConnection = useCallback(async () => {
+    if (!editing || !chat?.id) return;
+    setTestLoading(true);
+    setTestResult(null);
+    try {
+      const r = await api.post(`/api/admin/chats/${chat.id}/remote-channel/test`, {});
+      setTestResult(r.ok ? "success" : "error");
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        setError(d.error || "Connection test failed.");
+      }
+    } catch {
+      setTestResult("error");
+    } finally {
+      setTestLoading(false);
+    }
+  }, [editing, chat]);
+
+  const remoteSource = form.remoteChannelStatus?.source || null;
+  const remoteQueueSlot = editing && isChannel && remoteSource?.id && Boolean(form.remoteChannelEnabled) ? (
+    <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
+      <RemoteChannelQueueStatus
+        queue={remoteSource?.queue || {}}
+        sourceEnabled={Boolean(remoteSource?.enabled)}
+        onPause={remoteSource?.paused ? null : (queueActionLoading ? null : () => runQueueAction("pause"))}
+        onResume={remoteSource?.paused ? (queueActionLoading ? null : () => runQueueAction("resume")) : null}
+        onSkip={queueActionLoading ? null : () => runQueueAction("skip")}
+        onSkipAll={queueActionLoading ? null : () => runQueueAction("skip-all")}
+        onTestConnection={handleTestConnection}
+        testConnectionResult={testResult}
+        testConnectionLoading={testLoading}
+        actionLoading={queueActionLoading}
+      />
+    </div>
+  ) : null;
+
   return (
     <Suspense fallback={null}>
       <NewGroupModal
@@ -473,7 +643,11 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
         onAvatarRemove={handleAvatarRemove}
         fileUploadEnabled={fileUploadEnabled}
         showInviteManagement={false}
-        showRemoteChannelSettings={false}
+        showRemoteChannelSettings={isChannel}
+        remoteChannelAvailable={Boolean(remoteFlags.enabled)}
+        remoteChannelTelegramAvailable={Boolean(remoteFlags.telegramConfigured)}
+        remoteChannelMediaStreamAllowed={Boolean(remoteFlags.mediaStreamEnabled)}
+        remoteQueueSlot={remoteQueueSlot}
       />
     </Suspense>
   );

@@ -105,7 +105,13 @@ export function createMediaQueueManager({
   if (isRealRedis) {
     try {
       const connection = redisClient.options
-        ? { host: redisClient.options.host, port: redisClient.options.port }
+        ? {
+            host: redisClient.options.host,
+            port: redisClient.options.port,
+            username: redisClient.options.username,
+            password: redisClient.options.password,
+            db: redisClient.options.db,
+          }
         : { host: "127.0.0.1", port: 6379 };
 
       bullQueue = new Queue("media-processing", { connection });

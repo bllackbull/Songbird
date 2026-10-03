@@ -66,14 +66,16 @@ nano .env
 | `MESSAGE_TEXT_RETENTION` | `integer` | `0` | Auto-delete text-only messages after N days (`0` disables). |
 | `MESSAGE_MAX_CHARS` | `integer` | `4000` | Max message length. |
 | `REMOTE_CHANNEL` | `boolean` | `false` | Enable the server-side Remote Channel worker. |
-| `REMOTE_CHANNEL_UI` | `boolean` | `true` | Allow channel owners to enable Remote Channel in the UI. When `false`, the Remote Channel toggle is disabled and locked for all channels, and existing channels with it enabled will see it turn off automatically in the UI. |
+| `REMOTE_CHANNEL_UI` | `boolean` | `true` | Show Remote Channel settings to channel owners in the UI. When `false`, the section is hidden from regular users (and user API calls are rejected) — only server admins can configure mirroring via the admin panel. |
 | `REMOTE_CHANNEL_MEDIA_STREAM` | `boolean` | `true` | Allow channel owners to enable the "Stream Media Files" option in the UI. When `false`, the option is disabled and locked for all channels. |
 | `REMOTE_CHANNEL_TELEGRAM_API_ID` | `integer` | `0` | Telegram API ID. |
 | `REMOTE_CHANNEL_TELEGRAM_API_HASH` | `string` | `""` | Telegram API hash. |
 | `REMOTE_CHANNEL_TELEGRAM_SESSION_STRING` | `string` | `""` | Telegram StringSession. Treat it like a password. |
 | `REMOTE_CHANNEL_TELEGRAM_PROXY_URL` | `string` | `""` | Telegram MTProto proxy URL. (`REMOTE_CHANNEL_PROXY_URL` is supported as a legacy fallback.) |
 | `REMOTE_CHANNEL_SONGBIRD_PROXY_URL` | `string` | `""` | HTTP/HTTPS proxy for outbound requests from this server to remote Songbird servers. |
-| `REMOTE_CHANNEL_POLL_INTERVAL_MS` | `integer` | `5000` | How often the poller checks enabled Remote Channel sources. |
+| `REMOTE_CHANNEL_TICK_MODE` | `boolean` | `false` | When `true`, background poll loops stay off so a serverless host can sleep. |
+| `REMOTE_CHANNEL_CRON_SECRET` | `string` | *(Auto-generated)* | Shared secret for the tick endpoint. |
+| `REMOTE_CHANNEL_POLL_INTERVAL_MS` | `integer` | `5000` | How often the poller checks enabled Remote Channel sources (`1000`-`900000`). |
 | `REMOTE_CHANNEL_TELEGRAM_POLL_LIMIT` | `integer` | `50` | Max Telegram posts fetched per poll for each source (`1`-`100`). |
 | `REMOTE_CHANNEL_QUEUE_INTERVAL_MS` | `integer` | `1000` | How often the mirror queue worker processes pending remote posts. |
 | `REMOTE_CHANNEL_QUEUE_MAX_ATTEMPTS` | `integer` | `10` | Max retry attempts before a queued remote post is marked failed. |

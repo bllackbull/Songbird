@@ -6,6 +6,7 @@ describe("secrets.js", () => {
     delete process.env.ADMIN_API_TOKEN;
     delete process.env.STORAGE_ENCRYPTION_KEY;
     delete process.env.WEBHOOK_SECRET;
+    delete process.env.REMOTE_CHANNEL_CRON_SECRET;
     delete process.env.VAPID_PUBLIC_KEY;
     delete process.env.VAPID_PRIVATE_KEY;
     delete process.env.VAPID_SUBJECT;
@@ -126,7 +127,46 @@ describe("secrets.js", () => {
     expect(process.env.ADMIN_API_TOKEN).toBeTruthy();
     expect(process.env.STORAGE_ENCRYPTION_KEY).toBeTruthy();
     expect(process.env.WEBHOOK_SECRET).toBeTruthy();
+    expect(process.env.REMOTE_CHANNEL_CRON_SECRET).toBeTruthy();
+    expect(dbStore.REMOTE_CHANNEL_CRON_SECRET).toBe(
+      process.env.REMOTE_CHANNEL_CRON_SECRET,
+    );
     expect(process.env.VAPID_PUBLIC_KEY).toBeTruthy();
+  });
+
+  test("ensureSystemSecrets reuses the stored tick cron secret from the database", async () => {
+    const dbStore = { REMOTE_CHANNEL_CRON_SECRET: "db-cron-secret" };
+    const { mockGetRow, mockRun } = makeDbMocks(dbStore);
+
+    await ensureSystemSecrets({
+      dbGetRow: mockGetRow,
+      dbRun: mockRun,
+      projectRootDir: "/tmp",
+      fsImpl: noFsWrites,
+      webpushImpl: {
+        generateVAPIDKeys: () => ({ publicKey: "p", privateKey: "s" }),
+      },
+    });
+
+    expect(process.env.REMOTE_CHANNEL_CRON_SECRET).toBe("db-cron-secret");
+  });
+
+  test("tick cron secret is immutable: env/DB mismatch throws", async () => {
+    process.env.REMOTE_CHANNEL_CRON_SECRET = "env-cron-secret";
+    const dbStore = { REMOTE_CHANNEL_CRON_SECRET: "db-cron-secret" };
+    const { mockGetRow, mockRun } = makeDbMocks(dbStore);
+
+    await expect(
+      ensureSystemSecrets({
+        dbGetRow: mockGetRow,
+        dbRun: mockRun,
+        projectRootDir: "/tmp",
+        fsImpl: noFsWrites,
+        webpushImpl: {
+          generateVAPIDKeys: () => ({ publicKey: "p", privateKey: "s" }),
+        },
+      }),
+    ).rejects.toThrow("REMOTE_CHANNEL_CRON_SECRET");
   });
 
   test("ensureSystemSecrets saves env secrets to database if available in environment but missing from DB", async () => {

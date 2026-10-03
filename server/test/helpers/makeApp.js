@@ -103,7 +103,7 @@ export function makeApp(overrides = {}) {
         CHAT_MESSAGE_FETCH_LIMIT: 60,
         CHAT_MESSAGE_PAGE_SIZE: 60,
         CHAT_CACHE_TTL: 24,
-        REMOTE_CHANNEL_UI: false,
+        REMOTE_CHANNEL_UI: true,
         REMOTE_CHANNEL_MEDIA_STREAM: false,
       };
       return overrides.settings?.[key] ?? defaults[key] ?? null;

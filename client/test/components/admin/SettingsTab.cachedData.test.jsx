@@ -171,7 +171,7 @@ describe("SettingsTab — environment-locked settings", () => {
       />,
     );
 
-    const lockBadge = page.getByText("set in .env");
+    const lockBadge = page.getByText("environment");
     await expect.element(lockBadge).toBeInTheDocument();
     await expect.element(page.getByRole("switch").last()).toBeDisabled();
 

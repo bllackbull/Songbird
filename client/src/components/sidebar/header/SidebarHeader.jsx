@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  AlertCircle,
   Bell,
   Chat,
   Close,
@@ -36,6 +37,7 @@ export default function SidebarHeader({
   chatsScrollable = false,
   onScrollToTop,
   permissionsPrompt = null,
+  insecureConnection = false,
 }) {
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const createMenuRef = useRef(null);
@@ -43,6 +45,27 @@ export default function SidebarHeader({
   const hasSearchText = Boolean(String(chatsSearchQuery || "").trim());
   const searchHasPersian = hasPersian(chatsSearchQuery || "");
   const searchIsRtl = hasSearchText && searchHasPersian;
+  const [hideInsecureBanner, setHideInsecureBanner] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("songbird-insecure-dismissed") === "1";
+  });
+  const isLocalhost =
+    typeof window !== "undefined" &&
+    (window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1" ||
+      window.location.hostname === "::1" ||
+      window.location.hostname.endsWith(".localhost"));
+
+  useEffect(() => {
+    if (!insecureConnection || typeof window === "undefined") return;
+    setHideInsecureBanner(
+      window.localStorage.getItem("songbird-insecure-dismissed") === "1",
+    );
+  }, [insecureConnection]);
+
+  const showInsecureBanner = Boolean(
+    insecureConnection && !hideInsecureBanner && !isLocalhost,
+  );
 
   useEffect(() => {
     if (!showCreateMenu) return;
@@ -317,6 +340,32 @@ export default function SidebarHeader({
                   </div>
                 </>
               ) : null}
+            </div>
+          ) : null}
+          {showInsecureBanner ? (
+            <div className="mt-3 flex items-center justify-between gap-2 overflow-hidden rounded-2xl border border-rose-200/80 bg-rose-50/70 px-3 py-2 text-xs font-semibold text-rose-700 shadow-xs dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-100">
+              <div className="flex min-w-0 items-center gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0 text-rose-600 dark:text-rose-300" />
+                <span className="truncate whitespace-nowrap">
+                  Connection is not secure
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (typeof window !== "undefined") {
+                    window.localStorage.setItem(
+                      "songbird-insecure-dismissed",
+                      "1",
+                    );
+                  }
+                  setHideInsecureBanner(true);
+                }}
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-rose-200/80 bg-white/80 text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 dark:border-rose-500/30 dark:bg-slate-900/80 dark:text-rose-200 dark:hover:bg-rose-500/10"
+                aria-label="Dismiss"
+              >
+                <Close size={14} className="icon-anim-pop" />
+              </button>
             </div>
           ) : null}
         </>
