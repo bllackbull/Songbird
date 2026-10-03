@@ -71,8 +71,26 @@ function registerRemoteChannelTickRoutes(app, deps) {
         if (body.maxPollRounds !== undefined) options.maxPollRounds = Number(body.maxPollRounds);
         if (body.maxQueueBatches !== undefined) options.maxQueueBatches = Number(body.maxQueueBatches);
         const summary = await remoteChannelManager.tickOnce(options);
+
+        console.log(
+          "[remote-channel] tick done",
+          JSON.stringify({
+            queued: summary?.queued ?? null,
+            processed: summary?.processed ?? null,
+            pollRounds: summary?.pollRounds ?? null,
+            queueBatches: summary?.queueBatches ?? null,
+            telegram: summary?.telegram ?? null,
+            songbird: summary?.songbird ?? null,
+          }),
+        );
         return res.json({ ok: true, ...summary });
       } catch (error) {
+        if (error?.code === "TICK_BUSY") {
+          console.warn("[remote-channel] tick rejected: already in progress");
+          return res
+            .status(409)
+            .json({ error: String(error?.message || "Tick already in progress.") });
+        }
         return res
           .status(500)
           .json({ error: String(error?.message || "Tick failed.") });

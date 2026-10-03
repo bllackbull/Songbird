@@ -910,6 +910,7 @@ export function createRemoteChannelManager(deps = {}) {
   let stopped = true;
   let pollLoopRunning = false;
   let queueLoopRunning = false;
+  let tickInFlight = false;
   let queueTimer = null;
   let client = null;
   let clientConnectPromise = null;
@@ -2864,6 +2865,13 @@ export function createRemoteChannelManager(deps = {}) {
   // the process can idle/sleep again.
   async function tickOnce(options = {}) {
     if (!enabled) throw new Error("Remote Channel is disabled.");
+
+    if (tickInFlight) {
+      const busy = new Error("Remote Channel tick already in progress.");
+      busy.code = "TICK_BUSY";
+      throw busy;
+    }
+    tickInFlight = true;
     const rawRounds = options.maxPollRounds ?? options.drainBatches ?? 10;
     const maxPollRounds = Math.max(1, Math.min(20, Number(rawRounds || 10)));
     const rawQueueCap = options.maxQueueBatches ?? Math.max(maxPollRounds * 5, 20);
@@ -2922,6 +2930,7 @@ export function createRemoteChannelManager(deps = {}) {
     } finally {
       summary.disconnected = await disconnectTelegramClient("tick-done");
       if (wasStopped && tickMode) stopped = true;
+      tickInFlight = false;
     }
     return summary;
   }

@@ -63,6 +63,33 @@ describe("remote channel tick mode", () => {
     await expect(manager.tickOnce()).rejects.toThrow("disabled");
   });
 
+  test("tickOnce rejects overlapping ticks while one is already running", async () => {
+    let releaseGate;
+    const gate = new Promise((resolve) => {
+      releaseGate = resolve;
+    });
+    let claimCalls = 0;
+    const manager = makeManager(
+      { tickMode: true },
+      {
+        claimNextRemoteChannelQueueItem: async () => {
+          claimCalls += 1;
+          if (claimCalls === 1) await gate;
+          return null;
+        },
+      },
+    );
+    manager.start();
+    const first = manager.tickOnce({});
+    // Let the first tick reach the queue claim before starting the second.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await expect(manager.tickOnce({})).rejects.toThrow("already in progress");
+    releaseGate();
+    const summary = await first;
+    expect(summary.queueBatches).toBeGreaterThanOrEqual(1);
+    manager.stop();
+  });
+
   test("tickOnce drains the full queue until empty, not just two batches", async () => {
     let remaining = 12;
     const manager = makeManager(

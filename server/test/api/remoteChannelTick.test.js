@@ -58,6 +58,20 @@ describe("POST /api/internal/remote-channel/tick", () => {
     expect(res.body.telegram).toBe("polled");
   });
 
+  test("returns 409 when a tick is already running", async () => {
+    const busy = new Error("Remote Channel tick already in progress.");
+    busy.code = "TICK_BUSY";
+    const { app } = makeTickApp({
+      tickOnce: async () => {
+        throw busy;
+      },
+    });
+    const res = await request(app)
+      .post("/api/internal/remote-channel/tick")
+      .set("x-songbird-cron-secret", SECRET);
+    expect(res.status).toBe(409);
+  });
+
   test("honors the auto-generated secret from process.env", async () => {
     process.env.REMOTE_CHANNEL_CRON_SECRET = "boot-generated-secret";
     const { app } = makeApp({
