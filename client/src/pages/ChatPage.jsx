@@ -1052,16 +1052,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     handleSignal: handleCallSignal,
   } = useWebRTCCall();
 
-  const handleStartVoiceCall = useCallback(() => {
-    if (!activeChatId || !activeHeaderPeer?.username) return;
-    startCall({ chatId: activeChatId, calleeUsername: activeHeaderPeer.username, type: "voice" });
-  }, [activeChatId, activeHeaderPeer, startCall]);
-
-  const handleStartVideoCall = useCallback(() => {
-    if (!activeChatId || !activeHeaderPeer?.username) return;
-    startCall({ chatId: activeChatId, calleeUsername: activeHeaderPeer.username, type: "video" });
-  }, [activeChatId, activeHeaderPeer, startCall]);
-
   const handleOpenForwardOrigin = async (target) => {
     if (!target) return;
     if (target.kind === "self") {
@@ -1888,6 +1878,16 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const activeHeaderAvatarIcon = isActiveSavedChat ? (
     <Bookmark size={18} className="text-white" />
   ) : null;
+
+  const handleStartVoiceCall = useCallback(() => {
+    if (!activeChatId || !activeHeaderPeer?.username) return;
+    startCall({ chatId: activeChatId, calleeUsername: activeHeaderPeer.username, type: "voice" });
+  }, [activeChatId, activeHeaderPeer, startCall]);
+
+  const handleStartVideoCall = useCallback(() => {
+    if (!activeChatId || !activeHeaderPeer?.username) return;
+    startCall({ chatId: activeChatId, calleeUsername: activeHeaderPeer.username, type: "video" });
+  }, [activeChatId, activeHeaderPeer, startCall]);
 
   useEffect(() => {
     if (canSendInActiveChat) return;
