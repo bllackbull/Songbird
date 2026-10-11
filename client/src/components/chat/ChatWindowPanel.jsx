@@ -1268,28 +1268,33 @@ export default function ChatWindowPanel({
                 ) : null}
               </>
             </ContextMenuSurface>
-            {headerAvatarIcon ? (
-              <div className="flex items-center gap-2">
-                {isDmChat && onStartVoiceCall ? (
+            {isDmChat && (onStartVoiceCall || onStartVideoCall) ? (
+              <div className="flex items-center gap-1.5 shrink-0">
+                {onStartVoiceCall ? (
                   <button
                     type="button"
                     onClick={onStartVoiceCall}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white/80 text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white/80 text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-xs dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 dark:hover:bg-emerald-500/10 cursor-pointer"
                     aria-label="Voice call"
+                    title="Voice call"
                   >
                     <Phone size={16} />
                   </button>
                 ) : null}
-                {isDmChat && onStartVideoCall ? (
+                {onStartVideoCall ? (
                   <button
                     type="button"
                     onClick={onStartVideoCall}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white/80 text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white/80 text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-xs dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 dark:hover:bg-emerald-500/10 cursor-pointer"
                     aria-label="Video call"
+                    title="Video call"
                   >
                     <Video size={16} />
                   </button>
                 ) : null}
+              </div>
+            ) : null}
+            {headerAvatarIcon ? (
               <ContextMenuSurface
                 as="div"
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
@@ -1298,7 +1303,6 @@ export default function ChatWindowPanel({
               >
                 {headerAvatarIcon}
               </ContextMenuSurface>
-              </div>
             ) : activeHeaderPeer ? (
               activeHeaderPeer?.isDeleted ? (
                 <ContextMenuSurface
