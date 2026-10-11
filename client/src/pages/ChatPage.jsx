@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import MobileTabMenu from "../components/navigation/MobileTabMenu.jsx";
 import ChatWindowPanel from "../components/chat/ChatWindowPanel.jsx";
+import { CallScreen } from "../components/call/CallScreen.jsx";
 import { ChatSidebar } from "../components/sidebar/index.js";
 import AppContextMenu from "../components/context-menu/AppContextMenu.jsx";
 import { useAppContextMenu } from "../components/context-menu/useAppContextMenu.js";
@@ -33,6 +34,7 @@ import { useNewGroupModal } from "../hooks/chat/useNewGroupModal.js";
 import { usePerfTelemetry } from "../hooks/chat/usePerfTelemetry.js";
 import { useResumeRefresh } from "../hooks/chat/useResumeRefresh.js";
 import { useMessageVisibility } from "../hooks/chat/useMessageVisibility.js";
+import { useWebRTCCall } from "../hooks/chat/useWebRTCCall.js";
 import { useAppReleaseInfo } from "../hooks/useAppReleaseInfo.js";
 import { Bookmark } from "../icons/lucide.js";
 import { CLIPBOARD_COPY_EVENT } from "../utils/clipboard.js";
@@ -1031,6 +1033,25 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     downloadMessageFiles(files);
   }, []);
 
+  // ─── Call Hooks ───────────────────────────────────────────────────────────
+  const {
+    callState,
+    callType,
+    callPeer,
+    callDuration,
+    isMuted,
+    isCameraOff,
+    localVideoRef,
+    remoteVideoRef,
+    startCall,
+    acceptCall,
+    rejectCall,
+    endCall,
+    toggleMute,
+    toggleCamera,
+    handleSignal: handleCallSignal,
+  } = useWebRTCCall();
+
   const handleOpenForwardOrigin = async (target) => {
     if (!target) return;
     if (target.kind === "self") {
@@ -1857,6 +1878,16 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const activeHeaderAvatarIcon = isActiveSavedChat ? (
     <Bookmark size={18} className="text-white" />
   ) : null;
+
+  const handleStartVoiceCall = useCallback(() => {
+    if (!activeChatId || !activeHeaderPeer?.username) return;
+    startCall({ chatId: activeChatId, calleeUsername: activeHeaderPeer.username, type: "voice" });
+  }, [activeChatId, activeHeaderPeer, startCall]);
+
+  const handleStartVideoCall = useCallback(() => {
+    if (!activeChatId || !activeHeaderPeer?.username) return;
+    startCall({ chatId: activeChatId, calleeUsername: activeHeaderPeer.username, type: "video" });
+  }, [activeChatId, activeHeaderPeer, startCall]);
 
   useEffect(() => {
     if (canSendInActiveChat) return;
@@ -3656,6 +3687,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     onSessionRevoked: () => {
       handleLogout();
     },
+    onCallSignal: handleCallSignal,
   });
 
   useEffect(() => {
@@ -6768,8 +6800,45 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         microphonePermissionStatus={microphonePermission}
         onRequestMicrophonePermission={requestMicrophonePermission}
         registerMessageRef={registerMessageRef}
+        onStartVoiceCall={handleStartVoiceCall}
+        onStartVideoCall={handleStartVideoCall}
+        isDmChat={!isActiveGroupChat && !isActiveChannelChat && !isActiveSavedChat}
+        permissionsPrompt={{
+          show: showPermissionsPrompt,
+          mode: activePermissionPrompt,
+          notification: {
+            show: shouldPromptNotifications,
+            status: notificationPermission,
+            onRequest: requestNotificationsPermission,
+          },
+          microphone: {
+            show: shouldPromptMicrophone,
+            status: microphonePermission,
+            onRequest: requestMicrophonePermission,
+          },
+          onDismiss: (mode) =>
+            dismissPermissionsPrompt(mode || activePermissionPrompt),
+        }}
         showFloatingLabel={showFloatingLabel}
       />
+
+      {callState !== "idle" ? (
+        <CallScreen
+          callState={callState}
+          callType={callType}
+          callPeer={callPeer}
+          callDuration={callDuration}
+          isMuted={isMuted}
+          isCameraOff={isCameraOff}
+          localVideoRef={localVideoRef}
+          remoteVideoRef={remoteVideoRef}
+          onAccept={acceptCall}
+          onReject={rejectCall}
+          onEnd={endCall}
+          onToggleMute={toggleMute}
+          onToggleCamera={toggleCamera}
+        />
+      ) : null}
 
       <MobileTabMenu
         hidden={mobileTab === "chat" && activeChatId}

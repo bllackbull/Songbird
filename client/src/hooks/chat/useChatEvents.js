@@ -66,6 +66,7 @@ export function useChatEvents({
   onTypingUpdate,
   onChatListChanged,
   onSessionRevoked,
+  onCallSignal,
 }) {
   const onIncomingMessageRef = useRef(onIncomingMessage);
   const onMessageDeletedRef = useRef(onMessageDeleted);
@@ -75,6 +76,7 @@ export function useChatEvents({
   const onTypingUpdateRef = useRef(onTypingUpdate);
   const onChatListChangedRef = useRef(onChatListChanged);
   const onSessionRevokedRef = useRef(onSessionRevoked);
+  const onCallSignalRef = useRef(onCallSignal);
   const canMarkReadInCurrentViewRef = useRef(canMarkReadInCurrentView);
   const loadChatsTimerRef = useRef(null);
   const loadChatsFirstScheduledAtRef = useRef(0);
@@ -110,6 +112,10 @@ export function useChatEvents({
   useEffect(() => {
     onSessionRevokedRef.current = onSessionRevoked;
   }, [onSessionRevoked]);
+
+  useEffect(() => {
+    onCallSignalRef.current = onCallSignal;
+  }, [onCallSignal]);
 
   useEffect(() => {
     canMarkReadInCurrentViewRef.current = Boolean(canMarkReadInCurrentView);
@@ -187,6 +193,10 @@ export function useChatEvents({
           return;
         }
         if (!payload?.type) return;
+        if (typeof payload.type === "string" && payload.type.startsWith("call:")) {
+          onCallSignalRef.current?.(payload);
+          return;
+        }
         if (
           payload.type !== "chat_message" &&
           payload.type !== "chat_read" &&
