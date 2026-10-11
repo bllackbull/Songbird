@@ -105,6 +105,10 @@ nano .env
 | `VAPID_PRIVATE_KEY` | `string` | *(Auto-generated)* | Web Push private key (required for push notifications). A different env value after the first run is a fatal startup error. |
 | `VAPID_SUBJECT` | `string` | *(Auto-generated)* | Contact for VAPID (email or URL). Used by push providers. |
 | `PUSH_PROXY_URL` | `string` | `""` | Proxy URL for push notification delivery. Use when your server cannot directly reach push service endpoints. |
+| `TURN_STUN_URL` | `string` | `stun:stun.l.google.com:19302` | STUN server URL for WebRTC peer-to-peer connection discovery. |
+| `TURN_URL` | `string` | `""` | Optional TURN relay server URL for environments behind symmetric NATs or restrictive firewalls. |
+| `TURN_USERNAME` | `string` | `""` | TURN authentication username. |
+| `TURN_CREDENTIAL` | `string` | `""` | TURN authentication password/credential. |
 
 :::info
 

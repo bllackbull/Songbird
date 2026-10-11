@@ -25,6 +25,7 @@ const enSidebar = [
       {text: '🛡️ Admin Panel', link: '/Admin-Panel'},
       {text: '📡 Remote Channel Setup', link: '/Remote-Channel-Setup'},
       {text: '🔔 Push Notification Proxy', link: '/Push-Notification-Proxy'},
+      {text: '📞 Voice & Video Calls', link: '/Voice-Video-Calls'},
     ],
   },
   {
@@ -63,6 +64,7 @@ const faSidebar = [
       {text: '🛡️ پنل مدیریت', link: '/fa/Admin-Panel'},
       {text: '📡 راه اندازی Remote Channel', link: '/fa/Remote-Channel-Setup'},
       {text: '🔔 پراکسی Push Notification', link: '/fa/Push-Notification-Proxy'},
+      {text: '📞 تماس صوتی و تصویری', link: '/fa/Voice-Video-Calls'},
     ],
   },
   {
