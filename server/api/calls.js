@@ -1,42 +1,23 @@
-// Voice & video call signaling over the existing SSE + HTTP infrastructure.
-//
-// WebRTC signaling is low-frequency (a handful of messages to set up a call),
-// so plain `POST /api/calls/*` endpoints that push to the peer over the
-// existing per-user SSE stream are sufficient. This avoids running a second
-// real-time system (Socket.IO) alongside SSE.
+import { createCallManager } from "../lib/callManager.js";
 
-// chatId -> { callerId, callerUsername, calleeId, calleeUsername, type, startedAt }
-const activeCalls = new Map();
-
-function registerCallRoutes(app, deps) {
+/**
+ * Register HTTP routes for WebRTC call setup and signaling fallback.
+ */
+export function registerCallRoutes(app, deps) {
   const {
     getSessionFromRequest,
-    findUserById,
-    findUserByUsername,
-    isMember,
-    emitSseEvent,
+    callManager: providedCallManager,
   } = deps;
 
-  const TURN_STUN_URL =
-    process.env.TURN_STUN_URL || "stun:stun.l.google.com:19302";
-  const TURN_URL = process.env.TURN_URL || "";
-  const TURN_USERNAME = process.env.TURN_USERNAME || "";
-  const TURN_CREDENTIAL = process.env.TURN_CREDENTIAL || "";
-
-  function getIceServers() {
-    const servers = [{ urls: TURN_STUN_URL }];
-    if (TURN_URL) {
-      servers.push({
-        urls: TURN_URL,
-        username: TURN_USERNAME,
-        credential: TURN_CREDENTIAL,
-      });
-    }
-    return servers;
-  }
+  const callManager =
+    providedCallManager ||
+    createCallManager({
+      ...deps,
+      emitToUser: deps.emitToUser || deps.emitSseEvent,
+    });
 
   const requireUser = (req, res) => {
-    const session = getSessionFromRequest(req);
+    const session = getSessionFromRequest ? getSessionFromRequest(req) : null;
     if (!session) {
       res.status(401).json({ error: "Not authenticated" });
       return null;
@@ -44,134 +25,109 @@ function registerCallRoutes(app, deps) {
     return session;
   };
 
-  const peerUsernameOf = (call, username) =>
-    username === call.callerUsername ? call.calleeUsername : call.callerUsername;
-
-  const isParticipant = (call, username) =>
-    Boolean(call) &&
-    (username === call.callerUsername || username === call.calleeUsername);
-
-  // Relay a WebRTC signaling payload (offer/answer/ICE candidate) to the peer.
-  const relaySignal = (eventType, bodyKey) => (req, res) => {
-    const session = requireUser(req, res);
-    if (!session) return;
-    const chatId = Number(req.body?.chatId);
-    const call = activeCalls.get(chatId);
-    if (!isParticipant(call, session.username)) {
-      return res.status(404).json({ error: "No active call" });
-    }
-    emitSseEvent(peerUsernameOf(call, session.username), {
-      type: eventType,
-      chatId,
-      [bodyKey]: req.body?.[bodyKey],
-    });
-    res.json({ ok: true });
-  };
-
+  // GET /api/calls/ice-servers
   app.get("/api/calls/ice-servers", (req, res) => {
-    const session = requireUser(req, res);
-    if (!session) return;
-    res.json({ iceServers: getIceServers() });
+    const user = requireUser(req, res);
+    if (!user) return;
+    res.json(callManager.getIceServers());
   });
 
-  // Start a call — notify the callee.
-  app.post("/api/calls/start", (req, res) => {
-    const session = requireUser(req, res);
-    if (!session) return;
-    const chatId = Number(req.body?.chatId);
-    const calleeUsername = String(req.body?.calleeUsername || "")
-      .trim()
-      .toLowerCase();
-    const callType = req.body?.type === "video" ? "video" : "voice";
-    if (!chatId || !calleeUsername) {
-      return res.status(400).json({ error: "Invalid call request" });
+  // POST /api/calls/start
+  app.post("/api/calls/start", async (req, res) => {
+    const user = requireUser(req, res);
+    if (!user) return;
+    const { chatId, type } = req.body || {};
+    const result = await callManager.startCall({ user, chatId, type });
+    if (result.error) {
+      return res.status(result.status || 400).json({ error: result.error });
     }
-    if (!isMember(chatId, session.id)) {
-      return res.status(403).json({ error: "Not a chat member" });
-    }
-    const calleeUser = findUserByUsername(calleeUsername);
-    if (!calleeUser) {
-      return res.status(404).json({ error: "Callee not found" });
-    }
-    if (calleeUser.id === session.id) {
-      return res.status(400).json({ error: "Cannot call yourself" });
-    }
-    if (!isMember(chatId, calleeUser.id)) {
-      return res.status(403).json({ error: "Callee is not in this chat" });
-    }
+    res.json({ ok: true, call: result.call });
+  });
 
-    const caller = findUserById(session.id);
-    activeCalls.set(chatId, {
-      callerId: session.id,
-      callerUsername: session.username,
-      calleeId: calleeUser.id,
-      calleeUsername: calleeUser.username,
-      type: callType,
-      startedAt: Date.now(),
-    });
+  // POST /api/calls/accept
+  app.post("/api/calls/accept", async (req, res) => {
+    const user = requireUser(req, res);
+    if (!user) return;
+    const { chatId } = req.body || {};
+    const result = await callManager.acceptCall({ user, chatId });
+    if (result.error) {
+      return res.status(result.status || 400).json({ error: result.error });
+    }
+    res.json({ ok: true, call: result.call });
+  });
 
-    const iceServers = getIceServers();
-    emitSseEvent(calleeUser.username, {
-      type: "call:incoming",
+  // POST /api/calls/reject
+  app.post("/api/calls/reject", async (req, res) => {
+    const user = requireUser(req, res);
+    if (!user) return;
+    const { chatId } = req.body || {};
+    const result = await callManager.rejectCall({ user, chatId });
+    if (result.error) {
+      return res.status(result.status || 400).json({ error: result.error });
+    }
+    res.json({ ok: true });
+  });
+
+  // POST /api/calls/end
+  app.post("/api/calls/end", async (req, res) => {
+    const user = requireUser(req, res);
+    if (!user) return;
+    const { chatId } = req.body || {};
+    const result = await callManager.endCall({ user, chatId });
+    if (result.error) {
+      return res.status(result.status || 400).json({ error: result.error });
+    }
+    res.json({ ok: true });
+  });
+
+  // POST /api/calls/offer
+  app.post("/api/calls/offer", async (req, res) => {
+    const user = requireUser(req, res);
+    if (!user) return;
+    const { chatId, sdp } = req.body || {};
+    const result = await callManager.relaySignal({
+      user,
       chatId,
-      callerUsername: session.username,
-      callerNickname: caller?.nickname || session.username,
-      callerAvatar: caller?.avatar_url || "",
-      callType,
-      iceServers,
+      signalType: "offer",
+      payload: { sdp },
     });
-
-    res.json({ ok: true, iceServers });
-  });
-
-  // Callee accepted — notify the caller so they create the WebRTC offer.
-  app.post("/api/calls/accept", (req, res) => {
-    const session = requireUser(req, res);
-    if (!session) return;
-    const chatId = Number(req.body?.chatId);
-    const call = activeCalls.get(chatId);
-    if (!isParticipant(call, session.username)) {
-      return res.status(404).json({ error: "No active call" });
+    if (result.error) {
+      return res.status(result.status || 400).json({ error: result.error });
     }
-    emitSseEvent(call.callerUsername, { type: "call:accepted", chatId });
     res.json({ ok: true });
   });
 
-  // Callee rejected — notify the caller and clear the call.
-  app.post("/api/calls/reject", (req, res) => {
-    const session = requireUser(req, res);
-    if (!session) return;
-    const chatId = Number(req.body?.chatId);
-    const call = activeCalls.get(chatId);
-    if (!isParticipant(call, session.username)) {
-      return res.status(404).json({ error: "No active call" });
+  // POST /api/calls/answer
+  app.post("/api/calls/answer", async (req, res) => {
+    const user = requireUser(req, res);
+    if (!user) return;
+    const { chatId, sdp } = req.body || {};
+    const result = await callManager.relaySignal({
+      user,
+      chatId,
+      signalType: "answer",
+      payload: { sdp },
+    });
+    if (result.error) {
+      return res.status(result.status || 400).json({ error: result.error });
     }
-    emitSseEvent(call.callerUsername, { type: "call:rejected", chatId });
-    activeCalls.delete(chatId);
     res.json({ ok: true });
   });
 
-  // Either party ended — notify both and clear the call.
-  app.post("/api/calls/end", (req, res) => {
-    const session = requireUser(req, res);
-    if (!session) return;
-    const chatId = Number(req.body?.chatId);
-    const call = activeCalls.get(chatId);
-    if (!isParticipant(call, session.username)) {
-      return res.status(404).json({ error: "No active call" });
+  // POST /api/calls/ice-candidate
+  app.post("/api/calls/ice-candidate", async (req, res) => {
+    const user = requireUser(req, res);
+    if (!user) return;
+    const { chatId, candidate } = req.body || {};
+    const result = await callManager.relaySignal({
+      user,
+      chatId,
+      signalType: "ice-candidate",
+      payload: { candidate },
+    });
+    if (result.error) {
+      return res.status(result.status || 400).json({ error: result.error });
     }
-    emitSseEvent(call.callerUsername, { type: "call:ended", chatId });
-    emitSseEvent(call.calleeUsername, { type: "call:ended", chatId });
-    activeCalls.delete(chatId);
     res.json({ ok: true });
   });
-
-  app.post("/api/calls/offer", relaySignal("call:offer", "offer"));
-  app.post("/api/calls/answer", relaySignal("call:answer", "answer"));
-  app.post(
-    "/api/calls/ice-candidate",
-    relaySignal("call:ice-candidate", "candidate"),
-  );
 }
-
-export { registerCallRoutes };
