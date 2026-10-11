@@ -15,7 +15,7 @@ export default function LeaveGroupModal({
   if (typeof document === "undefined") return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[320] flex items-center justify-center bg-black/40 px-6">
+    <div className="fixed inset-0 z-320 flex items-center justify-center bg-black/40 px-6">
       <div
         ref={dialogRef}
         role="dialog"

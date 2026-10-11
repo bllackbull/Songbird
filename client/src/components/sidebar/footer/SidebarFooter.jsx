@@ -1,13 +1,16 @@
 import { Settings } from "../../../icons/lucide.js";
 import Avatar from "../../common/Avatar.jsx";
+import UserRoleBadge from "../../common/UserRoleBadge.jsx";
+import VerifiedBadge from "../../common/VerifiedBadge.jsx";
+import Tooltip from "../../common/Tooltip.jsx";
 import { hasPersian } from "../../../utils/fontUtils.js";
 
 export default function SidebarFooter({
   user,
   displayName,
   displayInitials,
-  statusDotClass,
   statusValue,
+  statusTextClass,
   userColor,
   onOpenSettings,
   onOpenOwnProfile,
@@ -30,17 +33,23 @@ export default function SidebarFooter({
             className="h-10 w-10 transition group-hover:ring-2 group-hover:ring-emerald-300"
           />
           <div className="min-w-0">
-            <p
-              className={`truncate text-sm font-semibold text-emerald-700 transition group-hover:text-emerald-600 dark:text-emerald-200 dark:group-hover:text-emerald-300 ${hasPersian(displayName) ? "font-fa" : ""}`}
-              dir="auto"
-              style={{ unicodeBidi: "plaintext" }}
-              title={displayName}
-            >
-              {displayName}
-            </p>
+            <Tooltip label={displayName} asChild>
+              <p
+                className="flex items-center gap-0.5 truncate text-sm font-semibold text-emerald-700 transition group-hover:text-emerald-600 dark:text-emerald-200 dark:group-hover:text-emerald-300"
+                dir="ltr"
+              >
+                <span
+                  className={`truncate ${hasPersian(displayName) ? "font-fa" : ""}`}
+                  dir="auto"
+                >
+                  {displayName}
+                </span>
+                {Boolean(user.verified) && <VerifiedBadge size={15} />}
+                <UserRoleBadge role={user.role} size={15} />
+              </p>
+            </Tooltip>
             <p className="mt-1 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-              <span className={`h-2 w-2 rounded-full ${statusDotClass}`} />
-              {statusValue}
+              <span className={statusTextClass}>{statusValue}</span>
             </p>
           </div>
         </button>
@@ -51,7 +60,7 @@ export default function SidebarFooter({
           aria-label="Open settings"
           ref={settingsButtonRef}
         >
-          <Settings size={18} className="icon-anim-spin-dir" />
+          <Settings size={20} className="icon-anim-spin-dir" />
         </button>
       </div>
     </div>

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "ag/gemini-3.6-flash-high",
+  "small_model": "ag/gpt-oss-120b-medium",
+  "formatter": true,
+  "lsp": true,
+  "server": {
+    "port": 4096
+  },
+  "plugin": [".opencode/plugins/graphify.js"],
+  "mcp": {
+    "github": {
+      "type": "remote",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "enabled": true,
+      "oauth": false,
+      "headers": {
+        "Authorization": "Bearer {env:GITHUB_PERSONAL_ACCESS_TOKEN}"
+      }
+    },
+    "codebase-memory-mcp": {
+      "type": "local",
+      "enabled": true,
+      "command": ["{env:CODEBASE_MEMORY_MCP_PATH}"]
+    },
+    "render": {
+      "type": "local",
+      "command": ["npx", "-y", "@betterhunt/render-mcp-server"],
+      "enabled": true,
+      "environment": {
+        "RENDER_API_TOKEN": "{env:RENDER_API_KEY}",
+        "RENDER_API_KEY": "{env:RENDER_API_KEY}"
+      }
+    }
+  }
+}

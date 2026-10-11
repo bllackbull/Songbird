@@ -1,9 +1,18 @@
 import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import logo from './assets/songbird-logo.svg'
-import { APP_CONFIG } from './settings/appConfig.js'
+import { APP_CONFIG, setMessageMaxChars } from './settings/appConfig.js'
+import { fetchAppInfo } from './api/appMetaApi.js'
+import { setNameLimits } from './utils/nameLimits.js'
+import { setChatPageConfig } from './settings/chatPageConfig.js'
 import InstallBar from './components/pwa/InstallBar.jsx'
 import InstallGuideModal from './components/pwa/InstallGuideModal.jsx'
+import {
+  getSavedSessionUser,
+  saveSessionUser,
+  clearSavedSessionUser,
+  fetchSessionUser,
+} from './utils/sessionStorage.js'
 
 const API_BASE = ''
 const AUTH_REDIRECT_KEY = 'songbird-auth-redirect'
@@ -15,9 +24,11 @@ const CHUNK_RECOVERY_ATTEMPT_KEY = 'songbird-chunk-recovery-attempted'
 const loadAuthPage = () => import('./pages/AuthPage.jsx')
 const loadChatPage = () => import('./pages/ChatPage.jsx')
 const loadInvitePage = () => import('./pages/InvitePage.jsx')
+const loadAdminPage = () => import('./pages/AdminPage.jsx')
 const AuthPage = lazy(loadAuthPage)
 const ChatPage = lazy(loadChatPage)
 const InvitePage = lazy(loadInvitePage)
+const AdminPage = lazy(loadAdminPage)
 
 function getPreloadMode() {
   if (typeof navigator === 'undefined') return 'eager'
@@ -45,7 +56,7 @@ function RouteLoadingFallback({ themeColor, onVisibleChange = null }) {
 
   const content = (
     <div
-      className="fixed inset-0 z-[1200] flex min-h-screen w-full items-center justify-center"
+      className="fixed inset-0 z-1200 flex min-h-screen w-full items-center justify-center"
       style={{ backgroundColor: themeColor }}
     >
       <div className="flex flex-col items-center gap-3 text-center text-emerald-700 dark:text-emerald-300">
@@ -62,6 +73,7 @@ function getRoute(pathname) {
   if (pathname === '/signup') return 'signup'
   if (pathname.startsWith('/invite/')) return 'invite'
   if (pathname === '/chat') return 'chat'
+  if (pathname === '/admin') return 'admin'
   return 'login'
 }
 
@@ -139,11 +151,30 @@ export default function App() {
   const [inviteToken, setInviteToken] = useState(() =>
     getInviteToken(window.location.pathname),
   )
-  const [user, setUser] = useState(null)
+  const [userState, setUserState] = useState(() => getSavedSessionUser())
+  const setUser = (next) => {
+    setUserState((prev) => {
+      const resolved = typeof next === 'function' ? next(prev) : next
+      if (resolved) {
+        saveSessionUser(resolved)
+      } else {
+        clearSavedSessionUser()
+      }
+      return resolved
+    })
+  }
+  const user = userState
   const [authStatus, setAuthStatus] = useState('')
   const [authChecked, setAuthChecked] = useState(false)
   const [authLoading, setAuthLoading] = useState(false)
-  const accountCreationEnabled = APP_CONFIG.accountCreationEnabled
+  // Seeded from the build-time default so there's no flash of the wrong UI
+  // before the live value loads; the effect below overwrites it with the
+  // server's current setting (which can change via the admin panel without
+  // a rebuild).
+  const [accountCreationEnabled, setAccountCreationEnabled] = useState(
+    APP_CONFIG.accountCreationEnabled,
+  )
+  const [adminPanelEnabled, setAdminPanelEnabled] = useState(true)
   const isStandaloneDisplay =
     window.matchMedia?.('(display-mode: standalone)')?.matches ||
     window.navigator?.standalone
@@ -178,35 +209,10 @@ export default function App() {
     !installDismissed &&
     (showInstallBanner || showIosInstallBanner || isDesktopViewport)
 
-  function normalizeSessionUser(data) {
-    if (!data?.username) return null
-    return {
-      id: data.id,
-      username: data.username,
-      nickname: data.nickname || null,
-      avatarUrl: data.avatarUrl || null,
-      color: data.color || null,
-      status: data.status || 'online',
-    }
-  }
-
-  async function fetchSessionUser() {
-    const res = await fetch(`${API_BASE}/api/me`, { credentials: 'include' })
-    if (!res.ok) {
-      throw new Error('No active session')
-    }
-    const data = await res.json()
-    const nextUser = normalizeSessionUser(data)
-    if (!nextUser) {
-      throw new Error('Invalid session payload')
-    }
-    return nextUser
-  }
-
   async function resolveSessionUserWithRetry(fallbackUser = null, attempts = 8, waitMs = 150) {
     for (let i = 0; i < attempts; i += 1) {
       try {
-        return await fetchSessionUser()
+        return await fetchSessionUser(API_BASE)
       } catch {
         if (i < attempts - 1) {
           await new Promise((resolve) => window.setTimeout(resolve, waitMs))
@@ -328,6 +334,12 @@ export default function App() {
       navigate('/login', true)
     }
   }, [route, accountCreationEnabled])
+
+  useEffect(() => {
+    if (route === 'admin' && !adminPanelEnabled) {
+      navigate('/chat', true)
+    }
+  }, [route, adminPanelEnabled])
 
   useEffect(() => {
     const refreshTheme = () => applyTheme(isDark, route)
@@ -668,13 +680,15 @@ export default function App() {
     let isMounted = true
     const fetchSession = async () => {
       try {
-        const nextUser = await fetchSessionUser()
+        const nextUser = await fetchSessionUser(API_BASE)
         if (isMounted && nextUser) {
           setUser(nextUser)
         }
-      } catch {
+      } catch (err) {
         if (isMounted) {
-          setUser(null)
+          if (err.isUnauthenticated) {
+            setUser(null)
+          }
         }
       } finally {
         if (isMounted) {
@@ -686,7 +700,52 @@ export default function App() {
     return () => {
       isMounted = false
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Pull live server settings that affect auth UI (e.g. sign-up on/off).
+  // This overrides the build-time APP_CONFIG default so changes made in the
+  // admin panel take effect without rebuilding the client.
+  useEffect(() => {
+    let isMounted = true
+    fetchAppInfo()
+      .then((res) => res.json())
+      .then((data) => {
+        if (!isMounted) return
+        if (typeof data?.accountCreationEnabled === 'boolean') {
+          setAccountCreationEnabled(data.accountCreationEnabled)
+        }
+        if (typeof data?.adminPanelEnabled === 'boolean') {
+          setAdminPanelEnabled(data.adminPanelEnabled)
+        }
+        setNameLimits({
+          nicknameMax: data?.nicknameMaxChars,
+          usernameMax: data?.usernameMaxChars,
+        })
+        setMessageMaxChars(data?.messageMaxChars)
+        setChatPageConfig({
+          messageFetchLimit: data?.chatMessageFetchLimit,
+          messagePageSize: data?.chatMessagePageSize,
+          cacheTtlHours: data?.chatCacheTtlHours,
+          fileUploadEnabled: data?.fileUploadEnabled,
+          fileUploadMaxFiles: data?.fileUploadMaxFiles,
+          fileUploadMaxSizeMb: data?.fileUploadMaxSizeMb,
+          fileUploadMaxTotalSizeMb: data?.fileUploadMaxTotalSizeMb,
+          listRefreshIntervalMs: data?.chatListRefreshIntervalMs,
+          healthCheckIntervalMs: data?.chatHealthCheckIntervalMs,
+          sseReconnectDelayMs: data?.chatSseReconnectDelayMs,
+          searchMaxResults: data?.chatSearchMaxResults,
+          pendingTextTimeoutMs: data?.chatPendingTextTimeoutMs,
+          pendingFileTimeoutMs: data?.chatPendingFileTimeoutMs,
+          pendingRetryIntervalMs: data?.chatPendingRetryIntervalMs,
+          pendingStatusCheckIntervalMs: data?.chatPendingStatusCheckIntervalMs,
+        })
+      })
+      .catch(() => {
+        // Keep the build-time defaults on failure.
+      })
+    return () => {
+      isMounted = false
+    }
   }, [])
 
   useEffect(() => {
@@ -711,7 +770,7 @@ export default function App() {
       return
     }
 
-    if (!user && (route === 'chat' || route === 'invite')) {
+    if (!user && (route === 'chat' || route === 'invite' || route === 'admin')) {
       if (route === 'invite') {
         const nextPath = window.location.pathname
         if (nextPath.startsWith('/invite/')) {
@@ -837,12 +896,13 @@ export default function App() {
     }
   }
 
-  const isAuthRoute = route === 'login' || route === 'signup' || route === 'invite'
+  const isNonAdminClaimRoute = route === 'admin' && user && user.role !== 'admin' && user.role !== 'owner'
+  const isAuthRoute = route === 'login' || route === 'signup' || route === 'invite' || isNonAdminClaimRoute
   const safeAreaKey = `${route}-${isDark ? 'dark' : 'light'}`
   const safeAreaThemeColor = getThemeColor(isDark, route)
   const appShellClass = isAuthRoute
-    ? 'min-h-screen bg-gradient-to-b from-white via-emerald-50/70 to-white text-slate-900 transition-colors duration-300 dark:bg-gradient-to-b dark:from-emerald-950 dark:via-slate-950 dark:to-slate-900 dark:text-slate-100'
-    : 'h-[100dvh] bg-white text-slate-900 transition-colors duration-300 dark:bg-slate-950 dark:text-slate-100'
+    ? 'min-h-screen bg-linear-to-b from-white via-emerald-50/70 to-white text-slate-900 transition-colors duration-300 dark:bg-linear-to-b dark:from-emerald-950 dark:via-slate-950 dark:to-slate-900 dark:text-slate-100'
+    : 'h-dvh bg-white text-slate-900 transition-colors duration-300 dark:bg-slate-950 dark:text-slate-100'
 
   const appContainerStyle = {
     paddingTop: 'var(--install-bar-height, 0px)',
@@ -984,8 +1044,22 @@ export default function App() {
                   allowSignup={accountCreationEnabled}
                 />
               )}
-              {route === 'chat' && user ? (
-                <ChatPage user={user} setUser={setUser} isDark={isDark} setIsDark={setIsDark} toggleTheme={toggleTheme} />
+              {user && (route === 'chat' || route === 'admin') ? (
+                // Keep ChatPage mounted while visiting /admin so health, SSE,
+                // and in-memory caches survive. Hide it instead of unmounting.
+                <div
+                  className={
+                    route === 'admin'
+                      ? 'hidden'
+                      : 'flex min-h-0 h-full w-full flex-1'
+                  }
+                  aria-hidden={route === 'admin' ? true : undefined}
+                >
+                  <ChatPage user={user} setUser={setUser} isDark={isDark} setIsDark={setIsDark} toggleTheme={toggleTheme} adminPanelEnabled={adminPanelEnabled} />
+                </div>
+              ) : null}
+              {route === 'admin' && user && adminPanelEnabled ? (
+                <AdminPage user={user} setUser={setUser} isDark={isDark} onToggleTheme={toggleTheme} onBack={() => navigate('/chat', true)} />
               ) : null}
               {route === 'invite' && user ? (
                 <InvitePage
@@ -994,8 +1068,8 @@ export default function App() {
                   isDark={isDark}
                   onToggleTheme={toggleTheme}
                   onNavigateChat={(chatId = 0) => {
-                    const nextChatId = Number(chatId || 0)
-                    if (nextChatId > 0) {
+                    const nextChatId = chatId || null
+                    if (nextChatId) {
                       window.sessionStorage.setItem(OPEN_CHAT_ID_KEY, String(nextChatId))
                     }
                     navigate('/chat', true)

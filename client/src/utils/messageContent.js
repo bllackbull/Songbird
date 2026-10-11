@@ -17,6 +17,7 @@ export const getMessageFiles = (message) =>
 export const hasMessageText = (message) => {
   const bodyText = extractMessageBodyText(message?.body).trim();
   if (!bodyText) return false;
+  if (bodyText.startsWith("sb-enc-v1:")) return false;
   const files = getMessageFiles(message);
   if (!files.length) return true;
   return !FILE_SUMMARY_PATTERN.test(bodyText);

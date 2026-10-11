@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  AlertCircle,
+  Bell,
   Chat,
   Close,
   LoaderCircle,
   Megaphone,
+  Mic,
   Pencil,
   Plus,
   Search,
@@ -33,6 +36,8 @@ export default function SidebarHeader({
   onCloseSearch,
   chatsScrollable = false,
   onScrollToTop,
+  permissionsPrompt = null,
+  insecureConnection = false,
 }) {
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const createMenuRef = useRef(null);
@@ -40,6 +45,27 @@ export default function SidebarHeader({
   const hasSearchText = Boolean(String(chatsSearchQuery || "").trim());
   const searchHasPersian = hasPersian(chatsSearchQuery || "");
   const searchIsRtl = hasSearchText && searchHasPersian;
+  const [hideInsecureBanner, setHideInsecureBanner] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("songbird-insecure-dismissed") === "1";
+  });
+  const isLocalhost =
+    typeof window !== "undefined" &&
+    (window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1" ||
+      window.location.hostname === "::1" ||
+      window.location.hostname.endsWith(".localhost"));
+
+  useEffect(() => {
+    if (!insecureConnection || typeof window === "undefined") return;
+    setHideInsecureBanner(
+      window.localStorage.getItem("songbird-insecure-dismissed") === "1",
+    );
+  }, [insecureConnection]);
+
+  const showInsecureBanner = Boolean(
+    insecureConnection && !hideInsecureBanner && !isLocalhost,
+  );
 
   useEffect(() => {
     if (!showCreateMenu) return;
@@ -64,7 +90,7 @@ export default function SidebarHeader({
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-[1fr,auto,1fr] items-center">
+          <div className="grid grid-cols-[1fr_auto_1fr] items-center">
             <div className="flex items-center gap-2">
               {chatsSearchFocused ? (
                 <button
@@ -151,16 +177,19 @@ export default function SidebarHeader({
                     <Plus size={18} className="icon-anim-pop" />
                   </button>
                   {showCreateMenu ? (
-                    <div className="absolute right-0 top-12 z-20 w-44 rounded-xl border border-emerald-200/80 bg-white p-1.5 shadow-lg dark:border-emerald-500/30 dark:bg-slate-950">
+                    <div className="absolute right-0 top-12 z-20 w-44 overflow-hidden rounded-2xl border border-emerald-200 bg-white p-1 text-sm font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100">
                       <button
                         type="button"
                         onClick={() => {
                           setShowCreateMenu(false);
                           onNewChat?.();
                         }}
-                        className="flex w-full items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-left text-xs text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
                       >
-                        <Chat size={15} className="icon-anim-bob" />
+                        <Chat
+                          size={16}
+                          className="text-emerald-500 icon-anim-bob"
+                        />
                         New DM
                       </button>
                       <button
@@ -169,9 +198,12 @@ export default function SidebarHeader({
                           setShowCreateMenu(false);
                           onNewGroup?.();
                         }}
-                        className="mt-1 flex w-full items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-left text-xs text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
                       >
-                        <Users size={15} className="icon-anim-sway" />
+                        <Users
+                          size={18}
+                          className="text-emerald-500 icon-anim-sway"
+                        />
                         New group
                       </button>
                       <button
@@ -180,9 +212,12 @@ export default function SidebarHeader({
                           setShowCreateMenu(false);
                           onNewChannel?.();
                         }}
-                        className="mt-1 flex w-full items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-left text-xs text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
                       >
-                        <Megaphone size={15} className="icon-anim-sway" />
+                        <Megaphone
+                          size={18}
+                          className="text-emerald-500 icon-anim-swing"
+                        />
                         New channel
                       </button>
                     </div>
@@ -195,7 +230,7 @@ export default function SidebarHeader({
             <label className="group relative block">
               {!hasSearchText && !chatsSearchFocused ? (
                 <span className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 text-sm leading-none text-slate-500 transition-colors group-hover:text-slate-600 dark:text-slate-400 dark:group-hover:text-slate-300">
-                  <span className="inline-flex -translate-y-[1px] md:translate-y-0">
+                  <span className="inline-flex -translate-y-px md:translate-y-0">
                     <Search
                       size={14}
                       className="icon-anim-pop block text-emerald-600 dark:text-emerald-300"
@@ -206,7 +241,7 @@ export default function SidebarHeader({
               ) : null}
               {chatsSearchFocused || hasSearchText ? (
                 <span className="pointer-events-none absolute left-3 top-1/2 flex -translate-y-1/2 items-center gap-2 leading-none text-slate-500 dark:text-slate-400">
-                  <span className="inline-flex -translate-y-[1px] md:translate-y-0">
+                  <span className="inline-flex -translate-y-px md:translate-y-0">
                     <Search
                       size={14}
                       className="icon-anim-pop block text-emerald-600 dark:text-emerald-300"
@@ -223,7 +258,7 @@ export default function SidebarHeader({
                 placeholder="Search"
                 lang={searchIsRtl ? "fa" : "en"}
                 dir={searchIsRtl ? "rtl" : "ltr"}
-                className={`w-full rounded-2xl border border-emerald-200 bg-white py-2 pr-10 text-sm text-slate-700 outline-none transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.18)] focus:border-emerald-400 focus:bg-white/80 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 dark:hover:border-emerald-500/50 dark:hover:shadow-[0_0_18px_rgba(16,185,129,0.12)] dark:focus:bg-slate-950 ${
+                className={`w-full rounded-2xl border border-emerald-200 bg-white py-2 pr-10 text-sm text-slate-700 outline-hidden transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.18)] focus:border-emerald-400 focus:bg-white/80 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 dark:hover:border-emerald-500/50 dark:hover:shadow-[0_0_18px_rgba(16,185,129,0.12)] dark:focus:bg-slate-950 ${
                   chatsSearchFocused || hasSearchText
                     ? searchIsRtl
                       ? "pl-9 text-right font-fa placeholder-slate-500 dark:placeholder-slate-400"
@@ -245,6 +280,94 @@ export default function SidebarHeader({
               ) : null}
             </label>
           </div>
+          {permissionsPrompt?.show ? (
+            <div className="mt-3 flex items-center justify-between gap-2 overflow-hidden rounded-2xl border border-emerald-200/80 bg-emerald-50/70 px-3 py-2 text-xs font-semibold text-emerald-800 shadow-xs dark:border-emerald-500/30 dark:bg-slate-800/60 dark:text-emerald-200">
+              {permissionsPrompt?.notification?.show &&
+              permissionsPrompt?.mode === "notification" ? (
+                <>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Bell className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                    <span className="truncate whitespace-nowrap">
+                      Enable notifications
+                    </span>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        permissionsPrompt.onDismiss?.("notification")
+                      }
+                      className="inline-flex h-7 shrink-0 items-center justify-center rounded-full border border-rose-200/80 bg-white/80 px-2.5 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 dark:border-rose-500/30 dark:bg-slate-900/80 dark:text-rose-300 dark:hover:bg-rose-500/10"
+                    >
+                      Not now
+                    </button>
+                    <button
+                      type="button"
+                      onClick={permissionsPrompt.notification.onRequest}
+                      className="inline-flex h-7 shrink-0 items-center rounded-full bg-emerald-500 px-3 text-xs font-semibold text-white shadow-md shadow-emerald-500/25 transition hover:bg-emerald-400 hover:shadow-emerald-500/35"
+                    >
+                      Allow
+                    </button>
+                  </div>
+                </>
+              ) : null}
+              {permissionsPrompt?.microphone?.show &&
+              permissionsPrompt?.mode === "microphone" ? (
+                <>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Mic className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                    <span className="truncate whitespace-nowrap">
+                      Enable microphone
+                    </span>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        permissionsPrompt.onDismiss?.("microphone")
+                      }
+                      className="inline-flex h-7 shrink-0 items-center justify-center rounded-full border border-rose-200/80 bg-white/80 px-2.5 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 dark:border-rose-500/30 dark:bg-slate-900/80 dark:text-rose-300 dark:hover:bg-rose-500/10"
+                    >
+                      Not now
+                    </button>
+                    <button
+                      type="button"
+                      onClick={permissionsPrompt.microphone.onRequest}
+                      className="inline-flex h-7 shrink-0 items-center rounded-full bg-emerald-500 px-3 text-xs font-semibold text-white shadow-md shadow-emerald-500/25 transition hover:bg-emerald-400 hover:shadow-emerald-500/35"
+                    >
+                      Allow
+                    </button>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+          {showInsecureBanner ? (
+            <div className="mt-3 flex items-center justify-between gap-2 overflow-hidden rounded-2xl border border-rose-200/80 bg-rose-50/70 px-3 py-2 text-xs font-semibold text-rose-700 shadow-xs dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-100">
+              <div className="flex min-w-0 items-center gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0 text-rose-600 dark:text-rose-300" />
+                <span className="truncate whitespace-nowrap">
+                  Connection is not secure
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (typeof window !== "undefined") {
+                    window.localStorage.setItem(
+                      "songbird-insecure-dismissed",
+                      "1",
+                    );
+                  }
+                  setHideInsecureBanner(true);
+                }}
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-rose-200/80 bg-white/80 text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 dark:border-rose-500/30 dark:bg-slate-900/80 dark:text-rose-200 dark:hover:bg-rose-500/10"
+                aria-label="Dismiss"
+              >
+                <Close size={14} className="icon-anim-pop" />
+              </button>
+            </div>
+          ) : null}
         </>
       )}
     </div>

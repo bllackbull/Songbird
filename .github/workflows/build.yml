@@ -9,31 +9,125 @@ on:
   pull_request:
 
 jobs:
-  build:
+  # ── Shell script tests (bats) ─────────────────────────────────────────────────
+  test-scripts:
+    name: Shell script tests
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
-      - name: Setup Node
-        uses: actions/setup-node@v6
+      - name: Install bats and openssl
+        run: sudo apt-get install -y bats openssl
+
+      - name: Run shell script tests
+        run: npm run test:scripts
+
+  # ── Server tests ─────────────────────────────────────────────────────────────
+  test-server:
+    name: Server tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
 
-      # Root deps (concurrently, tooling)
-      - name: Install root dependencies
-        run: npm install
-
-      # Server deps (runtime verification)
       - name: Install server dependencies
         run: npm install --prefix server
 
-      # Client deps (Vite, React)
+      - name: Run server tests
+        run: npm test --prefix server
+
+  # ── Media Worker tests ───────────────────────────────────────────────────────
+  test-worker:
+    name: Worker tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Install worker dependencies
+        run: npm install --prefix worker
+
+      - name: Run worker tests
+        run: npm test --prefix worker
+
+  # ── Client unit tests ─────────────────────────────────────────────────────────
+  test-client-unit:
+    name: Client unit tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
       - name: Install client dependencies
         run: npm install --prefix client
 
-      # Build client (static assets)
+      - name: Run client unit tests
+        run: npm run test:unit --prefix client
+
+  # ── Client browser tests (Playwright) ────────────────────────────────────────
+  test-client-browser:
+    name: Client browser tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install client dependencies
+        run: npm install --prefix client
+
+      - name: Install Playwright browsers
+        run: npx --prefix client playwright install --with-deps chromium firefox
+
+      - name: Run client browser tests
+        timeout-minutes: 10
+        run: npm run test:browser --prefix client
+
+  # ── Build ─────────────────────────────────────────────────────────────────────
+  build:
+    name: Build client
+    runs-on: ubuntu-latest
+    needs: [test-scripts, test-server, test-worker, test-client-unit, test-client-browser]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm install
+
+      - name: Install server dependencies
+        run: npm install --prefix server
+
+      - name: Install client dependencies
+        run: npm install --prefix client
+
       - name: Build client
         run: npm run build --prefix client

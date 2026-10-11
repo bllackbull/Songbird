@@ -77,7 +77,7 @@ export function usePerfTelemetry({ activeChatId, messagesLength, loadingMessages
       openStartRef.current = null;
       return;
     }
-    const chatId = Number(activeChatId || 0);
+    const chatId = String(activeChatId || "").trim();
     if (!chatId) {
       openStartRef.current = null;
       return;
@@ -88,7 +88,7 @@ export function usePerfTelemetry({ activeChatId, messagesLength, loadingMessages
   useEffect(() => {
     if (!APP_CONFIG.debugEnabled) return;
     if (loadingMessages) return;
-    const chatId = Number(activeChatId || 0);
+    const chatId = String(activeChatId || "").trim();
     if (!chatId) return;
     if (messagesLength <= 0) return;
     const startedAt = Number(openStartRef.current || 0);

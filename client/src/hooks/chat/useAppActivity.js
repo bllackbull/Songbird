@@ -18,7 +18,7 @@ export function useAppActivity() {
     return () => {
       document.removeEventListener("visibilitychange", syncActiveState);
       window.removeEventListener("focus", syncActiveState);
-      window.removeEventListener("blur", syncActiveState);
+      window.removeEventListener("blur-sm", syncActiveState);
     };
   }, []);
 

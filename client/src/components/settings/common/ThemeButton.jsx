@@ -30,21 +30,21 @@ export function ThemeButton({ isDark, toggleTheme, setIsDark, thick = false }) {
           setThemeToggleAnimating(false);
         }, 520);
       }}
-      className={`mt-1 flex w-full items-center gap-2 rounded-xl border border-transparent px-3 text-left text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 ${
-        thick ? "py-3 text-base font-medium" : "py-2 text-sm"
+      className={`flex w-full items-center gap-2 rounded-xl px-3 text-left text-slate-700 transition hover:bg-emerald-50 hover:text-emerald-700 dark:text-slate-100 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200 ${
+        thick ? "py-3 text-base font-medium" : "py-2.5 text-sm font-semibold"
       }`}
     >
       {isDark ? (
         <Sun
           key="theme-sun"
           size={18}
-          className={`icon-anim-spin-dir ${themeToggleAnimating ? "icon-theme-enter-sun" : ""}`}
+          className={`shrink-0 text-emerald-500 icon-anim-spin-dir ${themeToggleAnimating ? "icon-theme-enter-sun" : ""}`}
         />
       ) : (
         <Moon
           key="theme-moon"
           size={18}
-          className={`icon-anim-spin-left ${themeToggleAnimating ? "icon-theme-enter-moon" : ""}`}
+          className={`shrink-0 text-emerald-500 icon-anim-spin-left ${themeToggleAnimating ? "icon-theme-enter-moon" : ""}`}
         />
       )}
       {isDark ? "Light mode" : "Dark mode"}

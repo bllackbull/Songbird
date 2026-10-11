@@ -65,24 +65,41 @@ export function createSessionHelpers({
     const cookies = parseCookies(req);
     if (!cookies.sid) return null;
 
-    const session = getSession(cookies.sid);
+    const rawSession = getSession(cookies.sid);
+    if (rawSession && typeof rawSession.then === "function") {
+      return rawSession.then((session) => {
+        if (session) {
+          touchSession(cookies.sid);
+        }
+        return session;
+      });
+    }
 
-    if (session) {
+    if (rawSession) {
       touchSession(cookies.sid);
     }
 
-    return session;
+    return rawSession;
   };
 
   const requireSession = (req, res) => {
-    const session = getSessionFromRequest(req);
+    const rawSession = getSessionFromRequest(req);
+    if (rawSession && typeof rawSession.then === "function") {
+      return rawSession.then((session) => {
+        if (!session) {
+          res.status(401).json({ error: "Not authenticated." });
+          return null;
+        }
+        return session;
+      });
+    }
 
-    if (!session) {
+    if (!rawSession) {
       res.status(401).json({ error: "Not authenticated." });
       return null;
     }
 
-    return session;
+    return rawSession;
   };
 
   const requireSessionUsernameMatch = (res, session, suppliedUsername) => {

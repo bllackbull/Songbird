@@ -3,8 +3,9 @@ Songbird DB Commands
 
 Core:
   npm run db:help
-  npm run db:backup -- --password "backup-password"
-  npm run db:restore -- -y --file /path/to/songbird-backup.zip [--password "backup-password"]
+  npm run db:backup
+  npm run db:restore -- -y --file /path/to/songbird-backup-<timestamp>.db
+  npm run db:restore -- -y --file /path/to/songbird-backup-<timestamp>.dump  # PostgreSQL (service stopped)
   npm run db:migrate
   npm run db:vacuum -- -y
   npm run db:inspect -- --limit 25
@@ -27,9 +28,15 @@ Reset/Delete:
 
 Users:
   npm run db:user:create -- --nickname "Songbird Sage" --username songbird.sage --password "12345678"
+  npm run db:user:create -- --nickname "Songbird Sage" --username songbird.sage --password "12345678" --role admin
+  npm run db:user:create -- --nickname "Songbird Sage" --username songbird.sage --password "12345678" --role owner
   npm run db:user:create -- "Songbird Sage" songbird.sage "12345678"
   npm run db:user:generate -- --count 50 --password "12345678" --nickname-prefix User --username-prefix user
   npm run db:user:edit -- songbird.sage --nickname "Songbird Sage" --color "#ff6b6b"
+  npm run db:user:edit -- songbird.sage --role admin
+  npm run db:user:edit -- songbird.sage --role owner
+  npm run db:user:edit -- songbird.sage --role user
+  npm run db:user:verify -- songbird.sage
   npm run db:user:ban -- songbird.sage -y
 
 Chats:
@@ -38,6 +45,7 @@ Chats:
   npm run db:chat:add -- core.team bob charlie
   npm run db:chat:edit -- core.team --name "Core Team HQ" --owner songbird.sage2
   npm run db:chat:edit -- core.team --visibility private --disallow-member-invites
+  npm run db:chat:verify -- core.team
 
 Messages:
   npm run db:message:generate -- 1 songbird.sage songbird.sage2 300 7
@@ -49,8 +57,13 @@ Notes:
   - Delete-all actions use explicit --all.
   - Destructive/safety-sensitive commands support -y and --yes.
   - db:user:ban is a toggle: run it again to unban the user.
-  - db:backup creates an encrypted zip containing .env and data/.
-  - db:restore also accepts legacy backups with songbird.db and uploads/ at the zip root.
+  - db:user:verify is a toggle: run it again to remove the user's verified status.
+  - db:chat:verify is a toggle: run it again to remove the chat's verified status.
+  - db:user:create/edit accept --role user|admin|owner. Only one user can hold the owner role at a time. The owner cannot be demoted, banned, or deleted via the admin panel.
+  - SQLite backup/restore use timestamped .db files in data/backups/.
+  - PostgreSQL backup/restore use native .dump archives and require pg_dump/pg_restore in PATH.
+  - Stop Songbird before PostgreSQL db:restore, db:reset, or db:delete; those commands use native PostgreSQL tools.
+  - db:restore replaces the SQLite database with a given .db file and restarts the service if running as root.
 `;
 
 console.log(helpText.trim());

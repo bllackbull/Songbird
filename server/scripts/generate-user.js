@@ -3,6 +3,7 @@ import crypto from 'node:crypto'
 import { getCliArgs, getPositionalArgs, getFlagValue } from './_cli.js'
 import { openDatabase, runAdminActionViaServer } from './_db-admin.js'
 import { setUserColor } from '../settings/colors.js'
+import { generateUuid } from '../lib/uuidUtils.js'
 
 const clampEnvInt = (value, fallback, { min, max } = {}) => {
   const parsed = Number(value)
@@ -66,11 +67,11 @@ if (remoteResult) {
 const dbApi = await openDatabase()
 try {
   const passwordHash = await bcrypt.hash(password, 10)
-  const existingRows = dbApi.getAll('SELECT username FROM users')
+  const existingRows = await dbApi.getAll('SELECT username FROM users')
   const usedUsernames = new Set(existingRows.map((row) => String(row.username || '').toLowerCase()))
 
   let created = 0
-  dbApi.run('BEGIN')
+  await dbApi.run('BEGIN')
   try {
     for (let i = 0; i < amount; i += 1) {
       let username = ''
@@ -86,21 +87,21 @@ try {
       const nickname =
         rawNickname.length > maxNickname ? rawNickname.slice(0, maxNickname) : rawNickname
       const assignedColor = setUserColor()
-      dbApi.run(
-        'INSERT INTO users (username, nickname, avatar_url, color, status, password_hash, created_at, last_seen) VALUES (?, ?, NULL, ?, ?, ?, datetime("now"), datetime("now"))',
-        [username, nickname, assignedColor, 'online', passwordHash],
+      await dbApi.run(
+        'INSERT INTO users (id, username, nickname, avatar_url, color, status, password_hash, created_at, last_seen) VALUES (?, ?, ?, NULL, ?, ?, ?, datetime("now"), datetime("now"))',
+        [generateUuid(), username, nickname, assignedColor, 'online', passwordHash],
       )
       created += 1
     }
-    dbApi.run('COMMIT')
+    await dbApi.run('COMMIT')
   } catch (error) {
-    dbApi.run('ROLLBACK')
+    await dbApi.run('ROLLBACK')
     throw error
   }
 
-  dbApi.save()
+  await dbApi.save()
   console.log(`Generated users: ${created}`)
   console.log('Default password was set from the CLI argument or default value.')
 } finally {
-  dbApi.close()
+  await dbApi.close()
 }

@@ -14,26 +14,10 @@ import {
   Reply,
   Video,
 } from "../../../icons/lucide.js";
-import { FaTelegram } from "react-icons/fa6";
-
-function SongbirdIcon({ size = 13 }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 512 512"
-      fill="currentColor"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-      style={{ overflow: "visible", flexShrink: 0 }}
-    >
-      <path d="M256 0C397.385 0 512 114.615 512 256C512 397.385 397.385 512 256 512C114.615 512 0 397.385 0 256C0 114.615 114.615 0 256 0ZM200.384 360.058C200.384 382.004 240.211 399.795 289.339 399.795C289.341 399.795 289.344 399.795 289.346 399.795V360.056H200.384V360.058ZM289.337 112.001C240.211 112.004 200.388 148.663 200.388 193.884C200.388 194.939 200.409 195.99 200.452 197.036L125.91 169.619C115.331 165.728 103.116 170.956 98.627 181.296C94.1384 191.636 99.0768 203.173 109.656 207.064L154.029 223.385C144.513 221.87 134.616 227.007 130.675 236.086C126.187 246.426 131.124 257.962 141.703 261.854L201.931 284.006C192.779 283.064 183.514 288.147 179.732 296.858C175.244 307.198 180.182 318.735 190.761 322.626L292.287 359.969C291.316 360.026 290.336 360.058 289.35 360.059V399.795C338.475 399.792 378.297 363.133 378.298 317.912C378.298 286.404 358.965 259.052 330.622 245.36C329.479 244.648 328.239 244.038 326.91 243.549L324.101 242.515C322.94 242.061 321.766 241.629 320.58 241.22L249.843 215.202C245.85 208.948 243.558 201.663 243.558 193.884C243.558 172.753 260.451 155.255 282.483 152.208C292.724 161.311 309.043 161.212 319.15 151.908L319.152 151.906L318.969 151.737H332.508V151.736H345.585V151.735C345.585 139.865 336.254 130.001 323.976 128.017C316.106 118.296 303.521 112 289.339 112H289.337V112.001Z" />
-    </svg>
-  );
-}
+import { SongbirdIcon, TelegramIcon } from "../../../icons/BrandIcons.jsx";
 import { hasPersian } from "../../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../../utils/avatarInitials.js";
-import { formatCompactCount } from "../../../utils/chatFormat.js";
+import { formatCompactCount, formatDayLabel } from "../../../utils/chatFormat.js";
 import ContextMenuSurface from "../../context-menu/ContextMenuSurface.jsx";
 import { MessageFiles } from "../media/MessageFiles.jsx";
 import {
@@ -47,7 +31,11 @@ import {
 } from "../../../utils/messageContent.js";
 import { resolveMention, getCachedMention } from "../../../utils/mentions.js";
 import { summarizeFiles } from "../../../utils/messagePreview.js";
+import { resolveForwardedTarget } from "../../../utils/forwardOrigin.js";
 import Avatar from "../../common/Avatar.jsx";
+import UserRoleBadge from "../../common/UserRoleBadge.jsx";
+import VerifiedBadge from "../../common/VerifiedBadge.jsx";
+import Tooltip from "../../common/Tooltip.jsx";
 
 const MAX_MESSAGE_HTML_CACHE_ENTRIES = 800;
 const messageBodyHtmlCache = new Map();
@@ -137,6 +125,8 @@ const getMessageRenderSignature = (msg) => {
     msg?.nickname ?? "",
     msg?.avatar_url ?? "",
     msg?.color ?? "",
+    msg?.user_verified ?? "",
+    msg?.user_role ?? "",
     msg?.forwarded_from_chat_id ?? "",
     msg?.forwarded_from_user_id ?? "",
     msg?.forwarded_from_label ?? "",
@@ -162,6 +152,7 @@ export const MessageItem = memo(function MessageItem({
   isMobileTouchDevice,
   isGroupChat = false,
   isChannelChat = false,
+  isSavedChat = false,
   chatId = null,
   chatName = "",
   chatColor = null,
@@ -180,13 +171,15 @@ export const MessageItem = memo(function MessageItem({
   canSwipeReply = true,
   onOpenContextMenu,
   visibilityRef = null,
+  sseConnected = true,
+  isOffline = false,
 }) {
   const isOwn = !isChannelChat && msg.username === user.username;
-  const isRead = Boolean(msg.read_at);
+  const isRead = Boolean(msg.read_at) || isSavedChat;
   const isEdited = Boolean(Number(msg?.edited || 0) || msg?._edited);
   const deletedForwardOriginColor = "#94a3b8";
-  const forwardedFromChatId = Number(msg?.forwarded_from_chat_id || 0);
-  const forwardedFromUserId = Number(msg?.forwarded_from_user_id || 0);
+  const forwardedFromChatId = msg?.forwarded_from_chat_id ? String(msg.forwarded_from_chat_id).trim() : null;
+  const forwardedFromUserId = msg?.forwarded_from_user_id ? String(msg.forwarded_from_user_id).trim() : null;
   const storedForwardedLabel = String(msg?.forwarded_from_label || "").trim();
   const clientRequestId = String(
     msg?.client_request_id || msg?.clientRequestId || msg?._clientId || "",
@@ -200,8 +193,8 @@ export const MessageItem = memo(function MessageItem({
   );
   const remoteForwardedChatId =
     isRemoteForwardedOrigin
-      ? Number(chatId || msg?.chat_id || msg?.chatId || msg?._chatId || 0)
-      : 0;
+      ? String(chatId || msg?.chat_id || msg?.chatId || msg?._chatId || "").trim()
+      : null;
   // Derive the provider from the client_request_id prefix
   const remoteForwardedProvider = isRemoteForwardedOrigin
     ? /^remote:tg:/i.test(clientRequestId)
@@ -216,18 +209,18 @@ export const MessageItem = memo(function MessageItem({
     forwardedUser?.nickname || forwardedUser?.username || "",
   ).trim();
   const isDeletedForwardedChat =
-    forwardedFromChatId > 0 &&
+    Boolean(forwardedFromChatId) &&
     forwardedChatStatus !== "ready" &&
     !forwardedChat;
   const isDeletedForwardedUser =
-    forwardedFromUserId > 0 &&
+    Boolean(forwardedFromUserId) &&
     forwardedUserStatus !== "ready" &&
     !forwardedUser;
   const forwardedFromLabel = forwardedFromChatId
     ? isDeletedForwardedChat
       ? "Hidden"
       : liveForwardedChatName || storedForwardedLabel
-    : forwardedFromUserId > 0
+    : forwardedFromUserId
       ? isDeletedForwardedUser
         ? "Hidden"
         : liveForwardedUserName || storedForwardedLabel
@@ -237,7 +230,7 @@ export const MessageItem = memo(function MessageItem({
     ? isDeletedForwardedChat
       ? ""
       : String(forwardedChat?.group_avatar_url || "").trim()
-    : forwardedFromUserId > 0
+    : forwardedFromUserId
       ? isDeletedForwardedUser
         ? ""
         : String(forwardedUser?.avatar_url || msg?.forwarded_from_avatar_url || "").trim()
@@ -246,7 +239,7 @@ export const MessageItem = memo(function MessageItem({
     ? isDeletedForwardedChat
       ? deletedForwardOriginColor
       : String(forwardedChat?.group_color || "#10b981").trim() || "#10b981"
-    : forwardedFromUserId > 0
+    : forwardedFromUserId
       ? isDeletedForwardedUser
         ? deletedForwardOriginColor
         : String(
@@ -255,37 +248,20 @@ export const MessageItem = memo(function MessageItem({
       : isRemoteForwardedOrigin
         ? "#10b981"
         : String(msg?.forwarded_from_color || "#10b981").trim() || "#10b981";
-  const forwardedTarget =
-    isDeletedForwardedChat || isDeletedForwardedUser
-      ? null
-      : forwardedFromChatId
-    ? {
-        kind: "chat",
-        chatId: forwardedFromChatId,
-        label: forwardedFromLabel,
-        avatar_url: forwardedOriginAvatarUrl,
-        color: forwardedOriginColor,
-      }
-    : forwardedFromUserId
-      ? {
-          kind: "user",
-          userId: forwardedFromUserId,
-          username: forwardedFromUsername,
-          nickname: forwardedFromLabel,
-          avatar_url: forwardedOriginAvatarUrl,
-          color: forwardedOriginColor,
-        }
-      : remoteForwardedChatId > 0 && storedForwardedLabel
-        ? {
-            kind: "chat",
-            chatId: remoteForwardedChatId,
-            label: chatName || forwardedFromLabel,
-            avatar_url: "",
-            color: chatColor || "#10b981",
-          }
-        : storedForwardedLabel
-          ? { kind: "self" }
-        : null;
+  const forwardedTarget = resolveForwardedTarget({
+    forwardedFromChatId,
+    forwardedFromUserId,
+    forwardedFromUsername,
+    forwardedFromLabel,
+    forwardedOriginAvatarUrl,
+    forwardedOriginColor,
+    remoteForwardedChatId,
+    storedForwardedLabel,
+    chatName,
+    chatColor,
+    isDeletedForwardedChat,
+    isDeletedForwardedUser,
+  });
   const isForwarded = forwardedFromChatId
     ? Boolean(forwardedFromLabel)
     : forwardedFromUserId
@@ -327,6 +303,7 @@ export const MessageItem = memo(function MessageItem({
     hasFiles &&
     (!normalizedBodyText ||
       FILE_SUMMARY_PATTERN.test(normalizedBodyText) ||
+      normalizedBodyText.startsWith("sb-enc-v1:") ||
       normalizedBodyText === generatedSummaryText ||
       (hasMixedVoiceAndOtherFiles &&
         /^Sent a voice message$/i.test(normalizedBodyText)));
@@ -596,7 +573,9 @@ export const MessageItem = memo(function MessageItem({
   const expiryBadge = formatExpiryBadge();
   const dayLabel = getMessageDayLabel
     ? getMessageDayLabel(msg)
-    : msg?._dayLabel || msg?._dayKey || "";
+    : (msg?.created_at || msg?._createdAt)
+      ? formatDayLabel(msg?.created_at || msg?._createdAt)
+      : msg?._dayLabel || msg?._dayKey || "";
   const replyTarget = msg.replyTo || null;
   const replySignature = getReplySignature(replyTarget);
   const replyDisplayName =
@@ -684,7 +663,7 @@ export const MessageItem = memo(function MessageItem({
     !isDeletedAuthor && typeof onOpenSenderProfile === "function";
   const contextMenuMobileEnabled = !isDesktop && isMobileTouchDevice;
   const senderMenuMember = {
-    id: Number(msg.user_id || 0) || null,
+    id: msg.user_id || null,
     username: msg.username || "",
     nickname: msg.nickname || "",
     avatar_url: msg.avatar_url || "",
@@ -707,6 +686,11 @@ export const MessageItem = memo(function MessageItem({
         },
       }),
   };
+  const computedIsOffline =
+    isOffline ||
+    sseConnected === false ||
+    (typeof navigator !== "undefined" && navigator.onLine === false);
+
   const messageContextMenu = {
     disabled: !onOpenContextMenu,
     isMobile: contextMenuMobileEnabled,
@@ -722,6 +706,7 @@ export const MessageItem = memo(function MessageItem({
         isMobile,
         data: {
           message: msg,
+          isOffline: computedIsOffline,
         },
       }),
   };
@@ -760,23 +745,37 @@ export const MessageItem = memo(function MessageItem({
             className="h-4 w-4 shrink-0 text-[8px]"
           />
           {remoteForwardedProvider === "telegram" ? (
-            <FaTelegram size={13} className="shrink-0" />
+            <TelegramIcon size={13} className="shrink-0" />
           ) : remoteForwardedProvider === "songbird" ? (
             <SongbirdIcon size={13} />
           ) : null}
-          <span
-            className={`min-w-0 max-w-[18rem] truncate ${
-              forwardedLabelHasPersian ? "font-fa" : ""
-            }`}
-            dir="auto"
-            style={{ unicodeBidi: "isolate" }}
-            title={forwardedFromLabel}
-          >
-            {remoteForwardedProvider === "telegram"
-              ? forwardedFromLabel.replace(/^telegram:\s*/i, "")
-              : remoteForwardedProvider === "songbird"
-                ? forwardedFromLabel.replace(/^songbird:\s*/i, "")
-                : forwardedFromLabel}
+          <span className="inline-flex min-w-0 items-center gap-0.5">
+            <Tooltip label={forwardedFromLabel} asChild>
+              <span
+                className={`min-w-0 max-w-[18rem] truncate ${
+                  forwardedLabelHasPersian ? "font-fa" : ""
+                }`}
+                dir="auto"
+                style={{ unicodeBidi: "isolate" }}
+              >
+                {remoteForwardedProvider === "telegram"
+                  ? forwardedFromLabel.replace(/^telegram:\s*/i, "")
+                  : remoteForwardedProvider === "songbird"
+                    ? forwardedFromLabel.replace(/^songbird:\s*/i, "")
+                    : forwardedFromLabel}
+              </span>
+            </Tooltip>
+            {/* Verified badge: shown for forwarded users and verified forwarded chats */}
+            {!isDeletedForwardedUser && Boolean(forwardedFromUserId) && Boolean(forwardedUser?.verified) && (
+              <VerifiedBadge size={13} />
+            )}
+            {!isDeletedForwardedChat && Boolean(forwardedFromChatId) && Boolean(forwardedChat?.verified) && (
+              <VerifiedBadge size={13} />
+            )}
+            {/* Role badge: only for forwarded users, not chats */}
+            {!isDeletedForwardedUser && Boolean(forwardedFromUserId) && (
+              <UserRoleBadge role={forwardedUser?.role} size={13} />
+            )}
           </span>
         </button>
       </div>
@@ -891,7 +890,7 @@ export const MessageItem = memo(function MessageItem({
         isFirstInGroup ? "pt-2" : ""
       }`}
     >
-      {Number(unreadMarkerId) === Number(msg.id) ? (
+      {String(unreadMarkerId || "") === String(msg.id || "") ? (
         <div
           id={`unread-divider-${msg.id}`}
           className="flex items-center gap-3 py-3"
@@ -1076,12 +1075,12 @@ export const MessageItem = memo(function MessageItem({
               <ContextMenuSurface
                 as="div"
                 data-message-bubble
-                className={`relative rounded-2xl px-4 py-3 text-sm shadow-sm overflow-visible max-w-[calc(100vw-5.5rem)] sm:max-w-[86%] md:max-w-[min(84%,calc(100%-2rem))] ${
-                  hasMarkdownCodeBlock ? "min-w-[9rem]" : "min-w-0"
+                className={`relative rounded-2xl px-4 py-3 text-sm shadow-xs overflow-visible max-w-[calc(100vw-5.5rem)] sm:max-w-[86%] md:max-w-[min(84%,calc(100%-2rem))] ${
+                  hasMarkdownCodeBlock ? "min-w-36" : "min-w-0"
                 } ${
                   hasFiles
                     ? hasMediaFiles
-                      ? "w-[min(52vw,18rem)] md:w-[min(44vw,22rem)] md:min-w-[12rem]"
+                      ? "w-[min(52vw,18rem)] md:w-[min(44vw,22rem)] md:min-w-48"
                       : "w-fit max-w-full"
                     : "w-fit max-w-full"
                 } bg-white/90 text-slate-800 rounded-bl-md dark:bg-slate-800/75 dark:text-slate-100`}
@@ -1098,25 +1097,32 @@ export const MessageItem = memo(function MessageItem({
                 }}
                 contextMenu={messageContextMenu}
               >
-                <ContextMenuSurface
-                  as="button"
-                  type="button"
-                  onClick={
-                    canOpenSenderProfile
-                      ? () => onOpenSenderProfile?.(msg)
-                      : undefined
-                  }
-                  disabled={!canOpenSenderProfile}
-                  className={`mb-1 block max-w-[60vw] truncate text-[11px] font-semibold transition ${
-                    canOpenSenderProfile ? "hover:underline" : ""
-                  } sm:max-w-[40vw] md:max-w-[28vw] ${hasPersian(senderName) ? "font-fa" : ""}`}
-                  dir="auto"
-                  style={{ color: String(senderColor), unicodeBidi: "isolate" }}
-                  title={senderName}
-                  contextMenu={senderContextMenu}
-                >
-                  {senderName}
-                </ContextMenuSurface>
+                <Tooltip label={senderName} asChild>
+                  <ContextMenuSurface
+                    as="button"
+                    type="button"
+                    onClick={
+                      canOpenSenderProfile
+                        ? () => onOpenSenderProfile?.(msg)
+                        : undefined
+                    }
+                    disabled={!canOpenSenderProfile}
+                    className={`mb-1 inline-flex max-w-[60vw] items-center gap-0.5 text-[11px] font-semibold transition ${
+                      canOpenSenderProfile ? "hover:underline" : ""
+                    } sm:max-w-[40vw] md:max-w-[28vw]`}
+                    dir="ltr"
+                    style={{ color: String(senderColor) }}
+                    contextMenu={senderContextMenu}
+                  >
+                    <span className={`truncate ${hasPersian(senderName) ? "font-fa" : ""}`} dir="auto">{senderName}</span>
+                    {!isDeletedAuthor && Boolean(msg.user_verified) && (
+                      <VerifiedBadge size={14} />
+                    )}
+                    {!isDeletedAuthor && (
+                      <UserRoleBadge role={msg.user_role} size={14} />
+                    )}
+                  </ContextMenuSurface>
+                </Tooltip>
                 {renderForwardedHeader()}
                 {replyTarget ? (
                   <button
@@ -1126,16 +1132,28 @@ export const MessageItem = memo(function MessageItem({
                     aria-label={`Reply to ${replyDisplayName}`}
                   >
                     <span className="min-w-0 flex-1">
-                      <span
-                        className={`block max-w-full truncate whitespace-nowrap text-[10px] font-semibold ${
-                          hasPersian(replyDisplayName) ? "font-fa" : ""
-                        }`}
-                        dir="auto"
-                        style={{ color: String(replyColor), unicodeBidi: "isolate" }}
-                        title={replyDisplayName}
-                      >
-                        {replyDisplayName}
-                      </span>
+                      <Tooltip label={replyDisplayName} asChild>
+                        <span
+                          className="flex max-w-full items-center gap-0.5 truncate whitespace-nowrap"
+                          dir="ltr"
+                        >
+                          <span
+                            className={`min-w-0 truncate text-[10px] font-semibold ${
+                              hasPersian(replyDisplayName) ? "font-fa" : ""
+                            }`}
+                            dir="auto"
+                            style={{ color: String(replyColor), unicodeBidi: "isolate" }}
+                          >
+                          {replyDisplayName}
+                          </span>
+                          {Boolean(replyTarget?.verified) && (
+                            <VerifiedBadge size={12} />
+                          )}
+                          {!isChannelChat && (
+                            <UserRoleBadge role={replyTarget?.role} size={12} />
+                          )}
+                        </span>
+                      </Tooltip>
                       <span
                         className={`flex max-w-full items-baseline gap-1 truncate whitespace-nowrap ${
                           hasPersian(normalizedReplyPreview) ? "font-fa" : ""
@@ -1185,7 +1203,7 @@ export const MessageItem = memo(function MessageItem({
                   <div
                     ref={messageBodyRef}
                     dir="auto"
-                    className={`sb-markdown mt-1 break-words [overflow-wrap:anywhere] ${
+                    className={`sb-markdown mt-1 wrap-break-word wrap-anywhere ${
                       hasPersian(bodyText) ? "font-fa" : ""
                     }`}
                     style={{ unicodeBidi: "plaintext", textAlign: "start" }}
@@ -1209,12 +1227,12 @@ export const MessageItem = memo(function MessageItem({
             <ContextMenuSurface
               as="div"
               data-message-bubble
-              className={`relative rounded-2xl px-4 py-3 text-sm shadow-sm overflow-visible max-w-[78%] sm:max-w-[82%] md:max-w-[75%] ${
-                hasMarkdownCodeBlock ? "min-w-[9rem]" : "min-w-0"
+              className={`relative rounded-2xl px-4 py-3 text-sm shadow-xs overflow-visible max-w-[78%] sm:max-w-[82%] md:max-w-[75%] ${
+                hasMarkdownCodeBlock ? "min-w-36" : "min-w-0"
               } ${
                 hasFiles
                   ? hasMediaFiles
-                    ? "w-[min(52vw,18rem)] max-w-[72%] md:w-[min(44vw,22rem)] md:max-w-[68%] md:min-w-[12rem]"
+                    ? "w-[min(52vw,18rem)] max-w-[72%] md:w-[min(44vw,22rem)] md:max-w-[68%] md:min-w-48"
                     : "w-fit max-w-[82%] sm:max-w-[86%] md:max-w-[80%]"
                   : "max-w-[82%] sm:max-w-[86%] md:max-w-[80%]"
               } ${
@@ -1236,14 +1254,21 @@ export const MessageItem = memo(function MessageItem({
               contextMenu={messageContextMenu}
             >
               {!isOwn && isGroupChat && !isChannelChat ? (
-                <p
-                  className={`mb-1 max-w-[60vw] truncate text-[11px] font-semibold sm:max-w-[40vw] md:max-w-[28vw] ${hasPersian(senderName) ? "font-fa" : ""}`}
-                  dir="auto"
-                  style={{ color: String(senderColor), unicodeBidi: "isolate" }}
-                  title={senderName}
-                >
-                  {senderName}
-                </p>
+                <Tooltip label={senderName} asChild>
+                  <p
+                    className={`mb-1 flex max-w-[60vw] items-center gap-0.5 truncate text-[11px] font-semibold sm:max-w-[40vw] md:max-w-[28vw]`}
+                    dir="ltr"
+                    style={{ color: String(senderColor) }}
+                  >
+                    <span className={`truncate ${hasPersian(senderName) ? "font-fa" : ""}`} dir="auto" style={{ unicodeBidi: "isolate" }}>{senderName}</span>
+                    {!isDeletedAuthor && Boolean(msg.user_verified) && (
+                      <VerifiedBadge size={14} />
+                    )}
+                    {!isDeletedAuthor && (
+                      <UserRoleBadge role={msg.user_role} size={14} />
+                    )}
+                  </p>
+                </Tooltip>
               ) : null}
               {renderForwardedHeader()}
               {replyTarget ? (
@@ -1254,16 +1279,28 @@ export const MessageItem = memo(function MessageItem({
                   aria-label={`Reply to ${replyDisplayName}`}
                 >
                   <span className="min-w-0 flex-1">
-                    <span
-                      className={`block max-w-full truncate whitespace-nowrap text-[10px] font-semibold ${
-                        hasPersian(replyDisplayName) ? "font-fa" : ""
-                      }`}
-                      dir="auto"
-                      style={{ color: String(replyColor), unicodeBidi: "isolate" }}
-                      title={replyDisplayName}
-                    >
-                      {replyDisplayName}
-                    </span>
+                    <Tooltip label={replyDisplayName} asChild>
+                      <span
+                        className="flex max-w-full items-center gap-0.5 truncate whitespace-nowrap"
+                        dir="ltr"
+                      >
+                        <span
+                          className={`min-w-0 truncate text-[10px] font-semibold ${
+                            hasPersian(replyDisplayName) ? "font-fa" : ""
+                          }`}
+                          dir="auto"
+                          style={{ color: String(replyColor), unicodeBidi: "isolate" }}
+                        >
+                          {replyDisplayName}
+                        </span>
+                        {Boolean(replyTarget?.verified) && (
+                          <VerifiedBadge size={12} />
+                        )}
+                        {!isChannelChat && (
+                          <UserRoleBadge role={replyTarget?.role} size={12} />
+                        )}
+                      </span>
+                    </Tooltip>
                     <span
                       className={`flex max-w-full items-baseline gap-1 truncate whitespace-nowrap ${
                         hasPersian(normalizedReplyPreview) ? "font-fa" : ""
@@ -1313,7 +1350,7 @@ export const MessageItem = memo(function MessageItem({
                 <div
                   ref={messageBodyRef}
                   dir="auto"
-                  className={`sb-markdown mt-1 break-words [overflow-wrap:anywhere] ${
+                  className={`sb-markdown mt-1 wrap-break-word wrap-anywhere ${
                     hasPersian(bodyText) ? "font-fa" : ""
                   }`}
                   style={{ unicodeBidi: "plaintext", textAlign: "start" }}
@@ -1414,7 +1451,7 @@ export const MessageItem = memo(function MessageItem({
                 <button
                   type="button"
                   onClick={() => onForwardMessage(msg)}
-                  className="absolute bottom-2 -right-12 inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                  className="absolute bottom-2 -right-12 inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white text-emerald-700 shadow-xs transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
                   aria-label="Forward message"
                 >
                   <Forward size={15} className="icon-anim-pop" />
@@ -1441,6 +1478,12 @@ export const MessageItem = memo(function MessageItem({
   if (prev.seenCount !== next.seenCount) return false;
   if (prev.mentionRefreshToken !== next.mentionRefreshToken) return false;
   if (prev.user?.username !== next.user?.username) return false;
+  if (prev.forwardedUser !== next.forwardedUser) return false;
+  if (prev.forwardedUserStatus !== next.forwardedUserStatus) return false;
+  if (prev.forwardedChat !== next.forwardedChat) return false;
+  if (prev.forwardedChatStatus !== next.forwardedChatStatus) return false;
+  if (prev.isOffline !== next.isOffline) return false;
+  if (prev.sseConnected !== next.sseConnected) return false;
   if (prev.messageFilesProps !== next.messageFilesProps) {
     const prevFiles = Array.isArray(prev.msg?.files) ? prev.msg.files : [];
     const nextFiles = Array.isArray(next.msg?.files) ? next.msg.files : [];

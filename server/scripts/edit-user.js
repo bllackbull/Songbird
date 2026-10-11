@@ -44,10 +44,11 @@ async function main() {
   const avatarUrlValue = getFlagValue(args, "--avatar-url");
   const statusValue = getFlagValue(args, "--status");
   const colorValue = getFlagValue(args, "--color");
+  const roleValue = getFlagValue(args, "--role");
 
   if (!userSelector) {
     console.error(
-      'Usage: npm run db:user:edit -- <user-id-or-username> [--username new_username] [--nickname "Display Name"] [--avatar-url /api/uploads/avatars/file.png] [--status online|invisible] [--color #10b981]',
+      'Usage: npm run db:user:edit -- <user-id-or-username> [--username new_username] [--nickname "Display Name"] [--avatar-url /api/uploads/avatars/file.png] [--status online|invisible] [--color #10b981] [--role user|admin|owner]',
     );
     process.exit(1);
   }
@@ -71,6 +72,14 @@ async function main() {
     process.exit(1);
   }
 
+  const normalizedRole = roleValue !== null && roleValue !== undefined
+    ? String(roleValue || "").trim().toLowerCase()
+    : undefined;
+  if (normalizedRole !== undefined && !["user", "admin", "owner"].includes(normalizedRole)) {
+    console.error("Invalid role. Allowed: user, admin, owner.");
+    process.exit(1);
+  }
+
   const remoteResult = await runAdminActionViaServer("edit_user", {
     userSelector,
     username: usernameValue === null ? undefined : usernameValue,
@@ -78,6 +87,7 @@ async function main() {
     avatarUrl: avatarUrlValue === null ? undefined : avatarUrlValue,
     status: nextStatus,
     color: normalizedColor,
+    role: normalizedRole,
   });
   if (remoteResult) {
     console.log(
@@ -88,7 +98,7 @@ async function main() {
 
   const dbApi = await openDatabase();
   try {
-    const user = resolveUserRow(dbApi, userSelector);
+    const user = await resolveUserRow(dbApi, userSelector);
     if (!user?.id) {
       console.error("User not found.");
       process.exit(1);
@@ -135,7 +145,7 @@ async function main() {
     }
 
     if (nextUsername !== String(user.username || "").toLowerCase()) {
-      const userConflict = dbApi.getRow(
+      const userConflict = await dbApi.getRow(
         "SELECT id FROM users WHERE username = ?",
         [nextUsername],
       );
@@ -143,7 +153,7 @@ async function main() {
         console.error("Username already exists.");
         process.exit(1);
       }
-      const chatConflict = dbApi.getRow(
+      const chatConflict = await dbApi.getRow(
         "SELECT id FROM chats WHERE type IN ('group', 'channel') AND group_username IN (?, ?)",
         [nextUsername, `@${nextUsername}`],
       );
@@ -153,7 +163,19 @@ async function main() {
       }
     }
 
-    dbApi.run(
+    // Owner uniqueness check
+    if (normalizedRole === "owner") {
+      const currentUserRow = await dbApi.getRow("SELECT role FROM users WHERE id = ?", [user.id]);
+      if (currentUserRow?.role !== "owner") {
+        const existingOwner = await dbApi.getRow("SELECT id FROM users WHERE role = 'owner' LIMIT 1");
+        if (existingOwner?.id) {
+          console.error("An owner already exists. Demote them first before assigning the owner role.");
+          process.exit(1);
+        }
+      }
+    }
+
+    await dbApi.run(
       "UPDATE users SET username = ?, nickname = ?, avatar_url = ?, color = ?, status = ? WHERE id = ?",
       [
         nextUsername,
@@ -161,17 +183,25 @@ async function main() {
         nextAvatarUrl,
         nextColor,
         effectiveStatus,
-        Number(user.id),
+        user.id,
       ],
     );
-    dbApi.save();
 
-    const updated = resolveUserRow(dbApi, String(user.id));
+    if (normalizedRole !== undefined) {
+      await dbApi.run("UPDATE users SET role = ? WHERE id = ?", [normalizedRole, user.id]);
+    }
+
+    await dbApi.save();
+
+    const updated = await resolveUserRow(dbApi, String(user.id));
+    const roleRow = await dbApi.getRow("SELECT role FROM users WHERE id = ?", [user.id]);
+    const currentRole = roleRow?.role || "user";
     console.log(`User updated: id=${updated.id} username=${updated.username}`);
     console.log(`Nickname: ${updated.nickname || ""}`);
     console.log(`Color: ${updated.color || ""}`);
+    console.log(`Role: ${currentRole}`);
   } finally {
-    dbApi.close();
+    await dbApi.close();
   }
 }
 

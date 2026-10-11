@@ -2,18 +2,31 @@
 
 <div align="center">
 
-# <img src="./client/public/songbird-logo.svg"> Songbird
+# <img src="./client/public/songbird-logo.svg" alt="Songbird"> Songbird
 
 [![Version](https://img.shields.io/github/v/release/bllackbull/Songbird?label=version&color=blue)](https://github.com/bllackbull/Songbird/releases)
 ![Build](https://img.shields.io/github/actions/workflow/status/bllackbull/Songbird/build.yml)
 [![Last commit](https://img.shields.io/github/last-commit/bllackbull/Songbird)](https://github.com/bllackbull/Songbird/commits/main/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-red.svg)](https://opensource.org/licenses/MIT)
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/bllackbull/Songbird)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/songbird)
+
+**Secure, lightweight and self-hosted chat platform**
+
 </div>
 
-**Songbird is a secure and lightweight self-hosted chat platform designed to empower digital freedom worldwide.**
+## Key Features
 
-Songbird supports DMs, groups, channels, file uploads, voice messages, push notifications, and optional Remote Channels that mirror Telegram posts into Songbird channels. The server uses a file-backed SQLite database via sql.js and the client is built with React + Vite.
+- 💬 **Chat Types**: Direct messages, groups, and channels
+- 📁 **Media Support**: File uploads, voice messages, video transcoding
+- 🔔 **Push Notifications**: Web push with VAPID
+- 📡 **Remote Channels**: Mirror Telegram or Songbird channels (v0.10.3+)
+- 🛡️ **Admin Panel**: Full management interface with owner role (v0.11.0+)
+- 🔒 **Security**: Encryption at rest, bcrypt hashing, rate limiting
+- 📱 **PWA**: Installable progressive web app
+- ☁️ **Cloud Deployment**: PaaS and CaaS deployment with object storage support
+- 🌍 **i18n**: English and Persian/Farsi support
 
 ## Quick Start
 
@@ -38,21 +51,26 @@ Full documentation lives at [docs.songbird.website](https://docs.songbird.websit
 
 - [Deployment Script](https://docs.songbird.website/Deployment-Script)
 - [Install via Docker](https://docs.songbird.website/Installation-Docker)
+- [Cloud Deployment](https://docs.songbird.website/Cloud-Deployment)
 - [Manual Installation](https://docs.songbird.website/Manual-Installation)
 - [Configure Nginx](https://docs.songbird.website/Nginx-Configuration)
 - [SSL Certificates](https://docs.songbird.website/SSL-Certificates)
+- [Running behind a CDN](https://docs.songbird.website/CDN-Setup)
+- [Running behind a domain + subpath](https://docs.songbird.website/Subpath-Hosting)
 - [Environment Variables](https://docs.songbird.website/Environment-Variables)
+- [Object Storage](https://docs.songbird.website/Object-Storage)
+- [Media Worker](https://docs.songbird.website/Media-Worker)
+- [Admin Panel](https://docs.songbird.website/Admin-Panel)
 - [Remote Channel Setup](https://docs.songbird.website/Remote-Channel-Setup)
 - [Push Notification Proxy](https://docs.songbird.website/Push-Notification-Proxy)
 - [Updating the deployed app](https://docs.songbird.website/Updating)
 - [Database Commands](https://docs.songbird.website/Database-Commands)
-- [Running behind a domain + subpath](https://docs.songbird.website/Subpath-Hosting)
 - [Troubleshooting](https://docs.songbird.website/Troubleshooting)
 
 ## Author
 
 - Maintainer: [@bllackbull](https://github.com/bllackbull)
-- Contributors: [@nkhalili](https://github.com/nkhalili), [@modos](https://github.com/modos)
+- Contributors: [@nkhalili](https://github.com/nkhalili), [@modos](https://github.com/modos), [@iPmartNetwork](https://github.com/iPmartNetwork)
 
 ## Contributing
 

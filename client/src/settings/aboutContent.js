@@ -5,6 +5,14 @@ export const ABOUT_CONTENT = {
   },
   socials: [
     {
+      icon: "docker",
+      href: "https://hub.docker.com/r/bllackbull/songbird",
+    },
+    {
+      icon: "railway",
+      href: "https://railway.app/template/songbird",
+    },
+    {
       icon: "github",
       href: "https://github.com/bllackbull/Songbird",
     },
@@ -15,6 +23,10 @@ export const ABOUT_CONTENT = {
     {
       icon: "songbird",
       href: "https://chat.songbird.website/invite/songbird",
+    },
+    {
+      icon: "linkedin",
+      href: "https://www.linkedin.com/in/pouyakhalilii/",
     },
   ],
   supportIntro:

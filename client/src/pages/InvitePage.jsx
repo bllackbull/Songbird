@@ -4,6 +4,9 @@ import { getGroupInviteInfo, joinGroupByInvite } from "../api/chatApi.js";
 import { getAvatarStyle } from "../utils/avatarColor.js";
 import { getAvatarInitials } from "../utils/avatarInitials.js";
 import { hasPersian } from "../utils/fontUtils.js";
+import Tooltip from "../components/common/Tooltip.jsx";
+import VerifiedBadge from "../components/common/VerifiedBadge.jsx";
+import { normalizeUuid } from "../utils/uuidUtils.js";
 
 export default function InvitePage({
   token,
@@ -129,16 +132,16 @@ export default function InvitePage({
         if (
           checkRes.ok &&
           checkData?.alreadyMember &&
-          Number(checkData?.group?.id || 0)
+          normalizeUuid(checkData?.group?.id)
         ) {
-          onNavigateChat?.(Number(checkData.group.id));
+          onNavigateChat?.(normalizeUuid(checkData.group.id));
           return;
         }
         throw new Error(
           normalizeInviteError(data?.error || "Unable to join this chat."),
         );
       }
-      onNavigateChat?.(Number(data?.id || 0));
+      onNavigateChat?.(normalizeUuid(data?.id) || data?.id);
     } catch (err) {
       setError(normalizeInviteError(err.message || "Unable to join this chat."));
     } finally {
@@ -166,7 +169,7 @@ export default function InvitePage({
   return (
     <section
       ref={cardRef}
-      className={`relative w-full max-w-md rounded-3xl border border-emerald-200/70 bg-white/80 p-6 shadow-2xl shadow-emerald-500/10 backdrop-blur dark:border-white/5 dark:bg-slate-900/80 sm:p-8 ${
+      className={`relative w-full max-w-md rounded-3xl border border-emerald-200/70 bg-white/80 p-6 shadow-2xl shadow-emerald-500/10 backdrop-blur-sm dark:border-white/5 dark:bg-slate-900/80 sm:p-8 ${
         fitsViewport ? "my-auto self-center" : "my-0 self-start"
       }`}
     >
@@ -228,27 +231,32 @@ export default function InvitePage({
                 </div>
               )}
               <p className="w-full text-center">
-                <span
-                  className={`mx-auto block w-fit max-w-full truncate text-base font-semibold text-emerald-800 dark:text-emerald-200 ${
-                    groupNameHasPersian ? "font-fa text-right" : "text-center"
+                <span className="mx-auto inline-flex max-w-full items-center gap-1">
+                  <Tooltip label={groupName} asChild>
+                    <span
+                      className={`min-w-0 truncate text-base font-semibold text-emerald-800 dark:text-emerald-200 ${
+                        groupNameHasPersian ? "font-fa text-right" : "text-center"
+                      }`}
+                      dir="auto"
+                      style={{ unicodeBidi: "plaintext" }}
+                    >
+                      {groupName}
+                    </span>
+                  </Tooltip>
+                  {Boolean(group?.verified) && <VerifiedBadge size={15} />}
+                </span>
+              </p>
+              <Tooltip label={group?.username || "group"} asChild>
+                <p
+                  className={`mt-1 w-full truncate text-xs text-slate-600 dark:text-slate-300 ${
+                    hasPersian(group?.username || "") ? "font-fa text-right" : "text-center"
                   }`}
                   dir="auto"
                   style={{ unicodeBidi: "plaintext" }}
-                  title={groupName}
                 >
-                  {groupName}
-                </span>
-              </p>
-              <p
-                className={`mt-1 w-full truncate text-xs text-slate-600 dark:text-slate-300 ${
-                  hasPersian(group?.username || "") ? "font-fa text-right" : "text-center"
-                }`}
-                dir="auto"
-                style={{ unicodeBidi: "plaintext" }}
-                title={group?.username || "group"}
-              >
-                @{group?.username || "group"}
-              </p>
+                  @{group?.username || "group"}
+                </p>
+              </Tooltip>
               <p className="mt-1 inline-flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
                 <Users size={12} className="icon-anim-bob" />
                 {Number(group?.membersCount || 0)} members

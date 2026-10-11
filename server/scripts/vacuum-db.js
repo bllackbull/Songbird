@@ -1,5 +1,7 @@
 import { confirmAction, getCliArgs, hasForceYes } from "./_cli.js";
 import { openDatabase, runAdminActionViaServer } from "./_db-admin.js";
+import { createPostgresMaintenance } from "../lib/postgresMaintenance.js";
+import { readDbConfig } from "../settings/env.js";
 
 async function main() {
   const args = getCliArgs();
@@ -16,6 +18,13 @@ async function main() {
     return;
   }
 
+  const dbConfig = readDbConfig();
+  if (dbConfig.client === "postgres") {
+    await createPostgresMaintenance({ config: dbConfig }).vacuum();
+    console.log("PostgreSQL VACUUM ANALYZE completed.");
+    return;
+  }
+
   const remoteResult = await runAdminActionViaServer("vacuum_db");
   if (remoteResult) {
     console.log("Server mode: database VACUUM completed.");
@@ -24,11 +33,11 @@ async function main() {
 
   const dbApi = await openDatabase();
   try {
-    dbApi.run("VACUUM");
-    dbApi.save();
+    await dbApi.run("VACUUM");
+    await dbApi.save();
     console.log("Database VACUUM completed.");
   } finally {
-    dbApi.close();
+    await dbApi.close();
   }
 }
 

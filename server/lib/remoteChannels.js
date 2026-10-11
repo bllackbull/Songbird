@@ -2,6 +2,55 @@ import net from "node:net";
 import tls from "node:tls";
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
+import { ProxyAgent } from "undici";
+import { getSetting } from "./appSettings.js";
+
+import { isValidUuid } from "./uuidUtils.js";
+import { markEncryptedFileRecord } from "./storageEncryption.js";
+
+// ─── Songbird outbound proxy ──────────────────────────────────────────────────
+// Applied per-fetch-call (no persistent connection to bake it into), so this
+// reads the live setting on every call instead of a value captured at startup.
+
+let cachedProxyUrl = "";
+let cachedDispatcher;
+
+function getSongbirdProxyDispatcher() {
+  const proxyUrl = String(getSetting("REMOTE_CHANNEL_SONGBIRD_PROXY_URL") || "").trim();
+  if (!proxyUrl) return undefined;
+  if (proxyUrl !== cachedProxyUrl) {
+    cachedProxyUrl = proxyUrl;
+    try {
+      cachedDispatcher = new ProxyAgent(proxyUrl);
+    } catch {
+      cachedDispatcher = undefined;
+    }
+  }
+  return cachedDispatcher;
+}
+
+function songbirdFetch(url, options = {}) {
+  // SSRF guard: reject requests to private/internal hosts regardless of call site.
+  //
+  // A static allowlist is intentionally not used — the Remote Channel feature
+  // federates with any public Songbird server, so the hostname is open-ended by
+  // design. Instead, we block the entire private/internal address space (loopback,
+  // RFC-1918, link-local, cloud metadata endpoints, etc.) via isPrivateHost().
+  // codeql[js/ssrf] - hostname validated against private-address blocklist;
+  //                   allowlist not applicable for open server federation.
+  try {
+    const parsed = new URL(String(url));
+    if (isPrivateHost(parsed.hostname)) {
+      return Promise.reject(
+        new Error(`Request blocked: '${parsed.hostname}' is a private or internal address.`),
+      );
+    }
+  } catch {
+    return Promise.reject(new Error("Request blocked: URL is invalid."));
+  }
+  const dispatcher = getSongbirdProxyDispatcher();
+  return fetch(url, dispatcher ? { ...options, dispatcher } : options);
+}
 
 function normalizeTelegramSource(value) {
   const raw = String(value || "").trim();
@@ -190,7 +239,7 @@ async function resolveSongbirdSource(sourceUrl, inviteTarget) {
   const metaUrl = `${sourceUrl}/api/channels/${encodeURIComponent(candidateUsername)}/meta`;
   let metaRes;
   try {
-    metaRes = await fetch(metaUrl, {
+    metaRes = await songbirdFetch(metaUrl, {
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(15_000),
     });
@@ -233,7 +282,7 @@ async function resolveSongbirdSource(sourceUrl, inviteTarget) {
 }
 
 async function fetchSongbirdJson(url, timeoutMs = 15_000) {
-  const res = await fetch(url, {
+  const res = await songbirdFetch(url, {
     headers: { Accept: "application/json" },
     signal: AbortSignal.timeout(timeoutMs),
   });
@@ -755,7 +804,7 @@ function groupTelegramMessagesForQueue(messages = []) {
   return groups;
 }
 
-function createRemoteChannelManager(deps = {}) {
+export function createRemoteChannelManager(deps = {}) {
   const {
     config = {},
     computeExpiryIso,
@@ -763,6 +812,7 @@ function createRemoteChannelManager(deps = {}) {
     createOrReuseMessage,
     crypto,
     debugLog = () => {},
+    dispatchMirrorMedia,
     emitChatEvent,
     emitSseEvent,
     enqueueVideoTranscodeJob,
@@ -798,17 +848,22 @@ function createRemoteChannelManager(deps = {}) {
     setMessageForwardOrigin,
     setRemoteChannelProviderState,
     storageEncryption,
+    storageProvider,
     updateChannelChat,
     updateRemoteChannelSourceError,
     updateRemoteChannelSourceSeen,
   } = deps;
 
-  const apiId = Number(config.telegramApiId || 0);
-  const apiHash = String(config.telegramApiHash || "").trim();
-  const sessionString = String(config.telegramSessionString || "").trim();
+  const resolveMaybePromise = async (value) =>
+    value && typeof value.then === "function" ? await value : value;
+
+  let apiId = Number(config.telegramApiId || 0);
+  let apiHash = String(config.telegramApiHash || "").trim();
+  let sessionString = String(config.telegramSessionString || "").trim();
   // The manager is enabled if the feature is on — Songbird sources work without
   // Telegram credentials. Telegram sources additionally require apiId/hash/session.
   const enabled = Boolean(config.enabled);
+  const tickMode = Boolean(config.tickMode);
   const pollIntervalMs = Math.max(1000, Number(config.pollIntervalMs || 5000));
   const pollLimit = Math.max(1, Math.min(100, Number(config.telegramPollLimit || 50)));
   // Sync metadata once every 60 poll cycles (e.g., every 5 minutes if polling every 5s)
@@ -855,6 +910,7 @@ function createRemoteChannelManager(deps = {}) {
   let stopped = true;
   let pollLoopRunning = false;
   let queueLoopRunning = false;
+  let tickInFlight = false;
   let queueTimer = null;
   let client = null;
   let clientConnectPromise = null;
@@ -869,6 +925,57 @@ function createRemoteChannelManager(deps = {}) {
   const abortedSourceIds = new Set();
 
   const log = (...args) => debugLog("remote-channel", ...args);
+
+  function isRemoteStorage() {
+    const type = storageProvider?.type;
+    return (
+      (type === "remote" || type === "s3") &&
+      typeof storageProvider?.uploadBuffer === "function"
+    );
+  }
+
+  // Upload a mirrored file to bucket storage (remote driver only) and remove the local copy.
+  async function uploadMirroredFileToBucket({ filePath, storageKey, mimeType }) {
+    if (!isRemoteStorage() || !filePath || !storageKey) return null;
+    try {
+      const readFile =
+        fs?.promises?.readFile?.bind(fs.promises) || fs?.readFileSync?.bind(fs);
+      const unlinkFile =
+        fs?.promises?.unlink?.bind(fs.promises) || fs?.unlinkSync?.bind(fs);
+      if (typeof readFile !== "function") return null;
+      const encryptedBytes = await readFile(filePath);
+      const uploadBytes =
+        typeof storageEncryption?.decryptBuffer === "function"
+          ? storageEncryption.decryptBuffer(encryptedBytes)
+          : encryptedBytes;
+      await storageProvider.uploadBuffer(
+        storageKey,
+        uploadBytes,
+        mimeType || "application/octet-stream",
+      );
+      if (typeof unlinkFile === "function") {
+        try {
+          await unlinkFile(filePath);
+        } catch {
+          // Local cleanup is best-effort; the bucket copy already succeeded.
+        }
+      }
+      return {
+        storageDriver: storageProvider.type || "s3",
+        storage_driver: storageProvider.type || "s3",
+        storageKey,
+        storage_key: storageKey,
+        encryptionType: "none",
+        encryption_type: "none",
+      };
+    } catch (error) {
+      log("storage:upload-skip", {
+        storageKey,
+        error: errorMessage(error),
+      });
+      return null;
+    }
+  }
 
   function createClient() {
     const telegramClient = new TelegramClient(new StringSession(sessionString), apiId, apiHash, {
@@ -1065,6 +1172,12 @@ function createRemoteChannelManager(deps = {}) {
       fs.mkdirSync(avatarUploadRootDir, { recursive: true });
       fs.writeFileSync(filePath, buffer);
       storageEncryption?.encryptFileInPlace?.(filePath);
+      // Same URL shape as user avatars on bucket deployments.
+      await uploadMirroredFileToBucket({
+        filePath,
+        storageKey: `uploads/avatars/${fileName}`,
+        mimeType: "image/jpeg",
+      });
       return `/api/uploads/avatars/${fileName}`;
     } catch {
       return source?.source_avatar_url || "";
@@ -1106,7 +1219,7 @@ function createRemoteChannelManager(deps = {}) {
   ) {
     const nextResolved =
       resolved || await resolveSource(activeClient, source, { forceRefresh: true });
-    const targetChat = findChatById(Number(source.chat_id || 0));
+    const targetChat = await resolveMaybePromise(findChatById(source.chat_id || null));
     if (
       targetChat &&
       Boolean(Number(source.sync_metadata || 0)) &&
@@ -1118,7 +1231,7 @@ function createRemoteChannelManager(deps = {}) {
         String(nextName || "") !== String(targetChat.name || "") ||
         String(nextAvatarUrl || "") !== String(targetChat.group_avatar_url || "");
       if (metadataChanged) {
-        updateChannelChat(Number(targetChat.id), {
+        await resolveMaybePromise(updateChannelChat(targetChat.id, {
           name: nextName,
           groupUsername: targetChat.group_username,
           groupVisibility: targetChat.group_visibility,
@@ -1126,15 +1239,16 @@ function createRemoteChannelManager(deps = {}) {
             Number(targetChat.allow_member_invites || 0),
           ),
           groupAvatarUrl: nextAvatarUrl,
-        });
-        listChatMembers(Number(targetChat.id))
+        }));
+        const members = (await resolveMaybePromise(listChatMembers(targetChat.id))) || [];
+        members
           .map((member) => String(member?.username || "").toLowerCase())
           .filter(Boolean)
           .forEach((memberUsername) => {
             try {
               emitSseEvent?.(memberUsername, {
                 type: "chat_list_changed",
-                chatId: Number(targetChat.id),
+                chatId: targetChat.id,
               });
             } catch {
               // ignore realtime list errors
@@ -1142,21 +1256,21 @@ function createRemoteChannelManager(deps = {}) {
           });
       }
     }
-    updateRemoteChannelSourceSeen(source.id, {
+    await resolveMaybePromise(updateRemoteChannelSourceSeen(source.id, {
       sourceChatId: nextResolved.sourceChatId,
       sourceUsername: nextResolved.username,
       sourceTitle: nextResolved.title,
       sourceAvatarUrl: nextResolved.avatarUrl,
       touch: options.touch,
       clearError: options.clearError,
-    });
+    }));
     return nextResolved;
   }
 
   async function syncSourceMetadata(sourceId) {
     const source =
       typeof getRemoteChannelSourceById === "function"
-        ? getRemoteChannelSourceById(sourceId)
+        ? await resolveMaybePromise(getRemoteChannelSourceById(sourceId))
         : null;
     if (!source?.id) throw new Error("Remote Channel source is not configured.");
     if (!Number(source.enabled || 0)) {
@@ -1175,11 +1289,11 @@ function createRemoteChannelManager(deps = {}) {
         source,
         await resolveSource(activeClient, source, { forceRefresh: true }),
       );
-      updateRemoteChannelSourceError(source.id, "");
+      await resolveMaybePromise(updateRemoteChannelSourceError(source.id, ""));
       return resolved;
     } catch (error) {
       const message = errorMessage(error);
-      updateRemoteChannelSourceError(source.id, message);
+      await resolveMaybePromise(updateRemoteChannelSourceError(source.id, message));
       markTelegramClientForReset(error, "sync-source-metadata");
       throw error;
     }
@@ -1202,7 +1316,7 @@ function createRemoteChannelManager(deps = {}) {
     const metaUrl = `${sourceUrl}/api/channels/${encodeURIComponent(channelUsername)}/meta`;
     let data;
     try {
-      const res = await fetch(metaUrl, {
+      const res = await songbirdFetch(metaUrl, {
         method: "GET",
         headers: { Accept: "application/json" },
         signal: AbortSignal.timeout(15_000),
@@ -1222,7 +1336,7 @@ function createRemoteChannelManager(deps = {}) {
       data = await res.json();
     } catch (error) {
       const message = errorMessage(error);
-      updateRemoteChannelSourceError(source.id, message);
+      await resolveMaybePromise(updateRemoteChannelSourceError(source.id, message));
       throw new Error(`Songbird metadata sync failed: ${message}`);
     }
 
@@ -1233,7 +1347,24 @@ function createRemoteChannelManager(deps = {}) {
     let localAvatarUrl = source.source_avatar_url || "";
     if (fileUploadEnabled && remoteAvatarUrl && fs && path && avatarUploadRootDir) {
       try {
-        const avatarRes = await fetch(`${sourceUrl}${remoteAvatarUrl}`, {
+        // Validate the avatar URL stays on the same origin (same host as sourceUrl).
+        // remoteAvatarUrl comes from an untrusted remote server, so we must ensure
+        // it can't redirect the fetch to an internal/private host (SSRF).
+        let avatarFetchUrl;
+        try {
+          // Resolve relative to sourceUrl; this also catches path traversal.
+          const resolved = new URL(remoteAvatarUrl, sourceUrl);
+          const base = new URL(sourceUrl);
+          if (resolved.origin !== base.origin || isPrivateHost(resolved.hostname)) {
+            throw new Error("Avatar URL origin does not match source server.");
+          }
+          avatarFetchUrl = resolved.href;
+        } catch {
+          // If the URL is invalid or off-origin, skip the avatar download silently.
+          avatarFetchUrl = null;
+        }
+        if (!avatarFetchUrl) throw new Error("Avatar URL is invalid or off-origin.");
+        const avatarRes = await songbirdFetch(avatarFetchUrl, {
           signal: AbortSignal.timeout(15_000),
         });
         if (avatarRes.ok) {
@@ -1246,6 +1377,11 @@ function createRemoteChannelManager(deps = {}) {
             fs.mkdirSync(avatarUploadRootDir, { recursive: true });
             fs.writeFileSync(filePath, buffer);
             storageEncryption?.encryptFileInPlace?.(filePath);
+            await uploadMirroredFileToBucket({
+              filePath,
+              storageKey: `uploads/avatars/${fileName}`,
+              mimeType: "image/jpeg",
+            });
             localAvatarUrl = `/api/uploads/avatars/${fileName}`;
           }
         }
@@ -1255,7 +1391,7 @@ function createRemoteChannelManager(deps = {}) {
     }
 
     // Apply to the local channel if sync_metadata is enabled.
-    const targetChat = findChatById(Number(source.chat_id || 0));
+    const targetChat = await resolveMaybePromise(findChatById(source.chat_id || null));
     if (
       targetChat &&
       Boolean(Number(source.sync_metadata || 0)) &&
@@ -1267,7 +1403,7 @@ function createRemoteChannelManager(deps = {}) {
         String(nextName || "") !== String(targetChat.name || "") ||
         String(nextAvatarUrl || "") !== String(targetChat.group_avatar_url || "");
       if (metadataChanged) {
-        updateChannelChat(Number(targetChat.id), {
+        await resolveMaybePromise(updateChannelChat(targetChat.id, {
           name: nextName,
           groupUsername: targetChat.group_username,
           groupVisibility: targetChat.group_visibility,
@@ -1275,15 +1411,16 @@ function createRemoteChannelManager(deps = {}) {
             Number(targetChat.allow_member_invites || 0),
           ),
           groupAvatarUrl: nextAvatarUrl,
-        });
-        listChatMembers(Number(targetChat.id))
+        }));
+        const members = (await resolveMaybePromise(listChatMembers(targetChat.id))) || [];
+        members
           .map((member) => String(member?.username || "").toLowerCase())
           .filter(Boolean)
           .forEach((memberUsername) => {
             try {
               emitSseEvent?.(memberUsername, {
                 type: "chat_list_changed",
-                chatId: Number(targetChat.id),
+                chatId: targetChat.id,
               });
             } catch {
               // ignore realtime list errors
@@ -1292,13 +1429,13 @@ function createRemoteChannelManager(deps = {}) {
       }
     }
 
-    updateRemoteChannelSourceSeen(source.id, {
+    await resolveMaybePromise(updateRemoteChannelSourceSeen(source.id, {
       sourceUsername: channelUsername,
       sourceTitle: title,
       sourceAvatarUrl: localAvatarUrl,
       touch: true,
       clearError: true,
-    });
+    }));
 
     return { title, username: channelUsername, avatarUrl: localAvatarUrl };
   }
@@ -1327,14 +1464,14 @@ function createRemoteChannelManager(deps = {}) {
     if (!lastMessageId) {
       const latest = await activeClient.getMessages(resolved.entity, { limit: 1 });
       const latestMessageId = Number(latest?.[0]?.id || 0) || 0;
-      updateRemoteChannelSourceSeen(source.id, {
+      await resolveMaybePromise(updateRemoteChannelSourceSeen(source.id, {
         sourceChatId: resolved.sourceChatId,
         sourceUsername: resolved.username,
         sourceTitle: resolved.title,
         sourceAvatarUrl: resolved.avatarUrl,
         lastRemoteMessageId: latestMessageId,
         touch: true,
-      });
+      }));
       return { queued: 0, initialized: true };
     }
 
@@ -1379,23 +1516,23 @@ function createRemoteChannelManager(deps = {}) {
         },
         receivedAt: new Date().toISOString(),
       });
-      const row = enqueueRemoteChannelQueueItem({
+      const row = await resolveMaybePromise(enqueueRemoteChannelQueueItem({
         sourceId: source.id,
         sourceVersion: source.source_version,
         telegramMessageId,
         payloadJson,
-      });
+      }));
       if (row?.id) queued += 1;
     }
 
-    updateRemoteChannelSourceSeen(source.id, {
+    await resolveMaybePromise(updateRemoteChannelSourceSeen(source.id, {
       sourceChatId: resolved.sourceChatId,
       sourceUsername: resolved.username,
       sourceTitle: resolved.title,
       sourceAvatarUrl: resolved.avatarUrl,
       lastRemoteMessageId: maxSeenId,
       touch: maxSeenId > lastMessageId,
-    });
+    }));
 
     return { queued, initialized: false };
   }
@@ -1415,11 +1552,11 @@ function createRemoteChannelManager(deps = {}) {
       const initUrl = `${sourceUrl}/api/channels/${encodeURIComponent(channelUsername)}/messages?limit=1`;
       const data = await fetchSongbirdJson(initUrl);
       const latestId = Number(data?.messages?.[0]?.id || 0) || 0;
-      updateRemoteChannelSourceSeen(source.id, {
+      await resolveMaybePromise(updateRemoteChannelSourceSeen(source.id, {
         sourceUsername: channelUsername,
         lastRemoteMessageId: latestId,
         touch: true,
-      });
+      }));
       return { queued: 0, initialized: true };
     }
 
@@ -1456,52 +1593,57 @@ function createRemoteChannelManager(deps = {}) {
         receivedAt: new Date().toISOString(),
       });
 
-      const row = enqueueRemoteChannelQueueItem({
+      const row = await resolveMaybePromise(enqueueRemoteChannelQueueItem({
         sourceId: source.id,
         provider: "songbird",
         sourceVersion: source.source_version,
         // Reuse the telegram_message_id column for the remote message ID.
         telegramMessageId: msgId,
         payloadJson,
-      });
+      }));
       if (row?.id) queued += 1;
     }
 
     if (maxSeenId > lastMessageId) {
-      updateRemoteChannelSourceSeen(source.id, {
+      await resolveMaybePromise(updateRemoteChannelSourceSeen(source.id, {
         sourceUsername: channelUsername,
         lastRemoteMessageId: maxSeenId,
         touch: true,
-      });
+      }));
     }
 
     return { queued, initialized: false };
   }
 
-  async function pollSongbirdOnce() {
-    const sources = listEnabledRemoteChannelSources("songbird");
+  async function pollSongbirdOnce(options = {}) {
+    const sources = (await resolveMaybePromise(listEnabledRemoteChannelSources("songbird"))) || [];
     if (!sources.length) {
-      await sleep(pollIntervalMs);
-      return;
+      if (!options.skipSleep) await sleep(pollIntervalMs);
+      return { queued: 0 };
     }
 
+    let totalQueued = 0;
     for (let i = 0; i < sources.length; i += queueConcurrency) {
-      if (stopped) return;
+      if (stopped) break;
       const batch = sources.slice(i, i + queueConcurrency);
-      await Promise.all(
+      const results = await Promise.all(
         batch.map(async (source) => {
-          if (stopped) return;
+          if (stopped) return 0;
           try {
-            await pollSongbirdSource(source);
-            if (source.last_error) updateRemoteChannelSourceError(source.id, "");
+            const result = await pollSongbirdSource(source);
+            if (source.last_error) await resolveMaybePromise(updateRemoteChannelSourceError(source.id, ""));
+            return Number(result?.queued || 0);
           } catch (error) {
             const message = errorMessage(error);
-            updateRemoteChannelSourceError(source.id, message);
+            await resolveMaybePromise(updateRemoteChannelSourceError(source.id, message));
             log("poll-songbird:error", { sourceId: Number(source.id), error: message });
+            return 0;
           }
         }),
       );
+      totalQueued += results.reduce((sum, n) => sum + (Number(n) || 0), 0);
     }
+    return { queued: totalQueued };
   }
 
   async function runSongbirdPollLoop() {
@@ -1521,11 +1663,11 @@ function createRemoteChannelManager(deps = {}) {
     }
   }
 
-  async function pollTelegramOnce() {
-    const sources = listEnabledRemoteChannelSources("telegram");
+  async function pollTelegramOnce(options = {}) {
+    const sources = (await resolveMaybePromise(listEnabledRemoteChannelSources("telegram"))) || [];
     if (!sources.length) {
-      await sleep(pollIntervalMs);
-      return;
+      if (!options.skipSleep) await sleep(pollIntervalMs);
+      return { queued: 0 };
     }
 
     const activeClient = await ensureClient();
@@ -1533,27 +1675,31 @@ function createRemoteChannelManager(deps = {}) {
     // Poll all sources concurrently (up to queueConcurrency at a time) so that
     // a slow or large source does not delay all subsequent sources.
     let clientResetNeeded = false;
+    let totalQueued = 0;
     for (let i = 0; i < sources.length; i += queueConcurrency) {
-      if (stopped) return;
+      if (stopped) break;
       const batch = sources.slice(i, i + queueConcurrency);
-      await Promise.all(
+      const results = await Promise.all(
         batch.map(async (source) => {
-          if (stopped) return;
+          if (stopped) return 0;
           try {
-            await pollSource(activeClient, source);
+            const result = await pollSource(activeClient, source);
             if (source.last_error) {
-              updateRemoteChannelSourceError(source.id, "");
+              await resolveMaybePromise(updateRemoteChannelSourceError(source.id, ""));
             }
+            return Number(result?.queued || 0);
           } catch (error) {
             const message = errorMessage(error);
-            updateRemoteChannelSourceError(source.id, message);
+            await resolveMaybePromise(updateRemoteChannelSourceError(source.id, message));
             log("poll-source:error", { sourceId: Number(source.id), error: message });
             if (markTelegramClientForReset(error, "poll-source")) {
               clientResetNeeded = true;
             }
+            return 0;
           }
         }),
       );
+      totalQueued += results.reduce((sum, n) => sum + (Number(n) || 0), 0);
       // If any source triggered a client reset, propagate the error so the
       // poll loop can reconnect before attempting the next batch.
       if (clientResetNeeded) {
@@ -1561,19 +1707,20 @@ function createRemoteChannelManager(deps = {}) {
       }
     }
 
-    const state = getRemoteChannelProviderState("telegram") || {};
+    const state = (await resolveMaybePromise(getRemoteChannelProviderState("telegram"))) || {};
     const now = Date.now();
     if (
       state.last_error ||
       now - lastProviderStateSavedAt >= providerStateHeartbeatMs
     ) {
-      setRemoteChannelProviderState("telegram", {
+      await resolveMaybePromise(setRemoteChannelProviderState("telegram", {
         nextUpdateOffset: Number(state.next_update_offset || 0) || null,
         lastError: null,
         lastPolledAt: new Date(now).toISOString(),
-      });
+      }));
       lastProviderStateSavedAt = now;
     }
+    return { queued: totalQueued };
   }
 
   async function runPollLoop() {
@@ -1585,12 +1732,12 @@ function createRemoteChannelManager(deps = {}) {
           await pollTelegramOnce();
         } catch (error) {
           const message = errorMessage(error);
-          const state = getRemoteChannelProviderState("telegram") || {};
-          setRemoteChannelProviderState("telegram", {
+          const state = (await resolveMaybePromise(getRemoteChannelProviderState("telegram"))) || {};
+          await resolveMaybePromise(setRemoteChannelProviderState("telegram", {
             nextUpdateOffset: Number(state.next_update_offset || 0) || null,
             lastError: message,
             lastPolledAt: new Date().toISOString(),
-          });
+          }));
           lastProviderStateSavedAt = Date.now();
           log("poll:error", { error: message });
           
@@ -1609,39 +1756,40 @@ function createRemoteChannelManager(deps = {}) {
     }
   }
 
-  function resolveAuthorUserId(chat) {
-    const createdByUserId = Number(chat?.created_by_user_id || 0);
-    if (createdByUserId > 0) return createdByUserId;
-    const owner = listChatMembers(Number(chat?.id || 0)).find(
+  async function resolveAuthorUserId(chat) {
+    const createdByUserId = chat?.created_by_user_id || null;
+    if (createdByUserId) return createdByUserId;
+    const members = (await resolveMaybePromise(listChatMembers(chat?.id || null))) || [];
+    const owner = members.find(
       (member) => String(member?.role || "").toLowerCase() === "owner",
     );
-    return Number(owner?.id || 0) || null;
+    return owner?.id || null;
   }
 
   async function sendPushForMirroredPost({ chat, authorId, body }) {
     try {
-      const members = listChatMembers(Number(chat.id));
-      const mutedRows = listMutedUserIdsForChat(Number(chat.id));
+      const members = (await resolveMaybePromise(listChatMembers(chat.id))) || [];
+      const mutedRows = (await resolveMaybePromise(listMutedUserIdsForChat(chat.id))) || [];
       const mutedIds = new Set(
-        mutedRows.map((row) => Number(row?.user_id || 0)).filter(Boolean),
+        mutedRows.map((row) => row?.user_id || row).filter(Boolean),
       );
       const recipientIds = members
-        .map((member) => Number(member?.id || 0))
+        .map((member) => member?.id)
         .filter(
           (memberId) =>
-            memberId > 0 &&
-            Number(memberId) !== Number(authorId) &&
+            memberId &&
+            String(memberId) !== String(authorId) &&
             !mutedIds.has(memberId),
         )
         .filter((memberId) => {
-          const member = members.find((m) => Number(m?.id || 0) === memberId);
+          const member = members.find((m) => m?.id === memberId);
           return !isUserConnected(member?.username);
         });
       if (!recipientIds.length) return;
       await sendPushNotificationToUsers(recipientIds, {
         title: chat.name || "Channel",
         body: String(body || "").trim() || "New message",
-        data: { url: "/", chatId: Number(chat.id) },
+        data: { url: "/", chatId: chat.id },
       });
     } catch {
       // Push should never block queue progress.
@@ -1821,11 +1969,11 @@ function createRemoteChannelManager(deps = {}) {
     };
   }
 
-  function readExistingMessageFileStats(messageId) {
+  async function readExistingMessageFileStats(messageId) {
     if (typeof listMessageFilesByMessageIds !== "function" || !messageId) {
       return { count: 0, totalBytes: 0, names: new Set() };
     }
-    const rows = listMessageFilesByMessageIds([Number(messageId)]);
+    const rows = (await resolveMaybePromise(listMessageFilesByMessageIds([messageId]))) || [];
     return rows.reduce(
       (stats, row) => {
         stats.count += 1;
@@ -1838,7 +1986,10 @@ function createRemoteChannelManager(deps = {}) {
     );
   }
 
-  async function downloadTelegramMediaFile(activeClient, message, index, stats) {
+  // Stage 1: download Telegram bytes to a temp file (session-bound I/O that
+  // must stay on the server). Returns descriptor + temp location, or null
+  // when the file is rejected by the size gates.
+  async function fetchTelegramMediaToTemp(activeClient, message, index, stats) {
     const descriptor = getTelegramMediaDescriptor(message, index);
     if (!descriptor) return null;
     if (
@@ -1893,7 +2044,26 @@ function createRemoteChannelManager(deps = {}) {
         safeUnlink(filePath);
         return null;
       }
+      return { descriptor, storedName, filePath, actualSize };
+    } catch (error) {
+      safeUnlink(filePath);
+      if (isTelegramConnectionError(error)) {
+        throw error;
+      }
+      log("media:skip", {
+        messageId: normalizeMessageId(message?.id),
+        error: errorMessage(error),
+      });
+      return null;
+    }
+  }
 
+  // Stage 2 (inline): probe, encrypt, and bucket-upload a fetched temp file.
+  // Used directly and as the local fallback when worker dispatch declines.
+  async function finishMirroredMediaFile({ descriptor, storedName, filePath, actualSize }) {
+    if (!descriptor || !storedName || !filePath) return null;
+    if (!fs.existsSync(filePath)) return null;
+    try {
       const normalized = {
         kind: descriptor.kind,
         originalName: descriptor.originalName,
@@ -1907,6 +2077,11 @@ function createRemoteChannelManager(deps = {}) {
           typeof computeExpiryIso === "function"
             ? computeExpiryIso(new Date().toISOString(), messageFileRetentionDays)
             : null,
+        // Local disk by default; replaced with bucket coordinates below.
+        storageDriver: "local",
+        storage_driver: "local",
+        storageKey: null,
+        storage_key: null,
       };
 
       if (
@@ -1926,18 +2101,34 @@ function createRemoteChannelManager(deps = {}) {
       }
 
       storageEncryption?.encryptFileInPlace?.(filePath);
+      // Keep the DB record in sync with the bytes on disk.
+      markEncryptedFileRecord(storageEncryption, filePath, normalized);
+      // On bucket-backed deployments the local copy must not be the record
+      // of truth (ephemeral disks, multi-node) — upload and drop it.
+      const bucketFields = await uploadMirroredFileToBucket({
+        filePath,
+        storageKey: `uploads/messages/${storedName}`,
+        mimeType: normalized.mimeType,
+      });
+      if (bucketFields) {
+        Object.assign(normalized, bucketFields);
+        return { file: normalized, filePath: null };
+      }
       return { file: normalized, filePath };
     } catch (error) {
       safeUnlink(filePath);
-      if (isTelegramConnectionError(error)) {
-        throw error;
-      }
-      log("media:skip", {
-        messageId: normalizeMessageId(message?.id),
+      log("media:finish-skip", {
+        storedName,
         error: errorMessage(error),
       });
       return null;
     }
+  }
+
+  async function downloadTelegramMediaFile(activeClient, message, index, stats) {
+    const fetched = await fetchTelegramMediaToTemp(activeClient, message, index, stats);
+    if (!fetched) return null;
+    return finishMirroredMediaFile(fetched);
   }
 
   async function maybeEnqueueRemoteVideoTranscode({ chat, messageId, author, file }) {
@@ -1954,14 +2145,14 @@ function createRemoteChannelManager(deps = {}) {
         await ensureFfmpegAvailable();
       } catch (error) {
         log("media:transcode-skip", {
-          messageId: Number(messageId),
+          messageId,
           error: errorMessage(error),
         });
         return;
       }
     }
 
-    const rows = listMessageFilesByMessageIds([Number(messageId)]);
+    const rows = (await resolveMaybePromise(listMessageFilesByMessageIds([messageId]))) || [];
     const inserted = rows.find(
       (row) => path.basename(String(row?.stored_name || "")) === file.storedName,
     );
@@ -1971,8 +2162,8 @@ function createRemoteChannelManager(deps = {}) {
     enqueueVideoTranscodeJob({
       fileId,
       storedName: file.storedName,
-      chatId: Number(chat.id),
-      messageId: Number(messageId),
+      chatId: chat.id,
+      messageId,
       username: author.username,
     });
   }
@@ -1989,6 +2180,38 @@ function createRemoteChannelManager(deps = {}) {
       if (id) byId.set(id, message);
     });
     return requestedIds.map((id) => byId.get(id)).filter(Boolean);
+  }
+
+  async function hasMirroredFile(messageId, originalName) {
+    const name = String(originalName || "").trim();
+    if (!messageId || !name || typeof listMessageFilesByMessageIds !== "function") {
+      return false;
+    }
+    const rows = (await resolveMaybePromise(listMessageFilesByMessageIds([messageId]))) || [];
+    return rows.some((row) => String(row?.original_name || "").trim() === name);
+  }
+
+  // Attach a finished file record to its message, clear expiry, kick off
+  // video transcoding, and notify clients. Shared by the inline path, the
+  // worker webhook, and the local fallback timer.
+  async function attachMirroredMedia({ messageId, chatId, authorId, authorUsername, file }) {
+    if (!messageId || !file) return null;
+    await resolveMaybePromise(createMessageFiles(messageId, [file]));
+    await resolveMaybePromise(setMessageExpiresAt?.(messageId, null));
+    await maybeEnqueueRemoteVideoTranscode({
+      chat: { id: chatId },
+      messageId,
+      author: { id: authorId, username: authorUsername },
+      file,
+    });
+    emitChatEvent(chatId, {
+      type: "chat_message_updated",
+      chatId,
+      messageId,
+      username: authorUsername,
+      userId: authorId,
+    });
+    return messageId;
   }
 
   async function streamTelegramMediaFiles({
@@ -2010,56 +2233,73 @@ function createRemoteChannelManager(deps = {}) {
 
     for (let index = 0; index < mediaMessages.length; index += 1) {
       const currentMessageId = ensureMessage.peekMessageId();
-      const stats = readExistingMessageFileStats(currentMessageId);
+      const stats = await readExistingMessageFileStats(currentMessageId);
       if (stats.count >= maxMediaFilesPerMessage) break;
 
       const descriptor = getTelegramMediaDescriptor(mediaMessages[index], index);
       if (!descriptor || stats.names.has(descriptor.originalName)) continue;
 
-      const downloaded = await downloadTelegramMediaFile(
+      const fetched = await fetchTelegramMediaToTemp(
         activeClient,
         mediaMessages[index],
         index,
         stats,
       );
-      if (!downloaded?.file) continue;
+      if (!fetched) continue;
 
-      let targetMessageId = 0;
+      let targetMessageId = null;
       try {
-        const summaryText = summarizeMediaFiles([downloaded.file]);
-        targetMessageId = ensureMessage(summaryText || "Sent a media file", {
+        const fetchedFile = {
+          kind: fetched.descriptor.kind,
+          originalName: fetched.descriptor.originalName,
+          mimeType: fetched.descriptor.mimeType,
+        };
+        const summaryText = summarizeMediaFiles([fetchedFile]);
+        targetMessageId = await ensureMessage(summaryText || "Sent a media file", {
           hasMedia: true,
           summaryText,
         });
-        const latestStats = readExistingMessageFileStats(targetMessageId);
+        const latestStats = await readExistingMessageFileStats(targetMessageId);
         if (
           latestStats.count >= maxMediaFilesPerMessage ||
-          latestStats.names.has(downloaded.file.originalName) ||
-          latestStats.totalBytes + downloaded.file.sizeBytes > maxMediaTotalBytes
+          latestStats.names.has(fetched.descriptor.originalName) ||
+          latestStats.totalBytes + fetched.actualSize > maxMediaTotalBytes
         ) {
-          safeUnlink(downloaded.filePath);
+          safeUnlink(fetched.filePath);
           continue;
         }
 
-        createMessageFiles(Number(targetMessageId), [downloaded.file]);
-        setMessageExpiresAt?.(Number(targetMessageId), null);
+        // Option A: hand probe/encrypt/upload to the media worker. The
+        // webhook (or the local fallback timer) attaches the finished file.
+        if (typeof dispatchMirrorMedia === "function") {
+          const dispatched = await dispatchMirrorMedia({
+            descriptor: fetched.descriptor,
+            storedName: fetched.storedName,
+            filePath: fetched.filePath,
+            actualSize: fetched.actualSize,
+            messageId: targetMessageId,
+            chatId: chat.id,
+            authorId: author.id,
+            authorUsername: author.username,
+          });
+          if (dispatched) {
+            attached += 1;
+            continue;
+          }
+        }
+
+        const finished = await finishMirroredMediaFile(fetched);
+        if (!finished?.file) continue;
+        await attachMirroredMedia({
+          messageId: targetMessageId,
+          chatId: chat.id,
+          authorId: author.id,
+          authorUsername: author.username,
+          file: finished.file,
+        });
         attached += 1;
-
-        await maybeEnqueueRemoteVideoTranscode({
-          chat,
-          messageId: Number(targetMessageId),
-          author,
-          file: downloaded.file,
-        });
-
-        emitChatEvent(Number(chat.id), {
-          type: "chat_message_updated",
-          chatId: Number(chat.id),
-          messageId: Number(targetMessageId),
-          username: author.username,
-        });
       } catch (error) {
-        safeUnlink(downloaded.filePath);
+        safeUnlink(fetched.filePath);
         throw error;
       }
     }
@@ -2080,23 +2320,23 @@ function createRemoteChannelManager(deps = {}) {
     throwIfAborted();
     const currentSource =
       typeof getRemoteChannelSourceById === "function"
-        ? getRemoteChannelSourceById(item.source_id)
+        ? await resolveMaybePromise(getRemoteChannelSourceById(item.source_id))
         : null;
     if (!currentSource || !Number(currentSource.enabled || 0)) {
-      markRemoteChannelQueueItemSkipped(
+      await resolveMaybePromise(markRemoteChannelQueueItemSkipped(
         item.id,
         "Remote Channel was disabled before this item was mirrored.",
-      );
+      ));
       return;
     }
     if (
       Number(currentSource.source_version || 1) !==
       Number(item.source_version || 1)
     ) {
-      markRemoteChannelQueueItemSkipped(
+      await resolveMaybePromise(markRemoteChannelQueueItemSkipped(
         item.id,
         "Remote source changed before this item was mirrored.",
-      );
+      ));
       return;
     }
 
@@ -2104,7 +2344,7 @@ function createRemoteChannelManager(deps = {}) {
     try {
       envelope = JSON.parse(String(item?.payload_json || "{}"));
     } catch {
-      markRemoteChannelQueueItemSkipped(item.id, "Invalid payload.");
+      await resolveMaybePromise(markRemoteChannelQueueItemSkipped(item.id, "Invalid payload."));
       return;
     }
 
@@ -2113,17 +2353,17 @@ function createRemoteChannelManager(deps = {}) {
       const remoteMessage = envelope?.message || {};
       const body = truncateBody(String(remoteMessage?.body || "").trim(), messageMaxChars);
       if (!body) {
-        markRemoteChannelQueueItemSkipped(item.id, "Songbird post has no text to mirror.");
+        await resolveMaybePromise(markRemoteChannelQueueItemSkipped(item.id, "Songbird post has no text to mirror."));
         return;
       }
 
-      const chat = findChatById(Number(item.chat_id));
+      const chat = await resolveMaybePromise(findChatById(item.chat_id));
       if (!chat || String(chat.type || "").toLowerCase() !== "channel") {
         throw new Error("Target channel is no longer available.");
       }
-      const authorId = resolveAuthorUserId(chat);
+      const authorId = await resolveAuthorUserId(chat);
       if (!authorId) throw new Error("Target channel has no owner to author remote posts.");
-      const author = findUserById(authorId);
+      const author = await resolveMaybePromise(findUserById(authorId));
       if (!author) throw new Error("Target channel owner no longer exists.");
 
       const remoteMessageId = Number(item.telegram_message_id || remoteMessage?.id || 0) || 0;
@@ -2137,12 +2377,12 @@ function createRemoteChannelManager(deps = {}) {
       };
 
       const expiresAt = computeTextExpiryIso(messageTextRetentionDays);
-      const created = createOrReuseMessage(Number(chat.id), authorId, body, null, expiresAt, clientRequestId);
-      const msgId = Number(created?.id || 0);
+      const created = await resolveMaybePromise(createOrReuseMessage(chat.id, authorId, body, null, expiresAt, clientRequestId));
+      const msgId = created?.id || null;
       if (!msgId) throw new Error("Unable to create mirrored message.");
 
       if (!created?.deduped) {
-        setMessageForwardOrigin(msgId, {
+        await setMessageForwardOrigin(msgId, {
           label: buildSongbirdOriginLabel(source),
           sourceChatId: null,
           sourceUserId: null,
@@ -2150,9 +2390,9 @@ function createRemoteChannelManager(deps = {}) {
           sourceAvatarUrl: currentSource.source_avatar_url || null,
           sourceColor: "#10b981",
         });
-        emitChatEvent(Number(chat.id), {
+        emitChatEvent(chat.id, {
           type: "chat_message",
-          chatId: Number(chat.id),
+          chatId: chat.id,
           messageId: msgId,
           username: author.username,
           clientRequestId,
@@ -2163,8 +2403,8 @@ function createRemoteChannelManager(deps = {}) {
         await sendPushForMirroredPost({ chat, authorId, body });
       }
 
-      markRemoteChannelQueueItemDone(item.id, msgId);
-      updateRemoteChannelSourceError(item.source_id, "");
+      await resolveMaybePromise(markRemoteChannelQueueItemDone(item.id, msgId));
+      await resolveMaybePromise(updateRemoteChannelSourceError(item.source_id, ""));
       return;
     }
 
@@ -2185,23 +2425,23 @@ function createRemoteChannelManager(deps = {}) {
       mediaMessageIds.length > 0;
 
     if (!body && !shouldStreamMedia) {
-      markRemoteChannelQueueItemSkipped(
+      await resolveMaybePromise(markRemoteChannelQueueItemSkipped(
         item.id,
         "Telegram post has no text, caption, or streamable media to mirror.",
-      );
+      ));
       return;
     }
 
-    const chat = findChatById(Number(item.chat_id));
+    const chat = await resolveMaybePromise(findChatById(item.chat_id));
     if (!chat || String(chat.type || "").toLowerCase() !== "channel") {
       throw new Error("Target channel is no longer available.");
     }
 
-    const authorId = resolveAuthorUserId(chat);
+    const authorId = await resolveAuthorUserId(chat);
     if (!authorId) {
       throw new Error("Target channel has no owner to author remote posts.");
     }
-    const author = findUserById(authorId);
+    const author = await resolveMaybePromise(findUserById(authorId));
     if (!author) {
       throw new Error("Target channel owner no longer exists.");
     }
@@ -2218,13 +2458,13 @@ function createRemoteChannelManager(deps = {}) {
       source_title: item.source_title || "",
       source_username: item.source_username || "",
     };
-    let messageId = 0;
+    let messageId = null;
     let messageBody = "";
     let initialMessageDeduped = false;
     let initialMessageEmitted = false;
     let pushSent = false;
 
-    const ensureMessage = (fallbackBody = "", options = {}) => {
+    const ensureMessage = async (fallbackBody = "", options = {}) => {
       if (messageId) return messageId;
       // Check abort before creating the message — once it's created and the
       // SSE event is emitted, the message is already visible in the channel.
@@ -2239,20 +2479,23 @@ function createRemoteChannelManager(deps = {}) {
       const expiresAt = options.hasMedia
         ? null
         : computeTextExpiryIso(messageTextRetentionDays);
-      const created = createOrReuseMessage(
-        Number(chat.id),
+      const created = await resolveMaybePromise(createOrReuseMessage(
+        chat.id,
         authorId,
         messageBody,
         null,
         expiresAt,
         clientRequestId,
-      );
-      messageId = Number(created?.id || 0);
+      ));
+      messageId = created?.id || null;
       initialMessageDeduped = Boolean(created?.deduped);
-      if (!messageId) throw new Error("Unable to create mirrored message.");
+          if (!messageId) throw new Error("Unable to create mirrored message.");
+      if (!isValidUuid(String(author?.id || authorId || ""))) {
+        throw new Error("Mirrored message author UUID is unavailable.");
+      }
 
       if (!created?.deduped) {
-        setMessageForwardOrigin(messageId, {
+        await setMessageForwardOrigin(messageId, {
           label: buildTelegramOriginLabel(source),
           sourceChatId: null,
           sourceUserId: null,
@@ -2261,9 +2504,9 @@ function createRemoteChannelManager(deps = {}) {
             envelope?.source?.avatarUrl || item.source_avatar_url || null,
           sourceColor: "#10b981",
         });
-        emitChatEvent(Number(chat.id), {
+        emitChatEvent(chat.id, {
           type: "chat_message",
-          chatId: Number(chat.id),
+          chatId: chat.id,
           messageId,
           username: author.username,
           clientRequestId,
@@ -2281,7 +2524,7 @@ function createRemoteChannelManager(deps = {}) {
     ensureMessage.peekMessageId = () => messageId;
 
     if (body) {
-      ensureMessage(body);
+      await ensureMessage(body);
       if (!initialMessageDeduped && initialMessageEmitted) {
         await sendPushForMirroredPost({
           chat,
@@ -2307,10 +2550,10 @@ function createRemoteChannelManager(deps = {}) {
     }
 
     if (!messageId) {
-      markRemoteChannelQueueItemSkipped(
+      await resolveMaybePromise(markRemoteChannelQueueItemSkipped(
         item.id,
         "Telegram post has no text, caption, or streamable media to mirror.",
-      );
+      ));
       return;
     }
 
@@ -2322,8 +2565,8 @@ function createRemoteChannelManager(deps = {}) {
       });
     }
 
-    markRemoteChannelQueueItemDone(item.id, messageId);
-    updateRemoteChannelSourceError(item.source_id, "");
+      await resolveMaybePromise(markRemoteChannelQueueItemDone(item.id, messageId));
+      await resolveMaybePromise(updateRemoteChannelSourceError(item.source_id, ""));
   }
 
   function computeBackoffMs(attempts) {
@@ -2340,19 +2583,19 @@ function createRemoteChannelManager(deps = {}) {
         // Item was manually skipped while in-flight. The DB row was already
         // marked skipped by the abort call; just clean up the in-memory set.
         abortedItemIds.delete(Number(item.id));
-        markRemoteChannelQueueItemSkipped(item.id, "Manually skipped.");
+        await resolveMaybePromise(markRemoteChannelQueueItemSkipped(item.id, "Manually skipped."));
         log("queue:aborted", { id: Number(item.id) });
         return;
       }
       const attempts = Number(item?.attempts || 0) + 1;
       const failed = attempts >= maxAttempts;
       const message = errorMessage(error);
-      markRemoteChannelQueueItemRetry(item.id, {
+      await resolveMaybePromise(markRemoteChannelQueueItemRetry(item.id, {
         failed,
         nextAttemptAt: new Date(Date.now() + computeBackoffMs(attempts)).toISOString(),
         error: message,
-      });
-      updateRemoteChannelSourceError(item.source_id, message);
+      }));
+      await resolveMaybePromise(updateRemoteChannelSourceError(item.source_id, message));
       markTelegramClientForReset(error, "queue");
       log("queue:error", { id: Number(item.id), failed, error: message });
     }
@@ -2368,7 +2611,7 @@ function createRemoteChannelManager(deps = {}) {
       now - runQueueOnce._lastStaleReleaseAt >= staleReleaseIntervalMs
     ) {
       const staleBefore = new Date(now - staleLockMs).toISOString();
-      releaseStaleRemoteChannelQueueItems(staleBefore);
+      await resolveMaybePromise(releaseStaleRemoteChannelQueueItems(staleBefore));
       runQueueOnce._lastStaleReleaseAt = now;
     }
 
@@ -2378,14 +2621,14 @@ function createRemoteChannelManager(deps = {}) {
     const items = [];
     for (let index = 0; index < queueBatchSize; index += 1) {
       if (stopped) break;
-      const item = claimNextRemoteChannelQueueItem(
+      const item = await resolveMaybePromise(claimNextRemoteChannelQueueItem(
         lockOwner,
         new Date().toISOString(),
-      );
+      ));
       if (!item?.id) break;
       items.push(item);
     }
-    if (!items.length) return;
+    if (!items.length) return 0;
 
     // Group by source_id so each source's items run in order.
     const bySource = new Map();
@@ -2404,6 +2647,23 @@ function createRemoteChannelManager(deps = {}) {
         ),
       ),
     );
+
+    // Notify members of touched channels so open profile
+    // modals refresh from the cached status endpoint.
+    for (const [sourceId, sourceItems] of bySource) {
+      const chatId = sourceItems[0]?.chat_id || null;
+      if (!chatId) continue;
+      try {
+        emitChatEvent?.(chatId, {
+          type: "remote_channel_queue",
+          chatId,
+          sourceId,
+        });
+      } catch {
+        // Realtime notify must never break queue progress.
+      }
+    }
+    return items.length;
   }
 
   async function runQueueLoop() {
@@ -2424,10 +2684,15 @@ function createRemoteChannelManager(deps = {}) {
     if (!stopped) return;
     stopped = false;
     log("starting", {
+      tickMode,
       pollIntervalMs,
       pollLimit,
       proxy: Boolean(connectionOptions.proxy),
     });
+    if (tickMode) {
+      log("tick-mode: background loops disabled, waiting for tick requests");
+      return;
+    }
     // Run Telegram poll loop only when Telegram credentials are configured.
     if (apiId && apiHash && sessionString) {
       void runPollLoop();
@@ -2457,7 +2722,7 @@ function createRemoteChannelManager(deps = {}) {
   }
 
   async function testConnection(sourceId) {
-    const source = getRemoteChannelSourceById(sourceId);
+    const source = await resolveMaybePromise(getRemoteChannelSourceById(sourceId));
     if (!source?.id) {
       throw new Error("Remote channel source not found.");
     }
@@ -2477,7 +2742,7 @@ function createRemoteChannelManager(deps = {}) {
       }
       // Verify the target server is reachable and the channel is still public.
       const metaUrl = `${sourceUrl}/api/channels/${encodeURIComponent(channelUsername)}/meta`;
-      const response = await fetch(metaUrl, {
+      const response = await songbirdFetch(metaUrl, {
         method: "GET",
         headers: { "Accept": "application/json" },
         signal: AbortSignal.timeout(10_000),
@@ -2531,12 +2796,12 @@ function createRemoteChannelManager(deps = {}) {
     }
   }
 
-  function abortQueueItem(sourceId) {
+  async function abortQueueItem(sourceId) {
     const id = Number(sourceId || 0);
     if (!id) return 0;
-    const itemId = getCurrentRemoteChannelQueueItemId(id);
+    const itemId = await resolveMaybePromise(getCurrentRemoteChannelQueueItemId(id));
     // Mark the lowest active item in the DB as skipped.
-    const count = skipCurrentRemoteChannelQueueItemDb(id);
+    const count = await resolveMaybePromise(skipCurrentRemoteChannelQueueItemDb(id));
     // Signal abort for the specific in-flight item only.
     if (itemId) {
       abortedItemIds.add(itemId);
@@ -2545,7 +2810,7 @@ function createRemoteChannelManager(deps = {}) {
     return count;
   }
 
-  function abortAllQueueItems(sourceId) {
+  async function abortAllQueueItems(sourceId) {
     const id = Number(sourceId || 0);
     if (!id) return 0;
     // Signal all in-flight items for this source to stop at the next yield.
@@ -2554,13 +2819,164 @@ function createRemoteChannelManager(deps = {}) {
     // any currently in-flight batch.
     setTimeout(() => abortedSourceIds.delete(id), staleLockMs);
     // Mark all pending/retry/processing DB rows as skipped.
-    return skipAllRemoteChannelQueueItemsDb(id);
+    return resolveMaybePromise(skipAllRemoteChannelQueueItemsDb(id));
+  }
+
+  async function getHealth() {
+    const telegramConfigured = Boolean(apiId && apiHash && sessionString);
+    return {
+      enabled,
+      tickMode,
+      telegramConfigured,
+      telegramConnected: Boolean(client),
+      pollLoopRunning,
+      queueLoopRunning,
+      pollIntervalMs,
+      queueIntervalMs,
+      queueBatchSize,
+      queueConcurrency,
+    };
+  }
+
+  // Close the persistent MTProto connection so the host can go idle/sleep.
+  // The next tick or poll cycle reconnects on demand.
+  async function disconnectTelegramClient(reason = "tick-done") {
+    if (clientConnectPromise) {
+      try {
+        await clientConnectPromise;
+      } catch {
+        // Connect failure — still clear the handle below.
+      }
+    }
+    if (!client) return false;
+    const staleClient = client;
+    client = null;
+    clientResetRequired = false;
+    clientResetReason = "";
+    log("client:disconnect", { reason });
+    await destroyTelegramClient(staleClient, reason);
+    return true;
+  }
+
+  // One on-demand poll+queue cycle for tick mode (external cron). Polls all
+  // sources, then drains the mirror queue until empty (a single poll only
+  // fetches up to pollLimit messages, so repeat poll+queue rounds until no
+  // new messages are queued). Disconnects the MTProto client afterwards so
+  // the process can idle/sleep again.
+  async function tickOnce(options = {}) {
+    if (!enabled) throw new Error("Remote Channel is disabled.");
+
+    if (tickInFlight) {
+      const busy = new Error("Remote Channel tick already in progress.");
+      busy.code = "TICK_BUSY";
+      throw busy;
+    }
+    tickInFlight = true;
+    const rawRounds = options.maxPollRounds ?? options.drainBatches ?? 10;
+    const maxPollRounds = Math.max(1, Math.min(20, Number(rawRounds || 10)));
+    const rawQueueCap = options.maxQueueBatches ?? Math.max(maxPollRounds * 5, 20);
+    const maxQueueBatches = Math.max(1, Math.min(100, Number(rawQueueCap || 20)));
+    const summary = {
+      telegram: null,
+      songbird: null,
+      queueBatches: 0,
+      disconnected: false,
+      pollRounds: 0,
+      queued: 0,
+      processed: 0,
+    };
+    const wasStopped = stopped;
+    stopped = false;
+    try {
+      const telegramConfigured = Boolean(apiId && apiHash && sessionString);
+      if (!telegramConfigured) summary.telegram = "not-configured";
+      for (let round = 0; round < maxPollRounds; round += 1) {
+        if (stopped && !wasStopped) break;
+        let roundQueued = 0;
+        if (telegramConfigured) {
+          try {
+            const result = await pollTelegramOnce({ skipSleep: true });
+            roundQueued += Number(result?.queued || 0);
+            summary.telegram = "polled";
+          } catch (error) {
+            const message = errorMessage(error);
+            log("tick:telegram-error", { error: message });
+            summary.telegram = `error: ${message}`;
+          }
+        }
+        try {
+          const result = await pollSongbirdOnce({ skipSleep: true });
+          roundQueued += Number(result?.queued || 0);
+          summary.songbird = "polled";
+        } catch (error) {
+          const message = errorMessage(error);
+          log("tick:songbird-error", { error: message });
+          summary.songbird = `error: ${message}`;
+        }
+        summary.queued += roundQueued;
+        summary.pollRounds += 1;
+        // Drain the queue until empty (runQueueOnce returns 0 when empty)
+        while (summary.queueBatches < maxQueueBatches) {
+          if (stopped && !wasStopped) break;
+          const processed = Number(await runQueueOnce() || 0);
+          summary.queueBatches += 1;
+          summary.processed += processed;
+          if (processed === 0) break;
+        }
+        // No new messages polled and queue just drained → fully caught up.
+        if (roundQueued === 0) break;
+        if (summary.queueBatches >= maxQueueBatches) break;
+      }
+    } finally {
+      summary.disconnected = await disconnectTelegramClient("tick-done");
+      if (wasStopped && tickMode) stopped = true;
+      tickInFlight = false;
+    }
+    return summary;
+  }
+
+  // Hot-reload Telegram credentials saved from the admin panel (no restart).
+  // Drops the live MTProto client so the next poll loop reconnects with the
+  // new identity; poll/queue loops keep running.
+  async function reloadConfig(nextConfig = {}) {
+    if (nextConfig.telegramApiId !== undefined) apiId = Number(nextConfig.telegramApiId || 0);
+    if (nextConfig.telegramApiHash !== undefined) apiHash = String(nextConfig.telegramApiHash || "").trim();
+    if (nextConfig.telegramSessionString !== undefined) {
+      sessionString = String(nextConfig.telegramSessionString || "").trim();
+    }
+    clientResetRequired = true;
+    clientResetReason = "credentials updated";
+    if (client) {
+      const staleClient = client;
+      client = null;
+      await destroyTelegramClient(staleClient, "credentials updated").catch(() => {});
+    }
+    // If the feature just got credentials while running, ensure the Telegram
+    // poll loop is active (no-op in tick mode — ticks connect on demand).
+    if (enabled && !stopped && !tickMode && apiId && apiHash && sessionString && !pollLoopRunning) {
+      void runPollLoop();
+    }
+    return getHealth();
   }
 
   return {
     start,
     stop,
     isEnabled: () => enabled,
+    isTickMode: () => tickMode,
+    reloadConfig,
+    getHealth,
+    runQueueOnce,
+    tickOnce,
+    disconnectTelegramClient,
+    // Staged media pipeline (also reused by the worker webhook + fallback).
+    downloadTelegramMediaFile,
+    fetchTelegramMediaToTemp,
+    finishMirroredMediaFile,
+    attachMirroredMedia,
+    hasMirroredFile,
+    streamTelegramMediaFiles,
+    cacheSourceAvatar,
     syncSourceMetadata,
     testConnection,
     abortQueueItem,
@@ -2569,7 +2985,6 @@ function createRemoteChannelManager(deps = {}) {
 }
 
 export {
-  createRemoteChannelManager,
   getTelegramClientConnectionOptions,
   normalizeSongbirdSource,
   normalizeTelegramSource,

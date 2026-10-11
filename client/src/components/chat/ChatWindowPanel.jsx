@@ -1,17 +1,13 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 import {
-  AlertCircle,
   ArrowDown,
   ArrowLeft,
-  Bell,
-  Close,
   Copy,
   Ghost,
   LoaderCircle,
@@ -22,8 +18,11 @@ import {
 import { getAvatarStyle } from "../../utils/avatarColor.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
-import { formatCompactCount } from "../../utils/chatFormat.js";
+import { formatCompactCount, formatDayLabel, parseServerDate } from "../../utils/chatFormat.js";
 import Avatar from "../common/Avatar.jsx";
+import UserRoleBadge from "../common/UserRoleBadge.jsx";
+import VerifiedBadge from "../common/VerifiedBadge.jsx";
+import Tooltip from "../common/Tooltip.jsx";
 import {
   FocusedMediaModal,
   MessageComposer,
@@ -53,7 +52,7 @@ export default function ChatWindowPanel({
   typingIndicator = null,
   isGroupChat = false,
   isChannelChat = false,
-  _isSavedChat = false,
+  isSavedChat = false,
   groupAvatarColor = null,
   groupAvatarUrl = "",
   channelSeenCounts = null,
@@ -72,11 +71,13 @@ export default function ChatWindowPanel({
   hasOlderMessages,
   handleSend,
   userScrolledUp,
+  isAtBottom = false,
   unreadInChat,
   onJumpToLatest,
   isConnected,
+  isOffline = false,
+  sseConnected = true,
   isDark,
-  insecureConnection,
   pendingUploadFiles,
   pendingUploadType,
   pendingVoiceMessage,
@@ -120,7 +121,6 @@ export default function ChatWindowPanel({
   headerAvatarColor = null,
   microphonePermissionStatus = "unknown",
   onRequestMicrophonePermission = null,
-  permissionsPrompt = null,
   copyToastVisible = false,
   registerMessageRef = null,
   onStartVoiceCall,
@@ -158,14 +158,14 @@ export default function ChatWindowPanel({
   const canOpenHeaderChatMenu = Boolean(
     onOpenContextMenu &&
       activeChat &&
-      (isGroupChat || isChannelChat || _isSavedChat),
+      (isGroupChat || isChannelChat || isSavedChat),
   );
   const canOpenHeaderUserMenu = Boolean(
     onOpenContextMenu &&
       activeHeaderPeer?.username &&
       !isGroupChat &&
       !isChannelChat &&
-      !_isSavedChat,
+      !isSavedChat,
   );
   const headerUserContextMenu = {
     disabled: !canOpenHeaderUserMenu,
@@ -239,21 +239,7 @@ export default function ChatWindowPanel({
     : showChannelMuteFooter
       ? 94
       : 24;
-  const [hideInsecureTooltip, setHideInsecureTooltip] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem("songbird-insecure-dismissed") === "1";
-  });
-  const isLocalhost =
-    typeof window !== "undefined" &&
-    (window.location.hostname === "localhost" ||
-      window.location.hostname === "127.0.0.1" ||
-      window.location.hostname === "::1" ||
-      window.location.hostname.endsWith(".localhost"));
-  const insecureTooltipRef = useRef(null);
-  const [insecureTooltipHeight, setInsecureTooltipHeight] = useState(0);
-  const permissionBannerRef = useRef(null);
   const sectionRef = useRef(null);
-  const [permissionBannerHeight, setPermissionBannerHeight] = useState(0);
   useEffect(() => {
     if (typeof document === "undefined") return undefined;
     const syncComposerFocus = () => {
@@ -268,47 +254,6 @@ export default function ChatWindowPanel({
       document.removeEventListener("focusout", syncComposerFocus);
     };
   }, [composerInputRef]);
-  useEffect(() => {
-    if (!insecureConnection) return;
-    if (typeof window === "undefined") return;
-    const dismissed =
-      window.localStorage.getItem("songbird-insecure-dismissed") === "1";
-    setHideInsecureTooltip(dismissed);
-  }, [insecureConnection]);
-  useLayoutEffect(() => {
-    if (!insecureConnection || hideInsecureTooltip) {
-      setInsecureTooltipHeight(0);
-      return;
-    }
-    const node = insecureTooltipRef.current;
-    if (!node || typeof window === "undefined") return;
-    const measure = () => {
-      const rect = node.getBoundingClientRect();
-      setInsecureTooltipHeight(Number(rect?.height || 0));
-    };
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => measure());
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [insecureConnection, hideInsecureTooltip]);
-  useLayoutEffect(() => {
-    if (!permissionsPrompt?.show) {
-      setPermissionBannerHeight(0);
-      return;
-    }
-    const node = permissionBannerRef.current;
-    if (!node || typeof window === "undefined") return;
-    const measure = () => {
-      const rect = node.getBoundingClientRect();
-      setPermissionBannerHeight(Number(rect?.height || 0));
-    };
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => measure());
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [permissionsPrompt?.show]);
   const {
     focusedMedia,
     setFocusedMedia,
@@ -355,12 +300,39 @@ export default function ChatWindowPanel({
     activeChatId &&
       userScrolledUp &&
       isTimelineScrollable &&
-      !isAtBottomRef?.current,
+      !isAtBottom,
   );
+  const getMessageDayLabel = useCallback((msg) => {
+    const rawDate = msg?.created_at || msg?._createdAt;
+    if (rawDate) {
+      const date = parseServerDate(rawDate);
+      if (!Number.isNaN(date.getTime())) {
+        return formatDayLabel(rawDate);
+      }
+    }
+    if (msg?._dayLabel) return msg._dayLabel;
+    if (msg?._dayKey) return msg._dayKey;
+    return "";
+  }, []);
+
+  const getMessageDayKey = useCallback(
+    (msg) => {
+      const rawDate = msg?.created_at || msg?._createdAt;
+      if (rawDate) {
+        const date = parseServerDate(rawDate);
+        if (!Number.isNaN(date.getTime())) {
+          return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+        }
+      }
+      return msg?._dayKey || getMessageDayLabel(msg);
+    },
+    [getMessageDayLabel],
+  );
+
   const groupedMessages = useMemo(() => {
     const groups = [];
     messages.forEach((msg) => {
-      const dayKey = msg?._dayKey || getMessageDayLabel(msg);
+      const dayKey = getMessageDayKey(msg);
       const dayLabel = getMessageDayLabel(msg);
       const lastGroup = groups[groups.length - 1];
       if (!lastGroup || lastGroup.dayKey !== dayKey) {
@@ -374,7 +346,7 @@ export default function ChatWindowPanel({
       }
     });
     return groups;
-  }, [messages]);
+  }, [messages, getMessageDayKey, getMessageDayLabel]);
 
   const refreshTimelineScrollable = useCallback(() => {
     const scroller = chatScrollRef?.current;
@@ -412,7 +384,7 @@ export default function ChatWindowPanel({
       setIsTimelineScrollable(canScroll);
       if (!canScroll) {
         const last = messages[messages.length - 1];
-        const key = last?._dayKey || "";
+        const key = getMessageDayKey(last);
         const label = getMessageDayLabel(last);
         setFloatingDay(key && label ? { key, label } : { key: "", label: "" });
         return;
@@ -434,6 +406,8 @@ export default function ChatWindowPanel({
     setFloatingDay,
     setIsTimelineScrollable,
     updateFloatingDayFromScroll,
+    getMessageDayKey,
+    getMessageDayLabel,
   ]);
 
   const startReachedLockRef = useRef(false);
@@ -717,32 +691,6 @@ export default function ChatWindowPanel({
   }, []);
 
   useEffect(() => {
-    if (isDesktop || !activeChatId) return;
-    let firstVideoUrl = null;
-    for (let i = 0; i < messages.length; i += 1) {
-      const files = Array.isArray(messages[i]?.files) ? messages[i].files : [];
-      const videoFile = files.find(
-        (file) => getFileRenderType(file) === "video" && file?.url,
-      );
-      if (videoFile?.url) {
-        firstVideoUrl = videoFile.url;
-        break;
-      }
-    }
-    if (!firstVideoUrl) return;
-    const warmupVideo = document.createElement("video");
-    warmupVideo.preload = "auto";
-    warmupVideo.muted = true;
-    warmupVideo.playsInline = true;
-    warmupVideo.src = firstVideoUrl;
-    warmupVideo.load();
-    return () => {
-      warmupVideo.removeAttribute("src");
-      warmupVideo.load();
-    };
-  }, [isDesktop, activeChatId, messages, getFileRenderType]);
-
-  useEffect(() => {
     if (!showUploadMenu) return;
     const handleOutside = (event) => {
       if (uploadMenuRef.current?.contains(event.target)) return;
@@ -920,19 +868,6 @@ export default function ChatWindowPanel({
     };
   }, [isDesktop]);
 
-  function getMessageDayLabel(msg) {
-    if (msg?._dayLabel) return msg._dayLabel;
-    if (msg?._dayKey) return msg._dayKey;
-    if (!msg?.created_at) return "";
-    const date = new Date(msg.created_at);
-    if (Number.isNaN(date.getTime())) return "";
-    return date.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  }
-
   const handleGroupChipClick = (groupKeyOrIndex) => {
     const dayKey =
       typeof groupKeyOrIndex === "string"
@@ -975,12 +910,6 @@ export default function ChatWindowPanel({
       ...chatScrollStaticStyle,
       overscrollBehaviorY:
         !isDesktop && composerFocused ? "none" : "contain",
-      paddingTop:
-        activeChatId && insecureConnection
-          ? insecureConnection
-            ? "1.25rem"
-            : "0.75rem"
-          : undefined,
       paddingBottom: activeChatId
         ? showComposer || showChannelMuteFooter
           ? "0.75rem"
@@ -991,7 +920,6 @@ export default function ChatWindowPanel({
       activeChatId,
       chatScrollStaticStyle,
       composerFocused,
-      insecureConnection,
       isDesktop,
       showComposer,
       showChannelMuteFooter,
@@ -1051,6 +979,7 @@ export default function ChatWindowPanel({
   const messageFilesProps = useMemo(
     () => ({
       isDesktop,
+      isOffline,
       loadedMediaThumbs,
       setLoadedMediaThumbs,
       mediaAspectByKey,
@@ -1067,6 +996,7 @@ export default function ChatWindowPanel({
     }),
     [
       isDesktop,
+      isOffline,
       loadedMediaThumbs,
       mediaAspectByKey,
       videoPosterByUrl,
@@ -1085,6 +1015,8 @@ export default function ChatWindowPanel({
   const renderMessageItem = (msg, options = {}) => (
     <MessageItem
       msg={msg}
+      isOffline={isOffline}
+      sseConnected={sseConnected}
       isFirstInGroup={options.isFirstInGroup}
       user={user}
       formatTime={formatTime}
@@ -1097,12 +1029,13 @@ export default function ChatWindowPanel({
       canSwipeReply={canSwipeReply}
       isGroupChat={isGroupChat}
       isChannelChat={isChannelChat}
+      isSavedChat={isSavedChat}
       chatId={activeChatId}
       chatName={activeFallbackTitle}
       chatColor={groupAvatarColor}
       seenCount={
         isChannelChat
-          ? (channelSeenCounts?.[Number(msg?._serverId || msg?.id || 0)] ??
+          ? (channelSeenCounts?.[msg?._serverId || msg?.id] ??
             msg?.seenCount ??
             null)
           : null
@@ -1111,24 +1044,24 @@ export default function ChatWindowPanel({
       onOpenMention={onOpenMention}
       onOpenForwardOrigin={onOpenForwardOrigin}
       forwardedChat={
-        Number(msg?.forwarded_from_chat_id || 0) > 0
-          ? forwardedChatsById?.[Number(msg?.forwarded_from_chat_id || 0)] || null
+        msg?.forwarded_from_chat_id
+          ? forwardedChatsById?.[msg.forwarded_from_chat_id] || null
           : null
       }
       forwardedChatStatus={
-        Number(msg?.forwarded_from_chat_id || 0) > 0
-          ? forwardedChatStatusById?.[Number(msg?.forwarded_from_chat_id || 0)] || null
+        msg?.forwarded_from_chat_id
+          ? forwardedChatStatusById?.[msg.forwarded_from_chat_id] || null
           : null
       }
       forwardedUser={
-        Number(msg?.forwarded_from_user_id || 0) > 0
-          ? forwardedUsersById?.[Number(msg?.forwarded_from_user_id || 0)] || null
+        msg?.forwarded_from_user_id
+          ? forwardedUsersById?.[msg.forwarded_from_user_id] || null
           : null
       }
       forwardedUserStatus={
-        Number(msg?.forwarded_from_user_id || 0) > 0
+        msg?.forwarded_from_user_id
           ? forwardedUserStatusByKey?.[
-              `id:${Number(msg?.forwarded_from_user_id || 0)}`
+              `id:${msg.forwarded_from_user_id}`
             ] || null
           : String(msg?.forwarded_from_username || "").trim()
             ? forwardedUserStatusByKey?.[
@@ -1185,12 +1118,7 @@ export default function ChatWindowPanel({
   return (
     <section
       ref={sectionRef}
-      className={
-        "fixed inset-0 top-0 md:relative md:inset-auto md:top-auto flex h-full flex-1 flex-col overflow-hidden border-x border-slate-300/80 bg-white shadow-xl shadow-emerald-500/10 dark:border-white/5 dark:bg-slate-900 md:border md:w-[65%] md:shadow-2xl md:shadow-emerald-500/15 transition-transform duration-300 ease-out will-change-transform " +
-        (mobileTab === "chat"
-          ? "transform-none"
-          : "translate-x-full md:transform-none")
-      }
+      className="fixed inset-0 top-0 md:relative md:inset-auto md:top-auto flex h-full flex-1 flex-col overflow-hidden border-x border-slate-300/80 bg-white shadow-xl shadow-emerald-500/10 dark:border-white/5 dark:bg-slate-900 md:border md:w-[65%] md:shadow-2xl md:shadow-emerald-500/15 transition-transform duration-300 ease-out will-change-transform"
       style={{
         top: "0px",
         height: isDesktop
@@ -1198,6 +1126,7 @@ export default function ChatWindowPanel({
           : "calc(100% - var(--mobile-bottom-offset, 0px))",
         zIndex: isDesktop ? "auto" : "var(--app-z, 20)",
         paddingTop: "max(0px, env(safe-area-inset-top))",
+        transform: isDesktop || mobileTab === "chat" ? "none" : "translateX(100%)",
       }}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
@@ -1227,27 +1156,9 @@ export default function ChatWindowPanel({
             >
               <>
                 {activeHeaderPeer?.isDeleted ? (
-                  <span
-                    className={`block min-w-0 max-w-[60vw] truncate text-center text-lg font-semibold text-slate-500 dark:text-slate-400 sm:max-w-[40vw] md:max-w-[28vw] ${
-                      hasPersian(activeFallbackTitle) ? "font-fa" : ""
-                    }`}
-                    dir="auto"
-                    style={{ unicodeBidi: "plaintext" }}
-                    title={activeFallbackTitle}
-                  >
-                    {activeFallbackTitle}
-                  </span>
-                ) : canOpenHeaderProfile ? (
-                  <button
-                    type="button"
-                    onClick={onOpenHeaderProfile}
-                    className="min-w-0 max-w-[60vw] text-center text-lg font-semibold transition hover:text-emerald-600 dark:hover:text-emerald-300 sm:max-w-[40vw] md:max-w-[28vw]"
-                    dir="auto"
-                    style={{ unicodeBidi: "plaintext" }}
-                    title={activeFallbackTitle}
-                  >
+                  <Tooltip label={activeFallbackTitle} placement="bottom" asChild>
                     <span
-                      className={`block min-w-0 truncate ${
+                      className={`block min-w-0 max-w-[60vw] truncate text-center text-lg font-semibold text-slate-500 dark:text-slate-400 sm:max-w-[40vw] md:max-w-[28vw] ${
                         hasPersian(activeFallbackTitle) ? "font-fa" : ""
                       }`}
                       dir="auto"
@@ -1255,18 +1166,38 @@ export default function ChatWindowPanel({
                     >
                       {activeFallbackTitle}
                     </span>
-                  </button>
+                  </Tooltip>
+                ) : canOpenHeaderProfile ? (
+                  <Tooltip label={activeFallbackTitle} placement="bottom" asChild>
+                    <button
+                      type="button"
+                      onClick={onOpenHeaderProfile}
+                      className="inline-flex min-w-0 max-w-[60vw] items-center gap-0.5 text-center text-lg font-semibold transition hover:text-emerald-600 dark:hover:text-emerald-300 sm:max-w-[40vw] md:max-w-[28vw]"
+                      dir="ltr"
+                    >
+                      <span
+                        className={`block min-w-0 truncate ${hasPersian(activeFallbackTitle) ? "font-fa" : ""}`}
+                        dir="auto"
+                      >
+                        {activeFallbackTitle}
+                      </span>
+                      {Boolean(activeChat?.verified) && <VerifiedBadge size={17} />}
+                      {!activeChat?.verified && Boolean(activeHeaderPeer?.user_verified) && <VerifiedBadge size={17} />}
+                      <UserRoleBadge role={activeHeaderPeer?.user_role} size={17} />
+                    </button>
+                  </Tooltip>
                 ) : (
-                  <span
-                    className={`block min-w-0 max-w-[60vw] truncate text-center text-lg font-semibold text-slate-700 dark:text-slate-100 sm:max-w-[40vw] md:max-w-[28vw] ${
-                      hasPersian(activeFallbackTitle) ? "font-fa" : ""
-                    }`}
-                    dir="auto"
-                    style={{ unicodeBidi: "plaintext" }}
-                    title={activeFallbackTitle}
-                  >
-                    {activeFallbackTitle}
-                  </span>
+                  <Tooltip label={activeFallbackTitle} placement="bottom" asChild>
+                    <span
+                      className="inline-flex min-w-0 max-w-[60vw] items-center gap-0.5 truncate text-center text-lg font-semibold text-slate-700 dark:text-slate-100 sm:max-w-[40vw] md:max-w-[28vw]"
+                      dir="ltr"
+                    >
+                      <span className={`truncate ${hasPersian(activeFallbackTitle) ? "font-fa" : ""}`} dir="auto">{activeFallbackTitle}</span>
+                      {Boolean(activeChat?.verified) && <VerifiedBadge size={17} />}
+                      {!activeChat?.verified && Boolean(activeHeaderPeer?.user_verified) && <VerifiedBadge size={17} />}
+                      <UserRoleBadge role={activeHeaderPeer?.user_role} size={17} />
+                    </span>
+                  </Tooltip>
                 )}
                 {showStatus ? (
                   <p className="flex min-w-0 max-w-[70vw] items-center gap-2 text-xs text-slate-500 dark:text-slate-400 sm:max-w-[42vw] md:max-w-[30vw]">
@@ -1285,94 +1216,53 @@ export default function ChatWindowPanel({
                           <span className="sb-typing-dot" />
                           <span className="sb-typing-dot" />
                         </span>
-                        {typingIndicator?.type === "group_single" ? (
+                        <Tooltip
+                          label={typingIndicator?.fullLabel || typingIndicator?.label}
+                          placement="bottom"
+                          asChild
+                          // fullLabel names every typist, which the collapsed
+                          // label omits, so show it even when nothing is clipped.
+                          whenTruncated={false}
+                        >
                           <span
-                            className="block min-w-0 truncate whitespace-nowrap leading-[1.2]"
-                            title={typingIndicator?.fullLabel || typingIndicator?.name || ""}
-                          >
-                            <span
-                              className={`min-w-0 truncate ${
-                                hasPersian(typingIndicator?.name) ? "font-fa sb-fa-baseline-fix" : ""
-                              }`}
-                              dir="auto"
-                              style={{ unicodeBidi: "isolate" }}
-                            >
-                              {typingIndicator?.name}
-                            </span>
-                          </span>
-                        ) : typingIndicator?.type === "group_pair" ? (
-                          <span
-                            className="block min-w-0 truncate whitespace-nowrap leading-[1.2]"
-                            title={typingIndicator?.fullLabel || typingIndicator?.label || ""}
-                            dir="ltr"
-                            style={{ unicodeBidi: "isolate" }}
-                          >
-                            <bdi
-                              className={`min-w-0 truncate ${
-                                hasPersian(typingIndicator?.firstName)
-                                  ? "font-fa sb-fa-baseline-fix"
-                                  : ""
-                              }`}
-                              dir="auto"
-                            >
-                              {typingIndicator?.firstName}
-                            </bdi>
-                            <span className="px-1">and</span>
-                            <bdi
-                              className={`min-w-0 truncate ${
-                                hasPersian(typingIndicator?.secondName)
-                                  ? "font-fa sb-fa-baseline-fix"
-                                  : ""
-                              }`}
-                              dir="auto"
-                            >
-                              {typingIndicator?.secondName}
-                            </bdi>
-                          </span>
-                        ) : (
-                          <span
-                            className={`block min-w-0 truncate whitespace-nowrap leading-[1.2] ${
+                            className={`block min-w-0 truncate whitespace-nowrap font-semibold leading-[1.2] text-emerald-500 dark:text-emerald-300 ${
                               hasPersian(typingIndicator?.label) ? "font-fa sb-fa-baseline-fix" : ""
                             }`}
                             dir="auto"
                             style={{ unicodeBidi: "plaintext" }}
-                            title={typingIndicator?.fullLabel || typingIndicator?.label}
                           >
                             {typingIndicator?.label}
                           </span>
-                        )}
+                        </Tooltip>
                       </>
                     ) : isGroupChat || isChannelChat ? (
-                      <span
-                        className={`block min-w-0 truncate whitespace-nowrap text-[11px] leading-[1.2] sm:text-xs ${
-                          hasPersian(peerStatusLabel) ? "font-fa sb-fa-baseline-fix" : ""
-                        }`}
-                        dir="auto"
-                        style={{ unicodeBidi: "plaintext" }}
-                        title={peerStatusLabel}
-                      >
-                        {peerStatusLabel}
-                      </span>
-                    ) : (
-                      <>
+                      <Tooltip label={peerStatusLabel} placement="bottom" asChild>
                         <span
-                          className={`h-2 w-2 rounded-full ${
-                            peerStatusLabel === "online"
-                              ? "bg-emerald-400"
-                              : "bg-slate-400"
-                          }`}
-                        />
-                        <span
-                          className={`block min-w-0 truncate leading-[1.2] ${
+                          className={`block min-w-0 truncate whitespace-nowrap text-[11px] leading-[1.2] sm:text-xs ${
                             hasPersian(peerStatusLabel) ? "font-fa sb-fa-baseline-fix" : ""
                           }`}
                           dir="auto"
                           style={{ unicodeBidi: "plaintext" }}
-                          title={peerStatusLabel}
                         >
                           {peerStatusLabel}
                         </span>
-                      </>
+                      </Tooltip>
+                    ) : (
+                      <Tooltip label={peerStatusLabel} placement="bottom" asChild>
+                        <span
+                          className={`block min-w-0 truncate leading-[1.2] ${
+                            peerStatusLabel === "online"
+                              ? "font-semibold text-emerald-500 dark:text-emerald-300"
+                              : ""
+                          } ${
+                            hasPersian(peerStatusLabel) ? "font-fa sb-fa-baseline-fix" : ""
+                          }`}
+                          dir="auto"
+                          style={{ unicodeBidi: "plaintext" }}
+                        >
+                          {peerStatusLabel}
+                        </span>
+                      </Tooltip>
                     )}
                   </p>
                 ) : null}
@@ -1402,7 +1292,7 @@ export default function ChatWindowPanel({
                 ) : null}
               <ContextMenuSurface
                 as="div"
-                className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
                 style={getAvatarStyle(activePeerColor)}
                 contextMenu={headerPrimaryContextMenu}
               >
@@ -1413,7 +1303,7 @@ export default function ChatWindowPanel({
               activeHeaderPeer?.isDeleted ? (
                 <ContextMenuSurface
                   as="div"
-                  className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
                   style={getAvatarStyle(activePeerColor)}
                   contextMenu={headerPrimaryContextMenu}
                 >
@@ -1434,7 +1324,7 @@ export default function ChatWindowPanel({
                       name={activeFallbackTitle}
                       color={activePeerColor}
                       initials={activePeerInitials}
-                      className="h-9 w-9 flex-shrink-0 transition group-hover:ring-2 group-hover:ring-emerald-300"
+                      className="h-9 w-9 shrink-0 transition group-hover:ring-2 group-hover:ring-emerald-300"
                     />
                   </ContextMenuSurface>
                 ) : (
@@ -1448,7 +1338,7 @@ export default function ChatWindowPanel({
                       name={activeFallbackTitle}
                       color={activePeerColor}
                       initials={activePeerInitials}
-                      className="h-9 w-9 flex-shrink-0"
+                      className="h-9 w-9 shrink-0"
                     />
                   </ContextMenuSurface>
                 )
@@ -1457,7 +1347,7 @@ export default function ChatWindowPanel({
                   as="button"
                   type="button"
                   onClick={onOpenHeaderProfile}
-                  className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full transition hover:ring-2 hover:ring-emerald-300 ${hasPersian(activePeerInitials) ? "font-fa" : ""}`}
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition hover:ring-2 hover:ring-emerald-300 ${hasPersian(activePeerInitials) ? "font-fa" : ""}`}
                   style={getAvatarStyle(activePeerColor)}
                   contextMenu={headerPrimaryContextMenu}
                 >
@@ -1466,7 +1356,7 @@ export default function ChatWindowPanel({
               ) : (
                 <ContextMenuSurface
                   as="div"
-                  className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ${hasPersian(activePeerInitials) ? "font-fa" : ""}`}
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${hasPersian(activePeerInitials) ? "font-fa" : ""}`}
                   style={getAvatarStyle(activePeerColor)}
                   contextMenu={headerPrimaryContextMenu}
                 >
@@ -1485,7 +1375,7 @@ export default function ChatWindowPanel({
                   <img
                     src={groupAvatarUrl}
                     alt={activeFallbackTitle}
-                    className="h-9 w-9 flex-shrink-0 rounded-full object-cover transition group-hover:ring-2 group-hover:ring-emerald-300"
+                    className="h-9 w-9 shrink-0 rounded-full object-cover transition group-hover:ring-2 group-hover:ring-emerald-300"
                   />
                 </ContextMenuSurface>
               ) : (
@@ -1496,7 +1386,7 @@ export default function ChatWindowPanel({
                   <img
                     src={groupAvatarUrl}
                     alt={activeFallbackTitle}
-                    className="h-9 w-9 flex-shrink-0 rounded-full object-cover"
+                    className="h-9 w-9 shrink-0 rounded-full object-cover"
                   />
                 </ContextMenuSurface>
               )
@@ -1505,7 +1395,7 @@ export default function ChatWindowPanel({
                   as="button"
                   type="button"
                   onClick={onOpenHeaderProfile}
-                  className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full transition hover:ring-2 hover:ring-emerald-300 ${hasPersian(activePeerInitials) ? "font-fa" : ""}`}
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition hover:ring-2 hover:ring-emerald-300 ${hasPersian(activePeerInitials) ? "font-fa" : ""}`}
                   style={getAvatarStyle(activePeerColor)}
                   contextMenu={headerPrimaryContextMenu}
                 >
@@ -1514,7 +1404,7 @@ export default function ChatWindowPanel({
               ) : (
               <ContextMenuSurface
                 as="div"
-                className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ${hasPersian(activePeerInitials) ? "font-fa" : ""}`}
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${hasPersian(activePeerInitials) ? "font-fa" : ""}`}
                 style={getAvatarStyle(activePeerColor)}
                 contextMenu={headerPrimaryContextMenu}
               >
@@ -1526,123 +1416,12 @@ export default function ChatWindowPanel({
         </>
       ) : null}
 
-      {insecureConnection &&
-      activeChatId &&
-      !hideInsecureTooltip &&
-      !isLocalhost ? (
-        <div className="w-full">
-          <div
-            ref={insecureTooltipRef}
-            className="flex w-full items-center justify-between border-y border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700 shadow-sm dark:border-rose-500/40 dark:bg-rose-900/40 dark:text-rose-100"
-          >
-            <span className="flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              Connection is not secure
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                if (typeof window !== "undefined") {
-                  window.localStorage.setItem(
-                    "songbird-insecure-dismissed",
-                    "1",
-                  );
-                }
-                setHideInsecureTooltip(true);
-              }}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-rose-200 text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 dark:border-rose-500/40 dark:text-rose-100 dark:hover:bg-rose-900/60"
-              aria-label="Dismiss"
-            >
-              <Close
-                size={14}
-                className="icon-anim-pop relative -left-[0.5px]"
-              />
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {permissionsPrompt?.show && activeChatId ? (
-        <div className="w-full">
-          <div
-            ref={permissionBannerRef}
-            className="flex w-full flex-col gap-2 border-y border-emerald-200/70 bg-emerald-50/70 px-4 py-3 text-xs font-semibold text-emerald-700 shadow-sm dark:border-emerald-500/30 dark:bg-slate-900/70 dark:text-emerald-200"
-          >
-            {permissionsPrompt?.notification?.show &&
-            permissionsPrompt?.mode === "notification" ? (
-              <div className="flex w-full items-center justify-between gap-3">
-                <span className="flex min-w-0 items-center gap-2">
-                  <Bell className="h-4 w-4 shrink-0" />
-                  <span className="truncate">
-                    Enable notifications for message alerts
-                  </span>
-                </span>
-                <div className="flex shrink-0 items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={permissionsPrompt.notification.onRequest}
-                    className="inline-flex h-8 items-center rounded-full bg-emerald-500 px-4 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-emerald-500/40"
-                  >
-                    Allow
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => permissionsPrompt.onDismiss?.("notification")}
-                    className="inline-flex h-8 items-center justify-center rounded-full border border-rose-200 px-3 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 hover:shadow-[0_0_16px_rgba(244,63,94,0.2)] dark:border-rose-500/30 dark:text-rose-200 dark:hover:bg-rose-500/10"
-                  >
-                    Not now
-                  </button>
-                </div>
-              </div>
-            ) : null}
-            {permissionsPrompt?.microphone?.show &&
-            permissionsPrompt?.mode === "microphone" ? (
-              <div className="flex w-full items-center justify-between gap-3">
-                <span className="flex min-w-0 items-center gap-2">
-                  <Mic className="h-4 w-4 shrink-0" />
-                  <span className="truncate">
-                    Enable microphone for voice messages
-                  </span>
-                </span>
-                <div className="flex shrink-0 items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={permissionsPrompt.microphone.onRequest}
-                    className="inline-flex h-8 items-center rounded-full bg-emerald-500 px-4 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-emerald-500/40"
-                  >
-                    Allow
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => permissionsPrompt.onDismiss?.("microphone")}
-                    className="inline-flex h-8 items-center justify-center rounded-full border border-rose-200 px-3 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 hover:shadow-[0_0_16px_rgba(244,63,94,0.2)] dark:border-rose-500/30 dark:text-rose-200 dark:hover:bg-rose-500/10"
-                  >
-                    Not now
-                  </button>
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-
       <div className="flex-1 min-h-0">
         {activeChatId && floatingDay.key && isTimelineScrollable ? (
           <div
-            className="absolute left-1/2 z-[3] -translate-x-1/2"
+            className="absolute left-1/2 z-3 -translate-x-1/2"
             style={{
-              top: `calc(84px + ${
-                insecureConnection &&
-                activeChatId &&
-                !hideInsecureTooltip &&
-                !isLocalhost
-                  ? Math.max(0, (insecureTooltipHeight || 56) + 16)
-                  : 0
-              }px + ${
-                permissionsPrompt?.show
-                  ? Math.max(0, (permissionBannerHeight || 48) + 12)
-                  : 0
-              }px)`,
+              top: "84px",
               // Keep the chip in the DOM at all times so floatingChipRef always
               // has a valid layout position for updateFloatingDayFromScroll.
               visibility: showFloatingLabel ? "visible" : "hidden",
@@ -1660,7 +1439,7 @@ export default function ChatWindowPanel({
                   floatingDay,
                 });
               }}
-              className="inline-flex items-center justify-center rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
+              className="inline-flex items-center justify-center rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 shadow-xs transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
             >
               <span className="leading-none">{floatingDay.label}</span>
             </button>
@@ -1679,12 +1458,14 @@ export default function ChatWindowPanel({
           </div>
         ) : (
           <MessageTimeline
-            key={`timeline-${Number(activeChatId || 0)}`}
+            key={`timeline-${activeChatId || ""}`}
             activeChatId={activeChatId}
             loadingMessages={loadingMessages}
             messages={messages}
             groupedMessages={groupedMessages}
             loadingOlderMessages={loadingOlderMessages}
+            hasOlderMessages={hasOlderMessages}
+            isOffline={isOffline}
             handleGroupChipClick={handleGroupChipClick}
             renderMessageItem={renderMessageItem}
             chatScrollRef={chatScrollRef}

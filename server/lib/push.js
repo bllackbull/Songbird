@@ -45,7 +45,8 @@ export function createPushService({
 
   async function sendPushNotificationToUsers(userIds = [], payload = {}) {
     if (!PUSH_ENABLED) return;
-    const targets = listPushSubscriptionsByUserIds(userIds);
+    const rawTargets = listPushSubscriptionsByUserIds(userIds);
+    const targets = (rawTargets && typeof rawTargets.then === "function" ? await rawTargets : rawTargets) || [];
     if (!targets.length) return;
 
     const badgeByUserId = {};
@@ -53,9 +54,13 @@ export function createPushService({
       const uid = sub.user_id;
       if (!(uid in badgeByUserId)) {
         try {
-          badgeByUserId[uid] = getTotalUnreadCount
+          const rawCount = getTotalUnreadCount
             ? getTotalUnreadCount(uid)
             : 1;
+          badgeByUserId[uid] =
+            rawCount && typeof rawCount.then === "function"
+              ? await rawCount
+              : rawCount;
         } catch {
           badgeByUserId[uid] = 1;
         }
@@ -88,23 +93,31 @@ export function createPushService({
           const status = Number(error?.statusCode || 0);
           const errBody = String(error?.body || "");
           
-          // Log detailed error information for debugging
-          let errorDetails = String(error?.message || error).slice(0, 120);
-          if (error?.errors && Array.isArray(error.errors)) {
-            // AggregateError contains multiple errors
-            errorDetails = error.errors.map(e => String(e?.message || e)).join('; ').slice(0, 200);
-          }
-          
-          console.warn(
-            `[push] delivery failed endpoint=${sub.endpoint.slice(-24)} status=${status} body=${errBody.slice(0, 200)} err=${errorDetails}`,
-          );
-          
           const isGone =
             status === 404 ||
             status === 410 ||
+            status === 401 ||
+            status === 403 ||
             (status === 400 && errBody.includes("VapidPkHashMismatch"));
           if (isGone) {
-            deletePushSubscription(sub.endpoint);
+            console.info(
+              `[push] Pruned stale subscription endpoint=${sub.endpoint.slice(-24)} (status=${status})`,
+            );
+            try {
+              const res = deletePushSubscription(sub.endpoint);
+              if (res && typeof res.then === "function") await res;
+            } catch {}
+          } else {
+            // Log detailed error information for debugging
+            let errorDetails = String(error?.message || error).slice(0, 120);
+            if (error?.errors && Array.isArray(error.errors)) {
+              // AggregateError contains multiple errors
+              errorDetails = error.errors.map(e => String(e?.message || e)).join('; ').slice(0, 200);
+            }
+
+            console.warn(
+              `[push] delivery failed endpoint=${sub.endpoint.slice(-24)} status=${status} body=${errBody.slice(0, 200)} err=${errorDetails}`,
+            );
           }
         }
       }),

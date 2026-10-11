@@ -1,0 +1,459 @@
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import {
+  ArrowDown,
+  ArrowUpDown,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Close,
+  Filter,
+  Search,
+} from "../../icons/lucide.js";
+import { labelCls, PAGE_SIZE_OPTIONS, PAGE_LOCK_THRESHOLD, inputSmCls, searchIconCls } from "./adminShared.js";
+import { hasPersian } from "../../utils/fontUtils.js";
+import Tooltip from "../common/Tooltip.jsx";
+
+// ─── Loading / empty states ─────────────────────────────────────────────────
+
+export function LoadingRows() {
+  return (
+    <div className="space-y-2">
+      {[1, 2, 3].map((n) => (
+        <div key={n} className="h-12 animate-pulse rounded-2xl border border-emerald-200/40 bg-white/60 dark:border-emerald-500/20 dark:bg-slate-950/40" />
+      ))}
+    </div>
+  );
+}
+
+export function EmptyState({ message }) {
+  return (
+    <div className="flex h-32 items-center justify-center rounded-2xl border border-dashed border-slate-200 dark:border-white/10">
+      <p className="text-sm text-slate-400 dark:text-slate-500">{message}</p>
+    </div>
+  );
+}
+
+// ─── Tab toolbar ─────────────────────────────────────────────────────────────
+
+// Consistent flex row for the search + filter + action controls at the top of
+// every paginated tab. Wraps on sm screens so buttons don't get squeezed.
+export function TabToolbar({ children }) {
+  return (
+    <div className="flex flex-nowrap items-center gap-2 sm:flex-wrap">
+      {children}
+    </div>
+  );
+}
+
+// ─── Tab search input ─────────────────────────────────────────────────────────
+
+// Shared search field used by UsersTab, ChatsTab, and LogsTab.
+export function TabSearchInput({ value, onChange, placeholder = "Search…" }) {
+  const isPersian = hasPersian(value);
+  const hasSearchText = Boolean(String(value || "").trim());
+  return (
+    <label className="group relative block min-w-0 flex-1 sm:min-w-40">
+      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
+        <Search size={16} className={searchIconCls} />
+      </span>
+      <input
+        type="text"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        lang={isPersian ? "fa" : "en"}
+        dir={isPersian ? "rtl" : "ltr"}
+        className={inputSmCls + " pl-8 pr-10" + (isPersian ? " font-fa text-right" : "")}
+        style={{ unicodeBidi: "plaintext" }}
+      />
+      {hasSearchText ? (
+        <button
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => onChange("")}
+          className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-rose-600 transition hover:bg-rose-100 hover:shadow-[0_0_18px_rgba(244,63,94,0.22)] dark:text-rose-200 dark:hover:bg-rose-500/10"
+          aria-label="Clear search"
+        >
+          <Close size={14} className="icon-anim-pop" />
+        </button>
+      ) : null}
+    </label>
+  );
+}
+
+// ─── Section heading ──────────────────────────────────────────────────────────
+
+// Small all-caps overline label used above content sections in DashboardTab,
+// ActionsTab, and SettingsTab. `danger` switches the colour to rose.
+export function SectionHeading({ children, danger = false }) {
+  return (
+    <h2 className={`mb-3 text-[10px] font-semibold uppercase tracking-widest ${
+      danger
+        ? "text-rose-400 dark:text-rose-400/80"
+        : "text-slate-400 dark:text-slate-500"
+    }`}>
+      {children}
+    </h2>
+  );
+}
+
+// ─── Badges / icons ──────────────────────────────────────────────────────────
+
+const ROLE_CHIP_BASE = "inline-flex w-12 items-center justify-center rounded-full border px-1 py-px text-[9px] font-semibold uppercase tracking-wide";
+
+export function RoleBadge({ role, banned = false }) {
+  if (banned) return (
+    <span className={`${ROLE_CHIP_BASE} border-rose-200 bg-rose-100 text-rose-600 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-400`}>banned</span>
+  );
+  const r = (role === 0 || role === "0" || !role) ? "user" : String(role);
+  if (r === "user") return <span className="text-[11px] text-slate-400 dark:text-slate-500">user</span>;
+  if (r === "owner") return (
+    <span className={`${ROLE_CHIP_BASE} border-amber-300 bg-amber-50 text-amber-600 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-400`}>{r}</span>
+  );
+  return (
+    <span className={`${ROLE_CHIP_BASE} border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-400`}>{r}</span>
+  );
+}
+
+// ─── Sortable table header ─────────────────────────────────────────────────
+
+export function SortTh({ field, sortBy, sortDir, onToggle, children }) {
+  const active = sortBy === field;
+  return (
+    <th className="cursor-pointer select-none whitespace-nowrap px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400" onClick={() => onToggle(field)}>
+      <span className="inline-flex items-center gap-1">
+        {children}
+        {active
+          ? <ArrowDown size={11} className={`text-emerald-500 transition-transform ${sortDir === "ASC" ? "rotate-180" : ""}`} />
+          : <ArrowUpDown size={10} className="opacity-30" />}
+      </span>
+    </th>
+  );
+}
+
+// ─── Pagination ─────────────────────────────────────────────────────────────
+
+// Page-size selector always showing the current size as its label and 
+// opening upward (it lives in the bottom footer). When `disabled`, it 
+// renders as a static, dimmed control with no menu.
+function PageSizeSelect({ value, onChange, options, disabled = false }) {
+  const { open, toggle, setOpen, btnRef, menuRef } = useDropdown();
+  const isOpen = open && !disabled;
+  return (
+    <div className="relative">
+      <Tooltip label="Rows per page">
+        <button ref={btnRef} type="button" onClick={disabled ? undefined : toggle} disabled={disabled}
+          aria-expanded={isOpen}
+          className="relative flex h-8 items-center gap-1.5 rounded-xl border border-emerald-200/70 bg-white/90 pl-3 pr-7 text-xs font-semibold text-slate-600 outline-hidden transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-emerald-200/70 disabled:hover:bg-white/90 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-emerald-500/5 dark:disabled:hover:bg-slate-900/50">
+          <span className="truncate">{value} / page</span>
+          <ChevronDown size={15} className={`absolute right-2 top-1/2 -translate-y-1/2 text-emerald-500 transition-transform ${isOpen ? "" : "rotate-180"}`} />
+        </button>
+      </Tooltip>
+      {isOpen && (
+        <div ref={menuRef} className="absolute bottom-full right-0 z-50 mb-1.5 min-w-max overflow-hidden rounded-xl border border-emerald-200 bg-white p-1 text-xs font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100">
+          {options.map((opt) => (
+            <button key={opt} type="button" onClick={() => { onChange(opt); setOpen(false); }}
+              className={`flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200 ${opt === value ? "text-emerald-700 dark:text-emerald-300" : ""}`}>
+              <span>{opt} / page</span>
+              {opt === value && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Server-side pagination footer. `total` is the count across the whole filtered
+// dataset (not just the current page), so sorting/filtering always span every
+// item. Both the prev/next controls and the page-size selector are always
+// rendered for a stable layout; they lock (disabled + dimmed) when the list has
+// PAGE_LOCK_THRESHOLD items or fewer, since everything then fits on one page at
+// any size. Renders nothing only when the list is completely empty.
+export function Pagination({
+  page,
+  pageSize,
+  total,
+  onPageChange,
+  pageSizeOptions = PAGE_SIZE_OPTIONS,
+  onPageSizeChange,
+  busy = false,
+}) {
+  const safeTotal    = Math.max(0, Number(total) || 0);
+  const safePageSize = Math.max(1, Number(pageSize) || 1);
+  const pageCount    = Math.max(1, Math.ceil(safeTotal / safePageSize));
+  const current      = Math.min(Math.max(1, Number(page) || 1), pageCount);
+
+  if (safeTotal === 0) return null;
+
+  const first = (current - 1) * safePageSize + 1;
+  const last  = Math.min(current * safePageSize, safeTotal);
+  // Locked when the whole list fits on one page regardless of chosen size.
+  const locked = safeTotal <= PAGE_LOCK_THRESHOLD;
+  const go = (next) => {
+    const target = Math.min(Math.max(1, next), pageCount);
+    if (target !== current && !busy) onPageChange(target);
+  };
+
+  const navBtn =
+    "inline-flex h-8 w-8 items-center justify-center rounded-xl border border-emerald-200/70 bg-white/90 text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-emerald-200/70 disabled:hover:bg-white/90 disabled:hover:text-slate-500 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-emerald-500/10 dark:disabled:hover:bg-slate-900/50 dark:disabled:hover:text-slate-300";
+
+  const canSelectSize = typeof onPageSizeChange === "function";
+
+  return (
+    <div className="flex items-center justify-between gap-2 px-1 pt-1">
+      <p className="text-[11px] text-slate-400 dark:text-slate-500">
+        <span className="font-semibold text-slate-600 dark:text-slate-300">{first}–{last}</span> of{" "}
+        <span className="font-semibold text-slate-600 dark:text-slate-300">{safeTotal}</span>
+      </p>
+      <div className="flex items-center gap-1.5">
+        <Tooltip label="Previous page">
+          <button type="button" onClick={() => go(current - 1)} disabled={locked || busy || current <= 1} className={navBtn}>
+            <ChevronLeft size={16} />
+          </button>
+        </Tooltip>
+        <span className="px-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+          {current} / {pageCount}
+        </span>
+        <Tooltip label="Next page">
+          <button type="button" onClick={() => go(current + 1)} disabled={locked || busy || current >= pageCount} className={navBtn}>
+            <ChevronRight size={16} />
+          </button>
+        </Tooltip>
+        <PageSizeSelect value={safePageSize} onChange={onPageSizeChange} options={pageSizeOptions} disabled={locked || !canSelectSize} />
+      </div>
+    </div>
+  );
+}
+
+// ─── Dropdowns ────────────────────────────────────────────────────────────────
+
+function useDropdown() {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef(null);
+  const menuRef = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = (e) => {
+      if (menuRef.current?.contains(e.target)) return;
+      // Clicks on the trigger are handled by its own onClick (which toggles).
+      if (btnRef.current?.contains(e.target)) return;
+      setOpen(false);
+    };
+    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", close, true);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("pointerdown", close, true); document.removeEventListener("keydown", onKey); };
+  }, [open]);
+  const toggle = () => setOpen((o) => !o);
+  return { open, setOpen, toggle, btnRef, menuRef };
+}
+
+export function CustomSelect({ value, onChange, options, placeholder = "Select…" }) {
+  const { open, toggle, setOpen, btnRef, menuRef } = useDropdown();
+  const selected = options.find(([v]) => v === value);
+  const label = selected?.[1] ?? placeholder;
+  return (
+    <div className="relative">
+      <button ref={btnRef} type="button" onClick={toggle} aria-expanded={open}
+        className="relative flex w-full items-center rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-10 text-left text-sm font-semibold text-slate-700 outline-hidden transition hover:border-emerald-300 hover:bg-emerald-50 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-emerald-500/10">
+        <span className="flex-1 truncate">{label}</span>
+        <ChevronDown size={15} className={`absolute right-3 top-1/2 -translate-y-1/2 text-emerald-500 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div ref={menuRef} className="absolute left-0 right-0 z-50 mt-1.5 overflow-hidden rounded-2xl border border-emerald-200 bg-white p-1 text-sm font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100">
+          {options.map(([v, l]) => (
+            <button key={v} type="button" onClick={() => { onChange(v); setOpen(false); }}
+              className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200 ${v === value ? "text-emerald-700 dark:text-emerald-300" : ""}`}>
+              <span className="truncate">{l}</span>
+              {v === value && <span className="ml-2 h-2 w-2 shrink-0 rounded-full bg-emerald-500" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function CompactSelect({ value, onChange, options, placeholder = "Select…", inline = true }) {
+  const { open, toggle, setOpen, btnRef, menuRef } = useDropdown();
+  const selected = options.find(([v]) => v === value);
+  const label = selected?.[1] ?? placeholder;
+  return (
+    <div className="relative">
+      <button ref={btnRef} type="button" onClick={toggle} aria-expanded={open}
+        className="relative flex w-full items-center rounded-xl border border-emerald-200/70 bg-white/90 py-2 pl-3 pr-7 text-left text-xs font-semibold text-slate-600 outline-hidden transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-emerald-500/5">
+        <span className="flex-1 truncate">{label}</span>
+        <ChevronDown size={12} className={`absolute right-2 top-1/2 -translate-y-1/2 text-emerald-500 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div ref={menuRef} className={`${inline ? "mt-1.5 w-full" : "absolute left-0 right-0 z-50 mt-1.5"} overflow-hidden rounded-xl border border-emerald-200 bg-white p-1 text-xs font-semibold text-slate-700 shadow-lg shadow-emerald-950/5 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100`}>
+          {options.map(([v, l]) => (
+            <button key={v} type="button" onClick={() => { onChange(v); setOpen(false); }}
+              className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200 ${v === value ? "text-emerald-700 dark:text-emerald-300" : ""}`}>
+              <span className="truncate">{l}</span>
+              {v === value && <span className="ml-2 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function FilterPopover({ sections = [], onReset }) {
+  const { open, toggle, setOpen, btnRef, menuRef } = useDropdown();
+  const activeCount = sections.filter((s) => Boolean(s.value)).length;
+
+  return (
+    <div className="relative shrink-0">
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={toggle}
+        aria-expanded={open}
+        aria-label="Filter"
+        className={`relative flex h-9 w-9 items-center justify-center rounded-xl border text-xs font-semibold outline-hidden transition sm:w-auto sm:justify-start sm:gap-1.5 sm:px-3 ${
+          activeCount > 0
+            ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/50 dark:bg-emerald-500/10 dark:text-emerald-300"
+            : "border-emerald-200/70 bg-white/90 text-slate-600 hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-emerald-500/5"
+        }`}
+      >
+        <Filter size={15} className="text-emerald-500 shrink-0 icon-anim-pop" />
+        <span className="hidden sm:inline">Filter</span>
+        <ChevronDown size={12} className={`hidden text-emerald-500 transition-transform sm:inline-flex ${open ? "rotate-180" : ""}`} />
+        {activeCount > 0 && (
+          <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-bold text-white shadow-xs">
+            {activeCount}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div
+          ref={menuRef}
+          className="absolute right-0 z-50 mt-1.5 w-56 max-h-[85vh] flex flex-col rounded-2xl border border-emerald-200 bg-white p-2.5 text-xs font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 sm:w-60"
+        >
+          <div className="flex shrink-0 items-center justify-between border-b border-slate-100 pb-2 mb-2 dark:border-white/5">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Filter Options</span>
+            {activeCount > 0 && onReset && (
+              <button
+                type="button"
+                onClick={() => { onReset(); setOpen(false); }}
+                className="rounded-full border border-rose-200/80 bg-rose-50/60 px-2 py-0.5 text-[10px] font-semibold text-rose-600 outline-hidden transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-[0_0_12px_rgba(244,63,94,0.25)] dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300 dark:hover:bg-rose-500/20"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+          <div className="space-y-2.5 overflow-y-auto pr-1">
+            {sections.map((sec) => (
+              <div key={sec.id} className="space-y-1">
+                <label className="block text-[11px] text-slate-500 dark:text-slate-400">{sec.label}</label>
+                <CompactSelect value={sec.value} onChange={sec.onChange} options={sec.options} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function FilterDropdown({ value, onChange, options, icon: Icon = Filter }) {
+  const { open, toggle, setOpen, btnRef, menuRef } = useDropdown();
+  const selected = options.find(([v]) => v === value);
+  const label = selected?.[1] ?? options[0]?.[1] ?? "Filter";
+  // On mobile the label is hidden and the button collapses to an icon.
+  const isActive = Boolean(value);
+  return (
+    <div className="relative">
+      <button ref={btnRef} type="button" onClick={toggle} aria-expanded={open}
+        className="relative flex h-9 w-9 items-center justify-center rounded-xl border border-emerald-200/70 bg-white/90 text-xs font-semibold text-slate-600 outline-hidden transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-emerald-500/5 sm:w-auto sm:gap-1.5 sm:pl-3 sm:pr-7">
+        <Icon size={16} className="text-emerald-500 sm:hidden" />
+        <span className="hidden max-w-24 truncate sm:inline">{label}</span>
+        {isActive && (
+          <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-emerald-500 sm:hidden" />
+        )}
+        <ChevronDown size={12} className={`absolute right-2 top-1/2 hidden -translate-y-1/2 text-emerald-500 transition-transform sm:inline-flex ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div ref={menuRef} className="absolute right-0 z-50 mt-1.5 min-w-max overflow-hidden rounded-2xl border border-emerald-200 bg-white p-1 text-xs font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100">
+          {options.map(([v, l]) => (
+            <button key={v} type="button" onClick={() => { onChange(v); setOpen(false); }}
+              className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200 ${v === value ? "text-emerald-700 dark:text-emerald-300" : ""}`}>
+              <span>{l}</span>
+              {v === value && <span className="ml-3 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Modals ────────────────────────────────────────────────────────────────────
+
+export function Modal({ title, onClose, children, wide = false }) {
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <div className="fixed inset-0 z-200 flex items-center justify-center bg-black/40 px-6 py-6"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className={`app-scroll relative w-full ${wide ? "max-w-lg" : "max-w-sm"} max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl border border-emerald-100/70 bg-white shadow-xl dark:border-emerald-500/30 dark:bg-slate-950`}>
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-white/5">
+          <h3 className="text-sm font-semibold text-emerald-700 dark:text-emerald-200">{title}</h3>
+          <button type="button" onClick={onClose}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-rose-200 text-rose-600 transition hover:bg-rose-50 dark:border-rose-500/30 dark:text-rose-300 dark:hover:bg-rose-500/10">
+            <Close size={14} />
+          </button>
+        </div>
+        <div className="p-5">{children}</div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+export function Field({ label, hint, children }) {
+  return (
+    <label className="block space-y-1.5">
+      <span className={labelCls}>{label}</span>
+      {children}
+      {hint && <p className="text-[11px] text-slate-400 dark:text-slate-500">{hint}</p>}
+    </label>
+  );
+}
+
+// Confirmation modal that requires typing an exact phrase before enabling confirm.
+export function TypedConfirmModal({ open, title, message, phrase, busy = false, onConfirm, onClose }) {
+  const [text, setText] = useState("");
+  useEffect(() => { if (open) setText(""); }, [open]);
+  if (!open) return null;
+  const matched = text.trim() === phrase;
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <div className="fixed inset-0 z-200 flex items-center justify-center bg-black/40 px-6" onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
+      <div role="dialog" aria-modal="true" className="w-full max-w-sm rounded-2xl border border-rose-100/70 bg-white p-6 shadow-xl dark:border-rose-500/30 dark:bg-slate-950">
+        <h3 className="text-lg font-semibold text-rose-600 dark:text-rose-300">{title}</h3>
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{message}</p>
+        <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+          Type <span className="font-semibold text-rose-600 dark:text-rose-300">{phrase}</span> to confirm.
+        </p>
+        <input autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder={phrase}
+          className="mt-2 w-full rounded-xl border border-rose-200 bg-white px-3 py-2 text-sm text-slate-700 outline-hidden transition focus:border-rose-400 focus:ring-2 focus:ring-rose-300/40 dark:border-rose-500/30 dark:bg-slate-900 dark:text-slate-100" />
+        <div className="mt-4 flex items-center justify-end gap-2">
+          <button type="button" onClick={onClose} disabled={busy}
+            className="rounded-full border border-emerald-200 bg-white px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] disabled:opacity-50 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200">
+            Cancel
+          </button>
+          <button type="button" onClick={onConfirm} disabled={busy || !matched}
+            className="rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:shadow-[0_0_14px_rgba(244,63,94,0.2)] disabled:opacity-40 dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200">
+            {busy ? "Working…" : "Confirm"}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}

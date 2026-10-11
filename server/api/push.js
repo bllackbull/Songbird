@@ -10,8 +10,8 @@ function registerPushRoutes(app, deps) {
     listPushSubscriptionsByUserIds,
   } = deps;
 
-  app.get("/api/push/public-key", (req, res) => {
-    const session = requireSession(req, res);
+  app.get("/api/push/public-key", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
     if (!VAPID_PUBLIC_KEY) {
       return res.status(503).json({ error: "Push is not configured." });
@@ -19,8 +19,8 @@ function registerPushRoutes(app, deps) {
     return res.json({ publicKey: VAPID_PUBLIC_KEY });
   });
 
-  app.post("/api/push/subscribe", (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/push/subscribe", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
     const { username, subscription, messagePreview } = req.body || {};
     if (!username || !subscription?.endpoint) {
@@ -29,7 +29,8 @@ function registerPushRoutes(app, deps) {
         .json({ error: "Username and subscription are required." });
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
-    const user = findUserByUsername(String(username || "").toLowerCase());
+    const rawUser = findUserByUsername(String(username || "").toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) return res.status(404).json({ error: "User not found." });
     try {
       upsertPushSubscription(
@@ -47,8 +48,8 @@ function registerPushRoutes(app, deps) {
     }
   });
 
-  app.post("/api/push/unsubscribe", (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/push/unsubscribe", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
     const { username, endpoint } = req.body || {};
     if (!username || !endpoint) {
@@ -62,7 +63,7 @@ function registerPushRoutes(app, deps) {
   });
 
   app.post("/api/push/test", async (req, res) => {
-    const session = requireSession(req, res);
+    const session = await requireSession(req, res);
     if (!session) return;
     const { username } = req.body || {};
     if (!username) {
@@ -72,9 +73,11 @@ function registerPushRoutes(app, deps) {
     if (!VAPID_PUBLIC_KEY) {
       return res.status(503).json({ error: "Push is not configured." });
     }
-    const user = findUserByUsername(String(username || "").toLowerCase());
+    const rawUser = findUserByUsername(String(username || "").toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) return res.status(404).json({ error: "User not found." });
-    const subs = listPushSubscriptionsByUserIds([user.id]);
+    const rawSubs = listPushSubscriptionsByUserIds([user.id]);
+    const subs = (rawSubs && typeof rawSubs.then === "function" ? await rawSubs : rawSubs) || [];
     if (!subs.length) {
       return res.status(400).json({ error: "No push subscription found." });
     }
@@ -92,17 +95,19 @@ function registerPushRoutes(app, deps) {
     }
   });
 
-  app.get("/api/push/debug", (req, res) => {
-    const session = requireSession(req, res);
+  app.get("/api/push/debug", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
     const username = req.query?.username?.toString();
     if (!username) {
       return res.status(400).json({ error: "Username is required." });
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
-    const user = findUserByUsername(String(username || "").toLowerCase());
+    const rawUser = findUserByUsername(String(username || "").toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) return res.status(404).json({ error: "User not found." });
-    const subs = listPushSubscriptionsByUserIds([user.id]);
+    const rawSubs = listPushSubscriptionsByUserIds([user.id]);
+    const subs = (rawSubs && typeof rawSubs.then === "function" ? await rawSubs : rawSubs) || [];
     return res.json({
       ok: true,
       configured: Boolean(VAPID_PUBLIC_KEY),

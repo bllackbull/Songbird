@@ -39,6 +39,8 @@ export function useAppContextMenu({
   onMarkChatSeen,
   onToggleChatMute,
   onDeleteChats,
+  isOffline: isOfflineProp = false,
+  sseConnected = true,
 }) {
   const [contextMenu, setContextMenu] = useState(null);
 
@@ -76,7 +78,7 @@ export function useAppContextMenu({
 
   const handleMarkChatSeen = useCallback(
     async (chat) => {
-      const chatId = Number(chat?.id || 0);
+      const chatId = chat?.id || null;
       if (!chatId) return;
       await onMarkChatSeen?.(chat, {
         activeChatId,
@@ -96,6 +98,11 @@ export function useAppContextMenu({
 
       if (kind === "message") {
         const message = data?.message || null;
+        const offline =
+          data?.isOffline ??
+          (isOfflineProp ||
+            sseConnected === false ||
+            (typeof navigator !== "undefined" && navigator.onLine === false));
         const hasText = hasMessageText(message);
         const linkTarget = findContextMenuLinkTarget(event?.target, targetEl);
         const files = getMessageFiles(message);
@@ -129,6 +136,7 @@ export function useAppContextMenu({
                   id: "edit",
                   label: "Edit",
                   icon: Pencil,
+                  disabled: Boolean(offline),
                   onSelect: () => onEditMessage?.(message),
                 },
               ]
@@ -232,7 +240,7 @@ export function useAppContextMenu({
           label: "Delete",
           icon: Trash,
           danger: true,
-          onSelect: () => onDeleteChats?.([Number(chat?.id || 0)]),
+          onSelect: () => onDeleteChats?.([chat?.id]),
         });
       }
 
@@ -243,7 +251,7 @@ export function useAppContextMenu({
         point,
         items,
         targetEl: targetEl || null,
-        targetChatId: Number(activeChatId || 0) || null,
+        targetChatId: activeChatId || null,
         targetMessageKey: message
           ? String(message?._clientId ?? message?._serverId ?? message?.id ?? "")
           : "",
@@ -269,6 +277,8 @@ export function useAppContextMenu({
       onToggleChatMute,
       canDeleteMessageForEveryone,
       canEditMessage,
+      isOfflineProp,
+      sseConnected,
     ],
   );
 

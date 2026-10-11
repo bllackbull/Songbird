@@ -70,7 +70,7 @@ export function useAppReleaseInfo() {
       }
       setWhatsNewOpen(false);
     },
-    [appInfo?.version],
+    [appInfo],
   );
 
   const openWhatsNew = useCallback(() => {

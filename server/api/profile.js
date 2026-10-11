@@ -1,3 +1,5 @@
+import path from "node:path";
+
 function registerProfileRoutes(app, deps) {
   const {
     ALLOWED_AVATAR_MIME_TYPES,
@@ -5,91 +7,78 @@ function registerProfileRoutes(app, deps) {
     createMessage,
     emitChatEvent,
     emitSseEvent,
-    FILE_UPLOAD,
-    getUserPresence,
+    getSetting,
+    broadcastPresence,
     listChatMembers,
     listChatsForUser,
     USER_COLORS,
-    NICKNAME_MAX,
-    USERNAME_MAX,
     USERNAME_REGEX,
     bcrypt,
     ensureAvatarExists,
     findChatByGroupUsername,
     findUserById,
     findUserByUsername,
+    isConnected,
     deleteUserById,
     hasEnoughFreeDiskSpace,
     avatarUploadRootDir,
     clearSessionCookie,
     removeAvatarByUrl,
+    removePendingPresignedUploads,
     removeStoredFileNames,
     removeUploadedFiles,
     requireSession,
     requireSessionUsernameMatch,
     storageEncryption,
+    storeAvatarFile = deps.storeAvatarFile,
     updateUserPassword,
     updateUserProfile,
     updateUserStatus,
     uploadAvatar,
   } = deps;
 
-  const emitPresenceUpdate = (user) => {
-    if (!user?.username) return;
-    const normalizedUsername = String(user.username || "").toLowerCase();
-    const payload = {
-      type: "presence_update",
-      username: normalizedUsername,
-      status: String(user.status || "online").toLowerCase(),
-      lastSeen: user.last_seen || new Date().toISOString(),
-    };
-    const targets = new Set([normalizedUsername]);
-    const chats = listChatsForUser(Number(user.id || 0));
-    chats.forEach((chat) => {
-      const members = listChatMembers(Number(chat?.id || 0));
-      members.forEach((member) => {
-        const memberUsername = String(member?.username || "").toLowerCase();
-        if (memberUsername) targets.add(memberUsername);
-      });
-    });
-    targets.forEach((targetUsername) => {
-      emitSseEvent(targetUsername, payload);
-    });
-  };
-  const emitProfileUpdate = (user, options = {}) => {
+  const emitProfileUpdate = async (user, options = {}) => {
     if (!user?.id) return;
     const currentUsername = String(user.username || "").toLowerCase();
     const previousUsername = String(options.previousUsername || "")
       .trim()
       .toLowerCase();
+    const storedStatus = String(user.status || "online").toLowerCase();
+    const effectiveStatus =
+      typeof isConnected === "function" && isConnected(currentUsername) && storedStatus !== "invisible"
+        ? "online"
+        : "offline";
     const payload = {
       type: "profile_updated",
-      userId: Number(user.id || 0) || null,
+      userId: user.id,
       username: currentUsername,
       previousUsername: previousUsername || null,
       nickname: user.nickname || null,
       avatarUrl: ensureAvatarExists(user.id, user.avatar_url) || null,
       color: user.color || USER_COLORS[0],
-      status: user.status || "online",
+      status: effectiveStatus,
+      rawStatus: storedStatus,
     };
     const targets = new Set();
     if (currentUsername) targets.add(currentUsername);
     if (previousUsername) targets.add(previousUsername);
-    const chats = listChatsForUser(Number(user.id || 0));
-    chats.forEach((chat) => {
-      const members = listChatMembers(Number(chat?.id || 0));
+    const rawChats = listChatsForUser(user.id);
+    const chats = (rawChats && typeof rawChats.then === "function" ? await rawChats : rawChats) || [];
+    for (const chat of chats) {
+      const rawMembers = listChatMembers(chat.id);
+      const members = (rawMembers && typeof rawMembers.then === "function" ? await rawMembers : rawMembers) || [];
       members.forEach((member) => {
         const memberUsername = String(member?.username || "").toLowerCase();
         if (memberUsername) targets.add(memberUsername);
       });
-    });
+    }
     targets.forEach((targetUsername) => {
       emitSseEvent(targetUsername, payload);
     });
   };
 
-  app.get("/api/profile", (req, res) => {
-    const session = requireSession(req, res);
+  app.get("/api/profile", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const username = req.query.username?.toString();
@@ -97,7 +86,8 @@ function registerProfileRoutes(app, deps) {
       return res.status(400).json({ error: "Username is required." });
     }
 
-    const user = findUserByUsername(username.toLowerCase());
+    const rawUser = findUserByUsername(username.toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
@@ -109,11 +99,13 @@ function registerProfileRoutes(app, deps) {
       avatarUrl: ensureAvatarExists(user.id, user.avatar_url) || null,
       color: user.color || USER_COLORS[0],
       status: user.status || "online",
+      role: user.role || "user",
+      verified: Boolean(user.verified),
     });
   });
 
-  app.put("/api/profile", (req, res) => {
-    const session = requireSession(req, res);
+  app.put("/api/profile", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const { currentUsername, username, nickname, avatarUrl } = req.body || {};
@@ -123,7 +115,8 @@ function registerProfileRoutes(app, deps) {
         .json({ error: "Current username and new username are required." });
     }
 
-    const currentUser = findUserByUsername(currentUsername.toLowerCase());
+    const rawCurrentUser = findUserByUsername(currentUsername.toLowerCase());
+    const currentUser = rawCurrentUser && typeof rawCurrentUser.then === "function" ? await rawCurrentUser : rawCurrentUser;
     if (!currentUser) {
       return res.status(404).json({ error: "User not found." });
     }
@@ -131,15 +124,17 @@ function registerProfileRoutes(app, deps) {
     if (!requireSessionUsernameMatch(res, session, currentUsername)) return;
 
     const trimmed = username.trim().toLowerCase();
+    const usernameMax = getSetting("USERNAME_MAX_CHARS");
+    const nicknameMax = getSetting("NICKNAME_MAX_CHARS");
 
     if (trimmed.length < 3) {
       return res
         .status(400)
         .json({ error: "Username must be at least 3 characters." });
     }
-    if (USERNAME_MAX && trimmed.length > USERNAME_MAX) {
+    if (usernameMax && trimmed.length > usernameMax) {
       return res.status(400).json({
-        error: `Username must be at most ${USERNAME_MAX} characters.`,
+        error: `Username must be at most ${usernameMax} characters.`,
       });
     }
 
@@ -149,19 +144,24 @@ function registerProfileRoutes(app, deps) {
           "Username can only include english letters, numbers, dot (.), and underscore (_).",
       });
     }
-    if (nickname && String(nickname).trim().length > (NICKNAME_MAX || 0)) {
+    if (nickname && String(nickname).trim().length > (nicknameMax || 0)) {
       return res.status(400).json({
-        error: `Nickname must be at most ${NICKNAME_MAX} characters.`,
+        error: `Nickname must be at most ${nicknameMax} characters.`,
       });
     }
 
     if (trimmed !== currentUser.username) {
-      const existing = findUserByUsername(trimmed);
+      const rawExisting = findUserByUsername(trimmed);
+      const existing = rawExisting && typeof rawExisting.then === "function" ? await rawExisting : rawExisting;
       if (existing) {
         return res.status(409).json({ error: "Username already exists." });
       }
-      if (findChatByGroupUsername && findChatByGroupUsername(trimmed)) {
-        return res.status(409).json({ error: "Username already exists." });
+      if (findChatByGroupUsername) {
+        const rawGroup = findChatByGroupUsername(trimmed);
+        const group = rawGroup && typeof rawGroup.then === "function" ? await rawGroup : rawGroup;
+        if (group) {
+          return res.status(409).json({ error: "Username already exists." });
+        }
       }
     }
 
@@ -171,17 +171,21 @@ function registerProfileRoutes(app, deps) {
       removeAvatarByUrl(currentAvatarUrl);
     }
 
-    updateUserProfile(
+    await updateUserProfile(
       currentUser.id,
       trimmed,
       nickname?.trim() || null,
       nextAvatarUrl,
     );
 
-    const updated = findUserById(currentUser.id);
-    emitProfileUpdate(updated, {
+    const rawUpdated = findUserById(currentUser.id);
+    const updated = rawUpdated && typeof rawUpdated.then === "function" ? await rawUpdated : rawUpdated;
+    await emitProfileUpdate(updated, {
       previousUsername: currentUser.username,
     });
+    if (typeof broadcastPresence === "function") {
+      await broadcastPresence(String(updated.username || "").toLowerCase());
+    }
 
     res.json({
       id: updated.id,
@@ -193,8 +197,8 @@ function registerProfileRoutes(app, deps) {
     });
   });
 
-  app.post("/api/profile/avatar", uploadAvatar.single("avatar"), (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/profile/avatar", uploadAvatar.single("avatar"), async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) {
       removeUploadedFiles(req.file ? [req.file] : [], avatarUploadRootDir);
       return;
@@ -205,7 +209,7 @@ function registerProfileRoutes(app, deps) {
       .toLowerCase();
     const file = req.file;
 
-    if (!FILE_UPLOAD) {
+    if (!getSetting("FILE_UPLOAD")) {
       removeUploadedFiles(file ? [file] : [], avatarUploadRootDir);
       return res
         .status(503)
@@ -222,67 +226,103 @@ function registerProfileRoutes(app, deps) {
       return;
     }
 
-    const user = findUserByUsername(currentUsername);
+    const rawUser = findUserByUsername(currentUsername);
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) {
       removeUploadedFiles(file ? [file] : [], avatarUploadRootDir);
       return res.status(404).json({ error: "User not found." });
     }
 
-    if (!file) {
-      return res.status(400).json({ error: "Avatar file is required." });
-    }
+    const directAvatarUrl = String(req.body?.avatarUrl || "").trim();
+    let avatarUrl = "";
 
-    const avatarMime = String(file.mimetype || "").toLowerCase();
-    if (!ALLOWED_AVATAR_MIME_TYPES.has(avatarMime)) {
-      removeUploadedFiles([file], avatarUploadRootDir);
-      return res
-        .status(400)
-        .json({ error: "Avatar must be a JPEG, PNG, GIF, WEBP, or BMP image." });
-    }
+    if (directAvatarUrl) {
+      const fileName = path.basename(directAvatarUrl);
+      if (
+        (!directAvatarUrl.startsWith("/api/uploads/avatars/") &&
+          !directAvatarUrl.startsWith("/uploads/avatars/")) ||
+        !fileName.startsWith("avatar-") ||
+        fileName.includes("..")
+      ) {
+        return res.status(400).json({ error: "Invalid avatar URL." });
+      }
+      avatarUrl = directAvatarUrl.startsWith("/uploads/")
+        ? `/api${directAvatarUrl}`
+        : directAvatarUrl;
+    } else {
+      if (!file) {
+        return res.status(400).json({ error: "Avatar file is required." });
+      }
 
-    if (!hasEnoughFreeDiskSpace(Number(file.size || 0))) {
-      removeUploadedFiles([file], avatarUploadRootDir);
+      const avatarMime = String(file.mimetype || "").toLowerCase();
+      if (!ALLOWED_AVATAR_MIME_TYPES.has(avatarMime)) {
+        removeUploadedFiles([file], avatarUploadRootDir);
+        return res
+          .status(400)
+          .json({ error: "Avatar must be a JPEG, PNG, GIF, WEBP, or BMP image." });
+      }
 
-      return res
-        .status(400)
-        .json({ error: "Not enough free storage space on server." });
-    }
+      if (typeof hasEnoughFreeDiskSpace === "function" && !hasEnoughFreeDiskSpace(Number(file.size || 0))) {
+        removeUploadedFiles([file], avatarUploadRootDir);
+        return res
+          .status(400)
+          .json({ error: "Not enough free storage space on server." });
+      }
 
-    const avatarUrl = `/api/uploads/avatars/${file.filename}`;
-    try {
-      storageEncryption.encryptFileInPlace(file.path);
-    } catch {
-      removeUploadedFiles([file], avatarUploadRootDir);
-      return res
-        .status(500)
-        .json({ error: "Unable to store avatar securely." });
+      try {
+        if (typeof storeAvatarFile === "function") {
+          const stored = await storeAvatarFile(file);
+          avatarUrl = stored.avatarUrl;
+        } else {
+          avatarUrl = `/api/uploads/avatars/${file.filename}`;
+          storageEncryption?.encryptFileInPlace?.(file.path);
+        }
+      } catch {
+        removeUploadedFiles([file], avatarUploadRootDir);
+        return res
+          .status(500)
+          .json({ error: "Unable to store avatar securely." });
+      }
     }
 
     if (String(user.avatar_url || "").trim() && user.avatar_url !== avatarUrl) {
       removeAvatarByUrl(user.avatar_url);
     }
 
-    updateUserProfile(
+    await updateUserProfile(
       user.id,
       user.username,
       user.nickname || null,
       avatarUrl,
     );
 
-    const updated = findUserById(user.id);
-    emitProfileUpdate(updated, {
+    const fileName = path.basename(avatarUrl);
+    if (fileName && typeof removePendingPresignedUploads === "function") {
+      removePendingPresignedUploads([
+        `uploads/avatars/${fileName}`,
+        // Legacy key from before uploads/avatars unification.
+        `avatars/${fileName}`,
+      ]);
+    }
+
+    const rawUpdated = findUserById(user.id);
+    const updated = rawUpdated && typeof rawUpdated.then === "function" ? await rawUpdated : rawUpdated;
+    await emitProfileUpdate(updated, {
       previousUsername: user.username,
     });
+    if (typeof broadcastPresence === "function") {
+      await broadcastPresence(String(updated.username || "").toLowerCase());
+    }
 
     return res.json({
       avatarUrl: ensureAvatarExists(updated.id, updated.avatar_url) || avatarUrl,
-      sizeBytes: Number(file.size || 0),
-      maxFileSizeBytes: AVATAR_FILE_LIMITS.maxFileSizeBytes,
+      sizeBytes: Number(file?.size || 0),
+      maxFileSizeBytes: AVATAR_FILE_LIMITS?.maxFileSizeBytes || 10 * 1024 * 1024,
     });
   });
 
-  app.put("/api/password", (req, res) => {
-    const session = requireSession(req, res);
+  app.put("/api/password", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const { username, currentPassword, newPassword } = req.body || {};
@@ -300,19 +340,20 @@ function registerProfileRoutes(app, deps) {
 
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
-    const user = findUserByUsername(username.toLowerCase());
-    if (!user || !bcrypt.compareSync(currentPassword, user.password_hash)) {
+    const rawUser = findUserByUsername(username.toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
+    if (!user || !user.password_hash || !bcrypt.compareSync(currentPassword, user.password_hash)) {
       return res.status(401).json({ error: "Invalid credentials." });
     }
 
     const passwordHash = bcrypt.hashSync(newPassword, 10);
-    updateUserPassword(user.id, passwordHash);
+    await updateUserPassword(user.id, passwordHash);
 
     res.json({ ok: true });
   });
 
-  app.put("/api/status", (req, res) => {
-    const session = requireSession(req, res);
+  app.put("/api/status", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const { username, status } = req.body || {};
@@ -327,22 +368,20 @@ function registerProfileRoutes(app, deps) {
 
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
-    const user = findUserByUsername(username.toLowerCase());
+    const rawUser = findUserByUsername(username.toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    updateUserStatus(user.id, status);
-    const refreshedUser = getUserPresence(String(user.username || "").toLowerCase());
-    if (refreshedUser) {
-      emitPresenceUpdate(refreshedUser);
-    }
+    await updateUserStatus(user.id, status);
+    await broadcastPresence(String(user.username || "").toLowerCase());
 
     res.json({ ok: true, status });
   });
 
-  app.post("/api/profile/delete", (req, res) => {
-    const session = requireSession(req, res);
+  app.post("/api/profile/delete", async (req, res) => {
+    const session = await requireSession(req, res);
     if (!session) return;
 
     const { username, password } = req.body || {};
@@ -351,8 +390,9 @@ function registerProfileRoutes(app, deps) {
     }
     if (!requireSessionUsernameMatch(res, session, username)) return;
 
-    const user = findUserByUsername(String(username || "").toLowerCase());
-    if (!user || !bcrypt.compareSync(String(password || ""), user.password_hash)) {
+    const rawUser = findUserByUsername(String(username || "").toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
+    if (!user || !user.password_hash || !bcrypt.compareSync(String(password || ""), user.password_hash)) {
       return res.status(401).json({ error: "Invalid credentials." });
     }
 
@@ -360,13 +400,22 @@ function registerProfileRoutes(app, deps) {
       removeAvatarByUrl(user.avatar_url);
     }
 
-    const memberChats = listChatsForUser(Number(user.id || 0));
-    memberChats.forEach((chat) => {
-      const chatId = Number(chat?.id || 0);
-      if (!chatId) return;
+    const rawChats = listChatsForUser(user.id);
+    const memberChats = Array.isArray(rawChats) ? rawChats : (await rawChats) || [];
+    for (const chat of memberChats) {
+      const chatId = chat?.id;
+      if (!chatId) continue;
       const label = user.nickname || user.username;
       if (String(chat?.type || "").toLowerCase() === "group") {
-        createMessage(chatId, user.id, `[[system:left:${label}]]`);
+        await createMessage(
+          chatId,
+          user.id,
+          `[[system:left:${label}]]`,
+          null,
+          null,
+          null,
+          { allowPlaintextSystemMessage: true },
+        );
         emitChatEvent(chatId, {
           type: "chat_message",
           chatId,
@@ -374,7 +423,8 @@ function registerProfileRoutes(app, deps) {
           body: `[[system:left:${label}]]`,
         });
       }
-      const members = listChatMembers(chatId);
+      const rawMembers = listChatMembers(chatId);
+      const members = Array.isArray(rawMembers) ? rawMembers : (await rawMembers) || [];
       members.forEach((member) => {
         const memberUsername = String(member?.username || "").toLowerCase();
         if (!memberUsername || memberUsername === String(user.username || "").toLowerCase())
@@ -385,9 +435,10 @@ function registerProfileRoutes(app, deps) {
           // ignore realtime list errors
         }
       });
-    });
+    }
 
-    const { storedNames } = deleteUserById(Number(user.id));
+    const rawDel = deleteUserById(user.id);
+    const { storedNames } = rawDel && typeof rawDel.then === "function" ? await rawDel : rawDel;
     if (Array.isArray(storedNames) && storedNames.length) {
       removeStoredFileNames(storedNames);
     }

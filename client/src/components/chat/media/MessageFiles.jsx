@@ -1,8 +1,9 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Download, File, Pause, Play } from "../../../icons/lucide.js";
+import { Download, File, Pause, Play, WifiOff } from "../../../icons/lucide.js";
 import { CHAT_PAGE_CONFIG } from "../../../settings/chatPageConfig.js";
 import { CACHE_STORES } from "../../../utils/cacheDb.js";
 import { canUseIdb, readIdbCache, writeIdbCache } from "../../../utils/chatCache.js";
+import { isCrossOriginUrl, saveMedia } from "../../../utils/fileDownload.js";
 
 const VOICE_WAVEFORM_CACHE_KEY = "voice-waveform-cache-v1";
 const VOICE_WAVEFORM_CACHE_MAX = 160;
@@ -159,7 +160,7 @@ const destroyPooledAudio = (poolKey) => {
     try {
       pooled.pause();
       pooled.currentTime = 0;
-      pooled.src = "";
+      pooled.removeAttribute("src");
     } catch (_) {
       // ignore cleanup issues
     }
@@ -272,8 +273,10 @@ const VoiceMessageChip = memo(
     const [isStarting, setIsStarting] = useState(false);
     const [progress, setProgress] = useState(0);
     const [debugInfo, setDebugInfo] = useState(null);
-    const cacheKeyRef = useRef(
-      serverUrl ||
+    // Stable cache key computed once for the lifetime of this component.
+    const [cacheKey] = useState(
+      () =>
+        serverUrl ||
         file?._localId ||
         file?.id ||
         file?.storedName ||
@@ -289,7 +292,6 @@ const VoiceMessageChip = memo(
       : 0;
     const fileDurationRef = useRef(fileDuration);
     const [duration, setDuration] = useState(fileDuration);
-    const cacheKey = cacheKeyRef.current;
     const getStoredResumeTime = () =>
       Math.max(
         0,
@@ -784,8 +786,10 @@ const VoiceMessageChip = memo(
     }, [cacheKey]);
 
     const hasActivePlayback = isPlaying || isStarting;
+    // `resumeTimeRef` mirrors VOICE_AUDIO_POSITIONS at every write, so read the
+    // persisted position here instead of the ref to stay render-safe.
     const hasProgressPosition =
-      progress > 0 || Number(resumeTimeRef.current || 0) > 0;
+      progress > 0 || Number(VOICE_AUDIO_POSITIONS.get(cacheKey) || 0) > 0;
     const canPlay = Boolean(serverUrl);
     const waveformMaxHeight = 32;
     return (
@@ -802,7 +806,7 @@ const VoiceMessageChip = memo(
           {hasActivePlayback ? (
             <Pause size={14} />
           ) : (
-            <Play size={14} className="translate-x-[1px]" />
+            <Play size={14} className="translate-x-px" />
           )}
         </button>
         <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -859,6 +863,7 @@ const VoiceMessageChip = memo(
 export function MessageFiles({
   files = [],
   isDesktop,
+  isOffline = false,
   _docFullWidth = false,
   loadedMediaThumbs,
   setLoadedMediaThumbs,
@@ -879,6 +884,7 @@ export function MessageFiles({
     [getFileRenderType],
   );
   const thumbFallbackTimersRef = useRef(new Map());
+  const [failedMediaKeys, setFailedMediaKeys] = useState({});
 
   const canPersistMediaCache = () => {
     if (typeof window === "undefined") return false;
@@ -1034,6 +1040,14 @@ export function MessageFiles({
     onMessageMediaLoaded?.();
   }, [setLoadedMediaThumbs, mediaThumbCacheKey, mediaCacheVersion, onMessageMediaLoaded, writeMediaCache]);
 
+  const handleMediaError = useCallback(
+    (key, thumbKey) => {
+      setFailedMediaKeys((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
+      markMediaThumbLoaded(thumbKey);
+    },
+    [markMediaThumbLoaded],
+  );
+
   const scheduleThumbFallback = useCallback((thumbKey, delayMs) => {
     if (typeof window === "undefined") return;
     if (loadedMediaThumbs.has(thumbKey)) return;
@@ -1148,7 +1162,10 @@ export function MessageFiles({
           "media";
         const thumbKey = `thumb-${key}`;
         const cachedPoster =
-          isVideo && file.url ? videoPosterByUrl[file.url] : "";
+          (isVideo && file.url ? videoPosterByUrl[file.url] : "") ||
+          file?.thumbUrl ||
+          file?.posterUrl ||
+          "";
         const thumbLoaded =
           loadedMediaThumbs.has(thumbKey) || Boolean(cachedPoster);
         const mediaAspectRatio = getMediaAspectRatio(file);
@@ -1175,6 +1192,42 @@ export function MessageFiles({
         }
 
         if (isImage && file.url) {
+          if (isOffline && failedMediaKeys[key]) {
+            return (
+              <button
+                type="button"
+                key={key}
+                onClick={() => {
+                  if (
+                    typeof navigator !== "undefined" &&
+                    navigator.onLine &&
+                    !isOffline
+                  ) {
+                    setFailedMediaKeys((prev) => {
+                      const next = { ...prev };
+                      delete next[key];
+                      return next;
+                    });
+                  }
+                }}
+                className="relative block w-full overflow-hidden rounded-xl border border-slate-200/80 bg-slate-100/70 text-left transition hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900/70"
+                data-testid="offline-media-placeholder"
+                aria-label={`Image unavailable offline: ${file.name || ""}`.trim()}
+              >
+                <div className={imageFrameClass} style={mediaFrameStyle}>
+                  <div className="flex flex-col items-center justify-center gap-2 p-4 text-center">
+                    <div className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200/80 bg-white/90 text-slate-500 shadow-xs dark:border-slate-800 dark:bg-slate-800/90 dark:text-slate-400">
+                      <WifiOff size={18} className="shrink-0" />
+                    </div>
+                    <span className="max-w-[220px] text-xs font-medium text-slate-600 dark:text-slate-400">
+                      Media unavailable offline — tap to retry when online
+                    </span>
+                  </div>
+                </div>
+              </button>
+            );
+          }
+
           return (
             <button
               type="button"
@@ -1196,6 +1249,7 @@ export function MessageFiles({
                 <img
                   src={file.url}
                   alt={file.name || "image"}
+                  referrerPolicy="no-referrer"
                   onLoad={(event) => {
                     cacheMediaAspectRatio(
                       file,
@@ -1204,7 +1258,7 @@ export function MessageFiles({
                     );
                     markMediaThumbLoaded(thumbKey);
                   }}
-                  onError={() => markMediaThumbLoaded(thumbKey)}
+                  onError={() => handleMediaError(key, thumbKey)}
                   loading={isDesktop ? "lazy" : "eager"}
                   decoding={isDesktop ? "async" : "sync"}
                   fetchPriority={
@@ -1240,6 +1294,42 @@ export function MessageFiles({
         }
 
         if (isVideo && file.url) {
+          if (isOffline && failedMediaKeys[key]) {
+            return (
+              <button
+                type="button"
+                key={key}
+                onClick={() => {
+                  if (
+                    typeof navigator !== "undefined" &&
+                    navigator.onLine &&
+                    !isOffline
+                  ) {
+                    setFailedMediaKeys((prev) => {
+                      const next = { ...prev };
+                      delete next[key];
+                      return next;
+                    });
+                  }
+                }}
+                className="relative block w-full overflow-hidden rounded-xl border border-slate-200/80 bg-slate-100/70 text-left transition hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900/70"
+                data-testid="offline-media-placeholder"
+                aria-label={`Video unavailable offline: ${file.name || ""}`.trim()}
+              >
+                <div className={videoFrameClass} style={mediaFrameStyle}>
+                  <div className="flex flex-col items-center justify-center gap-2 p-4 text-center">
+                    <div className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200/80 bg-white/90 text-slate-500 shadow-xs dark:border-slate-800 dark:bg-slate-800/90 dark:text-slate-400">
+                      <WifiOff size={18} className="shrink-0" />
+                    </div>
+                    <span className="max-w-[220px] text-xs font-medium text-slate-600 dark:text-slate-400">
+                      Media unavailable offline — tap to retry when online
+                    </span>
+                  </div>
+                </div>
+              </button>
+            );
+          }
+
           return (
             <button
               type="button"
@@ -1250,9 +1340,10 @@ export function MessageFiles({
                   downloadUrl: `${file.url}${file.url.includes("?") ? "&" : "?"}download=1`,
                   name: mediaDownloadName,
                   type: "video",
-                  processing: Boolean(file.processing),
+                  processing: Boolean(isProcessingVideo),
                   width: file.width,
                   height: file.height,
+                  poster: cachedPoster || file.thumbUrl || null,
                   expiresAt: file.expiresAt || null,
                 })
               }
@@ -1265,6 +1356,7 @@ export function MessageFiles({
                     src={cachedPoster}
                     alt={file.name || "video thumbnail"}
                     onLoad={() => markMediaThumbLoaded(thumbKey)}
+                    onError={() => handleMediaError(key, thumbKey)}
                     className={videoClass}
                   />
                 ) : (
@@ -1283,9 +1375,7 @@ export function MessageFiles({
                         event.currentTarget?.videoHeight,
                       );
                       handleVideoThumbLoadedMetadata(event);
-                      if (!isDesktop) {
-                        markMediaThumbLoaded(thumbKey);
-                      }
+                      markMediaThumbLoaded(thumbKey);
                     }}
                     onLoadStart={() => scheduleThumbFallback(thumbKey)}
                     onCanPlay={(event) =>
@@ -1294,11 +1384,7 @@ export function MessageFiles({
                     onLoadedData={(event) =>
                       handleVideoThumbReady(event, thumbKey, file.url)
                     }
-                    onError={() => {
-                      if (!isDesktop) {
-                        markMediaThumbLoaded(thumbKey);
-                      }
-                    }}
+                    onError={() => handleMediaError(key, thumbKey)}
                     src={file.url}
                     className={videoClass}
                   />
@@ -1315,7 +1401,7 @@ export function MessageFiles({
               </div>
               <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
                 <span className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/40 bg-black/45 text-white">
-                  <Play size={18} className="translate-x-[1px]" />
+                  <Play size={18} className="translate-x-px" />
                 </span>
               </span>
             </button>
@@ -1332,6 +1418,12 @@ export function MessageFiles({
             href={file.url}
             download={file.name || undefined}
             rel="noopener noreferrer"
+            onClick={(event) => {
+              if (isCrossOriginUrl(file.url)) {
+                event.preventDefault();
+                void saveMedia(file.url, file.name);
+              }
+            }}
             className={`group ${docChipClass} items-center gap-2 rounded-xl border border-emerald-200/70 bg-white/70 px-3 py-2.5 text-xs text-slate-700 transition hover:border-emerald-300 hover:bg-white hover:shadow-[0_0_16px_rgba(16,185,129,0.18)] dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200 dark:hover:bg-slate-900/70 dark:hover:shadow-[0_0_16px_rgba(16,185,129,0.14)]`}
           >
             <span className="relative inline-flex h-5 w-5 shrink-0 items-center justify-center">

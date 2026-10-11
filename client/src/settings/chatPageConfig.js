@@ -83,10 +83,6 @@ export const CHAT_PAGE_CONFIG = {
     integer: true,
     min: 1000,
   }),
-  presencePingIntervalMs: readEnvNumber("CHAT_PRESENCE_PING_INTERVAL", 5000, {
-    integer: true,
-    min: 1000,
-  }),
   newChatSearchMaxResults: readEnvNumber("CHAT_SEARCH_MAX_RESULTS", 5, {
     integer: true,
     min: 1,
@@ -94,10 +90,6 @@ export const CHAT_PAGE_CONFIG = {
   healthCheckIntervalMs: readEnvNumber("CHAT_HEALTH_CHECK_INTERVAL", 10000, {
     integer: true,
     min: 1000,
-  }),
-  peerPresencePollIntervalMs: readEnvNumber("CHAT_PEER_PRESENCE_POLL_INTERVAL", 3000, {
-    integer: true,
-    min: 500,
   }),
   sseReconnectDelayMs: readEnvNumber("CHAT_SSE_RECONNECT_DELAY", 2000, {
     integer: true,
@@ -129,3 +121,71 @@ export const CHAT_PAGE_CONFIG = {
     1000,
   fileUploadEnabled: readEnvBool("FILE_UPLOAD", true),
 };
+
+// ─── Live override for admin-panel-configurable client settings ─────────────
+//
+// Settings that can be tuned from the admin panel. App.jsx calls this once
+// after fetching /api/app/info so DB values override build-time env defaults.
+export function setChatPageConfig({
+  messageFetchLimit,
+  messagePageSize,
+  cacheTtlHours,
+  fileUploadEnabled,
+  fileUploadMaxFiles,
+  fileUploadMaxSizeMb,
+  fileUploadMaxTotalSizeMb,
+  listRefreshIntervalMs,
+  healthCheckIntervalMs,
+  sseReconnectDelayMs,
+  searchMaxResults,
+  pendingTextTimeoutMs,
+  pendingFileTimeoutMs,
+  pendingRetryIntervalMs,
+  pendingStatusCheckIntervalMs,
+} = {}) {
+  if (Number.isFinite(messageFetchLimit) && messageFetchLimit > 0) {
+    CHAT_PAGE_CONFIG.messageFetchLimit = Math.trunc(messageFetchLimit);
+  }
+  if (Number.isFinite(messagePageSize) && messagePageSize > 0) {
+    CHAT_PAGE_CONFIG.messagePageSize = Math.trunc(messagePageSize);
+  }
+  if (Number.isFinite(cacheTtlHours) && cacheTtlHours > 0) {
+    CHAT_PAGE_CONFIG.cacheTtlMs = Math.trunc(cacheTtlHours) * 60 * 60 * 1000;
+  }
+  if (typeof fileUploadEnabled === "boolean") {
+    CHAT_PAGE_CONFIG.fileUploadEnabled = fileUploadEnabled;
+  }
+  if (Number.isFinite(fileUploadMaxFiles) && fileUploadMaxFiles > 0) {
+    CHAT_PAGE_CONFIG.maxFilesPerMessage = Math.trunc(fileUploadMaxFiles);
+  }
+  if (Number.isFinite(fileUploadMaxSizeMb) && fileUploadMaxSizeMb > 0) {
+    CHAT_PAGE_CONFIG.maxFileSizeBytes = Math.trunc(fileUploadMaxSizeMb) * MB;
+  }
+  if (Number.isFinite(fileUploadMaxTotalSizeMb) && fileUploadMaxTotalSizeMb > 0) {
+    CHAT_PAGE_CONFIG.maxTotalUploadBytes = Math.trunc(fileUploadMaxTotalSizeMb) * MB;
+  }
+  if (Number.isFinite(listRefreshIntervalMs) && listRefreshIntervalMs > 0) {
+    CHAT_PAGE_CONFIG.chatsRefreshIntervalMs = Math.trunc(listRefreshIntervalMs);
+  }
+  if (Number.isFinite(healthCheckIntervalMs) && healthCheckIntervalMs > 0) {
+    CHAT_PAGE_CONFIG.healthCheckIntervalMs = Math.trunc(healthCheckIntervalMs);
+  }
+  if (Number.isFinite(sseReconnectDelayMs) && sseReconnectDelayMs > 0) {
+    CHAT_PAGE_CONFIG.sseReconnectDelayMs = Math.trunc(sseReconnectDelayMs);
+  }
+  if (Number.isFinite(searchMaxResults) && searchMaxResults > 0) {
+    CHAT_PAGE_CONFIG.newChatSearchMaxResults = Math.trunc(searchMaxResults);
+  }
+  if (Number.isFinite(pendingTextTimeoutMs) && pendingTextTimeoutMs > 0) {
+    CHAT_PAGE_CONFIG.pendingTextTimeoutMs = Math.trunc(pendingTextTimeoutMs);
+  }
+  if (Number.isFinite(pendingFileTimeoutMs) && pendingFileTimeoutMs > 0) {
+    CHAT_PAGE_CONFIG.pendingFileTimeoutMs = Math.trunc(pendingFileTimeoutMs);
+  }
+  if (Number.isFinite(pendingRetryIntervalMs) && pendingRetryIntervalMs > 0) {
+    CHAT_PAGE_CONFIG.pendingRetryIntervalMs = Math.trunc(pendingRetryIntervalMs);
+  }
+  if (Number.isFinite(pendingStatusCheckIntervalMs) && pendingStatusCheckIntervalMs > 0) {
+    CHAT_PAGE_CONFIG.pendingStatusCheckIntervalMs = Math.trunc(pendingStatusCheckIntervalMs);
+  }
+}

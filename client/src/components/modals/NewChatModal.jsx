@@ -4,6 +4,9 @@ import { Close } from "../../icons/lucide.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import Avatar from "../common/Avatar.jsx";
+import UserRoleBadge from "../common/UserRoleBadge.jsx";
+import VerifiedBadge from "../common/VerifiedBadge.jsx";
+import Tooltip from "../common/Tooltip.jsx";
 import { useFocusTrap } from "../../hooks/useFocusTrap.js";
 
 export default function NewChatModal({
@@ -73,7 +76,7 @@ export default function NewChatModal({
               placeholder="username"
               lang={dmSearchHasPersian ? "fa" : "en"}
               dir={dmSearchHasPersian ? "rtl" : "ltr"}
-              className={`w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-14 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
+              className={`w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-14 text-sm text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
                 dmSearchHasPersian ? "font-fa text-right" : "text-left"
               }`}
               style={{ unicodeBidi: "plaintext" }}
@@ -120,16 +123,22 @@ export default function NewChatModal({
                       name={label}
                       color={result.color || "#10b981"}
                       initials={avatarInitials}
+                      showOnlineBadge={
+                        String(result.status || "").toLowerCase() === "online"
+                      }
                       className="h-8 w-8"
                     />
                     <div className="min-w-0">
-                      <p
-                        className={`truncate font-semibold ${hasPersian(label) ? "font-fa" : ""}`}
-                        dir="auto"
-                        title={label}
-                      >
-                        {label}
-                      </p>
+                      <Tooltip label={label} asChild>
+                        <p
+                          className="flex items-center gap-0.5 truncate font-semibold"
+                          dir="ltr"
+                        >
+                          <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
+                          {Boolean(result.verified) && <VerifiedBadge size={14} />}
+                          <UserRoleBadge role={result.role} size={14} />
+                        </p>
+                      </Tooltip>
                       <p
                         className="truncate text-xs text-slate-500 dark:text-slate-400"
                         dir="auto"

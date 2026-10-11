@@ -1,0 +1,165 @@
+---
+# Songbird for the Doprax App Market (installMethod: repo_playbook).
+#
+# What it does on the target VM (Ubuntu, hosts: all, become: yes):
+#   1. Installs Docker Engine + compose plugin, git and openssl.
+#   2. Clones bllackbull/Songbird into /root/songbird at the latest GitHub
+#      release (falls back to a pinned tag if the API is unreachable).
+#   3. Generates a self-signed TLS cert (certs/) if none exists, so the
+#      bundled nginx (443 -> songbird:5174) comes up without manual steps.
+#      Replace certs/cert.pem + certs/key.pem with real certs for production.
+#   4. Writes a minimal .env (only if missing) and starts the stack.
+#   5. Waits for 443 and verifies https://127.0.0.1/api/health.
+#
+# Doprax injects configurationVariables as extra vars. This playbook uses:
+#   - external_domain (Domain): public hostname, used for APP_PUBLIC_URL,
+#     the self-signed cert CN and the printed access URL. Optional.
+#
+# Local test (Ubuntu VM, Ansible installed):
+#   ansible-playbook -i <host>, -u root playbook.yaml
+#   curl -sk https://<host>/api/health
+- name: Deploy Songbird chat platform with Docker Compose
+  hosts: all
+  become: true
+  vars:
+    songbird_repo: "https://github.com/bllackbull/Songbird.git"
+    # "latest" resolves to the newest GitHub release tag at install time.
+    # Set to an explicit tag (e.g. "v0.12.1") to pin a version instead.
+    songbird_version: "latest"
+    # Used only when "latest" is requested but the GitHub API is unreachable.
+    songbird_version_fallback: "v0.12.4"
+    songbird_src: "/root/songbird"
+    songbird_domain: "{{ external_domain | default('') }}"
+    songbird_http_port: 80
+    songbird_https_port: 443
+  tasks:
+    - name: Install prerequisites
+      ansible.builtin.apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg-agent
+          - software-properties-common
+          - git
+          - openssl
+          - python3
+        update_cache: yes
+
+    - name: Add Docker's official GPG key
+      ansible.builtin.apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker repository
+      ansible.builtin.apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable
+        state: present
+
+    - name: Install Docker Engine
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-compose-plugin
+          - docker-buildx-plugin
+        update_cache: yes
+        state: present
+
+    - name: Ensure Docker service is started
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Resolve latest Songbird release
+      ansible.builtin.uri:
+        url: https://api.github.com/repos/bllackbull/Songbird/releases/latest
+        return_content: yes
+      register: songbird_release
+      failed_when: false
+      when: songbird_version == 'latest'
+
+    - name: Pin Songbird version to latest release (or fallback)
+      ansible.builtin.set_fact:
+        songbird_resolved_version: "{{ songbird_release.json.tag_name | default(songbird_version_fallback, true) }}"
+      when: songbird_version == 'latest'
+
+    - name: Use explicit Songbird version
+      ansible.builtin.set_fact:
+        songbird_resolved_version: "{{ songbird_version }}"
+      when: songbird_version != 'latest'
+
+    - name: Clone Songbird at resolved version
+      ansible.builtin.git:
+        repo: "{{ songbird_repo }}"
+        dest: "{{ songbird_src }}"
+        version: "{{ songbird_resolved_version }}"
+        update: yes
+
+    - name: Create certs directory
+      ansible.builtin.file:
+        path: "{{ songbird_src }}/certs"
+        state: directory
+        mode: "0755"
+
+    - name: Generate self-signed TLS certificate
+      ansible.builtin.command:
+        cmd: >
+          openssl req -x509 -nodes -days 825 -newkey rsa:2048
+          -keyout {{ songbird_src }}/certs/key.pem
+          -out {{ songbird_src }}/certs/cert.pem
+          -subj "/CN={{ songbird_domain if (songbird_domain | length > 0) else 'localhost' }}"
+          -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+        creates: "{{ songbird_src }}/certs/cert.pem"
+
+    - name: Write minimal .env
+      ansible.builtin.copy:
+        dest: "{{ songbird_src }}/.env"
+        force: no
+        mode: "0600"
+        content: |
+          APP_ENV=production
+          SERVER_PORT=5174
+          BIND_ADDRESS=0.0.0.0
+          DB_CLIENT=sqlite3
+          APP_PUBLIC_URL={{ 'https://' + songbird_domain if (songbird_domain | length > 0) else '' }}
+
+    - name: Pull images and start the stack
+      ansible.builtin.shell:
+        cmd: docker compose up -d
+        chdir: "{{ songbird_src }}"
+      register: songbird_compose
+      changed_when: "'Started' in songbird_compose.stdout or 'Creating' in songbird_compose.stdout"
+
+    - name: Wait for HTTPS port
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ songbird_https_port }}"
+        delay: 10
+        timeout: 180
+      register: songbird_port_wait
+      failed_when: false
+
+    - name: Wait for Songbird health endpoint
+      ansible.builtin.uri:
+        url: "https://127.0.0.1/api/health"
+        validate_certs: no
+        status_code: 200
+      register: songbird_health
+      until: songbird_health.status == 200
+      retries: 12
+      delay: 10
+      failed_when: false
+
+    - name: Build deployment summary
+      ansible.builtin.set_fact:
+        songbird_success: "{{ songbird_port_wait is succeeded and songbird_health.status is defined and songbird_health.status == 200 }}"
+        songbird_access_url: "{{ 'https://' + songbird_domain if (songbird_domain | length > 0) else 'https://' + (ansible_default_ipv4.address | default('SERVER_IP')) }}"
+
+    - name: Print deployment summary
+      ansible.builtin.debug:
+        msg:
+          - "Songbird {{ songbird_resolved_version }} deployment {{ 'succeeded' if songbird_success else ('may be incomplete — check logs in ' + songbird_src) }}."
+          - "Access URL: {{ songbird_access_url }} (self-signed cert until you replace certs/cert.pem + certs/key.pem)."
+          - "First steps: create the owner account, then set SIGN_UP=false in {{ songbird_src }}/.env if the instance is public."
+          - "Notes: SQLite persists in the songbird-data volume; the container mounts /var/run/docker.sock for the admin panel's service controls."

@@ -14,6 +14,9 @@ import {
 } from "../../../icons/lucide.js";
 import { hasPersian } from "../../../utils/fontUtils.js";
 import { renderMarkdownInlinePlain } from "../../../utils/markdown.js";
+import VerifiedBadge from "../../common/VerifiedBadge.jsx";
+import UserRoleBadge from "../../common/UserRoleBadge.jsx";
+import Tooltip from "../../common/Tooltip.jsx";
 
 function applyTextareaSize({
   textareaEl,
@@ -231,7 +234,7 @@ export function MessageComposer({
   ]);
 
   useEffect(() => {
-    const nextEditId = Number(editTarget?.id || 0);
+    const nextEditId = String(editTarget?.id || "").trim();
     if (!nextEditId) return;
     if (appliedEditIdRef.current === nextEditId) return;
     const nextValue =
@@ -684,7 +687,6 @@ export function MessageComposer({
                 }`}
                 dir="auto"
                 style={{ unicodeBidi: "isolate" }}
-                title="Edit Message"
               >
                 Edit Message
               </span>
@@ -722,23 +724,32 @@ export function MessageComposer({
               <Reply size={20} className="icon-anim-sway" />
             </div>
             <div className="flex min-w-0 flex-1 flex-col">
-              <span
-                className={`truncate text-[11px] font-semibold text-emerald-700 dark:text-emerald-200 ${
-                  hasPersian(
-                    replyTarget.displayName || replyTarget.username || "message",
-                  )
-                    ? "font-fa"
-                    : ""
-                }`}
-                dir="auto"
-                style={{ unicodeBidi: "isolate" }}
-                title={
-                  replyTarget.displayName || replyTarget.username || "message"
-                }
+              <Tooltip
+                label={replyTarget.displayName || replyTarget.username || "message"}
+                asChild
               >
-                Reply to{" "}
-                {replyTarget.displayName || replyTarget.username || "message"}
-              </span>
+                <span
+                  className="flex items-center gap-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-200"
+                  dir="ltr"
+                >
+                  <span
+                    className={`truncate ${
+                      hasPersian(
+                        replyTarget.displayName || replyTarget.username || "message",
+                      )
+                        ? "font-fa"
+                        : ""
+                    }`}
+                    dir="auto"
+                    style={{ unicodeBidi: "isolate" }}
+                  >
+                    Reply to{" "}
+                    {replyTarget.displayName || replyTarget.username || "message"}
+                  </span>
+                  {Boolean(replyTarget.verified) && <VerifiedBadge size={13} />}
+                  <UserRoleBadge role={replyTarget.role} size={13} />
+                </span>
+              </Tooltip>
               <span
                 className="mt-1 flex min-w-0 items-baseline gap-1 text-xs text-slate-600 dark:text-slate-300"
                 dir="ltr"
@@ -914,19 +925,23 @@ export function MessageComposer({
                     </div>
                   ) : isVideo ? (
                     <div className="relative mb-1 flex h-24 items-center justify-center rounded-md">
-                      <video
-                        src={item.previewUrl}
-                        muted
-                        playsInline
-                        preload="auto"
-                        onLoadedMetadata={handleVideoThumbLoadedMetadata}
-                        onLoadedData={handleVideoThumbLoadedMetadata}
-                        onCanPlay={handleVideoThumbLoadedMetadata}
-                        className="h-24 w-auto max-w-full rounded-md object-contain"
-                      />
+                      {item.previewUrl ? (
+                        <video
+                          src={item.previewUrl}
+                          muted
+                          playsInline
+                          preload="auto"
+                          onLoadedMetadata={handleVideoThumbLoadedMetadata}
+                          onLoadedData={handleVideoThumbLoadedMetadata}
+                          onCanPlay={handleVideoThumbLoadedMetadata}
+                          className="h-24 w-auto max-w-full rounded-md object-contain"
+                        />
+                      ) : (
+                        <div className="flex h-24 w-24 items-center justify-center rounded-md bg-slate-200/80 dark:bg-slate-800/80" />
+                      )}
                       <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
                         <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/40 bg-black/45 text-white">
-                          <Play size={14} className="translate-x-[1px]" />
+                          <Play size={14} className="translate-x-px" />
                         </span>
                       </span>
                     </div>
@@ -989,7 +1004,7 @@ export function MessageComposer({
                 <Paperclip size={18} className="icon-anim-sway" />
               </button>
               {showUploadMenu && !uploadBusy ? (
-                <div className="absolute bottom-12 left-0 z-40 w-44 rounded-xl border border-emerald-200/80 bg-white p-1.5 shadow-lg dark:border-emerald-500/30 dark:bg-slate-950">
+                <div className="absolute bottom-12 left-0 z-40 w-44 overflow-hidden rounded-2xl border border-emerald-200 bg-white p-1 text-sm font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100">
                   <button
                     type="button"
                     onPointerDown={(event) => {
@@ -1000,9 +1015,9 @@ export function MessageComposer({
                       openFilePicker(mediaInputRef);
                       setShowUploadMenu(false);
                     }}
-                    className="flex w-full items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-left text-xs text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
                   >
-                    <ImageIcon size={15} className="icon-anim-sway" />
+                    <ImageIcon size={18} className="shrink-0 text-emerald-500 icon-anim-sway" />
                     Photo or Video
                   </button>
                   <button
@@ -1015,9 +1030,9 @@ export function MessageComposer({
                       openFilePicker(documentInputRef);
                       setShowUploadMenu(false);
                     }}
-                    className="mt-1 flex w-full items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-left text-xs text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
+                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
                   >
-                    <File size={15} className="icon-anim-lift" />
+                    <File size={18} className="shrink-0 text-emerald-500 icon-anim-lift" />
                     Document
                   </button>
                 </div>
@@ -1104,7 +1119,7 @@ export function MessageComposer({
                 event.preventDefault();
                 event.currentTarget.form?.requestSubmit();
               }}
-              className={`chat-scroll min-w-0 flex-1 resize-none rounded-2xl border border-emerald-200 bg-white px-4 py-2 text-base text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
+              className={`chat-scroll min-w-0 flex-1 resize-none rounded-2xl border border-emerald-200 bg-white px-4 py-2 text-base text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
                 composerHasPersian ? "font-fa" : ""
               }`}
               style={{

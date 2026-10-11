@@ -1,13 +1,18 @@
 import { useEffect, useRef } from "react";
+import { getWebSocketUrl } from "../../api/chatApi.js";
 import {
   isMessageAuthoredByUser,
   isRemoteChannelMessage,
 } from "../../utils/messageOwnership.js";
+import { normalizeUuid } from "../../utils/uuidUtils.js";
 
 const patchChatAndMoveToFront = (chats, chatId, updateChat) => {
-  const targetChatId = Number(chatId || 0);
+  const targetChatId = normalizeUuid(chatId) || null;
   if (!targetChatId) return { nextChats: chats, found: false };
-  const index = chats.findIndex((chat) => Number(chat?.id) === targetChatId);
+  const index = chats.findIndex((chat) => {
+    if (!chat?.id) return false;
+    return String(chat.id).toLowerCase() === String(targetChatId).toLowerCase();
+  });
   if (index < 0) return { nextChats: chats, found: false };
   const currentChat = chats[index];
   const nextChat = updateChat(currentChat);
@@ -74,7 +79,7 @@ export function useChatEvents({
   const onCallSignalRef = useRef(onCallSignal);
   const canMarkReadInCurrentViewRef = useRef(canMarkReadInCurrentView);
   const loadChatsTimerRef = useRef(null);
-  const loadChatsScheduledRef = useRef(false);
+  const loadChatsFirstScheduledAtRef = useRef(0);
 
   useEffect(() => {
     onIncomingMessageRef.current = onIncomingMessage;
@@ -121,31 +126,69 @@ export function useChatEvents({
     let source = null;
     let isMounted = true;
     let reconnectAttempts = 0;
+    let useWebSocket = typeof WebSocket !== "undefined";
+    let wsOpened = false;
+
+    // Trailing debounce for chat-list reloads. Each event pushes the flush out
+    // by LOAD_CHATS_DEBOUNCE_MS so a burst (e.g. bulk deletes, rapid list
+    // changes) collapses into a single listChatsForUser reload. A max-wait
+    // ceiling guarantees a continuous stream still reloads within a bounded
+    // time instead of being starved forever.
+    const LOAD_CHATS_DEBOUNCE_MS = 250;
+    const LOAD_CHATS_MAX_WAIT_MS = 1000;
+
+    const flushLoadChats = () => {
+      loadChatsTimerRef.current = null;
+      loadChatsFirstScheduledAtRef.current = 0;
+      void loadChatsRef.current?.({ silent: true });
+    };
 
     const scheduleLoadChats = () => {
-      if (loadChatsScheduledRef.current) return;
-      loadChatsScheduledRef.current = true;
-      loadChatsTimerRef.current = window.setTimeout(() => {
-        loadChatsScheduledRef.current = false;
-        loadChatsTimerRef.current = null;
-        void loadChatsRef.current?.({ silent: true });
-      }, 180);
+      const now = Date.now();
+      if (!loadChatsFirstScheduledAtRef.current) {
+        loadChatsFirstScheduledAtRef.current = now;
+      }
+      if (loadChatsTimerRef.current) {
+        window.clearTimeout(loadChatsTimerRef.current);
+      }
+      const elapsed = now - loadChatsFirstScheduledAtRef.current;
+      const remainingMaxWait = Math.max(0, LOAD_CHATS_MAX_WAIT_MS - elapsed);
+      const delay = Math.min(LOAD_CHATS_DEBOUNCE_MS, remainingMaxWait);
+      loadChatsTimerRef.current = window.setTimeout(flushLoadChats, delay);
     };
 
     const connect = () => {
       if (!isMounted) return;
-      source = new EventSource(getSseStreamUrl(username), {
-        withCredentials: true,
-      });
-      source.onopen = () => {
+      wsOpened = false;
+      let ws = null;
+      if (useWebSocket) {
+        try {
+          const wsUrl = getWebSocketUrl(username);
+          ws = new WebSocket(wsUrl);
+          source = ws;
+        } catch (_) {
+          useWebSocket = false;
+        }
+      }
+
+      if (!useWebSocket) {
+        source = new EventSource(getSseStreamUrl(username), {
+          withCredentials: true,
+        });
+      }
+
+      const handleOpen = () => {
+        if (source instanceof WebSocket) {
+          wsOpened = true;
+        }
         setSseConnected(true);
         reconnectAttempts = 0;
       };
 
-      source.onmessage = (event) => {
+      const handleMessageData = (dataStr) => {
         let payload = null;
         try {
-          payload = JSON.parse(event.data);
+          payload = JSON.parse(dataStr);
         } catch {
           return;
         }
@@ -163,9 +206,13 @@ export function useChatEvents({
           payload.type !== "presence_update" &&
           payload.type !== "profile_updated" &&
           payload.type !== "chat_typing" &&
-          payload.type !== "session_revoked"
+          payload.type !== "session_revoked" &&
+          payload.type !== "remote_channel_queue"
         ) {
           return;
+        }
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("songbird:realtime-event", { detail: payload }));
         }
         if (payload.type === "session_revoked") {
           onSessionRevokedRef.current?.(payload);
@@ -183,7 +230,7 @@ export function useChatEvents({
           onTypingUpdateRef.current?.(payload);
           return;
         }
-        const payloadChatId = Number(payload.chatId || 0);
+        const payloadChatId = normalizeUuid(payload.chatId) || null;
         const currentActiveId = activeChatIdRef.current;
         const payloadUsername = String(payload?.username || "").toLowerCase();
         const currentUsername = String(usernameRef.current || "").toLowerCase();
@@ -199,8 +246,8 @@ export function useChatEvents({
         const isDeleteEvent = payload.type === "chat_message_deleted";
         const isUpdateEvent = payload.type === "chat_message_updated";
         const isSelectedChat =
-          Boolean(currentActiveId) &&
-          Number(payloadChatId) === Number(currentActiveId);
+          Boolean(currentActiveId) && Boolean(payloadChatId) &&
+          String(payloadChatId).toLowerCase() === String(currentActiveId).toLowerCase();
         const isReadableActiveChat =
           isSelectedChat &&
           isDocumentActive() &&
@@ -220,10 +267,18 @@ export function useChatEvents({
                 const clientRequestId = String(
                   payload?.client_request_id || payload?.clientRequestId || "",
                 ).trim();
+                const payloadMsgId = normalizeUuid(payload?.messageId);
+                const currentLastMsgId = normalizeUuid(chat?.last_message_id);
+                const isDuplicateMsgEvent =
+                  Boolean(payloadMsgId) &&
+                  Boolean(currentLastMsgId) &&
+                  payloadMsgId === currentLastMsgId;
+                const shouldIncrementUnread =
+                  !isOwnEvent && !isDuplicateMsgEvent;
                 return {
                   ...chat,
                   last_message_id:
-                    Number(payload?.messageId || 0) || chat?.last_message_id || null,
+                    payloadMsgId || chat?.last_message_id || null,
                   last_message: previewBody || chat?.last_message || "",
                   last_time: eventTime,
                   last_message_client_request_id: clientRequestId || null,
@@ -231,13 +286,16 @@ export function useChatEvents({
                     String(payload?.username || "").trim() ||
                     chat?.last_sender_username ||
                     "",
-                  last_message_read_at: isOwnEvent
-                    ? null
-                    : chat?.last_message_read_at || null,
+                  last_message_read_at:
+                    chat?.type === "saved" || payload?.chatType === "saved"
+                      ? payload?.read_at || eventTime
+                      : isOwnEvent
+                        ? null
+                        : chat?.last_message_read_at || null,
                   unread_count:
                     isReadableActiveChat
                       ? 0
-                      : !isOwnEvent
+                      : shouldIncrementUnread
                         ? currentUnread + 1
                         : currentUnread,
                 };
@@ -254,6 +312,34 @@ export function useChatEvents({
           scheduleLoadChats();
           onMessageDeletedRef.current?.(payload);
         }
+        if (isUpdateEvent) {
+          scheduleLoadChats();
+          const payloadMsgId = normalizeUuid(payload?.messageId) || null;
+          const previewBody = String(
+            payload?.summaryText || payload?.body || "",
+          ).trim();
+          if (payloadChatId) {
+            setChats((prev) =>
+              prev.map((chat) => {
+                if (!chat?.id) return chat;
+                const matches =
+                  String(chat.id).toLowerCase() === String(payloadChatId).toLowerCase();
+                if (!matches) return chat;
+                const isLastMsg =
+                  !payloadMsgId ||
+                  !chat?.last_message_id ||
+                  String(chat.last_message_id).toLowerCase() === String(payloadMsgId).toLowerCase();
+                if (isLastMsg && previewBody) {
+                  return {
+                    ...chat,
+                    last_message: previewBody,
+                  };
+                }
+                return chat;
+              }),
+            );
+          }
+        }
         if (isIncomingMessage) {
           onIncomingMessageRef.current?.(payload, {
             isActiveChat: isReadableActiveChat,
@@ -265,8 +351,10 @@ export function useChatEvents({
         if (payload.type === "chat_read" && !isOwnEvent && payloadChatId) {
           const nowIso = new Date().toISOString();
           setChats((prev) =>
-            prev.map((chat) =>
-              Number(chat?.id) === payloadChatId
+            prev.map((chat) => {
+              if (!chat?.id) return chat;
+              const matches = String(chat.id).toLowerCase() === String(payloadChatId).toLowerCase();
+              return matches
                 ? {
                     ...chat,
                     last_message_read_at: nowIso,
@@ -275,8 +363,8 @@ export function useChatEvents({
                         ? 0
                         : Number(chat?.unread_count || 0),
                   }
-                : chat,
-            ),
+                : chat;
+            }),
           );
         }
         if (isSelectedChat) {
@@ -296,20 +384,21 @@ export function useChatEvents({
                 pendingScrollToBottomRef.current = true;
               }
               setChats((prev) =>
-                prev.map((chat) =>
-                  Number(chat?.id) === Number(payloadChatId)
-                    ? { ...chat, unread_count: 0 }
-                    : chat,
-                ),
+                prev.map((chat) => {
+                  if (!chat?.id) return chat;
+                  const matches = String(chat.id).toLowerCase() === String(payloadChatId).toLowerCase();
+                  return matches ? { ...chat, unread_count: 0 } : chat;
+                }),
               );
               if (!isMarkingReadRef?.current) {
                 isMarkingReadRef.current = true;
+                const payloadMsgId = normalizeUuid(payload?.messageId) || null;
                 const markReadRequest =
-                  Number(payload?.messageId || 0) > 0
+                  payloadMsgId
                     ? markMessageRead({
                         chatId: payloadChatId,
                         username: usernameRef.current,
-                        messageId: Number(payload.messageId),
+                        messageId: payloadMsgId,
                       })
                     : markMessagesRead({
                         chatId: payloadChatId,
@@ -326,12 +415,17 @@ export function useChatEvents({
           if (payload.type === "chat_read" && !isOwnEvent) {
             onChatReadRef.current?.(payload);
             const nowIso = new Date().toISOString();
+            const targetMsgId = normalizeUuid(payload?.messageId) || null;
             setMessages((prev) =>
               prev.map((msg) => {
                 const fromCurrentUser = isMessageAuthoredByUser(msg, {
                   username: usernameRef.current,
                 });
                 if (!fromCurrentUser || msg?.read_at) return msg;
+                const msgId = normalizeUuid(msg?._serverId || msg?.id);
+                if (targetMsgId && msgId !== targetMsgId) {
+                  return msg;
+                }
                 return { ...msg, read_at: nowIso };
               }),
             );
@@ -339,19 +433,19 @@ export function useChatEvents({
           if (isDeleteEvent) {
             const messageIds = Array.isArray(payload?.messageIds)
               ? payload.messageIds
-                  .map((id) => Number(id))
-                  .filter((id) => Number.isFinite(id))
+                  .map((id) => normalizeUuid(id))
+                  .filter(Boolean)
               : [];
             if (messageIds.length) {
               const deletedIdSet = new Set(messageIds);
               setMessages((prev) =>
                 prev
                   .filter((msg) => {
-                    const serverId = Number(msg?._serverId || msg?.id || 0);
-                    return !deletedIdSet.has(serverId);
+                    const serverId = normalizeUuid(msg?._serverId || msg?.id) || null;
+                    return !serverId || !deletedIdSet.has(serverId);
                   })
                   .map((msg) => {
-                    const replyId = Number(msg?.replyTo?.id || 0);
+                    const replyId = normalizeUuid(msg?.replyTo?.id) || null;
                     if (!replyId || !deletedIdSet.has(replyId)) return msg;
                     return {
                       ...msg,
@@ -367,23 +461,51 @@ export function useChatEvents({
             return;
           }
           if (isUpdateEvent) {
-            scheduleLoadChats();
+            const payloadMsgId = normalizeUuid(payload?.messageId) || null;
+            if (payloadMsgId && Array.isArray(payload?.files)) {
+              setMessages((prev) =>
+                prev.map((msg) => {
+                  const msgId = normalizeUuid(msg?._serverId || msg?.id);
+                  if (msgId && msgId === payloadMsgId) {
+                    return {
+                      ...msg,
+                      files: payload.files,
+                      _processingPending: false,
+                      _delivery: "sent",
+                      ...(payload.body !== undefined ? { body: payload.body } : {}),
+                    };
+                  }
+                  return msg;
+                }),
+              );
+            }
+          }
+          if (payload.type === "chat_read") {
+            // Read receipts are already applied to messages/chat state above
+            // (and channel seen-counts refresh via onChatRead). No message
+            // content changed, so skip the full-window refetch entirely.
+            return;
           }
           scheduleMessageRefreshRef.current?.(currentActiveId, {
             preserveHistory: true,
             pruneMissing: isUpdateEvent,
+            // Plain new-message appends only need a bounded tail delta; edits
+            // change existing content and must reconcile the current window.
+            tailDelta: !isUpdateEvent,
           });
         }
       };
 
-      source.onerror = () => {
+      const handleError = () => {
         setSseConnected(false);
-        source?.close();
+        if (source instanceof WebSocket && !wsOpened) {
+          useWebSocket = false;
+        }
+        try { source?.close(); } catch (_) {}
         if (!isMounted) return;
         if (sseReconnectRef.current) {
           clearTimeout(sseReconnectRef.current);
         }
-        // Exponential backoff with jitter to avoid thundering herd on server restart.
         const backoffDelay = Math.min(
           30000,
           sseReconnectDelayMs * Math.pow(2, reconnectAttempts),
@@ -393,6 +515,17 @@ export function useChatEvents({
         reconnectAttempts += 1;
         sseReconnectRef.current = setTimeout(connect, delay);
       };
+
+      if (source instanceof WebSocket) {
+        source.onopen = handleOpen;
+        source.onmessage = (event) => handleMessageData(event.data);
+        source.onerror = handleError;
+        source.onclose = handleError;
+      } else if (source) {
+        source.onopen = handleOpen;
+        source.onmessage = (event) => handleMessageData(event.data);
+        source.onerror = handleError;
+      }
     };
 
     void connect();
@@ -408,7 +541,7 @@ export function useChatEvents({
         clearTimeout(loadChatsTimerRef.current);
         loadChatsTimerRef.current = null;
       }
-      loadChatsScheduledRef.current = false;
+      loadChatsFirstScheduledAtRef.current = 0;
     };
   }, [
     activeChatIdRef,

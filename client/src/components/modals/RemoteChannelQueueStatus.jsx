@@ -1,4 +1,5 @@
 import { AlertCircle, Check, Clock12, FastForward, LoaderCircle, Pause, Play, Refresh, SkipForward } from "../../icons/lucide.js";
+import Tooltip from "../common/Tooltip.jsx";
 
 /**
  * Displays the remote channel queue status with counts for each status type.
@@ -125,6 +126,7 @@ export default function RemoteChannelQueueStatus({
   return (
     <div className="space-y-2">
       {/* Queue Stats — clickable to test connection */}
+      <Tooltip label={canTest ? "Click to test connection" : ""} className="w-full">
       <button
         type="button"
         onClick={canTest ? onTestConnection : undefined}
@@ -136,7 +138,6 @@ export default function RemoteChannelQueueStatus({
               : "cursor-pointer hover:border-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-500/15"
             : "cursor-default"
         }`}
-        title={canTest ? "Click to test connection" : undefined}
       >
         <div className="flex items-center justify-between">
           <p className={`text-xs font-semibold ${isDisconnected ? "text-rose-600 dark:text-rose-200" : "text-slate-700 dark:text-slate-200"}`}>
@@ -156,11 +157,11 @@ export default function RemoteChannelQueueStatus({
           <div className="mt-2 flex flex-wrap gap-2">
             {visibleItems.map((item) => {
               const Icon = item.icon;
+              // No tooltip here — the count and label are already visible text.
               return (
                 <div
                   key={item.label}
                   className="inline-flex items-center gap-1.5"
-                  title={`${item.count} ${item.label.toLowerCase()}`}
                 >
                   <Icon size={13} className={`${item.color} ${item.iconClass || ""}`} />
                   <span className={`text-xs font-semibold ${item.color}`}>
@@ -175,56 +176,60 @@ export default function RemoteChannelQueueStatus({
           </div>
         )}
       </button>
+      </Tooltip>
 
       {/* Action Buttons */}
       {!readOnly && sourceEnabled ? (
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={onResume || onPause}
-            disabled={(!onResume && !onPause) || actionsBlocked}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-            title={onResume ? "Resume queue" : "Pause queue"}
-          >
-            {actionLoading || testConnectionLoading ? (
-              <LoaderCircle size={13} className="animate-spin" />
-            ) : onResume ? (
-              <Play size={13} />
-            ) : (
-              <Pause size={13} />
-            )}
-            {onResume ? "Resume" : "Pause"}
-          </button>
+          <Tooltip label={onResume ? "Resume queue" : "Pause queue"}>
+            <button
+              type="button"
+              onClick={onResume || onPause}
+              disabled={(!onResume && !onPause) || actionsBlocked}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              {actionLoading || testConnectionLoading ? (
+                <LoaderCircle size={13} className="animate-spin" />
+              ) : onResume ? (
+                <Play size={13} />
+              ) : (
+                <Pause size={13} />
+              )}
+              {onResume ? "Resume" : "Pause"}
+            </button>
+          </Tooltip>
 
-          <button
-            type="button"
-            onClick={onSkip}
-            disabled={!onSkip || active === 0 || actionsBlocked}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-            title="Skip current item"
-          >
-            {actionLoading || testConnectionLoading ? (
-              <LoaderCircle size={13} className="animate-spin" />
-            ) : (
-              <FastForward size={13} />
-            )}
-            Skip
-          </button>
+          <Tooltip label="Skip current item">
+            <button
+              type="button"
+              onClick={onSkip}
+              disabled={!onSkip || active === 0 || actionsBlocked}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              {actionLoading || testConnectionLoading ? (
+                <LoaderCircle size={13} className="animate-spin" />
+              ) : (
+                <FastForward size={13} />
+              )}
+              Skip
+            </button>
+          </Tooltip>
 
-          <button
-            type="button"
-            onClick={onSkipAll}
-            disabled={!onSkipAll || active === 0 || actionsBlocked}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-            title="Skip all queued items"
-          >
-            {actionLoading || testConnectionLoading ? (
-              <LoaderCircle size={13} className="animate-spin" />
-            ) : (
-              <SkipForward size={13} />
-            )}
-            Skip All
-          </button>
+          <Tooltip label="Skip all queued items">
+            <button
+              type="button"
+              onClick={onSkipAll}
+              disabled={!onSkipAll || active === 0 || actionsBlocked}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              {actionLoading || testConnectionLoading ? (
+                <LoaderCircle size={13} className="animate-spin" />
+              ) : (
+                <SkipForward size={13} />
+              )}
+              Skip All
+            </button>
+          </Tooltip>
         </div>
       ) : null}
     </div>

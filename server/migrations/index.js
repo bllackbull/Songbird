@@ -24,11 +24,21 @@ import { migration023ChatLeftMembers } from "./023-chat-left-members.js";
 import { migration024RemoteChannelQueue } from "./024-remote-channel-queue.js";
 import { migration025RemoteChannelPerformance } from "./025-remote-channel-performance.js";
 import { migration026RemoteChannelPause } from "./026-remote-channel-pause.js";
-
 import { migration027RemoteChannelSongbird } from "./027-remote-channel-songbird.js";
 import { migration as migration028PushMessagePreview } from "./028-push-message-preview.js";
 import { migration029RemoteChannelQueueSummaryIndex } from "./029-remote-channel-queue-summary-index.js";
 import { migration030HiddenMessagesCompositeIndex } from "./030-hidden-messages-composite-index.js";
+import { migration031UserRoles } from "./031-user-roles.js";
+import { migration032AppSettings } from "./032-app-settings.js";
+import { migration033AdminStatsIndexes } from "./033-admin-stats-indexes.js";
+import { migration034VerifiedField } from "./034-verified-field.js";
+import { migration035StorageAndMediaColumns } from "./035-storage-and-media-columns.js";
+import { migration036UuidPrimaryKeys } from "./036-uuid-primary-keys.js";
+import { migration037AutoAddNewUsers } from "./037-auto-add-new-users.js";
+import { migration038PendingPresignedUploads } from "./038-pending-presigned-uploads.js";
+import { migration039PostgresTimestampDefaults } from "./039-postgres-timestamp-defaults.js";
+import { migration040QueueMessageIdText } from "./040-queue-message-id-text.js";
+import { migration041AdminAuditLogs } from "./041-admin-audit-logs.js";
 
 export const migrations = [
   migration001InitialSchema,
@@ -61,4 +71,15 @@ export const migrations = [
   migration028PushMessagePreview,
   migration029RemoteChannelQueueSummaryIndex,
   migration030HiddenMessagesCompositeIndex,
+  migration031UserRoles,
+  migration032AppSettings,
+  migration033AdminStatsIndexes,
+  migration034VerifiedField,
+  migration035StorageAndMediaColumns,
+  migration036UuidPrimaryKeys,
+  migration037AutoAddNewUsers,
+  migration038PendingPresignedUploads,
+  migration039PostgresTimestampDefaults,
+  migration040QueueMessageIdText,
+  migration041AdminAuditLogs,
 ];

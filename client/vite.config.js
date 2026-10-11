@@ -4,7 +4,7 @@ import react from "@vitejs/plugin-react";
 import { visualizer } from "rollup-plugin-visualizer";
 
 export default defineConfig(({ mode }) => {
-  const rootEnv = loadEnv(mode, path.resolve(__dirname, ".."), "");
+  const rootEnv = loadEnv(mode, path.resolve(import.meta.dirname, ".."), "");
   const apiPort = Number(
     rootEnv.SERVER_PORT ||
       rootEnv.PORT ||
@@ -13,7 +13,8 @@ export default defineConfig(({ mode }) => {
       5174,
   );
   const analyze =
-    String(rootEnv.ANALYZE || process.env.ANALYZE || "").toLowerCase() === "true";
+    String(rootEnv.ANALYZE || process.env.ANALYZE || "").toLowerCase() ===
+    "true";
 
   return {
     plugins: [
@@ -64,6 +65,10 @@ export default defineConfig(({ mode }) => {
       port: 5173,
       proxy: {
         "/api": `http://localhost:${apiPort}`,
+        "/ws": {
+          target: `http://localhost:${apiPort}`,
+          ws: true,
+        },
       },
     },
   };

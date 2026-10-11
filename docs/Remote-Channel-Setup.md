@@ -40,9 +40,21 @@ It is recommended to not use your main personal Telegram account for this.
 
 :::
 
-### 2. Configure Remote Channel
+### 2. Connect Telegram
 
-Run the configuration helper and follow the prompts. It asks for the Telegram API ID, API hash, optional proxy URL, and Telegram login code, then writes the Remote Channel settings into `.env`. For systemd installs, it restarts `songbird.service` after saving.
+It is recommended to use the [admin panel](./Admin-Panel.md) to setup the connection.
+
+To do so, go to **Services** tab in the admin panel and click on **Telegram connection** card. A guided modal walks through the whole flow:
+
+1. Enter the **API ID** and **API hash**, plus the account phone number in E.164 format.
+2. Enter the **login code** sent to that Telegram account.
+3. If the account has two-factor authentication, enter the **2FA password**.
+4. On success, a confirmation page appears — click **Done**.
+
+You can later use the **Test connection** button to confirm your connection or use **Disconnect** to destory the connection.
+
+<details>
+<summary>CLI alternative (<code>remote:configure</code>)</summary>
 
 ```bash
 cd /opt/songbird
@@ -58,6 +70,7 @@ docker compose run --rm -v "$PWD/.env:/app/.env" songbird npm --prefix /app/serv
 ```
 
 Keep the generated session value private. It authorizes Songbird to read Telegram channels that the logged-in Telegram account can access.
+</details>
 
 ### 3. Connect a Songbird channel
 
@@ -73,5 +86,28 @@ Optional channel settings:
 :::info
 
 Posts with no text/caption are mirrored only when media streaming is enabled and at least one supported media file can be stored.
+
+:::
+
+## Sleep-friendly polling
+
+Real-time mirroring needs the app awake: by default the poll loops and the Telegram MTProto connection run continuously, so a free service never sleeps and burns through its monthly hour allowance. Tick mode fixes this:
+
+1. Open the admin panel **Settings → Remote Channel** section and enable **Tick Mode** option and restart so background poll loops would stay off.
+
+2. Go to **Secrets** section (owner-only) and copy the tick secret.
+
+3. Add a **free external cron** (e.g. cron-job.org) that calls:
+
+   ```bash
+   curl -X POST https://your-app.onrender.com/api/internal/remote-channel/tick \
+     -H "x-songbird-cron-secret: <secret-from-settings>"
+   ```
+
+   Each tick wakes the app, mirrors everything since the last mirrored message, drains the queue, then disconnects Telegram so the app can sleep again.
+
+:::info Interval math on Render free
+
+sleeps after ~15 min idle — each inbound tick keeps it warm ~15 min: every 10 min ≈ always awake (~720h, no saving); every 30 min ≈ ~360h; every 60 min ≈ ~180h. Mirroring delay equals the cron interval plus a cold-start (~30–60s).
 
 :::

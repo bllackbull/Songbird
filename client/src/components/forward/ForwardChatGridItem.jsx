@@ -2,6 +2,9 @@ import { Check, Bookmark, Megaphone, Users } from "../../icons/lucide.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import Avatar from "../common/Avatar.jsx";
+import VerifiedBadge from "../common/VerifiedBadge.jsx";
+import UserRoleBadge from "../common/UserRoleBadge.jsx";
+import Tooltip from "../common/Tooltip.jsx";
 
 function ForwardChatGlyph({ kind }) {
   if (kind === "saved") return <Bookmark size={18} className="text-white" />;
@@ -24,6 +27,9 @@ export default function ForwardChatGridItem({
   color,
   kind,
   initialsSource,
+  showOnlineBadge = false,
+  verified = false,
+  role = null,
   selected,
   onClick,
 }) {
@@ -37,7 +43,7 @@ export default function ForwardChatGridItem({
       className="flex min-w-0 flex-col items-center gap-1.5 rounded-2xl border border-transparent px-1.5 py-2.5 text-center transition hover:bg-black/5 dark:hover:bg-white/5"
     >
       <span
-        className={`relative flex h-[4.15rem] w-[4.15rem] items-center justify-center rounded-full border-[4px] transition ${
+        className={`relative flex h-[4.15rem] w-[4.15rem] items-center justify-center rounded-full border-4 transition ${
           selected
             ? "border-emerald-500 bg-emerald-500/8"
             : "border-transparent bg-transparent p-0"
@@ -55,6 +61,8 @@ export default function ForwardChatGridItem({
             placeholderContent={
               kind === "saved" ? <ForwardChatGlyph kind={kind} /> : initials
             }
+            showOnlineBadge={showOnlineBadge && !selected}
+            onlineBadgeClassName="h-4 w-4 border-[3px]"
             className="h-full w-full text-[1.05rem] font-semibold"
             style={{ unicodeBidi: "plaintext" }}
           />
@@ -67,15 +75,20 @@ export default function ForwardChatGridItem({
       </span>
       <span className="flex min-w-0 max-w-full items-center gap-1">
         <ForwardChatKindIcon kind={kind} />
-        <span
-          className={`block min-w-0 max-w-full truncate text-[11px] font-semibold text-slate-700 dark:text-slate-200 ${
-            titleHasPersian ? "font-fa" : ""
-          }`}
-          dir="auto"
-          title={title}
-          style={{ unicodeBidi: "plaintext" }}
-        >
-          {title}
+        <span className="inline-flex min-w-0 items-center gap-0.5">
+          <Tooltip label={title} asChild>
+            <span
+              className={`block min-w-0 max-w-full truncate text-[11px] font-semibold text-slate-700 dark:text-slate-200 ${
+                titleHasPersian ? "font-fa" : ""
+              }`}
+              dir="auto"
+              style={{ unicodeBidi: "plaintext" }}
+            >
+              {title}
+            </span>
+          </Tooltip>
+          {Boolean(verified) && <VerifiedBadge size={13} />}
+          {kind === "dm" && <UserRoleBadge role={role} size={13} />}
         </span>
       </span>
     </button>

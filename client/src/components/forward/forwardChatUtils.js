@@ -4,7 +4,7 @@ export function canForwardToChat(chat, currentUserId) {
     const members = Array.isArray(chat?.members) ? chat.members : [];
     const peer = members.find(
       (member) =>
-        Number(member?.id || 0) !== Number(currentUserId || 0) &&
+        String(member?.id || "") !== String(currentUserId || "") &&
         String(member?.username || "").trim().length > 0,
     );
     return Boolean(peer);
@@ -13,7 +13,7 @@ export function canForwardToChat(chat, currentUserId) {
   const members = Array.isArray(chat?.members) ? chat.members : [];
   return members.some(
     (member) =>
-      Number(member?.id || 0) === Number(currentUserId || 0) &&
+      String(member?.id || "") === String(currentUserId || "") &&
       String(member?.role || "").toLowerCase() === "owner",
   );
 }
@@ -39,6 +39,7 @@ export function getForwardChatDisplay(chat, currentUsername) {
       color: String(chat?.group_color || "#10b981"),
       kind: type,
       initials: title,
+      verified: Boolean(chat?.verified),
     };
   }
   const members = Array.isArray(chat?.members) ? chat.members : [];
@@ -57,6 +58,9 @@ export function getForwardChatDisplay(chat, currentUsername) {
     initials:
       String(peer?.nickname || peer?.username || "Deleted account").trim() ||
       "Deleted account",
+    isOnline: String(peer?.status || "").toLowerCase() === "online",
+    verified: Boolean(peer?.user_verified),
+    role: peer?.user_role || null,
   };
 }
 
@@ -84,13 +88,13 @@ export function sortForwardableChats(chats, currentUserId) {
     const bOwners = canForwardToChat(b, currentUserId) ? 1 : 0;
     if (aOwners !== bOwners) return bOwners - aOwners;
 
-    return Number(b?.id || 0) - Number(a?.id || 0);
+    return String(b?.id || "").localeCompare(String(a?.id || ""));
   });
 }
 
 export function excludeForwardSourceChat(chats, sourceChatId) {
-  const numericSourceChatId = Number(sourceChatId || 0);
+  const sourceId = String(sourceChatId || "");
   return (Array.isArray(chats) ? chats : []).filter(
-    (chat) => Number(chat?.id || 0) !== numericSourceChatId,
+    (chat) => String(chat?.id || "") !== sourceId,
   );
 }

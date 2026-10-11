@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { getAvatarStyle } from "../../utils/avatarColor.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import { hasPersian } from "../../utils/fontUtils.js";
+import Tooltip from "./Tooltip.jsx";
 
 export default function Avatar({
   src,
@@ -10,6 +11,8 @@ export default function Avatar({
   color = "#10b981",
   initials = null,
   placeholderContent = null,
+  showOnlineBadge = false,
+  onlineBadgeClassName = "",
   className = "",
   imgClassName = "",
   placeholderClassName = "",
@@ -40,7 +43,7 @@ export default function Avatar({
 
   return (
     <div
-      className={`relative overflow-hidden rounded-full ${className}`}
+      className={`relative rounded-full ${showOnlineBadge ? "overflow-visible" : "overflow-hidden"} ${className}`}
       style={{ ...getAvatarStyle(color), ...style }}
     >
       <div
@@ -62,6 +65,15 @@ export default function Avatar({
           onLoad={() => setIsLoaded(true)}
           onError={() => setHasError(true)}
         />
+      ) : null}
+      {showOnlineBadge ? (
+        <Tooltip label="online" className="absolute bottom-0 right-0 z-10">
+          <span
+            role="img"
+            aria-label="online"
+            className={`h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900 ${onlineBadgeClassName}`}
+          />
+        </Tooltip>
       ) : null}
     </div>
   );

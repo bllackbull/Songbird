@@ -15,7 +15,7 @@ import {
   Volume2,
   VolumeX,
 } from "../../icons/lucide.js";
-import { FaTelegram } from "react-icons/fa6";
+import { SongbirdIcon, TelegramIcon } from "../../icons/BrandIcons.jsx";
 import { copyTextToClipboard } from "../../utils/clipboard.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import { hasPersian } from "../../utils/fontUtils.js";
@@ -28,24 +28,11 @@ import {
   testRemoteChannelConnection,
 } from "../../api/chatApi.js";
 import Avatar from "../common/Avatar.jsx";
+import UserRoleBadge from "../common/UserRoleBadge.jsx";
+import VerifiedBadge from "../common/VerifiedBadge.jsx";
 import RemoteChannelQueueStatus from "./RemoteChannelQueueStatus.jsx";
+import Tooltip from "../common/Tooltip.jsx";
 import { useFocusTrap } from "../../hooks/useFocusTrap.js";
-
-function SongbirdIcon({ size = 18 }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 512 512"
-      fill="currentColor"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-      style={{ overflow: "visible", flexShrink: 0 }}
-    >
-      <path d="M256 0C397.385 0 512 114.615 512 256C512 397.385 397.385 512 256 512C114.615 512 0 397.385 0 256C0 114.615 114.615 0 256 0ZM200.384 360.058C200.384 382.004 240.211 399.795 289.339 399.795C289.341 399.795 289.344 399.795 289.346 399.795V360.056H200.384V360.058ZM289.337 112.001C240.211 112.004 200.388 148.663 200.388 193.884C200.388 194.939 200.409 195.99 200.452 197.036L125.91 169.619C115.331 165.728 103.116 170.956 98.627 181.296C94.1384 191.636 99.0768 203.173 109.656 207.064L154.029 223.385C144.513 221.87 134.616 227.007 130.675 236.086C126.187 246.426 131.124 257.962 141.703 261.854L201.931 284.006C192.779 283.064 183.514 288.147 179.732 296.858C175.244 307.198 180.182 318.735 190.761 322.626L292.287 359.969C291.316 360.026 290.336 360.058 289.35 360.059V399.795C338.475 399.792 378.297 363.133 378.298 317.912C378.298 286.404 358.965 259.052 330.622 245.36C329.479 244.648 328.239 244.038 326.91 243.549L324.101 242.515C322.94 242.061 321.766 241.629 320.58 241.22L249.843 215.202C245.85 208.948 243.558 201.663 243.558 193.884C243.558 172.753 260.451 155.255 282.483 152.208C292.724 161.311 309.043 161.212 319.15 151.908L319.152 151.906L318.969 151.737H332.508V151.736H345.585V151.735C345.585 139.865 336.254 130.001 323.976 128.017C316.106 118.296 303.521 112 289.339 112H289.337V112.001Z" />
-    </svg>
-  );
-}
 
 const MEMBERS_BATCH_SIZE = 10;
 
@@ -110,7 +97,8 @@ export default function ChatProfileModal({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chat?.id]);
 
-  // Fetch remote channel status for channels
+  // Fetch remote channel status for channels. Queue changes arrive over SSE.
+  // The interval below is only a safety net for missed events and reconnects.
   useEffect(() => {
     if (!open || chat?.type !== "channel" || !remoteChannelAvailable || !currentUser?.username) {
       return undefined;
@@ -133,9 +121,23 @@ export default function ChatProfileModal({
     };
 
     fetchRemoteStatus();
-    const intervalId = setInterval(fetchRemoteStatus, 10000);
+    const intervalId = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      fetchRemoteStatus();
+    }, 60000);
 
-    return () => clearInterval(intervalId);
+    const handleRealtimeEvent = (event) => {
+      const payload = event?.detail;
+      if (payload?.type !== "remote_channel_queue") return;
+      if (String(payload?.chatId || "") !== String(chat.id || "")) return;
+      fetchRemoteStatus();
+    };
+    window.addEventListener("songbird:realtime-event", handleRealtimeEvent);
+
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener("songbird:realtime-event", handleRealtimeEvent);
+    };
   }, [open, chat?.id, chat?.type, currentUser?.username, remoteChannelAvailable, onRemoteChannelStatusChange]);
 
   // (Connection test is triggered manually by clicking the Queue Status box)
@@ -305,12 +307,12 @@ export default function ChatProfileModal({
   const membersCount = Number.isFinite(membersCountRaw)
     ? membersCountRaw
     : members.length;
-  const ownerId = Number(
-    members.find(
-      (member) => String(member.role || "").toLowerCase() === "owner",
-    )?.id || 0,
+  const ownerMember = members.find(
+    (member) => String(member.role || "").toLowerCase() === "owner",
   );
-  const isOwner = Number(currentUser?.id || 0) === ownerId;
+  const ownerId = ownerMember?.id ? String(ownerMember.id).trim().toLowerCase() : null;
+  const currentUserId = currentUser?.id ? String(currentUser.id).trim().toLowerCase() : null;
+  const isOwner = Boolean(ownerId && currentUserId && ownerId === currentUserId);
   const isReadOnly = Boolean(readOnly);
   const canSeeMembers =
     showMembers && !isReadOnly && (isGroup || (isChannel && isOwner));
@@ -354,7 +356,7 @@ export default function ChatProfileModal({
   if (typeof document === "undefined") return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/45 px-5">
+    <div className="fixed inset-0 z-140 flex items-center justify-center bg-black/45 px-5">
       <div
         ref={dialogRef}
         role="dialog"
@@ -406,20 +408,39 @@ export default function ChatProfileModal({
             className="mx-auto h-20 w-20 text-2xl font-bold"
           />
           <p
-            className={`mt-3 text-lg font-semibold ${hasPersian(profileName) ? "font-fa" : ""}`}
-            dir="auto"
-            style={{ unicodeBidi: "plaintext" }}
+            className="mt-3 inline-flex items-center justify-center gap-0.5 text-lg font-semibold"
+            dir="ltr"
           >
-            {profileName}
+            <span className={`${hasPersian(profileName) ? "font-fa" : ""}`} dir="auto">{profileName}</span>
+            {!isSaved && (
+              <>
+                {/* User verified (shown first) */}
+                {!isGroup && !isChannel && Boolean(targetUser?.verified ?? targetUser?.user_verified) && <VerifiedBadge size={18} />}
+                {/* Chat verified */}
+                {(isGroup || isChannel) && Boolean(chat?.verified) && <VerifiedBadge size={18} />}
+              </>
+            )}
+            {!isGroup && !isChannel && !isSaved && (
+              <UserRoleBadge
+                role={
+                  targetUser?.user_role ||
+                  (["owner", "admin", "user"].includes(String(targetUser?.role || "").toLowerCase())
+                    ? targetUser?.role
+                    : null)
+                }
+                size={18}
+              />
+            )}
           </p>
           {profileUsername ? (
-            <p
-              className="max-w-full truncate text-sm text-slate-500 dark:text-slate-400"
-              dir="auto"
-              title={profileUsername}
-            >
-              @{profileUsername}
-            </p>
+            <Tooltip label={profileUsername} asChild>
+              <p
+                className="max-w-full truncate text-sm text-slate-500 dark:text-slate-400"
+                dir="auto"
+              >
+                @{profileUsername}
+              </p>
+            </Tooltip>
           ) : null}
           {isGroup || isChannel ? (
             <p
@@ -503,7 +524,7 @@ export default function ChatProfileModal({
               type="button"
               onClick={handleCopyInviteLink}
               disabled={!inviteLink || inviteLinkLoading}
-              className="mt-2 flex w-full items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-left text-xs text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-300/60 disabled:cursor-default disabled:opacity-70 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/15"
+              className="mt-2 flex w-full items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-left text-xs text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-hidden focus:ring-2 focus:ring-emerald-300/60 disabled:cursor-default disabled:opacity-70 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/15"
               aria-label="Copy invite link"
             >
               <span className="min-w-0 flex-1 break-all">
@@ -548,7 +569,7 @@ export default function ChatProfileModal({
                     </span>
                     <span className="inline-flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
                       {remoteChannelStatus.source.provider === "telegram" ? (
-                        <FaTelegram size={18} className="shrink-0" />
+                        <TelegramIcon size={18} className="shrink-0" />
                       ) : remoteChannelStatus.source.provider === "songbird" ? (
                         <SongbirdIcon size={18} />
                       ) : (
@@ -597,7 +618,7 @@ export default function ChatProfileModal({
                 placeholder="Search members"
                 lang={memberQueryHasPersian ? "fa" : "en"}
                 dir={memberQueryHasPersian ? "rtl" : "ltr"}
-                className={`w-full rounded-2xl border border-emerald-200 bg-white px-4 py-2.5 pr-14 text-sm text-slate-700 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
+                className={`w-full rounded-2xl border border-emerald-200 bg-white px-4 py-2.5 pr-14 text-sm text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
                   memberQueryHasPersian ? "font-fa text-right" : "text-left"
                 }`}
                 style={{ unicodeBidi: "plaintext" }}
@@ -622,6 +643,8 @@ export default function ChatProfileModal({
                 const memberInitials = getAvatarInitials(label);
                 const memberIsOwner =
                   String(member.role || "").toLowerCase() === "owner";
+                const memberIsOnline =
+                  String(member.status || "").toLowerCase() === "online";
                 return (
                   <ContextMenuSurface
                     as="div"
@@ -660,26 +683,24 @@ export default function ChatProfileModal({
                         className="h-8 w-8 text-xs"
                       />
                       <div className="min-w-0">
+                        <Tooltip label={label} asChild>
+                          <p
+                            className="flex items-center gap-0.5 truncate text-sm font-semibold"
+                            dir="ltr"
+                          >
+                            <span className={`truncate ${hasPersian(label) ? "font-fa" : ""}`} dir="auto">{label}</span>
+                            {Boolean(member.user_verified) && <VerifiedBadge size={14} />}
+                            <UserRoleBadge role={member.user_role} size={14} />
+                          </p>
+                        </Tooltip>
                         <p
-                          className={`truncate text-sm font-semibold ${hasPersian(label) ? "font-fa" : ""}`}
-                          dir="auto"
-                          title={label}
+                          className={`truncate text-xs ${
+                            memberIsOnline
+                              ? "font-semibold text-emerald-500 dark:text-emerald-300"
+                              : "text-slate-500 dark:text-slate-400"
+                          }`}
                         >
-                          {label}
-                        </p>
-                        <p className="inline-flex items-center gap-1 truncate text-xs text-slate-500 dark:text-slate-400">
-                          <span
-                            className={`h-1.5 w-1.5 rounded-full ${
-                              String(member.status || "").toLowerCase() ===
-                              "online"
-                                ? "bg-emerald-400"
-                                : "bg-slate-400"
-                            }`}
-                          />
-                          {String(member.status || "").toLowerCase() ===
-                          "online"
-                            ? "online"
-                            : "offline"}
+                          {memberIsOnline ? "online" : "last seen recently"}
                         </p>
                       </div>
                     </button>

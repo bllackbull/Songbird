@@ -4,8 +4,27 @@ node_modules
 **/node_modules
 client/dist
 data
+logs
+certs
+docs
+scripts
+!scripts/run-data-command.sh
+!scripts/docker-entrypoint.sh
+# Tests and test artifacts
+**/test
+**/coverage
+**/test-results
+**/playwright-report
+**/.vitest-attachments
 npm-debug.log*
 .gitignore
 .vscode
 .idea
 .todo
+.env
+
+# Agent & AI tool configs
+AGENTS.md
+DESIGN.md
+opencode.json
+skills-lock.json

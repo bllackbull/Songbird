@@ -58,7 +58,7 @@ export function useNewGroupModal({
           newGroupMembers.map((member) => String(member?.username || "")),
         );
         const currentEditingChat = chats.find(
-          (chat) => Number(chat.id) === Number(activeChatId),
+          (chat) => String(chat.id || "") === String(activeChatId || ""),
         );
         if (
           editingGroup &&

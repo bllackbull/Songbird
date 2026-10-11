@@ -1,6 +1,6 @@
 # دستورات پایگاه داده
 
-Songbird مجموعه‌ای از اسکریپت‌های `npm` را برای مدیریت پایگاه داده، کاربران، چت‌ها، فایل‌ها و پشتیبان‌ها از خط فرمان ارائه می‌دهد. آن‌ها را از پوشه `server/` اجرا کنید:
+Songbird از هر دو موتور پایگاه داده SQLite (پیشفرض) و PostgreSQL پشتیبانی می کند و مجموعه ای از اسکریپته ای `npm` را برای مدیریت پایگاه داده، کاربران، چت ها، فایل ها و پشتیبان ها از خط فرمان ارائه می دهد. آنها را از پوشه `server/` اجرا کنید:
 
 ```bash
 cd /opt/songbird/server
@@ -24,94 +24,103 @@ cd /opt/songbird/server
 | `--all` | دستورهای حذف انبوه بدون یک `--all` صریح زمانی که هیچ انتخاب‌گری داده نشده باشد، اجرا نمی‌شوند. |
 | راهنمای داخلی | برای یک برگه راهنمای فشرده از هر دستور، `npm run db:help` را اجرا کنید. |
 
+### مالکیت پوشه داده
+
+دستورهای پشتیبانی شده پایگاه داده از یک اجراکننده پیش از Node استفاده میکنند و از حساب runtime ‏Songbird پیروی میکنند:
+
+- **Docker:** دستور با UID/GID فعلی container اجرا میشود. Docker از `songbird.service` استفاده نمیکند.
+- **systemd:** دستور از `User=` و `Group=` مؤثر در `songbird.service`، از جمله overrideهای systemd، پیروی میکند. نبودن `Group=` به primary group کاربر service تبدیل میشود. وقتی root یک دستور را برای حساب service غیر root اجرا میکند، اجراکننده فقط پوشه `data/` همین installation را اصلاح کرده و سپس به همان حساب پیکربندی شده تغییر میکند.
+- **manual/no-systemd:** دستور از حساب فعلی فراخواننده استفاده میکند. هیچ حسابی ایجاد نمیکند و تلاشی برای اصلاح مالکیت ندارد.
+
+اگر `User=` وجود نداشته باشد یا `User=root` باشد، دستور systemd با root باقی میماند: نه `chown` اجرا میکند و نه کاربر را تغییر میدهد. با این حال، `Group=` صریح حفظ میشود؛ برای نمونه، `User=root` و `Group=appgroup` دستور را با `root:appgroup` اجرا میکند. برای امنیت، مسیر اصلاح root/non-root-systemd فقط پوشه `data/` همان نصب را که کنار اجراکننده است میپذیرد (در نصب استاندارد: `/opt/songbird/data`)؛ به جای تغییر بازگشتی مالکیت یک مسیر دلخواه، `DATA_DIR` بازنویسی شده را رد میکند.
+
+`DATA_DIR` شامل داده های SQLite مدیریت شده توسط برنامه، upload ها و backup ها است. داده های server ‏PostgreSQL به صورت خارجی توسط PostgreSQL مدیریت میشوند و در این پوشه قرار ندارند یا توسط آن تغییر نمیکنند.
+
+:::warning
+
+اسکریپت های مجزا را با `sudo node` یا `sudo npm` اجرا نکنید. این اجرای مستقیم اجراکننده را دور میزند و پشتیبانی نمیشود. به جای آن از دستورهای مستندشده `npm run db:*` استفاده کنید.
+
+:::
+
 ## مرجع سریع
 
 | دستور | هدف |
 |---|---|
 | `npm run db:help` | چاپ راهنمای داخلی دستورها. |
-| `npm run db:backup` | ایجاد یک فایل zip پشتیبان رمزنگاری‌شده از `.env` و `data/`. |
-| `npm run db:restore` | بازیابی پایگاه داده و آپلودها از یک فایل zip پشتیبان. |
-| `npm run db:vacuum` | فشرده‌سازی فایل پایگاه داده SQLite. |
-| `npm run db:migrate` | اعمال migrationهای در انتظار پایگاه داده. |
-| `npm run db:reset` | پاک‌کردن محتوای پایگاه داده و فایل‌های پیام آپلودشده. |
-| `npm run db:delete` | حذف فایل پایگاه داده. |
-| `npm run db:inspect` | چاپ یک خلاصه کامل (کاربران، چت‌ها، پیام‌ها، فایل‌ها، دیسک). |
-| `npm run db:chat:inspect` | بازرسی فقط چت‌ها. |
-| `npm run db:user:inspect` | بازرسی فقط کاربران. |
-| `npm run db:file:inspect` | بازرسی فقط فایل‌ها. |
-| `npm run db:user:create` | ایجاد یک کاربر منفرد. |
-| `npm run db:user:generate` | تولید کاربران آزمایشی تصادفی. |
-| `npm run db:user:edit` | ویرایش پروفایل یک کاربر. |
-| `npm run db:user:ban` | تغییر وضعیت مسدودیت یک کاربر. |
-| `npm run db:user:delete` | حذف یک، چند یا همه کاربران. |
-| `npm run db:chat:create` | ایجاد یک گروه یا کانال (به‌صورت اختیاری یک کانال راه دور). |
-| `npm run db:chat:add` | افزودن اعضا به یک گروه یا کانال. |
-| `npm run db:chat:edit` | ویرایش پروفایل چت، مالکیت، یا پیکربندی کانال راه دور. |
-| `npm run db:chat:delete` | حذف یک، چند یا همه چت‌ها. |
-| `npm run db:file:delete` | حذف فایل‌های پیام آپلودشده و/یا آواتارها. |
-| `npm run db:message:generate` | تولید پیام‌های تصادفی بین دو کاربر. |
-| `npm run remote:configure` | پیکربندی اعتبارنامه‌های Telegram برای کانال راه دور. |
-
----
+| [`npm run db:backup`](#db-backup) | ایجاد پشتیبان سازگار با موتور پایگاه داده. |
+| [`npm run db:restore`](#db-restore) | بازیابی پشتیبان سازگار با موتور پایگاه داده. |
+| [`npm run db:vacuum`](#db-vacuum) | فشرده سازی SQLite یا اجرای `VACUUM ANALYZE` در PostgreSQL. |
+| [`npm run db:migrate`](#db-migrate) | اعمال migrationهای در انتظار پایگاه داده. |
+| [`npm run db:reset`](#db-reset) | پاک کردن محتوای پایگاه داده و فایل های پیام آپلودشده. |
+| [`npm run db:delete`](#db-delete) | حذف فایل پایگاه داده. |
+| [`npm run db:inspect`](#db-inspect-و-دستورهای-مرتبط) | چاپ یک خلاصه کامل (کاربران، چت ها، پیام ها، فایل ها، دیسک). |
+| [`npm run db:chat:inspect`](#db-inspect-و-دستورهای-مرتبط) | بازرسی فقط چت ها. |
+| [`npm run db:user:inspect`](#db-inspect-و-دستورهای-مرتبط) | بازرسی فقط کاربران. |
+| [`npm run db:file:inspect`](#db-inspect-و-دستورهای-مرتبط) | بازرسی فقط فایل ها. |
+| [`npm run db:user:create`](#db-user-create) | ایجاد یک کاربر منفرد. |
+| [`npm run db:user:generate`](#db-user-generate) | تولید کاربران آزمایشی تصادفی. |
+| [`npm run db:user:edit`](#db-user-edit) | ویرایش پروفایل یک کاربر. |
+| [`npm run db:user:ban`](#db-user-ban) | تغییر وضعیت مسدودیت یک کاربر. |
+| [`npm run db:user:verify`](#db-user-verify) | تغییر وضعیت تأییدشده بودن یک کاربر. |
+| [`npm run db:user:delete`](#db-user-delete) | حذف یک، چند یا همه کاربران. |
+| [`npm run db:chat:create`](#db-chat-create) | ایجاد یک گروه یا کانال (بهصورت اختیاری یک کانال ریموت). |
+| [`npm run db:chat:add`](#db-chat-add) | افزودن اعضا به یک گروه یا کانال. |
+| [`npm run db:chat:edit`](#db-chat-edit) | ویرایش پروفایل چت، مالکیت، یا پیکربندی کانال ریموت. |
+| [`npm run db:chat:verify`](#db-chat-verify) | تغییر وضعیت تأییدشده بودن یک چت. |
+| [`npm run db:chat:delete`](#db-chat-delete) | حذف یک، چند یا همه چت ها. |
+| [`npm run db:file:delete`](#db-file-delete) | حذف فایل های پیام آپلودشده و/یا آواتارها. |
+| [`npm run db:message:generate`](#db-message-generate) | تولید پیام های تصادفی بین دو کاربر. |
+| [`npm run remote:configure`](#remote-configure) | پیکربندی اعتبارنامه های Telegram برای کانال ریموت. |
+| [`npm run storage:migrate`](#storage-migrate) | مهاجرت کلیدهای ذخیره سازی ابری به ساختار یکپارچه و به روزرسانی دیتابیس. |
 
 ## پشتیبان‌گیری و بازیابی
 
 ### `db:backup`
 
-فایل `data/backups/songbird-backup-<timestamp>.zip` را که شامل `.env` و پوشه `data/` است ایجاد می‌کند. آرشیو با رمز عبور محافظت می‌شود.
+یک پشتیبان زمان‌دار و سازگار با موتور را در `data/backups/` ایجاد می‌کند:
 
-| پرچم | موردنیاز | توضیح |
-|---|---|---|
-| `--password <value>` | خیر | رمز عبور آرشیو. اگر حذف شود، به‌صورت تعاملی از شما پرسیده می‌شود. |
+- **SQLite:** از `songbird.db` در `songbird-backup-<timestamp>.db` کپی می‌گیرد.
+- **PostgreSQL:** با `pg_dump --format=custom` یک آرشیو `songbird-backup-<timestamp>.dump` ایجاد می‌کند.
 
 ```bash
-npm run db:backup -- --password "backup-password"
+# SQLite یا PostgreSQL؛ پسوند از DB_CLIENT انتخاب می‌شود
+npm run db:backup
 ```
 
 :::info
 
-به باینری `zip` نیاز دارد. در صورت نیاز آن را با متغیر محیطی `ZIP_BIN` بازنویسی کنید.
+پشتیبان فقط محتوای پایگاه داده را دارد و شامل `.env`، آپلودهای محلی یا اشیای ذخیره‌سازی راه‌دور نیست؛ آن‌ها را جداگانه مدیریت کنید.
+
+ابزارهای PostgreSQL شامل `pg_dump`، `pg_restore`، `vacuumdb`، `dropdb` و `createdb` باید در `PATH` باشند و کاربر پیکربندی‌شده پایگاه داده به مجوزهای متناظر PostgreSQL نیاز دارد.
 
 :::
 
 ### `db:restore`
 
-`.env`، `songbird.db` و `uploads/` را از یک فایل zip پشتیبان بازیابی می‌کند. هنگام اجرا به‌عنوان root روی یک نصب systemd، همچنین مالکیت را اصلاح کرده و `songbird.service` را راه‌اندازی مجدد می‌کند.
+جدیدترین پشتیبان سازگار یا فایل انتخاب‌شده را بازیابی می‌کند. SQLite فایل‌های `.db` و PostgreSQL آرشیوهای بومی `.dump` را می‌پذیرند؛ PostgreSQL پیش از بازیابی فایل را با `pg_restore --list` اعتبارسنجی می‌کند.
 
 | آرگومان / پرچم | موردنیاز | توضیح |
 |---|---|---|
-| `--file <path>` | خیر | مسیر فایل zip پشتیبان. اگر حذف شود، جدیدترین پشتیبان در `data/backups/` یا `/root` به‌طور خودکار شناسایی می‌شود، در غیر این صورت از شما پرسیده می‌شود. |
-| `--password <value>` | خیر | رمز عبور آرشیو. در صورت نیاز به‌صورت تعاملی پرسیده می‌شود. |
+| `--file <path>` | خیر | مسیر پشتیبان `.db` در حالت SQLite یا آرشیو `.dump` در حالت PostgreSQL. |
 | `-y`، `--yes` | خیر | رد شدن از پرسش تأیید. |
 
 ```bash
-npm run db:restore -- -y
-npm run db:restore -- --file /path/to/songbird-backup.zip --password "backup-password" -y
+npm run db:restore -- -y --file /path/to/songbird-backup.db
+npm run db:restore -- -y --file /path/to/songbird-backup.dump
 ```
 
-چیدمان آرشیو پشتیبان:
+:::warning PostgreSQL باید آفلاین باشد
 
-```text
-songbird-backup-YYYY-MM-DDTHH-MM-SS-sssZ.zip
-|- .env
-`- data/
-   |- songbird.db
-   `- uploads/
-```
-
-:::info
-
-پشتیبان‌های قدیمی که `songbird.db` و `uploads/` را در ریشه zip دارند نیز پذیرفته می‌شوند.
+پیش از اجرای `db:restore` برای PostgreSQL، Songbird را متوقف کنید. دستور بومی `pg_restore --clean` اشیای پایگاه داده را جایگزین می‌کند و نمی‌تواند با اطمینان از طریق فرآیند زنده Songbird اجرا شود. Songbird را فقط پس از موفقیت دستور شروع یا ریستارت کنید.
 
 :::
 
----
 
 ## نگه‌داری
 
 ### `db:vacuum`
 
-فایل پایگاه داده را برای بازپس‌گیری فضا فشرده می‌کند.
+SQLite را با `VACUUM` فشرده می‌کند؛ در حالت PostgreSQL ابزار بومی `vacuumdb --analyze` (`VACUUM ANALYZE`) را اجرا می‌کند.
 
 | پرچم | موردنیاز | توضیح |
 |---|---|---|
@@ -119,6 +128,48 @@ songbird-backup-YYYY-MM-DDTHH-MM-SS-sssZ.zip
 
 ```bash
 npm run db:vacuum -- -y
+```
+
+### مهاجرت از SQLite به PostgreSQL
+
+برای تبدیل دیتابیس SQLite به PostgreSQL، استفاده از ابزارهای استاندارد صنعتی مانند [**pgloader**](https://pgloader.readthedocs.io/) توصیه میشود که انتقال مطمئن داده ها، تبدیل خودکار انواع فیلدها و حفظ سازگاری sequenceها را به صورت امن فراهم میکنند.
+
+#### ۱. آماده سازی پایگاه داده PostgreSQL مقصد
+
+اطلاعات اتصال PostgreSQL را در فایل `.env` تنظیم کرده (`DB_CLIENT=postgres` و متغیرهای `POSTGRES_*`) و migrationها را اجرا کنید تا اسکیما ایجاد شود:
+
+```bash
+# اعمال migrationها برای ایجاد جداول در PostgreSQL
+npm run db:migrate
+```
+
+#### ۲. نصب pgloader
+
+```bash
+# دبیان / اوبونتو
+sudo apt-get install -y pgloader
+```
+
+#### ۳. اجرای انتقال با pgloader
+
+```bash
+pgloader ./data/songbird.db postgresql://songbird:password@localhost:5432/songbird
+```
+
+یا با استفاده از یک فایل پیکربندی `songbird.load`:
+
+```lisp
+LOAD DATABASE
+     FROM sqlite://./data/songbird.db
+     INTO postgresql://songbird:password@localhost:5432/songbird
+
+ WITH include drop, create tables, create indexes, reset sequences
+
+  SET work_mem to '16MB', maintenance_work_mem to '512MB';
+```
+
+```bash
+pgloader songbird.load
 ```
 
 ### `db:migrate`
@@ -131,7 +182,7 @@ npm run db:migrate
 
 ### `db:reset`
 
-محتوای پایگاه داده و فایل‌های پیام آپلودشده را پاک می‌کند.
+محتوای پایگاه داده و فایل‌های پیام آپلودشده محلی را پاک می‌کند.
 
 | پرچم | موردنیاز | توضیح |
 |---|---|---|
@@ -144,9 +195,16 @@ npm run db:reset -- -y --recreate
 npm run db:reset -- -y --no-recreate
 ```
 
+:::info رفتار آنلاین دربرابر آفلاین
+
+وقتی Songbird در حال اجرا است، دستور به سرور محلی احرازشده واگذار می‌شود و بازنشانی حفظ‌کننده schema را انجام می‌دهد. وقتی Songbird متوقف است، SQLite فایل پایگاه داده را حذف می‌کند و PostgreSQL پایگاه داده را drop می‌کند؛ سپس هر موتور را می‌توان دوباره ایجاد و migrate کرد.
+
+
+:::
+
 ### `db:delete`
 
-فایل پایگاه داده را به‌کلی حذف می‌کند.
+فایل پایگاه داده SQLite را حذف می‌کند یا در حالت PostgreSQL با ابزار بومی `dropdb` پایگاه داده PostgreSQL را حذف می‌کند.
 
 | پرچم | موردنیاز | توضیح |
 |---|---|---|
@@ -156,7 +214,12 @@ npm run db:reset -- -y --no-recreate
 npm run db:delete -- -y
 ```
 
----
+:::warning PostgreSQL باید آفلاین باشد
+
+پیش از `db:delete` در PostgreSQL، Songbird را متوقف کنید؛ `dropdb --force` اتصال‌های فعال PostgreSQL را قطع می‌کند. آپلودهای محلی پیام نیز حذف می‌شوند، اما اگر storage راه‌دور پیکربندی شده باشد باید جداگانه پاک‌سازی شود.
+
+:::
+
 
 ## بازرسی
 
@@ -176,7 +239,6 @@ npm run db:user:inspect
 npm run db:file:inspect
 ```
 
----
 
 ## کاربران
 
@@ -246,6 +308,20 @@ npm run db:user:ban -- songbird.sage
 npm run db:user:ban -- songbird.sage
 ```
 
+### `db:user:verify`
+
+وضعیت تأییدشده‌بودن یک کاربر را تغییر می‌دهد. اجرای دوباره دستور برای همان کاربر، تأیید را حذف می‌کند.
+
+| آرگومان | موردنیاز | توضیح |
+|---|---|---|
+| `<user-id-or-username>` | بله | کاربری که باید تأیید یا لغو تأیید شود. |
+
+```bash
+npm run db:user:verify -- songbird.sage
+# اجرای دوباره برای لغو تأیید:
+npm run db:user:verify -- songbird.sage
+```
+
 ### `db:user:delete`
 
 یک، چند یا همه کاربران را همراه با نشست‌ها و پیام‌هایشان حذف می‌کند. چت‌های متعلق به آن‌ها یا حذف می‌شوند (اگر عضوی باقی نماند) یا به یک عضو باقی‌مانده تصادفی منتقل می‌شوند.
@@ -261,13 +337,12 @@ npm run db:user:delete -- songbird.sage -y
 npm run db:user:delete -- --all -y
 ```
 
----
 
 ## چت‌ها
 
 ### `db:chat:create`
 
-یک گروه یا کانال ایجاد می‌کند. کانال‌ها می‌توانند به‌صورت اختیاری در زمان ایجاد به‌عنوان یک کانال راه دور پیکربندی شوند.
+یک گروه یا کانال ایجاد می‌کند. کانال‌ها می‌توانند به‌صورت اختیاری در زمان ایجاد به‌عنوان یک کانال ریموت پیکربندی شوند.
 
 | پرچم | موردنیاز | توضیح |
 |---|---|---|
@@ -292,22 +367,24 @@ npm run db:chat:create -- --type channel --name "My Channel" --owner alice --use
 
 ### `db:chat:add`
 
-اعضا را به یک گروه یا کانال اضافه می‌کند. اولین آرگومان موضعی، انتخاب‌گر چت است. کاربرانی که پیش‌تر خارج شده‌اند نادیده گرفته می‌شوند.
+اعضا را به یک گروه یا کانال اضافه می‌کند. اولین آرگومان موضعی، انتخاب‌گر چت است. کاربرانی که پیش‌تر خارج شده‌اند نادیده گرفته می‌شوند، مگر آنکه `--force` داده شود.
 
 | آرگومان / پرچم | موردنیاز | توضیح |
 |---|---|---|
 | `<chat-id-or-username>` | بله | چت هدف. |
 | `<user> [more...]` | مشروط | یک یا چند کاربر برای افزودن. موردنیاز مگر آنکه `--all` داده شود. |
 | `--all` | مشروط | افزودن هر کاربر در پایگاه داده. |
+| `--force` | خیر | افزودن مجدد کاربرانی که پیش‌تر از چت خارج شده‌اند. |
 
 ```bash
 npm run db:chat:add -- core.team songbird.sage2 songbird.sage3
 npm run db:chat:add -- 1 --all
+npm run db:chat:add -- 1 --all --force
 ```
 
 ### `db:chat:edit`
 
-پروفایل یک چت را ویرایش می‌کند، مالکیت را منتقل می‌کند، یا کانال راه دور آن را مدیریت می‌کند. اولین آرگومان موضعی، انتخاب‌گر چت است.
+پروفایل یک چت را ویرایش می‌کند، مالکیت را منتقل می‌کند، یا کانال ریموت آن را مدیریت می‌کند. اولین آرگومان موضعی، انتخاب‌گر چت است.
 
 **پرچم‌های پروفایل:**
 
@@ -320,7 +397,7 @@ npm run db:chat:add -- 1 --all
 | `--owner <user>` | انتقال مالکیت به کاربر دیگر. |
 | `--allow-member-invites` / `--disallow-member-invites` | تغییر دعوت‌های اعضا (فقط چت‌های خصوصی؛ چت‌های عمومی همیشه آن‌ها را مجاز می‌کنند). |
 
-**پرچم‌های پیکربندی کانال راه دور (فقط کانال‌ها):**
+**پرچم‌های پیکربندی کانال ریموت (فقط کانال‌ها):**
 
 | پرچم | توضیح |
 |---|---|
@@ -328,7 +405,7 @@ npm run db:chat:add -- 1 --all
 | `--sync-metadata` / `--no-sync-metadata` | فعال/غیرفعال‌کردن همگام‌سازی متادیتا. |
 | `--stream-media` / `--no-stream-media` | فعال/غیرفعال‌کردن استریم رسانه. |
 
-**پرچم‌های کنترل کانال راه دور:**
+**پرچم‌های کنترل کانال ریموت:**
 
 | پرچم | توضیح |
 |---|---|
@@ -349,6 +426,20 @@ npm run db:chat:edit -- my_channel --pause-queue
 npm run db:chat:edit -- my_channel --skip-all-queue
 ```
 
+### `db:chat:verify`
+
+وضعیت تأییدشده‌بودن یک گروه یا کانال را تغییر می‌دهد. اجرای دوباره دستور برای همان چت، تأیید را حذف می‌کند.
+
+| آرگومان | موردنیاز | توضیح |
+|---|---|---|
+| `<chat-id-or-username>` | بله | گروه یا کانالی که باید تأیید یا لغو تأیید شود. |
+
+```bash
+npm run db:chat:verify -- core.team
+# اجرای دوباره برای لغو تأیید:
+npm run db:chat:verify -- core.team
+```
+
 ### `db:chat:delete`
 
 یک، چند یا همه چت‌ها و داده‌های مرتبط با آن‌ها (پیام‌ها، اعضا، فایل‌ها) را حذف می‌کند.
@@ -365,7 +456,6 @@ npm run db:chat:delete -- core.team -y
 npm run db:chat:delete -- --all -y
 ```
 
----
 
 ## فایل‌ها
 
@@ -385,7 +475,6 @@ npm run db:file:delete -- stored-file-name.ext -y
 npm run db:file:delete -- --all -y
 ```
 
----
 
 ## پیام‌ها
 
@@ -406,14 +495,47 @@ npm run db:message:generate -- 1 songbird.sage songbird.sage2 300 7
 npm run db:message:generate -- --chatId 1 --userA songbird.sage --userB songbird.sage2 --count 300 --days 7
 ```
 
----
+
+## پیکربندی کانال ریموت
+
+### `remote:configure`
+
+اعتبارنامه های Telegram را برای ویژگی کانال ریموت به صورت تعاملی پیکربندی می کند. این دستور متغیرهای `REMOTE_CHANNEL_TELEGRAM_API_ID`، `REMOTE_CHANNEL_TELEGRAM_API_HASH` و `REMOTE_CHANNEL_TELEGRAM_SESSION_STRING` را در فایل `.env` شما تنظیم می کند.
+
+```bash
+npm run remote:configure
+```
+
+برای راهنمای کامل، از جمله نحوه دریافت اعتبارنامه های API، به [راه اندازی Remote Channel](./Remote-Channel-Setup.md) مراجعه کنید.
+
+
+## فضای ذخیره سازی ابری
+
+### `storage:migrate`
+
+مهاجرت کلیدهای ذخیره سازی ابری از ساختار قدیمی سطح ریشه به ساختار یکپارچه و به روزرسانی ستون ها در جداول دیتابیس.
+
+| فلگ | حالت کوتاه | توضیح |
+|---|---|---|
+| `--dry-run` | | پیش نمایش اشیای قدیمی. |
+| `--yes` | `-y` | رد کردن پرسش تایید تعاملی. |
+| `--help` | `-h` | نمایش راهنمای دستور. |
+
+```bash
+npm run storage:migrate
+```
+
+:::warning بررسی عدم تداخل با سرور فعال
+دستور `storage:migrate` در صورت در حال اجرا بودن سرور Songbird متوقف میشود تا از ایجاد race condition با آپلودهای فعال کاربران جلوگیری کند. قبل از اجرا، سرور را متوقف کنید.
+:::
 
 ## اجرای دستورها از طریق Docker
 
-هر اسکریپت npm را داخل کانتینر درحال‌اجرا با پیشوند `--prefix /app/server` اجرا کنید:
+هر اسکریپت npm را داخل کانتینر درحال اجرا با پیشوند `--prefix /app/server` اجرا کنید:
 
 ```bash
 docker compose exec songbird npm --prefix /app/server run db:backup
 docker compose exec songbird npm --prefix /app/server run db:migrate
 docker compose exec songbird npm --prefix /app/server run db:inspect
+docker compose exec songbird npm --prefix /app/server run storage:migrate -- -y
 ```

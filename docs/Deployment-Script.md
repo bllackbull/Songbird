@@ -27,12 +27,12 @@ songbird-deploy
 | Option | Action | Description |
 |---|---|---|
 | 1 | 📥 Install Songbird | Full guided install: dependencies, build, Nginx, SSL, and `.env`. |
-| 2 | 🔄 Update Songbird | Pull the latest version, rebuild, and restart (optional pre-update backup). |
+| 2 | 🔄 Update Songbird | Update to latest version or downgrade to a specific version, rebuild, and restart (optional pre-update backup). |
 | 3 | ♻️ Restart Songbird | Restart the `songbird.service`. |
 | 4 | ⚙️ Edit Settings (.env) | Change ports, uploads, retention, sign-up, and other env values, then rebuild/apply. |
 | 5 | 🗃️ Manage Database | Open the database submenu (see below). |
 | 6 | 🗑️ Remove Songbird | Uninstall Songbird, optionally removing the global command. |
-| 7 | 🔄 Reinstall songbird-deploy | Refresh the global command to the latest script version. |
+| 7 | 🔄 Update menu | Check GitHub for newer script versions and update the global command (or reinstall current). |
 | 8 | 🌐 Configure mirrors | Set NodeSource, apt, and npm registry mirrors for restricted networks. |
 | 9 | 📋 View Logs | Open the logs submenu (script, service, Nginx access/error). |
 | 0 | 🚪 Exit | Leave the menu. |
@@ -62,6 +62,7 @@ When you choose **Install**, the script walks you through a series of prompts:
 | Obtain certificate | Automatically request a certificate. For domains this uses Certbot (Let's Encrypt); for IPs it requests a short-lived 6-day certificate via `lego`. |
 | TLS certificate files | Use your own existing `fullchain.pem` and `privkey.pem`. |
 | HTTP only | Skip TLS and serve over plain HTTP. |
+| Self-signed certificate | Generate a self-signed certificate. Not recommended. |
 
 :::info
 
@@ -69,22 +70,29 @@ HTTPS is required for push notifications (except on `localhost`). Choose a certi
 
 :::
 
-### 4. Environment prompts
+### 4. Database engine selection
 
-During install the script asks for the core settings and writes them into `.env`:
+| Option | Description |
+|---|---|
+| SQLite (Default) | In-memory SQLite database with debounced disk persistence (`better-sqlite3`). Best for small to medium instances. |
+| PostgreSQL | External PostgreSQL database engine. Recommended for larger instances (+500 users). Prompts for PostgreSQL host, port, database name, username, and password. |
+
+### 5. Environment prompts
+
+During install the script asks for core settings and writes them into `.env`:
 
 | Prompt | Env variable | Default |
 |---|---|---|
 | Server port | `SERVER_PORT` | `5174` |
 | Client port | `CLIENT_PORT` | `80` |
-| Allow account creation via website | `SIGN_UP` | `true` |
-| Enable file uploads | `FILE_UPLOAD` | `true` |
-| Max total upload size (MB) | `FILE_UPLOAD_MAX_TOTAL_SIZE_MB` | `75` |
-| File auto-deletion interval (days) | `MESSAGE_FILE_RETENTION` | `7` |
-| Text-only message auto-deletion (days) | `MESSAGE_TEXT_RETENTION` | `0` |
+| Media worker port | `WORKER_PORT` | `8080` |
 | Email for Let's Encrypt notices (certbot mode) | — | — |
 
 Encryption and push keys (`STORAGE_ENCRYPTION_KEY`, `VAPID_*`) are generated automatically. The full list of variables you can tune later lives in [Environment Variables](./Environment-Variables.md).
+
+### 6. First-run owner creation
+
+After installation completes and the service starts, you'll be prompted to create an owner user on first access. This owner account has full admin panel access for managing users, chats, and system settings. See [Admin Panel](./Admin-Panel.md) for details.
 
 ## Database submenu
 
@@ -99,9 +107,31 @@ Option **5** opens a full database manager that wraps the [database commands](./
 | Destructive Actions | Delete chats, delete users, delete files |
 | Help & Navigation | Show help, go back, exit |
 
-## Updating
+## Updating and downgrading
 
-Choose **Update Songbird** from the menu. The script can create a database backup first, then pulls the latest version, rebuilds the client, and restarts the service. See [Updating](./Updating.md) for the manual equivalent.
+Choose **Update Songbird** (Option 2) from the menu to update or downgrade your installation:
+
+1. **Database backup**: The script offers to create a timestamped backup before touching application files.
+2. **GitHub mode**:
+   - **Update**: If updates are available on `origin/main`, the script automatically pulls them (`git pull --ff-only`), installs dependencies, runs database migrations, and restarts services.
+   - **Downgrade**: If the repository is already up to date, it prompts `Do you want to downgrade? [y/N]`. If confirmed, you can specify any valid version (semver tag like `v0.11.4`, custom tag, branch, or commit SHA). The script checks out that reference, runs migrations, and rebuilds.
+3. **Offline mode**:
+   - **Update**: If the `VERSION` file in the provided zip archive is newer than the installed version, it updates files and rebuilds.
+   - **Downgrade**: If the archive `VERSION` is the same or lower than the installed version, it prompts for confirmation before downgrading.
+
+See [Updating & Downgrading](./Updating.md) for full details and manual alternatives.
+
+## Updating the deployment menu
+
+Choose **Update menu** (Option 7) to check for updates to the `songbird-deploy` script itself:
+
+1. **Check for updates**: The script queries the official GitHub repository to check if a newer version of `scripts/install.sh` is available.
+2. **Automatic update**: If a newer version is found, it downloads and replaces the global `songbird-deploy` command (`/usr/local/bin/songbird-deploy`), updating it to the latest version.
+3. **Reinstall prompt**: If the menu is already up to date, or if fetching from GitHub fails (such as in restricted network environments), it prompts:
+   ```txt
+   Do you want to reinstall the current menu again? [y/N]
+   ```
+   Selecting `yes` reinstalls the global command using the existing local script.
 
 ## Mirrors for restricted networks
 
@@ -120,15 +150,15 @@ You can also restore defaults (clear all mirrors) from the same menu.
 You can use these mirrors in Iran's restricted environment:
 - NodeSource:
 ```
-https://mirror-nodejs.runflare.com/dist/v24.0.0/node-v24.0.0-linux-x64.tar.gz
+https://mirror-nodejs.runflare.com/dist/v24.18.0/node-v24.18.0-linux-x64.tar.gz
 ```
 - APT:
 ```
-http://repo.iut.ac.ir/ubuntu/
+http://ubuntu.pars.host/ubuntu/
 ```
 - NPM:
 ```
-https://npm.devneeds.ir/
+https://package-mirror.liara.ir/repository/npm/
 ```
 
 :::

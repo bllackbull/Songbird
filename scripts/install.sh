@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# songbird-deploy-version: 0.10.3
+# songbird-deploy-version: 0.12.4
 
 set -uo pipefail
 
@@ -43,16 +43,21 @@ trap 'handle_exit' EXIT
 APP_NAME="songbird"
 INSTALL_DIR="/opt/songbird"
 LOG_FILE="/opt/songbird/logs/install.log"
+DATA_COMMAND_LAUNCHER="${DATA_COMMAND_LAUNCHER:-${INSTALL_DIR}/scripts/run-data-command.sh}"
 REPO_URL="${REPO_URL:-https://github.com/bllackbull/Songbird.git}"
 SERVICE_USER="songbird"
 SERVICE_GROUP="songbird"
+SERVICE_NAME="songbird"
 SERVICE_FILE="/etc/systemd/system/songbird.service"
+WORKER_SERVICE_NAME="songbird-worker"
+WORKER_SERVICE_FILE="/etc/systemd/system/songbird-worker.service"
 LEGO_RENEW_SERVICE_FILE="/etc/systemd/system/songbird-lego-renew.service"
 LEGO_RENEW_TIMER_FILE="/etc/systemd/system/songbird-lego-renew.timer"
 NGINX_SITE_FILE="/etc/nginx/sites-available/songbird"
 NGINX_ENABLED_FILE="/etc/nginx/sites-enabled/songbird"
 DEFAULT_SERVER_PORT="5174"
 DEFAULT_CLIENT_PORT="80"
+DEFAULT_WORKER_PORT="8080"
 DEFAULT_FILE_UPLOAD="true"
 DEFAULT_FILE_UPLOAD_MAX_SIZE_MB="25"
 DEFAULT_MAX_UPLOAD_MB="75"
@@ -88,8 +93,19 @@ DOMAIN_GROUPS=()
 MANUAL_CERT_GROUP_FULLCHAIN_PATHS=()
 MANUAL_CERT_GROUP_PRIVKEY_PATHS=()
 CERTBOT_EMAIL=""
+DEFAULT_DB_CLIENT="sqlite3"
+DEFAULT_POSTGRES_HOST="127.0.0.1"
+DEFAULT_POSTGRES_PORT="5432"
+DEFAULT_POSTGRES_DB="songbird"
+DEFAULT_POSTGRES_USER="postgres"
+DEFAULT_POSTGRES_PASSWORD="postgres"
+DEFAULT_POSTGRES_URL=""
+DEFAULT_POSTGRES_SSL="false"
+POSTGRES_URL=""
+POSTGRES_SSL="false"
 SERVER_PORT="$DEFAULT_SERVER_PORT"
 CLIENT_PORT="$DEFAULT_CLIENT_PORT"
+WORKER_PORT="$DEFAULT_WORKER_PORT"
 FILE_UPLOAD="$DEFAULT_FILE_UPLOAD"
 MAX_UPLOAD_MB="$DEFAULT_MAX_UPLOAD_MB"
 RETENTION_DAYS="$DEFAULT_RETENTION_DAYS"
@@ -100,12 +116,9 @@ CURRENT_ENV_FILE=""
 PROMPT_FD=0
 PROMPT_FD_OUT=1
 DB_BACKUP_PATH=""
-DB_BACKUP_PASSWORD=""
 RESTORE_BACKUP_QUIET="no"
 LAST_UNZIP_OUTPUT=""
 LAST_UNZIP_STATUS=0
-EXTRACT_SOURCE_DIR=""
-EXTRACT_ENV_SRC=""
 SOURCE_MODE=""
 SOURCE_ZIP_PATH=""
 CERT_MODE="http"
@@ -380,6 +393,15 @@ show_deployment_success_frame() {
         else
           lines+=("Visit: http://<your-server-ip>:${CLIENT_PORT}")
         fi
+      elif [[ "$CERT_MODE" == "selfsigned" ]]; then
+        local visit_ip="${CERTBOT_IP_ADDRESS:-<your-server-ip>}"
+        [[ "$DEPLOY_MODE" == "domain" && "${#DOMAIN_NAMES[@]}" -gt 0 ]] && visit_ip="${DOMAIN_NAMES[0]}"
+        if [[ "$CLIENT_PORT" == "443" ]]; then
+          lines+=("Visit: https://${visit_ip}")
+        else
+          lines+=("Visit: https://${visit_ip}:${CLIENT_PORT}")
+        fi
+        lines+=("Note: Self-signed cert — accept the browser security warning to proceed.")
       elif [[ "$DEPLOY_MODE" == "domain" ]]; then
         local d=""
         for d in "${DOMAIN_NAMES[@]}"; do
@@ -527,6 +549,80 @@ run_as_root_output() {
     $SUDO "$@"
   else
     "$@"
+  fi
+}
+
+bootstrap_data_command_launcher() {
+  local launcher_dir=""
+  local launcher_source=""
+  local remote_script_url=""
+  local remote_launcher_url=""
+  local temporary_launcher=""
+
+  launcher_dir="$(dirname "$DATA_COMMAND_LAUNCHER")"
+  if [[ -n "$CURRENT_SCRIPT_PATH" ]]; then
+    launcher_source="$(dirname "$CURRENT_SCRIPT_PATH")/run-data-command.sh"
+  fi
+
+  if [[ -f "$launcher_source" ]]; then
+    log "Installing missing data command launcher..."
+    run_silent run_as_root mkdir -p "$launcher_dir" || return 1
+    run_silent run_as_root install -m 755 "$launcher_source" "$DATA_COMMAND_LAUNCHER" || return 1
+    return 0
+  fi
+
+  remote_script_url="${SCRIPT_REMOTE_URL%%\?*}"
+  remote_script_url="${remote_script_url%%\#*}"
+  remote_launcher_url="${remote_script_url%/*}/run-data-command.sh"
+  temporary_launcher="$(mktemp)" || return 1
+  if ! curl -fsSL "$remote_launcher_url" > "$temporary_launcher"; then
+    rm -f "$temporary_launcher"
+    warn "Data command launcher source is unavailable: ${remote_launcher_url}"
+    return 1
+  fi
+  if [[ ! -s "$temporary_launcher" ]] || ! /bin/bash -n "$temporary_launcher"; then
+    rm -f "$temporary_launcher"
+    warn "Downloaded data command launcher is invalid: ${remote_launcher_url}"
+    return 1
+  fi
+
+  log "Installing missing data command launcher..."
+  run_silent run_as_root mkdir -p "$launcher_dir" || {
+    rm -f "$temporary_launcher"
+    return 1
+  }
+  run_silent run_as_root install -m 755 "$temporary_launcher" "$DATA_COMMAND_LAUNCHER" || {
+    rm -f "$temporary_launcher"
+    return 1
+  }
+  rm -f "$temporary_launcher"
+}
+
+run_data_command() {
+  if [[ -L "$DATA_COMMAND_LAUNCHER" ]]; then
+    warn "Data command launcher must not be a symlink: ${DATA_COMMAND_LAUNCHER}"
+    return 1
+  fi
+
+  if [[ ! -x "$DATA_COMMAND_LAUNCHER" ]]; then
+    if [[ -f "$DATA_COMMAND_LAUNCHER" ]]; then
+      log "Restoring execute permission on data command launcher..."
+      run_silent run_as_root chmod 755 "$DATA_COMMAND_LAUNCHER" || {
+        warn "Data command launcher is not executable: ${DATA_COMMAND_LAUNCHER}"
+        return 1
+      }
+    else
+      bootstrap_data_command_launcher || {
+        warn "Data command launcher not found or not executable: ${DATA_COMMAND_LAUNCHER}"
+        return 1
+      }
+    fi
+  fi
+
+  if [[ -n "$SUDO" ]]; then
+    $SUDO "$DATA_COMMAND_LAUNCHER" "$@"
+  else
+    "$DATA_COMMAND_LAUNCHER" "$@"
   fi
 }
 
@@ -686,33 +782,24 @@ prompt_client_port() {
   done
 }
 
-prompt_retention_days() {
+prompt_worker_port() {
+  local default_port="${1:-$DEFAULT_WORKER_PORT}"
   local value=""
   while true; do
-    prompt_read "Enter files auto deletion interval in days (0 disables, default: $DEFAULT_RETENTION_DAYS): " value
+    prompt_read "Enter media worker port (default: $default_port): " value
     if [[ -z "$value" ]]; then
-      value="$DEFAULT_RETENTION_DAYS"
+      printf "%s" "$default_port"
+      return 0
     fi
-    if [[ "$value" =~ ^[0-9]+$ ]]; then
+    if [[ "$value" =~ ^[0-9]+$ ]] && (( value >= 1 && value <= 65535 )); then
+      if [[ "$value" == "$SERVER_PORT" || "$value" == "$CLIENT_PORT" ]]; then
+        printf "Media worker port cannot conflict with server port (%s) or client port (%s).\n" "$SERVER_PORT" "$CLIENT_PORT"
+        continue
+      fi
       printf "%s" "$value"
       return 0
     fi
-    printf "Please enter a non-negative integer.\n"
-  done
-}
-
-prompt_text_retention_days() {
-  local value=""
-  while true; do
-    prompt_read "Enter text-only message auto deletion interval in days (0 disables, default: $DEFAULT_TEXT_RETENTION_DAYS): " value
-    if [[ -z "$value" ]]; then
-      value="$DEFAULT_TEXT_RETENTION_DAYS"
-    fi
-    if [[ "$value" =~ ^[0-9]+$ ]]; then
-      printf "%s" "$value"
-      return 0
-    fi
-    printf "Please enter a non-negative integer.\n"
+    printf "Port must be an integer between 1 and 65535.\n"
   done
 }
 
@@ -727,18 +814,35 @@ normalize_path_input() {
 
 strip_surrounding_quotes() {
   local value="$1"
-  local first="${value:0:1}"
-  local last="${value: -1}"
-  if [[ ( "$first" == "\"" && "$last" == "\"" ) || ( "$first" == "'" && "$last" == "'" ) ]]; then
-    printf "%s" "${value:1:${#value}-2}"
-    return 0
-  fi
+  # Strip nested layers (e.g. '"0.11.4"') so copy-pasted quoting still resolves.
+  # A lone quote can never be a surrounding pair; guard the substring below.
+  while (( ${#value} >= 2 )); do
+    local first="${value:0:1}"
+    local last="${value: -1}"
+    if [[ ( "$first" == "\"" && "$last" == "\"" ) || ( "$first" == "'" && "$last" == "'" ) ]]; then
+      value="${value:1:${#value}-2}"
+    else
+      break
+    fi
+  done
   printf "%s" "$value"
 }
 
 strip_carriage_returns() {
   local value="$1"
   printf "%s" "$value" | tr -d '\r'
+}
+
+# Canonical sanitizer: CR-strip -> trim -> unquote -> trim.
+sanitize_input_value() {
+  local value="$1"
+  value="$(strip_carriage_returns "$value")"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  value="$(strip_surrounding_quotes "$value")"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf "%s" "$value"
 }
 
 file_exists_path() {
@@ -756,11 +860,8 @@ file_exists_path() {
 resolve_file_path() {
   local raw="$1"
   local value=""
-  value="$(normalize_path_input "$raw")"
-  value="$(strip_surrounding_quotes "$value")"
-  value="${value#"${value%%[![:space:]]*}"}"
-  value="${value%"${value##*[![:space:]]}"}"
-  value="$(strip_carriage_returns "$value")"
+  value="$(sanitize_input_value "$raw")"
+  value="$(normalize_path_input "$value")"
   if [[ -z "$value" ]]; then
     return 1
   fi
@@ -844,9 +945,9 @@ configure_mirrors_menu() {
 prompt_source_mode() {
   local mode=""
   while true; do
-    printf "\nSource Mode\n"
-    printf "1) GitHub\n"
-    printf "2) Offline\n"
+    printf "\n%bSource Mode%b\n" "$COLOR_LOG" "$COLOR_RESET"
+    printf "  1) GitHub\n"
+    printf "  2) Offline\n"
     prompt_read "Choose an option [1-2]: " mode
     mode="${mode#"${mode%%[![:space:]]*}"}"
     mode="${mode%"${mode##*[![:space:]]}"}"
@@ -867,9 +968,9 @@ prompt_source_mode() {
 prompt_deploy_mode() {
   local mode=""
   while true; do
-    printf "\nDeploy Mode\n"
-    printf "1) Domain\n"
-    printf "2) IP\n"
+    printf "\n%bDeploy Mode%b\n" "$COLOR_LOG" "$COLOR_RESET"
+    printf "  1) Domain\n"
+    printf "  2) IP\n"
     prompt_read "Choose an option [1-2]: " mode
     mode="${mode#"${mode%%[![:space:]]*}"}"
     mode="${mode%"${mode##*[![:space:]]}"}"
@@ -896,11 +997,12 @@ prompt_cert_mode() {
     else
       option_one_label="Obtain 6-day cert for IP"
     fi
-    printf "\nCertificate Mode\n"
-    printf "1) %s\n" "$option_one_label"
-    printf "2) TLS certificate files\n"
-    printf "3) HTTP only\n"
-    prompt_read "Choose an option [1-3]: " mode
+    printf "\n%bCertificate Mode%b\n" "$COLOR_LOG" "$COLOR_RESET"
+    printf "  1) %s\n" "$option_one_label"
+    printf "  2) TLS certificate files\n"
+    printf "  3) HTTP only\n"
+    printf "  4) Self-signed certificate (not recommended)\n"
+    prompt_read "Choose an option [1-4]: " mode
     mode="${mode#"${mode%%[![:space:]]*}"}"
     mode="${mode%"${mode##*[![:space:]]}"}"
     case "$mode" in
@@ -916,15 +1018,29 @@ prompt_cert_mode() {
         CERT_MODE="http"
         break
         ;;
-      *) printf "Choose 1, 2, or 3.\n" ;;
+      4)
+        CERT_MODE="selfsigned"
+        break
+        ;;
+      *) printf "Choose 1, 2, 3, or 4.\n" ;;
     esac
   done
 }
 
-prompt_backup_zip_path() {
+database_backup_extension() {
+  if [[ "$DB_CLIENT" == "postgres" || "$DB_CLIENT" == "postgresql" || "$DB_CLIENT" == "pg" ]]; then
+    printf ".dump"
+    return 0
+  fi
+  printf ".db"
+}
+
+prompt_backup_path() {
+  local extension=""
   local backup_input=""
+  extension="$(database_backup_extension)"
   while true; do
-    prompt_read "Enter the full path to the backup .zip file: " backup_input
+    prompt_read "Enter the full path to the backup ${extension} file: " backup_input
     if [[ -z "$backup_input" ]]; then
       printf "Please provide a file path.\n"
       continue
@@ -935,8 +1051,8 @@ prompt_backup_zip_path() {
       printf "File not found. Tried: %s\n" "$backup_input"
       continue
     fi
-    if [[ "${resolved,,}" != *.zip ]]; then
-      printf "Backup file must be a .zip archive.\n"
+    if [[ "${resolved,,}" != *"${extension}" ]]; then
+      printf "Backup file must be a %s file.\n" "$extension"
       continue
     fi
     printf "%s" "$resolved"
@@ -944,111 +1060,102 @@ prompt_backup_zip_path() {
   done
 }
 
-select_backup_zip_path() {
+select_backup_path() {
   local use_detected=""
   local detected=""
-  detected="$(find_restore_backup_zip)" || detected=""
+  detected="$(find_restore_backup_path)" || detected=""
   if [[ -n "$detected" ]]; then
-    use_detected="$(prompt_yes_no "Use detected backup zip ${detected}?" "yes")"
+    use_detected="$(prompt_yes_no "Use detected backup ${detected}?" "yes")"
     if [[ "$use_detected" == "yes" ]]; then
       printf "%s" "$detected"
       return 0
     fi
   fi
 
-  prompt_backup_zip_path
+  prompt_backup_path
+}
+
+prompt_database_choice() {
+  DB_CLIENT="sqlite3"
+  POSTGRES_HOST="$DEFAULT_POSTGRES_HOST"
+  POSTGRES_PORT="$DEFAULT_POSTGRES_PORT"
+  POSTGRES_DB="$DEFAULT_POSTGRES_DB"
+  POSTGRES_USER="$DEFAULT_POSTGRES_USER"
+  POSTGRES_PASSWORD="$DEFAULT_POSTGRES_PASSWORD"
+  POSTGRES_URL="$DEFAULT_POSTGRES_URL"
+  POSTGRES_SSL="$DEFAULT_POSTGRES_SSL"
+
+  printf "\n%bSelect Database Engine:%b\n" "$COLOR_LOG" "$COLOR_RESET"
+  printf "  1) SQLite (Default)\n"
+  printf "  2) PostgreSQL (Recommended for +500 Users)\n"
+
+  local choice=""
+  while true; do
+    prompt_read "Choice [1-2] (default 1): " choice
+    choice="${choice:-1}"
+    case "$choice" in
+      1)
+        DB_CLIENT="sqlite3"
+        break
+        ;;
+      2)
+        DB_CLIENT="postgres"
+        prompt_read "PostgreSQL Host or URL [$DEFAULT_POSTGRES_HOST]: " POSTGRES_HOST
+        POSTGRES_HOST="${POSTGRES_HOST#"${POSTGRES_HOST%%[![:space:]]*}"}"
+        POSTGRES_HOST="${POSTGRES_HOST%"${POSTGRES_HOST##*[![:space:]]}"}"
+        POSTGRES_HOST="${POSTGRES_HOST:-$DEFAULT_POSTGRES_HOST}"
+
+        if [[ "$POSTGRES_HOST" =~ ^postgres(ql)?:// ]]; then
+          POSTGRES_URL="$POSTGRES_HOST"
+          if [[ "$POSTGRES_URL" == *"sslmode=require"* || "$POSTGRES_URL" == *"ssl=true"* ]]; then
+            POSTGRES_SSL="true"
+          fi
+          break
+        fi
+
+        prompt_read "PostgreSQL Port [$DEFAULT_POSTGRES_PORT]: " POSTGRES_PORT
+        POSTGRES_PORT="${POSTGRES_PORT#"${POSTGRES_PORT%%[![:space:]]*}"}"
+        POSTGRES_PORT="${POSTGRES_PORT%"${POSTGRES_PORT##*[![:space:]]}"}"
+        POSTGRES_PORT="${POSTGRES_PORT:-$DEFAULT_POSTGRES_PORT}"
+
+        prompt_read "PostgreSQL Database Name [$DEFAULT_POSTGRES_DB]: " POSTGRES_DB
+        POSTGRES_DB="${POSTGRES_DB#"${POSTGRES_DB%%[![:space:]]*}"}"
+        POSTGRES_DB="${POSTGRES_DB%"${POSTGRES_DB##*[![:space:]]}"}"
+        POSTGRES_DB="${POSTGRES_DB:-$DEFAULT_POSTGRES_DB}"
+
+        prompt_read "PostgreSQL Username [$DEFAULT_POSTGRES_USER]: " POSTGRES_USER
+        POSTGRES_USER="${POSTGRES_USER#"${POSTGRES_USER%%[![:space:]]*}"}"
+        POSTGRES_USER="${POSTGRES_USER%"${POSTGRES_USER##*[![:space:]]}"}"
+        POSTGRES_USER="${POSTGRES_USER:-$DEFAULT_POSTGRES_USER}"
+
+        prompt_read "PostgreSQL Password [$DEFAULT_POSTGRES_PASSWORD]: " POSTGRES_PASSWORD
+        POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$DEFAULT_POSTGRES_PASSWORD}"
+
+        local default_ssl="no"
+        if [[ "$POSTGRES_HOST" != "127.0.0.1" && "$POSTGRES_HOST" != "0.0.0.0" && "$POSTGRES_HOST" != "localhost" ]]; then
+          default_ssl="yes"
+        fi
+        if [[ "$(prompt_yes_no "Enable SSL for PostgreSQL connection?" "$default_ssl")" == "yes" ]]; then
+          POSTGRES_SSL="true"
+        else
+          POSTGRES_SSL="false"
+        fi
+        break
+        ;;
+      *) printf "Choose 1 or 2.\n" ;;
+    esac
+  done
 }
 
 prompt_install_backup_restore() {
+  local extension=""
   DB_BACKUP_PATH=""
-  DB_BACKUP_PASSWORD=""
-  if [[ "$(prompt_yes_no "Restore database from a backup zip during installation?" "no")" != "yes" ]]; then
+  extension="$(database_backup_extension)"
+  if [[ "$(prompt_yes_no "Restore database from a backup ${extension} file during installation?" "no")" != "yes" ]]; then
     return 0
   fi
 
-  DB_BACKUP_PATH="$(select_backup_zip_path)"
-  DB_BACKUP_PASSWORD="$(prompt_secret_optional "Backup password (leave blank if not encrypted)")"
-  return 0
-}
-
-validate_backup_zip() {
-  local zip_path="$1"
-  local listing
-  listing="$(run_as_root_output unzip -Z1 "$zip_path" 2>/dev/null || true)"
-  if [[ -z "$listing" ]]; then
-    printf "Backup zip appears empty or unreadable.\n"
-    return 1
-  fi
-  if ! echo "$listing" | grep -qE '(^|/)data/songbird\.db$|(^|/)(songbird\.db)$'; then
-    printf "Backup zip missing songbird.db.\n"
-    return 1
-  fi
-  if ! echo "$listing" | grep -qE '(^|/)data/uploads(/|$)|(^|/)uploads(/|$)'; then
-    printf "Backup zip missing uploads/ directory.\n"
-    return 1
-  fi
-  return 0
-}
-
-zip_contains_data_dir() {
-  local zip_path="$1"
-  local listing
-  listing="$(run_as_root_output unzip -Z1 "$zip_path" 2>/dev/null || true)"
-  if [[ -z "$listing" ]]; then
-    return 1
-  fi
-  echo "$listing" | grep -qE '(^|/)data(/|$)'
-}
-
-prepare_source_root_for_data_copy() {
-  local zip_path="$1"
-  local source_root="$2"
-  local action_label="$3"
-
-  if ! zip_contains_data_dir "$zip_path"; then
-    return 0
-  fi
-
-  if [[ "$(prompt_yes_no "Source zip includes data/. Replace ${INSTALL_DIR}/data during ${action_label}?" "no")" != "yes" ]]; then
-    log "Keeping existing data/. Skipping data/ from source zip."
-    if [[ -d "$source_root/data" ]]; then
-      run_silent run_as_root rm -rf "$source_root/data"
-    fi
-  fi
-}
-
-extract_backup_zip() {
-  local zip_path="$1"
-  local tmp_dir="$2"
-  local password="${3:-}"
-  EXTRACT_SOURCE_DIR=""
-  EXTRACT_ENV_SRC=""
-
-  if [[ -n "$password" ]]; then
-    run_unzip_capture unzip -P "$password" -q "$zip_path" -d "$tmp_dir" || return 1
-  else
-    run_unzip_capture unzip -q "$zip_path" -d "$tmp_dir" || return 1
-  fi
-
-  local source_dir="$tmp_dir"
-  local env_src="$tmp_dir/.env"
-  if [[ -d "$tmp_dir/data" ]]; then
-    source_dir="$tmp_dir/data"
-  fi
-
-  local db_src="$source_dir/songbird.db"
-  local uploads_src="$source_dir/uploads"
-
-  if [[ ! -f "$db_src" || ! -d "$uploads_src" ]]; then
-    return 1
-  fi
-
-  if [[ ! -f "$env_src" && -f "$source_dir/.env" ]]; then
-    env_src="$source_dir/.env"
-  fi
-
-  EXTRACT_SOURCE_DIR="$source_dir"
-  EXTRACT_ENV_SRC="$env_src"
+  DB_BACKUP_PATH="$(select_backup_path)"
   return 0
 }
 
@@ -1087,6 +1194,12 @@ install_required_packages() {
     zip
     unzip
   )
+  if [[ "$DB_CLIENT" == "postgres" || "$DB_CLIENT" == "postgresql" || "$DB_CLIENT" == "pg" ]]; then
+    required_pkgs+=(postgresql-client)
+  fi
+  if [[ "$DB_CLIENT" == "postgres" && -z "$POSTGRES_URL" && ( "$POSTGRES_HOST" == "127.0.0.1" || "$POSTGRES_HOST" == "0.0.0.0" || "$POSTGRES_HOST" == "localhost" ) ]]; then
+    required_pkgs+=(postgresql postgresql-contrib)
+  fi
   if [[ "$CERT_MODE" == "certbot" && "$DEPLOY_MODE" == "domain" ]]; then
     required_pkgs+=(python3-certbot-nginx)
   fi
@@ -1279,9 +1392,71 @@ node_tools_path_prefix() {
 
 
 ensure_service_user_exists() {
+  # Create user if it doesn't exist
   if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
     log "Creating dedicated system user: ${SERVICE_USER}"
     run_silent run_as_root useradd --system --no-create-home --shell /usr/sbin/nologin "$SERVICE_USER" || return 1
+  else
+    log "Service user ${SERVICE_USER} already exists."
+  fi
+
+  # Add the service user to groups needed for log access.
+  # adm         — grants read access to /var/log/nginx/* (and other system logs)
+  # systemd-journal — grants access to journalctl without root
+  local groups_to_add=()
+  if getent group adm >/dev/null 2>&1; then
+    groups_to_add+=("adm")
+  fi
+  if getent group systemd-journal >/dev/null 2>&1; then
+    groups_to_add+=("systemd-journal")
+  fi
+  
+  for grp in "${groups_to_add[@]}"; do
+    if ! id -nG "$SERVICE_USER" 2>/dev/null | grep -qw "$grp"; then
+      log "Adding ${SERVICE_USER} to group: ${grp}"
+      run_silent run_as_root usermod -aG "$grp" "$SERVICE_USER" || true
+    else
+      log "User ${SERVICE_USER} already in group: ${grp}"
+    fi
+  done
+
+  # Install a passwordless sudoers drop-in so the service process can
+  # control its own systemd unit and read nginx/service logs via sudo -n.
+  local sudoers_drop_in="/etc/sudoers.d/songbird"
+  local sudoers_content="# Songbird — allow the service user to control its own unit
+# and read privileged logs without a password.
+${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/systemctl restart ${SERVICE_NAME}
+${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/systemctl stop ${SERVICE_NAME}
+${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/systemctl restart ${WORKER_SERVICE_NAME}
+${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/systemctl stop ${WORKER_SERVICE_NAME}
+${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/journalctl -u ${SERVICE_NAME} *
+${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/journalctl -u ${WORKER_SERVICE_NAME} *
+${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/cat /var/log/nginx/error.log
+${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/cat /var/log/nginx/access.log
+${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/nginx -t
+${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/systemctl reload nginx
+"
+  
+  # Always validate and install/update the sudoers drop-in
+  if run_as_root bash -c "printf '%s' $(printf '%q' "$sudoers_content") | visudo -c -f /dev/stdin" >/dev/null 2>&1; then
+    # Check if the file exists and has the correct content
+    local needs_update="yes"
+    if [[ -f "$sudoers_drop_in" ]]; then
+      local existing_content=""
+      existing_content="$(run_as_root cat "$sudoers_drop_in" 2>/dev/null || true)"
+      if [[ "$existing_content" == "$sudoers_content" ]]; then
+        needs_update="no"
+        log "Sudoers drop-in at ${sudoers_drop_in} is already up to date."
+      fi
+    fi
+    
+    if [[ "$needs_update" == "yes" ]]; then
+      log "Installing sudoers drop-in at ${sudoers_drop_in}..."
+      run_silent run_as_root bash -c "printf '%s' $(printf '%q' "$sudoers_content") > '$sudoers_drop_in'"
+      run_silent run_as_root chmod 440 "$sudoers_drop_in" || true
+    fi
+  else
+    warn "Could not validate sudoers drop-in — skipping. Service control from the admin panel may not work."
   fi
 }
 
@@ -1396,6 +1571,7 @@ prepare_install_dir_for_offline() {
 find_offline_source_zip() {
   local zip_name="songbird.zip"
   local candidates=(
+    "$(pwd)/${zip_name}"
     "$HOME/${zip_name}"
     "/root/${zip_name}"
     "/${zip_name}"
@@ -1410,7 +1586,9 @@ find_offline_source_zip() {
   return 1
 }
 
-find_restore_backup_zip() {
+find_restore_backup_path() {
+  local extension=""
+  extension="$(database_backup_extension)"
   local candidates=(
     "/opt/songbird/data/backups"
     "/root"
@@ -1418,7 +1596,7 @@ find_restore_backup_zip() {
   local dir=""
   for dir in "${candidates[@]}"; do
     local found=""
-    found="$(run_as_root_output bash -lc "find '$dir' -maxdepth 1 -type f -name 'songbird-backup-*.zip' -printf '%T@\t%p\n' 2>/dev/null | sort -nr | head -1 | cut -f2-" | tr -d '\r\n')" || found=""
+    found="$(run_as_root_output bash -lc "find '$dir' -maxdepth 1 -type f -name 'songbird-backup-*${extension}' -printf '%T@\t%p\n' 2>/dev/null | sort -nr | head -1 | cut -f2-" | tr -d '\r\n')" || found=""
     if [[ -n "$found" && -f "$found" ]]; then
       printf "%s" "$found"
       return 0
@@ -1429,20 +1607,27 @@ find_restore_backup_zip() {
 
 resolve_offline_source_root() {
   local tmp_dir="$1"
-  if [[ -f "$tmp_dir/package.json" && -d "$tmp_dir/server" && -d "$tmp_dir/client" ]]; then
+  if [[ -f "$tmp_dir/package.json" && -d "$tmp_dir/server" && -d "$tmp_dir/client" && -d "$tmp_dir/worker" ]]; then
     printf "%s" "$tmp_dir"
     return 0
   fi
-  local entry_count
-  entry_count="$(find "$tmp_dir" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d '[:space:]')"
-  if [[ "$entry_count" -eq 1 ]]; then
-    local only_dir
-    only_dir="$(find "$tmp_dir" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
-    if [[ -f "$only_dir/package.json" && -d "$only_dir/server" && -d "$only_dir/client" ]]; then
-      printf "%s" "$only_dir"
-      return 0
+  local match=""
+  local dir=""
+  while IFS= read -r dir; do
+    [[ -z "$dir" ]] && continue
+    if [[ -f "$dir/package.json" && -d "$dir/server" && -d "$dir/client" && -d "$dir/worker" ]]; then
+      if [[ -n "$match" ]]; then
+        return 1
+      fi
+      match="$dir"
     fi
+  done < <(find "$tmp_dir" -mindepth 1 -maxdepth 1 -type d)
+
+  if [[ -n "$match" ]]; then
+    printf "%s" "$match"
+    return 0
   fi
+
   return 1
 }
 
@@ -1451,7 +1636,7 @@ ensure_offline_source_ready() {
   local zip_path=""
   zip_path="$(find_offline_source_zip)" || zip_path=""
   if [[ -z "$zip_path" ]]; then
-    warn "Offline ${mode_label} requires /songbird.zip to be available at the filesystem root."
+    warn "Offline ${mode_label} requires songbird.zip to be available in the current directory, user home, /root, or /."
     press_enter_to_continue
     return 1
   fi
@@ -1477,7 +1662,7 @@ extract_offline_source_zip() {
   local source_root
   source_root="$(resolve_offline_source_root "$tmp_dir")" || {
     run_silent run_as_root rm -rf "$tmp_dir"
-    warn "Source zip does not appear to contain Songbird (missing server/client/package.json)."
+    warn "Source zip does not appear to contain Songbird (missing server/client/worker/package.json)."
     return 1
   }
 
@@ -1497,32 +1682,117 @@ read_version_value() {
   printf "%s" "$version"
 }
 
-offline_source_is_newer() {
-  local source_root="$1"
-  local install_root="$2"
+compare_offline_source_version() {
+  local __cosv_source_root="$1"
+  local __cosv_install_root="$2"
+  local __cosv_op_or_var="${3:-}"
 
-  local source_version_file="$source_root/VERSION"
-  local install_version_file="$install_root/VERSION"
-  local source_version=""
-  local install_version=""
+  local __cosv_source_version_file="${__cosv_source_root}/VERSION"
+  local __cosv_install_version_file="${__cosv_install_root}/VERSION"
+  local __cosv_source_version=""
+  local __cosv_install_version=""
 
-  source_version="$(read_version_value "$source_version_file")" || {
+  __cosv_source_version="$(read_version_value "$__cosv_source_version_file")" || {
     warn "Offline source is missing VERSION. Skipping update."
     return 1
   }
 
-  install_version="$(read_version_value "$install_version_file")" || install_version=""
-  if [[ -z "$install_version" ]]; then
-    log "Installed app is missing VERSION. Treating offline source ${source_version} as newer."
+  __cosv_install_version="$(read_version_value "$__cosv_install_version_file")" || __cosv_install_version=""
+  if [[ -z "$__cosv_install_version" ]]; then
+    log "Installed app is missing VERSION. Treating offline source ${__cosv_source_version} as newer."
+    case "$__cosv_op_or_var" in
+      gt|newer|higher) return 0 ;;
+      lt|lower|eq|same|equal) return 1 ;;
+      "")
+        printf "%s\n" "newer"
+        return 0
+        ;;
+      *)
+        printf -v "$__cosv_op_or_var" "%s" "newer"
+        return 0
+        ;;
+    esac
+  fi
+
+  local __cosv_relation=""
+  if dpkg --compare-versions "$__cosv_source_version" gt "$__cosv_install_version"; then
+    log "Offline source version ${__cosv_source_version} is newer than installed version ${__cosv_install_version}."
+    __cosv_relation="newer"
+  elif dpkg --compare-versions "$__cosv_source_version" lt "$__cosv_install_version"; then
+    log "Offline source version ${__cosv_source_version} is lower than installed version ${__cosv_install_version}."
+    __cosv_relation="lower"
+  elif dpkg --compare-versions "$__cosv_source_version" eq "$__cosv_install_version"; then
+    log "Offline source version ${__cosv_source_version} is the same as installed version ${__cosv_install_version}."
+    __cosv_relation="same"
+  else
+    return 1
+  fi
+
+  case "$__cosv_op_or_var" in
+    gt|newer|higher)
+      [[ "$__cosv_relation" == "newer" ]]
+      return $?
+      ;;
+    lt|lower)
+      [[ "$__cosv_relation" == "lower" ]]
+      return $?
+      ;;
+    eq|same|equal)
+      [[ "$__cosv_relation" == "same" ]]
+      return $?
+      ;;
+    "")
+      printf "%s\n" "$__cosv_relation"
+      return 0
+      ;;
+    *)
+      printf -v "$__cosv_op_or_var" "%s" "$__cosv_relation"
+      return 0
+      ;;
+  esac
+}
+
+offline_source_is_newer() {
+  compare_offline_source_version "$1" "$2" "newer"
+}
+
+offline_source_is_lower() {
+  compare_offline_source_version "$1" "$2" "lower"
+}
+
+offline_source_is_same() {
+  compare_offline_source_version "$1" "$2" "same"
+}
+
+resolve_git_version_ref() {
+  local version="$1"
+  version="$(sanitize_input_value "$version")"
+  if [[ -z "$version" ]]; then
+    return 1
+  fi
+
+  local escaped_ver=""
+  escaped_ver="$(printf '%s' "$version" | tr -d "'")"
+  local ref=""
+
+  ref="$(run_in_install_dir_output "git rev-parse --verify --quiet 'refs/tags/${escaped_ver}'" 2>/dev/null | tr -d '\r\n')"
+  if [[ -n "$ref" ]]; then
+    printf "%s" "refs/tags/${escaped_ver}"
     return 0
   fi
 
-  if dpkg --compare-versions "$source_version" gt "$install_version"; then
-    log "Offline source version ${source_version} is newer than installed version ${install_version}."
+  ref="$(run_in_install_dir_output "git rev-parse --verify --quiet 'refs/tags/v${escaped_ver}'" 2>/dev/null | tr -d '\r\n')"
+  if [[ -n "$ref" ]]; then
+    printf "%s" "refs/tags/v${escaped_ver}"
     return 0
   fi
 
-  log "Offline source version ${source_version} is not newer than installed version ${install_version}."
+  ref="$(run_in_install_dir_output "git rev-parse --verify --quiet '${escaped_ver}'" 2>/dev/null | tr -d '\r\n')"
+  if [[ -n "$ref" ]]; then
+    printf "%s" "${escaped_ver}"
+    return 0
+  fi
+
   return 1
 }
 
@@ -1533,8 +1803,6 @@ install_source_from_zip() {
   extract_result="$(extract_offline_source_zip "$zip_path" "install")" || return 1
   local tmp_dir="${extract_result%%|*}"
   local source_root="${extract_result#*|}"
-
-  prepare_source_root_for_data_copy "$zip_path" "$source_root" "install"
 
   run_silent run_as_root cp -a "$source_root"/. "$INSTALL_DIR"/ || {
     run_silent run_as_root rm -rf "$tmp_dir"
@@ -1561,8 +1829,6 @@ update_source_from_zip() {
   local tmp_dir="${extract_result%%|*}"
   local source_root="${extract_result#*|}"
 
-  prepare_source_root_for_data_copy "$zip_path" "$source_root" "update"
-
   run_silent run_as_root cp -a "$source_root"/. "$INSTALL_DIR"/ || {
     run_silent run_as_root rm -rf "$tmp_dir"
     return 1
@@ -1588,6 +1854,9 @@ install_songbird_dependencies() {
 
   log "Installing server dependencies..."
   run_in_install_dir "npm ${npm_registry_arg} --prefix server install" || return 1
+
+  log "Installing worker dependencies..."
+  run_in_install_dir "npm ${npm_registry_arg} --prefix worker install" || return 1
 
   log "Installing client dependencies..."
   run_in_install_dir "npm ${npm_registry_arg} --prefix client install" || return 1
@@ -1692,133 +1961,238 @@ replace_env_value() {
 
 write_env_from_example() {
   local env_file="${INSTALL_DIR}/.env"
-  local example_file="${INSTALL_DIR}/.env.example"
-  if [[ ! -f "$example_file" ]]; then
-    log "Missing ${example_file}. Falling back to minimal .env defaults."
-    write_env_fallback "$env_file" || return 1
-    CURRENT_ENV_FILE="$env_file"
+  write_env_fallback "$env_file" || return 1
+  CURRENT_ENV_FILE="$env_file"
+}
+
+# 32 random bytes as lowercase hex.
+generate_secret_hex() {
+  local value=""
+  value="$(od -An -tx1 -N32 /dev/urandom 2>/dev/null | tr -d ' \n' || true)"
+  if [[ ! "$value" =~ ^[0-9a-f]{64}$ ]]; then
+    return 1
+  fi
+  printf "%s" "$value"
+}
+
+# 32 random bytes as unpadded base64url.
+generate_secret_base64url() {
+  local value=""
+  value="$(head -c 32 /dev/urandom 2>/dev/null | base64 2>/dev/null | tr -d '\n' | tr '+/' '-_' | tr -d '=' || true)"
+  if [[ ! "$value" =~ ^[A-Za-z0-9_-]{43}$ ]]; then
+    return 1
+  fi
+  printf "%s" "$value"
+}
+
+# Query one secret from a PostgreSQL database.
+read_postgres_secret() {
+  local key="$1"
+  local value=""
+  local postgres_url
+  postgres_url="$(get_existing_env_value "POSTGRES_URL" "${POSTGRES_URL:-}")"
+  local ssl_mode="prefer"
+  if [[ "$(get_existing_env_value "POSTGRES_SSL" "${POSTGRES_SSL:-false}")" == "true" ]]; then
+    ssl_mode="require"
+  fi
+
+  if [[ -n "$postgres_url" ]]; then
+    value="$(psql "$postgres_url" -tA -c "SELECT value FROM app_settings WHERE key='${key}' LIMIT 1" 2>/dev/null || true)"
+  else
+    value="$(PGPASSWORD="$POSTGRES_PASSWORD" PGSSLMODE="$ssl_mode" psql \
+      -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" \
+      -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+      -tA -c "SELECT value FROM app_settings WHERE key='${key}' LIMIT 1" 2>/dev/null || true)"
+  fi
+  value="$(printf "%s" "$value" | tr -d '\r\n ' || true)"
+  if [[ -z "$value" ]]; then
+    return 1
+  fi
+  printf "%s" "$value"
+}
+
+# True when PostgreSQL is reachable.
+postgres_is_reachable() {
+  local postgres_url
+  postgres_url="$(get_existing_env_value "POSTGRES_URL" "${POSTGRES_URL:-}")"
+  local ssl_mode="prefer"
+  if [[ "$(get_existing_env_value "POSTGRES_SSL" "${POSTGRES_SSL:-false}")" == "true" ]]; then
+    ssl_mode="require"
+  fi
+
+  if [[ -n "$postgres_url" ]]; then
+    psql "$postgres_url" -tA -c "SELECT 1" >/dev/null 2>&1
+  else
+    PGPASSWORD="$POSTGRES_PASSWORD" PGSSLMODE="$ssl_mode" psql \
+      -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" \
+      -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+      -tA -c "SELECT 1" >/dev/null 2>&1
+  fi
+}
+
+# True when PostgreSQL has existing tables in the public schema.
+postgres_has_tables() {
+  local count=""
+  local postgres_url
+  postgres_url="$(get_existing_env_value "POSTGRES_URL" "${POSTGRES_URL:-}")"
+  local ssl_mode="prefer"
+  if [[ "$(get_existing_env_value "POSTGRES_SSL" "${POSTGRES_SSL:-false}")" == "true" ]]; then
+    ssl_mode="require"
+  fi
+
+  if [[ -n "$postgres_url" ]]; then
+    count="$(psql "$postgres_url" -tA -c "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' LIMIT 1" 2>/dev/null || true)"
+  else
+    count="$(PGPASSWORD="$POSTGRES_PASSWORD" PGSSLMODE="$ssl_mode" psql \
+      -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" \
+      -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+      -tA -c "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' LIMIT 1" 2>/dev/null || true)"
+  fi
+  count="$(printf "%s" "$count" | tr -d '\r\n ' || true)"
+  [[ "$count" == "1" ]]
+}
+
+is_postgres_client() {
+  [[ "$DB_CLIENT" == "postgres" || "$DB_CLIENT" == "postgresql" || "$DB_CLIENT" == "pg" ]]
+}
+
+# Ensure one secret exists in .env without ever rotating a live value.
+# Generation happens only when no keyed source exists anywhere:
+#  - a non-empty .env value always wins (never rotate live secrets);
+#  - a restored backup is authoritative (the server restores from the DB);
+#  - a reachable database holding the key is adopted, not replaced;
+#  - an existing database with tables is left for the server to restore from;
+#  - otherwise the database must be provably fresh (absent sqlite file, or
+#    reachable postgres with no tables).
+# Anything uncertain is left empty for the server, which applies the same
+ensure_env_secret() {
+  local key="$1"
+  local format="$2"
+  local env_file="${INSTALL_DIR}/.env"
+  local current=""
+  current="$(get_existing_env_value "$key" "")"
+  if [[ -n "$current" ]]; then
     return 0
   fi
-  local existing_public_key
-  local existing_private_key
-  local existing_subject
-  local existing_server_port
-  local existing_client_port
-  local existing_sign_up
-  local existing_file_upload_max_size_mb
-  local existing_file_upload_max_total_size_mb
-  local existing_voice_waveform_max_decode_mb
-  local existing_voice_waveform_max_decode_seconds
-  local existing_nickname_max_chars
-  local existing_username_max_chars
-  local existing_storage_encryption_key
-  existing_public_key="$(get_existing_env_value "VAPID_PUBLIC_KEY" "")"
-  existing_private_key="$(get_existing_env_value "VAPID_PRIVATE_KEY" "")"
-  existing_subject="$(get_existing_env_value "VAPID_SUBJECT" "mailto:admin@example.com")"
-  existing_server_port="$(get_existing_env_value_with_fallback "SERVER_PORT" "PORT" "$DEFAULT_SERVER_PORT")"
-  existing_client_port="$(get_existing_env_value "CLIENT_PORT" "$DEFAULT_CLIENT_PORT")"
-  existing_sign_up="$(get_existing_env_value_with_fallback "SIGN_UP" "ACCOUNT_CREATION" "$DEFAULT_SIGN_UP")"
-  existing_file_upload_max_size_mb="$(get_existing_env_mb_value_with_fallback "FILE_UPLOAD_MAX_SIZE_MB" "FILE_UPLOAD_MAX_SIZE" "$DEFAULT_FILE_UPLOAD_MAX_SIZE_MB")"
-  existing_file_upload_max_total_size_mb="$(get_existing_env_mb_value_with_fallback "FILE_UPLOAD_MAX_TOTAL_SIZE_MB" "FILE_UPLOAD_MAX_TOTAL_SIZE" "$DEFAULT_MAX_UPLOAD_MB")"
-  existing_voice_waveform_max_decode_mb="$(get_existing_env_mb_value_with_fallback "CHAT_VOICE_WAVEFORM_MAX_DECODE_MB" "CHAT_VOICE_WAVEFORM_MAX_DECODE_BYTES" "$DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_MB")"
-  existing_voice_waveform_max_decode_seconds="$(get_existing_env_value "CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS" "$DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS")"
-  existing_nickname_max_chars="$(get_existing_env_value_with_fallback "NICKNAME_MAX_CHARS" "NICKNAME_MAX" "24")"
-  existing_username_max_chars="$(get_existing_env_value_with_fallback "USERNAME_MAX_CHARS" "USERNAME_MAX" "16")"
-  existing_storage_encryption_key="$(get_existing_env_value "STORAGE_ENCRYPTION_KEY" "")"
 
-  run_silent run_as_root cp "$example_file" "$env_file" || return 1
-  replace_env_value "$env_file" "SERVER_PORT" "$existing_server_port" || return 1
-  replace_env_value "$env_file" "CLIENT_PORT" "$existing_client_port" || return 1
-  replace_env_value "$env_file" "SERVER_PORT" "$SERVER_PORT" || return 1
-  replace_env_value "$env_file" "CLIENT_PORT" "$CLIENT_PORT" || return 1
-  replace_env_value "$env_file" "SIGN_UP" "$ACCOUNT_CREATION" || return 1
-  replace_env_value "$env_file" "FILE_UPLOAD" "$FILE_UPLOAD" || return 1
-  replace_env_value "$env_file" "FILE_UPLOAD_MAX_SIZE_MB" "$existing_file_upload_max_size_mb" || return 1
-  replace_env_value "$env_file" "FILE_UPLOAD_MAX_TOTAL_SIZE_MB" "$MAX_UPLOAD_MB" || return 1
-  replace_env_value "$env_file" "MESSAGE_FILE_RETENTION" "$RETENTION_DAYS" || return 1
-  replace_env_value "$env_file" "MESSAGE_TEXT_RETENTION" "$TEXT_RETENTION_DAYS" || return 1
-  replace_env_value "$env_file" "CHAT_VOICE_WAVEFORM_MAX_DECODE_MB" "$existing_voice_waveform_max_decode_mb" || return 1
-  replace_env_value "$env_file" "CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS" "$existing_voice_waveform_max_decode_seconds" || return 1
-  replace_env_value "$env_file" "NICKNAME_MAX_CHARS" "$existing_nickname_max_chars" || return 1
-  replace_env_value "$env_file" "USERNAME_MAX_CHARS" "$existing_username_max_chars" || return 1
-  replace_env_value "$env_file" "STORAGE_ENCRYPTION_KEY" "$existing_storage_encryption_key" || return 1
-  replace_env_value "$env_file" "VAPID_PUBLIC_KEY" "$existing_public_key" || return 1
-  replace_env_value "$env_file" "VAPID_PRIVATE_KEY" "$existing_private_key" || return 1
-  if [[ -n "$CERTBOT_EMAIL" ]]; then
-    replace_env_value "$env_file" "VAPID_SUBJECT" "mailto:${CERTBOT_EMAIL}" || return 1
+  local generated=""
+  if is_postgres_client; then
+    local db_value=""
+    if db_value="$(read_postgres_secret "$key")"; then
+      replace_env_value "$env_file" "$key" "$db_value" || return 1
+      log "Adopted existing ${key} from the database."
+      return 0
+    fi
+    if postgres_has_tables; then
+      log "Existing PostgreSQL tables found; leaving ${key} for the server to restore from it."
+      return 0
+    fi
+    # Reachable and confirmed empty of tables means provably fresh.
+    if postgres_is_reachable; then
+      if [[ "$format" == "hex" ]]; then
+        generated="$(generate_secret_hex || true)"
+      else
+        generated="$(generate_secret_base64url || true)"
+      fi
+    else
+      log "PostgreSQL is not reachable; leaving ${key} for the server to resolve on first boot."
+      return 0
+    fi
   else
-    replace_env_value "$env_file" "VAPID_SUBJECT" "$existing_subject" || return 1
+    local data_dir=""
+    data_dir="$(get_existing_env_value "DATA_DIR" "${INSTALL_DIR}/data")"
+    if [[ -f "${data_dir}/songbird.db" ]]; then
+      log "Existing SQLite database found; leaving ${key} for the server to restore from it."
+      return 0
+    fi
+    if [[ "$format" == "hex" ]]; then
+      generated="$(generate_secret_hex || true)"
+    else
+      generated="$(generate_secret_base64url || true)"
+    fi
   fi
-  CURRENT_ENV_FILE="$env_file"
-  log "Wrote environment config from ${example_file}."
+
+  if [[ -z "$generated" ]]; then
+    warn "Could not generate ${key}; leaving it for the server to resolve on first boot."
+    return 0
+  fi
+  replace_env_value "$env_file" "$key" "$generated" || return 1
+  log "Generated ${key} during install."
+  return 0
+}
+
+# Pre-generate server secrets into .env .
+pregenerate_missing_secrets() {
+  if [[ -n "${DB_BACKUP_PATH:-}" ]]; then
+    log "Backup was restored; leaving secrets for the server to restore from the database."
+    return 0
+  fi
+  ensure_env_secret "STORAGE_ENCRYPTION_KEY" "base64url" || true
+  ensure_env_secret "WEBHOOK_SECRET" "hex" || true
+  ensure_env_secret "ADMIN_API_TOKEN" "base64url" || true
+  return 0
 }
 
 write_env_fallback() {
   local env_file="$1"
   local existing_storage_encryption_key
+  local existing_admin_api_token
+  local existing_webhook_secret
   local existing_public_key
   local existing_private_key
   local existing_subject
   existing_storage_encryption_key="$(get_existing_env_value "STORAGE_ENCRYPTION_KEY" "")"
+  existing_admin_api_token="$(get_existing_env_value "ADMIN_API_TOKEN" "")"
+  existing_webhook_secret="$(get_existing_env_value "WEBHOOK_SECRET" "")"
   existing_public_key="$(get_existing_env_value "VAPID_PUBLIC_KEY" "")"
   existing_private_key="$(get_existing_env_value "VAPID_PRIVATE_KEY" "")"
   existing_subject="$(get_existing_env_value "VAPID_SUBJECT" "mailto:admin@example.com")"
   run_silent run_as_root bash -lc "cat > '$env_file' <<'EOF'
+# Server Configuration
 SERVER_PORT=${SERVER_PORT}
 CLIENT_PORT=${CLIENT_PORT}
+
+# Application Settings
 APP_ENV=production
-APP_DEBUG=false
-SIGN_UP=${ACCOUNT_CREATION}
-FILE_UPLOAD=${FILE_UPLOAD}
-FILE_UPLOAD_MAX_SIZE_MB=${DEFAULT_FILE_UPLOAD_MAX_SIZE_MB}
-FILE_UPLOAD_MAX_TOTAL_SIZE_MB=${MAX_UPLOAD_MB}
-FILE_UPLOAD_MAX_FILES=10
-FILE_UPLOAD_TRANSCODE_VIDEOS=true
-MESSAGE_FILE_RETENTION=${RETENTION_DAYS}
-MESSAGE_TEXT_RETENTION=${TEXT_RETENTION_DAYS}
-MESSAGE_MAX_CHARS=4000
-REMOTE_CHANNEL=false
-REMOTE_CHANNEL_UI=true
-REMOTE_CHANNEL_MEDIA_STREAM=true
-REMOTE_CHANNEL_TELEGRAM_API_ID=0
-REMOTE_CHANNEL_TELEGRAM_API_HASH=""
-REMOTE_CHANNEL_TELEGRAM_SESSION_STRING=""
-REMOTE_CHANNEL_TELEGRAM_PROXY_URL=""
-REMOTE_CHANNEL_SONGBIRD_PROXY_URL=""
-REMOTE_CHANNEL_POLL_INTERVAL_MS=5000
-REMOTE_CHANNEL_TELEGRAM_POLL_LIMIT=50
-REMOTE_CHANNEL_QUEUE_INTERVAL_MS=1000
-REMOTE_CHANNEL_QUEUE_MAX_ATTEMPTS=10
-REMOTE_CHANNEL_QUEUE_BATCH_SIZE=10
-REMOTE_CHANNEL_QUEUE_CONCURRENCY=3
-REMOTE_CHANNEL_QUEUE_STALE_LOCK_MS=300000
-CHAT_PENDING_TEXT_TIMEOUT=300000
-CHAT_PENDING_FILE_TIMEOUT=1200000
-CHAT_PENDING_RETRY_INTERVAL=4000
-CHAT_PENDING_STATUS_CHECK_INTERVAL=1000
-CHAT_CACHE_TTL=24
-CHAT_MESSAGE_FETCH_LIMIT=60
-CHAT_MESSAGE_PAGE_SIZE=60
-CHAT_LIST_REFRESH_INTERVAL=20000
-CHAT_PRESENCE_PING_INTERVAL=5000
-CHAT_PEER_PRESENCE_POLL_INTERVAL=3000
-CHAT_HEALTH_CHECK_INTERVAL=10000
-CHAT_SSE_RECONNECT_DELAY=2000
-CHAT_SEARCH_MAX_RESULTS=5
-CHAT_VOICE_WAVEFORM_MAX_DECODE_MB=${DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_MB}
-CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS=${DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS}
-NICKNAME_MAX_CHARS=24
-USERNAME_MAX_CHARS=16
+
+# Database Configuration
+DB_CLIENT=${DB_CLIENT:-sqlite3}
+POSTGRES_HOST=${POSTGRES_HOST:-127.0.0.1}
+POSTGRES_PORT=${POSTGRES_PORT:-5432}
+POSTGRES_DB=${POSTGRES_DB:-songbird}
+POSTGRES_USER=${POSTGRES_USER:-postgres}
+POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+POSTGRES_URL=${POSTGRES_URL:-}
+POSTGRES_SSL=${POSTGRES_SSL:-false}
+
+# Security & Encryption
+# Generated during install when safe to do so, otherwise auto-generated by
+# the server on first boot if left empty. Never edited while set: rotating
+# these would orphan encrypted data and desync the media worker.
 STORAGE_ENCRYPTION_KEY=${existing_storage_encryption_key}
+# Token gating the local-only admin endpoint. Same generation rules as above.
+ADMIN_API_TOKEN=${existing_admin_api_token}
+# Shared secret authenticating server <-> media worker callbacks.
+WEBHOOK_SECRET=${existing_webhook_secret}
+
+# Push Notifications
 VAPID_PUBLIC_KEY=${existing_public_key}
 VAPID_PRIVATE_KEY=${existing_private_key}
 VAPID_SUBJECT=${existing_subject}
-PUSH_PROXY_URL=""
+
+# Media Processing Worker
+WORKER_PORT=${WORKER_PORT}
+WORKER_URL=http://127.0.0.1:${WORKER_PORT}
+WEBHOOK_URL=http://127.0.0.1:${SERVER_PORT}/api/uploads/webhook/processed
+
+# NOTE: All other application settings (sign-up, file uploads, retention,
+# limits, remote channel, client tuning, push proxy, etc.) are configured from
+# the in-app Admin Panel after installation.
 EOF" || return 1
   if [[ -n "$CERTBOT_EMAIL" ]]; then
     replace_env_value "$env_file" "VAPID_SUBJECT" "mailto:${CERTBOT_EMAIL}" || return 1
   fi
-  log "Wrote fallback environment config to ${env_file}."
+  log "Wrote environment config to ${env_file}."
 }
 
 ensure_vapid_keys() {
@@ -1829,6 +2203,20 @@ ensure_vapid_keys() {
   private_key="$(get_existing_env_value "VAPID_PRIVATE_KEY" "")"
   if [[ -n "$public_key" && -n "$private_key" ]]; then
     log "VAPID keys already present. Skipping generation."
+    return 0
+  fi
+  if [[ -n "${DB_BACKUP_PATH:-}" ]]; then
+    log "Backup was restored; leaving VAPID keys for the server to restore from the database."
+    return 0
+  fi
+  if is_postgres_client && postgres_has_tables; then
+    log "Existing PostgreSQL tables found; leaving VAPID keys for the server to restore from the database."
+    return 0
+  fi
+  local data_dir=""
+  data_dir="$(get_existing_env_value "DATA_DIR" "${INSTALL_DIR}/data")"
+  if ! is_postgres_client && [[ -f "${data_dir}/songbird.db" ]]; then
+    log "Existing SQLite database found; leaving VAPID keys for the server to restore from the database."
     return 0
   fi
   log "Generating VAPID keys..."
@@ -1910,7 +2298,91 @@ sync_values_from_env() {
   RETENTION_DAYS="$(get_existing_env_value "MESSAGE_FILE_RETENTION" "$DEFAULT_RETENTION_DAYS")"
   TEXT_RETENTION_DAYS="$(get_existing_env_value "MESSAGE_TEXT_RETENTION" "$DEFAULT_TEXT_RETENTION_DAYS")"
   ACCOUNT_CREATION="$(get_existing_env_value_with_fallback "SIGN_UP" "ACCOUNT_CREATION" "$DEFAULT_SIGN_UP")"
+  DB_CLIENT="$(get_existing_env_value "DB_CLIENT" "$DEFAULT_DB_CLIENT")"
+  POSTGRES_HOST="$(get_existing_env_value "POSTGRES_HOST" "$DEFAULT_POSTGRES_HOST")"
+  POSTGRES_PORT="$(get_existing_env_value "POSTGRES_PORT" "$DEFAULT_POSTGRES_PORT")"
+  POSTGRES_DB="$(get_existing_env_value "POSTGRES_DB" "$DEFAULT_POSTGRES_DB")"
+  POSTGRES_USER="$(get_existing_env_value "POSTGRES_USER" "$DEFAULT_POSTGRES_USER")"
+  POSTGRES_PASSWORD="$(get_existing_env_value "POSTGRES_PASSWORD" "$DEFAULT_POSTGRES_PASSWORD")"
+  POSTGRES_URL="$(get_existing_env_value "POSTGRES_URL" "$DEFAULT_POSTGRES_URL")"
+  POSTGRES_SSL="$(get_existing_env_value "POSTGRES_SSL" "$DEFAULT_POSTGRES_SSL")"
   CURRENT_ENV_FILE="$env_file"
+}
+
+ensure_local_postgres_setup() {
+  sync_values_from_env
+  if [[ "$DB_CLIENT" != "postgres" && "$DB_CLIENT" != "postgresql" && "$DB_CLIENT" != "pg" ]]; then
+    return 0
+  fi
+  if [[ -n "$POSTGRES_URL" ]]; then
+    if [[ "$POSTGRES_URL" != *"@127.0.0.1"* && "$POSTGRES_URL" != *"@localhost"* && "$POSTGRES_URL" != *"@0.0.0.0"* ]]; then
+      return 0
+    fi
+  fi
+  if [[ "$POSTGRES_HOST" != "127.0.0.1" && "$POSTGRES_HOST" != "0.0.0.0" && "$POSTGRES_HOST" != "localhost" ]]; then
+    return 0
+  fi
+
+  log "Enabling local PostgreSQL service and database configuration..."
+  if have_cmd systemctl; then
+    run_silent run_as_root systemctl enable --now postgresql || true
+  fi
+
+  local pg_ready=false
+  local i
+  for (( i=1; i<=10; i++ )); do
+    if run_as_root sudo -u postgres psql -c '\q' >/dev/null 2>&1; then
+      pg_ready=true
+      break
+    fi
+    sleep 1
+  done
+
+  if [[ "$pg_ready" != "true" ]]; then
+    warn "Local PostgreSQL server is not responding to psql."
+    return 1
+  fi
+
+  local safe_user safe_pass safe_db safe_user_literal safe_db_literal
+  safe_user="$(printf '%s' "$POSTGRES_USER" | sed 's/"/""/g')"
+  safe_pass="$(printf '%s' "$POSTGRES_PASSWORD" | sed "s/'/''/g")"
+  safe_db="$(printf '%s' "$POSTGRES_DB" | sed 's/"/""/g')"
+  safe_user_literal="$(printf '%s' "$POSTGRES_USER" | sed "s/'/''/g")"
+  safe_db_literal="$(printf '%s' "$POSTGRES_DB" | sed "s/'/''/g")"
+
+  # Create role if it does not exist
+  local role_exists
+  role_exists="$(run_as_root sudo -u postgres psql -t -A -c \
+    "SELECT 1 FROM pg_roles WHERE rolname = '${safe_user_literal}';" 2>/dev/null || true)"
+  role_exists="$(printf '%s' "$role_exists" | tr -d '[:space:]')"
+  if [[ "$role_exists" != "1" ]]; then
+    run_silent run_as_root sudo -u postgres psql -v ON_ERROR_STOP=1 -c \
+      "CREATE ROLE \"${safe_user}\" WITH LOGIN PASSWORD '${safe_pass}';" || return 1
+  else
+    # Ensure password is set / updated for existing role
+    run_silent run_as_root sudo -u postgres psql -v ON_ERROR_STOP=1 -c \
+      "ALTER ROLE \"${safe_user}\" WITH LOGIN PASSWORD '${safe_pass}';" || return 1
+  fi
+
+  # Create database if it does not exist
+  local db_exists
+  db_exists="$(run_as_root sudo -u postgres psql -t -A -c \
+    "SELECT 1 FROM pg_database WHERE datname = '${safe_db_literal}';" 2>/dev/null || true)"
+  db_exists="$(printf '%s' "$db_exists" | tr -d '[:space:]')"
+  if [[ "$db_exists" != "1" ]]; then
+    run_silent run_as_root sudo -u postgres psql -v ON_ERROR_STOP=1 -c \
+      "CREATE DATABASE \"${safe_db}\" OWNER \"${safe_user}\";" || return 1
+  fi
+
+  # Grant privileges on database to role
+  run_silent run_as_root sudo -u postgres psql -v ON_ERROR_STOP=1 -c \
+    "GRANT ALL PRIVILEGES ON DATABASE \"${safe_db}\" TO \"${safe_user}\";" || return 1
+
+  # Ensure role has permissions on public schema in the target database (PostgreSQL 15+)
+  run_silent run_as_root sudo -u postgres psql -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -c \
+    "GRANT ALL ON SCHEMA public TO \"${safe_user}\";" 2>/dev/null || true
+
+  log "Local PostgreSQL database '${POSTGRES_DB}' and user '${POSTGRES_USER}' configured."
 }
 
 parse_domain_input() {
@@ -1933,6 +2405,10 @@ parse_domain_input() {
       seen_names="${seen_names}|${d}|"
     fi
   done
+  # Restore default word-splitting before build_domain_groups runs. Its
+  # www/apex pairing logic relies on space-joined membership checks
+  # (" ${DOMAIN_NAMES[*]} "), which break while IFS is still a comma.
+  unset IFS
   build_domain_groups
   NGINX_SERVER_NAME="${DOMAIN_NAMES[*]}"
 }
@@ -2118,28 +2594,10 @@ collect_install_options() {
   else
     CLIENT_PORT="$(prompt_client_port "443")"
   fi
+  WORKER_PORT="$(prompt_worker_port "$DEFAULT_WORKER_PORT")"
   if [[ "$CERT_MODE" != "http" ]]; then
     log "Using HTTP redirect on port 80 and HTTPS on port ${CLIENT_PORT}."
   fi
-
-  if [[ "$(prompt_yes_no "Allow account creation via website?" "yes")" == "yes" ]]; then
-    ACCOUNT_CREATION="true"
-  else
-    ACCOUNT_CREATION="false"
-  fi
-
-  if [[ "$(prompt_yes_no "Enable file uploads?" "yes")" == "yes" ]]; then
-    FILE_UPLOAD="true"
-  else
-    FILE_UPLOAD="false"
-  fi
-
-  if [[ "$FILE_UPLOAD" == "true" ]]; then
-    RETENTION_DAYS="$(prompt_retention_days)"
-  else
-    RETENTION_DAYS="0"
-  fi
-  TEXT_RETENTION_DAYS="$(prompt_text_retention_days)"
 
 }
 
@@ -2149,9 +2607,29 @@ write_full_env_with_defaults() {
 }
 
 apply_ownership() {
-  ensure_service_user_exists || return 1
+  log "Ensuring service user file ownership..."
   run_silent run_as_root chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "$INSTALL_DIR" || return 1
   run_silent run_as_root git config --global --add safe.directory "$INSTALL_DIR" || return 1
+}
+
+# Wait for the server to materialize generated secrets on first boot.
+wait_for_server_secrets() {
+  local env_file="${INSTALL_DIR}/.env"
+  local timeout="${1:-90}"
+  local waited=0
+  log "Waiting for the server to generate shared secrets..."
+  while (( waited < timeout )); do
+    if run_as_root test -f "$env_file" \
+      && run_as_root grep -qE '^STORAGE_ENCRYPTION_KEY=.+' "$env_file" 2>/dev/null \
+      && run_as_root grep -qE '^WEBHOOK_SECRET=.+' "$env_file" 2>/dev/null; then
+      log "Shared secrets are present. Starting the media worker."
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  warn "Timed out waiting for secrets in ${env_file}. The media worker will start without encryption keys and pick them up on its next restart once the server is healthy."
+  return 1
 }
 
 configure_systemd_service() {
@@ -2168,6 +2646,7 @@ After=network.target
 Type=simple
 User=${SERVICE_USER}
 Group=${SERVICE_GROUP}
+EnvironmentFile=${INSTALL_DIR}/.env
 WorkingDirectory=${INSTALL_DIR}/server
 ExecStart=${NODE_EXEC_PATH} ${INSTALL_DIR}/server/index.js
 Restart=on-failure
@@ -2180,9 +2659,39 @@ EOF
     return 1
   fi
 
+  log "Creating worker systemd service at ${WORKER_SERVICE_FILE}..."
+  if ! run_silent run_as_root tee "$WORKER_SERVICE_FILE" >/dev/null <<EOF
+[Unit]
+Description=Songbird media worker
+After=network.target ${SERVICE_NAME}.service
+
+[Service]
+Type=simple
+User=${SERVICE_USER}
+Group=${SERVICE_GROUP}
+EnvironmentFile=${INSTALL_DIR}/.env
+WorkingDirectory=${INSTALL_DIR}/worker
+ExecStart=${NODE_EXEC_PATH} ${INSTALL_DIR}/worker/index.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  then
+    return 1
+  fi
+
   run_as_root systemctl daemon-reload || return 1
-  run_as_root systemctl enable --now songbird.service || return 1
+  run_as_root systemctl enable songbird.service || return 1
+  run_as_root systemctl enable songbird-worker.service || return 1
   run_as_root systemctl restart songbird.service || return 1
+  if [[ -n "${DB_BACKUP_PATH:-}" ]]; then
+    wait_for_server_secrets 600 || true
+  else
+    wait_for_server_secrets || true
+  fi
+  run_as_root systemctl restart songbird-worker.service || return 1
 }
 
 write_nginx_site_config() {
@@ -2574,10 +3083,53 @@ EOF
   run_as_root systemctl enable --now songbird-lego-renew.timer || return 1
 }
 
+configure_selfsigned_ssl() {
+  # Determine the CN: prefer the first domain name, fall back to the IP address,
+  # fall back to "localhost" as a last resort.
+  local cn="localhost"
+  if [[ "${#DOMAIN_NAMES[@]}" -gt 0 && -n "${DOMAIN_NAMES[0]}" ]]; then
+    cn="${DOMAIN_NAMES[0]}"
+  elif [[ -n "$CERTBOT_IP_ADDRESS" ]]; then
+    cn="$CERTBOT_IP_ADDRESS"
+  fi
+
+  local gen_script="${INSTALL_DIR}/scripts/gen-certs.sh"
+  if [[ ! -f "$gen_script" ]]; then
+    warn "gen-certs.sh not found at ${gen_script}."
+    return 1
+  fi
+
+  log "Running gen-certs.sh for CN=${cn}..."
+  # gen-certs.sh writes to <repo>/certs/ by default, but for a bare-metal install
+  # we want the certs in CERT_INSTALL_DIR (/etc/ssl/songbird). We temporarily
+  # override the output directory by symlinking, then copy to the final location.
+  run_silent run_as_root mkdir -p "$CERT_INSTALL_DIR" || return 1
+
+  # Run gen-certs.sh — it handles openssl installation automatically if missing.
+  # It writes certs/cert.pem and certs/key.pem relative to the repo root.
+  run_silent run_as_root bash "$gen_script" "$cn" || return 1
+
+  local repo_cert="${INSTALL_DIR}/certs/cert.pem"
+  local repo_key="${INSTALL_DIR}/certs/key.pem"
+
+  run_silent run_as_root cp -f "$repo_cert" "$CERT_INSTALL_DIR/fullchain.pem" || return 1
+  run_silent run_as_root cp -f "$repo_key"  "$CERT_INSTALL_DIR/privkey.pem"  || return 1
+  run_silent run_as_root chmod 644 "$CERT_INSTALL_DIR/fullchain.pem" || return 1
+  run_silent run_as_root chmod 600 "$CERT_INSTALL_DIR/privkey.pem"  || return 1
+
+  install_ssl_files_into_nginx "$CERT_INSTALL_DIR/fullchain.pem" "$CERT_INSTALL_DIR/privkey.pem" || return 1
+  log "Self-signed certificate installed."
+}
+
 configure_ssl_if_needed() {
   case "$CERT_MODE" in
     http)
       log "HTTP-only mode selected. Skipping TLS setup."
+      return 0
+      ;;
+    selfsigned)
+      log "Generating self-signed TLS certificate..."
+      configure_selfsigned_ssl || return 1
       return 0
       ;;
     files)
@@ -2651,20 +3203,13 @@ restore_backup_if_provided() {
     warn "Backup file not found: $DB_BACKUP_PATH"
     return 1
   fi
-  if ! have_cmd unzip; then
-    warn "unzip is required to restore backups. Install it first and retry."
-    return 1
-  fi
   if [[ ! -d "$INSTALL_DIR/server" ]]; then
     warn "Server directory not found at ${INSTALL_DIR}/server. Cannot restore backup."
     return 1
   fi
 
-  log "Restoring data from backup: $DB_BACKUP_PATH"
+  log "Restoring database from backup: $DB_BACKUP_PATH"
   local cmd=(npm --prefix server run db:restore -- -y --file "$DB_BACKUP_PATH")
-  if [[ -n "${DB_BACKUP_PASSWORD:-}" ]]; then
-    cmd+=(--password "$DB_BACKUP_PASSWORD")
-  fi
 
   if [[ "${RESTORE_BACKUP_QUIET:-no}" == "yes" ]]; then
     if ! run_db_command_logged_quiet "${cmd[@]}"; then
@@ -2683,34 +3228,15 @@ backup_database() {
     warn "Server directory not found; skipping DB backup."
     return 0
   fi
-  local backup_password=""
-  backup_password="$(prompt_secret "Backup password")"
   log "Backing up database before update..."
-  if ! run_in_install_dir "npm --prefix server run db:backup -- --password $(printf '%q' "$backup_password")"; then
+  if ! run_in_install_dir "npm --prefix server run db:backup"; then
     warn "DB backup command failed. Update aborted."
     return 1
   fi
 }
 
 preserve_backup_and_restore_data() {
-  log "Preserving data directory during update..."
-  # Since /data/ is in .gitignore, it will remain untouched during git operations
-  # However, we locate the backup zip for recovery purposes if needed
-  if [[ -d "$INSTALL_DIR/data/backups" ]]; then
-    local latest_backup="$(ls -t "$INSTALL_DIR/data/backups"/*.zip 2>/dev/null | head -1)"
-    if [[ -n "$latest_backup" ]]; then
-      # Copy backup to root directory for easy access and recovery
-      local backup_filename="$(basename "$latest_backup")"
-      log "Found database backup: $latest_backup"
-      
-      if run_silent run_as_root cp "$latest_backup" "/$backup_filename"; then
-        log "✓ Backup copied to /$backup_filename for recovery purposes."
-      else
-        warn "Failed to copy backup to /. Backup remains in $INSTALL_DIR/data/backups/"
-      fi
-    fi
-  fi
-  log "Data directory (/data/) will remain untouched during git update."
+  log "Data directory (${INSTALL_DIR}/data) remains untouched during update."
 }
 
 run_migrations() {
@@ -2774,9 +3300,7 @@ setTimeout(() => process.exit(1), 800).unref();
 ensure_songbird_stopped_for_update() {
   local port=""
   port="$(get_existing_env_value_with_fallback "SERVER_PORT" "PORT" "$DEFAULT_SERVER_PORT")"
-  port="$(strip_surrounding_quotes "$port")"
-  port="${port#"${port%%[![:space:]]*}"}"
-  port="${port%"${port##*[![:space:]]}"}"
+  port="$(sanitize_input_value "$port")"
   if [[ ! "$port" =~ ^[0-9]+$ ]]; then
     port="$DEFAULT_SERVER_PORT"
   fi
@@ -2789,6 +3313,9 @@ ensure_songbird_stopped_for_update() {
       warn "Failed to stop Songbird service. Stop it manually before updating."
       press_enter_to_continue
       return 1
+    fi
+    if have_cmd systemctl && systemctl is-active --quiet songbird-worker.service 2>/dev/null; then
+      run_as_root systemctl stop songbird-worker.service || true
     fi
     log "Songbird service stopped."
   fi
@@ -2847,6 +3374,9 @@ rebuild_and_restart_after_settings_change() {
 
   log "Restarting Songbird service..."
   run_as_root systemctl restart songbird.service || return 1
+  if have_cmd systemctl && systemctl list-unit-files | grep -q "^songbird-worker.service"; then
+    run_as_root systemctl restart songbird-worker.service || true
+  fi
 
   if [[ "$needs_nginx" == "yes" ]]; then
     log "Updating Nginx config for SERVER_PORT/CLIENT_PORT/MAX_UPLOAD_MB changes..."
@@ -2882,16 +3412,56 @@ update_songbird() {
     local tmp_dir="${extract_result%%|*}"
     local source_root="${extract_result#*|}"
 
-    if ! offline_source_is_newer "$source_root" "$INSTALL_DIR"; then
+    local source_ver=""
+    local install_ver=""
+    source_ver="$(read_version_value "$source_root/VERSION")" || source_ver=""
+    install_ver="$(read_version_value "$INSTALL_DIR/VERSION")" || install_ver=""
+
+    local is_downgrade="no"
+    local version_rel=""
+    if ! compare_offline_source_version "$source_root" "$INSTALL_DIR" version_rel; then
       run_silent run_as_root rm -rf "$tmp_dir"
-      log "Songbird is already up to date. No rebuild needed."
       press_enter_to_continue
       return 0
     fi
 
+    case "$version_rel" in
+      newer)
+        log "Offline update available. Preparing to update Songbird..."
+        ;;
+      lower)
+        local should_downgrade=""
+        should_downgrade="$(prompt_yes_no "Local zip version (${source_ver}) is lower than installed version (${install_ver}). Do you want to downgrade to version ${source_ver}?" "no")"
+        if [[ "$should_downgrade" != "yes" ]]; then
+          run_silent run_as_root rm -rf "$tmp_dir"
+          log "Songbird is already up to date. No rebuild needed."
+          press_enter_to_continue
+          return 0
+        fi
+        is_downgrade="yes"
+        log "Offline downgrade requested. Preparing to downgrade Songbird to ${source_ver}..."
+        ;;
+      same)
+        local should_update=""
+        should_update="$(prompt_yes_no "Local zip version (${source_ver}) is the same as installed version (${install_ver}). Do you want to update to version ${source_ver}?" "no")"
+        if [[ "$should_update" != "yes" ]]; then
+          run_silent run_as_root rm -rf "$tmp_dir"
+          log "Songbird is already up to date. No rebuild needed."
+          press_enter_to_continue
+          return 0
+        fi
+        log "Offline update requested. Preparing to update Songbird to ${source_ver}..."
+        ;;
+      *)
+        run_silent run_as_root rm -rf "$tmp_dir"
+        log "Songbird is already up to date. No rebuild needed."
+        press_enter_to_continue
+        return 0
+        ;;
+    esac
+
     run_silent run_as_root rm -rf "$tmp_dir"
 
-    log "Offline update available. Preparing to update Songbird..."
     preserve_backup_and_restore_data
     update_source_from_zip "$offline_zip_path" || return 1
 
@@ -2902,6 +3472,7 @@ update_songbird() {
     log "Synchronizing database schema with latest version..."
     run_migrations || return 1
 
+    ensure_service_user_exists || return 1
     apply_ownership || return 1
     if install_global_command_from_path "$INSTALL_DIR/scripts/install.sh"; then
       log "Global command synchronized from updated install script."
@@ -2909,8 +3480,17 @@ update_songbird() {
       warn "Failed to synchronize global command after update."
     fi
 
+    # Unit files are fully generated: refresh them on every update.
+    if have_cmd systemctl && [[ -f "$SERVICE_FILE" ]]; then
+      log "Refreshing systemd services..."
+      configure_systemd_service || true
+    fi
+
     log "Restarting Songbird service..."
     run_as_root systemctl restart songbird.service || return 1
+    if have_cmd systemctl && systemctl list-unit-files | grep -q "^songbird-worker.service"; then
+      run_as_root systemctl restart songbird-worker.service || true
+    fi
     run_as_root systemctl reload nginx || return 1
 
     show_deployment_success_frame "update"
@@ -2928,7 +3508,7 @@ update_songbird() {
 
   # Fetch latest from remote
   log "Checking for updates..."
-  if ! run_in_install_dir "git fetch --all --prune"; then
+  if ! run_in_install_dir "git fetch --all --prune --tags"; then
     warn "Failed to fetch from remote. Check your network and credentials."
     press_enter_to_continue
     return 1
@@ -2945,28 +3525,66 @@ update_songbird() {
     return 1
   fi
 
+  local is_downgrade="no"
+  local target_ref="main"
+  local target_version=""
+
   # Check if update is available
   if [[ "$local_commit" == "$remote_commit" ]]; then
-    log "Songbird is already up to date. No rebuild needed."
-    press_enter_to_continue
-    return 0
+    log "Songbird is already up to date."
+    local should_downgrade=""
+    should_downgrade="$(prompt_yes_no "Do you want to downgrade?" "no")"
+    if [[ "$should_downgrade" != "yes" ]]; then
+      log "No rebuild needed."
+      press_enter_to_continue
+      return 0
+    fi
+
+    prompt_read "Enter version number to install: " target_version
+    target_version="$(sanitize_input_value "$target_version")"
+
+    if [[ -z "$target_version" ]]; then
+      warn "No version specified. Downgrade canceled."
+      press_enter_to_continue
+      return 0
+    fi
+
+    target_ref="$(resolve_git_version_ref "$target_version")" || target_ref=""
+    if [[ -z "$target_ref" ]]; then
+      warn "Version '${target_version}' not found in repository."
+      press_enter_to_continue
+      return 1
+    fi
+
+    is_downgrade="yes"
   fi
 
-  # Update is available - proceed with safe update
-  log "Update available. Preparing to update Songbird..."
-  preserve_backup_and_restore_data
+  if [[ "$is_downgrade" == "yes" ]]; then
+    log "Downgrade requested. Preparing to downgrade Songbird to ${target_version}..."
+    preserve_backup_and_restore_data
 
-  # Ensure we're on main branch and pull latest
-  if ! run_in_install_dir "git checkout main"; then
-    warn "Failed to checkout main branch."
-    press_enter_to_continue
-    return 1
-  fi
+    if ! run_in_install_dir "git checkout ${target_ref}"; then
+      warn "Failed to checkout ${target_version}."
+      press_enter_to_continue
+      return 1
+    fi
+  else
+    # Update is available - proceed with safe update
+    log "Update available. Preparing to update Songbird..."
+    preserve_backup_and_restore_data
 
-  if ! run_in_install_dir "git pull --ff-only origin main"; then
-    warn "Failed to pull updates. Repository may have non-fast-forward changes."
-    press_enter_to_continue
-    return 1
+    # Ensure we're on main branch and pull latest
+    if ! run_in_install_dir "git checkout main"; then
+      warn "Failed to checkout main branch."
+      press_enter_to_continue
+      return 1
+    fi
+
+    if ! run_in_install_dir "git pull --ff-only origin main"; then
+      warn "Failed to pull updates. Repository may have non-fast-forward changes."
+      press_enter_to_continue
+      return 1
+    fi
   fi
 
   log "Installing dependencies..."
@@ -2976,6 +3594,7 @@ update_songbird() {
   log "Synchronizing database schema with latest version..."
   run_migrations || return 1
 
+  ensure_service_user_exists || return 1
   apply_ownership || return 1
   if install_global_command_from_path "$INSTALL_DIR/scripts/install.sh"; then
     log "Global command synchronized from updated install script."
@@ -2983,8 +3602,17 @@ update_songbird() {
     warn "Failed to synchronize global command after update."
   fi
 
+  # Unit files are fully generated: refresh them on every update.
+  if have_cmd systemctl && [[ -f "$SERVICE_FILE" ]]; then
+    log "Refreshing systemd services..."
+    configure_systemd_service || true
+  fi
+
   log "Restarting Songbird service..."
   run_as_root systemctl restart songbird.service || return 1
+  if have_cmd systemctl && systemctl list-unit-files | grep -q "^songbird-worker.service"; then
+    run_as_root systemctl restart songbird-worker.service || true
+  fi
   run_as_root systemctl reload nginx || return 1
 
   show_deployment_success_frame "update"
@@ -2994,6 +3622,9 @@ update_songbird() {
 restart_songbird() {
   log "Restarting Songbird service..."
   run_as_root systemctl restart songbird.service || return 1
+  if have_cmd systemctl && systemctl list-unit-files | grep -q "^songbird-worker.service"; then
+    run_as_root systemctl restart songbird-worker.service || true
+  fi
   run_as_root systemctl reload nginx || return 1
 
   log "Songbird restarted successfully."
@@ -3047,9 +3678,63 @@ edit_settings() {
   fi
 
   log "Changes detected. Applying updates..."
+  ensure_local_postgres_setup || return 1
   rebuild_and_restart_after_settings_change "$needs_nginx"
   log "Settings applied."
   press_enter_to_continue
+}
+
+# Print PIDs listening on a TCP port (empty when free). Requires ss.
+pids_listening_on_port() {
+  local port="$1"
+  run_as_root ss -ltnp "sport = :${port}" 2>/dev/null \
+    | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u || true
+}
+
+# Ensure nothing still holds a service port.
+free_service_port() {
+  local port="$1"
+  if [[ ! "$port" =~ ^[0-9]+$ ]]; then
+    warn "Skipping port cleanup for invalid port value: ${port:-<empty>}."
+    return 0
+  fi
+
+  if ! have_cmd ss; then
+    warn "ss not available; cannot verify port ${port} is free."
+    return 0
+  fi
+
+  local pids=""
+  pids="$(pids_listening_on_port "$port")"
+
+  if [[ -z "${pids//[[:space:]]/}" ]]; then
+    return 0
+  fi
+
+  local summary=""
+  summary="$(run_as_root ps -o pid=,comm=,args= -p $(printf "%s" "$pids" | tr '\n' ',' | sed 's/,$//') 2>/dev/null | tr '\n' ';' || true)"
+  
+  log "Port ${port} still in use (${summary:-PIDs: $pids}); terminating..."
+  run_as_root kill $pids 2>/dev/null || true
+  sleep 2
+
+  local remaining=""
+  remaining="$(pids_listening_on_port "$port")"
+
+  if [[ -n "${remaining//[[:space:]]/}" ]]; then
+    warn "Port ${port} still held after SIGTERM (${remaining}); escalating to SIGKILL."
+    run_as_root kill -9 $remaining 2>/dev/null || true
+    sleep 1
+    remaining="$(pids_listening_on_port "$port")"
+  fi
+
+  if [[ -n "${remaining//[[:space:]]/}" ]]; then
+    warn "Port ${port} is still occupied (${remaining}) after SIGKILL. Reboot or investigate manually."
+    return 1
+  fi
+  
+  log "Port ${port} is free."
+  return 0
 }
 
 remove_songbird() {
@@ -3058,21 +3743,32 @@ remove_songbird() {
     press_enter_to_continue
     return 0
   fi
-  
+
   if [[ "$(prompt_yes_no "This will remove Songbird from this server. Continue?" "no")" != "yes" ]]; then
     log "Removal canceled."
     return 0
   fi
 
+  # Capture ports for later.
+  local server_port worker_port
+  server_port="$(get_existing_env_value "SERVER_PORT" "$DEFAULT_SERVER_PORT")"
+  worker_port="$(get_existing_env_value "WORKER_PORT" "$DEFAULT_WORKER_PORT")"
+
   if run_as_root systemctl list-unit-files | grep -q "^songbird.service"; then
     run_as_root systemctl disable --now songbird.service || true
+  fi
+  if run_as_root systemctl list-unit-files | grep -q "^songbird-worker.service"; then
+    run_as_root systemctl disable --now songbird-worker.service || true
   fi
   if run_as_root systemctl list-unit-files | grep -q "^songbird-lego-renew.timer"; then
     run_as_root systemctl disable --now songbird-lego-renew.timer || true
   fi
-  run_as_root rm -f "$SERVICE_FILE"
+  run_as_root rm -f "$SERVICE_FILE" "$WORKER_SERVICE_FILE"
   run_as_root rm -f "$LEGO_RENEW_SERVICE_FILE" "$LEGO_RENEW_TIMER_FILE"
   run_as_root systemctl daemon-reload
+
+  free_service_port "$server_port" || true
+  free_service_port "$worker_port" || true
 
   run_as_root rm -f "$NGINX_ENABLED_FILE"
   run_as_root rm -f "$NGINX_SITE_FILE"
@@ -3178,6 +3874,7 @@ configure_push_proxy() {
 install_songbird() {
   prompt_source_mode
   collect_install_options
+  prompt_database_choice
   prompt_install_backup_restore
   install_required_packages || return 1
   ensure_nodejs_from_nodesource || return 1
@@ -3194,6 +3891,8 @@ install_songbird() {
   fi
   ensure_log_dir || return 1
   write_full_env_with_defaults || return 1
+  ensure_local_postgres_setup || return 1
+  install_songbird_dependencies || return 1
   RESTORE_BACKUP_QUIET="yes"
   if ! restore_backup_if_provided; then
     RESTORE_BACKUP_QUIET="no"
@@ -3202,8 +3901,8 @@ install_songbird() {
     return 1
   fi
   RESTORE_BACKUP_QUIET="no"
-  install_songbird_dependencies || return 1
   ensure_vapid_keys || return 1
+  pregenerate_missing_secrets || true
   apply_ownership || return 1
   configure_systemd_service || return 1
   log "Starting nginx setup..."
@@ -3216,7 +3915,10 @@ install_songbird() {
   else
     warn "Failed to synchronize global command after install. You can retry from the menu."
   fi
+
   show_deployment_success_frame "install"
+
+  create_owner_user || return 1
 
   press_enter_to_continue
 }
@@ -3281,16 +3983,94 @@ install_global_command_core() {
   install_global_command_from_remote
 }
 
-install_global_command() {
-  if ! install_global_command_core "${1:-$CURRENT_SCRIPT_PATH}"; then
-    warn "Failed to install global command."
-    press_enter_to_continue
+fetch_remote_installer_script() {
+  local target_file="$1"
+  if ! have_cmd curl; then
     return 1
   fi
+  curl -fsSL --connect-timeout 10 --max-time 30 "$SCRIPT_REMOTE_URL" > "$target_file" || return 1
+  [[ -s "$target_file" ]] || return 1
+}
 
-  log "Global command installed: songbird-deploy (version ${LAST_GLOBAL_COMMAND_VERSION:-$SCRIPT_VERSION})"
-  log "Run it from anywhere with: songbird-deploy"
+update_menu() {
+  log "Checking for menu updates from GitHub..."
+
+  local temp_remote=""
+  temp_remote="$(mktemp)"
+
+  if ! fetch_remote_installer_script "$temp_remote"; then
+    rm -f "$temp_remote"
+    warn "Failed to fetch installer script from GitHub."
+    local reinstall_choice=""
+    reinstall_choice="$(prompt_yes_no "Do you want to reinstall the current menu again?" "no")"
+    if [[ "$reinstall_choice" == "yes" ]]; then
+      if install_global_command_core "$CURRENT_SCRIPT_PATH"; then
+        log "Menu reinstalled successfully (version ${LAST_GLOBAL_COMMAND_VERSION:-$SCRIPT_VERSION})."
+      else
+        warn "Failed to reinstall menu."
+      fi
+    else
+      log "Reinstall canceled."
+    fi
+    press_enter_to_continue
+    return 0
+  fi
+
+  local remote_version=""
+  remote_version="$(read_script_version_header "$temp_remote" 2>/dev/null || true)"
+  if [[ -z "$remote_version" ]]; then
+    rm -f "$temp_remote"
+    warn "Could not determine remote script version from GitHub."
+    local reinstall_choice=""
+    reinstall_choice="$(prompt_yes_no "Do you want to reinstall the current menu again?" "no")"
+    if [[ "$reinstall_choice" == "yes" ]]; then
+      if install_global_command_core "$CURRENT_SCRIPT_PATH"; then
+        log "Menu reinstalled successfully (version ${LAST_GLOBAL_COMMAND_VERSION:-$SCRIPT_VERSION})."
+      else
+        warn "Failed to reinstall menu."
+      fi
+    else
+      log "Reinstall canceled."
+    fi
+    press_enter_to_continue
+    return 0
+  fi
+
+  if dpkg --compare-versions "$remote_version" gt "$SCRIPT_VERSION"; then
+    log "Newer version available (${remote_version} > ${SCRIPT_VERSION}). Updating menu..."
+    if ! run_silent run_as_root install -m 755 "$temp_remote" "$GLOBAL_COMMAND_PATH"; then
+      rm -f "$temp_remote"
+      warn "Failed to update menu."
+      press_enter_to_continue
+      return 1
+    fi
+    rm -f "$temp_remote"
+    LAST_GLOBAL_COMMAND_VERSION="$remote_version"
+    log "Menu updated to version ${remote_version}."
+    log "Run it from anywhere with: songbird-deploy"
+    press_enter_to_continue
+    return 0
+  fi
+
+  rm -f "$temp_remote"
+  log "Menu is already up to date (version ${SCRIPT_VERSION})."
+  local reinstall_choice=""
+  reinstall_choice="$(prompt_yes_no "Do you want to reinstall the current menu again?" "no")"
+  if [[ "$reinstall_choice" == "yes" ]]; then
+    if install_global_command_core "$CURRENT_SCRIPT_PATH"; then
+      log "Menu reinstalled successfully (version ${LAST_GLOBAL_COMMAND_VERSION:-$SCRIPT_VERSION})."
+    else
+      warn "Failed to reinstall menu."
+    fi
+  else
+    log "Reinstall canceled."
+  fi
   press_enter_to_continue
+  return 0
+}
+
+install_global_command() {
+  update_menu
 }
 
 installed_global_command_version() {
@@ -3347,6 +4127,17 @@ show_service_logs() {
     run_as_root journalctl -u songbird --no-pager -n "$LOG_LINES"
   else
     printf "\n  Songbird service not found.\n"
+  fi
+  press_enter_to_continue
+}
+
+show_worker_service_logs() {
+  if systemctl list-units --type=service --all | grep songbird-worker; then
+    clear
+    printf "\n  Last %s lines of songbird-worker service log:\n\n" "$LOG_LINES"
+    run_as_root journalctl -u songbird-worker --no-pager -n "$LOG_LINES"
+  else
+    printf "\n  Songbird worker service not found.\n"
   fi
   press_enter_to_continue
 }
@@ -3409,7 +4200,7 @@ show_menu() {
   printf $'4) ⚙️  Edit Settings (.env)\n'
   printf $'5) 🗃️  Manage Database\n'
   printf $'6) 🗑️  Remove Songbird\n'
-  printf $'7) 🔄️  Reinstall songbird-deploy\n'
+  printf $'7) 🔄️  Update menu\n'
   printf $'8) 🌐  Configure mirrors\n'
   printf $'9) 📋  View Logs\n'
   printf $'0) 🚪  Exit\n\n'
@@ -3423,25 +4214,29 @@ show_logs_menu() {
     printf "Logs Menu\n"
     printf $'1) 📋  View script logs\n'
     printf $'2) 📋  View service logs\n'
-    printf $'3) 📋 View nginx access logs\n'
-    printf $'4) 📋  View nginx error logs\n'
-    printf $'5) ↩️  Go back\n'
+    printf $'3) 📋  View worker service logs\n'
+    printf $'4) 📋 View nginx access logs\n'
+    printf $'5) 📋  View nginx error logs\n'
+    printf $'6) ↩️  Go back\n'
     printf $'0) 🚪  Exit\n\n'
 
-    prompt_read "Choose an option [0-5]: " choice
+    prompt_read "Choose an option [0-6]: " choice
     case "$choice" in
       1) show_logs ;;
       2) show_service_logs ;;
-      3) show_nginx_access_logs ;;
-      4) show_nginx_error_logs ;;
-      5) return ;;
+      3) show_worker_service_logs ;;
+      4) show_nginx_access_logs ;;
+      5) show_nginx_error_logs ;;
+      6) return ;;
       0) exit 0 ;;
-      *) printf "Invalid choice. Select a number from 0 to 5.\n" ;;
+      *) printf "Invalid choice. Select a number from 0 to 6.\n" ;;
     esac
   done
 }
 
-run_db_command() {
+run_db_command_with_runner() {
+  local command_runner="$1"
+  shift
   local args=("$@")
   local escaped=""
   local part=""
@@ -3461,7 +4256,11 @@ run_db_command() {
   for part in "${args[@]}"; do
     escaped+=" $(printf '%q' "$part")"
   done
-  run_as_root bash -lc "cd '$INSTALL_DIR' && ${path_export}${escaped:1} </dev/null"
+  "$command_runner" bash -lc "cd '$INSTALL_DIR' && ${path_export}${escaped:1} </dev/null"
+}
+
+run_db_command() {
+  run_db_command_with_runner run_data_command "$@"
 }
 
 run_db_command_interactive() {
@@ -3484,7 +4283,7 @@ run_db_command_interactive() {
   for part in "${args[@]}"; do
     escaped+=" $(printf '%q' "$part")"
   done
-  run_as_root bash -lc "cd '$INSTALL_DIR' && ${path_export}${escaped:1} </dev/tty >/dev/tty 2>&1"
+  run_data_command bash -lc "cd '$INSTALL_DIR' && ${path_export}${escaped:1} </dev/tty >/dev/tty 2>&1"
 }
 
 run_db_command_logged_quiet() {
@@ -3507,7 +4306,7 @@ run_db_command_logged_quiet() {
   for part in "${args[@]}"; do
     escaped+=" $(printf '%q' "$part")"
   done
-  run_logged_quiet run_as_root bash -lc "cd '$INSTALL_DIR' && ${path_export}${escaped:1} </dev/null"
+  run_logged_quiet run_data_command bash -lc "cd '$INSTALL_DIR' && ${path_export}${escaped:1} </dev/null"
 }
 
 split_db_selector_input() {
@@ -3530,7 +4329,7 @@ resolve_chat_visibility_for_script() {
   local path_prefix=""
   path_prefix="$(node_tools_path_prefix)"
 
-  run_as_root env INSTALL_DIR="$INSTALL_DIR" CHAT_SELECTOR="$chat_selector" NODE_TOOLS_PATH_PREFIX="$path_prefix" bash -lc '
+  run_data_command env INSTALL_DIR="$INSTALL_DIR" CHAT_SELECTOR="$chat_selector" NODE_TOOLS_PATH_PREFIX="$path_prefix" bash -lc '
     if [[ -n "$NODE_TOOLS_PATH_PREFIX" ]]; then
       export PATH="$NODE_TOOLS_PATH_PREFIX:$PATH"
     fi
@@ -3542,16 +4341,49 @@ resolve_chat_visibility_for_script() {
       const { resolveChatRow } = await import(new URL(\"./server/lib/dbToolHelpers.js\", rootUrl));
       const dbApi = await openDatabase();
       try {
-        const chat = resolveChatRow(dbApi, String(process.env.CHAT_SELECTOR || \"\").trim());
+        const chat = await resolveChatRow(dbApi, String(process.env.CHAT_SELECTOR || \"\").trim());
         if (!chat?.id) {
           process.exit(2);
         }
         process.stdout.write(String(chat.group_visibility || \"public\").trim().toLowerCase() || \"public\");
       } finally {
-        dbApi.close();
+        await dbApi?.close();
       }
     "
   '
+}
+
+# Check whether any user with role='owner' exists in the database.
+# Exits 0 if owner exists, 1 if not (or if check fails).
+check_owner_exists() {
+  run_db_command_logged_quiet npm --prefix server run db:owner:check
+}
+
+# After installation, offer to create an owner user if none exists.
+create_owner_user() {
+  if check_owner_exists; then
+    return 0
+  fi
+
+  printf "\n"
+  log "No owner user found in the database."
+  if [[ "$(prompt_yes_no "Would you like to create an owner user now?" "yes")" != "yes" ]]; then
+    return 0
+  fi
+
+  local nickname=""
+  local username=""
+  local password=""
+
+  nickname="$(prompt_non_empty "Nickname")"
+  username="$(prompt_non_empty "Username (lowercase letters, numbers, ., _)")"
+  password="$(prompt_secret "Password")"
+
+  run_db_command npm --prefix server run db:user:create -- \
+    --nickname "$nickname" \
+    --username "$username" \
+    --password "$password" \
+    --role owner || return 1
 }
 
 print_db_script_help() {
@@ -3568,12 +4400,12 @@ Inspect:
         Passes: --limit
 
 Backup & repair:
-  5     Backup database and uploads
-        Prompts: backup password
-        Passes: --password
+  5     Backup database
+        Prompts: none
+        Passes: (no arguments)
   6     Restore backup
-        Prompts: backup zip path, restore confirmation, optional password
-        Passes: -y --file [--password]
+        Prompts: backup .db (SQLite) or .dump (PostgreSQL) path, restore confirmation
+        Passes: -y --file
   7     Vacuum database
         Prompts: confirmation
         Passes: -y
@@ -3586,60 +4418,67 @@ Backup & repair:
 
 User and chat management:
   10    Create user
-        Prompts: nickname, username, password
-        Passes: --nickname --username --password
+        Prompts: nickname, username, password, role (user/admin/owner, default: user)
+        Passes: --nickname --username --password --role
   11    Generate users in bulk
         Prompts: count, password, nickname prefix, username prefix
         Passes: --count --password --nickname-prefix --username-prefix
   12    Edit user
-        Prompts: user selector and optional profile fields
-        Passes: selector plus any changed --username/--nickname/--avatar-url/--status/--color
+        Prompts: user selector and optional profile fields and role
+        Passes: selector plus any changed --username/--nickname/--avatar-url/--status/--color/--role
   13    Ban/unban user
         Prompts: user selector, confirmation
         Passes: -y selector
-  14    Create group/channel
+  14    Verify/unverify user
+        Prompts: user selector, confirmation
+        Passes: selector
+  15    Create group/channel
         Prompts: type, name, username, visibility, owner, optional members
         For channels: optional remote channel configuration (Telegram source, sync metadata, stream media)
         Passes: --type --name --owner --username --visibility --users [--remote-channel --sync-metadata --stream-media]
-  15    Add members to chat
+  16    Add members to chat
         Prompts: chat selector, all-users yes/no, or user selectors
         Passes: chat selector plus --all or user selectors
-  16    Edit chat
+  17    Edit chat
         Prompts: chat selector and optional profile/settings fields
         For channels with remote channel: menu with 9 actions (update source, toggle settings, enable/disable, pause/resume queue, skip queue items)
         Passes: selector plus any changed --name/--username/--visibility/--color/--owner/invite flag
         Or: --remote-channel --sync-metadata/--no-sync-metadata --stream-media/--no-stream-media
         Or: --enable-remote/--disable-remote --pause-queue/--resume-queue --skip-queue/--skip-all-queue
+  18    Verify/unverify chat
+        Prompts: chat selector, confirmation
+        Passes: selector
 
 Remote channel configuration:
-  17    Configure Remote Channel
+  19    Configure Remote Channel
         Prompts: Telegram API ID/hash, proxy URL, phone number, optional 2FA password
         Passes: --api-id --api-hash --proxy-url/--no-proxy --phone-number [--password]
 
 Destructive actions:
-  18    Delete chats
+  20    Delete chats
         Prompts: chat ids/usernames or "all"
         Passes: -y selectors or --all -y
-  19    Delete users
+  21    Delete users
         Prompts: user ids/usernames or "all"
         Passes: -y selectors or --all -y
-  20    Delete files
+  22    Delete files
         Prompts: file ids/stored names or "all"
         Passes: -y selectors or --all -y
 
 Notes:
   - "all" is explicit for chat/user/file delete actions.
   - "Ban/unban user" is a toggle and expires that user's sessions.
+  - "Verify/unverify user" is a toggle: run it again to remove verification.
+  - "Verify/unverify chat" is a toggle: run it again to remove verification.
   - Public chats always allow member invites. Invite settings only apply to private chats.
-  - Backups are encrypted zip files containing .env and data/.
+  - Backups are timestamped .db copies for SQLite or .dump archives for PostgreSQL, saved to data/backups/.
+  - Restore replaces the active database with the selected backup format.
 EOF
 }
 
 db_backup() {
-  local backup_password=""
-  backup_password="$(prompt_secret "Backup password")"
-  log "Creating backup (db + uploads)..."
-  run_db_command npm --prefix server run db:backup -- --password "$backup_password"
+  log "Creating database backup..."
+  run_db_command npm --prefix server run db:backup
   press_enter_to_continue
 }
 
@@ -3663,20 +4502,14 @@ db_vacuum() {
 
 db_restore() {
   local backup_path=""
-  local backup_password=""
 
-  backup_path="$(select_backup_zip_path)"
-  if [[ "$(prompt_yes_no "This will replace ${INSTALL_DIR}/data and update ${INSTALL_DIR}/.env when the backup includes it. Continue?" "yes")" != "yes" ]]; then
+  backup_path="$(select_backup_path)"
+  if [[ "$(prompt_yes_no "This will replace the current database with ${backup_path}. Continue?" "yes")" != "yes" ]]; then
     log "Restore canceled."
     press_enter_to_continue
     return 0
   fi
-  backup_password="$(prompt_secret_optional "Backup password (leave blank if not encrypted)")"
-  if [[ -n "$backup_password" ]]; then
-    run_db_command npm --prefix server run db:restore -- -y --file "$backup_path" --password "$backup_password"
-  else
-    run_db_command npm --prefix server run db:restore -- -y --file "$backup_path"
-  fi
+  run_db_command npm --prefix server run db:restore -- -y --file "$backup_path"
   press_enter_to_continue
 }
 
@@ -3790,15 +4623,28 @@ db_user_create() {
   local nickname=""
   local username=""
   local password=""
+  local role=""
 
   nickname="$(prompt_non_empty "Nickname")"
   username="$(prompt_non_empty "Username (lowercase letters, numbers, ., _)")"
   password="$(prompt_secret "Password")"
 
+  while true; do
+    prompt_read "Role (user/admin/owner, default: user): " role
+    role="${role#"${role%%[![:space:]]*}"}"
+    role="${role%"${role##*[![:space:]]}"}"
+    [[ -z "$role" ]] && role="user"
+    case "$role" in
+      user|admin|owner) break ;;
+      *) printf "Invalid role. Choose: user, admin, or owner.\n" ;;
+    esac
+  done
+
   run_db_command npm --prefix server run db:user:create -- \
     --nickname "$nickname" \
     --username "$username" \
-    --password "$password"
+    --password "$password" \
+    --role "$role"
   press_enter_to_continue
 }
 
@@ -4056,6 +4902,18 @@ db_chat_edit() {
   press_enter_to_continue
 }
 
+db_chat_verify() {
+  local chat=""
+  chat="$(prompt_non_empty "Chat id or username")"
+  if [[ "$(prompt_yes_no "Toggle verification state for ${chat} ?" "no")" != "yes" ]]; then
+    log "Verify/unverify canceled."
+    press_enter_to_continue
+    return 0
+  fi
+  run_db_command npm --prefix server run db:chat:verify -- "$chat"
+  press_enter_to_continue
+}
+
 db_user_edit() {
   local user=""
   local username=""
@@ -4063,6 +4921,7 @@ db_user_edit() {
   local avatar_url=""
   local status=""
   local color=""
+  local role=""
   local args=()
 
   user="$(prompt_non_empty "User id or username")"
@@ -4072,12 +4931,26 @@ db_user_edit() {
   prompt_read "Status (online/invisible, optional): " status
   prompt_read "Color hex (optional, example: #10b981): " color
 
+  while true; do
+    prompt_read "Role (user/admin/owner, optional — leave blank to keep current): " role
+    role="${role#"${role%%[![:space:]]*}"}"
+    role="${role%"${role##*[![:space:]]}"}"
+    if [[ -z "$role" ]]; then
+      break
+    fi
+    case "$role" in
+      user|admin|owner) break ;;
+      *) printf "Invalid role. Choose: user, admin, owner, or leave blank.\n" ;;
+    esac
+  done
+
   args+=("$user")
   [[ -n "$username" ]] && args+=(--username "$username")
   [[ -n "$nickname" ]] && args+=(--nickname "$nickname")
   [[ -n "$avatar_url" ]] && args+=(--avatar-url "$avatar_url")
   [[ -n "$status" ]] && args+=(--status "$status")
   [[ -n "$color" ]] && args+=(--color "$color")
+  [[ -n "$role" ]] && args+=(--role "$role")
 
   run_db_command npm --prefix server run db:user:edit -- "${args[@]}"
   press_enter_to_continue
@@ -4113,9 +4986,9 @@ db_remote_configure() {
     return 1
   fi
 
-  current_api_id="$(strip_surrounding_quotes "$(get_existing_env_value "REMOTE_CHANNEL_TELEGRAM_API_ID" "")")"
-  current_api_hash="$(strip_surrounding_quotes "$(get_existing_env_value "REMOTE_CHANNEL_TELEGRAM_API_HASH" "")")"
-  current_proxy_url="$(strip_surrounding_quotes "$(get_existing_env_value "REMOTE_CHANNEL_TELEGRAM_PROXY_URL" "$(get_existing_env_value "REMOTE_CHANNEL_PROXY_URL" "")")")"
+  current_api_id="$(sanitize_input_value "$(get_existing_env_value "REMOTE_CHANNEL_TELEGRAM_API_ID" "")")"
+  current_api_hash="$(sanitize_input_value "$(get_existing_env_value "REMOTE_CHANNEL_TELEGRAM_API_HASH" "")")"
+  current_proxy_url="$(sanitize_input_value "$(get_existing_env_value "REMOTE_CHANNEL_TELEGRAM_PROXY_URL" "$(get_existing_env_value "REMOTE_CHANNEL_PROXY_URL" "")")")"
   [[ "$current_api_id" == "0" ]] && current_api_id=""
 
   while true; do
@@ -4186,9 +5059,9 @@ db_remote_configure() {
 
 db_restore_backup() {
   local resolved=""
-  resolved="$(select_backup_zip_path)"
+  resolved="$(select_backup_path)"
 
-  if [[ "$(prompt_yes_no "This will replace ${INSTALL_DIR}/data. Continue?" "no")" != "yes" ]]; then
+  if [[ "$(prompt_yes_no "This will replace the current database with ${resolved}. Continue?" "no")" != "yes" ]]; then
     log "Restore canceled."
     return 0
   fi
@@ -4198,57 +5071,72 @@ db_restore_backup() {
   press_enter_to_continue
 }
 
+db_user_verify() {
+  local user=""
+  user="$(prompt_non_empty "User id or username")"
+  if [[ "$(prompt_yes_no "Toggle verification state for ${user} ?" "no")" != "yes" ]]; then
+    log "Verify/unverify canceled."
+    press_enter_to_continue
+    return 0
+  fi
+  run_db_command npm --prefix server run db:user:verify -- "$user"
+  press_enter_to_continue
+}
+
 show_db_menu() {
+  sync_values_from_env
   while true; do
     clear
     show_banner
     printf "\n"
 
     printf "Manage Database\n"
-    printf "┌──── Inspect ────────────────────────────────┐\n"
-    printf "│                                             │\n"
+    printf "┌──── Inspect ─────────────────────────────────┐\n"
+    printf "│                                              │\n"
     printf "│  1) 👁️  Inspect database (summary)           │\n"
     printf "│  2) 👁️  Inspect chats metadata               │\n"
     printf "│  3) 👁️  Inspect users                        │\n"
     printf "│  4) 👁️  Inspect files                        │\n"
-    printf "│                                             │\n"
-    printf "├──── Backup & Repair ────────────────────────┤\n"
-    printf "│                                             │\n"
-    printf "│  5) 📤  Backup database                     │\n"
+    printf "│                                              │\n"
+    printf "├──── Backup & Repair ─────────────────────────┤\n"
+    printf "│                                              │\n"
+    printf "│  5) 📤  Backup database                      │\n"
     printf "│  6) ♻️  Restore backup                       │\n"
-    printf "│  7) 🧹  Vacuum database                     │\n"
-    printf "│  8) 🔄️  Reset database                      │\n"
+    printf "│  7) 🧹  Vacuum database                      │\n"
+    printf "│  8) 🔄️  Reset database                       │\n"
     printf "│  9) 🗑️  Delete database                      │\n"
-    printf "│                                             │\n"
-    printf "├──── User & Chat Management ─────────────────┤\n"
-    printf "│                                             │\n"
-    printf "│  10) 👤  Create user                        │\n"
-    printf "│  11) 👥  Generate users (bulk)              │\n"
+    printf "│                                              │\n"
+    printf "├──── User & Chat Management ──────────────────┤\n"
+    printf "│                                              │\n"
+    printf "│  10) 👤  Create user                         │\n"
+    printf "│  11) 👥  Generate users (bulk)               │\n"
     printf "│  12) ✏️  Edit user                           │\n"
-    printf "│  13) 🚫  Ban/unban user                     │\n"
-    printf "│  14) 💬  Create group/channel               │\n"
-    printf "│  15) ➕  Add members to chat                │\n"
-    printf "│  16) ✏️  Edit chat                           │\n"
-    printf "│                                             │\n"
-    printf "├──── Remote Channels ────────────────────────┤\n"
-    printf "│                                             │\n"
-    printf "│  17) 📡  Configure Remote Channel           │\n"
-    printf "│                                             │\n"
-    printf "├──── Destructive Actions ────────────────────┤\n"
-    printf "│                                             │\n"
-    printf "│  18) 🗑️  Delete chats                        │\n"
-    printf "│  19) 🗑️  Delete users                        │\n"
-    printf "│  20) 🗑️  Delete files                        │\n"
-    printf "│                                             │\n"
-    printf "├──── Help & Navigation ──────────────────────┤\n"
-    printf "│                                             │\n"
-    printf "│  21) ❔  Show help                          │\n"
-    printf "│  22) ↩️  Go back                             │\n"
-    printf "│  0) 🚪  Exit                                │\n"
-    printf "│                                             │\n"
-    printf "└─────────────────────────────────────────────┘\n\n"
+    printf "│  13) 🚫  Ban/unban user                      │\n"
+    printf "│  14) ✅  Verify/unverify user                │\n"
+    printf "│  15) 💬  Create group/channel                │\n"
+    printf "│  16) ➕  Add members to chat                 │\n"
+    printf "│  17) ✏️  Edit chat                           │\n"
+    printf "│  18) ✅  Verify/unverify chat                │\n"
+    printf "│                                              │\n"
+    printf "├──── Remote Channels ─────────────────────────┤\n"
+    printf "│                                              │\n"
+    printf "│  19) 📡  Configure Remote Channel            │\n"
+    printf "│                                              │\n"
+    printf "├──── Destructive Actions ─────────────────────┤\n"
+    printf "│                                              │\n"
+    printf "│  20) 🗑️  Delete chats                        │\n"
+    printf "│  21) 🗑️  Delete users                        │\n"
+    printf "│  22) 🗑️  Delete files                        │\n"
+    printf "│                                              │\n"
+    printf "├──── Help & Navigation ───────────────────────┤\n"
+    printf "│                                              │\n"
+    printf "│  23) ❔  Show help                           │\n"
+    printf "│  24) ↩️  Go back                             │\n"
+    printf "│  0) 🚪  Exit                                 │\n"
+    printf "│                                              │\n"
+    printf "└──────────────────────────────────────────────┘\n\n"
 
-    prompt_read "Choose an option [0-22]: " choice
+    prompt_read "Choose an option [0-24]: " choice
     case "$choice" in
       1) db_inspect "all" ;;
       2) db_inspect "chat" ;;
@@ -4263,17 +5151,19 @@ show_db_menu() {
       11) db_user_generate ;;
       12) db_user_edit ;;
       13) db_user_ban ;;
-      14) db_chat_create ;;
-      15) db_chat_add ;;
-      16) db_chat_edit ;;
-      17) db_remote_configure ;;
-      18) db_chat_delete ;;
-      19) db_user_delete ;;
-      20) db_file_delete ;;
-      21) db_help ;;
-      22) return ;;
+      14) db_user_verify ;;
+      15) db_chat_create ;;
+      16) db_chat_add ;;
+      17) db_chat_edit ;;
+      18) db_chat_verify ;;
+      19) db_remote_configure ;;
+      20) db_chat_delete ;;
+      21) db_user_delete ;;
+      22) db_file_delete ;;
+      23) db_help ;;
+      24) return ;;
       0) exit 0 ;;
-      *) printf "Invalid choice. Select a number from 0 to 22.\n" ;;
+      *) printf "Invalid choice. Select a number from 0 to 24.\n" ;;
     esac
   done
 }
@@ -4304,7 +5194,7 @@ main() {
       4) run_menu_action edit_settings ;;
       5) run_menu_action show_db_menu ;;
       6) run_menu_action remove_songbird ;;
-      7) run_menu_action install_global_command ;;
+      7) run_menu_action update_menu ;;
       8) run_menu_action configure_mirrors_menu ;;
       9) run_menu_action show_logs_menu ;;
       0) break ;;

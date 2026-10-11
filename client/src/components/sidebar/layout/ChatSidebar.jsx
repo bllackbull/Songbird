@@ -59,7 +59,7 @@ export default function ChatSidebar({
   handleLogout,
   settingsPanel,
   displayName,
-  statusDotClass,
+  statusTextClass,
   statusValue,
   handleProfileSave,
   avatarPreview,
@@ -83,8 +83,8 @@ export default function ChatSidebar({
   notificationStatusLabel,
   onToggleNotifications,
   onOpenNotifications,
-  onTestPush,
-  testNotificationSent,
+  messagePreviewEnabled,
+  onToggleMessagePreview,
   notificationsDebugLine,
   onClearCache,
   dataCacheStats,
@@ -100,6 +100,9 @@ export default function ChatSidebar({
   settingsButtonRef,
   displayInitials,
   onOpenWhatsNew,
+  adminPanelEnabled = true,
+  permissionsPrompt = null,
+  insecureConnection = false,
 }) {
   const chatsScrollRef = useRef(null);
   const chatsContentRef = useRef(null);
@@ -165,30 +168,34 @@ export default function ChatSidebar({
         (mobileTab === "chat" ? "hidden md:block" : "block")
       }
     >
-      <SidebarHeader
-        mobileTab={mobileTab}
-        editMode={editMode}
-        isConnected={isConnected}
-        isUpdating={isUpdating}
-        hasChats={Boolean(visibleChats.length)}
-        selectedChatsCount={selectedChats.length}
-        onExitEdit={onExitEdit}
-        onEnterEdit={onEnterEdit}
-        onDeleteChats={onDeleteChats}
-        onNewChat={onOpenNewChat}
-        onNewGroup={onOpenNewGroup}
-        onNewChannel={onOpenNewChannel}
-        chatsSearchQuery={chatsSearchQuery}
-        chatsSearchFocused={chatsSearchFocused}
-        onChatsSearchChange={onChatsSearchChange}
-        onChatsSearchFocus={onChatsSearchFocus}
-        onChatsSearchBlur={onChatsSearchBlur}
-        onCloseSearch={onCloseSearch}
-        chatsScrollable={isChatsScrollable}
-        onScrollToTop={() => {
-          chatsScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
-        }}
-      />
+      <div className={mobileTab === "settings" ? "hidden md:block" : ""}>
+        <SidebarHeader
+          mobileTab={mobileTab}
+          editMode={editMode}
+          isConnected={isConnected}
+          isUpdating={isUpdating}
+          hasChats={Boolean(visibleChats.length)}
+          selectedChatsCount={selectedChats.length}
+          onExitEdit={onExitEdit}
+          onEnterEdit={onEnterEdit}
+          onDeleteChats={onDeleteChats}
+          onNewChat={onOpenNewChat}
+          onNewGroup={onOpenNewGroup}
+          onNewChannel={onOpenNewChannel}
+          chatsSearchQuery={chatsSearchQuery}
+          chatsSearchFocused={chatsSearchFocused}
+          onChatsSearchChange={onChatsSearchChange}
+          onChatsSearchFocus={onChatsSearchFocus}
+          onChatsSearchBlur={onChatsSearchBlur}
+          onCloseSearch={onCloseSearch}
+          chatsScrollable={isChatsScrollable}
+          onScrollToTop={() => {
+            chatsScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+          }}
+          permissionsPrompt={permissionsPrompt}
+          insecureConnection={insecureConnection}
+        />
+      </div>
 
       <SettingsMenuPopover
         showSettings={showSettings}
@@ -207,16 +214,20 @@ export default function ChatSidebar({
         onOpenNotifications={onOpenNotifications}
         onOpenSavedMessages={onOpenSavedMessages}
         onOpenWhatsNew={onOpenWhatsNew}
+        userRole={user?.role}
+        adminPanelEnabled={adminPanelEnabled}
       />
 
       <div
-        className="flex min-h-0 flex-1 flex-col overflow-hidden py-4"
+        className={`flex min-h-0 flex-1 flex-col overflow-hidden ${
+          mobileTab === "settings" ? "py-0 md:py-4" : "py-0"
+        }`}
         style={{ overscrollBehavior: "contain" }}
       >
         {mobileTab === "settings" ? (
           <div
             key={`settings-scroll-${scrollEpoch}`}
-            className="app-scroll flex h-full min-h-0 flex-col overflow-y-auto overflow-x-hidden px-6 pb-[calc(104px+env(safe-area-inset-bottom))] md:pb-6"
+            className="flex h-full min-h-0 flex-col overflow-hidden"
             style={{
               overscrollBehaviorY: "contain",
               overflowAnchor: "none",
@@ -228,7 +239,7 @@ export default function ChatSidebar({
               settingsPanel={settingsPanel}
               user={user}
               displayName={displayName}
-              statusDotClass={statusDotClass}
+              statusTextClass={statusTextClass}
               statusValue={statusValue}
               setSettingsPanel={setSettingsPanel}
               toggleTheme={toggleTheme}
@@ -256,9 +267,8 @@ export default function ChatSidebar({
               notificationsDisabled={notificationsDisabled}
               notificationStatusLabel={notificationStatusLabel}
               onToggleNotifications={onToggleNotifications}
-              onOpenNotifications={onOpenNotifications}
-              onTestPush={onTestPush}
-              testNotificationSent={testNotificationSent}
+              messagePreviewEnabled={messagePreviewEnabled}
+              onToggleMessagePreview={onToggleMessagePreview}
               notificationsDebugLine={notificationsDebugLine}
               onClearCache={onClearCache}
               dataCacheStats={dataCacheStats}
@@ -269,6 +279,7 @@ export default function ChatSidebar({
               appInfoLoading={appInfoLoading}
               appInfoError={appInfoError}
               onOpenWhatsNew={onOpenWhatsNew}
+              adminPanelEnabled={adminPanelEnabled}
             />
           </div>
         ) : null}
@@ -283,7 +294,7 @@ export default function ChatSidebar({
           <div
             key={`chats-scroll-${scrollEpoch}`}
             ref={chatsScrollRef}
-            className="app-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-6 pb-[calc(104px+env(safe-area-inset-bottom))] md:pb-6"
+            className="app-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-0 pb-[calc(104px+env(safe-area-inset-bottom))] md:pb-6"
             style={{
               overscrollBehaviorY: "contain",
               overflowAnchor: "none",
@@ -334,7 +345,7 @@ export default function ChatSidebar({
         user={user}
         displayName={displayName}
         displayInitials={displayInitials}
-        statusDotClass={statusDotClass}
+        statusTextClass={statusTextClass}
         statusValue={statusValue}
         userColor={userColor}
         onOpenSettings={onOpenSettings}

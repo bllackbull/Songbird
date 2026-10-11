@@ -22,7 +22,7 @@ async function main() {
 
   const dbApi = await openDatabase();
   try {
-    const user = resolveUserRow(dbApi, userSelector);
+    const user = await resolveUserRow(dbApi, userSelector);
     if (!user?.id) {
       console.error("User not found.");
       process.exit(1);
@@ -51,30 +51,30 @@ async function main() {
       return;
     }
 
-    const sessionsRow = dbApi.getRow(
+    const sessionsRow = await dbApi.getRow(
       "SELECT COUNT(*) AS count FROM sessions WHERE user_id = ?",
-      [Number(user.id)],
+      [user.id],
     );
-    dbApi.run("BEGIN");
+    await dbApi.run("BEGIN");
     try {
-      dbApi.run("UPDATE users SET banned = ? WHERE id = ?", [
+      await dbApi.run("UPDATE users SET banned = ? WHERE id = ?", [
         nextBanned,
-        Number(user.id),
+        user.id,
       ]);
-      dbApi.run("DELETE FROM sessions WHERE user_id = ?", [Number(user.id)]);
-      dbApi.run("COMMIT");
+      await dbApi.run("DELETE FROM sessions WHERE user_id = ?", [user.id]);
+      await dbApi.run("COMMIT");
     } catch (error) {
-      dbApi.run("ROLLBACK");
+      await dbApi.run("ROLLBACK");
       throw error;
     }
-    dbApi.save();
+    await dbApi.save();
 
     console.log(
       `User ${nextBanned ? "banned" : "unbanned"}: id=${user.id} username=${user.username}`,
     );
     console.log(`Sessions expired: ${Number(sessionsRow?.count || 0)}`);
   } finally {
-    dbApi.close();
+    await dbApi.close();
   }
 }
 

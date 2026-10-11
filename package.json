@@ -11,31 +11,40 @@
   },
   "homepage": "https://github.com/bllackbull/songbird#readme",
   "scripts": {
-    "dev": "concurrently \"npm --prefix client run dev\" \"npm --prefix server run dev\"",
+    "dev": "concurrently \"npm --prefix client run dev\" \"npm --prefix server run dev\" \"npm --prefix worker run dev\"",
+    "test": "concurrently \"npm --prefix client run test\" \"npm --prefix server run test\" \"npm --prefix worker run test\"",
+    "test:coverage": "concurrently \"npm --prefix client run test:coverage\" \"npm --prefix server run test:coverage\" \"npm --prefix worker run test:coverage\"",
+    "test:bench": "concurrently \"npm --prefix client run test:bench\" \"npm --prefix server run test:bench\" \"npm --prefix worker run test:bench\"",
+    "test:scripts": "bats scripts/test/",
+    "start": "concurrently \"npm --prefix client run start\" \"npm --prefix server run start\" \"npm --prefix worker run start\"",
     "build": "npm --prefix client run build",
     "preview": "npm --prefix client run preview",
-    "start": "npm --prefix server run start",
-    "remote:configure": "node server/scripts/configure-remote-channel.js",
+    "remote:configure": "npm --prefix server run remote:configure",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs"
   },
   "devDependencies": {
-    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/changelog": "^7.0.0",
     "@semantic-release/commit-analyzer": "^13.0.1",
-    "@semantic-release/github": "^12.0.8",
+    "@semantic-release/github": "^12.0.9",
     "@semantic-release/release-notes-generator": "^14.1.1",
-    "concurrently": "^10.0.3",
-    "npm": "^11.16.0",
-    "semantic-release": "^25.0.3",
+    "concurrently": "^10.0.5",
+    "conventional-changelog-conventionalcommits": "^8.0.0",
+    "railway": "^3.11.0",
+    "semantic-release": "^25.0.9",
     "vitepress": "^1.6.4"
   },
   "engines": {
-    "node": ">=24.0.0",
-    "npm": ">=11.0.0"
+    "node": ">=24.18.0",
+    "npm": ">=11.18.0"
   },
   "volta": {
-    "node": "24.11.1",
-    "npm": "11.16.0"
+    "node": "24.18.0",
+    "npm": "11.18.0"
+  },
+  "overrides": {
+    "vite": "^6.4.3",
+    "shell-quote": "^1.10.0"
   }
 }

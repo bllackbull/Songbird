@@ -178,13 +178,13 @@ const limitArg = args.find((arg) => arg.startsWith('--limit='))
 const limit = limitArg ? Number(limitArg.split('=')[1]) : 10000
 
 const ffprobeAvailable = hasFfprobe()
-const rows = listMessageFilesNeedingMetadata(limit)
+const rows = await listMessageFilesNeedingMetadata(limit)
 
 let updated = 0
 let skippedMissingFile = 0
 let skippedUnknown = 0
 
-for (const row of rows) {
+for (const row of (rows || [])) {
   const filePath = path.join(uploadRootDir, String(row.stored_name || ''))
   if (!row.stored_name || !fs.existsSync(filePath)) {
     skippedMissingFile += 1
@@ -234,7 +234,7 @@ for (const row of rows) {
     continue
   }
 
-  updateMessageFileMetadata(row.id, {
+  await updateMessageFileMetadata(row.id, {
     widthPx: width,
     heightPx: height,
     durationSeconds,

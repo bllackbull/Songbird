@@ -10,7 +10,7 @@ const InstallBar = forwardRef(function InstallBar(
   return (
     <div
       ref={ref}
-      className="fixed inset-x-0 top-0 border-b border-emerald-200 bg-white/95 shadow-sm shadow-emerald-500/10 backdrop-blur dark:border-emerald-500/30 dark:bg-slate-950/95"
+      className="fixed inset-x-0 top-0 border-b border-emerald-200 bg-white/95 shadow-xs shadow-emerald-500/10 backdrop-blur-sm dark:border-emerald-500/30 dark:bg-slate-950/95"
       style={{
         paddingTop: "env(safe-area-inset-top)",
         zIndex: "var(--install-bar-z, 40)",
@@ -30,7 +30,7 @@ const InstallBar = forwardRef(function InstallBar(
           >
             <Close size={16} className="icon-anim-pop" />
           </button>
-          <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl border border-emerald-200 bg-emerald-50 shadow-sm dark:border-emerald-500/30 dark:bg-slate-900">
+          <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl border border-emerald-200 bg-emerald-50 shadow-xs dark:border-emerald-500/30 dark:bg-slate-900">
             <img
               src={iconSrc}
               alt="Songbird"

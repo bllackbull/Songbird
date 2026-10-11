@@ -1,5 +1,8 @@
 ﻿# Node
 node_modules/
+coverage/
+**/coverage/
+**/.vitest/
 
 # Client build
 client/dist/
@@ -28,7 +31,15 @@ logs/
 .todo
 .vscode/
 .kiro/
+.continue/
 .idea/
 
 # TLS certs
 certs/
+
+# Tools
+graphify-out/
+.opencode/
+.agents/
+paseo.json
+skills-lock.json

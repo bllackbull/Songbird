@@ -2,9 +2,9 @@ export const migration024RemoteChannelQueue = {
   version: 24,
   up: ({ db, getAll, hasColumn, tableExists }) => {
     const ensureUniqueIndex = (name, columns, sql) => {
-      const existingColumns = getAll(`PRAGMA index_info('${name}')`).map(
-        (row) => row.name,
-      );
+      const rawCols = getAll(`PRAGMA index_info('${name}')`);
+      const safeRows = Array.isArray(rawCols) ? rawCols : [];
+      const existingColumns = safeRows.map((row) => row.name);
       if (
         existingColumns.length === columns.length &&
         existingColumns.every((column, index) => column === columns[index])

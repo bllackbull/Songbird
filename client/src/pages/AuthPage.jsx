@@ -15,6 +15,9 @@ export default function AuthPage({
   loading,
   showSigningOverlay = false,
   allowSignup = true,
+  title,
+  subtitle,
+  children,
 }) {
   const isLogin = mode === "login";
   const canSignup = Boolean(allowSignup);
@@ -84,7 +87,7 @@ export default function AuthPage({
   return (
     <section
       ref={cardRef}
-      className={`relative w-full max-w-md rounded-3xl border border-emerald-200/70 bg-white/80 p-6 shadow-2xl shadow-emerald-500/10 backdrop-blur dark:border-white/5 dark:bg-slate-900/80 sm:p-8 ${
+      className={`relative w-full max-w-md rounded-3xl border border-emerald-200/70 bg-white/80 p-6 shadow-2xl shadow-emerald-500/10 backdrop-blur-sm dark:border-white/5 dark:bg-slate-900/80 sm:p-8 ${
         fitsViewport ? "my-auto self-center" : "my-0 self-start"
       }`}
     >
@@ -93,34 +96,42 @@ export default function AuthPage({
         isDark={isDark}
         themeToggleAnimating={themeToggleAnimating}
         onToggleTheme={handleToggleTheme}
+        title={title}
+        subtitle={subtitle}
       />
 
-      <AuthFormFields
-        isLogin={isLogin}
-        canSignup={canSignup}
-        showPassword={showPassword}
-        setShowPassword={setShowPassword}
-        showConfirmPassword={showConfirmPassword}
-        setShowConfirmPassword={setShowConfirmPassword}
-        nicknameLength={nicknameLength}
-        setNicknameLength={setNicknameLength}
-        usernameLength={usernameLength}
-        setUsernameLength={setUsernameLength}
-        loading={loading}
-        onSubmit={onSubmit}
-        onReset={() => {
-          setNicknameLength(0);
-          setUsernameLength(0);
-        }}
-      />
+      {children ? (
+        children
+      ) : (
+        <AuthFormFields
+          isLogin={isLogin}
+          canSignup={canSignup}
+          showPassword={showPassword}
+          setShowPassword={setShowPassword}
+          showConfirmPassword={showConfirmPassword}
+          setShowConfirmPassword={setShowConfirmPassword}
+          nicknameLength={nicknameLength}
+          setNicknameLength={setNicknameLength}
+          usernameLength={usernameLength}
+          setUsernameLength={setUsernameLength}
+          loading={loading}
+          onSubmit={onSubmit}
+          onReset={() => {
+            setNicknameLength(0);
+            setUsernameLength(0);
+          }}
+        />
+      )}
 
       <AuthStatusBanner status={status} />
 
-      <AuthFooter
-        isLogin={isLogin}
-        canSignup={canSignup}
-        onSwitchMode={onSwitchMode}
-      />
+      {!children && (
+        <AuthFooter
+          isLogin={isLogin}
+          canSignup={canSignup}
+          onSwitchMode={onSwitchMode}
+        />
+      )}
 
       <AuthOverlay isLogin={isLogin} show={showSigningOverlay} />
     </section>

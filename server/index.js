@@ -1,6 +1,7 @@
 import express from "express";
 import path from "node:path";
 import fs from "node:fs";
+import http from "node:http";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -13,25 +14,41 @@ import webpush from "web-push";
 import { registerApiRoutes } from "./api/index.js";
 import { ensureValidVapidKeys } from "./lib/vapid.js";
 import { createSseHub } from "./lib/sse.js";
+import { createWebSocketGateway } from "./lib/websocketGateway.js";
+import { createPresenceTracker } from "./lib/presenceTracker.js";
 import { createPushService } from "./lib/push.js";
 import { createUploadTools } from "./lib/uploads.js";
+import { resolveAppOrigins, ensureBucketCors } from "./lib/bucketCors.js";
+import { resolveWebhookCallbackUrl } from "./lib/webhookUrl.js";
 import { createVideoTranscodeManager } from "./lib/videoTranscode.js";
 import { createMessageFileJobs } from "./lib/messageFileJobs.js";
 import { createInspector } from "./lib/inspect.js";
 import { createSessionHelpers } from "./lib/sessions.js";
+import { createRedisClient, createRedisSessionStore } from "./lib/redis.js";
 import { storageEncryption } from "./lib/storageEncryption.js";
+import { createStorageProvider } from "./lib/storage/index.js";
+import { migrateLegacyStorageLayout } from "./lib/storageLayoutMigration.js";
+import { createMediaQueueManager } from "./lib/mediaQueue.js";
 import { createRemoteChannelManager } from "./lib/remoteChannels.js";
+import { initAutoAddWorker } from "./lib/workers/autoAddWorker.js";
+import { ensureLocalWorkerRunning } from "./lib/localWorkerManager.js";
 import { buildTimestampSchedule } from "./lib/timeUtils.js";
 import { isLoopbackRequest, parseUploadFileMetadata } from "./lib/requestUtils.js";
 import { USERNAME_REGEX } from "./lib/validation.js";
 import { USER_COLORS, setUserColor } from "./settings/colors.js";
-import { readEnvBool, readEnvInt } from "./settings/env.js";
+import { readDbConfig, parseEnv } from "./settings/env.js";
+import { createPostgresMaintenance } from "./lib/postgresMaintenance.js";
+import { dbKnex } from "./db/knex.js";
 import {
+  addAllEligibleChatMembers,
   addChatMember,
+  getAutoAddPublicChatIds,
+  bulkAddMemberToChats,
   adminGetAll,
   adminGetRow,
   adminRun,
   adminSave,
+  adminTransaction,
   ensureSavedChatForUser,
   clearChatMemberLeft,
   clearGroupMemberRemoved,
@@ -61,6 +78,10 @@ import {
   getMessages,
   getFirstUnreadMessage,
   recordMessageReads,
+  recordPendingPresignedUpload,
+  removePendingPresignedUploads,
+  listPendingPresignedUploads,
+  rewriteStorageKeys,
   listMessageFilesByMessageIds,
   markGroupMemberRemoved,
   markChatMemberLeft,
@@ -118,7 +139,43 @@ import {
   updateRemoteChannelSourceSeen,
   upsertRemoteChannelSource,
   purgeOldRemoteChannelQueueItems,
+  setUserRole,
+  isUserAdmin,
+  isUserOwner,
+  getOwnerUser,
+  writeAdminAuditLog,
+  readAdminAuditLogs,
+  clearAdminAuditLogs,
+  getAdminStats,
+  adminListUsers,
+  adminListChats,
+  adminCountUsers,
+  adminCountChats,
+  adminBanUser,
+  adminDeleteUser,
+  adminDeleteChat,
+  vacuumDatabase,
+  reloadDatabase,
+  adminClearAllMessages,
+  adminResetDatabase,
+  dbGetAllSettings,
+  dbSetSetting,
+  dbDeleteSetting,
+  dbGetSetting,
 } from "./db.js";
+import { resolveTelegramSecrets } from "./lib/remoteChannelSecrets.js";
+import { createMirrorJobRegistry } from "./lib/remoteMirrorJobs.js";
+import { dispatchMirrorJob } from "./lib/remoteMirrorDispatch.js";
+import {
+  loadSettings,
+  getSetting,
+  getAllSettings,
+  setSetting,
+  setSettings,
+  resetSetting,
+  validateSetting,
+  SETTING_DEFS,
+} from "./lib/appSettings.js";
 
 process.title = "songbird-server";
 
@@ -128,29 +185,72 @@ const projectRootDir = path.resolve(serverDir, "..");
 dotenv.config({ path: path.join(projectRootDir, ".env"), override: true, quiet: true });
 dotenv.config({ path: path.join(serverDir, ".env"), override: true, quiet: true });
 
-const port = process.env.SERVER_PORT || process.env.PORT || 5174;
+// Load runtime settings from DB (env vars remain as fallback defaults).
+// Must run after dotenv and after the DB module (which runs migrations).
+await loadSettings(dbGetAllSettings);
+
+// One-time import of the legacy file audit log (logs/admin.log) into the
+// DB-backed admin_audit_logs table. Best effort: only runs when the table is
+// empty and a legacy file exists, and never crashes boot.
+try {
+  const existing = await readAdminAuditLogs({ limit: 1, offset: 0 });
+  if (Number(existing?.total || 0) === 0) {
+    const legacyPath = path.join(projectRootDir, "logs", "admin.log");
+    if (fs.existsSync(legacyPath)) {
+      const raw = fs.readFileSync(legacyPath, "utf8");
+      const lines = raw.split("\n").filter((l) => l.trim());
+      // File is oldest-first; insert in order so autoincrement ids stay chronological.
+      for (const line of lines) {
+        let parsed;
+        try { parsed = JSON.parse(line); } catch { continue; }
+        if (!parsed?.action) continue;
+        try {
+          await writeAdminAuditLog({
+            ts: parsed.ts ?? null,
+            actorUserId: parsed.actorUserId ?? null,
+            actorUsername: parsed.actorUsername ?? null,
+            action: String(parsed.action || ""),
+            targetType: parsed.targetType ?? null,
+            targetLabel: parsed.targetLabel ?? null,
+            details: parsed.details ?? null,
+            status: parsed.status ?? "success",
+          });
+        } catch { break; }
+      }
+      if (lines.length > 0) console.log(`[server] Imported ${lines.length} legacy admin audit log entr(ies) from logs/admin.log.`);
+    }
+  }
+} catch {
+  // Best effort only — file fallback in admin routes keeps working.
+}
+
+const port = process.env.PORT || process.env.SERVER_PORT || 5174;
 const appEnv = process.env.APP_ENV || "production";
 const isProduction = appEnv === "production";
-const APP_DEBUG = readEnvBool("APP_DEBUG", false);
+// For Docker/container deployments, set BIND_ADDRESS=0.0.0.0
+// For VPS with firewall, can use localhost (nginx proxies from same machine)
+const bindAddress = process.env.BIND_ADDRESS || "localhost";
 
 function debugLog(...args) {
-  if (!APP_DEBUG) return;
+  if (!getSetting("APP_DEBUG")) return;
   console.log("[app-debug]", ...args);
 }
 
 const debugRouteCounts = new Map();
 
-if (APP_DEBUG) {
-  setInterval(() => {
-    const entries = Array.from(debugRouteCounts.entries())
-      .sort((a, b) => b[1] - a[1])
-      .map(([route, count]) => ({ route, count }));
+// Always scheduled; the interval body checks the live setting on each tick
+// so toggling APP_DEBUG in the admin panel takes effect without a restart.
+const debugSummaryTimer = setInterval(() => {
+  if (!getSetting("APP_DEBUG")) return;
+  const entries = Array.from(debugRouteCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([route, count]) => ({ route, count }));
 
-    debugLog("api:requests-per-minute", { routes: entries });
+  debugLog("api:requests-per-minute", { routes: entries });
 
-    debugRouteCounts.clear();
-  }, 60 * 1000);
-}
+  debugRouteCounts.clear();
+}, 60 * 1000);
+if (typeof debugSummaryTimer.unref === "function") debugSummaryTimer.unref();
 
 app.set("trust proxy", 1);
 
@@ -174,45 +274,67 @@ app.use((req, res, next) => {
   next();
 });
 
-if (APP_DEBUG) {
-  app.use((req, res, next) => {
-    const startedAt = Date.now();
-    let responseBody = null;
-    const originalJson = res.json.bind(res);
+// Always registered; each request checks the live setting so toggling
+// APP_DEBUG in the admin panel takes effect without a restart.
+app.use((req, res, next) => {
+  if (!getSetting("APP_DEBUG")) return next();
 
-    res.json = (body) => {
-      responseBody = body;
-      return originalJson(body);
-    };
+  const startedAt = Date.now();
+  let responseBody = null;
+  const originalJson = res.json.bind(res);
 
-    res.on("finish", () => {
-      const routeKey = `${String(req.method || "GET").toUpperCase()} ${
-        String(req.path || req.originalUrl || req.url || "").split("?")[0]
-      }`;
+  res.json = (body) => {
+    responseBody = body;
+    return originalJson(body);
+  };
 
-      debugRouteCounts.set(
-        routeKey,
-        Number(debugRouteCounts.get(routeKey) || 0) + 1,
-      );
+  res.on("finish", () => {
+    const routeKey = `${String(req.method || "GET").toUpperCase()} ${
+      String(req.path || req.originalUrl || req.url || "").split("?")[0]
+    }`;
 
-      debugLog("api:request", {
-        method: req.method,
-        path: req.originalUrl || req.url || "",
-        query: req.query || {},
-        params: req.params || {},
-        body: req.body || {},
-        status: Number(res.statusCode || 0),
-        durationMs: Date.now() - startedAt,
-        response: responseBody,
-      });
+    debugRouteCounts.set(
+      routeKey,
+      Number(debugRouteCounts.get(routeKey) || 0) + 1,
+    );
+
+    debugLog("api:request", {
+      method: req.method,
+      path: req.originalUrl || req.url || "",
+      query: req.query || {},
+      params: req.params || {},
+      body: req.body || {},
+      status: Number(res.statusCode || 0),
+      durationMs: Date.now() - startedAt,
+      response: responseBody,
     });
-    next();
   });
+  next();
+});
+
+// Prefer originalUrl: when limiters are mounted at "/api", Express rewrites
+// req.path/req.url to the remainder (e.g. "/events"), which broke a prior
+// skip on "/api/events" and let SSE / admin polling share the chat budget.
+function apiRequestPath(req) {
+  return String(req.originalUrl || req.url || req.path || "").split("?")[0];
 }
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 1000,
+  // SSE is long-lived (one hit opens a stream). Admin routes have their own
+  // bucket so dashboard polling cannot 429 chat health / messages.
+  skip: (req) => {
+    const p = apiRequestPath(req);
+    return p === "/api/events" || p.startsWith("/api/admin");
+  },
+});
+
+// Separate ceiling for /api/admin/* — few admins, but metrics + list refresh
+// are chatty. Keeps that load off the shared chat/health limiter.
+const adminApiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 3000,
 });
 
 const staticLimiter = rateLimit({
@@ -221,91 +343,41 @@ const staticLimiter = rateLimit({
 });
 
 const MB = 1024 * 1024;
-const readEnvSizeMbAsBytes = (mbKeys, legacyByteKeys, fallbackMb, options = {}) => {
-  const mbValue = readEnvInt(mbKeys, null, options);
-  if (mbValue !== null) return mbValue * MB;
-  return readEnvInt(legacyByteKeys, fallbackMb * MB, { min: 1024 });
-};
 
-const USERNAME_MAX = readEnvInt(["USERNAME_MAX_CHARS", "USERNAME_MAX"], 16, {
-  min: 3,
-  max: 32,
-});
-const NICKNAME_MAX = readEnvInt(["NICKNAME_MAX_CHARS", "NICKNAME_MAX"], 24, {
-  min: 3,
-  max: 64,
-});
-const MESSAGE_MAX_CHARS = readEnvInt(
-  ["MESSAGE_MAX_CHARS", "MESSAGE_MAX"],
-  4000,
-  { min: 1, max: 20000 },
-);
-const ACCOUNT_CREATION = readEnvBool(["SIGN_UP", "ACCOUNT_CREATION"], true);
-const dataDir = path.resolve(serverDir, "..", "data");
+const USERNAME_MAX = getSetting("USERNAME_MAX_CHARS");
+const NICKNAME_MAX = getSetting("NICKNAME_MAX_CHARS");
+const MESSAGE_MAX_CHARS = getSetting("MESSAGE_MAX_CHARS");
+const ACCOUNT_CREATION = getSetting("SIGN_UP");
+const dataDir = path.resolve(process.env.DATA_DIR || path.resolve(serverDir, "..", "data"));
 const vapid = ensureValidVapidKeys({ projectRootDir, dataDir, fs, path, webpush });
 const uploadRootDir = path.join(dataDir, "uploads", "messages");
 const avatarUploadRootDir = path.join(dataDir, "uploads", "avatars");
 
-const FILE_UPLOAD_MAX_SIZE = readEnvSizeMbAsBytes(
-  "FILE_UPLOAD_MAX_SIZE_MB",
-  "FILE_UPLOAD_MAX_SIZE",
-  25,
-  { min: 1 },
-);
+const FILE_UPLOAD_MAX_SIZE = getSetting("FILE_UPLOAD_MAX_SIZE_MB") * MB;
+const FILE_UPLOAD_MAX_FILES = getSetting("FILE_UPLOAD_MAX_FILES");
+const FILE_UPLOAD_MAX_TOTAL_SIZE = getSetting("FILE_UPLOAD_MAX_TOTAL_SIZE_MB") * MB;
 
-const FILE_UPLOAD_MAX_FILES = readEnvInt("FILE_UPLOAD_MAX_FILES", 10, {
-  min: 1,
-});
+const MESSAGE_FILE_RETENTION_DAYS = getSetting("MESSAGE_FILE_RETENTION");
+const MESSAGE_TEXT_RETENTION_DAYS = getSetting("MESSAGE_TEXT_RETENTION");
 
-const FILE_UPLOAD_MAX_TOTAL_SIZE = readEnvSizeMbAsBytes(
-  "FILE_UPLOAD_MAX_TOTAL_SIZE_MB",
-  "FILE_UPLOAD_MAX_TOTAL_SIZE",
-  75,
-  { min: 1 },
-);
+const TRANSCODE_VIDEOS_TO_H264 = getSetting("FILE_UPLOAD_TRANSCODE_VIDEOS");
 
-const MESSAGE_FILE_RETENTION_DAYS = readEnvInt("MESSAGE_FILE_RETENTION", 7, {
-  min: 0,
-  max: 3650,
-});
-const MESSAGE_TEXT_RETENTION_DAYS = readEnvInt("MESSAGE_TEXT_RETENTION", 0, {
-  min: 0,
-  max: 3650,
-});
 
-const TRANSCODE_VIDEOS_TO_H264 = readEnvBool(
-  "FILE_UPLOAD_TRANSCODE_VIDEOS",
-  true,
-);
-
-const FILE_UPLOAD = readEnvBool("FILE_UPLOAD", true);
-const REMOTE_CHANNEL = readEnvBool("REMOTE_CHANNEL", false);
-const REMOTE_CHANNEL_UI = readEnvBool(
-  "REMOTE_CHANNEL_UI",
-  true,
-);
-const REMOTE_CHANNEL_MEDIA_STREAM = readEnvBool(
-  "REMOTE_CHANNEL_MEDIA_STREAM",
-  true,
-);
-const REMOTE_CHANNEL_TELEGRAM_API_ID = readEnvInt(
-  "REMOTE_CHANNEL_TELEGRAM_API_ID",
-  0,
-  { min: 1 },
-);
-const REMOTE_CHANNEL_TELEGRAM_API_HASH = String(
-  process.env.REMOTE_CHANNEL_TELEGRAM_API_HASH || "",
-).trim();
-const REMOTE_CHANNEL_TELEGRAM_SESSION_STRING = String(
-  process.env.REMOTE_CHANNEL_TELEGRAM_SESSION_STRING || "",
-).trim();
+const FILE_UPLOAD = getSetting("FILE_UPLOAD");
+const REMOTE_CHANNEL = getSetting("REMOTE_CHANNEL");
+const REMOTE_CHANNEL_UI = getSetting("REMOTE_CHANNEL_UI");
+const REMOTE_CHANNEL_MEDIA_STREAM = getSetting("REMOTE_CHANNEL_MEDIA_STREAM");
+// Telegram credentials live outside the settings registry (Services setup or
+// .env). Env vars win when set, otherwise the DB rows written by the setup flow.
+const REMOTE_CHANNEL_SECRETS = await resolveTelegramSecrets({ dbGetSetting });
+const REMOTE_CHANNEL_TELEGRAM_API_ID = REMOTE_CHANNEL_SECRETS.apiId;
+const REMOTE_CHANNEL_TELEGRAM_API_HASH = REMOTE_CHANNEL_SECRETS.apiHash;
+const REMOTE_CHANNEL_TELEGRAM_SESSION_STRING = REMOTE_CHANNEL_SECRETS.sessionString;
 const REMOTE_CHANNEL_PROXY_URL = String(
-  process.env.REMOTE_CHANNEL_TELEGRAM_PROXY_URL ||
-  process.env.REMOTE_CHANNEL_PROXY_URL ||
-  "",
+  getSetting("REMOTE_CHANNEL_TELEGRAM_PROXY_URL") || "",
 ).trim();
 const REMOTE_CHANNEL_SONGBIRD_PROXY_URL = String(
-  process.env.REMOTE_CHANNEL_SONGBIRD_PROXY_URL || "",
+  getSetting("REMOTE_CHANNEL_SONGBIRD_PROXY_URL") || "",
 ).trim();
 const REMOTE_CHANNEL_TELEGRAM_CONFIGURED = Boolean(
   REMOTE_CHANNEL_TELEGRAM_API_ID &&
@@ -323,31 +395,14 @@ const REMOTE_CHANNEL_CONFIG = {
   telegramApiHash: REMOTE_CHANNEL_TELEGRAM_API_HASH,
   telegramSessionString: REMOTE_CHANNEL_TELEGRAM_SESSION_STRING,
   proxyUrl: REMOTE_CHANNEL_PROXY_URL,
-  pollIntervalMs: readEnvInt("REMOTE_CHANNEL_POLL_INTERVAL_MS", 5000, {
-    min: 1000,
-  }),
-  telegramPollLimit: readEnvInt("REMOTE_CHANNEL_TELEGRAM_POLL_LIMIT", 50, {
-    min: 1,
-    max: 100,
-  }),
-  queueIntervalMs: readEnvInt("REMOTE_CHANNEL_QUEUE_INTERVAL_MS", 1000, {
-    min: 100,
-  }),
-  queueMaxAttempts: readEnvInt("REMOTE_CHANNEL_QUEUE_MAX_ATTEMPTS", 10, {
-    min: 1,
-    max: 100,
-  }),
-  queueBatchSize: readEnvInt("REMOTE_CHANNEL_QUEUE_BATCH_SIZE", 10, {
-    min: 1,
-    max: 50,
-  }),
-  queueConcurrency: readEnvInt("REMOTE_CHANNEL_QUEUE_CONCURRENCY", 3, {
-    min: 1,
-    max: 50,
-  }),
-  queueStaleLockMs: readEnvInt("REMOTE_CHANNEL_QUEUE_STALE_LOCK_MS", 300000, {
-    min: 10000,
-  }),
+  tickMode: getSetting("REMOTE_CHANNEL_TICK_MODE"),
+  pollIntervalMs: getSetting("REMOTE_CHANNEL_POLL_INTERVAL_MS"),
+  telegramPollLimit: getSetting("REMOTE_CHANNEL_TELEGRAM_POLL_LIMIT"),
+  queueIntervalMs: getSetting("REMOTE_CHANNEL_QUEUE_INTERVAL_MS"),
+  queueMaxAttempts: getSetting("REMOTE_CHANNEL_QUEUE_MAX_ATTEMPTS"),
+  queueBatchSize: getSetting("REMOTE_CHANNEL_QUEUE_BATCH_SIZE"),
+  queueConcurrency: getSetting("REMOTE_CHANNEL_QUEUE_CONCURRENCY"),
+  queueStaleLockMs: getSetting("REMOTE_CHANNEL_QUEUE_STALE_LOCK_MS"),
   messageTextRetentionDays: MESSAGE_TEXT_RETENTION_DAYS,
   messageFileRetentionDays: MESSAGE_FILE_RETENTION_DAYS,
   messageMaxChars: MESSAGE_MAX_CHARS,
@@ -363,6 +418,94 @@ const REMOTE_CHANNEL_CONFIG = {
 };
 const MESSAGE_FILE_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 
+const storageProvider = createStorageProvider({
+  ...process.env,
+  // Admin-panel DB values win when the env var is absent (getSetting resolves
+  // env → DB → default). Restart required — S3 client is constructed once.
+  STORAGE_EXPIRES_IN: getSetting("STORAGE_EXPIRES_IN"),
+  STORAGE_PROXY_URL: getSetting("STORAGE_PROXY_URL") || process.env.STORAGE_PROXY_URL,
+});
+
+// Self-configure bucket CORS for browser presigned uploads (remote driver
+// only). Runs in the background: never blocks or crashes boot. Opt-in via
+// STORAGE_AUTO_CORS=true (enabled in .railway/railway.ts); otherwise
+// configure the bucket manually (npm --prefix server run storage:cors).
+if (
+  (storageProvider?.type === "remote" || storageProvider?.type === "s3") &&
+  (getSetting("STORAGE_AUTO_CORS") ||
+    String(process.env.STORAGE_AUTO_CORS ?? "false").toLowerCase() === "true" ||
+    String(process.env.STORAGE_AUTO_CORS ?? "false") === "1")
+) {
+  const corsOrigins = resolveAppOrigins(process.env);
+  if (corsOrigins.length === 0) {
+    console.log(
+      "[server] Bucket CORS auto-configuration skipped (no public app origin known. Set APP_PUBLIC_URL to enable it).",
+    );
+  } else {
+    ensureBucketCors(storageProvider, corsOrigins)
+      .then((result) => {
+        if (result.status === "applied") {
+          console.log(
+            `[server] Bucket CORS policy applied for ${corsOrigins.join(", ")}`,
+          );
+        } else if (result.status === "ok") {
+          console.log(
+            `[server] Bucket CORS already configured for ${corsOrigins.join(", ")}`,
+          );
+        } else if (result.status === "error") {
+          console.warn(
+            `[server] Could not configure bucket CORS automatically (${result.error}). ` +
+              `Uploads from browsers will fail until CORS is set — run: npm --prefix server run storage:cors -- --origin <your-app-url>`,
+          );
+        }
+      })
+      .catch((err) => {
+        console.warn(
+          `[server] Bucket CORS auto-configuration failed: ${err?.message || err}`,
+        );
+      });
+  }
+}
+
+// Migrate legacy object-storage layout (avatars/* + uploads/* at bucket
+// root) to the unified layout (uploads/avatars/* + uploads/messages/*),
+// mirroring local disk. Runs in the background like bucket CORS setup:
+// never blocks or crashes boot. Read paths already handle both layouts,
+// so in-flight requests keep working while the migration copies objects,
+// rewrites DB storage_key columns, and deletes verified legacy objects.
+// Manual run: npm run storage:migrate (refuses while the server is up).
+if (
+  storageProvider?.type === "remote" ||
+  storageProvider?.type === "s3"
+) {
+  migrateLegacyStorageLayout({
+    storageProvider,
+    rewriteStorageKeys,
+    adminSave,
+  })
+    .then((summary) => {
+      if (summary?.skipped) return;
+      if (!summary?.hasLegacy) {
+        console.log(
+          "[server] Object-storage layout already unified (uploads/avatars/* + uploads/messages/*).",
+        );
+        return;
+      }
+      console.log(
+        `[server] Object-storage layout migrated: ${summary.moved.length} object(s) moved, ` +
+          `${summary.dbUpdated} DB row(s) updated, ${summary.deletedLegacy.length} legacy object(s) deleted.` +
+          (summary.failed.length || summary.deleteFailed.length
+            ? ` (${summary.failed.length} copy / ${summary.deleteFailed.length} delete failures — see warnings above)`
+            : ""),
+      );
+    })
+    .catch((err) => {
+      console.warn(
+        `[server] Object-storage layout migration failed (legacy keys keep working via fallback): ${err?.message || err}`,
+      );
+    });
+}
+
 const uploadTools = createUploadTools({
   fs,
   path,
@@ -377,6 +520,7 @@ const uploadTools = createUploadTools({
   fileUploadMaxFiles: FILE_UPLOAD_MAX_FILES,
   fileUploadMaxTotalSize: FILE_UPLOAD_MAX_TOTAL_SIZE,
   storageEncryption,
+  storageProvider,
 });
 
 const {
@@ -396,12 +540,26 @@ const {
   resolveAvatarDiskPath,
   normalizeAvatarPublicUrl,
   ensureAvatarExists,
+  storeAvatarFile,
   isDangerousUploadFile,
   registerUploadRoutes,
 } = uploadTools;
 
-const { addSseClient, removeSseClient, emitSseEvent, emitChatEvent, getCachedMembers, isUserConnected } = createSseHub({
+const sseHub = createSseHub({ listChatMembers });
+const { addSseClient, removeSseClient, emitSseEvent, emitChatEvent, broadcastAll, getCachedMembers } = sseHub;
+
+let wsPresenceBroadcaster = null;
+let wsGlobalBroadcaster = null;
+const presenceTracker = createPresenceTracker({
+  updateLastSeen,
+  getUserPresence,
+  listChatsForUser,
   listChatMembers,
+  listChatMembersForChats,
+  emitToUser: (username, payload) => {
+    emitSseEvent(username, payload);
+    wsPresenceBroadcaster?.(username, payload);
+  },
 });
 
 const pushService = createPushService({
@@ -410,7 +568,7 @@ const pushService = createPushService({
   deletePushSubscription,
   getTotalUnreadCount,
   vapid,
-  proxyUrl: process.env.PUSH_PROXY_URL || "",
+  proxyUrl: getSetting("PUSH_PROXY_URL"),
 });
 const { PUSH_ENABLED, VAPID_PUBLIC_KEY, sendPushNotificationToUsers } = pushService;
 
@@ -427,7 +585,15 @@ const videoTranscoder = createVideoTranscodeManager({
   debugLog,
   uploadRootDir,
   transcodeVideosToH264: TRANSCODE_VIDEOS_TO_H264,
+  getSetting,
   storageEncryption,
+  storageProvider,
+  storageProcessingMode: process.env.STORAGE_PROCESSING_MODE || "auto",
+  mediaWorkerUrl: getSetting("WORKER_URL") || process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
+  workerUrl: getSetting("WORKER_URL") || process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
+  workerPort: process.env.WORKER_PORT || "8080",
+  webhookSecret: process.env.WEBHOOK_SECRET || null,
+  callbackUrl: resolveWebhookCallbackUrl(),
 });
 const {
   enqueueVideoTranscodeJob,
@@ -450,7 +616,8 @@ const messageFileJobs = createMessageFileJobs({
   uploadRootDir,
   fs,
   path,
-  messageFileRetentionDays: MESSAGE_FILE_RETENTION_DAYS,
+  getSetting,
+  storageProvider,
 });
 const {
   chunkArray,
@@ -459,14 +626,53 @@ const {
   backfillMessageFileExpiry,
   removeAllMessageUploads,
   computeExpiryIso,
+  pruneOrphanRemoteObjects,
+  pruneOrphanAvatarObjects,
 } = messageFileJobs;
 
 const inspector = createInspector({ fs, dataDir, adminGetRow, adminGetAll });
 const { buildInspectSnapshot, hasEnoughFreeDiskSpace } = inspector;
 
+const redisClient = createRedisClient();
+const redisSessionStore = createRedisSessionStore({ redisClient, dbGetSession: getSession });
+
+const mediaQueueManager = createMediaQueueManager({
+  redisClient,
+  storageProvider,
+  s3ProcessingMode: process.env.STORAGE_PROCESSING_MODE || "auto",
+  s3ProcessingTimeoutMs: Number(getSetting("STORAGE_PROCESSING_TIMEOUT_MS")) || 120000,
+  adminGetRow,
+  adminRun,
+  emitChatEvent,
+  enqueueVideoTranscodeJob,
+  transcodeVideosToH264: TRANSCODE_VIDEOS_TO_H264,
+  getSetting,
+});
+
+async function createSessionCombined(userId, token) {
+  await createSession(userId, token);
+  await redisSessionStore.createSession(userId, token);
+}
+
+function getSessionCombined(token) {
+  const cached = redisSessionStore.getSession(token);
+  if (cached && typeof cached.then !== "function") return cached;
+  return getSession(token);
+}
+
+async function touchSessionCombined(token) {
+  await touchSession(token);
+  await redisSessionStore.touchSession(token);
+}
+
+async function deleteSessionCombined(token) {
+  await deleteSession(token);
+  await redisSessionStore.deleteSession(token);
+}
+
 const sessionHelpers = createSessionHelpers({
-  getSession,
-  touchSession,
+  getSession: getSessionCombined,
+  touchSession: touchSessionCombined,
   isProduction,
 });
 const {
@@ -478,33 +684,45 @@ const {
   requireSessionUsernameMatch,
 } = sessionHelpers;
 
-function backfillStorageEncryption() {
+async function backfillStorageEncryption() {
   if (!storageEncryption.isEnabled()) return;
 
   // Process messages in batches with async yields to avoid blocking the event
   // loop for extended periods on large databases.
   const BATCH_SIZE = 200;
 
-  function encryptMessageBatch(offset) {
-    const batch = adminGetAll(
-      `SELECT id, body
-       FROM chat_messages
-       WHERE body IS NOT NULL AND body != ''
-       LIMIT ? OFFSET ?`,
-      [BATCH_SIZE, offset],
+  async function encryptMessageBatch(offset) {
+    const rawBatch = adminGetAll(
+      dbKnex("chat_messages")
+        .select("id", "body")
+        .whereNotNull("body")
+        .where("body", "!=", "")
+        .limit(BATCH_SIZE)
+        .offset(offset),
     );
+    const batch = Array.isArray(rawBatch) ? rawBatch : (await rawBatch) || [];
 
     if (!batch.length) return 0;
 
     let encryptedInBatch = 0;
     batch.forEach((row) => {
       const body = String(row?.body || "");
+      if (!body || storageEncryption.isSystemMessageBody(body)) return;
+
+      // Valid ciphertext must remain untouched, while legacy plaintext that
+      // merely imitates the ciphertext prefix is encrypted on startup.
+      const isValidCiphertext =
+        storageEncryption.isEncryptedText(body) &&
+        storageEncryption.decryptText(body) !== body;
+      if (isValidCiphertext) return;
+
       const nextBody = storageEncryption.encryptText(body);
       if (nextBody === body) return;
-      adminRun("UPDATE chat_messages SET body = ? WHERE id = ?", [
-        nextBody,
-        Number(row.id),
-      ]);
+      adminRun(
+        dbKnex("chat_messages")
+          .where({ id: Number(row.id) })
+          .update({ body: nextBody }),
+      );
       encryptedInBatch += 1;
     });
 
@@ -512,17 +730,18 @@ function backfillStorageEncryption() {
 
     if (batch.length === BATCH_SIZE) {
       // Schedule next batch without blocking the event loop.
-      setImmediate(() => encryptMessageBatch(offset + BATCH_SIZE));
+      setImmediate(() => { void encryptMessageBatch(offset + BATCH_SIZE); });
     }
     return encryptedInBatch;
   }
 
   try {
     // Start the message encryption batching.
-    encryptMessageBatch(0);
+    await encryptMessageBatch(0);
 
     // Files and avatars are typically fewer in number; process them once.
-    const fileRows = adminGetAll("SELECT stored_name FROM chat_message_files");
+    const rawFileRows = adminGetAll(dbKnex("chat_message_files").select("stored_name"));
+    const fileRows = Array.isArray(rawFileRows) ? rawFileRows : (await rawFileRows) || [];
     let encryptedFiles = 0;
 
     fileRows.forEach((row) => {
@@ -534,6 +753,14 @@ function backfillStorageEncryption() {
 
       if (storageEncryption.encryptFileInPlace(filePath)) {
         encryptedFiles += 1;
+        // Keep the record in sync with the bytes.
+        try {
+          adminRun(
+            dbKnex("chat_message_files")
+              .where({ id: row.id })
+              .update({ encryption_type: "local" }),
+          );
+        } catch {}
       }
     });
 
@@ -564,22 +791,32 @@ function backfillStorageEncryption() {
   }
 }
 
-registerUploadRoutes(app, { adminGetRow });
+registerUploadRoutes(app, { adminGetRow, storageProvider });
 
 const apiDeps = {
+  dbConfig: readDbConfig(),
+  postgresMaintenance: null,
+  storageProvider,
+  mediaQueueManager,
+  storageProcessingMode: process.env.STORAGE_PROCESSING_MODE || "auto",
+  mediaWorkerUrl: getSetting("WORKER_URL") || process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
+  workerUrl: getSetting("WORKER_URL") || process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
+  workerPort: process.env.WORKER_PORT || "8080",
+  webhookSecret: process.env.WEBHOOK_SECRET || null,
+  webhookCallbackUrl: resolveWebhookCallbackUrl(),
   ALLOWED_AVATAR_MIME_TYPES,
-  APP_DEBUG,
+  redisClient,
+  redisSessionStore,
+  // APP_DEBUG intentionally NOT passed here — messages.js must call
+  // getSetting("APP_DEBUG") at request time so admin-panel changes apply live.
   AVATAR_FILE_LIMITS,
-  FILE_UPLOAD,
+  // FILE_UPLOAD, MESSAGE_FILE_RETENTION_DAYS, MESSAGE_TEXT_RETENTION_DAYS,
+  // TRANSCODE_VIDEOS_TO_H264, NICKNAME_MAX, USERNAME_MAX, MESSAGE_MAX_CHARS,
+  // and ACCOUNT_CREATION are intentionally NOT passed here — route handlers
+  // must call getSetting("KEY") at request time so admin-panel changes take
+  // effect live, instead of reading a value captured once at server startup.
   MESSAGE_FILE_LIMITS,
-  MESSAGE_FILE_RETENTION_DAYS,
-  MESSAGE_TEXT_RETENTION_DAYS,
-  TRANSCODE_VIDEOS_TO_H264,
   USER_COLORS,
-  NICKNAME_MAX,
-  USERNAME_MAX,
-  MESSAGE_MAX_CHARS,
-  ACCOUNT_CREATION,
   REMOTE_CHANNELS: {
     enabled: REMOTE_CHANNEL_CONFIG.enabled,
     uiEnabled: REMOTE_CHANNEL_CONFIG.uiEnabled,
@@ -596,6 +833,7 @@ const apiDeps = {
   adminGetRow,
   adminRun,
   adminSave,
+  adminTransaction,
   ensureSavedChatForUser,
   avatarUploadRootDir,
   bcrypt,
@@ -613,17 +851,27 @@ const apiDeps = {
   createOrReuseMessage,
   createMessageFiles,
   editMessage,
-  createSession,
+  createSession: createSessionCombined,
   createUser,
   crypto,
   debugLog,
   decodeOriginalFilename,
-  deleteSession,
+  deleteSession: deleteSessionCombined,
   deleteChatById,
   deleteUserById,
+  disconnectPresence: (username, ref) => presenceTracker.markDisconnected(username, ref),
   emitChatEvent,
-  emitSseEvent,
-  isUserConnected,
+  emitSseEvent: (username, payload) => {
+    emitSseEvent(username, payload);
+    wsPresenceBroadcaster?.(username, payload);
+  },
+  broadcastAll: (payload) => {
+    broadcastAll(payload);
+    wsGlobalBroadcaster?.(payload);
+  },
+  broadcastPresence: (username) => presenceTracker.broadcastStatus(username),
+  connectPresence: (username, ref) => presenceTracker.markConnected(username, ref),
+  isUserConnected: (username) => presenceTracker.isConnected(username),
   enqueueRemoteChannelQueueItem,
   enqueueVideoTranscodeJob,
   ensureAvatarExists,
@@ -643,6 +891,7 @@ const apiDeps = {
   getMessageReadByUser,
   getMessages,
   getFirstUnreadMessage,
+  getOnlineCount: () => presenceTracker.getOnlineCount(),
   getRemoteChannelProviderState,
   getRemoteChannelQueueSummary,
   getRemoteChannelSourceByChatId,
@@ -656,6 +905,8 @@ const apiDeps = {
   hideMessageForUser,
   hydrateMissingVideoMetadata,
   inferMimeFromFilename,
+  isConnected: (username) => presenceTracker.isConnected(username),
+  getConnectedUsernames: () => presenceTracker.getConnectedUsernames(),
   isDangerousUploadFile,
   isLoopbackRequest,
   isMember,
@@ -663,6 +914,7 @@ const apiDeps = {
   isVideoFileProcessing,
   listPushSubscriptionsByUserIds,
   listChatMembers,
+  addAllEligibleChatMembers,
   listChatMembersForChats,
   listChatsForUser,
   listEnabledRemoteChannelSources,
@@ -684,6 +936,8 @@ const apiDeps = {
   parseUploadFileMetadata,
   path,
   projectRootDir,
+  dataDir,
+  http,
   skipAllRemoteChannelQueueItems,
   skipCurrentRemoteChannelQueueItem,
   updateRemoteChannelSourcePaused,
@@ -708,6 +962,11 @@ const apiDeps = {
   setRemoteChannelProviderState,
   listMutedUserIdsForChat,
   setSessionCookie,
+  recordPendingPresignedUpload,
+  removePendingPresignedUploads,
+  listPendingPresignedUploads,
+  pruneOrphanRemoteObjects,
+  pruneOrphanAvatarObjects,
   setUserColor,
   updateLastSeen,
   updateGroupChat,
@@ -719,13 +978,136 @@ const apiDeps = {
   updateUserProfile,
   updateUserStatus,
   uploadAvatar,
+  storeAvatarFile,
   uploadFiles,
   uploadRootDir,
   upsertRemoteChannelSource,
   upsertPushSubscription,
   sendPushNotificationToUsers,
   storageEncryption,
+  setUserRole,
+  isUserAdmin,
+  isUserOwner,
+  getOwnerUser,
+  writeAdminAuditLog,
+  readAdminAuditLogs,
+  clearAdminAuditLogs,
+  getAdminStats,
+  adminListUsers,
+  adminListChats,
+  adminCountUsers,
+  adminCountChats,
+  adminBanUser,
+  adminDeleteUser,
+  adminDeleteChat,
+  vacuumDatabase,
+  reloadDatabase,
+  adminClearAllMessages,
+  adminResetDatabase,
+  // Settings
+  getSetting,
+  getAllSettings,
+  setSetting,
+  setSettings,
+  resetSetting,
+  validateSetting,
+  SETTING_DEFS,
+  dbGetSetting,
+  dbSetSetting,
+  dbDeleteSetting,
+  dbRun: adminRun,
+  dbSave: adminSave,
 };
+
+apiDeps.postgresMaintenance = apiDeps.dbConfig.client === "postgres"
+  ? createPostgresMaintenance({ config: apiDeps.dbConfig })
+  : null;
+
+// Mirror-job registry + worker dispatch (Option A). The manager is created
+// below; the ref is filled right after so the fallback can finish inline.
+const mirrorJobRegistry = createMirrorJobRegistry({});
+const mirrorManagerRef = {};
+const dispatchMirrorMedia = async ({
+  descriptor,
+  storedName,
+  filePath,
+  actualSize,
+  messageId,
+  chatId,
+  authorId,
+  authorUsername,
+}) => {
+  const { dispatched } = await dispatchMirrorJob({
+    workerUrl: getSetting("WORKER_URL") || process.env.WORKER_URL || process.env.MEDIA_WORKER_URL || null,
+    storageProcessingMode: process.env.STORAGE_PROCESSING_MODE || "auto",
+    workerPort: process.env.WORKER_PORT || "8080",
+    serverPort: process.env.PORT || process.env.SERVER_PORT || "5174",
+    processingTimeoutMs: Number(getSetting("STORAGE_PROCESSING_TIMEOUT_MS")) || 120000,
+    webhookSecret: process.env.WEBHOOK_SECRET || null,
+    registry: mirrorJobRegistry,
+    storageKey: `uploads/messages/${storedName}`,
+    jobMeta: {
+      filePath,
+      storedName,
+      mimeType: descriptor?.mimeType || null,
+      kind: descriptor?.kind || null,
+      originalName: descriptor?.originalName || null,
+      widthPx: descriptor?.widthPx ?? null,
+      heightPx: descriptor?.heightPx ?? null,
+      durationSeconds: descriptor?.durationSeconds ?? null,
+      maxBytes: FILE_UPLOAD_MAX_SIZE,
+      actualSize,
+      descriptor,
+      messageId,
+      chatId,
+      authorId,
+      authorUsername,
+    },
+    onFallback: async () => {
+      const manager = mirrorManagerRef.current;
+      if (!manager) return;
+      // The queue item may have been retried while the worker was slow —
+      // skip when the file is already attached (the temp is swept later).
+      try {
+        if (
+          await manager.hasMirroredFile?.(
+            messageId,
+            descriptor?.originalName || storedName,
+          )
+        ) {
+          return;
+        }
+      } catch {
+        // Best effort — fall through to the attach attempt.
+      }
+      const finished = await manager.finishMirroredMediaFile({
+        descriptor,
+        storedName,
+        filePath,
+        actualSize,
+      });
+      if (finished?.file) {
+        await manager.attachMirroredMedia({
+          messageId,
+          chatId,
+          authorId,
+          authorUsername,
+          file: finished.file,
+        });
+      }
+    },
+  });
+  return dispatched;
+};
+// Reap orphaned mirror temps (e.g. after an unclean shutdown).
+const mirrorSweepTimer = setInterval(() => {
+  try {
+    mirrorJobRegistry.sweep();
+  } catch {
+    // Best effort only.
+  }
+}, 5 * 60 * 1000);
+if (typeof mirrorSweepTimer.unref === "function") mirrorSweepTimer.unref();
 
 const remoteChannelManager = createRemoteChannelManager({
   config: REMOTE_CHANNEL_CONFIG,
@@ -734,6 +1116,7 @@ const remoteChannelManager = createRemoteChannelManager({
   createOrReuseMessage,
   crypto,
   debugLog,
+  dispatchMirrorMedia,
   emitChatEvent,
   emitSseEvent,
   enqueueVideoTranscodeJob,
@@ -764,22 +1147,29 @@ const remoteChannelManager = createRemoteChannelManager({
   sanitizeDurationSeconds,
   sanitizePositiveInt,
   sendPushNotificationToUsers,
-  isUserConnected,
+  isUserConnected: (username) => presenceTracker.isConnected(username),
   setMessageExpiresAt,
   setMessageForwardOrigin,
   setRemoteChannelProviderState,
   storageEncryption,
+  storageProvider,
   updateChannelChat,
   updateRemoteChannelSourceError,
   updateRemoteChannelSourceSeen,
 });
 
 apiDeps.remoteChannelManager = remoteChannelManager;
+apiDeps.mirrorJobRegistry = mirrorJobRegistry;
+mirrorManagerRef.current = remoteChannelManager;
+
+if (isProduction) {
+  app.use("/api", apiLimiter);
+  app.use("/api/admin", adminApiLimiter);
+}
 
 registerApiRoutes(app, apiDeps);
 
 if (isProduction) {
-  app.use("/api", apiLimiter);
   app.use(staticLimiter);
 
   const clientDist = path.resolve(serverDir, "..", "client", "dist");
@@ -838,29 +1228,27 @@ app.use((err, req, res, next) => {
   return next(err);
 });
 
-function cleanupExpiredTextOnlyMessages() {
-  if (MESSAGE_TEXT_RETENTION_DAYS <= 0) {
+async function cleanupExpiredTextOnlyMessages() {
+  if (getSetting("MESSAGE_TEXT_RETENTION") <= 0) {
     return { removedMessages: 0 };
   }
 
-  const rows = adminGetAll(
-    `SELECT id, chat_id
-     FROM chat_messages
-     WHERE expires_at IS NOT NULL
-       AND expires_at != ''
-       AND hidden_everyone_at IS NULL
-       AND julianday(expires_at) <= julianday(?)
-       AND NOT EXISTS (
-         SELECT 1
-         FROM chat_message_files
-         WHERE chat_message_files.message_id = chat_messages.id
-       )`,
-    [new Date().toISOString()],
+  const rawRows = adminGetAll(
+    dbKnex("chat_messages")
+      .select("id", "chat_id")
+      .whereNotNull("expires_at")
+      .where("expires_at", "!=", "")
+      .whereNull("hidden_everyone_at")
+      .whereRaw("julianday(expires_at) <= julianday(?)", [new Date().toISOString()])
+      .whereNotExists(
+        dbKnex("chat_message_files")
+          .select(1)
+          .whereRaw("chat_message_files.message_id = chat_messages.id"),
+      ),
   );
+  const rows = Array.isArray(rawRows) ? rawRows : (await rawRows) || [];
 
-  const messageIds = rows
-    .map((row) => Number(row?.id || 0))
-    .filter((id) => Number.isFinite(id) && id > 0);
+  const messageIds = rows.map((row) => row?.id).filter(Boolean);
 
   if (!messageIds.length) {
     return { removedMessages: 0 };
@@ -868,8 +1256,8 @@ function cleanupExpiredTextOnlyMessages() {
 
   const deletedByChat = new Map();
   rows.forEach((row) => {
-    const chatId = Number(row?.chat_id || 0);
-    const messageId = Number(row?.id || 0);
+    const chatId = row?.chat_id;
+    const messageId = row?.id;
     if (!chatId || !messageId) return;
     const list = deletedByChat.get(chatId) || [];
     list.push(messageId);
@@ -879,16 +1267,9 @@ function cleanupExpiredTextOnlyMessages() {
   adminRun("BEGIN");
   try {
     chunkArray(messageIds, 500).forEach((chunk) => {
-      const placeholders = chunk.map(() => "?").join(", ");
-      adminRun(
-        `DELETE FROM chat_message_reads WHERE message_id IN (${placeholders})`,
-        chunk,
-      );
-      adminRun(
-        `DELETE FROM hidden_chat_messages WHERE message_id IN (${placeholders})`,
-        chunk,
-      );
-      adminRun(`DELETE FROM chat_messages WHERE id IN (${placeholders})`, chunk);
+      adminRun(dbKnex("chat_message_reads").whereIn("message_id", chunk).del());
+      adminRun(dbKnex("hidden_chat_messages").whereIn("message_id", chunk).del());
+      adminRun(dbKnex("chat_messages").whereIn("id", chunk).del());
     });
     adminRun("COMMIT");
   } catch (error) {
@@ -898,9 +1279,9 @@ function cleanupExpiredTextOnlyMessages() {
 
   adminSave();
   deletedByChat.forEach((ids, chatId) => {
-    emitChatEvent(Number(chatId), {
+    emitChatEvent(chatId, {
       type: "chat_message_deleted",
-      chatId: Number(chatId),
+      chatId: chatId,
       messageIds: ids,
     });
   });
@@ -908,88 +1289,107 @@ function cleanupExpiredTextOnlyMessages() {
   return { removedMessages: messageIds.length };
 }
 
-function backfillTextMessageExpiry() {
-  if (MESSAGE_TEXT_RETENTION_DAYS <= 0) return 0;
+async function backfillTextMessageExpiry() {
+  const textRetentionDays = getSetting("MESSAGE_TEXT_RETENTION");
+  if (textRetentionDays <= 0) return 0;
 
-  const row = adminGetRow(
-    `SELECT COUNT(*) AS n
-     FROM chat_messages
-     WHERE (expires_at IS NULL OR expires_at = '')
-       AND hidden_everyone_at IS NULL
-       AND body IS NOT NULL
-       AND TRIM(body) != ''
-       AND body NOT LIKE '[[system:%]]'
-       AND NOT EXISTS (
-         SELECT 1
-         FROM chat_message_files
-         WHERE chat_message_files.message_id = chat_messages.id
-       )`,
+  const rawRow = adminGetRow(
+    dbKnex("chat_messages")
+      .count({ n: "*" })
+      .where((builder) => {
+        builder.whereNull("expires_at").orWhere("expires_at", "");
+      })
+      .whereNull("hidden_everyone_at")
+      .whereNotNull("body")
+      .whereRaw("TRIM(body) != ''")
+      .whereRaw("body NOT LIKE '[[system:%]]'")
+      .whereNotExists(
+        dbKnex("chat_message_files")
+          .select(1)
+          .whereRaw("chat_message_files.message_id = chat_messages.id"),
+      )
+      .first(),
   );
+  const row = rawRow && typeof rawRow.then === "function" ? await rawRow : rawRow;
 
   const pending = Number(row?.n || 0);
   if (!pending) return 0;
 
   adminRun(
-    `UPDATE chat_messages
-     SET expires_at = datetime(created_at, '+' || ? || ' days')
-     WHERE (expires_at IS NULL OR expires_at = '')
-       AND hidden_everyone_at IS NULL
-       AND body IS NOT NULL
-       AND TRIM(body) != ''
-       AND body NOT LIKE '[[system:%]]'
-       AND NOT EXISTS (
-         SELECT 1
-         FROM chat_message_files
-         WHERE chat_message_files.message_id = chat_messages.id
-       )`,
-    [MESSAGE_TEXT_RETENTION_DAYS],
+    dbKnex("chat_messages")
+      .where((builder) => {
+        builder.whereNull("expires_at").orWhere("expires_at", "");
+      })
+      .whereNull("hidden_everyone_at")
+      .whereNotNull("body")
+      .whereRaw("TRIM(body) != ''")
+      .whereRaw("body NOT LIKE '[[system:%]]'")
+      .whereNotExists(
+        dbKnex("chat_message_files")
+          .select(1)
+          .whereRaw("chat_message_files.message_id = chat_messages.id"),
+      )
+      .update({
+        expires_at: dbKnex.raw("datetime(created_at, '+' || ? || ' days')", [textRetentionDays]),
+      }),
   );
 
   adminSave();
   return pending;
 }
 
-if (MESSAGE_FILE_RETENTION_DAYS > 0) {
-  try {
-    backfillMessageFileExpiry();
-    cleanupExpiredMessageFiles();
-  } catch (_) {
-    // best effort startup cleanup
+// Cleanup timers always run — each tick re-reads the live setting, so
+// enabling/disabling retention via the admin panel takes effect without a
+// server restart.
+try {
+  await pruneOrphanRemoteObjects();
+  await pruneOrphanAvatarObjects();
+  if (getSetting("MESSAGE_FILE_RETENTION") > 0) {
+    await backfillMessageFileExpiry();
+    await cleanupExpiredMessageFiles();
   }
-
-  const expiryCleanupTimer = setInterval(() => {
-    try {
-      cleanupExpiredMessageFiles();
-    } catch (_) {
-      // keep server alive if cleanup fails
-    }
-  }, MESSAGE_FILE_CLEANUP_INTERVAL_MS);
-
-  if (typeof expiryCleanupTimer.unref === "function") {
-    expiryCleanupTimer.unref();
-  }
+} catch (_) {
+  // best effort startup cleanup
 }
 
-if (MESSAGE_TEXT_RETENTION_DAYS > 0) {
+const expiryCleanupTimer = setInterval(async () => {
   try {
-    backfillTextMessageExpiry();
-    cleanupExpiredTextOnlyMessages();
-  } catch (_) {
-    // best effort startup cleanup
-  }
-
-  const textCleanupTimer = setInterval(() => {
-    try {
-      backfillTextMessageExpiry();
-      cleanupExpiredTextOnlyMessages();
-    } catch (_) {
-      // keep server alive if cleanup fails
+    await pruneOrphanRemoteObjects();
+    await pruneOrphanAvatarObjects();
+    if (getSetting("MESSAGE_FILE_RETENTION") > 0) {
+      await cleanupExpiredMessageFiles();
     }
-  }, MESSAGE_FILE_CLEANUP_INTERVAL_MS);
-
-  if (typeof textCleanupTimer.unref === "function") {
-    textCleanupTimer.unref();
+  } catch (_) {
+    // keep server alive if cleanup fails
   }
+}, MESSAGE_FILE_CLEANUP_INTERVAL_MS);
+
+if (typeof expiryCleanupTimer.unref === "function") {
+  expiryCleanupTimer.unref();
+}
+
+try {
+  if (getSetting("MESSAGE_TEXT_RETENTION") > 0) {
+    await backfillTextMessageExpiry();
+    await cleanupExpiredTextOnlyMessages();
+  }
+} catch (_) {
+  // best effort startup cleanup
+}
+
+const textCleanupTimer = setInterval(async () => {
+  try {
+    if (getSetting("MESSAGE_TEXT_RETENTION") > 0) {
+      await backfillTextMessageExpiry();
+      await cleanupExpiredTextOnlyMessages();
+    }
+  } catch (_) {
+    // keep server alive if cleanup fails
+  }
+}, MESSAGE_FILE_CLEANUP_INTERVAL_MS);
+
+if (typeof textCleanupTimer.unref === "function") {
+  textCleanupTimer.unref();
 }
 
 // Defer the storage encryption backfill so it doesn't block the event loop
@@ -1002,6 +1402,7 @@ setImmediate(() => {
   }
 });
 remoteChannelManager.start();
+initAutoAddWorker({ db: { getAutoAddPublicChatIds, bulkAddMemberToChats, findUserById, findChatById, createMessage }, emitChatEvent });
 
 // Periodically purge old done/skipped/failed remote channel queue rows to
 // prevent the table growing without bound. Runs every 24 hours; keeps rows
@@ -1025,6 +1426,55 @@ if (REMOTE_CHANNEL) {
   if (typeof queuePurgeTimer.unref === "function") queuePurgeTimer.unref();
 }
 
-app.listen(port, () => {
-  console.log(`Songbird server running on http://localhost:${port}`);
+const server = app.listen(port, bindAddress, () => {
+  console.log(`Songbird server running on http://${bindAddress}:${port}`);
+  console.log(
+    `[server] Media worker webhook callback URL: ${apiDeps.webhookCallbackUrl}`,
+  );
+  ensureLocalWorkerRunning({
+    transcodeVideos: TRANSCODE_VIDEOS_TO_H264,
+    getSetting,
+  }).catch((err) => {
+    console.warn("[server] ensureLocalWorkerRunning error:", err?.message || err);
+  });
+});
+
+// Admin-panel DB values win when the env var is absent (getSetting resolves
+// env → DB → default). Restart required — gateway timers are wired once.
+const _wsEnv = parseEnv();
+const wsHeartbeatIntervalMs = Number(getSetting("WS_HEARTBEAT_INTERVAL_MS")) || _wsEnv.wsHeartbeatIntervalMs;
+const wsHeartbeatTimeoutMs = Number(getSetting("WS_HEARTBEAT_TIMEOUT_MS")) || _wsEnv.wsHeartbeatTimeoutMs;
+const wsGateway = createWebSocketGateway({
+  server,
+  sseHub,
+  redisClient,
+  getSessionFromToken: getSessionCombined,
+  onUserConnected: (username, ws) => presenceTracker.markConnected(username, ws),
+  onUserDisconnected: (username, ws) => presenceTracker.markDisconnected(username, ws),
+  heartbeatIntervalMs: wsHeartbeatIntervalMs,
+  heartbeatTimeoutMs: wsHeartbeatTimeoutMs,
+});
+wsPresenceBroadcaster = (username, payload) => wsGateway.sendEvent(username, payload);
+wsGlobalBroadcaster = (payload) => wsGateway.broadcastAll(payload);
+
+// Graceful shutdown for container orchestrators
+process.on("SIGTERM", () => {
+  console.log("SIGTERM received, shutting down gracefully...");
+  server.close(() => {
+    console.log("Server closed");
+    process.exit(0);
+  });
+  // Force exit after 10 seconds if still running
+  setTimeout(() => {
+    console.error("Forced shutdown after timeout");
+    process.exit(1);
+  }, 10000);
+});
+
+process.on("SIGINT", () => {
+  console.log("SIGINT received, shutting down gracefully...");
+  server.close(() => {
+    console.log("Server closed");
+    process.exit(0);
+  });
 });
