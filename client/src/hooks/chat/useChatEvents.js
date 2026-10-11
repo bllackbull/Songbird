@@ -67,6 +67,7 @@ export function useChatEvents({
   onChatListChanged,
   onSessionRevoked,
   onCallSignal,
+  realtimeSenderRef,
 }) {
   const onIncomingMessageRef = useRef(onIncomingMessage);
   const onMessageDeletedRef = useRef(onMessageDeleted);
@@ -180,6 +181,19 @@ export function useChatEvents({
       const handleOpen = () => {
         if (source instanceof WebSocket) {
           wsOpened = true;
+          if (realtimeSenderRef) {
+            realtimeSenderRef.current = (msg) => {
+              if (source instanceof WebSocket && source.readyState === WebSocket.OPEN) {
+                try {
+                  source.send(JSON.stringify(msg));
+                  return true;
+                } catch (_) {
+                  return false;
+                }
+              }
+              return false;
+            };
+          }
         }
         setSseConnected(true);
         reconnectAttempts = 0;
@@ -533,6 +547,9 @@ export function useChatEvents({
     return () => {
       isMounted = false;
       setSseConnected(false);
+      if (realtimeSenderRef) {
+        realtimeSenderRef.current = null;
+      }
       source?.close();
       if (sseReconnectRef.current) {
         clearTimeout(sseReconnectRef.current);

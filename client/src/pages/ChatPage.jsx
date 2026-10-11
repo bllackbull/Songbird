@@ -35,6 +35,7 @@ import { usePerfTelemetry } from "../hooks/chat/usePerfTelemetry.js";
 import { useResumeRefresh } from "../hooks/chat/useResumeRefresh.js";
 import { useMessageVisibility } from "../hooks/chat/useMessageVisibility.js";
 import { useWebRTCCall } from "../hooks/chat/useWebRTCCall.js";
+import { isCallSupported } from "../utils/callCapabilities.js";
 import { useAppReleaseInfo } from "../hooks/useAppReleaseInfo.js";
 import { Bookmark } from "../icons/lucide.js";
 import { CLIPBOARD_COPY_EVENT } from "../utils/clipboard.js";
@@ -1034,6 +1035,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }, []);
 
   // ─── Call Hooks ───────────────────────────────────────────────────────────
+  const realtimeSenderRef = useRef(null);
   const {
     callState,
     callType,
@@ -1050,7 +1052,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     toggleMute,
     toggleCamera,
     handleSignal: handleCallSignal,
-  } = useWebRTCCall();
+  } = useWebRTCCall({ realtimeSenderRef });
 
   const handleOpenForwardOrigin = async (target) => {
     if (!target) return;
@@ -1880,13 +1882,27 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   ) : null;
 
   const handleStartVoiceCall = useCallback(() => {
-    if (!activeChatId || !activeHeaderPeer?.username) return;
-    startCall({ chatId: activeChatId, calleeUsername: activeHeaderPeer.username, type: "voice" });
+    if (!activeChatId || !activeHeaderPeer?.username || activeHeaderPeer?.isDeleted) return;
+    if (!isCallSupported()) return;
+    startCall({
+      chatId: activeChatId,
+      calleeUsername: activeHeaderPeer.username,
+      calleeNickname: activeHeaderPeer.nickname,
+      calleeAvatar: activeHeaderPeer.avatar_url,
+      type: "voice",
+    });
   }, [activeChatId, activeHeaderPeer, startCall]);
 
   const handleStartVideoCall = useCallback(() => {
-    if (!activeChatId || !activeHeaderPeer?.username) return;
-    startCall({ chatId: activeChatId, calleeUsername: activeHeaderPeer.username, type: "video" });
+    if (!activeChatId || !activeHeaderPeer?.username || activeHeaderPeer?.isDeleted) return;
+    if (!isCallSupported()) return;
+    startCall({
+      chatId: activeChatId,
+      calleeUsername: activeHeaderPeer.username,
+      calleeNickname: activeHeaderPeer.nickname,
+      calleeAvatar: activeHeaderPeer.avatar_url,
+      type: "video",
+    });
   }, [activeChatId, activeHeaderPeer, startCall]);
 
   useEffect(() => {
@@ -2861,6 +2877,58 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       (canCurrentUserEditGroup || Boolean(Number(activeChat?.allow_member_invites || 0))),
   );
 
+  const handleProfileStartVoiceCall = useCallback((peer) => {
+    const target = peer || profileTargetUser || activeHeaderPeer;
+    if (!target?.username || target?.isDeleted) return;
+    if (!isCallSupported()) return;
+    const dmChat =
+      (activeChat?.type === "dm" ? activeChat : null) ||
+      chats.find(
+        (c) =>
+          c.type === "dm" &&
+          (c.members || []).some(
+            (m) =>
+              String(m.username).toLowerCase() ===
+              String(target.username).toLowerCase(),
+          ),
+      );
+    const targetChatId = dmChat?.id || activeChatId;
+    if (!targetChatId) return;
+    startCall({
+      chatId: targetChatId,
+      calleeUsername: target.username,
+      calleeNickname: target.nickname,
+      calleeAvatar: target.avatar_url,
+      type: "voice",
+    });
+  }, [activeChat, activeChatId, activeHeaderPeer, chats, profileTargetUser, startCall]);
+
+  const handleProfileStartVideoCall = useCallback((peer) => {
+    const target = peer || profileTargetUser || activeHeaderPeer;
+    if (!target?.username || target?.isDeleted) return;
+    if (!isCallSupported()) return;
+    const dmChat =
+      (activeChat?.type === "dm" ? activeChat : null) ||
+      chats.find(
+        (c) =>
+          c.type === "dm" &&
+          (c.members || []).some(
+            (m) =>
+              String(m.username).toLowerCase() ===
+              String(target.username).toLowerCase(),
+          ),
+      );
+    const targetChatId = dmChat?.id || activeChatId;
+    if (!targetChatId) return;
+    startCall({
+      chatId: targetChatId,
+      calleeUsername: target.username,
+      calleeNickname: target.nickname,
+      calleeAvatar: target.avatar_url,
+      type: "video",
+    });
+  }, [activeChat, activeChatId, activeHeaderPeer, chats, profileTargetUser, startCall]);
+
   const handleMarkChatSeen = useCallback(
     async (chat) => {
       const chatId = String(chat?.id || "");
@@ -3688,6 +3756,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       handleLogout();
     },
     onCallSignal: handleCallSignal,
+    realtimeSenderRef,
   });
 
   useEffect(() => {
@@ -7056,6 +7125,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             )}
             onClose={closeProfileModal}
             onOpenChat={handleOpenProfileChat}
+            onStartVoiceCall={handleProfileStartVoiceCall}
+            onStartVideoCall={handleProfileStartVideoCall}
             onToggleMute={() =>
               toggleMuteChat(mentionProfileChat?.id || activeChat?.id)
             }

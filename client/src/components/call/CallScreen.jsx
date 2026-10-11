@@ -9,6 +9,7 @@ import {
 } from "../../icons/lucide.js";
 import Avatar from "../common/Avatar.jsx";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
+import { hasPersian } from "../../utils/fontUtils.js";
 
 function formatDuration(seconds) {
   const mins = Math.floor(seconds / 60);
@@ -83,7 +84,14 @@ export const CallScreen = memo(function CallScreen({
           initials={peerInitials}
           className="h-24 w-24 text-2xl shadow-xl ring-4 ring-white/10"
         />
-        <h2 className="mt-4 text-xl font-semibold text-white">{peerName}</h2>
+        <h2
+          className={`mt-4 text-xl font-semibold text-white ${
+            hasPersian(peerName) ? "font-fa sb-fa-baseline-fix" : ""
+          }`}
+          dir="auto"
+        >
+          {peerName}
+        </h2>
         <p className="mt-1 text-sm text-white/60">
           {isVideo ? "Video call" : "Voice call"}
         </p>
@@ -99,7 +107,7 @@ export const CallScreen = memo(function CallScreen({
           <button
             type="button"
             onClick={onToggleMute}
-            className={`flex h-14 w-14 items-center justify-center rounded-full transition ${
+            className={`flex h-14 w-14 items-center justify-center rounded-full cursor-pointer transition ${
               isMuted
                 ? "bg-red-500/20 text-red-400"
                 : "bg-white/10 text-white hover:bg-white/20"
@@ -115,7 +123,7 @@ export const CallScreen = memo(function CallScreen({
           <button
             type="button"
             onClick={onToggleCamera}
-            className={`flex h-14 w-14 items-center justify-center rounded-full transition ${
+            className={`flex h-14 w-14 items-center justify-center rounded-full cursor-pointer transition ${
               isCameraOff
                 ? "bg-red-500/20 text-red-400"
                 : "bg-white/10 text-white hover:bg-white/20"
@@ -131,7 +139,7 @@ export const CallScreen = memo(function CallScreen({
           <button
             type="button"
             onClick={onAccept}
-            className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400"
+            className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 cursor-pointer transition hover:bg-emerald-400"
             aria-label="Accept call"
           >
             <Phone size={26} />
@@ -142,7 +150,7 @@ export const CallScreen = memo(function CallScreen({
         <button
           type="button"
           onClick={callState === "ringing" ? onReject : onEnd}
-          className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 transition hover:bg-red-400"
+          className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 cursor-pointer transition hover:bg-red-400"
           aria-label={callState === "ringing" ? "Reject call" : "End call"}
         >
           <PhoneOff size={26} />

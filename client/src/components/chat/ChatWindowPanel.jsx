@@ -40,6 +40,7 @@ import {
   deleteIdbCache,
   readIdbCache,
 } from "../../utils/chatCache.js";
+import { isCallSupported } from "../../utils/callCapabilities.js";
 
 export default function ChatWindowPanel({
   mobileTab,
@@ -147,6 +148,9 @@ export default function ChatWindowPanel({
     groupAvatarColor ||
     "#10b981";
   const activePeerInitials = getAvatarInitials(activeFallbackTitle || "S");
+  const isDeletedPeer = Boolean(activeHeaderPeer?.isDeleted || !activeHeaderPeer?.username);
+  const callSupported = isCallSupported();
+  const isCallDisabled = isDeletedPeer || !callSupported;
   const showChannelMuteFooter = Boolean(
     activeChatId &&
       isChannelChat &&
@@ -1141,14 +1145,76 @@ export default function ChatWindowPanel({
                 position: "relative",
               }}
             >
-            <button
-              type="button"
-              onClick={closeChat}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white/80 text-emerald-700 transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 md:invisible md:pointer-events-none"
-              aria-label="Back to chats"
-            >
-              <ArrowLeft size={18} />
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={closeChat}
+                className={`inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white/80 text-emerald-700 transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 ${
+                  isDmChat && (onStartVoiceCall || onStartVideoCall)
+                    ? "md:hidden"
+                    : "md:invisible md:pointer-events-none"
+                }`}
+                aria-label="Back to chats"
+              >
+                <ArrowLeft size={18} />
+              </button>
+              {isDmChat && (onStartVoiceCall || onStartVideoCall) ? (
+                <div className="hidden md:flex items-center gap-2">
+                  {onStartVoiceCall ? (
+                    <Tooltip
+                      label={
+                        isDeletedPeer
+                          ? "Calls unavailable for deleted account"
+                          : !callSupported
+                            ? "Calls require a secure connection"
+                            : "Voice call"
+                      }
+                      placement="bottom"
+                    >
+                      <button
+                        type="button"
+                        onClick={isCallDisabled ? undefined : onStartVoiceCall}
+                        disabled={isCallDisabled}
+                        className={`inline-flex h-10 w-10 items-center justify-center rounded-full border border-emerald-200 bg-white/80 text-emerald-700 transition dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 ${
+                          isCallDisabled
+                            ? "opacity-40 cursor-not-allowed hover:shadow-none hover:border-emerald-200 dark:hover:border-emerald-500/30"
+                            : "hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] cursor-pointer"
+                        }`}
+                        aria-label="Voice call"
+                      >
+                        <Phone size={20} className={isCallDisabled ? "" : "icon-anim-pop"} />
+                      </button>
+                    </Tooltip>
+                  ) : null}
+                  {onStartVideoCall ? (
+                    <Tooltip
+                      label={
+                        isDeletedPeer
+                          ? "Calls unavailable for deleted account"
+                          : !callSupported
+                            ? "Calls require a secure connection"
+                            : "Video call"
+                      }
+                      placement="bottom"
+                    >
+                      <button
+                        type="button"
+                        onClick={isCallDisabled ? undefined : onStartVideoCall}
+                        disabled={isCallDisabled}
+                        className={`inline-flex h-10 w-10 items-center justify-center rounded-full border border-emerald-200 bg-white/80 text-emerald-700 transition dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 ${
+                          isCallDisabled
+                            ? "opacity-40 cursor-not-allowed hover:shadow-none hover:border-emerald-200 dark:hover:border-emerald-500/30"
+                            : "hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] cursor-pointer"
+                        }`}
+                        aria-label="Video call"
+                      >
+                        <Video size={20} className={isCallDisabled ? "" : "icon-anim-pop"} />
+                      </button>
+                    </Tooltip>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
             <ContextMenuSurface
               as="div"
               className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1"
@@ -1268,32 +1334,6 @@ export default function ChatWindowPanel({
                 ) : null}
               </>
             </ContextMenuSurface>
-            {isDmChat && (onStartVoiceCall || onStartVideoCall) ? (
-              <div className="flex items-center gap-1.5 shrink-0">
-                {onStartVoiceCall ? (
-                  <button
-                    type="button"
-                    onClick={onStartVoiceCall}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white/80 text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-xs dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 dark:hover:bg-emerald-500/10 cursor-pointer"
-                    aria-label="Voice call"
-                    title="Voice call"
-                  >
-                    <Phone size={16} />
-                  </button>
-                ) : null}
-                {onStartVideoCall ? (
-                  <button
-                    type="button"
-                    onClick={onStartVideoCall}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white/80 text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-xs dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 dark:hover:bg-emerald-500/10 cursor-pointer"
-                    aria-label="Video call"
-                    title="Video call"
-                  >
-                    <Video size={16} />
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
             {headerAvatarIcon ? (
               <ContextMenuSurface
                 as="div"

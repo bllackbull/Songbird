@@ -781,3 +781,27 @@ export async function claimAdminPrivileges(token) {
   });
   return res.json();
 }
+
+export async function fetchIceServers() {
+  try {
+    const res = await apiFetch(`${API_BASE}/api/calls/ice-servers`);
+    if (!res.ok) return [];
+    return await res.json().catch(() => []);
+  } catch {
+    return [];
+  }
+}
+
+export async function sendCallSignal(action, body = {}) {
+  try {
+    const res = await apiFetch(`${API_BASE}/api/calls/${action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return res.ok ? await res.json().catch(() => ({})) : null;
+  } catch (err) {
+    console.error(`Call signal '${action}' failed:`, err);
+    return null;
+  }
+}

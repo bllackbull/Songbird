@@ -1,27 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-
-// WebRTC signaling runs over the existing SSE + HTTP infrastructure. Outgoing
-// signals are sent with plain POST requests; incoming signals arrive through the
-// shared SSE stream and are handed to `handleSignal` by the chat events hook.
-async function postCallSignal(path, body) {
-  try {
-    const res = await fetch(`/api/calls/${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify(body || {}),
-    });
-    return res.ok ? await res.json().catch(() => ({})) : null;
-  } catch (err) {
-    console.error(`Call signal '${path}' failed:`, err);
-    return null;
-  }
-}
+import { fetchIceServers, sendCallSignal } from "../../api/chatApi.js";
+import { isCallSupported } from "../../utils/callCapabilities.js";
 
 /**
  * Call states: idle | calling | ringing | connected
  */
-export function useWebRTCCall() {
+export function useWebRTCCall({ realtimeSenderRef } = {}) {
   const [callState, setCallState] = useState("idle");
   const [callType, setCallType] = useState("voice"); // voice | video
   const [callChatId, setCallChatId] = useState(null);
@@ -39,65 +23,94 @@ export function useWebRTCCall() {
   const iceServersRef = useRef([]);
   const pendingCandidatesRef = useRef([]);
 
-  // Mirrors of state used inside stable callbacks (SSE handler, RTCPeerConnection
-  // event handlers) so they never read stale values or force re-subscription.
-  const callStateRef = useRef("idle");
-  const callTypeRef = useRef("voice");
-  const callChatIdRef = useRef(null);
-  // Breaks the createPeerConnection -> endCall reference cycle: the connection
-  // state handler calls the latest endCall via this ref instead of closing over
-  // it before it is declared.
-  const endCallRef = useRef(() => {});
+  // Mirrors of state used inside stable callbacks so they never read stale values
+  const callStateRef = useRef(callState);
+  const callTypeRef = useRef(callType);
+  const callChatIdRef = useRef(callChatId);
+  const endCallRef = useRef(null);
 
   useEffect(() => {
     callStateRef.current = callState;
   }, [callState]);
+
   useEffect(() => {
     callTypeRef.current = callType;
   }, [callType]);
+
   useEffect(() => {
     callChatIdRef.current = callChatId;
   }, [callChatId]);
 
-  const cleanup = useCallback(() => {
+  // Outgoing signal sender: prefers WebSocket if open, falls back to POST /api/calls/:action
+  const postSignal = useCallback(
+    async (path, body = {}) => {
+      if (realtimeSenderRef?.current) {
+        try {
+          const sent = realtimeSenderRef.current({
+            action: "call_signal",
+            signalType: path,
+            chatId: body.chatId,
+            data: body,
+          });
+          if (sent) return { ok: true };
+        } catch (_) {}
+      }
+      return await sendCallSignal(path, body);
+    },
+    [realtimeSenderRef]
+  );
+
+  // Fetch ICE servers once on mount
+  useEffect(() => {
+    let isCancelled = false;
+    void fetchIceServers().then((servers) => {
+      if (!isCancelled && Array.isArray(servers) && servers.length) {
+        iceServersRef.current = servers;
+      }
+    });
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
+  const resetCallState = useCallback(() => {
     if (durationTimerRef.current) {
       clearInterval(durationTimerRef.current);
       durationTimerRef.current = null;
     }
-    if (peerConnectionRef.current) {
-      peerConnectionRef.current.close();
-      peerConnectionRef.current = null;
-    }
+
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((t) => t.stop());
       localStreamRef.current = null;
     }
-    remoteStreamRef.current = null;
-    pendingCandidatesRef.current = [];
-    setCallDuration(0);
-    setIsMuted(false);
-    setIsCameraOff(false);
-  }, []);
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = null;
+    }
 
-  const resetCallState = useCallback(() => {
+    if (remoteStreamRef.current) {
+      remoteStreamRef.current.getTracks().forEach((t) => t.stop());
+      remoteStreamRef.current = null;
+    }
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = null;
+    }
+
+    if (peerConnectionRef.current) {
+      try {
+        peerConnectionRef.current.close();
+      } catch (_) {}
+      peerConnectionRef.current = null;
+    }
+
+    pendingCandidatesRef.current = [];
     setCallState("idle");
     callStateRef.current = "idle";
     setCallChatId(null);
     callChatIdRef.current = null;
     setCallPeer(null);
-    cleanup();
-  }, [cleanup]);
-
-  const flushPendingCandidates = useCallback(async (pc) => {
-    const pending = pendingCandidatesRef.current;
-    pendingCandidatesRef.current = [];
-    for (const candidate of pending) {
-      try {
-        await pc.addIceCandidate(candidate);
-      } catch (err) {
-        console.error("Failed to add ICE candidate:", err);
-      }
-    }
+    setCallDuration(0);
+    setIsMuted(false);
+    setIsCameraOff(false);
   }, []);
 
   const createPeerConnection = useCallback(() => {
@@ -105,7 +118,7 @@ export function useWebRTCCall() {
 
     pc.onicecandidate = (event) => {
       if (event.candidate && callChatIdRef.current) {
-        void postCallSignal("ice-candidate", {
+        void postSignal("ice-candidate", {
           chatId: callChatIdRef.current,
           candidate: event.candidate,
         });
@@ -133,40 +146,59 @@ export function useWebRTCCall() {
         pc.connectionState === "disconnected" ||
         pc.connectionState === "failed"
       ) {
-        endCallRef.current();
+        endCallRef.current?.();
       }
     };
 
     peerConnectionRef.current = pc;
     return pc;
-  }, []);
+  }, [postSignal]);
 
   // Start a call (caller)
   const startCall = useCallback(
-    async ({ chatId, calleeUsername, type = "voice" }) => {
-      const numericChatId = Number(chatId);
-      if (!numericChatId || !calleeUsername) return;
+    async ({ chatId, calleeUsername, calleeNickname, calleeAvatar, type = "voice" }) => {
+      const normalizedChatId = String(chatId || "").trim();
+      if (!normalizedChatId || !calleeUsername) return;
+      if (!isCallSupported()) {
+        console.warn("Calls are only supported over secure HTTPS connections");
+        return;
+      }
 
       setCallState("calling");
       callStateRef.current = "calling";
       setCallType(type);
       callTypeRef.current = type;
-      setCallChatId(numericChatId);
-      callChatIdRef.current = numericChatId;
-      setCallPeer({ username: calleeUsername });
-
-      const data = await postCallSignal("start", {
-        chatId: numericChatId,
-        calleeUsername,
-        type,
+      setCallChatId(normalizedChatId);
+      callChatIdRef.current = normalizedChatId;
+      setCallPeer({
+        username: calleeUsername,
+        nickname: calleeNickname,
+        avatar: calleeAvatar,
       });
-      if (!data) {
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: type === "video",
+        });
+        localStreamRef.current = stream;
+        if (localVideoRef.current && type === "video") {
+          localVideoRef.current.srcObject = stream;
+        }
+
+        const res = await postSignal("start", {
+          chatId: normalizedChatId,
+          type,
+        });
+        if (!res?.ok && !res?.call) {
+          resetCallState();
+        }
+      } catch (err) {
+        console.error("Failed to start call:", err);
         resetCallState();
-        return;
       }
-      iceServersRef.current = data.iceServers || [];
     },
-    [resetCallState],
+    [postSignal, resetCallState]
   );
 
   // Accept incoming call (callee)
@@ -174,40 +206,48 @@ export function useWebRTCCall() {
     const chatId = callChatIdRef.current;
     if (!chatId) return;
 
-    setCallState("connected");
-    callStateRef.current = "connected";
-    await postCallSignal("accept", { chatId });
-
-    const pc = createPeerConnection();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
         video: callTypeRef.current === "video",
       });
       localStreamRef.current = stream;
-      if (localVideoRef.current) {
+      if (localVideoRef.current && callTypeRef.current === "video") {
         localVideoRef.current.srcObject = stream;
       }
-      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
-    } catch (err) {
-      console.error("Failed to get media:", err);
-      endCallRef.current();
-    }
-  }, [createPeerConnection]);
 
-  // Reject incoming call
+      const pc = createPeerConnection();
+      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+      // Process queued candidates
+      while (pendingCandidatesRef.current.length > 0) {
+        const cand = pendingCandidatesRef.current.shift();
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(cand));
+        } catch (_) {}
+      }
+
+      await postSignal("accept", { chatId });
+    } catch (err) {
+      console.error("Failed to accept call:", err);
+      resetCallState();
+      await postSignal("reject", { chatId });
+    }
+  }, [createPeerConnection, postSignal, resetCallState]);
+
+  // Reject incoming call (callee)
   const rejectCall = useCallback(async () => {
     const chatId = callChatIdRef.current;
     resetCallState();
-    if (chatId) await postCallSignal("reject", { chatId });
-  }, [resetCallState]);
+    if (chatId) await postSignal("reject", { chatId });
+  }, [postSignal, resetCallState]);
 
   // End active call
   const endCall = useCallback(async () => {
     const chatId = callChatIdRef.current;
     resetCallState();
-    if (chatId) await postCallSignal("end", { chatId });
-  }, [resetCallState]);
+    if (chatId) await postSignal("end", { chatId });
+  }, [postSignal, resetCallState]);
 
   useEffect(() => {
     endCallRef.current = endCall;
@@ -229,105 +269,188 @@ export function useWebRTCCall() {
     setIsCameraOff((prev) => !prev);
   }, []);
 
-  // Handle a signaling message delivered over the SSE stream.
+  // Handle incoming signaling messages
   const handleSignal = useCallback(
     async (payload) => {
       if (!payload?.type) return;
+
       switch (payload.type) {
         case "call:incoming": {
-          // Busy: auto-reject a second incoming call.
+          // If this client does not support WebRTC / is on insecure HTTP, auto-reject without showing modal
+          if (!isCallSupported()) {
+            void postSignal("reject", { chatId: payload.chatId });
+            return;
+          }
+
+          // Busy: reject second call if already active
           if (callStateRef.current !== "idle") {
-            void postCallSignal("reject", { chatId: payload.chatId });
+            void postSignal("reject", { chatId: payload.chatId });
             return;
           }
           setCallState("ringing");
           callStateRef.current = "ringing";
           setCallType(payload.callType || "voice");
           callTypeRef.current = payload.callType || "voice";
-          setCallChatId(payload.chatId);
-          callChatIdRef.current = payload.chatId;
+          setCallChatId(String(payload.chatId));
+          callChatIdRef.current = String(payload.chatId);
           setCallPeer({
-            username: payload.callerUsername,
-            nickname: payload.callerNickname,
-            avatar: payload.callerAvatar,
+            username: payload.caller?.username || payload.callerUsername,
+            nickname: payload.caller?.nickname || payload.callerNickname,
+            avatar: payload.caller?.avatarUrl || payload.callerAvatar,
           });
-          iceServersRef.current = payload.iceServers || [];
           break;
         }
+
         case "call:accepted": {
-          // Caller creates the offer once the callee accepts.
-          const pc = createPeerConnection();
-          try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-              audio: true,
-              video: callTypeRef.current === "video",
-            });
-            localStreamRef.current = stream;
-            if (localVideoRef.current) {
-              localVideoRef.current.srcObject = stream;
-            }
-            stream.getTracks().forEach((track) => pc.addTrack(track, stream));
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            await postCallSignal("offer", {
-              chatId: callChatIdRef.current,
-              offer,
-            });
-          } catch (err) {
-            console.error("Failed to create offer:", err);
-            endCallRef.current();
-          }
-          break;
-        }
-        case "call:rejected":
-        case "call:ended": {
-          resetCallState();
-          break;
-        }
-        case "call:offer": {
-          const pc = peerConnectionRef.current;
-          if (!pc) return;
-          await pc.setRemoteDescription(
-            new RTCSessionDescription(payload.offer),
-          );
-          await flushPendingCandidates(pc);
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          await postCallSignal("answer", { chatId: payload.chatId, answer });
-          break;
-        }
-        case "call:answer": {
-          const pc = peerConnectionRef.current;
-          if (!pc) return;
-          await pc.setRemoteDescription(
-            new RTCSessionDescription(payload.answer),
-          );
-          await flushPendingCandidates(pc);
-          break;
-        }
-        case "call:ice-candidate": {
-          const pc = peerConnectionRef.current;
-          const candidate = new RTCIceCandidate(payload.candidate);
-          if (!pc || !pc.remoteDescription) {
-            pendingCandidatesRef.current.push(candidate);
+          if (
+            callStateRef.current !== "calling" ||
+            String(payload.chatId) !== String(callChatIdRef.current)
+          ) {
             return;
           }
           try {
-            await pc.addIceCandidate(candidate);
+            const pc = createPeerConnection();
+            if (localStreamRef.current) {
+              localStreamRef.current
+                .getTracks()
+                .forEach((track) => pc.addTrack(track, localStreamRef.current));
+            }
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            await postSignal("offer", {
+              chatId: callChatIdRef.current,
+              sdp: offer,
+            });
           } catch (err) {
-            console.error("Failed to add ICE candidate:", err);
+            console.error("Failed to create offer:", err);
+            resetCallState();
           }
           break;
         }
+
+        case "call:offer": {
+          if (
+            callChatIdRef.current &&
+            String(payload.chatId) !== String(callChatIdRef.current)
+          ) {
+            return;
+          }
+          const sdpOffer = payload.sdp || payload.offer;
+          try {
+            let pc = peerConnectionRef.current;
+            if (!pc) {
+              pc = createPeerConnection();
+              if (localStreamRef.current) {
+                localStreamRef.current
+                  .getTracks()
+                  .forEach((track) =>
+                    pc.addTrack(track, localStreamRef.current)
+                  );
+              }
+            }
+            await pc.setRemoteDescription(new RTCSessionDescription(sdpOffer));
+
+            // Flush queued ICE candidates
+            while (pendingCandidatesRef.current.length > 0) {
+              const cand = pendingCandidatesRef.current.shift();
+              try {
+                await pc.addIceCandidate(new RTCIceCandidate(cand));
+              } catch (_) {}
+            }
+
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            await postSignal("answer", {
+              chatId: callChatIdRef.current,
+              sdp: answer,
+            });
+          } catch (err) {
+            console.error("Failed to handle offer:", err);
+            resetCallState();
+          }
+          break;
+        }
+
+        case "call:answer": {
+          if (
+            callChatIdRef.current &&
+            String(payload.chatId) !== String(callChatIdRef.current)
+          ) {
+            return;
+          }
+          const sdpAnswer = payload.sdp || payload.answer;
+          try {
+            const pc = peerConnectionRef.current;
+            if (pc && pc.signalingState !== "closed") {
+              await pc.setRemoteDescription(new RTCSessionDescription(sdpAnswer));
+              while (pendingCandidatesRef.current.length > 0) {
+                const cand = pendingCandidatesRef.current.shift();
+                try {
+                  await pc.addIceCandidate(new RTCIceCandidate(cand));
+                } catch (_) {}
+              }
+            }
+          } catch (err) {
+            console.error("Failed to handle answer:", err);
+          }
+          break;
+        }
+
+        case "call:ice-candidate": {
+          if (
+            callChatIdRef.current &&
+            String(payload.chatId) !== String(callChatIdRef.current)
+          ) {
+            return;
+          }
+          const cand = payload.candidate;
+          if (!cand) return;
+          const pc = peerConnectionRef.current;
+          if (pc && pc.remoteDescription && pc.signalingState !== "closed") {
+            try {
+              await pc.addIceCandidate(new RTCIceCandidate(cand));
+            } catch (_) {}
+          } else {
+            pendingCandidatesRef.current.push(cand);
+          }
+          break;
+        }
+
+        case "call:rejected":
+        case "call:ended": {
+          if (
+            callChatIdRef.current &&
+            String(payload.chatId) !== String(callChatIdRef.current)
+          ) {
+            return;
+          }
+          resetCallState();
+          break;
+        }
+
+        case "call:error": {
+          if (
+            callChatIdRef.current &&
+            String(payload.chatId) === String(callChatIdRef.current)
+          ) {
+            resetCallState();
+          }
+          break;
+        }
+
         default:
           break;
       }
     },
-    [createPeerConnection, resetCallState, flushPendingCandidates],
+    [createPeerConnection, postSignal, resetCallState]
   );
 
-  // End any active call when the component unmounts.
-  useEffect(() => cleanup, [cleanup]);
+  // Auto cleanup on unmount
+  useEffect(() => {
+    return () => {
+      resetCallState();
+    };
+  }, [resetCallState]);
 
   return {
     callState,
