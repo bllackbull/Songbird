@@ -201,6 +201,17 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     [postSignal, resetCallState]
   );
 
+  // Sync media streams onto video elements once they mount.
+  useEffect(() => {
+    if (callState !== "connected") return;
+    if (localVideoRef.current && localStreamRef.current) {
+      localVideoRef.current.srcObject = localStreamRef.current;
+    }
+    if (remoteVideoRef.current && remoteStreamRef.current) {
+      remoteVideoRef.current.srcObject = remoteStreamRef.current;
+    }
+  }, [callState, callType]);
+
   // Accept incoming call (callee)
   const acceptCall = useCallback(async () => {
     const chatId = callChatIdRef.current;
@@ -212,9 +223,6 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
         video: callTypeRef.current === "video",
       });
       localStreamRef.current = stream;
-      if (localVideoRef.current && callTypeRef.current === "video") {
-        localVideoRef.current.srcObject = stream;
-      }
 
       const pc = createPeerConnection();
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
@@ -227,7 +235,20 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
         } catch (_) {}
       }
 
-      await postSignal("accept", { chatId });
+      const res = await postSignal("accept", { chatId });
+      if (res === null) {
+        resetCallState();
+        return;
+      }
+
+      // Move out of "ringing" immediately.
+      setCallState("connected");
+      callStateRef.current = "connected";
+      if (!durationTimerRef.current) {
+        durationTimerRef.current = setInterval(() => {
+          setCallDuration((prev) => prev + 1);
+        }, 1000);
+      }
     } catch (err) {
       console.error("Failed to accept call:", err);
       resetCallState();
