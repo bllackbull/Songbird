@@ -26,6 +26,7 @@ export const CallScreen = memo(function CallScreen({
   isCameraOff,
   localVideoRef,
   remoteVideoRef,
+  remoteAudioRef,
   onAccept,
   onReject,
   onEnd,
@@ -72,6 +73,10 @@ export const CallScreen = memo(function CallScreen({
             className="absolute bottom-24 right-4 z-10 h-36 w-28 rounded-xl border-2 border-white/20 object-cover shadow-lg"
           />
         </>
+      ) : null}
+
+      {!isVideo && callState === "connected" ? (
+        <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
       ) : null}
 
       {/* Top section - peer info */}

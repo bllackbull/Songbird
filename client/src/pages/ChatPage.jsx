@@ -1045,6 +1045,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     isCameraOff,
     localVideoRef,
     remoteVideoRef,
+    remoteAudioRef,
     startCall,
     acceptCall,
     rejectCall,
@@ -6901,6 +6902,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           isCameraOff={isCameraOff}
           localVideoRef={localVideoRef}
           remoteVideoRef={remoteVideoRef}
+          remoteAudioRef={remoteAudioRef}
           onAccept={acceptCall}
           onReject={rejectCall}
           onEnd={endCall}

@@ -19,7 +19,9 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   const remoteStreamRef = useRef(null);
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
+  const remoteAudioRef = useRef(null);
   const durationTimerRef = useRef(null);
+  const disconnectTimerRef = useRef(null);
   const iceServersRef = useRef([]);
   const pendingCandidatesRef = useRef([]);
 
@@ -78,6 +80,10 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       clearInterval(durationTimerRef.current);
       durationTimerRef.current = null;
     }
+    if (disconnectTimerRef.current) {
+      clearTimeout(disconnectTimerRef.current);
+      disconnectTimerRef.current = null;
+    }
 
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -93,6 +99,9 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     }
     if (remoteVideoRef.current) {
       remoteVideoRef.current.srcObject = null;
+    }
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = null;
     }
 
     if (peerConnectionRef.current) {
@@ -130,10 +139,17 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = event.streams[0];
       }
+      if (remoteAudioRef.current) {
+        remoteAudioRef.current.srcObject = event.streams[0];
+      }
     };
 
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === "connected") {
+        if (disconnectTimerRef.current) {
+          clearTimeout(disconnectTimerRef.current);
+          disconnectTimerRef.current = null;
+        }
         setCallState("connected");
         callStateRef.current = "connected";
         if (!durationTimerRef.current) {
@@ -142,9 +158,18 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
           }, 1000);
         }
       }
+      if (pc.connectionState === "disconnected") {
+        // Transient ICE blips are common; only hang up if it persists.
+        if (!disconnectTimerRef.current) {
+          disconnectTimerRef.current = setTimeout(() => {
+            disconnectTimerRef.current = null;
+            endCallRef.current?.();
+          }, 5000);
+        }
+      }
       if (
-        pc.connectionState === "disconnected" ||
-        pc.connectionState === "failed"
+        pc.connectionState === "failed" ||
+        pc.connectionState === "closed"
       ) {
         endCallRef.current?.();
       }
@@ -201,7 +226,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     [postSignal, resetCallState]
   );
 
-  // Sync media streams onto video elements once they mount.
+  // Sync media streams onto media elements once they mount.
   useEffect(() => {
     if (callState !== "connected") return;
     if (localVideoRef.current && localStreamRef.current) {
@@ -209,6 +234,9 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     }
     if (remoteVideoRef.current && remoteStreamRef.current) {
       remoteVideoRef.current.srcObject = remoteStreamRef.current;
+    }
+    if (remoteAudioRef.current && remoteStreamRef.current) {
+      remoteAudioRef.current.srcObject = remoteStreamRef.current;
     }
   }, [callState, callType]);
 
@@ -400,6 +428,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
             return;
           }
           const sdpAnswer = payload.sdp || payload.answer;
+          if (!sdpAnswer) break;
           try {
             const pc = peerConnectionRef.current;
             if (pc && pc.signalingState !== "closed") {
@@ -409,6 +438,14 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
                 try {
                   await pc.addIceCandidate(new RTCIceCandidate(cand));
                 } catch (_) {}
+              }
+              // Handshake done: move caller out of "calling".
+              setCallState("connected");
+              callStateRef.current = "connected";
+              if (!durationTimerRef.current) {
+                durationTimerRef.current = setInterval(() => {
+                  setCallDuration((prev) => prev + 1);
+                }, 1000);
               }
             }
           } catch (err) {
@@ -483,6 +520,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     isCameraOff,
     localVideoRef,
     remoteVideoRef,
+    remoteAudioRef,
     startCall,
     acceptCall,
     rejectCall,
