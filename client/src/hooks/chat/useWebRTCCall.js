@@ -13,6 +13,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   const [callDuration, setCallDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
+  const [remoteStreamTick, setRemoteStreamTick] = useState(0);
 
   const peerConnectionRef = useRef(null);
   const localStreamRef = useRef(null);
@@ -24,6 +25,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   const disconnectTimerRef = useRef(null);
   const iceServersRef = useRef([]);
   const pendingCandidatesRef = useRef([]);
+  const iceStatsRef = useRef({ sent: 0, received: 0, applied: 0, queued: 0 });
 
   // Mirrors of state used inside stable callbacks so they never read stale values
   const callStateRef = useRef(callState);
@@ -127,10 +129,16 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
 
     pc.onicecandidate = (event) => {
       if (event.candidate && callChatIdRef.current) {
+        iceStatsRef.current.sent += 1;
+        console.debug(`[call] ice candidate sent #${iceStatsRef.current.sent}`);
         void postSignal("ice-candidate", {
           chatId: callChatIdRef.current,
-          candidate: event.candidate,
+          candidate: event.candidate.toJSON ? event.candidate.toJSON() : event.candidate,
         });
+      } else if (!event.candidate) {
+        console.debug(
+          `[call] ice gathering complete, sent=${iceStatsRef.current.sent}, iceServers=${JSON.stringify(iceServersRef.current)}`,
+        );
       }
     };
 
@@ -141,10 +149,15 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       }
       if (remoteAudioRef.current) {
         remoteAudioRef.current.srcObject = event.streams[0];
+        remoteAudioRef.current.play?.().catch(() => {});
       }
+      setRemoteStreamTick((t) => t + 1);
     };
 
     pc.onconnectionstatechange = () => {
+      console.debug(
+        `[call] connectionState: ${pc.connectionState}, ice: ${pc.iceConnectionState}, signaling: ${pc.signalingState}, iceStats=${JSON.stringify(iceStatsRef.current)}`,
+      );
       if (pc.connectionState === "connected") {
         if (disconnectTimerRef.current) {
           clearTimeout(disconnectTimerRef.current);
@@ -237,8 +250,9 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     }
     if (remoteAudioRef.current && remoteStreamRef.current) {
       remoteAudioRef.current.srcObject = remoteStreamRef.current;
+      remoteAudioRef.current.play?.().catch(() => {});
     }
-  }, [callState, callType]);
+  }, [callState, callType, remoteStreamTick]);
 
   // Accept incoming call (callee)
   const acceptCall = useCallback(async () => {
@@ -463,12 +477,17 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
           }
           const cand = payload.candidate;
           if (!cand) return;
+          iceStatsRef.current.received += 1;
           const pc = peerConnectionRef.current;
           if (pc && pc.remoteDescription && pc.signalingState !== "closed") {
             try {
               await pc.addIceCandidate(new RTCIceCandidate(cand));
-            } catch (_) {}
+              iceStatsRef.current.applied += 1;
+            } catch (err) {
+              console.debug("[call] addIceCandidate failed:", err?.message || err);
+            }
           } else {
+            iceStatsRef.current.queued += 1;
             pendingCandidatesRef.current.push(cand);
           }
           break;
