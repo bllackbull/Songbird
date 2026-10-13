@@ -1,4 +1,4 @@
-import { memo, useEffect } from "react";
+import { memo, useEffect, useRef } from "react";
 import {
   Mic,
   Video,
@@ -44,6 +44,25 @@ export const CallScreen = memo(function CallScreen({
       document.body.style.overflow = "";
     };
   }, []);
+
+  const ringtoneRef = useRef(null);
+
+  // Play ringtone while calling / ringing, stop on connected / unmount
+  useEffect(() => {
+    if (callState !== "calling" && callState !== "ringing") {
+      ringtoneRef.current?.pause();
+      ringtoneRef.current = null;
+      return;
+    }
+    const audio = new Audio("/sounds/ringtone.mp3");
+    audio.loop = true;
+    ringtoneRef.current = audio;
+    void audio.play().catch(() => {});
+    return () => {
+      audio.pause();
+      if (ringtoneRef.current === audio) ringtoneRef.current = null;
+    };
+  }, [callState]);
 
   const stateLabel =
     callState === "calling"
