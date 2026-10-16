@@ -127,45 +127,13 @@ export const CallScreen = memo(function CallScreen({
           : "";
 
   return (
-    <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-between bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900">
-      {/* Video elements */}
-      {isConnected && hasVideo ? (
-        <>
-          {/* Placeholder tile. */}
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div
-              data-testid="main-video-placeholder"
-              className="h-96 w-80 max-w-[85vw] -translate-y-12 rounded-xl border-2 border-white/20 shadow-lg"
-            />
-          </div>
-          <video
-            ref={remoteVideoRef}
-            autoPlay
-            playsInline
-            aria-label="Remote video"
-            className={
-              remoteOn
-                ? "absolute inset-0 h-full w-full object-cover"
-                : "hidden"
-            }
-          />
-          <video
-            ref={localVideoRef}
-            autoPlay
-            playsInline
-            muted
-            aria-label="Local video"
-            className={
-              bothOn
-                ? "absolute bottom-4 right-4 z-10 h-36 w-28 rounded-xl border-2 border-white/20 object-cover shadow-lg"
-                : localOn
-                  ? "absolute inset-0 h-full w-full object-cover"
-                  : "hidden"
-            }
-          />
-        </>
-      ) : null}
-
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center md:bg-black/45 md:px-5">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Call"
+        className="relative flex h-full w-full flex-col items-center justify-between overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 md:h-[min(800px,calc(100dvh-2rem))] md:max-w-[400px] md:rounded-3xl md:shadow-xl"
+      >
       {isConnected && !remoteOn ? (
         <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
       ) : null}
@@ -182,7 +150,7 @@ export const CallScreen = memo(function CallScreen({
 
       {/* Top section - peer info */}
       {callState === "connected" ? (
-        <div className="relative z-20 flex w-full justify-center pt-20">
+        <div className="relative z-20 flex w-full shrink-0 justify-center pb-0 pt-20">
           <div className="flex w-60 flex-row items-center gap-3">
             <Avatar
               src={callPeer?.avatar || ""}
@@ -209,7 +177,7 @@ export const CallScreen = memo(function CallScreen({
           </div>
         </div>
       ) : (
-        <div className="relative z-20 flex flex-col items-center pt-20">
+        <div className="relative z-20 flex shrink-0 flex-col items-center pt-20">
           <Avatar
             src={callPeer?.avatar || ""}
             alt={peerName}
@@ -236,10 +204,48 @@ export const CallScreen = memo(function CallScreen({
         </div>
       )}
 
+      {/* Video stage */}
+      {isConnected && hasVideo ? (
+        <div className="relative z-0 mx-2 min-h-0 w-[calc(100%-1rem)] flex-1 overflow-hidden rounded-2xl">
+          {/* Placeholder tile behind live video. */}
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div
+              data-testid="main-video-placeholder"
+              className="aspect-[4/5] max-h-[85%] w-[min(70%,16rem)] rounded-xl border-2 border-white/20 shadow-lg"
+            />
+          </div>
+          <video
+            ref={remoteVideoRef}
+            autoPlay
+            playsInline
+            aria-label="Remote video"
+            className={
+              remoteOn
+                ? "absolute inset-0 h-full w-full object-cover"
+                : "hidden"
+            }
+          />
+          <video
+            ref={localVideoRef}
+            autoPlay
+            playsInline
+            muted
+            aria-label="Local video"
+            className={
+              bothOn
+                ? "absolute bottom-4 right-4 z-10 aspect-[3/4] w-[28%] max-w-32 rounded-xl border-2 border-white/20 object-cover shadow-lg"
+                : localOn
+                  ? "absolute inset-0 h-full w-full object-cover"
+                  : "hidden"
+            }
+          />
+        </div>
+      ) : null}
+
       {/* Controls */}
       <div
-        className={`relative z-20 flex flex-col items-center gap-6 ${
-          callState === "connected" ? "pb-26" : "pb-48"
+        className={`relative z-20 flex shrink-0 flex-col items-center gap-6 ${
+          callState === "connected" ? "pb-8 pt-6" : "pb-48"
         }`}
       >
         {/* Incoming call: accept + reject with wide gap */}
@@ -319,6 +325,7 @@ export const CallScreen = memo(function CallScreen({
             </button>
           </>
         )}
+      </div>
       </div>
     </div>
   );
