@@ -13,6 +13,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   const [callDuration, setCallDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
+  const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [remoteStreamTick, setRemoteStreamTick] = useState(0);
 
   const peerConnectionRef = useRef(null);
@@ -104,6 +105,10 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     }
     if (remoteAudioRef.current) {
       remoteAudioRef.current.srcObject = null;
+      remoteAudioRef.current.muted = false;
+    }
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.muted = false;
     }
 
     if (peerConnectionRef.current) {
@@ -122,6 +127,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     setCallDuration(0);
     setIsMuted(false);
     setIsCameraOff(false);
+    setIsSpeakerOn(true);
   }, []);
 
   const createPeerConnection = useCallback(() => {
@@ -251,12 +257,14 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     }
     if (remoteVideoRef.current && remoteStreamRef.current) {
       remoteVideoRef.current.srcObject = remoteStreamRef.current;
+      remoteVideoRef.current.muted = !isSpeakerOn;
     }
     if (remoteAudioRef.current && remoteStreamRef.current) {
       remoteAudioRef.current.srcObject = remoteStreamRef.current;
+      remoteAudioRef.current.muted = !isSpeakerOn;
       remoteAudioRef.current.play?.().catch(() => {});
     }
-  }, [callState, callType, remoteStreamTick]);
+  }, [callState, callType, remoteStreamTick, isSpeakerOn]);
 
   // Accept incoming call (callee)
   const acceptCall = useCallback(async () => {
@@ -329,6 +337,12 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       track.enabled = !track.enabled;
     });
     setIsMuted((prev) => !prev);
+  }, []);
+
+  // Speaker toggle: browsers have no earpiece route, so this controls whether
+  // the remote peer is audible through the remote media elements.
+  const toggleSpeaker = useCallback(() => {
+    setIsSpeakerOn((prev) => !prev);
   }, []);
 
   const toggleCamera = useCallback(async () => {
@@ -577,6 +591,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     callDuration,
     isMuted,
     isCameraOff,
+    isSpeakerOn,
     localVideoRef,
     remoteVideoRef,
     remoteAudioRef,
@@ -586,6 +601,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     endCall,
     toggleMute,
     toggleCamera,
+    toggleSpeaker,
     handleSignal,
   };
 }

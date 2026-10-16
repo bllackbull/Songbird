@@ -11,6 +11,7 @@ function makeProps(overrides = {}) {
     callDuration: 65,
     isMuted: false,
     isCameraOff: false,
+    isSpeakerOn: true,
     localVideoRef: { current: null },
     remoteVideoRef: { current: null },
     remoteAudioRef: { current: null },
@@ -19,6 +20,7 @@ function makeProps(overrides = {}) {
     onEnd: vi.fn(),
     onToggleMute: vi.fn(),
     onToggleCamera: vi.fn(),
+    onToggleSpeaker: vi.fn(),
     ...overrides,
   };
 }
@@ -82,7 +84,7 @@ describe("CallScreen controls layout", () => {
   });
 
   describe("connected video call", () => {
-    test("end is centered with mute on the left and camera on the right", async () => {
+    test("secondary buttons sit on their own row above the centered end button", async () => {
       render(
         <CallScreen
           {...makeProps({ callState: "connected", callType: "video" })}
@@ -92,17 +94,46 @@ describe("CallScreen controls layout", () => {
         .element(page.getByRole("button", { name: "End call" }))
         .toBeInTheDocument();
 
-      expect(buttonLabels()).toEqual(["Mute", "End call", "Turn camera off"]);
+      expect(buttonLabels()).toEqual([
+        "Turn speaker off",
+        "Mute",
+        "Turn camera off",
+        "End call",
+      ]);
 
-      const container = page
-        .getByRole("button", { name: "End call" })
-        .element().parentElement;
-      expect(container.className).toContain("gap-6");
+      // End button is alone in its row (centered)
+      const endBtn = page.getByRole("button", { name: "End call" }).element();
+      const directButtons = [...endBtn.parentElement.children].filter(
+        (el) => el.tagName === "BUTTON",
+      );
+      expect(directButtons).toEqual([endBtn]);
+
+      // Speaker / mute / camera share the row above
+      const topRow = page.getByRole("button", { name: "Mute" }).element()
+        .parentElement;
+      expect(topRow.className).toContain("gap-6");
+      expect(
+        [...topRow.querySelectorAll("button")].map((b) =>
+          b.getAttribute("aria-label"),
+        ),
+      ).toEqual(["Turn speaker off", "Mute", "Turn camera off"]);
+    });
+
+    test("speaker toggle fires its handler", async () => {
+      const props = makeProps({
+        callState: "connected",
+        callType: "video",
+      });
+      render(<CallScreen {...props} />);
+      await userEvent.click(
+        page.getByRole("button", { name: "Turn speaker off" }),
+      );
+      expect(props.onToggleSpeaker).toHaveBeenCalledTimes(1);
     });
   });
 
   describe("connected voice call", () => {
-    test("end stays centered with mute on the left and camera on the right", async () => {
+    test("secondary row holds mute, camera, and speaker above the end button", async () => {
       const props = makeProps({
         callState: "connected",
         callType: "voice",
@@ -114,10 +145,17 @@ describe("CallScreen controls layout", () => {
         .toBeInTheDocument();
 
       // Camera starts off in voice calls, but the toggle is still shown
-      expect(buttonLabels()).toEqual(["Mute", "End call", "Turn camera on"]);
-      const container = page.getByRole("button", { name: "End call" }).element()
-        .parentElement;
-      expect(container.children[1].getAttribute("aria-label")).toBe("End call");
+      expect(buttonLabels()).toEqual([
+        "Turn speaker off",
+        "Mute",
+        "Turn camera on",
+        "End call",
+      ]);
+      const endBtn = page.getByRole("button", { name: "End call" }).element();
+      const directButtons = [...endBtn.parentElement.children].filter(
+        (el) => el.tagName === "BUTTON",
+      );
+      expect(directButtons).toEqual([endBtn]);
     });
 
     test("camera toggle fires its handler in voice calls", async () => {

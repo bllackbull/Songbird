@@ -1043,6 +1043,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     callDuration,
     isMuted,
     isCameraOff,
+    isSpeakerOn,
     localVideoRef,
     remoteVideoRef,
     remoteAudioRef,
@@ -1052,6 +1053,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     endCall,
     toggleMute,
     toggleCamera,
+    toggleSpeaker,
     handleSignal: handleCallSignal,
   } = useWebRTCCall({ realtimeSenderRef });
 
@@ -6900,6 +6902,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           callDuration={callDuration}
           isMuted={isMuted}
           isCameraOff={isCameraOff}
+          isSpeakerOn={isSpeakerOn}
           localVideoRef={localVideoRef}
           remoteVideoRef={remoteVideoRef}
           remoteAudioRef={remoteAudioRef}
@@ -6908,6 +6911,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           onEnd={endCall}
           onToggleMute={toggleMute}
           onToggleCamera={toggleCamera}
+          onToggleSpeaker={toggleSpeaker}
         />
       ) : null}
 

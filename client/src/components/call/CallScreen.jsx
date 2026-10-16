@@ -5,6 +5,8 @@ import {
   Phone,
   MicOff,
   VideoOff,
+  Volume2,
+  VolumeX,
 } from "../../icons/lucide.js";
 import Avatar from "../common/Avatar.jsx";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
@@ -23,6 +25,7 @@ export const CallScreen = memo(function CallScreen({
   callDuration,
   isMuted,
   isCameraOff,
+  isSpeakerOn,
   localVideoRef,
   remoteVideoRef,
   remoteAudioRef,
@@ -31,6 +34,7 @@ export const CallScreen = memo(function CallScreen({
   onEnd,
   onToggleMute,
   onToggleCamera,
+  onToggleSpeaker,
 }) {
   const isVideo = callType === "video";
   const peerName = callPeer?.nickname || callPeer?.username || "Unknown";
@@ -125,14 +129,10 @@ export const CallScreen = memo(function CallScreen({
       </div>
 
       {/* Controls */}
-      <div
-        className={`relative z-20 flex items-center pb-24 ${
-          callState === "ringing" ? "gap-24" : "gap-6"
-        }`}
-      >
+      <div className="relative z-20 flex flex-col items-center gap-6 pb-24">
         {/* Incoming call: accept + reject with wide gap */}
         {callState === "ringing" ? (
-          <>
+          <div className="flex items-center gap-24">
             <button
               type="button"
               onClick={onAccept}
@@ -149,23 +149,51 @@ export const CallScreen = memo(function CallScreen({
             >
               <Phone size={26} className="rotate-[135deg]" />
             </button>
-          </>
+          </div>
         ) : (
           <>
-            {/* Mute button (left of end) */}
+            {/* Secondary controls row */}
             {callState === "connected" ? (
-              <button
-                type="button"
-                onClick={onToggleMute}
-                className={`flex h-14 w-14 items-center justify-center rounded-full cursor-pointer transition ${
-                  isMuted
-                    ? "bg-white text-gray-500 hover:bg-white/90"
-                    : "bg-white/10 text-white hover:bg-white/20"
-                }`}
-                aria-label={isMuted ? "Unmute" : "Mute"}
-              >
-                {isMuted ? <MicOff size={22} /> : <Mic size={22} />}
-              </button>
+              <div className="flex items-center gap-6">
+                <button
+                  type="button"
+                  onClick={onToggleSpeaker}
+                  className={`flex h-16 w-16 items-center justify-center rounded-full cursor-pointer transition ${
+                    isSpeakerOn
+                      ? "bg-white/10 text-white hover:bg-white/20"
+                      : "bg-white text-gray-500 hover:bg-white/90"
+                  }`}
+                  aria-label={isSpeakerOn ? "Turn speaker off" : "Turn speaker on"}
+                >
+                  {isSpeakerOn ? <Volume2 size={26} /> : <VolumeX size={26} />}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={onToggleMute}
+                  className={`flex h-16 w-16 items-center justify-center rounded-full cursor-pointer transition ${
+                    isMuted
+                      ? "bg-white text-gray-500 hover:bg-white/90"
+                      : "bg-white/10 text-white hover:bg-white/20"
+                  }`}
+                  aria-label={isMuted ? "Unmute" : "Mute"}
+                >
+                  {isMuted ? <MicOff size={26} /> : <Mic size={26} />}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={onToggleCamera}
+                  className={`flex h-16 w-16 items-center justify-center rounded-full cursor-pointer transition ${
+                    isCameraOff
+                      ? "bg-white text-gray-500 hover:bg-white/90"
+                      : "bg-white/10 text-white hover:bg-white/20"
+                  }`}
+                  aria-label={isCameraOff ? "Turn camera on" : "Turn camera off"}
+                >
+                  {isCameraOff ? <VideoOff size={26} /> : <Video size={26} />}
+                </button>
+              </div>
             ) : null}
 
             {/* End button (centered) */}
@@ -177,22 +205,6 @@ export const CallScreen = memo(function CallScreen({
             >
               <Phone size={26} className="rotate-[135deg]" />
             </button>
-
-            {/* Camera toggle (right of end; voice calls start with camera off) */}
-            {callState === "connected" ? (
-              <button
-                type="button"
-                onClick={onToggleCamera}
-                className={`flex h-14 w-14 items-center justify-center rounded-full cursor-pointer transition ${
-                  isCameraOff
-                    ? "bg-white text-gray-500 hover:bg-white/90"
-                    : "bg-white/10 text-white hover:bg-white/20"
-                }`}
-                aria-label={isCameraOff ? "Turn camera on" : "Turn camera off"}
-              >
-                {isCameraOff ? <VideoOff size={22} /> : <Video size={22} />}
-              </button>
-            ) : null}
           </>
         )}
       </div>
