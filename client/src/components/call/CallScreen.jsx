@@ -7,8 +7,10 @@ import {
   VideoOff,
   Volume2,
   VolumeX,
+  Lock,
 } from "../../icons/lucide.js";
 import Avatar from "../common/Avatar.jsx";
+import Tooltip from "../common/Tooltip.jsx";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 
@@ -100,6 +102,16 @@ export const CallScreen = memo(function CallScreen({
       {!isVideo && callState === "connected" ? (
         <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
       ) : null}
+
+      {/* Secure badge - very top */}
+      <div className="absolute inset-x-0 top-0 z-20 flex justify-center pt-4">
+        <Tooltip label="Peer-to-peer encrypted — your call never lands on any server.">
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-400">
+            <Lock size={12} />
+            Secure
+          </span>
+        </Tooltip>
+      </div>
 
       {/* Top section - peer info */}
       {callState === "connected" ? (
