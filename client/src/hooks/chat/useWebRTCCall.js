@@ -208,6 +208,8 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       callStateRef.current = "calling";
       setCallType(type);
       callTypeRef.current = type;
+      // Voice calls start with camera off, video calls with camera on.
+      setIsCameraOff(type !== "video");
       setCallChatId(normalizedChatId);
       callChatIdRef.current = normalizedChatId;
       setCallPeer({
@@ -262,11 +264,14 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     if (!chatId) return;
 
     try {
+      const acceptedType = callTypeRef.current;
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
-        video: callTypeRef.current === "video",
+        video: acceptedType === "video",
       });
       localStreamRef.current = stream;
+      // Voice calls start with camera off, video calls with camera on.
+      setIsCameraOff(acceptedType !== "video");
 
       const pc = createPeerConnection();
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
@@ -326,13 +331,44 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     setIsMuted((prev) => !prev);
   }, []);
 
-  const toggleCamera = useCallback(() => {
-    if (!localStreamRef.current) return;
-    localStreamRef.current.getVideoTracks().forEach((track) => {
+  const toggleCamera = useCallback(async () => {
+    const stream = localStreamRef.current;
+    if (!stream) return;
+    const videoTracks = stream.getVideoTracks();
+    if (videoTracks.length === 0) {
+      try {
+        const videoStream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+        });
+        const [videoTrack] = videoStream.getVideoTracks();
+        if (!videoTrack) return;
+        stream.addTrack(videoTrack);
+        const pc = peerConnectionRef.current;
+        if (pc && pc.signalingState !== "closed") {
+          pc.addTrack(videoTrack, stream);
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          await postSignal("offer", {
+            chatId: callChatIdRef.current,
+            sdp: offer,
+          });
+        }
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+        }
+        setCallType("video");
+        callTypeRef.current = "video";
+        setIsCameraOff(false);
+      } catch (err) {
+        console.error("Failed to enable camera:", err);
+      }
+      return;
+    }
+    videoTracks.forEach((track) => {
       track.enabled = !track.enabled;
     });
     setIsCameraOff((prev) => !prev);
-  }, []);
+  }, [postSignal]);
 
   // Handle incoming signaling messages
   const handleSignal = useCallback(
@@ -356,6 +392,8 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
           callStateRef.current = "ringing";
           setCallType(payload.callType || "voice");
           callTypeRef.current = payload.callType || "voice";
+          // Voice calls start with camera off, video calls with camera on.
+          setIsCameraOff((payload.callType || "voice") !== "video");
           setCallChatId(String(payload.chatId));
           callChatIdRef.current = String(payload.chatId);
           setCallPeer({

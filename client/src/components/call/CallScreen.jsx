@@ -3,7 +3,6 @@ import {
   Mic,
   Video,
   Phone,
-  PhoneOff,
   MicOff,
   VideoOff,
 } from "../../icons/lucide.js";
@@ -116,7 +115,8 @@ export const CallScreen = memo(function CallScreen({
         >
           {peerName}
         </h2>
-        <p className="mt-1 text-sm text-white/60">
+        <p className="mt-1 flex items-center gap-1.5 text-sm text-white/60">
+          {isVideo ? <Video size={14} /> : <Phone size={14} />}
           {isVideo ? "Video call" : "Voice call"}
         </p>
         <p className="mt-2 text-sm font-medium text-emerald-400">
@@ -125,60 +125,76 @@ export const CallScreen = memo(function CallScreen({
       </div>
 
       {/* Controls */}
-      <div className="relative z-20 flex items-center gap-6 pb-16">
-        {/* Mute button */}
-        {callState === "connected" ? (
-          <button
-            type="button"
-            onClick={onToggleMute}
-            className={`flex h-14 w-14 items-center justify-center rounded-full cursor-pointer transition ${
-              isMuted
-                ? "bg-red-500/20 text-red-400"
-                : "bg-white/10 text-white hover:bg-white/20"
-            }`}
-            aria-label={isMuted ? "Unmute" : "Mute"}
-          >
-            {isMuted ? <MicOff size={22} /> : <Mic size={22} />}
-          </button>
-        ) : null}
-
-        {/* Camera toggle (video calls only) */}
-        {callState === "connected" && isVideo ? (
-          <button
-            type="button"
-            onClick={onToggleCamera}
-            className={`flex h-14 w-14 items-center justify-center rounded-full cursor-pointer transition ${
-              isCameraOff
-                ? "bg-red-500/20 text-red-400"
-                : "bg-white/10 text-white hover:bg-white/20"
-            }`}
-            aria-label={isCameraOff ? "Turn camera on" : "Turn camera off"}
-          >
-            {isCameraOff ? <VideoOff size={22} /> : <Video size={22} />}
-          </button>
-        ) : null}
-
-        {/* Accept button (ringing state) */}
+      <div
+        className={`relative z-20 flex items-center pb-24 ${
+          callState === "ringing" ? "gap-24" : "gap-6"
+        }`}
+      >
+        {/* Incoming call: accept + reject with wide gap */}
         {callState === "ringing" ? (
-          <button
-            type="button"
-            onClick={onAccept}
-            className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 cursor-pointer transition hover:bg-emerald-400"
-            aria-label="Accept call"
-          >
-            <Phone size={26} />
-          </button>
-        ) : null}
+          <>
+            <button
+              type="button"
+              onClick={onAccept}
+              className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 cursor-pointer transition hover:bg-emerald-400"
+              aria-label="Accept call"
+            >
+              <Phone size={26} />
+            </button>
+            <button
+              type="button"
+              onClick={onReject}
+              className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 cursor-pointer transition hover:bg-red-400"
+              aria-label="Reject call"
+            >
+              <Phone size={26} className="rotate-[135deg]" />
+            </button>
+          </>
+        ) : (
+          <>
+            {/* Mute button (left of end) */}
+            {callState === "connected" ? (
+              <button
+                type="button"
+                onClick={onToggleMute}
+                className={`flex h-14 w-14 items-center justify-center rounded-full cursor-pointer transition ${
+                  isMuted
+                    ? "bg-white text-gray-500 hover:bg-white/90"
+                    : "bg-white/10 text-white hover:bg-white/20"
+                }`}
+                aria-label={isMuted ? "Unmute" : "Mute"}
+              >
+                {isMuted ? <MicOff size={22} /> : <Mic size={22} />}
+              </button>
+            ) : null}
 
-        {/* End / Reject button */}
-        <button
-          type="button"
-          onClick={callState === "ringing" ? onReject : onEnd}
-          className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 cursor-pointer transition hover:bg-red-400"
-          aria-label={callState === "ringing" ? "Reject call" : "End call"}
-        >
-          <PhoneOff size={26} />
-        </button>
+            {/* End button (centered) */}
+            <button
+              type="button"
+              onClick={onEnd}
+              className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 cursor-pointer transition hover:bg-red-400"
+              aria-label="End call"
+            >
+              <Phone size={26} className="rotate-[135deg]" />
+            </button>
+
+            {/* Camera toggle (right of end; voice calls start with camera off) */}
+            {callState === "connected" ? (
+              <button
+                type="button"
+                onClick={onToggleCamera}
+                className={`flex h-14 w-14 items-center justify-center rounded-full cursor-pointer transition ${
+                  isCameraOff
+                    ? "bg-white text-gray-500 hover:bg-white/90"
+                    : "bg-white/10 text-white hover:bg-white/20"
+                }`}
+                aria-label={isCameraOff ? "Turn camera on" : "Turn camera off"}
+              >
+                {isCameraOff ? <VideoOff size={22} /> : <Video size={22} />}
+              </button>
+            ) : null}
+          </>
+        )}
       </div>
     </div>
   );
