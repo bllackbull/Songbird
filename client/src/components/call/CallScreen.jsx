@@ -102,34 +102,62 @@ export const CallScreen = memo(function CallScreen({
       ) : null}
 
       {/* Top section - peer info */}
-      <div className="relative z-20 flex flex-col items-center pt-20">
-        <Avatar
-          src={callPeer?.avatar || ""}
-          alt={peerName}
-          name={peerName}
-          color="#10b981"
-          initials={peerInitials}
-          className="h-24 w-24 text-2xl shadow-xl ring-4 ring-white/10"
-        />
-        <h2
-          className={`mt-4 text-xl font-semibold text-white ${
-            hasPersian(peerName) ? "font-fa sb-fa-baseline-fix" : ""
-          }`}
-          dir="auto"
-        >
-          {peerName}
-        </h2>
-        <p className="mt-1 flex items-center gap-1.5 text-sm text-white/60">
-          {isVideo ? <Video size={14} /> : <Phone size={14} />}
-          {isVideo ? "Video call" : "Voice call"}
-        </p>
-        <p className="mt-2 text-sm font-medium text-emerald-400">
-          {stateLabel}
-        </p>
-      </div>
+      {callState === "connected" ? (
+        <div className="relative z-20 flex w-full justify-center pt-20">
+          <div className="flex w-60 flex-row items-center gap-3">
+            <Avatar
+              src={callPeer?.avatar || ""}
+              alt={peerName}
+              name={peerName}
+              color="#10b981"
+              initials={peerInitials}
+              className="h-14 w-14 shrink-0 text-lg shadow-xl ring-4 ring-white/10"
+            />
+            <div className="flex min-w-0 flex-col">
+              <h2
+                className={`truncate text-lg font-semibold text-white ${
+                  hasPersian(peerName) ? "font-fa sb-fa-baseline-fix" : ""
+                }`}
+                dir="auto"
+              >
+                {peerName}
+              </h2>
+              <p className="mt-0.5 text-sm font-medium text-emerald-400">
+                {stateLabel}
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="relative z-20 flex flex-col items-center pt-20">
+          <Avatar
+            src={callPeer?.avatar || ""}
+            alt={peerName}
+            name={peerName}
+            color="#10b981"
+            initials={peerInitials}
+            className="h-24 w-24 text-2xl shadow-xl ring-4 ring-white/10"
+          />
+          <h2
+            className={`mt-4 text-xl font-semibold text-white ${
+              hasPersian(peerName) ? "font-fa sb-fa-baseline-fix" : ""
+            }`}
+            dir="auto"
+          >
+            {peerName}
+          </h2>
+          <p className="mt-1 flex items-center gap-1.5 text-sm text-white/60">
+            {isVideo ? <Video size={14} /> : <Phone size={14} />}
+            {isVideo ? "Video call" : "Voice call"}
+          </p>
+          <p className="mt-2 text-sm font-medium text-emerald-400">
+            {stateLabel}
+          </p>
+        </div>
+      )}
 
       {/* Controls */}
-      <div className="relative z-20 flex flex-col items-center gap-6 pb-24">
+      <div className="relative z-20 flex flex-col items-center gap-6 pb-48">
         {/* Incoming call: accept + reject with wide gap */}
         {callState === "ringing" ? (
           <div className="flex items-center gap-24">
