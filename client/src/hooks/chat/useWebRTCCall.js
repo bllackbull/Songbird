@@ -32,6 +32,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   const [callDuration, setCallDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
+  const [isRemoteCameraOff, setIsRemoteCameraOff] = useState(true);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [remoteStreamTick, setRemoteStreamTick] = useState(0);
   const [callQuality, setCallQuality] = useState(UNKNOWN_QUALITY);
@@ -148,6 +149,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     setCallDuration(0);
     setIsMuted(false);
     setIsCameraOff(false);
+    setIsRemoteCameraOff(true);
     setIsSpeakerOn(true);
   }, []);
 
@@ -237,6 +239,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       callTypeRef.current = type;
       // Voice calls start with camera off, video calls with camera on.
       setIsCameraOff(type !== "video");
+      setIsRemoteCameraOff(type !== "video");
       setCallChatId(normalizedChatId);
       callChatIdRef.current = normalizedChatId;
       setCallPeer({
@@ -353,6 +356,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       localStreamRef.current = stream;
       // Voice calls start with camera off, video calls with camera on.
       setIsCameraOff(acceptedType !== "video");
+      setIsRemoteCameraOff(acceptedType !== "video");
 
       const pc = createPeerConnection();
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
@@ -446,15 +450,28 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
         setCallType("video");
         callTypeRef.current = "video";
         setIsCameraOff(false);
+        void postSignal("camera-state", {
+          chatId: callChatIdRef.current,
+          cameraOff: false,
+        });
       } catch (err) {
         console.error("Failed to enable camera:", err);
       }
       return;
     }
+    const nextOff = videoTracks.every((track) => track.enabled);
     videoTracks.forEach((track) => {
       track.enabled = !track.enabled;
     });
-    setIsCameraOff((prev) => !prev);
+    setIsCameraOff(nextOff);
+    if (nextOff === false) {
+      setCallType("video");
+      callTypeRef.current = "video";
+    }
+    void postSignal("camera-state", {
+      chatId: callChatIdRef.current,
+      cameraOff: nextOff,
+    });
   }, [postSignal]);
 
   // Handle incoming signaling messages
@@ -481,6 +498,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
           callTypeRef.current = payload.callType || "voice";
           // Voice calls start with camera off, video calls with camera on.
           setIsCameraOff((payload.callType || "voice") !== "video");
+          setIsRemoteCameraOff((payload.callType || "voice") !== "video");
           setCallChatId(String(payload.chatId));
           callChatIdRef.current = String(payload.chatId);
           setCallPeer({
@@ -620,6 +638,22 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
           break;
         }
 
+        case "call:camera-state": {
+          if (
+            callChatIdRef.current &&
+            String(payload.chatId) !== String(callChatIdRef.current)
+          ) {
+            return;
+          }
+          const remoteOff = payload.cameraOff !== false;
+          setIsRemoteCameraOff(remoteOff);
+          if (remoteOff === false) {
+            setCallType("video");
+            callTypeRef.current = "video";
+          }
+          break;
+        }
+
         case "call:rejected":
         case "call:ended": {
           if (
@@ -665,6 +699,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     callQuality,
     isMuted,
     isCameraOff,
+    isRemoteCameraOff,
     isSpeakerOn,
     localVideoRef,
     remoteVideoRef,

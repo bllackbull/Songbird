@@ -255,7 +255,7 @@ export function createWebSocketGateway({
                     user: currentSession,
                     chatId,
                   });
-                } else if (["offer", "answer", "ice-candidate"].includes(signalType)) {
+                } else if (["offer", "answer", "ice-candidate", "camera-state"].includes(signalType)) {
                   await callManager.relaySignal({
                     user: currentSession,
                     chatId,

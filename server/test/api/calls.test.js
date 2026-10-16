@@ -183,5 +183,18 @@ describe("/api/calls endpoints", () => {
         candidate: { candidate: "cand-1" },
       });
     });
+
+    it("POST /api/calls/camera-state relays camera flag to peer", async () => {
+      const res = await request(app)
+        .post("/api/calls/camera-state")
+        .set("Cookie", "sid=bob-token")
+        .send({ chatId: CHAT_ID, cameraOff: true });
+      expect(res.status).toBe(200);
+      expect(emitSseEvent).toHaveBeenCalledWith("alice", {
+        type: "call:camera-state",
+        chatId: CHAT_ID,
+        cameraOff: true,
+      });
+    });
   });
 });

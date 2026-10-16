@@ -67,6 +67,7 @@ export const CallScreen = memo(function CallScreen({
   callQuality,
   isMuted,
   isCameraOff,
+  isRemoteCameraOff,
   isSpeakerOn,
   localVideoRef,
   remoteVideoRef,
@@ -79,6 +80,13 @@ export const CallScreen = memo(function CallScreen({
   onToggleSpeaker,
 }) {
   const isVideo = callType === "video";
+  const remoteCameraOff =
+    isRemoteCameraOff === undefined ? !isVideo : isRemoteCameraOff;
+  const localOn = !isCameraOff;
+  const remoteOn = !remoteCameraOff;
+  const isConnected = callState === "connected";
+  const hasVideo = isConnected && (localOn || remoteOn);
+  const bothOn = isConnected && localOn && remoteOn;
   const peerName = callPeer?.nickname || callPeer?.username || "Unknown";
   const peerInitials = getAvatarInitials(peerName);
 
@@ -121,25 +129,44 @@ export const CallScreen = memo(function CallScreen({
   return (
     <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-between bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900">
       {/* Video elements */}
-      {isVideo && callState === "connected" ? (
+      {isConnected && hasVideo ? (
         <>
+          {/* Placeholder tile. */}
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div
+              data-testid="main-video-placeholder"
+              className="h-96 w-80 max-w-[85vw] -translate-y-12 rounded-xl border-2 border-white/20 shadow-lg"
+            />
+          </div>
           <video
             ref={remoteVideoRef}
             autoPlay
             playsInline
-            className="absolute inset-0 h-full w-full object-cover"
+            aria-label="Remote video"
+            className={
+              remoteOn
+                ? "absolute inset-0 h-full w-full object-cover"
+                : "hidden"
+            }
           />
           <video
             ref={localVideoRef}
             autoPlay
             playsInline
             muted
-            className="absolute bottom-24 right-4 z-10 h-36 w-28 rounded-xl border-2 border-white/20 object-cover shadow-lg"
+            aria-label="Local video"
+            className={
+              bothOn
+                ? "absolute bottom-4 right-4 z-10 h-36 w-28 rounded-xl border-2 border-white/20 object-cover shadow-lg"
+                : localOn
+                  ? "absolute inset-0 h-full w-full object-cover"
+                  : "hidden"
+            }
           />
         </>
       ) : null}
 
-      {!isVideo && callState === "connected" ? (
+      {isConnected && !remoteOn ? (
         <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
       ) : null}
 
@@ -210,7 +237,11 @@ export const CallScreen = memo(function CallScreen({
       )}
 
       {/* Controls */}
-      <div className="relative z-20 flex flex-col items-center gap-6 pb-48">
+      <div
+        className={`relative z-20 flex flex-col items-center gap-6 ${
+          callState === "connected" ? "pb-26" : "pb-48"
+        }`}
+      >
         {/* Incoming call: accept + reject with wide gap */}
         {callState === "ringing" ? (
           <div className="flex items-center gap-24">

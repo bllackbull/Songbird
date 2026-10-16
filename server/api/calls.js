@@ -130,4 +130,21 @@ export function registerCallRoutes(app, deps) {
     }
     res.json({ ok: true });
   });
+
+  // POST /api/calls/camera-state
+  app.post("/api/calls/camera-state", async (req, res) => {
+    const user = requireUser(req, res);
+    if (!user) return;
+    const { chatId, cameraOff } = req.body || {};
+    const result = await callManager.relaySignal({
+      user,
+      chatId,
+      signalType: "camera-state",
+      payload: { cameraOff: cameraOff !== false },
+    });
+    if (result.error) {
+      return res.status(result.status || 400).json({ error: result.error });
+    }
+    res.json({ ok: true });
+  });
 }

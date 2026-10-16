@@ -181,4 +181,100 @@ describe("CallScreen controls layout", () => {
       expect(buttonLabels()).toEqual(["End call"]);
     });
   });
+
+  describe("connected video layout", () => {
+    function videos() {
+      return {
+        remote: document.querySelector('video[aria-label="Remote video"]'),
+        local: document.querySelector('video[aria-label="Local video"]'),
+        placeholder: document.querySelector(
+          '[data-testid="main-video-placeholder"]',
+        ),
+      };
+    }
+
+    test("both cameras on: remote fullscreen with local PiP", async () => {
+      render(
+        <CallScreen
+          {...makeProps({
+            callState: "connected",
+            callType: "video",
+            isCameraOff: false,
+            isRemoteCameraOff: false,
+          })}
+        />,
+      );
+      await expect
+        .element(page.getByRole("button", { name: "End call" }))
+        .toBeInTheDocument();
+      const { remote, local, placeholder } = videos();
+      expect(remote).not.toBeNull();
+      expect(local).not.toBeNull();
+      expect(remote.className).toContain("inset-0");
+      expect(local.className).toContain("bottom-4 right-4");
+      expect(placeholder).not.toBeNull();
+    });
+
+    test("only remote camera on: remote fullscreen, local hidden", async () => {
+      render(
+        <CallScreen
+          {...makeProps({
+            callState: "connected",
+            callType: "video",
+            isCameraOff: true,
+            isRemoteCameraOff: false,
+          })}
+        />,
+      );
+      await expect
+        .element(page.getByRole("button", { name: "End call" }))
+        .toBeInTheDocument();
+      const { remote, local } = videos();
+      expect(remote).not.toBeNull();
+      expect(local).not.toBeNull();
+      expect(remote.className).toContain("inset-0");
+      expect(local.className).toContain("hidden");
+    });
+
+    test("only local camera on: local fullscreen, remote hidden", async () => {
+      render(
+        <CallScreen
+          {...makeProps({
+            callState: "connected",
+            callType: "video",
+            isCameraOff: false,
+            isRemoteCameraOff: true,
+          })}
+        />,
+      );
+      await expect
+        .element(page.getByRole("button", { name: "End call" }))
+        .toBeInTheDocument();
+      const { remote, local } = videos();
+      expect(remote).not.toBeNull();
+      expect(local).not.toBeNull();
+      expect(remote.className).toContain("hidden");
+      expect(local.className).toContain("inset-0");
+    });
+
+    test("both cameras off: no video elements", async () => {
+      render(
+        <CallScreen
+          {...makeProps({
+            callState: "connected",
+            callType: "video",
+            isCameraOff: true,
+            isRemoteCameraOff: true,
+          })}
+        />,
+      );
+      await expect
+        .element(page.getByRole("button", { name: "End call" }))
+        .toBeInTheDocument();
+      const { remote, local, placeholder } = videos();
+      expect(remote).toBeNull();
+      expect(local).toBeNull();
+      expect(placeholder).toBeNull();
+    });
+  });
 });
