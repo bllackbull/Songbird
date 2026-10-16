@@ -25,7 +25,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   const disconnectTimerRef = useRef(null);
   const iceServersRef = useRef([]);
   const pendingCandidatesRef = useRef([]);
-  const iceStatsRef = useRef({ sent: 0, received: 0, applied: 0, queued: 0 });
+  const iceStatsRef = useRef({ sent: 0, received: 0, applied: 0, queued: 0, sentTypes: {} });
 
   // Mirrors of state used inside stable callbacks so they never read stale values
   const callStateRef = useRef(callState);
@@ -130,7 +130,9 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     pc.onicecandidate = (event) => {
       if (event.candidate && callChatIdRef.current) {
         iceStatsRef.current.sent += 1;
-        console.debug(`[call] ice candidate sent #${iceStatsRef.current.sent}`);
+        const t = event.candidate.type || "unknown";
+        iceStatsRef.current.sentTypes[t] = (iceStatsRef.current.sentTypes[t] || 0) + 1;
+        console.debug(`[call] ice candidate sent #${iceStatsRef.current.sent} type=${t}`);
         void postSignal("ice-candidate", {
           chatId: callChatIdRef.current,
           candidate: event.candidate.toJSON ? event.candidate.toJSON() : event.candidate,
