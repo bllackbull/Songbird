@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { gradeCallQuality } from "../../src/hooks/chat/useWebRTCCall.js";
 
 describe("useWebRTCCall state machine and helper logic", () => {
   it("formats duration seconds into mm:ss accurately", () => {
@@ -79,6 +80,33 @@ describe("useWebRTCCall state machine and helper logic", () => {
     wsSend.mockReturnValueOnce(false);
     await sendSignal("start", { chatId: "chat-1" });
     expect(httpSend).toHaveBeenCalledWith("start", { chatId: "chat-1" });
+  });
+
+  describe("gradeCallQuality", () => {
+    it("returns 0 when no stats are available yet", () => {
+      expect(gradeCallQuality(null, null)).toBe(0);
+      expect(gradeCallQuality(undefined, undefined)).toBe(0);
+    });
+
+    it("grades excellent to bad from ping alone", () => {
+      expect(gradeCallQuality(50, null)).toBe(4);
+      expect(gradeCallQuality(150, null)).toBe(3);
+      expect(gradeCallQuality(300, null)).toBe(2);
+      expect(gradeCallQuality(800, null)).toBe(1);
+    });
+
+    it("grades excellent to bad from packet loss alone", () => {
+      expect(gradeCallQuality(null, 0.2)).toBe(4);
+      expect(gradeCallQuality(null, 2)).toBe(3);
+      expect(gradeCallQuality(null, 5)).toBe(2);
+      expect(gradeCallQuality(null, 15)).toBe(1);
+    });
+
+    it("lets the worse metric win", () => {
+      expect(gradeCallQuality(50, 15)).toBe(1);
+      expect(gradeCallQuality(800, 0.2)).toBe(1);
+      expect(gradeCallQuality(150, 0.2)).toBe(3);
+    });
   });
 
   it("auto-rejects incoming call without ringing when call is not supported (e.g. insecure HTTP)", () => {

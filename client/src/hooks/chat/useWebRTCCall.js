@@ -3,6 +3,25 @@ import { fetchIceServers, sendCallSignal } from "../../api/chatApi.js";
 import { isCallSupported } from "../../utils/callCapabilities.js";
 
 /**
+ * Grade connection quality from WebRTC stats into signal bars.
+ * Returns 0 (unknown, no stats yet) through 4 (excellent).
+ * When both metrics are present the worse one wins.
+ */
+export function gradeCallQuality(rttMs, lossPct) {
+  const grades = [];
+  if (Number.isFinite(rttMs)) {
+    grades.push(rttMs < 100 ? 4 : rttMs < 200 ? 3 : rttMs < 400 ? 2 : 1);
+  }
+  if (Number.isFinite(lossPct)) {
+    grades.push(lossPct < 1 ? 4 : lossPct < 3 ? 3 : lossPct < 8 ? 2 : 1);
+  }
+  if (grades.length === 0) return 0;
+  return Math.min(...grades);
+}
+
+const UNKNOWN_QUALITY = { level: 0, rttMs: null, packetLossPct: null };
+
+/**
  * Call states: idle | calling | ringing | connected
  */
 export function useWebRTCCall({ realtimeSenderRef } = {}) {
@@ -15,6 +34,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [remoteStreamTick, setRemoteStreamTick] = useState(0);
+  const [callQuality, setCallQuality] = useState(UNKNOWN_QUALITY);
 
   const peerConnectionRef = useRef(null);
   const localStreamRef = useRef(null);
@@ -119,6 +139,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     }
 
     pendingCandidatesRef.current = [];
+    setCallQuality(UNKNOWN_QUALITY);
     setCallState("idle");
     callStateRef.current = "idle";
     setCallChatId(null);
@@ -265,6 +286,58 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       remoteAudioRef.current.play?.().catch(() => {});
     }
   }, [callState, callType, remoteStreamTick, isSpeakerOn]);
+
+  // Sample WebRTC stats while connected to derive signal bars from
+  // round-trip time (ping) and packet loss. Resets when the call ends.
+  useEffect(() => {
+    if (callState !== "connected") return undefined;
+    let cancelled = false;
+    const sample = async () => {
+      const pc = peerConnectionRef.current;
+      if (!pc || typeof pc.getStats !== "function") return;
+      try {
+        const stats = await pc.getStats();
+        let rttMs = null;
+        let fallbackRttMs = null;
+        let lost = 0;
+        let received = 0;
+        stats.forEach((report) => {
+          if (
+            report.type === "candidate-pair" &&
+            typeof report.currentRoundTripTime === "number"
+          ) {
+            const ms = report.currentRoundTripTime * 1000;
+            if (report.nominated) {
+              rttMs = ms;
+            } else if (report.state === "succeeded" && fallbackRttMs == null) {
+              fallbackRttMs = ms;
+            }
+          }
+          if (report.type === "inbound-rtp" && report.isRemote !== true) {
+            if (typeof report.packetsLost === "number") lost += report.packetsLost;
+            if (typeof report.packetsReceived === "number")
+              received += report.packetsReceived;
+          }
+        });
+        if (rttMs == null) rttMs = fallbackRttMs;
+        const total = lost + received;
+        const packetLossPct = total > 0 ? (lost / total) * 100 : null;
+        if (!cancelled) {
+          setCallQuality({
+            level: gradeCallQuality(rttMs, packetLossPct),
+            rttMs,
+            packetLossPct,
+          });
+        }
+      } catch (_) {}
+    };
+    void sample();
+    const interval = setInterval(sample, 2500);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [callState]);
 
   // Accept incoming call (callee)
   const acceptCall = useCallback(async () => {
@@ -589,6 +662,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     callChatId,
     callPeer,
     callDuration,
+    callQuality,
     isMuted,
     isCameraOff,
     isSpeakerOn,

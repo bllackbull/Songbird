@@ -8,6 +8,10 @@ import {
   Volume2,
   VolumeX,
   Lock,
+  SignalHigh,
+  SignalMedium,
+  SignalLow,
+  SignalZero,
 } from "../../icons/lucide.js";
 import Avatar from "../common/Avatar.jsx";
 import Tooltip from "../common/Tooltip.jsx";
@@ -20,11 +24,47 @@ function formatDuration(seconds) {
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
 
+const SIGNAL_LEVELS = {
+  1: { Icon: SignalZero, color: "text-red-400", name: "Bad" },
+  2: { Icon: SignalLow, color: "text-yellow-400", name: "Medium" },
+  3: { Icon: SignalMedium, color: "text-emerald-400", name: "Good" },
+  4: { Icon: SignalHigh, color: "text-emerald-300", name: "Excellent" },
+};
+
+function SignalIndicator({ quality }) {
+  const level = quality?.level ?? 0;
+  const entry = SIGNAL_LEVELS[level];
+  const parts = [];
+  if (Number.isFinite(quality?.rttMs)) parts.push(`${Math.round(quality.rttMs)}ms ping`);
+  if (Number.isFinite(quality?.packetLossPct))
+    parts.push(`${quality.packetLossPct.toFixed(1)}% loss`);
+  const label = entry
+    ? `Connection ${entry.name.toLowerCase()}${parts.length ? ` — ${parts.join(", ")}` : ""}`
+    : "Measuring connection…";
+  return (
+    <Tooltip label={label}>
+      <span
+        className="relative inline-flex -translate-y-[2px]"
+        role="img"
+        aria-label={entry ? `Connection: ${entry.name}` : "Connection: measuring"}
+      >
+        <SignalHigh size={22} className="text-white/20" />
+        {entry ? (
+          <span className="absolute inset-0 inline-flex" aria-hidden="true">
+            <entry.Icon size={22} className={entry.color} />
+          </span>
+        ) : null}
+      </span>
+    </Tooltip>
+  );
+}
+
 export const CallScreen = memo(function CallScreen({
   callState,
   callType,
   callPeer,
   callDuration,
+  callQuality,
   isMuted,
   isCameraOff,
   isSpeakerOn,
@@ -134,7 +174,8 @@ export const CallScreen = memo(function CallScreen({
               >
                 {peerName}
               </h2>
-              <p className="mt-0.5 text-sm font-medium text-emerald-400">
+              <p className="mt-0.5 flex items-center gap-1.5 text-sm font-medium text-emerald-400">
+                <SignalIndicator quality={callQuality} />
                 {stateLabel}
               </p>
             </div>
