@@ -406,4 +406,35 @@ describe("CallScreen controls layout", () => {
       expect(name.element().className).toContain("truncate");
     });
   });
+
+  describe("install bar stacking trap", () => {
+    // The app shell renders `position: relative; z-index: var(--app-z, 20)`
+    // (App.jsx), which creates a stacking context at level 20. CallScreen
+    // renders inside that shell, so its z-[9999] is clamped to 20 while the
+    // fixed InstallBar sibling sits at z=40 - the call modal painted below
+    // the bar. It must portal to document.body like Tooltip.
+    function stackingShell() {
+      // Mimic the app shell's stacking context: relative + z-index + overflow.
+      const ctx = document.createElement("div");
+      Object.assign(ctx.style, {
+        position: "relative",
+        zIndex: "20",
+        overflow: "hidden",
+      });
+      document.body.appendChild(ctx);
+      return ctx;
+    }
+
+    test("call dialog escapes the shell stacking context to body", async () => {
+      const ctx = stackingShell();
+      render(<CallScreen {...makeProps({ callState: "connected", callType: "voice" })} />, {
+        container: ctx,
+      });
+      await expect.element(page.getByRole("dialog")).toBeInTheDocument();
+
+      const dialog = page.getByRole("dialog").element();
+      expect(ctx.contains(dialog)).toBe(false);
+      expect(document.body.contains(dialog)).toBe(true);
+    });
+  });
 });

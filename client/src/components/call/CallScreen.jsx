@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   Mic,
   Video,
@@ -126,7 +127,7 @@ export const CallScreen = memo(function CallScreen({
           ? formatDuration(callDuration)
           : "";
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center md:bg-black/45 md:px-5">
       <div
         role="dialog"
@@ -327,6 +328,7 @@ export const CallScreen = memo(function CallScreen({
         )}
       </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 });
