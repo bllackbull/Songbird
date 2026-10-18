@@ -109,9 +109,56 @@ self.addEventListener("push", (event) => {
   } catch {
     payload = { title: "Songbird", body: event.data?.text?.() || "" };
   }
+  const data = payload.data || {};
+
+  // Call pushes are handled before the generic message path. The dismiss
+  // branch must always run — even when a window is focused. The incoming
+  // branch suppresses display when a window is focused: the realtime
+  // call:incoming ring covers focused windows (same trade-off as messages).
+  if (data.callPush === "incoming" || data.callPush === "dismiss") {
+    const callTag = `call-${data.chatId || "unknown"}`;
+    event.waitUntil(
+      (async () => {
+        if (data.callPush === "dismiss") {
+          try {
+            const existing = await self.registration.getNotifications({
+              tag: callTag,
+            });
+            existing.forEach((notification) => notification.close());
+          } catch {
+            // a dismiss that cannot run must not throw
+          }
+          return;
+        }
+        const clients = await self.clients.matchAll({
+          type: "window",
+          includeUncontrolled: true,
+        });
+        const appFocused = clients.some((client) =>
+          "focused" in client
+            ? Boolean(client.focused)
+            : false,
+        );
+        if (appFocused) {
+          // A focused Songbird window rings in-app via realtime.
+          return;
+        }
+        await self.registration.showNotification(payload.title || "Songbird", {
+          body: payload.body || "",
+          data,
+          tag: callTag,
+          renotify: true,
+          requireInteraction: true,
+          badge: "/icons/icon-192.png",
+          icon: "/icons/icon-192.png",
+        });
+      })(),
+    );
+    return;
+  }
+
   const title = payload.title || "Songbird";
   const body = payload.body || "New message";
-  const data = payload.data || {};
   const badgeCount = Number(payload.badge || 0);
   const tag = data.chatId ? `chat-${data.chatId}` : "songbird";
   const options = {
