@@ -59,7 +59,7 @@ const LABELLABLE_TAGS = new Set([
 ]);
 
 const TOOLTIP_CLS =
-  "pointer-events-none fixed z-400 max-w-[min(18rem,calc(100vw-1rem))] break-words rounded-md bg-emerald-400 px-2 py-1 text-[10px] font-semibold leading-snug text-white shadow-lg";
+  "pointer-events-none fixed z-[100000] max-w-[min(18rem,calc(100vw-1rem))] break-words rounded-md bg-emerald-400 px-2 py-1 text-[10px] font-semibold leading-snug text-white shadow-lg";
 
 // True when a node tree renders literal text somewhere inside it. Used to skip
 // the automatic `aria-label` on controls that already have a visible text name,

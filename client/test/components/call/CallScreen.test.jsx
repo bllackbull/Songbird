@@ -1,4 +1,13 @@
-import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
+import {
+  describe,
+  test,
+  expect,
+  vi,
+  beforeEach,
+  afterEach,
+  beforeAll,
+  afterAll,
+} from "vitest";
 import { render } from "vitest-browser-react";
 import { page, userEvent } from "vitest/browser";
 import { CallScreen } from "../../../src/components/call/CallScreen.jsx";
@@ -275,6 +284,84 @@ describe("CallScreen controls layout", () => {
       expect(remote).toBeNull();
       expect(local).toBeNull();
       expect(placeholder).toBeNull();
+    });
+  });
+
+  describe("Secure badge tooltip stacking", () => {
+    // Tailwind is not loaded in browser tests, so declare the utilities the
+    // stacking assertion depends on: the call screen overlay's and the
+    // tooltip pill's (bracketed class names are CSS-escaped in selectors).
+    const CSS = `
+      .fixed{position:fixed}
+      .z-\\[9999\\]{z-index:9999}
+      .z-\\[100000\\]{z-index:100000}
+      .z-20{z-index:20}
+      .z-30{z-index:30}
+    `;
+    let styleEl;
+    beforeAll(() => {
+      styleEl = document.createElement("style");
+      styleEl.textContent = CSS;
+      document.head.appendChild(styleEl);
+    });
+    afterAll(() => styleEl.remove());
+
+    test("Secure badge tooltip stacks above the call screen overlay", async () => {
+      render(
+        <CallScreen
+          {...makeProps({ callState: "connected", callType: "voice" })}
+        />,
+      );
+      await page.getByText("Secure").hover();
+      await expect.element(page.getByRole("tooltip")).toBeInTheDocument();
+
+      const tooltip = page.getByRole("tooltip").element();
+      const overlay = document.querySelector('[class*="z-[9999]"]');
+      const tooltipZ = Number(getComputedStyle(tooltip).zIndex);
+      const overlayZ = Number(getComputedStyle(overlay).zIndex);
+      expect(tooltipZ).toBeGreaterThan(overlayZ);
+    });
+
+    test("connected peer-info bar moves up but keeps the video stage pinned", async () => {
+      render(
+        <CallScreen
+          {...makeProps({ callState: "connected", callType: "voice" })}
+        />,
+      );
+      const name = page.getByText("Alice");
+      await expect.element(name).toBeInTheDocument();
+      const bar = name.element().closest("div.relative.z-20");
+      // The bar must keep its ORIGINAL total height (pt-14 + pb-6 == the old
+      // pt-20) so the flex-1 video stage below does not expand upward when the
+      // avatar content moves up - otherwise the camera box would travel up
+      // with it and the two would still nearly overlap.
+      expect(bar.className).toContain("pt-14");
+      expect(bar.className).toContain("pb-6");
+      expect(bar.className).not.toContain("pt-20");
+    });
+
+    test("Secure badge zone outstacks the peer-info bar for hit-testing", async () => {
+      render(
+        <CallScreen
+          {...makeProps({ callState: "connected", callType: "voice" })}
+        />,
+      );
+      const name = page.getByText("Alice");
+      await expect.element(name).toBeInTheDocument();
+
+      // The badge hovering zone and the peer-info bar both span the badge's
+      // on-screen position; with an equal z-index the later DOM node (the
+      // bar, with its transparent top padding) wins pointer events and the
+      // Tooltips around the badge never see a hover. The badge zone must sit
+      // strictly above it.
+      const badgeZone = page
+        .getByText("Secure")
+        .element()
+        .closest("div.absolute");
+      const bar = name.element().closest("div.relative.z-20");
+      const badgeZ = Number(getComputedStyle(badgeZone).zIndex);
+      const barZ = Number(getComputedStyle(bar).zIndex);
+      expect(badgeZ).toBeGreaterThan(barZ);
     });
   });
 });

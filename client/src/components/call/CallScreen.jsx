@@ -139,8 +139,8 @@ export const CallScreen = memo(function CallScreen({
       ) : null}
 
       {/* Secure badge - very top */}
-      <div className="absolute inset-x-0 top-0 z-20 flex justify-center pt-4">
-        <Tooltip label="Peer-to-peer encrypted — your call never lands on any server.">
+      <div className="absolute inset-x-0 top-0 z-30 flex justify-center pt-4">
+        <Tooltip label="Peer-to-peer encrypted">
           <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-400">
             <Lock size={12} />
             Secure
@@ -150,7 +150,7 @@ export const CallScreen = memo(function CallScreen({
 
       {/* Top section - peer info */}
       {callState === "connected" ? (
-        <div className="relative z-20 flex w-full shrink-0 justify-center pb-0 pt-20">
+        <div className="relative z-20 flex w-full shrink-0 justify-center pb-6 pt-14">
           <div className="flex w-60 flex-row items-center gap-3">
             <Avatar
               src={callPeer?.avatar || ""}
@@ -177,7 +177,7 @@ export const CallScreen = memo(function CallScreen({
           </div>
         </div>
       ) : (
-        <div className="relative z-20 flex shrink-0 flex-col items-center pt-20">
+        <div className="relative z-20 flex shrink-0 flex-col items-center pt-14">
           <Avatar
             src={callPeer?.avatar || ""}
             alt={peerName}
