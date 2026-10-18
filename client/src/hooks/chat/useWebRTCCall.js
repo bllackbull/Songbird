@@ -273,7 +273,8 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     [postSignal, resetCallState]
   );
 
-  // Sync media streams onto media elements once they mount.
+  // Associate media streams with the media elements once they mount or when a
+  // new remote stream arrives.
   useEffect(() => {
     if (callState !== "connected") return;
     if (localVideoRef.current && localStreamRef.current) {
@@ -281,14 +282,22 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     }
     if (remoteVideoRef.current && remoteStreamRef.current) {
       remoteVideoRef.current.srcObject = remoteStreamRef.current;
-      remoteVideoRef.current.muted = !isSpeakerOn;
     }
     if (remoteAudioRef.current && remoteStreamRef.current) {
       remoteAudioRef.current.srcObject = remoteStreamRef.current;
-      remoteAudioRef.current.muted = !isSpeakerOn;
       remoteAudioRef.current.play?.().catch(() => {});
     }
-  }, [callState, callType, remoteStreamTick, isSpeakerOn]);
+  }, [callState, callType, remoteStreamTick]);
+
+  // Speaker toggle flips mute on the remote media elements.
+  useEffect(() => {
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.muted = !isSpeakerOn;
+    }
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.muted = !isSpeakerOn;
+    }
+  }, [isSpeakerOn, callState, callType, remoteStreamTick]);
 
   // Sample WebRTC stats while connected to derive signal bars from
   // round-trip time (ping) and packet loss. Resets when the call ends.
