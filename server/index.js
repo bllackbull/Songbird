@@ -571,6 +571,8 @@ const callManager = createCallManager({
     emitSseEvent(username, payload);
     wsPresenceBroadcaster?.(username, payload);
   },
+  sendPushNotificationToUsers: (...args) =>
+    pushService.sendPushNotificationToUsers(...args),
 });
 
 const pushService = createPushService({

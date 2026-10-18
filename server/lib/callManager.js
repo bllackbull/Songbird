@@ -10,6 +10,7 @@ export function createCallManager(deps) {
     listChatMembers,
     findUserById,
     emitToUser,
+    sendPushNotificationToUsers,
     env = process.env,
   } = deps;
 
@@ -31,6 +32,26 @@ export function createCallManager(deps) {
       });
     }
     return servers;
+  }
+
+  function sendCallPush(userIds, payload) {
+    if (typeof sendPushNotificationToUsers !== "function") return;
+    try {
+      void Promise.resolve(
+        sendPushNotificationToUsers(userIds, payload),
+      ).catch(() => {
+        // Push must never break call flow; realtime emit is the source of truth.
+      });
+    } catch {
+      // ignore synchronous throw
+    }
+  }
+
+  function dismissCallPush(call) {
+    if (!call || call.status !== "ringing") return;
+    sendCallPush([call.calleeId], {
+      data: { callPush: "dismiss", chatId: call.chatId },
+    });
   }
 
   function getActiveCall(chatId) {
@@ -138,6 +159,17 @@ export function createCallManager(deps) {
       });
     }
 
+    sendCallPush([callee.id], {
+      title: `Incoming ${call.type} call from ${user.nickname || user.username}`,
+      body: "Tap to answer",
+      data: {
+        callPush: "incoming",
+        chatId: normalizedChatId,
+        callType: call.type,
+        url: "/",
+      },
+    });
+
     return { status: 200, call };
   }
 
@@ -157,6 +189,8 @@ export function createCallManager(deps) {
     ) {
       return { status: 403, error: "Only the recipient can accept the call" };
     }
+
+    dismissCallPush(call);
 
     call.status = "connected";
 
@@ -186,6 +220,8 @@ export function createCallManager(deps) {
 
     activeCalls.delete(key);
 
+    dismissCallPush(call);
+
     const peer = peerUsernameOf(call, user.username);
     if (typeof emitToUser === "function" && peer) {
       emitToUser(peer, {
@@ -212,6 +248,8 @@ export function createCallManager(deps) {
     }
 
     activeCalls.delete(key);
+
+    dismissCallPush(call);
 
     const peer = peerUsernameOf(call, user.username);
     if (typeof emitToUser === "function" && peer) {
@@ -259,6 +297,9 @@ export function createCallManager(deps) {
         String(call.calleeUsername).toLowerCase() === lower
       ) {
         activeCalls.delete(key);
+
+        dismissCallPush(call);
+
         const peer = peerUsernameOf(call, lower);
         if (typeof emitToUser === "function" && peer) {
           emitToUser(peer, {

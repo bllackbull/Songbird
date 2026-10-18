@@ -41,6 +41,7 @@ describe("callManager", () => {
         u === "alice" ? callerUser : calleeUser,
       ),
       emitToUser: vi.fn(),
+      sendPushNotificationToUsers: vi.fn(),
     };
     callManager = createCallManager(mockDeps);
   });
@@ -311,6 +312,135 @@ describe("callManager", () => {
         type: "call:ended",
         chatId: dummyChatId,
       });
+    });
+  });
+
+  describe("call push notifications", () => {
+    const incomingPayload = {
+      title: "Incoming video call from Alice",
+      body: "Tap to answer",
+      data: {
+        callPush: "incoming",
+        chatId: dummyChatId,
+        callType: "video",
+        url: "/",
+      },
+    };
+    const dismissPayload = {
+      data: { callPush: "dismiss", chatId: dummyChatId },
+    };
+
+    it("sends incoming push to callee on startCall", async () => {
+      await callManager.startCall({
+        user: callerUser,
+        chatId: dummyChatId,
+        type: "video",
+      });
+      expect(mockDeps.sendPushNotificationToUsers).toHaveBeenCalledTimes(1);
+      expect(mockDeps.sendPushNotificationToUsers).toHaveBeenCalledWith(
+        [dummyUserId2],
+        incomingPayload,
+      );
+    });
+
+    it("sends dismiss push when caller ends a ringing call", async () => {
+      await callManager.startCall({
+        user: callerUser,
+        chatId: dummyChatId,
+        type: "voice",
+      });
+      mockDeps.sendPushNotificationToUsers.mockClear();
+      await callManager.endCall({ user: callerUser, chatId: dummyChatId });
+      expect(mockDeps.sendPushNotificationToUsers).toHaveBeenCalledTimes(1);
+      expect(mockDeps.sendPushNotificationToUsers).toHaveBeenCalledWith(
+        [dummyUserId2],
+        dismissPayload,
+      );
+    });
+
+    it("sends dismiss push when callee accepts (clears other devices)", async () => {
+      await callManager.startCall({
+        user: callerUser,
+        chatId: dummyChatId,
+        type: "voice",
+      });
+      mockDeps.sendPushNotificationToUsers.mockClear();
+      await callManager.acceptCall({ user: calleeUser, chatId: dummyChatId });
+      expect(mockDeps.sendPushNotificationToUsers).toHaveBeenCalledTimes(1);
+      expect(mockDeps.sendPushNotificationToUsers).toHaveBeenCalledWith(
+        [dummyUserId2],
+        dismissPayload,
+      );
+    });
+
+    it("does not send dismiss push when ending a connected call", async () => {
+      await callManager.startCall({
+        user: callerUser,
+        chatId: dummyChatId,
+        type: "voice",
+      });
+      await callManager.acceptCall({ user: calleeUser, chatId: dummyChatId });
+      mockDeps.sendPushNotificationToUsers.mockClear();
+      await callManager.endCall({ user: calleeUser, chatId: dummyChatId });
+      expect(mockDeps.sendPushNotificationToUsers).not.toHaveBeenCalled();
+    });
+
+    it("sends dismiss push when callee rejects a ringing call", async () => {
+      await callManager.startCall({
+        user: callerUser,
+        chatId: dummyChatId,
+        type: "voice",
+      });
+      mockDeps.sendPushNotificationToUsers.mockClear();
+      await callManager.rejectCall({ user: calleeUser, chatId: dummyChatId });
+      expect(mockDeps.sendPushNotificationToUsers).toHaveBeenCalledTimes(1);
+      expect(mockDeps.sendPushNotificationToUsers).toHaveBeenCalledWith(
+        [dummyUserId2],
+        dismissPayload,
+      );
+    });
+
+    it("sends dismiss push on cleanupUserCalls of a ringing call", async () => {
+      await callManager.startCall({
+        user: callerUser,
+        chatId: dummyChatId,
+        type: "voice",
+      });
+      mockDeps.sendPushNotificationToUsers.mockClear();
+      callManager.cleanupUserCalls("alice");
+      expect(mockDeps.sendPushNotificationToUsers).toHaveBeenCalledTimes(1);
+      expect(mockDeps.sendPushNotificationToUsers).toHaveBeenCalledWith(
+        [dummyUserId2],
+        dismissPayload,
+      );
+    });
+
+    it("does not send dismiss push on cleanupUserCalls of a connected call", async () => {
+      await callManager.startCall({
+        user: callerUser,
+        chatId: dummyChatId,
+        type: "voice",
+      });
+      await callManager.acceptCall({ user: calleeUser, chatId: dummyChatId });
+      mockDeps.sendPushNotificationToUsers.mockClear();
+      callManager.cleanupUserCalls("alice");
+      expect(mockDeps.sendPushNotificationToUsers).not.toHaveBeenCalled();
+    });
+
+    it("does not break call flow when push delivery throws", async () => {
+      mockDeps.sendPushNotificationToUsers.mockRejectedValue(
+        new Error("push service down"),
+      );
+      const res = await callManager.startCall({
+        user: callerUser,
+        chatId: dummyChatId,
+        type: "voice",
+      });
+      expect(res.status).toBe(200);
+      expect(mockDeps.emitToUser).toHaveBeenCalledWith(
+        "bob",
+        expect.objectContaining({ type: "call:incoming" }),
+      );
     });
   });
 });
