@@ -567,6 +567,7 @@ const callManager = createCallManager({
   isMember,
   findChatById,
   listChatMembers,
+  findUserById,
   emitToUser: (username, payload) => {
     emitSseEvent(username, payload);
     wsPresenceBroadcaster?.(username, payload);

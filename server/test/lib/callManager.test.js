@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
 import { createCallManager } from "../../lib/callManager.js";
 
 describe("callManager", () => {
@@ -375,6 +376,23 @@ describe("callManager", () => {
       const incoming = await callManager.getIncomingCallForUser("BOB");
       expect(incoming).not.toBeNull();
       expect(incoming.chatId).toBe(dummyChatId);
+    });
+  });
+
+  describe("production wiring (index.js)", () => {
+    it("wires findUserById into createCallManager so replayed incoming calls hydrate caller info", () => {
+      // index.js cannot be imported in tests (WASM init at module load), so
+      // assert the dependency wiring textually. Without findUserById,
+      // getIncomingCallForUser degrades to username-only caller info
+      // (no nickname, no avatar) on cold app open.
+      const source = readFileSync(
+        new URL("../../index.js", import.meta.url),
+        "utf8",
+      );
+      const start = source.indexOf("const callManager = createCallManager({");
+      expect(start).toBeGreaterThan(-1);
+      const block = source.slice(start, source.indexOf("});", start));
+      expect(block).toMatch(/\bfindUserById\b/);
     });
   });
 
