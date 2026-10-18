@@ -32,6 +32,14 @@ export function registerCallRoutes(app, deps) {
     res.json(callManager.getIceServers());
   });
 
+  // Returns the still-ringing incoming call for the authenticated user.
+  app.get("/api/calls/incoming", async (req, res) => {
+    const user = requireUser(req, res);
+    if (!user) return;
+    const incoming = await callManager.getIncomingCallForUser(user.username);
+    res.json({ call: incoming || null });
+  });
+
   // POST /api/calls/start
   app.post("/api/calls/start", async (req, res) => {
     const user = requireUser(req, res);

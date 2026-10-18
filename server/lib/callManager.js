@@ -173,6 +173,32 @@ export function createCallManager(deps) {
     return { status: 200, call };
   }
 
+  // Lets a client that opens the app after the call started discover it.
+  async function getIncomingCallForUser(username) {
+    if (!username) return null;
+    const lower = String(username).toLowerCase();
+    for (const call of activeCalls.values()) {
+      if (call.status !== "ringing") continue;
+      if (String(call.calleeUsername).toLowerCase() !== lower) continue;
+      const caller =
+        typeof findUserById === "function"
+          ? await findUserById(call.callerId)
+          : null;
+      return {
+        type: "call:incoming",
+        chatId: call.chatId,
+        callType: call.type,
+        caller: {
+          id: call.callerId,
+          username: call.callerUsername,
+          nickname: caller?.nickname || call.callerUsername,
+          avatarUrl: caller?.avatar_url || "",
+        },
+      };
+    }
+    return null;
+  }
+
   async function acceptCall({ user, chatId }) {
     if (!user?.username) {
       return { status: 401, error: "Not authenticated" };
@@ -314,6 +340,7 @@ export function createCallManager(deps) {
   return {
     getIceServers,
     getActiveCall,
+    getIncomingCallForUser,
     startCall,
     acceptCall,
     rejectCall,

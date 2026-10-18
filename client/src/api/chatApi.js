@@ -792,6 +792,17 @@ export async function fetchIceServers() {
   }
 }
 
+// Asks the server whether a call is currently ringing for this user.
+export async function fetchIncomingCall() {
+  try {
+    const res = await apiFetch(`${API_BASE}/api/calls/incoming`);
+    if (!res.ok) return null;
+    return await res.json().catch(() => null);
+  } catch {
+    return null;
+  }
+}
+
 export async function sendCallSignal(action, body = {}) {
   try {
     const res = await apiFetch(`${API_BASE}/api/calls/${action}`, {

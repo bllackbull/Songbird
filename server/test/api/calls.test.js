@@ -63,6 +63,74 @@ describe("/api/calls endpoints", () => {
     });
   });
 
+  describe("GET /api/calls/incoming", () => {
+    it("returns 401 when not authenticated", async () => {
+      const res = await request(app).get("/api/calls/incoming");
+      expect(res.status).toBe(401);
+    });
+
+    it("returns null call when nothing is ringing", async () => {
+      const res = await request(app)
+        .get("/api/calls/incoming")
+        .set("Cookie", "sid=bob-token");
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ call: null });
+    });
+
+    it("replays the ringing call to the callee who had the app closed", async () => {
+      await request(app)
+        .post("/api/calls/start")
+        .set("Cookie", "sid=alice-token")
+        .send({ chatId: CHAT_ID, type: "voice" });
+
+      const res = await request(app)
+        .get("/api/calls/incoming")
+        .set("Cookie", "sid=bob-token");
+      expect(res.status).toBe(200);
+      expect(res.body.call).toEqual({
+        type: "call:incoming",
+        chatId: CHAT_ID,
+        callType: "voice",
+        caller: {
+          id: ALICE_ID,
+          username: "alice",
+          nickname: "Alice",
+          avatarUrl: "",
+        },
+      });
+    });
+
+    it("returns null for the caller", async () => {
+      await request(app)
+        .post("/api/calls/start")
+        .set("Cookie", "sid=alice-token")
+        .send({ chatId: CHAT_ID, type: "voice" });
+
+      const res = await request(app)
+        .get("/api/calls/incoming")
+        .set("Cookie", "sid=alice-token");
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ call: null });
+    });
+
+    it("returns null after the call was accepted", async () => {
+      await request(app)
+        .post("/api/calls/start")
+        .set("Cookie", "sid=alice-token")
+        .send({ chatId: CHAT_ID, type: "voice" });
+      await request(app)
+        .post("/api/calls/accept")
+        .set("Cookie", "sid=bob-token")
+        .send({ chatId: CHAT_ID });
+
+      const res = await request(app)
+        .get("/api/calls/incoming")
+        .set("Cookie", "sid=bob-token");
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ call: null });
+    });
+  });
+
   describe("POST /api/calls/start", () => {
     it("returns 401 when unauthenticated", async () => {
       const res = await request(app)

@@ -388,3 +388,42 @@ describe("chatApi.prepareFilesForMessage", () => {
     expect(result.fileMeta[1].originalName).toBe("doc.pdf");
   });
 });
+
+describe("chatApi.fetchIncomingCall", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("fetches GET /api/calls/incoming and returns the parsed payload", async () => {
+    const incomingPayload = {
+      call: {
+        type: "call:incoming",
+        chatId: "chat-uuid-1",
+        callType: "voice",
+        caller: { username: "alice", nickname: "Alice", avatarUrl: "" },
+      },
+    };
+    const fetchMock = vi.fn(async (url) => {
+      expect(url).toBe("/api/calls/incoming");
+      return { ok: true, json: async () => incomingPayload };
+    });
+    globalThis.fetch = fetchMock;
+
+    const { fetchIncomingCall } = await import("../../src/api/chatApi.js");
+    const result = await fetchIncomingCall();
+
+    expect(result).toEqual(incomingPayload);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("returns null when the request fails", async () => {
+    globalThis.fetch = vi.fn(async () => ({ ok: false, status: 401 }));
+
+    const { fetchIncomingCall } = await import("../../src/api/chatApi.js");
+    const result = await fetchIncomingCall();
+
+    expect(result).toBeNull();
+  });
+});

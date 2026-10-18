@@ -135,4 +135,51 @@ describe("useWebRTCCall state machine and helper logic", () => {
       chatId: "chat-uuid-1",
     });
   });
+
+  it("replays a call fetched at boot into handleSignal and rings", async () => {
+    let callState = "idle";
+    const handled = [];
+
+    const handleSignal = (payload) => {
+      handled.push(payload);
+      if (payload?.type === "call:incoming") {
+        callState = "ringing";
+      }
+    };
+
+    // Fetch any call that rang while the app was closed.
+    const bootReplay = async (fetched) => {
+      if (fetched?.call) {
+        await handleSignal(fetched.call);
+      }
+    };
+
+    await bootReplay({
+      call: {
+        type: "call:incoming",
+        chatId: "chat-uuid-1",
+        callType: "video",
+        caller: { username: "alice", nickname: "Alice", avatarUrl: "" },
+      },
+    });
+
+    expect(handled).toHaveLength(1);
+    expect(callState).toBe("ringing");
+  });
+
+  it("does not touch call state when boot fetch finds no ringing call", async () => {
+    let callState = "idle";
+    const handleSignal = vi.fn();
+
+    const bootReplay = async (fetched) => {
+      if (fetched?.call) {
+        await handleSignal(fetched.call);
+      }
+    };
+
+    await bootReplay({ call: null });
+
+    expect(handleSignal).not.toHaveBeenCalled();
+    expect(callState).toBe("idle");
+  });
 });

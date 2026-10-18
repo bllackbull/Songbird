@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchIceServers, sendCallSignal } from "../../api/chatApi.js";
+import { fetchIceServers, fetchIncomingCall, sendCallSignal } from "../../api/chatApi.js";
 import { isCallSupported } from "../../utils/callCapabilities.js";
 
 /**
@@ -682,6 +682,19 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     },
     [createPeerConnection, postSignal, resetCallState]
   );
+
+  // Recover a call that started while this app was closed.
+  useEffect(() => {
+    let isCancelled = false;
+    void fetchIncomingCall().then((payload) => {
+      if (!isCancelled && payload?.call) {
+        void handleSignal(payload.call);
+      }
+    });
+    return () => {
+      isCancelled = true;
+    };
+  }, [handleSignal]);
 
   // Auto cleanup on unmount
   useEffect(() => {

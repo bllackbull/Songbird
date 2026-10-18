@@ -315,6 +315,69 @@ describe("callManager", () => {
     });
   });
 
+  describe("getIncomingCallForUser", () => {
+    it("returns call:incoming payload for a callee with a ringing call", async () => {
+      await callManager.startCall({
+        user: callerUser,
+        chatId: dummyChatId,
+        type: "video",
+      });
+
+      const incoming = await callManager.getIncomingCallForUser("bob");
+      expect(incoming).toEqual({
+        type: "call:incoming",
+        chatId: dummyChatId,
+        callType: "video",
+        caller: {
+          id: callerUser.id,
+          username: "alice",
+          nickname: "Alice",
+          avatarUrl: "/avatar/alice.png",
+        },
+      });
+    });
+
+    it("returns null when the user is the caller, not the callee", async () => {
+      await callManager.startCall({
+        user: callerUser,
+        chatId: dummyChatId,
+        type: "voice",
+      });
+
+      const incoming = await callManager.getIncomingCallForUser("alice");
+      expect(incoming).toBeNull();
+    });
+
+    it("returns null when there is no active call", async () => {
+      const incoming = await callManager.getIncomingCallForUser("bob");
+      expect(incoming).toBeNull();
+    });
+
+    it("returns null once the call is no longer ringing (accepted)", async () => {
+      await callManager.startCall({
+        user: callerUser,
+        chatId: dummyChatId,
+        type: "voice",
+      });
+      await callManager.acceptCall({ user: calleeUser, chatId: dummyChatId });
+
+      const incoming = await callManager.getIncomingCallForUser("bob");
+      expect(incoming).toBeNull();
+    });
+
+    it("matches username case-insensitively", async () => {
+      await callManager.startCall({
+        user: callerUser,
+        chatId: dummyChatId,
+        type: "voice",
+      });
+
+      const incoming = await callManager.getIncomingCallForUser("BOB");
+      expect(incoming).not.toBeNull();
+      expect(incoming.chatId).toBe(dummyChatId);
+    });
+  });
+
   describe("call push notifications", () => {
     const incomingPayload = {
       title: "Incoming video call from Alice",
