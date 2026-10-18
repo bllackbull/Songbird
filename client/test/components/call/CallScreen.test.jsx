@@ -104,6 +104,7 @@ describe("CallScreen controls layout", () => {
         .toBeInTheDocument();
 
       expect(buttonLabels()).toEqual([
+        "Chat",
         "Turn speaker off",
         "Mute",
         "Turn camera off",
@@ -155,6 +156,7 @@ describe("CallScreen controls layout", () => {
 
       // Camera starts off in voice calls, but the toggle is still shown
       expect(buttonLabels()).toEqual([
+        "Chat",
         "Turn speaker off",
         "Mute",
         "Turn camera on",
@@ -435,6 +437,179 @@ describe("CallScreen controls layout", () => {
       const dialog = page.getByRole("dialog").element();
       expect(ctx.contains(dialog)).toBe(false);
       expect(document.body.contains(dialog)).toBe(true);
+    });
+  });
+
+  describe("Chat button and floating PiP mode", () => {
+    test("Chat button is shown on connected call as icon-only secondary button with h-16 w-16 size", async () => {
+      render(
+        <CallScreen
+          {...makeProps({ callState: "connected", callType: "voice" })}
+        />,
+      );
+      const chatBtn = page.getByRole("button", { name: "Chat" });
+      await expect.element(chatBtn).toBeInTheDocument();
+      const el = chatBtn.element();
+      expect(el.className).toContain("h-16");
+      expect(el.className).toContain("w-16");
+      expect(el.className).toContain("bg-transparent");
+      expect(el.className).not.toContain("border");
+      expect(el.textContent.trim()).toBe("");
+      // Check that it's in the target user bar on the right side with increased side gap
+      const bar = el.closest("div.relative.z-20");
+      expect(bar).not.toBeNull();
+      expect(bar.className).toContain("justify-between");
+      expect(bar.className).toContain("px-10");
+      expect(bar.className).toContain("sm:px-14");
+    });
+
+    test("Chat button is not shown during ringing state", async () => {
+      render(<CallScreen {...makeProps({ callState: "ringing" })} />);
+      await expect
+        .element(page.getByRole("button", { name: "Chat" }))
+        .not.toBeInTheDocument();
+    });
+
+    test("Chat button is not shown during calling state", async () => {
+      render(<CallScreen {...makeProps({ callState: "calling" })} />);
+      await expect
+        .element(page.getByRole("button", { name: "Chat" }))
+        .not.toBeInTheDocument();
+    });
+
+    test("clicking Chat button exits fullscreen and renders floating box in top right corner by default", async () => {
+      render(
+        <CallScreen
+          {...makeProps({
+            callState: "connected",
+            callType: "video",
+            isRemoteCameraOff: false,
+          })}
+        />,
+      );
+      await expect.element(page.getByRole("dialog")).toBeInTheDocument();
+      await userEvent.click(page.getByRole("button", { name: "Chat" }));
+
+      // Fullscreen dialog is gone
+      await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+
+      // Floating box is in the document with top-right positioning and smooth entrance animation
+      const box = page.getByTestId("floating-call-box");
+      await expect.element(box).toBeInTheDocument();
+      expect(box.element().className).toContain("top-6");
+      expect(box.element().className).toContain("right-6");
+      expect(box.element().className).toContain("sb-pip-enter");
+      expect(box.element().getAttribute("role")).toBe("button");
+      expect(box.element().getAttribute("aria-label")).toBe("Return to call");
+
+      // Remote video is rendered inside the floating box
+      const video = box.element().querySelector('video[aria-label="Remote video"]');
+      expect(video).not.toBeNull();
+    });
+
+    test("floating box shows avatar when remote camera is not available", async () => {
+      render(
+        <CallScreen
+          {...makeProps({
+            callState: "connected",
+            callType: "voice",
+            isRemoteCameraOff: true,
+            callPeer: { username: "alice", nickname: "Alice" },
+          })}
+        />,
+      );
+      await userEvent.click(page.getByRole("button", { name: "Chat" }));
+
+      const box = page.getByTestId("floating-call-box");
+      await expect.element(box).toBeInTheDocument();
+
+      // Video element is NOT present
+      const video = box.element().querySelector('video[aria-label="Remote video"]');
+      expect(video).toBeNull();
+
+      // Avatar with peer name and initial is shown
+      expect(box.element().textContent).toContain("Alice");
+      expect(box.element().textContent).toContain("A");
+    });
+
+    test("clicking on the floating box enters fullscreen mode again with reverse expansion animation", async () => {
+      render(
+        <CallScreen
+          {...makeProps({ callState: "connected", callType: "voice" })}
+        />,
+      );
+      await userEvent.click(page.getByRole("button", { name: "Chat" }));
+      await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+
+      const box = page.getByTestId("floating-call-box");
+      await expect.element(box).toBeInTheDocument();
+
+      // Click the box to expand back to fullscreen
+      await userEvent.click(box);
+
+      // Fullscreen dialog is back with reverse expansion animation
+      await expect.element(page.getByRole("dialog")).toBeInTheDocument();
+      expect(page.getByRole("dialog").element().className).toContain("sb-call-modal-enter");
+      await expect.element(page.getByTestId("floating-call-box")).not.toBeInTheDocument();
+    });
+
+    test("dragging the floating box moves it without entering fullscreen", async () => {
+      render(
+        <CallScreen
+          {...makeProps({ callState: "connected", callType: "voice" })}
+        />,
+      );
+      await userEvent.click(page.getByRole("button", { name: "Chat" }));
+      const box = page.getByTestId("floating-call-box");
+      await expect.element(box).toBeInTheDocument();
+
+      const boxEl = box.element();
+      // Simulate drag
+      boxEl.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 200, clientY: 200, button: 0 }));
+      window.dispatchEvent(new PointerEvent("pointermove", { clientX: 250, clientY: 270, button: 0 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { clientX: 250, clientY: 270, button: 0 }));
+
+      // Box should still be in document (did not restore fullscreen)
+      await expect.element(page.getByTestId("floating-call-box")).toBeInTheDocument();
+      await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+      // Style left and top should be set after drag commit
+      await expect.poll(() => boxEl.style.left).toBeTruthy();
+      await expect.poll(() => boxEl.style.top).toBeTruthy();
+    });
+
+    test("floating box always snaps to the nearest corner on drag release", async () => {
+      render(
+        <CallScreen
+          {...makeProps({ callState: "connected", callType: "voice" })}
+        />,
+      );
+      await userEvent.click(page.getByRole("button", { name: "Chat" }));
+      const box = page.getByTestId("floating-call-box");
+      const boxEl = box.element();
+
+      // Drag towards upper-left
+      boxEl.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 200, clientY: 200, button: 0 }));
+      window.dispatchEvent(new PointerEvent("pointermove", { clientX: 80, clientY: 80, button: 0 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { clientX: 80, clientY: 80, button: 0 }));
+
+      // Snaps to CORNER_MARGIN (24px) in the top-left
+      await expect.poll(() => boxEl.style.left).toBe("24px");
+      await expect.poll(() => boxEl.style.top).toBe("24px");
+    });
+
+    test("body overflow is hidden in fullscreen and restored when minimized", async () => {
+      render(
+        <CallScreen
+          {...makeProps({ callState: "connected", callType: "voice" })}
+        />,
+      );
+      await expect.poll(() => document.body.style.overflow).toBe("hidden");
+
+      await userEvent.click(page.getByRole("button", { name: "Chat" }));
+      await expect.poll(() => document.body.style.overflow).toBe("");
+
+      await userEvent.click(page.getByTestId("floating-call-box"));
+      await expect.poll(() => document.body.style.overflow).toBe("hidden");
     });
   });
 });

@@ -904,6 +904,59 @@ label:hover .sb-dash-br {
   }
 }
 
+@keyframes sb-pip-enter {
+  0% {
+    opacity: 0.9;
+    transform: translate(calc(-50vw + 50% + 24px), calc(50vh - 50% - 24px)) scale(2.2);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+.sb-pip-enter {
+  transform-origin: center;
+  animation: sb-pip-enter 380ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes sb-call-modal-enter {
+  0% {
+    opacity: 0.85;
+    transform: translate(var(--pip-origin-x, calc(50vw - 50% - 24px)), var(--pip-origin-y, calc(-50vh + 50% + 24px))) scale(0.45);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+.sb-call-modal-enter {
+  transform-origin: center;
+  animation: sb-call-modal-enter 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes sb-backdrop-enter {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.sb-backdrop-enter {
+  animation: sb-backdrop-enter 260ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sb-pip-enter,
+  .sb-call-modal-enter,
+  .sb-backdrop-enter {
+    animation: none;
+  }
+}
+
 .sb-markdown,
 .sb-markdown-inline {
   line-height: 1.45;

@@ -1,6 +1,7 @@
-import { memo, useEffect, useRef } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  Chat,
   Mic,
   Video,
   Phone,
@@ -79,7 +80,29 @@ export const CallScreen = memo(function CallScreen({
   onToggleMute,
   onToggleCamera,
   onToggleSpeaker,
+  minimized: controlledMinimized,
+  onMinimizeChange,
 }) {
+  const [internalMinimized, setInternalMinimized] = useState(false);
+  const minimized =
+    controlledMinimized !== undefined ? controlledMinimized : internalMinimized;
+  const setMinimized = useCallback(
+    (val) => {
+      setInternalMinimized(val);
+      onMinimizeChange?.(val);
+    },
+    [onMinimizeChange],
+  );
+
+  const [position, setPosition] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [restoredFromPip, setRestoredFromPip] = useState(false);
+  const [pipOriginStyle, setPipOriginStyle] = useState(undefined);
+  const boxRef = useRef(null);
+  const isDraggingRef = useRef(false);
+  const remoteStreamRef = useRef(null);
+  const localStreamRef = useRef(null);
+
   const isVideo = callType === "video";
   const remoteCameraOff =
     isRemoteCameraOff === undefined ? !isVideo : isRemoteCameraOff;
@@ -91,13 +114,207 @@ export const CallScreen = memo(function CallScreen({
   const peerName = callPeer?.nickname || callPeer?.username || "Unknown";
   const peerInitials = getAvatarInitials(peerName);
 
-  // Prevent body scroll while call screen is open
+  // Reset minimized state and dragged position if call disconnects
   useEffect(() => {
+    if (callState !== "connected") {
+      setRestoredFromPip(false);
+      setPipOriginStyle(undefined);
+      setMinimized(false);
+      setPosition(null);
+    }
+  }, [callState, setMinimized]);
+
+  // Prevent body scroll only while call screen is in fullscreen mode
+  useEffect(() => {
+    if (minimized) {
+      document.body.style.overflow = "";
+      return;
+    }
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = "";
     };
-  }, []);
+  }, [minimized]);
+
+  // Clamp and anchor dragged box to its corner on window resize
+  useEffect(() => {
+    if (!position) return;
+    const handleResize = () => {
+      setPosition((prev) => {
+        if (!prev) return null;
+        const CORNER_MARGIN = 24;
+        const width = 176;
+        const height = 235;
+        const cornerRight = Math.max(
+          CORNER_MARGIN,
+          window.innerWidth - width - CORNER_MARGIN,
+        );
+        const cornerBottom = Math.max(
+          CORNER_MARGIN,
+          window.innerHeight - height - CORNER_MARGIN,
+        );
+        return {
+          x: prev.x < window.innerWidth / 2 ? CORNER_MARGIN : cornerRight,
+          y: prev.y < window.innerHeight / 2 ? CORNER_MARGIN : cornerBottom,
+        };
+      });
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [position]);
+
+  // Maintain active media stream references so switching between fullscreen
+  // and floating PiP doesn't lose audio/video feeds.
+  const handleRemoteVideoRef = (node) => {
+    if (remoteVideoRef) {
+      if (typeof remoteVideoRef === "function") {
+        remoteVideoRef(node);
+      } else {
+        if (remoteVideoRef.current?.srcObject) {
+          remoteStreamRef.current = remoteVideoRef.current.srcObject;
+        }
+        remoteVideoRef.current = node;
+      }
+    }
+    if (node) {
+      if (remoteStreamRef.current && node.srcObject !== remoteStreamRef.current) {
+        node.srcObject = remoteStreamRef.current;
+      }
+      node.muted = !isSpeakerOn;
+      node.play?.().catch(() => {});
+    }
+  };
+
+  const handleRemoteAudioRef = (node) => {
+    if (remoteAudioRef) {
+      if (typeof remoteAudioRef === "function") {
+        remoteAudioRef(node);
+      } else {
+        if (remoteAudioRef.current?.srcObject) {
+          remoteStreamRef.current = remoteAudioRef.current.srcObject;
+        }
+        remoteAudioRef.current = node;
+      }
+    }
+    if (node) {
+      if (remoteStreamRef.current && node.srcObject !== remoteStreamRef.current) {
+        node.srcObject = remoteStreamRef.current;
+      }
+      node.muted = !isSpeakerOn;
+      node.play?.().catch(() => {});
+    }
+  };
+
+  const handleLocalVideoRef = (node) => {
+    if (localVideoRef) {
+      if (typeof localVideoRef === "function") {
+        localVideoRef(node);
+      } else {
+        if (localVideoRef.current?.srcObject) {
+          localStreamRef.current = localVideoRef.current.srcObject;
+        }
+        localVideoRef.current = node;
+      }
+    }
+    if (node) {
+      if (localStreamRef.current && node.srcObject !== localStreamRef.current) {
+        node.srcObject = localStreamRef.current;
+      }
+      node.play?.().catch(() => {});
+    }
+  };
+
+  const handlePointerDown = (e) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    const box = boxRef.current;
+    if (!box) return;
+    const rect = box.getBoundingClientRect();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const origX = rect.left;
+    const origY = rect.top;
+    const rectWidth = rect.width;
+    const rectHeight = rect.height;
+    let moved = false;
+    let currentX = origX;
+    let currentY = origY;
+
+    const onPointerMove = (moveEvent) => {
+      const dx = moveEvent.clientX - startX;
+      const dy = moveEvent.clientY - startY;
+      if (!moved && Math.hypot(dx, dy) > 4) {
+        moved = true;
+        isDraggingRef.current = true;
+        setIsDragging(true);
+      }
+      if (moved) {
+        const maxX = Math.max(0, window.innerWidth - rectWidth);
+        const maxY = Math.max(0, window.innerHeight - rectHeight);
+        currentX = Math.min(Math.max(0, origX + dx), maxX);
+        currentY = Math.min(Math.max(0, origY + dy), maxY);
+        setPosition({ x: currentX, y: currentY });
+      }
+    };
+
+    const onPointerUp = () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+      if (moved) {
+        setIsDragging(false);
+
+        // Always snap to the nearest corner on release
+        const CORNER_MARGIN = 24;
+        const cornerLeft = CORNER_MARGIN;
+        const cornerRight = Math.max(
+          CORNER_MARGIN,
+          window.innerWidth - rectWidth - CORNER_MARGIN,
+        );
+        const cornerTop = CORNER_MARGIN;
+        const cornerBottom = Math.max(
+          CORNER_MARGIN,
+          window.innerHeight - rectHeight - CORNER_MARGIN,
+        );
+
+        const snapX =
+          currentX + rectWidth / 2 < window.innerWidth / 2
+            ? cornerLeft
+            : cornerRight;
+        const snapY =
+          currentY + rectHeight / 2 < window.innerHeight / 2
+            ? cornerTop
+            : cornerBottom;
+
+        setPosition({ x: snapX, y: snapY });
+
+        setTimeout(() => {
+          isDraggingRef.current = false;
+        }, 50);
+      }
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
+  };
+
+  const handleBoxClick = () => {
+    if (isDraggingRef.current) return;
+    const box = boxRef.current;
+    if (box) {
+      const rect = box.getBoundingClientRect();
+      const targetDeltaX = rect.left + rect.width / 2 - window.innerWidth / 2;
+      const targetDeltaY = rect.top + rect.height / 2 - window.innerHeight / 2;
+      setPipOriginStyle({
+        "--pip-origin-x": `${targetDeltaX}px`,
+        "--pip-origin-y": `${targetDeltaY}px`,
+      });
+    } else {
+      setPipOriginStyle(undefined);
+    }
+    setRestoredFromPip(true);
+    setMinimized(false);
+  };
 
   const ringtoneRef = useRef(null);
 
@@ -128,56 +345,126 @@ export const CallScreen = memo(function CallScreen({
           : "";
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center md:bg-black/45 md:px-5">
+    minimized ? (
       <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Call"
-        className="relative flex h-full w-full flex-col items-center justify-between overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 md:h-[min(800px,calc(100dvh-2rem))] md:max-w-[400px] md:rounded-3xl md:shadow-xl"
+        ref={boxRef}
+        data-testid="floating-call-box"
+        role="button"
+        tabIndex={0}
+        aria-label="Return to call"
+        title="Click to expand"
+        onPointerDown={handlePointerDown}
+        onClick={handleBoxClick}
+        className={`fixed z-[9999] sb-pip-enter select-none touch-none aspect-[3/4] w-36 sm:w-44 rounded-2xl border-2 border-white/20 shadow-2xl overflow-hidden bg-slate-900 cursor-grab active:cursor-grabbing ${
+          isDragging
+            ? "transition-none"
+            : "transition-[left,top] duration-200 ease-out"
+        } ${position ? "" : "top-6 right-6"}`}
+        style={position ? { left: `${position.x}px`, top: `${position.y}px` } : undefined}
       >
-      {isConnected && !remoteOn ? (
-        <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
-      ) : null}
-
-      {/* Secure badge - very top */}
-      <div className="absolute inset-x-0 top-0 z-30 flex justify-center pt-4">
-        <Tooltip label="Peer-to-peer encrypted">
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-400">
-            <Lock size={12} />
-            Secure
-          </span>
-        </Tooltip>
-      </div>
-
-      {/* Top section - peer info */}
-      {callState === "connected" ? (
-        <div className="relative z-20 flex w-full shrink-0 justify-center pb-6 pt-14">
-          <div className="flex w-60 flex-row items-center gap-3">
+        {remoteOn ? (
+          <video
+            ref={handleRemoteVideoRef}
+            autoPlay
+            playsInline
+            aria-label="Remote video"
+            className="h-full w-full object-cover pointer-events-none"
+          />
+        ) : (
+          <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-b from-slate-800 to-slate-900 p-3 select-none pointer-events-none">
             <Avatar
               src={callPeer?.avatar || ""}
               alt={peerName}
               name={peerName}
               color="#10b981"
               initials={peerInitials}
-              className="h-14 w-14 shrink-0 text-lg shadow-xl ring-4 ring-white/10"
+              className="h-16 w-16 text-xl shadow-lg ring-2 ring-white/10"
             />
-            <div className="flex min-w-0 flex-col">
-              <h2
-                className={`truncate text-lg font-semibold text-white ${
-                  hasPersian(peerName) ? "font-fa sb-fa-baseline-fix" : ""
-                }`}
-                dir="auto"
-              >
-                {peerName}
-              </h2>
-              <p className="mt-0.5 flex items-center gap-1.5 text-sm font-medium text-emerald-400">
-                <SignalIndicator quality={callQuality} />
-                {stateLabel}
-              </p>
-            </div>
+            <span
+              className={`mt-2 max-w-[90%] truncate text-xs font-semibold text-white/90 ${
+                hasPersian(peerName) ? "font-fa sb-fa-baseline-fix" : ""
+              }`}
+              dir="auto"
+            >
+              {peerName}
+            </span>
           </div>
+        )}
+        {!remoteOn ? (
+          <audio ref={handleRemoteAudioRef} autoPlay playsInline className="hidden" />
+        ) : null}
+      </div>
+    ) : (
+      <div
+        className={`fixed inset-0 z-[9999] flex items-center justify-center md:bg-black/45 md:px-5 ${
+          restoredFromPip ? "sb-backdrop-enter" : ""
+        }`}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Call"
+          className={`relative flex h-full w-full flex-col items-center justify-between overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 md:h-[min(800px,calc(100dvh-2rem))] md:max-w-[400px] md:rounded-3xl md:shadow-xl ${
+            restoredFromPip ? "sb-call-modal-enter" : ""
+          }`}
+          style={restoredFromPip ? pipOriginStyle : undefined}
+        >
+        {isConnected && !remoteOn ? (
+          <audio ref={handleRemoteAudioRef} autoPlay playsInline className="hidden" />
+        ) : null}
+
+        {/* Secure badge - very top */}
+        <div className="absolute inset-x-0 top-0 z-30 flex justify-center pt-4">
+          <Tooltip label="Peer-to-peer encrypted">
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-400">
+              <Lock size={12} />
+              Secure
+            </span>
+          </Tooltip>
         </div>
-      ) : (
+
+        {/* Top section - peer info */}
+        {callState === "connected" ? (
+          <div className="relative z-20 flex w-full shrink-0 items-center justify-between px-10 sm:px-14 pb-6 pt-14">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <Avatar
+                src={callPeer?.avatar || ""}
+                alt={peerName}
+                name={peerName}
+                color="#10b981"
+                initials={peerInitials}
+                className="h-14 w-14 shrink-0 text-lg shadow-xl ring-4 ring-white/10"
+              />
+              <div className="flex min-w-0 flex-col">
+                <h2
+                  className={`truncate text-lg font-semibold text-white ${
+                    hasPersian(peerName) ? "font-fa sb-fa-baseline-fix" : ""
+                  }`}
+                  dir="auto"
+                >
+                  {peerName}
+                </h2>
+                <p className="mt-0.5 flex items-center gap-1.5 text-sm font-medium text-emerald-400">
+                  <SignalIndicator quality={callQuality} />
+                  {stateLabel}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setRestoredFromPip(false);
+                setPipOriginStyle(undefined);
+                setPosition(null);
+                setMinimized(true);
+              }}
+              className="ml-3 flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-transparent text-white/90 transition hover:bg-white/10 hover:text-white cursor-pointer"
+              aria-label="Chat"
+            >
+              <Chat size={26} />
+            </button>
+          </div>
+        ) : (
         <div className="relative z-20 flex shrink-0 flex-col items-center pt-14">
           <Avatar
             src={callPeer?.avatar || ""}
@@ -216,7 +503,7 @@ export const CallScreen = memo(function CallScreen({
             />
           </div>
           <video
-            ref={remoteVideoRef}
+            ref={handleRemoteVideoRef}
             autoPlay
             playsInline
             aria-label="Remote video"
@@ -227,7 +514,7 @@ export const CallScreen = memo(function CallScreen({
             }
           />
           <video
-            ref={localVideoRef}
+            ref={handleLocalVideoRef}
             autoPlay
             playsInline
             muted
@@ -328,7 +615,8 @@ export const CallScreen = memo(function CallScreen({
         )}
       </div>
       </div>
-    </div>,
+    </div>
+    ),
     document.body,
   );
 });
