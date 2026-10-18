@@ -40,4 +40,4 @@ TURN_CREDENTIAL="your-password"
 - **Voice Calls:** Crystal clear audio calling with microphone mute/unmute control.
 - **Video Calls:** High-definition video calling with camera toggle and picture-in-picture local preview.
 - **In-Call Controls:** Real-time call duration timer, mute button, camera toggle, and immediate call hangup.
-- **Incoming Call Notifications:** In-app incoming call alerts with Accept and Decline buttons.
+- **Incoming Call Notifications:** In-app incoming call alerts with Accept and Decline buttons, plus a system push notification when the app is in the background.
