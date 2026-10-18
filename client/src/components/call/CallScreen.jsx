@@ -187,7 +187,7 @@ export const CallScreen = memo(function CallScreen({
             className="h-24 w-24 text-2xl shadow-xl ring-4 ring-white/10"
           />
           <h2
-            className={`mt-4 text-xl font-semibold text-white ${
+            className={`mt-4 max-w-[20rem] truncate text-xl font-semibold text-white ${
               hasPersian(peerName) ? "font-fa sb-fa-baseline-fix" : ""
             }`}
             dir="auto"

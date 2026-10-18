@@ -364,4 +364,46 @@ describe("CallScreen controls layout", () => {
       expect(badgeZ).toBeGreaterThan(barZ);
     });
   });
+
+  describe("peer name length handling", () => {
+    // There is no character-count cap on display names anywhere in the app
+    // (the chat list elides via CSS `truncate`, not a char slice). The call
+    // screen must match that: NICKNAME_MAX is admin-configurable up to 64,
+    // so the ringing screen's centered name must clip instead of wrapping
+    // and pushing the state labels down.
+    test("ringing screen truncates a long peer name like the chat list", async () => {
+      render(
+        <CallScreen
+          {...makeProps({
+            callPeer: {
+              username: "alice",
+              nickname: "An Extremely Long Nickname That Overflows The Row",
+            },
+          })}
+        />,
+      );
+      const name = page.getByText("An Extremely Long Nickname That Overflows");
+      await expect.element(name).toBeInTheDocument();
+      const nameEl = name.element();
+      expect(nameEl.className).toContain("truncate");
+      expect(nameEl.className).toContain("max-w-[20rem]");
+    });
+
+    test("connected peer-info bar name keeps its truncate", async () => {
+      render(
+        <CallScreen
+          {...makeProps({
+            callState: "connected",
+            callPeer: {
+              username: "alice",
+              nickname: "An Extremely Long Nickname That Overflows The Row",
+            },
+          })}
+        />,
+      );
+      const name = page.getByText("An Extremely Long Nickname That Overflows");
+      await expect.element(name).toBeInTheDocument();
+      expect(name.element().className).toContain("truncate");
+    });
+  });
 });
