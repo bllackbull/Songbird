@@ -350,6 +350,16 @@ export const CallScreen = memo(function CallScreen({
     };
   }, [callState, isEnding]);
 
+  // Play hangup sound once when the call ends, declined or failed
+  useEffect(() => {
+    if (!isEnding) return;
+    const audio = new Audio("/sounds/hangup.mp3");
+    void audio.play().catch(() => {});
+    return () => {
+      audio.pause();
+    };
+  }, [isEnding]);
+
   const stateLabel = isEnding
     ? endLabel
     : callState === "calling"

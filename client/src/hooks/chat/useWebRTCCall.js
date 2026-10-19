@@ -20,7 +20,7 @@ export function gradeCallQuality(rttMs, lossPct) {
 }
 
 const UNKNOWN_QUALITY = { level: 0, rttMs: null, packetLossPct: null };
-export const CALL_END_NOTICE_MS = 3000;
+export const CALL_END_NOTICE_MS = 1750;
 export const CALL_EXIT_MS = 250;
 
 /**
