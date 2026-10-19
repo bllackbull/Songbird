@@ -662,4 +662,65 @@ describe("CallScreen controls layout", () => {
       expect(avatarEl.style.backgroundColor).toBe("rgb(239, 68, 68)");
     });
   });
+
+  describe("peer badges", () => {
+    test("renders verified badge and owner role badge when peer has them", async () => {
+      render(
+        <CallScreen
+          {...makeProps({
+            callState: "calling",
+            callType: "voice",
+            callPeer: {
+              username: "alice",
+              nickname: "Alice",
+              verified: true,
+              role: "owner",
+            },
+          })}
+        />,
+      );
+      await expect.element(page.getByRole("img", { name: "Verified" })).toBeInTheDocument();
+      await expect.element(page.getByRole("img", { name: "Server Owner" })).toBeInTheDocument();
+    });
+
+    test("renders verified badge and admin role badge in connected header", async () => {
+      render(
+        <CallScreen
+          {...makeProps({
+            callState: "connected",
+            callType: "voice",
+            callPeer: {
+              username: "alice",
+              nickname: "Alice",
+              verified: true,
+              role: "admin",
+            },
+          })}
+        />,
+      );
+      await expect.element(page.getByRole("img", { name: "Verified" })).toBeInTheDocument();
+      await expect.element(page.getByRole("img", { name: "Server Admin" })).toBeInTheDocument();
+    });
+
+    test("renders badges in floating minimized call box", async () => {
+      render(
+        <CallScreen
+          {...makeProps({
+            callState: "connected",
+            callType: "voice",
+            callPeer: {
+              username: "alice",
+              nickname: "Alice",
+              user_verified: 1,
+              user_role: "owner",
+            },
+          })}
+        />,
+      );
+      await userEvent.click(page.getByRole("button", { name: "Chat" }));
+      const box = page.getByTestId("floating-call-box");
+      expect(box.element().querySelector('[aria-label="Verified"]')).not.toBeNull();
+      expect(box.element().querySelector('[aria-label="Server Owner"]')).not.toBeNull();
+    });
+  });
 });

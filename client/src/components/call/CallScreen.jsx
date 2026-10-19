@@ -17,6 +17,8 @@ import {
 } from "../../icons/lucide.js";
 import Avatar from "../common/Avatar.jsx";
 import Tooltip from "../common/Tooltip.jsx";
+import UserRoleBadge from "../common/UserRoleBadge.jsx";
+import VerifiedBadge from "../common/VerifiedBadge.jsx";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 
@@ -114,6 +116,8 @@ export const CallScreen = memo(function CallScreen({
   const peerName = callPeer?.nickname || callPeer?.username || "Unknown";
   const peerInitials = getAvatarInitials(peerName);
   const peerColor = callPeer?.color || "#10b981";
+  const peerVerified = Boolean(callPeer?.verified ?? callPeer?.user_verified);
+  const peerRole = callPeer?.role || callPeer?.user_role || null;
 
   // Reset minimized state and dragged position if call disconnects
   useEffect(() => {
@@ -381,14 +385,18 @@ export const CallScreen = memo(function CallScreen({
               initials={peerInitials}
               className="h-16 w-16 text-xl shadow-lg ring-2 ring-white/10"
             />
-            <span
-              className={`mt-2 max-w-[90%] truncate text-xs font-semibold text-white/90 ${
-                hasPersian(peerName) ? "font-fa sb-fa-baseline-fix" : ""
-              }`}
-              dir="auto"
-            >
-              {peerName}
-            </span>
+            <div className="mt-2 flex max-w-[90%] items-center justify-center gap-0.5 min-w-0">
+              <span
+                className={`truncate text-xs font-semibold text-white/90 ${
+                  hasPersian(peerName) ? "font-fa sb-fa-baseline-fix" : ""
+                }`}
+                dir="auto"
+              >
+                {peerName}
+              </span>
+              {Boolean(peerVerified) && <VerifiedBadge size={13} />}
+              <UserRoleBadge role={peerRole} size={13} />
+            </div>
           </div>
         )}
         {!remoteOn ? (
@@ -437,14 +445,18 @@ export const CallScreen = memo(function CallScreen({
                 className="h-14 w-14 shrink-0 text-lg shadow-xl ring-4 ring-white/10"
               />
               <div className="flex min-w-0 flex-col">
-                <h2
-                  className={`truncate text-lg font-semibold text-white ${
-                    hasPersian(peerName) ? "font-fa sb-fa-baseline-fix" : ""
-                  }`}
-                  dir="auto"
-                >
-                  {peerName}
-                </h2>
+                <div className="flex min-w-0 items-center gap-0.5">
+                  <h2
+                    className={`truncate text-lg font-semibold text-white ${
+                      hasPersian(peerName) ? "font-fa sb-fa-baseline-fix" : ""
+                    }`}
+                    dir="auto"
+                  >
+                    {peerName}
+                  </h2>
+                  {Boolean(peerVerified) && <VerifiedBadge size={16} />}
+                  <UserRoleBadge role={peerRole} size={16} />
+                </div>
                 <p className="mt-0.5 flex items-center gap-1.5 text-sm font-medium text-emerald-400">
                   <SignalIndicator quality={callQuality} />
                   {stateLabel}
@@ -475,14 +487,18 @@ export const CallScreen = memo(function CallScreen({
             initials={peerInitials}
             className="h-24 w-24 text-2xl shadow-xl ring-4 ring-white/10"
           />
-          <h2
-            className={`mt-4 max-w-[20rem] truncate text-xl font-semibold text-white ${
-              hasPersian(peerName) ? "font-fa sb-fa-baseline-fix" : ""
-            }`}
-            dir="auto"
-          >
-            {peerName}
-          </h2>
+          <div className="mt-4 flex max-w-[20rem] items-center justify-center gap-0.5 px-4 min-w-0">
+            <h2
+              className={`max-w-[20rem] truncate text-xl font-semibold text-white ${
+                hasPersian(peerName) ? "font-fa sb-fa-baseline-fix" : ""
+              }`}
+              dir="auto"
+            >
+              {peerName}
+            </h2>
+            {Boolean(peerVerified) && <VerifiedBadge size={18} />}
+            <UserRoleBadge role={peerRole} size={18} />
+          </div>
           <p className="mt-1 flex items-center gap-1.5 text-sm text-white/60">
             {isVideo ? <Video size={14} /> : <Phone size={14} />}
             {isVideo ? "Video call" : "Voice call"}

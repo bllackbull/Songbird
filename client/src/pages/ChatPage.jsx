@@ -1061,17 +1061,31 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const resolvedCallPeer = useMemo(() => {
     if (!callPeer) return null;
-    if (callPeer.color) return callPeer;
     const lowerUsername = String(callPeer.username || "").toLowerCase();
+    let memberMatch = null;
     for (const chat of chats || []) {
       const found = (chat.members || []).find(
         (m) => String(m?.username || "").toLowerCase() === lowerUsername,
       );
-      if (found?.color) {
-        return { ...callPeer, color: found.color };
+      if (found) {
+        memberMatch = found;
+        break;
       }
     }
-    return callPeer;
+    return {
+      ...callPeer,
+      color: callPeer.color || memberMatch?.color || null,
+      verified:
+        callPeer.verified !== undefined
+          ? callPeer.verified
+          : memberMatch
+            ? Boolean(memberMatch.user_verified ?? memberMatch.verified)
+            : false,
+      role:
+        callPeer.role !== undefined
+          ? callPeer.role
+          : memberMatch?.user_role || memberMatch?.role || null,
+    };
   }, [callPeer, chats]);
 
   const handleOpenForwardOrigin = async (target) => {
@@ -1910,6 +1924,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       calleeNickname: activeHeaderPeer.nickname,
       calleeAvatar: activeHeaderPeer.avatar_url,
       calleeColor: activeHeaderPeer.color,
+      calleeVerified: Boolean(activeHeaderPeer.user_verified ?? activeHeaderPeer.verified),
+      calleeRole: activeHeaderPeer.user_role || activeHeaderPeer.role,
       type: "voice",
     });
   }, [activeChatId, activeHeaderPeer, startCall]);
@@ -1923,6 +1939,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       calleeNickname: activeHeaderPeer.nickname,
       calleeAvatar: activeHeaderPeer.avatar_url,
       calleeColor: activeHeaderPeer.color,
+      calleeVerified: Boolean(activeHeaderPeer.user_verified ?? activeHeaderPeer.verified),
+      calleeRole: activeHeaderPeer.user_role || activeHeaderPeer.role,
       type: "video",
     });
   }, [activeChatId, activeHeaderPeer, startCall]);
@@ -2922,6 +2940,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       calleeNickname: target.nickname,
       calleeAvatar: target.avatar_url,
       calleeColor: target.color,
+      calleeVerified: Boolean(target.user_verified ?? target.verified),
+      calleeRole: target.user_role || target.role,
       type: "voice",
     });
   }, [activeChat, activeChatId, activeHeaderPeer, chats, profileTargetUser, startCall]);
@@ -2949,6 +2969,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       calleeNickname: target.nickname,
       calleeAvatar: target.avatar_url,
       calleeColor: target.color,
+      calleeVerified: Boolean(target.user_verified ?? target.verified),
+      calleeRole: target.user_role || target.role,
       type: "video",
     });
   }, [activeChat, activeChatId, activeHeaderPeer, chats, profileTargetUser, startCall]);

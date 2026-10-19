@@ -97,6 +97,8 @@ describe("/api/calls endpoints", () => {
           nickname: "Alice",
           avatarUrl: "",
           color: null,
+          verified: false,
+          role: "user",
         },
       });
     });

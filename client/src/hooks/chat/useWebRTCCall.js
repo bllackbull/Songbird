@@ -231,6 +231,8 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       calleeNickname,
       calleeAvatar,
       calleeColor,
+      calleeVerified,
+      calleeRole,
       type = "voice",
     }) => {
       const normalizedChatId = String(chatId || "").trim();
@@ -254,6 +256,8 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
         nickname: calleeNickname,
         avatar: calleeAvatar,
         color: calleeColor,
+        verified: calleeVerified,
+        role: calleeRole,
       });
 
       try {
@@ -523,6 +527,8 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
             nickname: payload.caller?.nickname || payload.callerNickname,
             avatar: payload.caller?.avatarUrl || payload.callerAvatar,
             color: payload.caller?.color || payload.callerColor,
+            verified: payload.caller?.verified ?? payload.callerVerified,
+            role: payload.caller?.role || payload.callerRole,
           });
           break;
         }

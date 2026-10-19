@@ -13,6 +13,8 @@ describe("callManager", () => {
     nickname: "Alice",
     avatar_url: "/avatar/alice.png",
     color: "#8b5cf6",
+    verified: 1,
+    role: "admin",
   };
 
   const calleeUser = {
@@ -135,6 +137,8 @@ describe("callManager", () => {
           nickname: callerUser.nickname,
           avatarUrl: callerUser.avatar_url,
           color: "#8b5cf6",
+          verified: true,
+          role: "admin",
         },
       });
     });
@@ -337,6 +341,8 @@ describe("callManager", () => {
           nickname: "Alice",
           avatarUrl: "/avatar/alice.png",
           color: "#8b5cf6",
+          verified: true,
+          role: "admin",
         },
       });
     });
