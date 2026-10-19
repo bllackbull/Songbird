@@ -383,7 +383,7 @@ export const CallScreen = memo(function CallScreen({
               name={peerName}
               color={peerColor}
               initials={peerInitials}
-              className="h-16 w-16 text-xl shadow-lg ring-2 ring-white/10"
+              className="h-16 w-16 text-xl shadow-lg"
             />
             <div className="mt-2 flex max-w-[90%] items-center justify-center gap-0.5 min-w-0">
               <span
@@ -442,7 +442,7 @@ export const CallScreen = memo(function CallScreen({
                 name={peerName}
                 color={peerColor}
                 initials={peerInitials}
-                className="h-14 w-14 shrink-0 text-lg shadow-xl ring-4 ring-white/10"
+                className="h-14 w-14 shrink-0 text-lg shadow-xl"
               />
               <div className="flex min-w-0 flex-col">
                 <div className="flex min-w-0 items-center gap-0.5">
@@ -485,7 +485,7 @@ export const CallScreen = memo(function CallScreen({
             name={peerName}
             color={peerColor}
             initials={peerInitials}
-            className="h-24 w-24 text-2xl shadow-xl ring-4 ring-white/10"
+            className="h-24 w-24 text-2xl shadow-xl"
           />
           <div className="mt-4 flex max-w-[20rem] items-center justify-center gap-0.5 px-4 min-w-0">
             <h2
