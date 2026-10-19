@@ -155,6 +155,7 @@ export function createCallManager(deps) {
           username: user.username,
           nickname: user.nickname,
           avatarUrl: user.avatar_url,
+          color: user.color || null,
         },
       });
     }
@@ -193,6 +194,7 @@ export function createCallManager(deps) {
           username: call.callerUsername,
           nickname: caller?.nickname || call.callerUsername,
           avatarUrl: caller?.avatar_url || "",
+          color: caller?.color || null,
         },
       };
     }

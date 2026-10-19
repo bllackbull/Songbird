@@ -1,7 +1,7 @@
 import { describe, test, expect, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { page, userEvent } from "vitest/browser";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useWebRTCCall } from "../../../src/hooks/chat/useWebRTCCall.js";
 
 // No network in tests: the hook fetches ICE servers on mount.
@@ -40,6 +40,7 @@ describe("useWebRTCCall speaker toggle", () => {
 });
 
 function MediaIntegrityHarness() {
+  const realtimeSenderRef = useRef(() => true);
   const {
     callState,
     isSpeakerOn,
@@ -49,7 +50,7 @@ function MediaIntegrityHarness() {
     acceptCall,
     toggleSpeaker,
     handleSignal,
-  } = useWebRTCCall({});
+  } = useWebRTCCall({ realtimeSenderRef });
 
   const [reloadCount, setReloadCount] = useState(0);
   const [monitoring, setMonitoring] = useState(false);
@@ -110,12 +111,12 @@ describe("useWebRTCCall speaker toggle media integrity", () => {
     await userEvent.click(page.getByRole("button", { name: "simulate incoming" }));
     await expect
       .element(page.getByTestId("call-state"))
-      .toHaveTextContent(/ringing/);
+      .toHaveTextContent("ringing");
 
     await userEvent.click(page.getByRole("button", { name: "accept" }));
     await expect
       .element(page.getByTestId("call-state"))
-      .toHaveTextContent(/connected/);
+      .toHaveTextContent("connected");
 
     // The association effect has attached the local stream; arm event counting
     // only from here so the connection itself is not counted as a reload.
@@ -135,7 +136,7 @@ describe("useWebRTCCall speaker toggle media integrity", () => {
     // fires loadstart/emptied. Toggling the speaker must not do that.
     await expect
       .element(page.getByTestId("media-reloads"))
-      .toHaveTextContent(/^0$/);
+      .toHaveTextContent("0");
 
     // Mute must still be applied to the remote media elements (speaker off).
     await expect
@@ -152,7 +153,7 @@ describe("useWebRTCCall speaker toggle media integrity", () => {
 
     await expect
       .element(page.getByTestId("media-reloads"))
-      .toHaveTextContent(/^0$/);
+      .toHaveTextContent("0");
     await expect
       .poll(
         () =>

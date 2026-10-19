@@ -12,6 +12,7 @@ describe("callManager", () => {
     username: "alice",
     nickname: "Alice",
     avatar_url: "/avatar/alice.png",
+    color: "#8b5cf6",
   };
 
   const calleeUser = {
@@ -133,6 +134,7 @@ describe("callManager", () => {
           username: callerUser.username,
           nickname: callerUser.nickname,
           avatarUrl: callerUser.avatar_url,
+          color: "#8b5cf6",
         },
       });
     });
@@ -334,6 +336,7 @@ describe("callManager", () => {
           username: "alice",
           nickname: "Alice",
           avatarUrl: "/avatar/alice.png",
+          color: "#8b5cf6",
         },
       });
     });

@@ -1059,6 +1059,21 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     handleSignal: handleCallSignal,
   } = useWebRTCCall({ realtimeSenderRef });
 
+  const resolvedCallPeer = useMemo(() => {
+    if (!callPeer) return null;
+    if (callPeer.color) return callPeer;
+    const lowerUsername = String(callPeer.username || "").toLowerCase();
+    for (const chat of chats || []) {
+      const found = (chat.members || []).find(
+        (m) => String(m?.username || "").toLowerCase() === lowerUsername,
+      );
+      if (found?.color) {
+        return { ...callPeer, color: found.color };
+      }
+    }
+    return callPeer;
+  }, [callPeer, chats]);
+
   const handleOpenForwardOrigin = async (target) => {
     if (!target) return;
     if (target.kind === "self") {
@@ -1894,6 +1909,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       calleeUsername: activeHeaderPeer.username,
       calleeNickname: activeHeaderPeer.nickname,
       calleeAvatar: activeHeaderPeer.avatar_url,
+      calleeColor: activeHeaderPeer.color,
       type: "voice",
     });
   }, [activeChatId, activeHeaderPeer, startCall]);
@@ -1906,6 +1922,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       calleeUsername: activeHeaderPeer.username,
       calleeNickname: activeHeaderPeer.nickname,
       calleeAvatar: activeHeaderPeer.avatar_url,
+      calleeColor: activeHeaderPeer.color,
       type: "video",
     });
   }, [activeChatId, activeHeaderPeer, startCall]);
@@ -2904,6 +2921,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       calleeUsername: target.username,
       calleeNickname: target.nickname,
       calleeAvatar: target.avatar_url,
+      calleeColor: target.color,
       type: "voice",
     });
   }, [activeChat, activeChatId, activeHeaderPeer, chats, profileTargetUser, startCall]);
@@ -2930,6 +2948,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       calleeUsername: target.username,
       calleeNickname: target.nickname,
       calleeAvatar: target.avatar_url,
+      calleeColor: target.color,
       type: "video",
     });
   }, [activeChat, activeChatId, activeHeaderPeer, chats, profileTargetUser, startCall]);
@@ -6900,7 +6919,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         <CallScreen
           callState={callState}
           callType={callType}
-          callPeer={callPeer}
+          callPeer={resolvedCallPeer}
           callDuration={callDuration}
           callQuality={callQuality}
           isMuted={isMuted}

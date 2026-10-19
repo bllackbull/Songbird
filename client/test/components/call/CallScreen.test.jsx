@@ -612,4 +612,54 @@ describe("CallScreen controls layout", () => {
       await expect.poll(() => document.body.style.overflow).toBe("hidden");
     });
   });
+
+  describe("peer avatar accent color", () => {
+    test("uses peer accent color for non-video call avatar when callPeer.color is provided", async () => {
+      render(
+        <CallScreen
+          {...makeProps({
+            callState: "calling",
+            callType: "voice",
+            callPeer: { username: "alice", nickname: "Alice", color: "#f97316" },
+          })}
+        />,
+      );
+      await expect.element(page.getByRole("dialog")).toBeInTheDocument();
+      const dialog = page.getByRole("dialog").element();
+      const avatarEl = dialog.querySelector(".rounded-full");
+      expect(avatarEl.style.backgroundColor).toBe("rgb(249, 115, 22)");
+    });
+
+    test("uses peer accent color in connected header avatar", async () => {
+      render(
+        <CallScreen
+          {...makeProps({
+            callState: "connected",
+            callType: "voice",
+            callPeer: { username: "alice", nickname: "Alice", color: "#8b5cf6" },
+          })}
+        />,
+      );
+      await expect.element(page.getByRole("dialog")).toBeInTheDocument();
+      const dialog = page.getByRole("dialog").element();
+      const avatarEl = dialog.querySelector(".rounded-full");
+      expect(avatarEl.style.backgroundColor).toBe("rgb(139, 92, 246)");
+    });
+
+    test("uses peer accent color in floating minimized call box", async () => {
+      render(
+        <CallScreen
+          {...makeProps({
+            callState: "connected",
+            callType: "voice",
+            callPeer: { username: "alice", nickname: "Alice", color: "#ef4444" },
+          })}
+        />,
+      );
+      await userEvent.click(page.getByRole("button", { name: "Chat" }));
+      const box = page.getByTestId("floating-call-box");
+      const avatarEl = box.element().querySelector(".rounded-full");
+      expect(avatarEl.style.backgroundColor).toBe("rgb(239, 68, 68)");
+    });
+  });
 });

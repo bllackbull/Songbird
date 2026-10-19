@@ -225,7 +225,14 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
 
   // Start a call (caller)
   const startCall = useCallback(
-    async ({ chatId, calleeUsername, calleeNickname, calleeAvatar, type = "voice" }) => {
+    async ({
+      chatId,
+      calleeUsername,
+      calleeNickname,
+      calleeAvatar,
+      calleeColor,
+      type = "voice",
+    }) => {
       const normalizedChatId = String(chatId || "").trim();
       if (!normalizedChatId || !calleeUsername) return;
       if (!isCallSupported()) {
@@ -246,6 +253,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
         username: calleeUsername,
         nickname: calleeNickname,
         avatar: calleeAvatar,
+        color: calleeColor,
       });
 
       try {
@@ -514,6 +522,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
             username: payload.caller?.username || payload.callerUsername,
             nickname: payload.caller?.nickname || payload.callerNickname,
             avatar: payload.caller?.avatarUrl || payload.callerAvatar,
+            color: payload.caller?.color || payload.callerColor,
           });
           break;
         }

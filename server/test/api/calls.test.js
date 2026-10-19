@@ -96,6 +96,7 @@ describe("/api/calls endpoints", () => {
           username: "alice",
           nickname: "Alice",
           avatarUrl: "",
+          color: null,
         },
       });
     });

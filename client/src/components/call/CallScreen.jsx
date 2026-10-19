@@ -113,6 +113,7 @@ export const CallScreen = memo(function CallScreen({
   const bothOn = isConnected && localOn && remoteOn;
   const peerName = callPeer?.nickname || callPeer?.username || "Unknown";
   const peerInitials = getAvatarInitials(peerName);
+  const peerColor = callPeer?.color || "#10b981";
 
   // Reset minimized state and dragged position if call disconnects
   useEffect(() => {
@@ -376,7 +377,7 @@ export const CallScreen = memo(function CallScreen({
               src={callPeer?.avatar || ""}
               alt={peerName}
               name={peerName}
-              color="#10b981"
+              color={peerColor}
               initials={peerInitials}
               className="h-16 w-16 text-xl shadow-lg ring-2 ring-white/10"
             />
@@ -431,7 +432,7 @@ export const CallScreen = memo(function CallScreen({
                 src={callPeer?.avatar || ""}
                 alt={peerName}
                 name={peerName}
-                color="#10b981"
+                color={peerColor}
                 initials={peerInitials}
                 className="h-14 w-14 shrink-0 text-lg shadow-xl ring-4 ring-white/10"
               />
@@ -470,7 +471,7 @@ export const CallScreen = memo(function CallScreen({
             src={callPeer?.avatar || ""}
             alt={peerName}
             name={peerName}
-            color="#10b981"
+            color={peerColor}
             initials={peerInitials}
             className="h-24 w-24 text-2xl shadow-xl ring-4 ring-white/10"
           />
