@@ -1038,6 +1038,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const realtimeSenderRef = useRef(null);
   const {
     callState,
+    callEndReason,
+    isCallClosing,
     callType,
     callPeer,
     callDuration,
@@ -6940,6 +6942,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       {callState !== "idle" ? (
         <CallScreen
           callState={callState}
+          callEndReason={callEndReason}
+          isCallClosing={isCallClosing}
           callType={callType}
           callPeer={resolvedCallPeer}
           callDuration={callDuration}

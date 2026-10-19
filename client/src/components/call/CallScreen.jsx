@@ -65,6 +65,8 @@ function SignalIndicator({ quality }) {
 
 export const CallScreen = memo(function CallScreen({
   callState,
+  callEndReason,
+  isCallClosing,
   callType,
   callPeer,
   callDuration,
@@ -119,15 +121,23 @@ export const CallScreen = memo(function CallScreen({
   const peerVerified = Boolean(callPeer?.verified ?? callPeer?.user_verified);
   const peerRole = callPeer?.role || callPeer?.user_role || null;
 
+  const isEnding = Boolean(callEndReason);
+  const endLabel =
+    callEndReason === "declined"
+      ? "Call declined"
+      : callEndReason === "failed"
+        ? "Call failed"
+        : "Call ended";
+
   // Reset minimized state and dragged position if call disconnects
   useEffect(() => {
-    if (callState !== "connected") {
+    if (callState !== "connected" || isEnding) {
       setRestoredFromPip(false);
       setPipOriginStyle(undefined);
       setMinimized(false);
       setPosition(null);
     }
-  }, [callState, setMinimized]);
+  }, [callState, isEnding, setMinimized]);
 
   // Prevent body scroll only while call screen is in fullscreen mode
   useEffect(() => {
@@ -323,9 +333,9 @@ export const CallScreen = memo(function CallScreen({
 
   const ringtoneRef = useRef(null);
 
-  // Play ringtone while calling / ringing, stop on connected / unmount
+  // Play ringtone while calling / ringing, stop on connected / ending / unmount
   useEffect(() => {
-    if (callState !== "calling" && callState !== "ringing") {
+    if (isEnding || (callState !== "calling" && callState !== "ringing")) {
       ringtoneRef.current?.pause();
       ringtoneRef.current = null;
       return;
@@ -338,19 +348,25 @@ export const CallScreen = memo(function CallScreen({
       audio.pause();
       if (ringtoneRef.current === audio) ringtoneRef.current = null;
     };
-  }, [callState]);
+  }, [callState, isEnding]);
 
-  const stateLabel =
-    callState === "calling"
+  const stateLabel = isEnding
+    ? endLabel
+    : callState === "calling"
       ? "Calling..."
       : callState === "ringing"
         ? "Incoming call"
         : callState === "connected"
           ? formatDuration(callDuration)
           : "";
+  const stateLabelColor = isEnding ? "text-red-400" : "text-emerald-400";
+  // Controls stay mounted while the end notice shows, but are inert.
+  const controlState = isEnding
+    ? "opacity-40 cursor-not-allowed"
+    : "cursor-pointer";
 
   return createPortal(
-    minimized ? (
+    minimized && !isEnding ? (
       <div
         ref={boxRef}
         data-testid="floating-call-box"
@@ -407,7 +423,7 @@ export const CallScreen = memo(function CallScreen({
       <div
         className={`fixed inset-0 z-[9999] flex items-center justify-center md:bg-black/45 md:px-5 ${
           restoredFromPip ? "sb-backdrop-enter" : ""
-        }`}
+        } ${isCallClosing ? "sb-call-exit-backdrop" : ""}`}
       >
         <div
           role="dialog"
@@ -415,7 +431,7 @@ export const CallScreen = memo(function CallScreen({
           aria-label="Call"
           className={`relative flex h-full w-full flex-col items-center justify-between overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 md:h-[min(800px,calc(100dvh-2rem))] md:max-w-[400px] md:rounded-3xl md:shadow-xl ${
             restoredFromPip ? "sb-call-modal-enter" : ""
-          }`}
+          } ${isCallClosing ? "sb-call-exit" : ""}`}
           style={restoredFromPip ? pipOriginStyle : undefined}
         >
         {isConnected && !remoteOn ? (
@@ -457,8 +473,10 @@ export const CallScreen = memo(function CallScreen({
                   {Boolean(peerVerified) && <VerifiedBadge size={16} />}
                   <UserRoleBadge role={peerRole} size={16} />
                 </div>
-                <p className="mt-0.5 flex items-center gap-1.5 text-sm font-medium text-emerald-400">
-                  <SignalIndicator quality={callQuality} />
+                <p
+                  className={`mt-0.5 flex items-center gap-1.5 text-sm font-medium ${stateLabelColor}`}
+                >
+                  {isEnding ? null : <SignalIndicator quality={callQuality} />}
                   {stateLabel}
                 </p>
               </div>
@@ -471,7 +489,8 @@ export const CallScreen = memo(function CallScreen({
                 setPosition(null);
                 setMinimized(true);
               }}
-              className="ml-3 flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-transparent text-white/90 transition hover:bg-white/10 hover:text-white cursor-pointer"
+              disabled={isEnding}
+              className={`ml-3 flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-transparent text-white/90 transition hover:bg-white/10 hover:text-white ${controlState}`}
               aria-label="Chat"
             >
               <Chat size={26} />
@@ -503,7 +522,7 @@ export const CallScreen = memo(function CallScreen({
             {isVideo ? <Video size={14} /> : <Phone size={14} />}
             {isVideo ? "Video call" : "Voice call"}
           </p>
-          <p className="mt-2 text-sm font-medium text-emerald-400">
+          <p className={`mt-2 text-sm font-medium ${stateLabelColor}`}>
             {stateLabel}
           </p>
         </div>
@@ -559,7 +578,8 @@ export const CallScreen = memo(function CallScreen({
             <button
               type="button"
               onClick={onAccept}
-              className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 cursor-pointer transition hover:bg-emerald-400"
+              disabled={isEnding}
+              className={`flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 ${controlState}`}
               aria-label="Accept call"
             >
               <Phone size={26} />
@@ -567,7 +587,8 @@ export const CallScreen = memo(function CallScreen({
             <button
               type="button"
               onClick={onReject}
-              className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 cursor-pointer transition hover:bg-red-400"
+              disabled={isEnding}
+              className={`flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 transition hover:bg-red-400 ${controlState}`}
               aria-label="Reject call"
             >
               <Phone size={26} className="rotate-[135deg]" />
@@ -581,7 +602,8 @@ export const CallScreen = memo(function CallScreen({
                 <button
                   type="button"
                   onClick={onToggleSpeaker}
-                  className={`flex h-16 w-16 items-center justify-center rounded-full cursor-pointer transition ${
+                  disabled={isEnding}
+                  className={`flex h-16 w-16 items-center justify-center rounded-full transition ${controlState} ${
                     isSpeakerOn
                       ? "bg-white/10 text-white hover:bg-white/20"
                       : "bg-white text-gray-500 hover:bg-white/90"
@@ -594,7 +616,8 @@ export const CallScreen = memo(function CallScreen({
                 <button
                   type="button"
                   onClick={onToggleMute}
-                  className={`flex h-16 w-16 items-center justify-center rounded-full cursor-pointer transition ${
+                  disabled={isEnding}
+                  className={`flex h-16 w-16 items-center justify-center rounded-full transition ${controlState} ${
                     isMuted
                       ? "bg-white text-gray-500 hover:bg-white/90"
                       : "bg-white/10 text-white hover:bg-white/20"
@@ -607,7 +630,8 @@ export const CallScreen = memo(function CallScreen({
                 <button
                   type="button"
                   onClick={onToggleCamera}
-                  className={`flex h-16 w-16 items-center justify-center rounded-full cursor-pointer transition ${
+                  disabled={isEnding}
+                  className={`flex h-16 w-16 items-center justify-center rounded-full transition ${controlState} ${
                     isCameraOff
                       ? "bg-white text-gray-500 hover:bg-white/90"
                       : "bg-white/10 text-white hover:bg-white/20"
@@ -623,7 +647,8 @@ export const CallScreen = memo(function CallScreen({
             <button
               type="button"
               onClick={onEnd}
-              className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 cursor-pointer transition hover:bg-red-400"
+              disabled={isEnding}
+              className={`flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 transition hover:bg-red-400 ${controlState}`}
               aria-label="End call"
             >
               <Phone size={26} className="rotate-[135deg]" />

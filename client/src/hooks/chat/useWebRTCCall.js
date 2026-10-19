@@ -20,12 +20,18 @@ export function gradeCallQuality(rttMs, lossPct) {
 }
 
 const UNKNOWN_QUALITY = { level: 0, rttMs: null, packetLossPct: null };
+export const CALL_END_NOTICE_MS = 3000;
+export const CALL_EXIT_MS = 250;
 
 /**
  * Call states: idle | calling | ringing | connected
  */
 export function useWebRTCCall({ realtimeSenderRef } = {}) {
   const [callState, setCallState] = useState("idle");
+  // Set while the call is winding down so the screen can show why it ended
+  // (declined | ended | failed) before dropping out.
+  const [callEndReason, setCallEndReason] = useState(null);
+  const [isCallClosing, setIsCallClosing] = useState(false);
   const [callType, setCallType] = useState("voice"); // voice | video
   const [callChatId, setCallChatId] = useState(null);
   const [callPeer, setCallPeer] = useState(null); // { username, nickname, avatar }
@@ -45,6 +51,9 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   const remoteAudioRef = useRef(null);
   const durationTimerRef = useRef(null);
   const disconnectTimerRef = useRef(null);
+  const endNoticeTimerRef = useRef(null);
+  const endExitTimerRef = useRef(null);
+  const callEndReasonRef = useRef(null);
   const iceServersRef = useRef([]);
   const pendingCandidatesRef = useRef([]);
   const iceStatsRef = useRef({ sent: 0, received: 0, applied: 0, queued: 0, sentTypes: {} });
@@ -53,7 +62,6 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   const callStateRef = useRef(callState);
   const callTypeRef = useRef(callType);
   const callChatIdRef = useRef(callChatId);
-  const endCallRef = useRef(null);
 
   useEffect(() => {
     callStateRef.current = callState;
@@ -99,6 +107,17 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     };
   }, []);
 
+  const clearEndTimers = useCallback(() => {
+    if (endNoticeTimerRef.current) {
+      clearTimeout(endNoticeTimerRef.current);
+      endNoticeTimerRef.current = null;
+    }
+    if (endExitTimerRef.current) {
+      clearTimeout(endExitTimerRef.current);
+      endExitTimerRef.current = null;
+    }
+  }, []);
+
   const resetCallState = useCallback(() => {
     if (durationTimerRef.current) {
       clearInterval(durationTimerRef.current);
@@ -108,6 +127,9 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       clearTimeout(disconnectTimerRef.current);
       disconnectTimerRef.current = null;
     }
+    clearEndTimers();
+    callEndReasonRef.current = null;
+    setCallEndReason(null);
 
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -151,7 +173,63 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     setIsCameraOff(false);
     setIsRemoteCameraOff(true);
     setIsSpeakerOn(true);
-  }, []);
+    setIsCallClosing(false);
+  }, [clearEndTimers]);
+
+  // Fade the call screen out, then clear all call state.
+  const beginCallExit = useCallback(() => {
+    if (endExitTimerRef.current) return;
+    if (endNoticeTimerRef.current) {
+      clearTimeout(endNoticeTimerRef.current);
+      endNoticeTimerRef.current = null;
+    }
+    setIsCallClosing(true);
+    endExitTimerRef.current = setTimeout(resetCallState, CALL_EXIT_MS);
+  }, [resetCallState]);
+
+  // Show why the call ended for a few seconds before the screen goes away.
+  const finishCall = useCallback(
+    (reason) => {
+      if (
+        callStateRef.current === "idle" ||
+        callEndReasonRef.current ||
+        endExitTimerRef.current
+      )
+        return;
+      callEndReasonRef.current = reason;
+      setCallEndReason(reason);
+      if (durationTimerRef.current) {
+        clearInterval(durationTimerRef.current);
+        durationTimerRef.current = null;
+      }
+      if (disconnectTimerRef.current) {
+        clearTimeout(disconnectTimerRef.current);
+        disconnectTimerRef.current = null;
+      }
+      // Stop capturing immediately; the notice is purely visual.
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((t) => t.stop());
+        localStreamRef.current = null;
+      }
+      if (remoteAudioRef.current) remoteAudioRef.current.muted = true;
+      if (remoteVideoRef.current) remoteVideoRef.current.muted = true;
+      if (peerConnectionRef.current) {
+        try {
+          peerConnectionRef.current.close();
+        } catch (_) {}
+        peerConnectionRef.current = null;
+      }
+      endNoticeTimerRef.current = setTimeout(beginCallExit, CALL_END_NOTICE_MS);
+    },
+    [beginCallExit],
+  );
+
+  // Media path broke locally: tell the peer/server the call is over too.
+  const failCall = useCallback(() => {
+    const chatId = callChatIdRef.current;
+    finishCall("failed");
+    if (chatId) void postSignal("end", { chatId });
+  }, [finishCall, postSignal]);
 
   const createPeerConnection = useCallback(() => {
     const pc = new RTCPeerConnection({ iceServers: iceServersRef.current });
@@ -207,21 +285,18 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
         if (!disconnectTimerRef.current) {
           disconnectTimerRef.current = setTimeout(() => {
             disconnectTimerRef.current = null;
-            endCallRef.current?.();
+            failCall();
           }, 5000);
         }
       }
-      if (
-        pc.connectionState === "failed" ||
-        pc.connectionState === "closed"
-      ) {
-        endCallRef.current?.();
+      if (pc.connectionState === "failed" || pc.connectionState === "closed") {
+        failCall();
       }
     };
 
     peerConnectionRef.current = pc;
     return pc;
-  }, [postSignal]);
+  }, [postSignal, failCall]);
 
   // Start a call (caller)
   const startCall = useCallback(
@@ -242,6 +317,10 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
         return;
       }
 
+      clearEndTimers();
+      callEndReasonRef.current = null;
+      setCallEndReason(null);
+      setIsCallClosing(false);
       setCallState("calling");
       callStateRef.current = "calling";
       setCallType(type);
@@ -275,14 +354,14 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
           type,
         });
         if (!res?.ok && !res?.call) {
-          resetCallState();
+          finishCall("failed");
         }
       } catch (err) {
         console.error("Failed to start call:", err);
-        resetCallState();
+        finishCall("failed");
       }
     },
-    [postSignal, resetCallState]
+    [postSignal, finishCall, clearEndTimers]
   );
 
   // Associate media streams with the media elements once they mount or when a
@@ -392,7 +471,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
 
       const res = await postSignal("accept", { chatId });
       if (res === null) {
-        resetCallState();
+        finishCall("failed");
         return;
       }
 
@@ -406,28 +485,24 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       }
     } catch (err) {
       console.error("Failed to accept call:", err);
-      resetCallState();
+      finishCall("failed");
       await postSignal("reject", { chatId });
     }
-  }, [createPeerConnection, postSignal, resetCallState]);
+  }, [createPeerConnection, postSignal, finishCall]);
 
   // Reject incoming call (callee)
   const rejectCall = useCallback(async () => {
     const chatId = callChatIdRef.current;
-    resetCallState();
+    beginCallExit();
     if (chatId) await postSignal("reject", { chatId });
-  }, [postSignal, resetCallState]);
+  }, [postSignal, beginCallExit]);
 
   // End active call
   const endCall = useCallback(async () => {
     const chatId = callChatIdRef.current;
-    resetCallState();
+    beginCallExit();
     if (chatId) await postSignal("end", { chatId });
-  }, [postSignal, resetCallState]);
-
-  useEffect(() => {
-    endCallRef.current = endCall;
-  }, [endCall]);
+  }, [postSignal, beginCallExit]);
 
   const toggleMute = useCallback(() => {
     if (!localStreamRef.current) return;
@@ -555,7 +630,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
             });
           } catch (err) {
             console.error("Failed to create offer:", err);
-            resetCallState();
+            finishCall("failed");
           }
           break;
         }
@@ -598,7 +673,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
             });
           } catch (err) {
             console.error("Failed to handle offer:", err);
-            resetCallState();
+            finishCall("failed");
           }
           break;
         }
@@ -678,7 +753,17 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
           break;
         }
 
-        case "call:rejected":
+        case "call:rejected": {
+          if (
+            callChatIdRef.current &&
+            String(payload.chatId) !== String(callChatIdRef.current)
+          ) {
+            return;
+          }
+          finishCall("declined");
+          break;
+        }
+
         case "call:ended": {
           if (
             callChatIdRef.current &&
@@ -686,7 +771,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
           ) {
             return;
           }
-          resetCallState();
+          finishCall("ended");
           break;
         }
 
@@ -695,7 +780,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
             callChatIdRef.current &&
             String(payload.chatId) === String(callChatIdRef.current)
           ) {
-            resetCallState();
+            finishCall("failed");
           }
           break;
         }
@@ -704,7 +789,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
           break;
       }
     },
-    [createPeerConnection, postSignal, resetCallState]
+    [createPeerConnection, postSignal, finishCall]
   );
 
   // Recover a call that started while this app was closed.
@@ -729,6 +814,8 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
 
   return {
     callState,
+    callEndReason,
+    isCallClosing,
     callType,
     callChatId,
     callPeer,

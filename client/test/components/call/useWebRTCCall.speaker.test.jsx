@@ -3,6 +3,7 @@ import { render } from "vitest-browser-react";
 import { page, userEvent } from "vitest/browser";
 import { useEffect, useRef, useState } from "react";
 import { useWebRTCCall } from "../../../src/hooks/chat/useWebRTCCall.js";
+import { CallScreen } from "../../../src/components/call/CallScreen.jsx";
 
 // No network in tests: the hook fetches ICE servers on mount.
 vi.mock("../../../src/api/chatApi.js", () => ({
@@ -159,6 +160,207 @@ describe("useWebRTCCall speaker toggle media integrity", () => {
         () =>
           Boolean(document.querySelector("video[data-testid='remote-video']")?.muted),
       )
+      .toBe(false);
+  });
+});
+
+function CallEndHarness() {
+  const { callState, callEndReason, handleSignal } = useWebRTCCall({});
+  return (
+    <div>
+      <p data-testid="call-state">{callState}</p>
+      <p data-testid="call-end-reason">{callEndReason || ""}</p>
+      <button
+        type="button"
+        onClick={() =>
+          handleSignal({ type: "call:incoming", chatId: "c1", callType: "voice" })
+        }
+      >
+        simulate incoming
+      </button>
+      <button
+        type="button"
+        onClick={() => handleSignal({ type: "call:rejected", chatId: "c1" })}
+      >
+        simulate rejected
+      </button>
+      <button
+        type="button"
+        onClick={() => handleSignal({ type: "call:ended", chatId: "c1" })}
+      >
+        simulate ended
+      </button>
+    </div>
+  );
+}
+
+describe("useWebRTCCall end notice", () => {
+  test("declined call shows a reason before resetting to idle", async () => {
+    render(<CallEndHarness />);
+    await userEvent.click(page.getByRole("button", { name: "simulate incoming" }));
+    await expect
+      .element(page.getByTestId("call-state"))
+      .toHaveTextContent("ringing");
+
+    await userEvent.click(page.getByRole("button", { name: "simulate rejected" }));
+    await expect
+      .element(page.getByTestId("call-end-reason"))
+      .toHaveTextContent("declined");
+    await expect
+      .element(page.getByTestId("call-state"))
+      .toHaveTextContent("ringing");
+
+    await expect
+      .poll(() => document.querySelector('[data-testid="call-state"]')?.textContent, {
+        timeout: 5000,
+      })
+      .toBe("idle");
+  });
+
+  test("remote end after connecting reports ended", async () => {
+    render(<CallEndHarness />);
+    await userEvent.click(page.getByRole("button", { name: "simulate incoming" }));
+    await userEvent.click(page.getByRole("button", { name: "simulate ended" }));
+    await expect
+      .element(page.getByTestId("call-end-reason"))
+      .toHaveTextContent("ended");
+  });
+});
+
+function RejectHarness() {
+  const { callState, callEndReason, isCallClosing, rejectCall, handleSignal } =
+    useWebRTCCall({});
+  return (
+    <div>
+      <p data-testid="call-state">{callState}</p>
+      <p data-testid="call-end-reason">{callEndReason || ""}</p>
+      <p data-testid="is-call-closing">{String(isCallClosing)}</p>
+      <button
+        type="button"
+        onClick={() =>
+          handleSignal({ type: "call:incoming", chatId: "c1", callType: "voice" })
+        }
+      >
+        simulate incoming
+      </button>
+      <button type="button" onClick={rejectCall}>
+        reject
+      </button>
+    </div>
+  );
+}
+
+describe("useWebRTCCall local reject", () => {
+  test("keeps the call alive through the exit window instead of vanishing", async () => {
+    render(<RejectHarness />);
+    await userEvent.click(page.getByRole("button", { name: "simulate incoming" }));
+    await expect
+      .element(page.getByTestId("call-state"))
+      .toHaveTextContent("ringing");
+
+    await userEvent.click(page.getByRole("button", { name: "reject" }));
+    await expect
+      .element(page.getByTestId("is-call-closing"))
+      .toHaveTextContent("true");
+    await expect
+      .element(page.getByTestId("call-state"))
+      .toHaveTextContent("ringing");
+  });
+});
+
+function RejectScreenHarness() {
+  const {
+    callState,
+    callEndReason,
+    isCallClosing,
+    callType,
+    callPeer,
+    callDuration,
+    isMuted,
+    isCameraOff,
+    isSpeakerOn,
+    localVideoRef,
+    remoteVideoRef,
+    remoteAudioRef,
+    rejectCall,
+    handleSignal,
+  } = useWebRTCCall({});
+  return (
+    <div>
+      {callState !== "idle" ? (
+        <CallScreen
+          callState={callState}
+          callEndReason={callEndReason}
+          isCallClosing={isCallClosing}
+          callType={callType}
+          callPeer={callPeer}
+          callDuration={callDuration}
+          isMuted={isMuted}
+          isCameraOff={isCameraOff}
+          isSpeakerOn={isSpeakerOn}
+          localVideoRef={localVideoRef}
+          remoteVideoRef={remoteVideoRef}
+          remoteAudioRef={remoteAudioRef}
+          onAccept={() => {}}
+          onReject={rejectCall}
+          onEnd={() => {}}
+          onToggleMute={() => {}}
+          onToggleCamera={() => {}}
+          onToggleSpeaker={() => {}}
+        />
+      ) : null}
+      <button
+        type="button"
+        onClick={() =>
+          handleSignal({ type: "call:incoming", chatId: "c1", callType: "voice" })
+        }
+      >
+        simulate incoming
+      </button>
+    </div>
+  );
+}
+
+describe("CallScreen local reject exit", () => {
+  test("runs the exit animation before unmounting", async () => {
+    render(<RejectScreenHarness />);
+    await userEvent.click(page.getByRole("button", { name: "simulate incoming" }));
+    const reject = page.getByRole("button", { name: "Reject call" });
+    await expect.element(reject).toBeInTheDocument();
+    await userEvent.click(reject);
+
+    // The dialog must still be mounted with the exit animation applied.
+    await expect
+      .poll(() => {
+        const dialog = document.querySelector('[role="dialog"]');
+        if (!dialog) return "unmounted";
+        return dialog.className.includes("sb-call-exit")
+          ? "animating"
+          : "no-exit-class";
+      })
+      .toBe("animating");
+  });
+});
+
+describe("CallScreen local reject timing", () => {
+  test("fades out over the exit window instead of vanishing", async () => {
+    render(<RejectScreenHarness />);
+    await userEvent.click(page.getByRole("button", { name: "simulate incoming" }));
+    await expect
+      .element(page.getByRole("button", { name: "Reject call" }))
+      .toBeInTheDocument();
+    await userEvent.click(page.getByRole("button", { name: "Reject call" }));
+
+    expect(document.querySelector('[role="dialog"]').className).toContain(
+      "sb-call-exit",
+    );
+    // Still on screen partway through the 250ms exit animation.
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    await expect
+      .poll(() => Boolean(document.querySelector('[role="dialog"]')), {
+        timeout: 2000,
+      })
       .toBe(false);
   });
 });

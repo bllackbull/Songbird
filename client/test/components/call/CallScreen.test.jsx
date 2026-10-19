@@ -193,6 +193,72 @@ describe("CallScreen controls layout", () => {
     });
   });
 
+  describe("call ending notice", () => {
+    test("declined call shows red 'Call declined' and disables controls", async () => {
+      render(
+        <CallScreen
+          {...makeProps({ callState: "calling", callEndReason: "declined" })}
+        />,
+      );
+      await expect.element(page.getByText("Call declined")).toBeInTheDocument();
+      expect(page.getByText("Call declined").element().className).toContain(
+        "text-red-400",
+      );
+      expect(buttonLabels()).toEqual(["End call"]);
+      expect(page.getByRole("button", { name: "End call" }).element()).toBeDisabled();
+    });
+
+    test("ended call shows red 'Call ended' and disables controls", async () => {
+      render(
+        <CallScreen
+          {...makeProps({ callState: "connected", callEndReason: "ended" })}
+        />,
+      );
+      await expect.element(page.getByText("Call ended")).toBeInTheDocument();
+      expect(page.getByText("Call ended").element().className).toContain(
+        "text-red-400",
+      );
+      expect(buttonLabels()).toEqual([
+        "Chat",
+        "Turn speaker off",
+        "Mute",
+        "Turn camera off",
+        "End call",
+      ]);
+      for (const label of buttonLabels()) {
+        expect(page.getByRole("button", { name: label }).element()).toBeDisabled();
+      }
+    });
+
+    test("failed call shows red 'Call failed'", async () => {
+      render(
+        <CallScreen
+          {...makeProps({ callState: "calling", callEndReason: "failed" })}
+        />,
+      );
+      await expect.element(page.getByText("Call failed")).toBeInTheDocument();
+      expect(page.getByText("Call failed").element().className).toContain(
+        "text-red-400",
+      );
+    });
+
+    test("applies the exit animation class while closing", async () => {
+      render(
+        <CallScreen
+          {...makeProps({
+            callState: "connected",
+            callEndReason: "ended",
+            isCallClosing: true,
+          })}
+        />,
+      );
+      await expect.element(page.getByRole("dialog")).toBeInTheDocument();
+      expect(page.getByRole("dialog").element().className).toContain(
+        "sb-call-exit",
+      );
+    });
+  });
+
   describe("connected video layout", () => {
     function videos() {
       return {
