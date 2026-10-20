@@ -57,6 +57,7 @@ import {
   createMessageFiles,
   createMessage,
   createOrReuseMessage,
+  updateCallMessageBody,
   editMessage,
   createSession,
   deleteSession,
@@ -572,6 +573,12 @@ const callManager = createCallManager({
     emitSseEvent(username, payload);
     wsPresenceBroadcaster?.(username, payload);
   },
+  emitChatEvent,
+  createCallMessage: (chatId, userId, body) =>
+    createMessage(chatId, userId, body, null, null, null, {
+      allowPlaintextSystemMessage: true,
+    }),
+  updateCallMessageBody,
   sendPushNotificationToUsers: (...args) =>
     pushService.sendPushNotificationToUsers(...args),
 });

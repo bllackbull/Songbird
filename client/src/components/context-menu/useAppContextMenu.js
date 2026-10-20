@@ -18,6 +18,7 @@ import {
   extractMessageBodyText,
   getMessageFiles,
   hasMessageText,
+  isCallLogBody,
 } from "../../utils/messageContent.js";
 
 export function useAppContextMenu({
@@ -104,6 +105,9 @@ export function useAppContextMenu({
             sseConnected === false ||
             (typeof navigator !== "undefined" && navigator.onLine === false));
         const hasText = hasMessageText(message);
+        const isCallLog =
+          !message?._systemEvent &&
+          isCallLogBody(extractMessageBodyText(message?.body).trim());
         const linkTarget = findContextMenuLinkTarget(event?.target, targetEl);
         const files = getMessageFiles(message);
         items.push(
@@ -130,7 +134,7 @@ export function useAppContextMenu({
                 },
               ]
             : []),
-          ...(hasText && canEditMessage?.(message)
+          ...(hasText && canEditMessage?.(message) && !isCallLog
             ? [
                 {
                   id: "edit",
@@ -151,12 +155,16 @@ export function useAppContextMenu({
                 },
               ]
             : []),
-          {
-            id: "forward",
-            label: "Forward",
-            icon: Forward,
-            onSelect: () => onForwardMessage?.(message),
-          },
+          ...(isCallLog
+            ? []
+            : [
+                {
+                  id: "forward",
+                  label: "Forward",
+                  icon: Forward,
+                  onSelect: () => onForwardMessage?.(message),
+                },
+              ]),
           {
             id: "delete",
             label: "Delete",

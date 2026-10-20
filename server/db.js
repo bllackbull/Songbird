@@ -2491,6 +2491,17 @@ export function findMessageIdByClientRequestId(chatId, userId, clientRequestId) 
   return row?.id || null;
 }
 
+export function updateCallMessageBody(messageId, body) {
+  if (!messageId || typeof body !== "string") return null;
+  const bodyRes = run(
+    dbKnex("chat_messages").where("id", messageId).update({ body }),
+  );
+  if (bodyRes && typeof bodyRes.then === "function") {
+    return bodyRes.then(() => messageId);
+  }
+  return messageId;
+}
+
 export function createOrReuseMessage(
   chatId,
   userId,

@@ -1076,6 +1076,9 @@ export default function ChatWindowPanel({
           : null
       }
       onForwardMessage={onForwardMessage}
+      onCallLogCall={(type) =>
+        type === "video" ? onStartVideoCall?.() : onStartVoiceCall?.()
+      }
       mentionRefreshToken={mentionRefreshToken}
       onOpenContextMenu={onOpenContextMenu}
       visibilityRef={registerMessageRef ? registerMessageRef(msg) : null}
@@ -1528,6 +1531,7 @@ export default function ChatWindowPanel({
             handleSend={handleSend}
             onComposerResize={handleComposerResize}
             replyTarget={replyTarget}
+            currentUsername={user?.username}
             onClearReply={onClearReply}
             editTarget={editTarget}
             onClearEdit={onClearEdit}

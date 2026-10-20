@@ -824,3 +824,98 @@ describe("MessageItem — sender profile", () => {
     await expect.element(page.getByText("Bob").first()).toBeInTheDocument();
   });
 });
+
+// ─── Call-log messages ────────────────────────────────────────────────────────
+
+describe("MessageItem — call-log messages", () => {
+  const CALL_LOG_BASE_PROPS = { ...BASE_PROPS, onCallLogCall: vi.fn() };
+
+  test("renders voice call log with label for the caller", async () => {
+    render(
+      <MessageItem
+        {...CALL_LOG_BASE_PROPS}
+        msg={makeOwnMsg({ body: "[[call:voice:outgoing]]" })}
+      />,
+    );
+    await expect
+      .element(page.getByText("Outgoing call"))
+      .toBeInTheDocument();
+  });
+
+  test("renders cancelled call log label with missed styling", async () => {
+    render(
+      <MessageItem
+        {...CALL_LOG_BASE_PROPS}
+        msg={makeMsg({ body: "[[call:voice:cancelled]]" })}
+      />,
+    );
+    await expect
+      .element(page.getByText("Cancelled call"))
+      .toBeInTheDocument();
+  });
+
+  test("incoming call log shows Incoming call for the receiver", async () => {
+    render(
+      <MessageItem
+        {...CALL_LOG_BASE_PROPS}
+        msg={makeMsg({ body: "[[call:video:connected:65]]" })}
+      />,
+    );
+    await expect
+      .element(page.getByText("Incoming call"))
+      .toBeInTheDocument();
+  });
+
+  test("clicking the call log triggers a callback with the call type", async () => {
+    const onCallLogCall = vi.fn();
+    render(
+      <MessageItem
+        {...CALL_LOG_BASE_PROPS}
+        onCallLogCall={onCallLogCall}
+        msg={makeMsg({ body: "[[call:video:cancelled]]" })}
+      />,
+    );
+    await page.getByText("Cancelled call").click();
+    await expect.poll(() => onCallLogCall.mock.calls.at(0)?.[0]).toBe("video");
+  });
+
+  test("does not leak raw call tag into visible text", async () => {
+    render(
+      <MessageItem
+        {...CALL_LOG_BASE_PROPS}
+        msg={makeMsg({ body: "[[call:voice:failed]]" })}
+      />,
+    );
+    await expect
+      .element(page.getByText("[[call:voice:failed]]"))
+      .not.toBeInTheDocument();
+  });
+});
+
+describe("MessageItem — call-log reply chip", () => {
+  test("reply chip shows call icon and label instead of the raw tag", async () => {
+    render(
+      <MessageItem
+        {...BASE_PROPS}
+        msg={makeOwnMsg({
+          body: "and then?",
+          replyTo: {
+            id: 99,
+            user_id: BOB.id,
+            username: BOB.username,
+            nickname: BOB.nickname,
+            displayName: "Bob",
+            color: BOB.color,
+            body: "[[call:voice:cancelled]]",
+          },
+        })}
+      />,
+    );
+    await expect
+      .element(page.getByText("Cancelled call"))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByText("[[call:voice:cancelled]]"))
+      .not.toBeInTheDocument();
+  });
+});

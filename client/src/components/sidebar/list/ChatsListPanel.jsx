@@ -11,6 +11,7 @@ import {
   Minus,
   Bookmark,
   Megaphone,
+  Phone,
   Users,
   VolumeX,
   Video,
@@ -20,6 +21,10 @@ import { hasPersian } from "../../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../../utils/avatarInitials.js";
 import { renderMarkdownInlinePlain } from "../../../utils/markdown.js";
 import { summarizeFiles } from "../../../utils/messagePreview.js";
+import {
+  getCallLogLabel,
+  parseCallLogBody,
+} from "../../../utils/messageContent.js";
 import { isMessageAuthoredByUser } from "../../../utils/messageOwnership.js";
 import { formatCompactCount } from "../../../utils/chatFormat.js";
 import Avatar from "../../common/Avatar.jsx";
@@ -86,6 +91,20 @@ export default function ChatsListPanel({
       : [];
     const body = normalizePreviewText(conv.last_message).trim();
     if (!files.length) {
+      const callLog = parseCallLogBody(body);
+      if (callLog) {
+        const own = isMessageAuthoredByUser(
+          {
+            username: conv.last_sender_username,
+            client_request_id: conv.last_message_client_request_id,
+          },
+          user,
+        );
+        return {
+          icon: callLog.type === "video" ? "callVideo" : "callVoice",
+          text: getCallLogLabel(callLog, own),
+        };
+      }
       return {
         icon: null,
         text: body,
@@ -683,6 +702,16 @@ export default function ChatsListPanel({
                                 size={14}
                                 className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                               />
+                            ) : lastPreview.icon === "callVoice" ? (
+                              <Phone
+                                size={14}
+                                className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
+                              />
+                            ) : lastPreview.icon === "callVideo" ? (
+                              <Video
+                                size={14}
+                                className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
+                              />
                             ) : null}
                             <span
                               dir="auto"
@@ -750,6 +779,16 @@ export default function ChatsListPanel({
                             />
                           ) : lastPreview.icon === "document" ? (
                             <File
+                              size={14}
+                              className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
+                            />
+                          ) : lastPreview.icon === "callVoice" ? (
+                            <Phone
+                              size={14}
+                              className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
+                            />
+                          ) : lastPreview.icon === "callVideo" ? (
+                            <Video
                               size={14}
                               className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                             />

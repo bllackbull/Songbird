@@ -533,4 +533,126 @@ describe("callManager", () => {
       );
     });
   });
+
+  describe("call-log messages", () => {
+    let createCallMessage;
+    let updateCallMessageBody;
+    let emitChatEvent;
+
+    beforeEach(() => {
+      createCallMessage = mockDeps.createCallMessage = vi.fn(
+        (chatId, userId, body) => {
+          updateCallMessageBody.mock.calls.length = 0;
+          return `msg-${mockDeps.createCallMessage.mock.calls.length}`;
+        },
+      );
+      updateCallMessageBody = mockDeps.updateCallMessageBody = vi.fn();
+      emitChatEvent = mockDeps.emitChatEvent = vi.fn();
+      callManager = createCallManager(mockDeps);
+    });
+
+    it("creates an outgoing call log at call start", async () => {
+      await callManager.startCall({
+        user: callerUser,
+        chatId: dummyChatId,
+        type: "voice",
+      });
+      expect(createCallMessage).toHaveBeenCalledWith(
+        dummyChatId,
+        dummyUserId1,
+        "[[call:voice:outgoing]]",
+      );
+      expect(emitChatEvent).toHaveBeenCalledWith(
+        dummyChatId,
+        expect.objectContaining({ type: "chat_message", chatId: dummyChatId }),
+      );
+    });
+
+    it("marks the log failed when the callee rejects while ringing", async () => {
+      await callManager.startCall({
+        user: callerUser,
+        chatId: dummyChatId,
+        type: "video",
+      });
+      const res = await callManager.rejectCall({ user: calleeUser, chatId: dummyChatId });
+      expect(res.status).toBe(200);
+      expect(updateCallMessageBody).toHaveBeenCalledWith(
+        expect.any(String),
+        "[[call:video:failed]]",
+      );
+    });
+
+    it("marks the log cancelled when the caller hangs up while ringing", async () => {
+      await callManager.startCall({
+        user: callerUser,
+        chatId: dummyChatId,
+        type: "voice",
+      });
+      await callManager.endCall({ user: callerUser, chatId: dummyChatId });
+      expect(updateCallMessageBody).toHaveBeenCalledWith(
+        expect.any(String),
+        "[[call:voice:cancelled]]",
+      );
+    });
+
+    it("records connected duration when an active call ends", async () => {
+      await callManager.startCall({
+        user: callerUser,
+        chatId: dummyChatId,
+        type: "voice",
+      });
+      await callManager.acceptCall({ user: calleeUser, chatId: dummyChatId });
+      await callManager.endCall({ user: callerUser, chatId: dummyChatId });
+      const [id, body] = updateCallMessageBody.mock.calls.at(-1);
+      expect(id).toEqual(expect.any(String));
+      const [, seconds] =
+        body.match(/^\[\[call:voice:connected:(\d+)\]\]$/) || [];
+      expect(seconds != null && Number(seconds) >= 0).toBe(true);
+    });
+
+    it("emits a chat_message_updated event when the log changes", async () => {
+      await callManager.startCall({
+        user: callerUser,
+        chatId: dummyChatId,
+        type: "voice",
+      });
+      await callManager.endCall({ user: callerUser, chatId: dummyChatId });
+      expect(emitChatEvent).toHaveBeenCalledWith(
+        dummyChatId,
+        expect.objectContaining({
+          type: "chat_message_updated",
+          chatId: dummyChatId,
+          body: "[[call:voice:cancelled]]",
+        }),
+      );
+    });
+
+    it("marks the log failed when the callee goes offline while ringing", async () => {
+      await callManager.startCall({
+        user: callerUser,
+        chatId: dummyChatId,
+        type: "voice",
+      });
+      callManager.cleanupUserCalls(calleeUser.username);
+      expect(updateCallMessageBody).toHaveBeenCalledWith(
+        expect.any(String),
+        "[[call:voice:failed]]",
+      );
+    });
+
+    it("does not touch the log when callee goes offline mid-call (stays connected)", async () => {
+      await callManager.startCall({
+        user: callerUser,
+        chatId: dummyChatId,
+        type: "voice",
+      });
+      await callManager.acceptCall({ user: calleeUser, chatId: dummyChatId });
+      updateCallMessageBody.mockClear();
+      callManager.cleanupUserCalls(calleeUser.username);
+      expect(updateCallMessageBody).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.stringMatching(/^\[\[call:voice:connected:\d+\]\]$/),
+      );
+    });
+  });
 });

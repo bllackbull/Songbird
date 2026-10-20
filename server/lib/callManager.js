@@ -11,6 +11,9 @@ export function createCallManager(deps) {
     findUserById,
     emitToUser,
     sendPushNotificationToUsers,
+    createCallMessage,
+    updateCallMessageBody,
+    emitChatEvent,
     env = process.env,
   } = deps;
 
@@ -66,6 +69,58 @@ export function createCallManager(deps) {
       String(call.callerUsername).toLowerCase() === lower ||
       String(call.calleeUsername).toLowerCase() === lower
     );
+  }
+
+  function encodeCallBody(type, status, durationSeconds = null) {
+    return durationSeconds == null
+      ? `[[call:${type}:${status}]]`
+      : `[[call:${type}:${status}:${Math.max(0, Math.floor(Number(durationSeconds) || 0))}]]`;
+  }
+
+  // Call-log messages.
+  function emitLogUpdate(call) {
+    if (typeof emitChatEvent !== "function" || !call?.logMessageId) return;
+    emitChatEvent(call.chatId, {
+      type: "chat_message_updated",
+      chatId: call.chatId,
+      messageId: call.logMessageId,
+      body: encodeCallBody(call.type, call.logStatus, call.logDuration),
+    });
+  }
+
+  async function writeCallLog(call, status, durationSeconds = null) {
+    call.logStatus = status;
+    call.logDuration = durationSeconds;
+    if (call.logMessageId) {
+      if (typeof updateCallMessageBody === "function") {
+        try {
+          await updateCallMessageBody(call.logMessageId, encodeCallBody(call.type, status, durationSeconds));
+        } catch {
+          // ignore; realtime emit is the source of truth
+        }
+      }
+      emitLogUpdate(call);
+      return;
+    }
+    if (typeof createCallMessage !== "function") return;
+    try {
+      const id = await createCallMessage(call.chatId, call.callerId, encodeCallBody(call.type, status, durationSeconds));
+      if (id) {
+        call.logMessageId = id;
+        if (typeof emitChatEvent === "function") {
+          emitChatEvent(call.chatId, {
+            type: "chat_message",
+            chatId: call.chatId,
+            messageId: id,
+            userId: call.callerId,
+            username: call.callerUsername,
+            body: encodeCallBody(call.type, status, durationSeconds),
+          });
+        }
+      }
+    } catch {
+      // ignore
+    }
   }
 
   function peerUsernameOf(call, username) {
@@ -173,6 +228,8 @@ export function createCallManager(deps) {
       },
     });
 
+    await writeCallLog(call, "outgoing");
+
     return { status: 200, call };
   }
 
@@ -262,6 +319,15 @@ export function createCallManager(deps) {
       });
     }
 
+    // Callee declined while ringing -> the caller's attempt failed.
+    if (
+      call.status === "ringing" &&
+      String(user.username).toLowerCase() ===
+        String(call.calleeUsername).toLowerCase()
+    ) {
+      await writeCallLog(call, "failed");
+    }
+
     return { status: 200, ok: true };
   }
 
@@ -279,6 +345,11 @@ export function createCallManager(deps) {
       return { status: 403, error: "You are not a participant in this call" };
     }
 
+    const endedRinging = call.status === "ringing";
+    const wasCaller =
+      String(user.username).toLowerCase() ===
+      String(call.callerUsername).toLowerCase();
+
     activeCalls.delete(key);
 
     dismissCallPush(call);
@@ -289,6 +360,14 @@ export function createCallManager(deps) {
         type: "call:ended",
         chatId: call.chatId,
       });
+    }
+
+    if (endedRinging) {
+      // Caller hung up before an answer -> cancelled; anything else (callee
+      // hung up / dropped while ringing) -> failed attempt.
+      await writeCallLog(call, wasCaller ? "cancelled" : "failed");
+    } else if (call.logMessageId) {
+      await writeCallLog(call, "connected", secondsSinceStart(call));
     }
 
     return { status: 200, ok: true };
@@ -320,6 +399,10 @@ export function createCallManager(deps) {
     return { status: 200, ok: true };
   }
 
+  function secondsSinceStart(call) {
+    return Math.max(0, Math.round((Date.now() - Number(call.startedAt || 0)) / 1000));
+  }
+
   function cleanupUserCalls(username) {
     if (!username) return;
     const lower = String(username).toLowerCase();
@@ -331,6 +414,16 @@ export function createCallManager(deps) {
         activeCalls.delete(key);
 
         dismissCallPush(call);
+
+        const wasCaller =
+          String(call.callerUsername).toLowerCase() === lower;
+        // Session dropped during ringing: caller vanishing -> cancelled,
+        // callee vanishing -> failed. Drops mid-call keep "connected".
+        if (call.status === "ringing") {
+          void writeCallLog(call, wasCaller ? "cancelled" : "failed");
+        } else if (call.logMessageId) {
+          void writeCallLog(call, "connected", secondsSinceStart(call));
+        }
 
         const peer = peerUsernameOf(call, lower);
         if (typeof emitToUser === "function" && peer) {

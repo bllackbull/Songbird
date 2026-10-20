@@ -50,8 +50,12 @@ function createStorageEncryption({
 
   const isEnabled = () => Boolean(resolveKey());
 
-  const isSystemMessageBody = (value = "") =>
-    String(value || "").startsWith("[[system:");
+const isSystemMessageBody = (value = "") => {
+  const input = String(value || "");
+  return (
+    input.startsWith("[[system:") || input.startsWith("[[call:")
+  );
+};
 
   const isEncryptedText = (value = "") =>
     String(value || "").startsWith(TEXT_PREFIX);

@@ -11,6 +11,7 @@ import {
   Ghost,
   ImageIcon,
   Mic,
+  Phone,
   Reply,
   Video,
 } from "../../../icons/lucide.js";
@@ -28,6 +29,8 @@ import { copyTextToClipboard } from "../../../utils/clipboard.js";
 import {
   extractMessageBodyText,
   FILE_SUMMARY_PATTERN,
+  getCallLogLabel,
+  parseCallLogBody,
 } from "../../../utils/messageContent.js";
 import { resolveMention, getCachedMention } from "../../../utils/mentions.js";
 import { summarizeFiles } from "../../../utils/messagePreview.js";
@@ -168,6 +171,7 @@ export const MessageItem = memo(function MessageItem({
   onReply,
   onForwardMessage,
   onJumpToMessage,
+  onCallLogCall = null,
   canSwipeReply = true,
   onOpenContextMenu,
   visibilityRef = null,
@@ -290,6 +294,10 @@ export const MessageItem = memo(function MessageItem({
   const isFailed = msg._delivery === "failed";
   const bodyText = extractMessageBodyText(msg?.body);
   const normalizedBodyText = String(bodyText || "").trim();
+  const callLog = parseCallLogBody(normalizedBodyText);
+  const callLogLabel = callLog
+    ? getCallLogLabel(callLog, Boolean(isOwn))
+    : null;
   const hasMixedVoiceAndOtherFiles =
     hasFiles &&
     messageFiles.some((file) =>
@@ -598,6 +606,14 @@ export const MessageItem = memo(function MessageItem({
   };
   const replyPreview = truncateReplyPreview(replyPreviewRaw);
   const replyBodyText = extractMessageBodyText(replyTarget?.body).trim();
+  const replyCallLog = parseCallLogBody(replyBodyText);
+  const replyCallLogLabel = replyCallLog
+    ? getCallLogLabel(
+        replyCallLog,
+        String(replyTarget?.username || "").toLowerCase() ===
+          String(user?.username || "").toLowerCase(),
+      )
+    : null;
   const isPluralMediaSummary =
     /^Sent \d+ (files|photos|videos|documents|media files)$/i.test(
       replyBodyText,
@@ -607,7 +623,9 @@ export const MessageItem = memo(function MessageItem({
       replyBodyText,
     );
   const normalizedReplyPreview =
-    replyTarget?.icon === "voice"
+    replyCallLog
+      ? replyCallLogLabel
+      : replyTarget?.icon === "voice"
       ? /^Sent (a voice message|\d+ voice messages)$/i.test(replyBodyText)
         ? "Sent a voice message"
         : replyPreview
@@ -635,6 +653,7 @@ export const MessageItem = memo(function MessageItem({
   );
   const derivedReplyIcon = (() => {
     if (!replyTarget) return null;
+    if (replyCallLog) return replyCallLog.type === "video" ? "video" : "callVoice";
     if (replyTarget.icon) return replyTarget.icon;
     if (/^Sent \d+ media files/i.test(replyPreview)) return "image";
     if (/^Sent (a voice message|\d+ voice messages)/i.test(replyPreview))
@@ -1166,6 +1185,11 @@ export const MessageItem = memo(function MessageItem({
                             size={11}
                             className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                           />
+                        ) : derivedReplyIcon === "callVoice" ? (
+                          <Phone
+                            size={11}
+                            className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
+                          />
                         ) : derivedReplyIcon === "video" ? (
                           <Video
                             size={11}
@@ -1313,6 +1337,11 @@ export const MessageItem = memo(function MessageItem({
                             size={11}
                             className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                           />
+                        ) : derivedReplyIcon === "callVoice" ? (
+                          <Phone
+                            size={11}
+                            className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
+                          />
                         ) : derivedReplyIcon === "video" ? (
                           <Video
                             size={11}
@@ -1346,7 +1375,40 @@ export const MessageItem = memo(function MessageItem({
                 docFullWidth={isGroupChat && !isOwn && !isDesktop}
                 {...messageFilesProps}
               />
-              {!shouldHideGeneratedFileBody ? (
+              {callLog ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    typeof onCallLogCall === "function" &&
+                    onCallLogCall(callLog.type)
+                  }
+                  className="-my-1 flex w-full items-center gap-2.5 py-1 text-start"
+                  aria-label={`${callLogLabel} — call back`}
+                >
+                  <span
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white ${
+                      callLog.status === "failed" || callLog.status === "cancelled"
+                        ? "bg-rose-500 dark:bg-rose-600"
+                        : "bg-emerald-500 dark:bg-emerald-600"
+                    }`}
+                    aria-hidden="true"
+                  >
+                    {callLog.type === "video" ? (
+                      <Video size={17} />
+                    ) : (
+                      <Phone size={16} />
+                    )}
+                  </span>
+                  <span
+                    className={`min-w-0 flex-1 truncate text-sm font-semibold ${
+                      hasPersian(callLogLabel) ? "font-fa" : ""
+                    }`}
+                    dir="auto"
+                  >
+                    {callLogLabel}
+                  </span>
+                </button>
+              ) : !shouldHideGeneratedFileBody ? (
                 <div
                   ref={messageBodyRef}
                   dir="auto"

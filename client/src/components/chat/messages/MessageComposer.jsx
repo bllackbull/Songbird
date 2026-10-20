@@ -6,6 +6,7 @@ import {
   ImageIcon,
   Mic,
   Paperclip,
+  Phone,
   Play,
   Reply,
   Send,
@@ -14,6 +15,10 @@ import {
 } from "../../../icons/lucide.js";
 import { hasPersian } from "../../../utils/fontUtils.js";
 import { renderMarkdownInlinePlain } from "../../../utils/markdown.js";
+import {
+  getCallLogLabel,
+  parseCallLogBody,
+} from "../../../utils/messageContent.js";
 import VerifiedBadge from "../../common/VerifiedBadge.jsx";
 import UserRoleBadge from "../../common/UserRoleBadge.jsx";
 import Tooltip from "../../common/Tooltip.jsx";
@@ -80,6 +85,7 @@ export function MessageComposer({
   composerInputRef,
   microphonePermissionStatus = "unknown",
   onRequestMicrophonePermission,
+  currentUsername = "",
 }) {
   const composerRef = useRef(null);
   const fallbackInputRef = useRef(null);
@@ -140,6 +146,14 @@ export function MessageComposer({
       String(editBodyText || "").trim(),
     );
   const replyBodyNormalized = String(replyBodyText || "").trim();
+  const replyCallLog = parseCallLogBody(replyBodyNormalized);
+  const replyCallLogLabel = replyCallLog
+    ? getCallLogLabel(
+        replyCallLog,
+        String(replyTarget?.username || "").toLowerCase() ===
+          String(currentUsername || "").toLowerCase(),
+      )
+    : null;
   const isPluralMediaSummary =
     /^Sent \d+ (files|photos|videos|documents|media files)$/i.test(
       replyBodyNormalized,
@@ -152,6 +166,7 @@ export function MessageComposer({
     /^Sent (a voice message|\d+ voice messages)$/i.test(replyBodyNormalized);
   const derivedReplyIcon = (() => {
     if (!replyTarget) return null;
+    if (replyCallLog) return replyCallLog.type === "video" ? "video" : "callVoice";
     if (replyTarget.icon) return replyTarget.icon;
     if (/^Sent \d+ media files/i.test(replyBodyText)) return "image";
     if (/^Sent (a voice message|\d+ voice messages)/i.test(replyBodyText))
@@ -163,8 +178,9 @@ export function MessageComposer({
       return "document";
     return null;
   })();
-  const resolvedReplyText =
-    derivedReplyIcon === "voice"
+  const resolvedReplyText = replyCallLog
+    ? replyCallLogLabel
+    : derivedReplyIcon === "voice"
       ? isGenericReplyVoiceText
         ? "Sent a voice message"
         : replyBodyText || "Message"
@@ -757,6 +773,11 @@ export function MessageComposer({
               >
                 {derivedReplyIcon === "voice" ? (
                   <Mic
+                    size={12}
+                    className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
+                  />
+                ) : derivedReplyIcon === "callVoice" ? (
+                  <Phone
                     size={12}
                     className="translate-y-[3px] shrink-0 text-slate-500 dark:text-slate-400"
                   />
