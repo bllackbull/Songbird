@@ -73,6 +73,7 @@ export const CallScreen = memo(function CallScreen({
   callQuality,
   isMuted,
   isCameraOff,
+  cameraUnavailable = false,
   isRemoteCameraOff,
   isSpeakerOn,
   localVideoRef,
@@ -640,12 +641,13 @@ export const CallScreen = memo(function CallScreen({
                 <button
                   type="button"
                   onClick={onToggleCamera}
-                  disabled={isEnding}
+                  disabled={isEnding || cameraUnavailable}
                   className={`flex h-16 w-16 items-center justify-center rounded-full transition ${controlState} ${
                     isCameraOff
                       ? "bg-white text-gray-500 hover:bg-white/90"
                       : "bg-white/10 text-white hover:bg-white/20"
-                  }`}
+                  } ${cameraUnavailable ? "opacity-40 cursor-not-allowed" : ""}`}
+                  aria-disabled={cameraUnavailable || undefined}
                   aria-label={isCameraOff ? "Turn camera on" : "Turn camera off"}
                 >
                   {isCameraOff ? <VideoOff size={26} /> : <Video size={26} />}

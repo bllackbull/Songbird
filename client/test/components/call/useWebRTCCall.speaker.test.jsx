@@ -4,6 +4,7 @@ import { page, userEvent } from "vitest/browser";
 import { useEffect, useRef, useState } from "react";
 import { useWebRTCCall } from "../../../src/hooks/chat/useWebRTCCall.js";
 import { CallScreen } from "../../../src/components/call/CallScreen.jsx";
+import { sendCallSignal } from "../../../src/api/chatApi.js";
 
 // No network in tests: the hook fetches ICE servers on mount.
 vi.mock("../../../src/api/chatApi.js", () => ({
@@ -89,9 +90,9 @@ function MediaIntegrityHarness() {
       <button type="button" onClick={() => handleSignal({ type: "call:incoming", chatId: "c1", callType: "video" })}>
         simulate incoming
       </button>
-      <button type="button" onClick={acceptCall}>
-        accept
-      </button>
+        <button type="button" onClick={acceptCall}>
+          accept
+        </button>
       <button type="button" onClick={() => setMonitoring(true)}>
         arm
       </button>
@@ -161,6 +162,339 @@ describe("useWebRTCCall speaker toggle media integrity", () => {
           Boolean(document.querySelector("video[data-testid='remote-video']")?.muted),
       )
       .toBe(false);
+  });
+});
+
+describe("useWebRTCCall without a camera", () => {
+  // Video call on a camera-less device: the video request fails with
+  // NotFoundError, the audio-only fallback must keep the call alive.
+  const mockNoCamera = () => {
+    const notFound = new DOMException(
+      "The object can not be found here.",
+      "NotFoundError",
+    );
+    return vi
+      .spyOn(navigator.mediaDevices, "getUserMedia")
+      .mockImplementation(async (constraints) => {
+        if (constraints?.video) throw notFound;
+        return new MediaStream();
+      });
+  };
+
+  function NoCameraHarness() {
+    const {
+      callState,
+      isCameraOff,
+      isCameraUnavailable,
+      startCall,
+      acceptCall,
+      toggleCamera,
+      handleSignal,
+    } = useWebRTCCall({});
+    return (
+      <div>
+        <p data-testid="call-state">{callState}</p>
+        <p data-testid="is-camera-off">{String(isCameraOff)}</p>
+        <p data-testid="camera-unavailable">{String(isCameraUnavailable)}</p>
+        <button type="button" data-testid="camera-ctrl" onClick={toggleCamera}>
+          toggle camera
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            handleSignal({ type: "call:incoming", chatId: "c1", callType: "video" })
+          }
+        >
+          simulate incoming
+        </button>
+        <button
+          type="button"
+          onClick={() => startCall({ chatId: "c1", calleeUsername: "bob", type: "video" })}
+        >
+          start
+        </button>
+        <button type="button" onClick={acceptCall}>
+          accept
+        </button>
+      </div>
+    );
+  }
+
+  test("accepting a video call joins audio-only with camera off", async () => {
+    const getUserMedia = mockNoCamera();
+    render(<NoCameraHarness />);
+    await userEvent.click(page.getByRole("button", { name: "simulate incoming" }));
+    await expect
+      .element(page.getByTestId("call-state"))
+      .toHaveTextContent("ringing");
+
+    await userEvent.click(page.getByRole("button", { name: "accept" }));
+    await expect
+      .element(page.getByTestId("call-state"))
+      .toHaveTextContent("connected");
+
+    await expect
+      .element(page.getByTestId("is-camera-off"))
+      .toHaveTextContent("true");
+    await expect
+      .element(page.getByTestId("camera-unavailable"))
+      .toHaveTextContent("true");
+    expect(getUserMedia).toHaveBeenCalledTimes(2);
+  });
+
+  test("starting a video call on a camera-less device starts audio-only", async () => {
+    mockNoCamera();
+    render(<NoCameraHarness />);
+    await userEvent.click(page.getByRole("button", { name: "start" }));
+    await expect
+      .element(page.getByTestId("call-state"))
+      .toHaveTextContent("calling");
+
+    await expect
+      .element(page.getByTestId("is-camera-off"))
+      .toHaveTextContent("true");
+    await expect
+      .element(page.getByTestId("camera-unavailable"))
+      .toHaveTextContent("true");
+  });
+
+  test("camera stays available when video succeeds", async () => {
+    vi.spyOn(navigator.mediaDevices, "getUserMedia").mockResolvedValue(
+      new MediaStream(),
+    );
+    render(<NoCameraHarness />);
+    await userEvent.click(page.getByRole("button", { name: "simulate incoming" }));
+    await userEvent.click(page.getByRole("button", { name: "accept" }));
+    await expect
+      .element(page.getByTestId("call-state"))
+      .toHaveTextContent("connected");
+
+    await expect
+      .element(page.getByTestId("camera-unavailable"))
+      .toHaveTextContent("false");
+    await expect
+      .element(page.getByTestId("is-camera-off"))
+      .toHaveTextContent("false");
+  });
+
+  function NoCameraScreenHarness() {
+    const {
+      callState,
+      callType,
+      isCameraOff,
+      isCameraUnavailable,
+      acceptCall,
+      localVideoRef,
+      remoteVideoRef,
+      remoteAudioRef,
+      handleSignal,
+    } = useWebRTCCall({});
+    return (
+      <div>
+        <p data-testid="call-state">{callState}</p>
+        {callState !== "idle" ? (
+          <CallScreen
+            callState={callState}
+            callType={callType}
+            callPeer={{ username: "bob" }}
+            isCameraOff={isCameraOff}
+            cameraUnavailable={isCameraUnavailable}
+            localVideoRef={localVideoRef}
+            remoteVideoRef={remoteVideoRef}
+            remoteAudioRef={remoteAudioRef}
+            onAccept={acceptCall}
+            onReject={() => {}}
+            onEnd={() => {}}
+            onToggleMute={() => {}}
+            onToggleCamera={() => {}}
+            onToggleSpeaker={() => {}}
+          />
+        ) : null}
+        <button
+          type="button"
+          onClick={() =>
+            handleSignal({ type: "call:incoming", chatId: "c1", callType: "video" })
+          }
+        >
+          simulate incoming
+        </button>
+      </div>
+    );
+  }
+
+  test("camera control is disabled in the call screen without a camera and enabled with one", async () => {
+    mockNoCamera();
+    render(<NoCameraScreenHarness />);
+    await userEvent.click(page.getByRole("button", { name: "simulate incoming" }));
+    await userEvent.click(page.getByRole("button", { name: "Accept call" }));
+    await expect
+      .element(page.getByTestId("call-state"))
+      .toHaveTextContent("connected");
+
+    await expect
+      .element(page.getByRole("button", { name: "Turn camera on" }))
+      .toBeDisabled();
+  });
+
+  test("camera-less video caller broadcasts camera-off so the peer drops the empty video box", async () => {
+    mockNoCamera();
+    sendCallSignal.mockClear();
+    render(<NoCameraHarness />);
+    await userEvent.click(page.getByRole("button", { name: "start" }));
+    await expect
+      .element(page.getByTestId("call-state"))
+      .toHaveTextContent("calling");
+
+    // The peer optimistically assumes the caller's camera is on for a video
+    // call; an audio-only fallback must correct it or the peer renders an
+    // empty video stage.
+    await expect
+      .poll(
+        () =>
+          vi
+            .mocked(sendCallSignal)
+            .mock.calls.map(([signalType]) => signalType),
+        { timeout: 5000 },
+      )
+      .toContain("camera-state");
+
+    const signalTypes = vi
+      .mocked(sendCallSignal)
+      .mock.calls.map(([signalType]) => signalType);
+    expect(signalTypes.indexOf("camera-state")).toBeGreaterThan(
+      signalTypes.indexOf("start"),
+    );
+    const [, cameraBody] = vi
+      .mocked(sendCallSignal)
+      .mock.calls.find(([signalType]) => signalType === "camera-state");
+    expect(cameraBody).toEqual({ chatId: "c1", cameraOff: true });
+  });
+
+  test("camera-less video callee broadcasts camera-off so the caller drops the empty video box", async () => {
+    mockNoCamera();
+    sendCallSignal.mockClear();
+    render(<NoCameraHarness />);
+    await userEvent.click(page.getByRole("button", { name: "simulate incoming" }));
+    await expect
+      .element(page.getByTestId("call-state"))
+      .toHaveTextContent("ringing");
+
+    await userEvent.click(page.getByRole("button", { name: "accept" }));
+    await expect
+      .element(page.getByTestId("call-state"))
+      .toHaveTextContent("connected");
+
+    expect(vi.mocked(sendCallSignal).mock.calls).toContainEqual([
+      "camera-state",
+      { chatId: "c1", cameraOff: true },
+    ]);
+  });
+
+  // Regression: a video peer that joins audio-only (no usable camera)
+  // signals camera-off while the call is still ringing. When the local
+  // side accepts, the camera-off knowledge must survive; otherwise the
+  // call screen renders an empty video box "as if" a camera were live.
+  function CameralessPeerScreenHarness() {
+    const {
+      callState,
+      callType,
+      isCameraOff,
+      isCameraUnavailable,
+      isRemoteCameraOff,
+      acceptCall,
+      localVideoRef,
+      remoteVideoRef,
+      remoteAudioRef,
+      handleSignal,
+    } = useWebRTCCall({});
+    return (
+      <div>
+        <p data-testid="call-state">{callState}</p>
+        {callState !== "idle" ? (
+          <CallScreen
+            callState={callState}
+            callType={callType}
+            callPeer={{ username: "bob" }}
+            isCameraOff={isCameraOff}
+            cameraUnavailable={isCameraUnavailable}
+            isRemoteCameraOff={isRemoteCameraOff}
+            localVideoRef={localVideoRef}
+            remoteVideoRef={remoteVideoRef}
+            remoteAudioRef={remoteAudioRef}
+            onAccept={acceptCall}
+            onReject={() => {}}
+            onEnd={() => {}}
+            onToggleMute={() => {}}
+            onToggleCamera={() => {}}
+            onToggleSpeaker={() => {}}
+          />
+        ) : null}
+        <button
+          type="button"
+          onClick={() =>
+            handleSignal({ type: "call:incoming", chatId: "c1", callType: "video" })
+          }
+        >
+          simulate incoming
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            handleSignal({
+              type: "call:camera-state",
+              chatId: "c1",
+              cameraOff: true,
+            })
+          }
+        >
+          peer camera off
+        </button>
+        <button type="button" onClick={acceptCall}>
+          accept
+        </button>
+      </div>
+    );
+  }
+
+  test("call screen shows no empty camera box when the video peer is camera-less", async () => {
+    mockNoCamera();
+    render(<CameralessPeerScreenHarness />);
+    await userEvent.click(page.getByRole("button", { name: "simulate incoming" }));
+    await expect
+      .element(page.getByTestId("call-state"))
+      .toHaveTextContent("ringing");
+
+    await userEvent.click(page.getByRole("button", { name: "peer camera off" }));
+    await userEvent.click(page.getByRole("button", { name: "Accept call" }));
+    await expect
+      .element(page.getByTestId("call-state"))
+      .toHaveTextContent("connected");
+
+    await expect
+      .element(page.getByTestId("main-video-placeholder"))
+      .not.toBeInTheDocument();
+  });
+
+  test("rejects the incoming call if even audio cannot be captured", async () => {
+    const denied = new DOMException("Permission denied.", "NotAllowedError");
+    vi.spyOn(navigator.mediaDevices, "getUserMedia").mockRejectedValue(denied);
+    render(<NoCameraHarness />);
+    await userEvent.click(page.getByRole("button", { name: "simulate incoming" }));
+    await expect
+      .element(page.getByTestId("call-state"))
+      .toHaveTextContent("ringing");
+
+    await userEvent.click(page.getByRole("button", { name: "accept" }));
+    await expect
+      .element(page.getByTestId("call-state"))
+      .toHaveTextContent("ringing");
+    await expect
+      .poll(
+        () =>
+          document.querySelector('[data-testid="call-state"]')?.textContent,
+        { timeout: 5000 },
+      )
+      .toBe("idle");
   });
 });
 

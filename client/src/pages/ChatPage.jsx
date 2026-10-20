@@ -1046,6 +1046,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     callQuality,
     isMuted,
     isCameraOff,
+    isCameraUnavailable,
     isRemoteCameraOff,
     isSpeakerOn,
     localVideoRef,
@@ -6950,6 +6951,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           callQuality={callQuality}
           isMuted={isMuted}
           isCameraOff={isCameraOff}
+          cameraUnavailable={isCameraUnavailable}
           isRemoteCameraOff={isRemoteCameraOff}
           isSpeakerOn={isSpeakerOn}
           localVideoRef={localVideoRef}

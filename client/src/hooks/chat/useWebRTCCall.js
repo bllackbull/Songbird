@@ -24,6 +24,25 @@ export const CALL_END_NOTICE_MS = 1750;
 export const CALL_EXIT_MS = 250;
 
 /**
+ * Capture the local media stream for a call. A video request fails on
+ * camera-less devices (NotFoundError) or when the camera is otherwise
+ * unusable; fall back to an audio-only call.
+ */
+export async function acquireLocalMedia(wantsVideo) {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: wantsVideo,
+    });
+    return { stream, hasVideo: wantsVideo };
+  } catch (err) {
+    if (!wantsVideo) throw err;
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    return { stream, hasVideo: false };
+  }
+}
+
+/**
  * Call states: idle | calling | ringing | connected
  */
 export function useWebRTCCall({ realtimeSenderRef } = {}) {
@@ -38,6 +57,8 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   const [callDuration, setCallDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
+  // True when the local device has no usable camera.
+  const [isCameraUnavailable, setIsCameraUnavailable] = useState(false);
   const [isRemoteCameraOff, setIsRemoteCameraOff] = useState(true);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [remoteStreamTick, setRemoteStreamTick] = useState(0);
@@ -62,6 +83,11 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   const callStateRef = useRef(callState);
   const callTypeRef = useRef(callType);
   const callChatIdRef = useRef(callChatId);
+  const cameraUnavailableRef = useRef(false);
+
+  useEffect(() => {
+    cameraUnavailableRef.current = isCameraUnavailable;
+  }, [isCameraUnavailable]);
 
   useEffect(() => {
     callStateRef.current = callState;
@@ -162,6 +188,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     }
 
     pendingCandidatesRef.current = [];
+    cameraUnavailableRef.current = false;
     setCallQuality(UNKNOWN_QUALITY);
     setCallState("idle");
     callStateRef.current = "idle";
@@ -171,6 +198,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     setCallDuration(0);
     setIsMuted(false);
     setIsCameraOff(false);
+    setIsCameraUnavailable(false);
     setIsRemoteCameraOff(true);
     setIsSpeakerOn(true);
     setIsCallClosing(false);
@@ -340,13 +368,16 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       });
 
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: type === "video",
-        });
-        localStreamRef.current = stream;
-        if (localVideoRef.current && type === "video") {
-          localVideoRef.current.srcObject = stream;
+        const { stream: gotStream, hasVideo } = await acquireLocalMedia(
+          type === "video",
+        );
+        localStreamRef.current = gotStream;
+        // A video call started on a device without a usable camera joins
+        // audio-only with the camera off.
+        setIsCameraOff(!hasVideo);
+        setIsCameraUnavailable(type === "video" && !hasVideo);
+        if (localVideoRef.current && hasVideo) {
+          localVideoRef.current.srcObject = gotStream;
         }
 
         const res = await postSignal("start", {
@@ -355,6 +386,12 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
         });
         if (!res?.ok && !res?.call) {
           finishCall("failed");
+        } else if (type === "video" && !hasVideo) {
+          // A camera-less video caller joins audio-only.
+          void postSignal("camera-state", {
+            chatId: normalizedChatId,
+            cameraOff: true,
+          });
         }
       } catch (err) {
         console.error("Failed to start call:", err);
@@ -449,14 +486,14 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
 
     try {
       const acceptedType = callTypeRef.current;
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: acceptedType === "video",
-      });
+      const { stream, hasVideo } = await acquireLocalMedia(
+        acceptedType === "video",
+      );
       localStreamRef.current = stream;
-      // Voice calls start with camera off, video calls with camera on.
-      setIsCameraOff(acceptedType !== "video");
-      setIsRemoteCameraOff(acceptedType !== "video");
+      // Voice calls start with camera off; a video call without a usable
+      // camera joins audio-only with the camera off.
+      setIsCameraOff(!hasVideo);
+      setIsCameraUnavailable(acceptedType === "video" && !hasVideo);
 
       const pc = createPeerConnection();
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
@@ -473,6 +510,11 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       if (res === null) {
         finishCall("failed");
         return;
+      }
+      if (acceptedType === "video" && !hasVideo) {
+        // A video call accepted without a usable camera joins audio-only;
+        // tell the caller so its screen drops the empty video stage.
+        void postSignal("camera-state", { chatId, cameraOff: true });
       }
 
       // Move out of "ringing" immediately.
@@ -523,6 +565,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     if (!stream) return;
     const videoTracks = stream.getVideoTracks();
     if (videoTracks.length === 0) {
+      if (cameraUnavailableRef.current) return;
       try {
         const videoStream = await navigator.mediaDevices.getUserMedia({
           video: true,
@@ -823,6 +866,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     callQuality,
     isMuted,
     isCameraOff,
+    isCameraUnavailable,
     isRemoteCameraOff,
     isSpeakerOn,
     localVideoRef,

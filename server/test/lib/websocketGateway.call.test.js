@@ -76,4 +76,75 @@ describe("WebSocket Gateway Call Signaling", () => {
 
     gateway.close();
   });
+
+  // Regression: a camera-less video caller posts camera-state right after
+  // start. Both arrive on the same socket, but each message used to spawn its
+  // own async job, so the camera-state relay could run while startCall's DB
+  // lookups were still in flight — before the call was seeded — and get a
+  // "No active call found" 404. The correction was silently swallowed and the
+  // callee's call screen kept rendering an empty video box.
+  test("processes call signals per socket in arrival order", async () => {
+    const order = [];
+    const callManager = {
+      startCall: vi.fn(async () => {
+        await new Promise((r) => setTimeout(r, 25));
+        order.push("start-done");
+        return { status: 200, call: {} };
+      }),
+      acceptCall: vi.fn(async () => ({ status: 200, call: {} })),
+      rejectCall: vi.fn(async () => ({ status: 200 })),
+      endCall: vi.fn(async () => ({ status: 200 })),
+      relaySignal: vi.fn(async () => {
+        order.push("relay-camera-state");
+        return { status: 200 };
+      }),
+      cleanupUserCalls: vi.fn(),
+    };
+
+    const gateway = createWebSocketGateway({ callManager });
+    const ws = new EventEmitter();
+    ws.isAlive = true;
+    ws.readyState = 1;
+    ws.send = vi.fn();
+
+    gateway.wss.emit("connection", ws, {}, { id: "user-1", username: "alice" });
+
+    ws.emit(
+      "message",
+      Buffer.from(
+        JSON.stringify({
+          action: "call_signal",
+          signalType: "start",
+          chatId: "chat-uuid-1",
+          data: { type: "video" },
+        }),
+      ),
+    );
+    ws.emit(
+      "message",
+      Buffer.from(
+        JSON.stringify({
+          action: "call_signal",
+          signalType: "camera-state",
+          chatId: "chat-uuid-1",
+          data: { cameraOff: true },
+        }),
+      ),
+    );
+
+    await new Promise((r) => setTimeout(r, 80));
+
+    expect(order.indexOf("start-done")).toBeLessThan(
+      order.indexOf("relay-camera-state"),
+    );
+    expect(callManager.relaySignal).toHaveBeenCalledWith({
+      user: { id: "user-1", username: "alice" },
+      chatId: "chat-uuid-1",
+      signalType: "camera-state",
+      payload: { cameraOff: true },
+    });
+
+    ws.emit("close");
+    gateway.close();
+  });
 });
