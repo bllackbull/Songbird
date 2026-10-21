@@ -475,6 +475,59 @@ describe("useWebRTCCall without a camera", () => {
       .not.toBeInTheDocument();
   });
 
+  function NoCameraOfferHarness() {
+    const { startCall, handleSignal } = useWebRTCCall({});
+    return (
+      <div>
+        <button
+          type="button"
+          onClick={() => startCall({ chatId: "c1", calleeUsername: "bob", type: "video" })}
+        >
+          start
+        </button>
+        <button
+          type="button"
+          onClick={() => handleSignal({ type: "call:accepted", chatId: "c1" })}
+        >
+          simulate accepted
+        </button>
+      </div>
+    );
+  }
+
+  // Regression: a video caller on a camera-less device creates its SDP
+  // offer with local tracks only, so the offer had no video m-line. The
+  // camera-equipped callee can then never answer video and the caller
+  // never receives their camera feed.
+  test("camera-less caller's SDP offer includes a video m-line so the callee can answer video", async () => {
+    mockNoCamera();
+    const RealPC = window.RTCPeerConnection;
+    window.RTCPeerConnection = class extends RealPC {
+      async createOffer() {
+        window.__offerTransceivers = this.getTransceivers().map(
+          (t) => t.receiver?.track?.kind,
+        );
+        return { type: "offer", sdp: "stub" };
+      }
+      async setLocalDescription() {}
+    };
+    try {
+      render(<NoCameraOfferHarness />);
+      await userEvent.click(page.getByRole("button", { name: "start" }));
+      await expect
+        .element(page.getByRole("button", { name: "simulate accepted" }))
+        .toBeEnabled();
+
+      await userEvent.click(page.getByRole("button", { name: "simulate accepted" }));
+      await expect
+        .poll(() => window.__offerTransceivers, { timeout: 5000 })
+        .toContain("video");
+    } finally {
+      window.RTCPeerConnection = RealPC;
+      delete window.__offerTransceivers;
+    }
+  });
+
   test("rejects the incoming call if even audio cannot be captured", async () => {
     const denied = new DOMException("Permission denied.", "NotAllowedError");
     vi.spyOn(navigator.mediaDevices, "getUserMedia").mockRejectedValue(denied);

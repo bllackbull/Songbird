@@ -668,6 +668,10 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
                 .getTracks()
                 .forEach((track) => pc.addTrack(track, localStreamRef.current));
             }
+            
+            if (!localStreamRef.current?.getVideoTracks().length) {
+              pc.addTransceiver("video", { direction: "recvonly" });
+            }
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
             await postSignal("offer", {
