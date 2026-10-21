@@ -626,20 +626,6 @@ export const CallScreen = memo(function CallScreen({
 
                 <button
                   type="button"
-                  onClick={onToggleMute}
-                  disabled={isEnding}
-                  className={`flex h-16 w-16 items-center justify-center rounded-full transition ${controlState} ${
-                    isMuted
-                      ? "bg-white text-gray-500 hover:bg-white/90"
-                      : "bg-white/10 text-white hover:bg-white/20"
-                  }`}
-                  aria-label={isMuted ? "Unmute" : "Mute"}
-                >
-                  {isMuted ? <MicOff size={26} /> : <Mic size={26} />}
-                </button>
-
-                <button
-                  type="button"
                   onClick={onToggleCamera}
                   disabled={isEnding || cameraUnavailable}
                   className={`flex h-16 w-16 items-center justify-center rounded-full transition ${controlState} ${
@@ -651,6 +637,20 @@ export const CallScreen = memo(function CallScreen({
                   aria-label={isCameraOff ? "Turn camera on" : "Turn camera off"}
                 >
                   {isCameraOff ? <VideoOff size={26} /> : <Video size={26} />}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={onToggleMute}
+                  disabled={isEnding}
+                  className={`flex h-16 w-16 items-center justify-center rounded-full transition ${controlState} ${
+                    isMuted
+                      ? "bg-white text-gray-500 hover:bg-white/90"
+                      : "bg-white/10 text-white hover:bg-white/20"
+                  }`}
+                  aria-label={isMuted ? "Unmute" : "Mute"}
+                >
+                  {isMuted ? <MicOff size={26} /> : <Mic size={26} />}
                 </button>
               </div>
             ) : null}

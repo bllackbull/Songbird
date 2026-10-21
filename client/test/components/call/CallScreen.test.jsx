@@ -106,8 +106,8 @@ describe("CallScreen controls layout", () => {
       expect(buttonLabels()).toEqual([
         "Chat",
         "Turn speaker off",
-        "Mute",
         "Turn camera off",
+        "Mute",
         "End call",
       ]);
 
@@ -126,7 +126,7 @@ describe("CallScreen controls layout", () => {
         [...topRow.querySelectorAll("button")].map((b) =>
           b.getAttribute("aria-label"),
         ),
-      ).toEqual(["Turn speaker off", "Mute", "Turn camera off"]);
+      ).toEqual(["Turn speaker off", "Turn camera off", "Mute"]);
     });
 
     test("speaker toggle fires its handler", async () => {
@@ -158,8 +158,8 @@ describe("CallScreen controls layout", () => {
       expect(buttonLabels()).toEqual([
         "Chat",
         "Turn speaker off",
-        "Mute",
         "Turn camera on",
+        "Mute",
         "End call",
       ]);
       const endBtn = page.getByRole("button", { name: "End call" }).element();
@@ -221,8 +221,8 @@ describe("CallScreen controls layout", () => {
       expect(buttonLabels()).toEqual([
         "Chat",
         "Turn speaker off",
-        "Mute",
         "Turn camera off",
+        "Mute",
         "End call",
       ]);
       for (const label of buttonLabels()) {
