@@ -26,10 +26,10 @@ export function registerCallRoutes(app, deps) {
   };
 
   // GET /api/calls/ice-servers
-  app.get("/api/calls/ice-servers", (req, res) => {
+  app.get("/api/calls/ice-servers", async (req, res) => {
     const user = requireUser(req, res);
     if (!user) return;
-    res.json(callManager.getIceServers());
+    res.json(await callManager.resolveIceServers());
   });
 
   // Returns the still-ringing incoming call for the authenticated user.

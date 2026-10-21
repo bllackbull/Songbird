@@ -78,6 +78,43 @@ describe("callManager", () => {
     });
   });
 
+  describe("resolveIceServers", () => {
+    it("falls back to static config without Cloudflare keys", async () => {
+      const servers = await callManager.resolveIceServers();
+      expect(servers).toEqual([{ urls: "stun:stun.l.google.com:19302" }]);
+    });
+
+    it("mints credentials from Cloudflare TURN API when keys are set", async () => {
+      const fetchIce = vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              iceServers: [{ urls: "turn:turn.cloudflare.com:3478?transport=udp", username: "u", credential: "c" }],
+            }),
+        }),
+      );
+      const cfManager = createCallManager({
+        ...mockDeps,
+        fetch: fetchIce,
+        env: { TURN_TOKEN_ID: "key", TURN_API_TOKEN: "secret" },
+      });
+      const servers = await cfManager.resolveIceServers();
+      expect(servers).toEqual([{ urls: "turn:turn.cloudflare.com:3478?transport=udp", username: "u", credential: "c" }]);
+      expect(fetchIce).toHaveBeenCalledOnce();
+    });
+
+    it("falls back to static config when the Cloudflare request fails", async () => {
+      const cfManager = createCallManager({
+        ...mockDeps,
+        fetch: vi.fn(() => Promise.resolve({ ok: false })),
+        env: { TURN_TOKEN_ID: "key", TURN_API_TOKEN: "secret" },
+      });
+      const servers = await cfManager.resolveIceServers();
+      expect(servers).toEqual([{ urls: "stun:stun.l.google.com:19302" }]);
+    });
+  });
+
   describe("startCall", () => {
     it("rejects invalid UUID chatId", async () => {
       const res = await callManager.startCall({

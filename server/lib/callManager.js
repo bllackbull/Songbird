@@ -37,6 +37,37 @@ export function createCallManager(deps) {
     return servers;
   }
 
+  /**
+   * Cloudflare TURN cannot use static credentials: short-lived ones are minted
+   * per session via their API (deps.fetch injected for tests). Falls back to
+   * the static STUN/TURN config when keys are unset or the request fails.
+   */
+  async function resolveIceServers() {
+    if (!(env.TURN_TOKEN_ID && env.TURN_API_TOKEN)) return getIceServers();
+    try {
+      const res = await (
+        deps.fetch || fetch
+      )(
+        `https://rtc.live.cloudflare.com/v1/turn/keys/${env.TURN_TOKEN_ID}/credentials/generate-ice-servers`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${env.TURN_API_TOKEN}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ ttl: 86400 }),
+        },
+      );
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.iceServers) && data.iceServers.length) {
+          return data.iceServers;
+        }
+      }
+    } catch (_) {}
+    return getIceServers();
+  }
+
   function sendCallPush(userIds, payload) {
     if (typeof sendPushNotificationToUsers !== "function") return;
     try {
@@ -439,6 +470,7 @@ export function createCallManager(deps) {
 
   return {
     getIceServers,
+    resolveIceServers,
     getActiveCall,
     getIncomingCallForUser,
     startCall,
