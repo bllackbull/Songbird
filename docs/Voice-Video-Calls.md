@@ -28,7 +28,18 @@ TURN_STUN_URL="stun:stun.l.google.com:19302"
 TURN_URL="turn:your-turn-server.example.com:3478"
 TURN_USERNAME="your-username"
 TURN_CREDENTIAL="your-password"
+
+# Optional managed TURN via Cloudflare Calls
+TURN_TOKEN_ID="your-cloudflare-turn-key-id"
+TURN_API_TOKEN="your-cloudflare-turn-api-token"
 ```
+
+There are two ways to provide TURN relaying; pick **one** of them:
+
+- **Cloudflare Calls TURN (managed, zero infrastructure):** Set `TURN_TOKEN_ID` and `TURN_API_TOKEN` from the Cloudflare dashboard (Calls → TURN). Short-lived credentials (24h TTL) are minted per session by the server from Cloudflare's API, and clients receive Cloudflare's STUN and TURN endpoints (UDP, TCP, and TLS). The static `TURN_URL` / `TURN_USERNAME` / `TURN_CREDENTIAL` values are ignored while these keys are set. This is the recommended option for hosted deployments on platforms like Render, which cannot run a TURN server themselves because they do not expose UDP ports.
+- **Self-hosted TURN (e.g. Coturn on a VPS):** Set `TURN_URL`, `TURN_USERNAME`, and `TURN_CREDENTIAL` to your own relay server's address and static credentials.
+
+If neither is configured, calls use the default STUN server only.
 
 ### When is a TURN server required?
 

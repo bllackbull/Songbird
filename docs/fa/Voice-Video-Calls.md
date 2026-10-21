@@ -33,7 +33,18 @@ TURN_STUN_URL="stun:stun.l.google.com:19302"
 TURN_URL="turn:your-turn-server.example.com:3478"
 TURN_USERNAME="your-username"
 TURN_CREDENTIAL="your-password"
+
+# TURN مدیریت‌شده از طریق Cloudflare Calls (اختیاری)
+TURN_TOKEN_ID="your-cloudflare-turn-key-id"
+TURN_API_TOKEN="your-cloudflare-turn-api-token"
 ```
+
+برای فراهم کردن رله TURN دو روش وجود دارد و باید **یکی** از آن‌ها را انتخاب کنید:
+
+- **TURN مدیریت‌شده از طریق Cloudflare Calls (بدون نیاز به سرور اضافی):** مقادیر `TURN_TOKEN_ID` و `TURN_API_TOKEN` را از داشبورد کلاودفلر (Calls → TURN) تنظیم کنید. در این حالت، سرور برای هر جلسه اعتبارنامه‌های موقت (با اعتبار ۲۴ ساعت) از طریق API کلاودفلر صادر می‌کند و کلاینت‌ها فهرست STUN و TURN کلاودفلر (UDP، TCP و TLS) را دریافت می‌نمایند. تا زمانی که این کلیدها تنظیم شده باشند، مقادیر `TURN_URL` / `TURN_USERNAME` / `TURN_CREDENTIAL` نادیده گرفته می‌شوند. این روش برای اجرای برنامه روی پلتفرم‌های میزبانی مانند Render توصیه می‌شود، چرا که این پلتفرم‌ها به دلیل عدم پشتیبانی از پورت‌های UDP قادر به اجرای سرور TURN نیستند.
+- **سرور TURN میزبانی‌شده توسط خودتان (مانند Coturn روی یک VPS):** مقادیر `TURN_URL`، `TURN_USERNAME` و `TURN_CREDENTIAL` را با آدرس و اعتبارنامه‌های ثابتِ سرور رله خودتان تنظیم کنید.
+
+اگر هیچ‌کدام پیکربندی نشده باشند، تماس‌ها فقط از سرور STUN پیش‌فرض استفاده می‌کنند.
 
 ### چه زمانی به سرور TURN نیاز است؟
 

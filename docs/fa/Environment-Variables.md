@@ -109,6 +109,8 @@ nano .env
 | `TURN_URL` | `string` | `""` | آدرس سرور TURN برای رله ترافیک در شبکه‌های دارای فایروال محدود یا NAT متقارن. |
 | `TURN_USERNAME` | `string` | `""` | نام کاربری احراز هویت سرور TURN. |
 | `TURN_CREDENTIAL` | `string` | `""` | گذرواژه احراز هویت سرور TURN. |
+| `TURN_TOKEN_ID` | `string` | `""` | شناسه کلید TURN در Cloudflare Calls. در صورت تنظیم، فهرست سرورهای ICE در هر جلسه از طریق کلاودفلر صادر می‌شود. |
+| `TURN_API_TOKEN` | `string` | `""` | توکن API برای صدور اعتبارنامه‌های موقت TURN (با اعتبار ۲۴ ساعت) از طریق Cloudflare Calls. |
 
 :::info
 

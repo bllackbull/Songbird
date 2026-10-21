@@ -109,6 +109,8 @@ nano .env
 | `TURN_URL` | `string` | `""` | Optional TURN relay server URL for environments behind symmetric NATs or restrictive firewalls. |
 | `TURN_USERNAME` | `string` | `""` | TURN authentication username. |
 | `TURN_CREDENTIAL` | `string` | `""` | TURN authentication password/credential. |
+| `TURN_TOKEN_ID` | `string` | `""` | Cloudflare Calls TURN key ID. When set, ICE servers are minted per session from Cloudflare. |
+| `TURN_API_TOKEN` | `string` | `""` | Cloudflare Calls TURN API token used to mint short-lived credentials (24h TTL). |
 
 :::info
 
