@@ -252,6 +252,7 @@ export function createWebSocketGateway({
                     await callManager.rejectCall({
                       user: currentSession,
                       chatId,
+                      reason: data?.reason,
                     });
                   } else if (signalType === "end") {
                     await callManager.endCall({

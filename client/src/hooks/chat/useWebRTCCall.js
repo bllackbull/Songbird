@@ -622,7 +622,10 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
         case "call:incoming": {
           // If this client does not support WebRTC / is on insecure HTTP, auto-reject without showing modal
           if (!isCallSupported()) {
-            void postSignal("reject", { chatId: payload.chatId });
+            void postSignal("reject", {
+              chatId: payload.chatId,
+              reason: "unsupported",
+            });
             return;
           }
 
@@ -803,7 +806,11 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
           ) {
             return;
           }
-          finishCall("declined");
+          // "unsupported" means the peer could not take the call at all
+          // (e.g. insecure HTTP instance), not a deliberate decline.
+          finishCall(
+            payload.reason === "unsupported" ? "failed" : "declined"
+          );
           break;
         }
 

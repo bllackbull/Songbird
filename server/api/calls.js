@@ -68,8 +68,8 @@ export function registerCallRoutes(app, deps) {
   app.post("/api/calls/reject", async (req, res) => {
     const user = requireUser(req, res);
     if (!user) return;
-    const { chatId } = req.body || {};
-    const result = await callManager.rejectCall({ user, chatId });
+    const { chatId, reason } = req.body || {};
+    const result = await callManager.rejectCall({ user, chatId, reason });
     if (result.error) {
       return res.status(result.status || 400).json({ error: result.error });
     }

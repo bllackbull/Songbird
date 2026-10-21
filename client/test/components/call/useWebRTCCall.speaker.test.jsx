@@ -520,6 +520,18 @@ function CallEndHarness() {
       </button>
       <button
         type="button"
+        onClick={() =>
+          handleSignal({
+            type: "call:rejected",
+            chatId: "c1",
+            reason: "unsupported",
+          })
+        }
+      >
+        simulate unsupported
+      </button>
+      <button
+        type="button"
         onClick={() => handleSignal({ type: "call:ended", chatId: "c1" })}
       >
         simulate ended
@@ -558,6 +570,17 @@ describe("useWebRTCCall end notice", () => {
     await expect
       .element(page.getByTestId("call-end-reason"))
       .toHaveTextContent("ended");
+  });
+
+  test("unsupported peer (insecure HTTP) reports failed instead of declined", async () => {
+    render(<CallEndHarness />);
+    await userEvent.click(page.getByRole("button", { name: "simulate incoming" }));
+    await userEvent.click(
+      page.getByRole("button", { name: "simulate unsupported" }),
+    );
+    await expect
+      .element(page.getByTestId("call-end-reason"))
+      .toHaveTextContent("failed");
   });
 });
 

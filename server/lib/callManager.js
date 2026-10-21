@@ -293,7 +293,7 @@ export function createCallManager(deps) {
     return { status: 200, call };
   }
 
-  async function rejectCall({ user, chatId }) {
+  async function rejectCall({ user, chatId, reason = null }) {
     if (!user?.username) {
       return { status: 401, error: "Not authenticated" };
     }
@@ -316,6 +316,7 @@ export function createCallManager(deps) {
       emitToUser(peer, {
         type: "call:rejected",
         chatId: call.chatId,
+        ...(reason ? { reason } : {}),
       });
     }
 

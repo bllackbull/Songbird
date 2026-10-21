@@ -226,6 +226,20 @@ describe("callManager", () => {
         chatId: dummyChatId,
       });
     });
+
+    it("relays reject reason to the caller", async () => {
+      const res = await callManager.rejectCall({
+        user: calleeUser,
+        chatId: dummyChatId,
+        reason: "unsupported",
+      });
+      expect(res.status).toBe(200);
+      expect(mockDeps.emitToUser).toHaveBeenCalledWith("alice", {
+        type: "call:rejected",
+        chatId: dummyChatId,
+        reason: "unsupported",
+      });
+    });
   });
 
   describe("endCall", () => {
