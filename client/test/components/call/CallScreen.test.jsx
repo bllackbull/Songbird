@@ -288,6 +288,7 @@ describe("CallScreen controls layout", () => {
       expect(remote).not.toBeNull();
       expect(local).not.toBeNull();
       expect(remote.className).toContain("inset-0");
+      expect(remote.className).toContain("rounded-2xl");
       expect(local.className).toContain("bottom-4 right-4");
       expect(placeholder).not.toBeNull();
     });
@@ -332,6 +333,7 @@ describe("CallScreen controls layout", () => {
       expect(local).not.toBeNull();
       expect(remote.className).toContain("hidden");
       expect(local.className).toContain("inset-0");
+      expect(local.className).toContain("rounded-2xl");
     });
 
     test("both cameras off: no video elements", async () => {

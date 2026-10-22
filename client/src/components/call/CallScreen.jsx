@@ -556,7 +556,7 @@ export const CallScreen = memo(function CallScreen({
             aria-label="Remote video"
             className={
               remoteOn
-                ? "absolute inset-0 h-full w-full object-cover"
+                ? "absolute inset-0 h-full w-full rounded-2xl object-cover"
                 : "hidden"
             }
           />
@@ -570,7 +570,7 @@ export const CallScreen = memo(function CallScreen({
               bothOn
                 ? "absolute bottom-4 right-4 z-10 aspect-[3/4] w-[28%] max-w-32 rounded-xl border-2 border-white/20 object-cover shadow-lg"
                 : localOn
-                  ? "absolute inset-0 h-full w-full object-cover"
+                  ? "absolute inset-0 h-full w-full rounded-2xl object-cover"
                   : "hidden"
             }
           />
