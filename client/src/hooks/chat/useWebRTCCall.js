@@ -77,7 +77,6 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   const callEndReasonRef = useRef(null);
   const iceServersRef = useRef([]);
   const pendingCandidatesRef = useRef([]);
-  const iceStatsRef = useRef({ sent: 0, received: 0, applied: 0, queued: 0, sentTypes: {} });
 
   // Mirrors of state used inside stable callbacks so they never read stale values
   const callStateRef = useRef(callState);
@@ -264,18 +263,10 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
 
     pc.onicecandidate = (event) => {
       if (event.candidate && callChatIdRef.current) {
-        iceStatsRef.current.sent += 1;
-        const t = event.candidate.type || "unknown";
-        iceStatsRef.current.sentTypes[t] = (iceStatsRef.current.sentTypes[t] || 0) + 1;
-        console.debug(`[call] ice candidate sent #${iceStatsRef.current.sent} type=${t}`);
         void postSignal("ice-candidate", {
           chatId: callChatIdRef.current,
           candidate: event.candidate.toJSON ? event.candidate.toJSON() : event.candidate,
         });
-      } else if (!event.candidate) {
-        console.debug(
-          `[call] ice gathering complete, sent=${iceStatsRef.current.sent}, iceServers=${JSON.stringify(iceServersRef.current)}`,
-        );
       }
     };
 
@@ -292,9 +283,6 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     };
 
     pc.onconnectionstatechange = () => {
-      console.debug(
-        `[call] connectionState: ${pc.connectionState}, ice: ${pc.iceConnectionState}, signaling: ${pc.signalingState}, iceStats=${JSON.stringify(iceStatsRef.current)}`,
-      );
       if (pc.connectionState === "connected") {
         if (disconnectTimerRef.current) {
           clearTimeout(disconnectTimerRef.current);
@@ -771,17 +759,14 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
           }
           const cand = payload.candidate;
           if (!cand) return;
-          iceStatsRef.current.received += 1;
           const pc = peerConnectionRef.current;
           if (pc && pc.remoteDescription && pc.signalingState !== "closed") {
             try {
               await pc.addIceCandidate(new RTCIceCandidate(cand));
-              iceStatsRef.current.applied += 1;
-            } catch (err) {
-              console.debug("[call] addIceCandidate failed:", err?.message || err);
+            } catch {
+              // candidate may be stale (e.g. after renegotiation); safe to drop
             }
           } else {
-            iceStatsRef.current.queued += 1;
             pendingCandidatesRef.current.push(cand);
           }
           break;
