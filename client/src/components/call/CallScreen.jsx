@@ -21,6 +21,7 @@ import UserRoleBadge from "../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../common/VerifiedBadge.jsx";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import { hasPersian } from "../../utils/fontUtils.js";
+import { useMobileViewport } from "../../hooks/chat/useMobileViewport.js";
 
 function formatDuration(seconds) {
   const mins = Math.floor(seconds / 60);
@@ -103,6 +104,9 @@ export const CallScreen = memo(function CallScreen({
   const [isDragging, setIsDragging] = useState(false);
   const [restoredFromPip, setRestoredFromPip] = useState(false);
   const [pipOriginStyle, setPipOriginStyle] = useState(undefined);
+  const [remoteAspect, setRemoteAspect] = useState(3 / 4);
+  const [localAspect, setLocalAspect] = useState(3 / 4);
+  const { isMobileViewport } = useMobileViewport();
   const boxRef = useRef(null);
   const isDraggingRef = useRef(false);
   const remoteStreamRef = useRef(null);
@@ -114,8 +118,11 @@ export const CallScreen = memo(function CallScreen({
   const localOn = !isCameraOff;
   const remoteOn = !remoteCameraOff;
   const isConnected = callState === "connected";
-  const hasVideo = isConnected && (localOn || remoteOn);
   const bothOn = isConnected && localOn && remoteOn;
+  const pipSizing =
+    localAspect >= 1
+      ? "w-[45%] max-w-44 md:w-80 md:max-w-80"
+      : "w-[28%] max-w-32 md:w-52 md:max-w-52";
   const peerName = callPeer?.nickname || callPeer?.username || "Unknown";
   const peerInitials = getAvatarInitials(peerName);
   const peerColor = callPeer?.color || "#10b981";
@@ -159,8 +166,9 @@ export const CallScreen = memo(function CallScreen({
       setPosition((prev) => {
         if (!prev) return null;
         const CORNER_MARGIN = 24;
-        const width = 176;
-        const height = 235;
+        const rect = boxRef.current?.getBoundingClientRect();
+        const width = rect?.width ?? 176;
+        const height = rect?.height ?? 235;
         const cornerRight = Math.max(
           CORNER_MARGIN,
           window.innerWidth - width - CORNER_MARGIN,
@@ -181,6 +189,16 @@ export const CallScreen = memo(function CallScreen({
 
   // Maintain active media stream references so switching between fullscreen
   // and floating PiP doesn't lose audio/video feeds.
+  const trackVideoAspect = (node, set) => {
+    const update = () => {
+      if (node.videoWidth && node.videoHeight)
+        set(node.videoWidth / node.videoHeight);
+    };
+    node.addEventListener("loadedmetadata", update);
+    node.addEventListener("resize", update);
+    update();
+  };
+
   const handleRemoteVideoRef = (node) => {
     if (remoteVideoRef) {
       if (typeof remoteVideoRef === "function") {
@@ -198,6 +216,7 @@ export const CallScreen = memo(function CallScreen({
       }
       node.muted = !isSpeakerOn;
       node.play?.().catch(() => {});
+      trackVideoAspect(node, setRemoteAspect);
     }
   };
 
@@ -237,6 +256,7 @@ export const CallScreen = memo(function CallScreen({
         node.srcObject = localStreamRef.current;
       }
       node.play?.().catch(() => {});
+      trackVideoAspect(node, setLocalAspect);
     }
   };
 
@@ -376,6 +396,64 @@ export const CallScreen = memo(function CallScreen({
     ? "opacity-40 cursor-not-allowed"
     : "cursor-pointer";
 
+  const endButton = (
+    <button
+      type="button"
+      onClick={onEnd}
+      disabled={isEnding}
+      className={`flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 transition hover:bg-red-400 ${controlState}`}
+      aria-label="End call"
+    >
+      <Phone size={26} className="rotate-[135deg]" />
+    </button>
+  );
+  const secondaryControls = (
+    <>
+      <button
+        type="button"
+        onClick={onToggleSpeaker}
+        disabled={isEnding}
+        className={`flex h-16 w-16 items-center justify-center rounded-full transition ${controlState} ${
+          isSpeakerOn
+            ? "bg-white/10 text-white hover:bg-white/20"
+            : "bg-white text-gray-500 hover:bg-white/90"
+        }`}
+        aria-label={isSpeakerOn ? "Turn speaker off" : "Turn speaker on"}
+      >
+        {isSpeakerOn ? <Volume2 size={26} /> : <VolumeX size={26} />}
+      </button>
+
+      <button
+        type="button"
+        onClick={onToggleCamera}
+        disabled={isEnding || cameraUnavailable}
+        className={`flex h-16 w-16 items-center justify-center rounded-full transition ${controlState} ${
+          isCameraOff
+            ? "bg-white text-gray-500 hover:bg-white/90"
+            : "bg-white/10 text-white hover:bg-white/20"
+        } ${cameraUnavailable ? "opacity-40 cursor-not-allowed" : ""}`}
+        aria-disabled={cameraUnavailable || undefined}
+        aria-label={isCameraOff ? "Turn camera on" : "Turn camera off"}
+      >
+        {isCameraOff ? <VideoOff size={26} /> : <Video size={26} />}
+      </button>
+
+      <button
+        type="button"
+        onClick={onToggleMute}
+        disabled={isEnding}
+        className={`flex h-16 w-16 items-center justify-center rounded-full transition ${controlState} ${
+          isMuted
+            ? "bg-white text-gray-500 hover:bg-white/90"
+            : "bg-white/10 text-white hover:bg-white/20"
+        }`}
+        aria-label={isMuted ? "Unmute" : "Mute"}
+      >
+        {isMuted ? <MicOff size={26} /> : <Mic size={26} />}
+      </button>
+    </>
+  );
+
   return createPortal(
     minimized && !isEnding ? (
       <div
@@ -387,12 +465,17 @@ export const CallScreen = memo(function CallScreen({
         title="Click to expand"
         onPointerDown={handlePointerDown}
         onClick={handleBoxClick}
-        className={`fixed z-[9999] sb-pip-enter select-none touch-none aspect-[3/4] w-36 sm:w-44 rounded-2xl border-2 border-white/20 shadow-2xl overflow-hidden bg-slate-900 cursor-grab active:cursor-grabbing ${
+        className={`fixed z-[9999] sb-pip-enter select-none touch-none ${
+          remoteAspect >= 1 ? "w-48 sm:w-64" : "w-36 sm:w-44"
+        } rounded-2xl border-2 border-white/20 shadow-2xl overflow-hidden bg-slate-900 cursor-grab active:cursor-grabbing ${
           isDragging
             ? "transition-none"
             : "transition-[left,top] duration-200 ease-out"
         } ${position ? "" : "top-6 right-6"}`}
-        style={position ? { left: `${position.x}px`, top: `${position.y}px` } : undefined}
+        style={{
+          aspectRatio: `${remoteAspect}`,
+          ...(position ? { left: `${position.x}px`, top: `${position.y}px` } : {}),
+        }}
       >
         {remoteOn ? (
           <video
@@ -432,15 +515,21 @@ export const CallScreen = memo(function CallScreen({
       </div>
     ) : (
       <div
-        className={`fixed inset-0 z-[9999] flex items-center justify-center md:bg-black/45 md:px-5 ${
-          restoredFromPip ? "sb-backdrop-enter" : ""
-        } ${isCallClosing ? "sb-call-exit-backdrop" : ""}`}
+        className={`fixed inset-0 z-[9999] flex items-center justify-center ${
+          isConnected ? "" : "md:bg-black/45 md:px-5"
+        } ${restoredFromPip ? "sb-backdrop-enter" : ""} ${
+          isCallClosing ? "sb-call-exit-backdrop" : ""
+        }`}
       >
         <div
           role="dialog"
           aria-modal="true"
           aria-label="Call"
-          className={`relative flex h-full w-full flex-col items-center justify-between overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 md:h-[min(800px,calc(100dvh-2rem))] md:max-w-[400px] md:rounded-3xl md:shadow-xl ${
+          className={`relative flex h-full w-full flex-col items-center justify-between overflow-hidden bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 ${
+            isConnected
+              ? "md:rounded-none"
+              : "md:aspect-square md:h-auto md:w-[400px] md:rounded-3xl md:shadow-xl"
+          } ${
             restoredFromPip ? "sb-call-modal-enter" : ""
           } ${isCallClosing ? "sb-call-exit" : ""}`}
           style={restoredFromPip ? pipOriginStyle : undefined}
@@ -539,16 +628,10 @@ export const CallScreen = memo(function CallScreen({
         </div>
       )}
 
-      {/* Video stage */}
-      {isConnected && hasVideo ? (
+      {/* Video stage - always shown once connected; main video letterboxes
+          to its stream orientation. */}
+      {isConnected ? (
         <div className="relative z-0 mx-2 min-h-0 w-[calc(100%-1rem)] flex-1 overflow-hidden rounded-2xl">
-          {/* Placeholder tile behind live video. */}
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div
-              data-testid="main-video-placeholder"
-              className="aspect-[4/5] max-h-[85%] w-[min(70%,16rem)] rounded-xl border-2 border-white/20 shadow-lg"
-            />
-          </div>
           <video
             ref={handleRemoteVideoRef}
             autoPlay
@@ -556,7 +639,7 @@ export const CallScreen = memo(function CallScreen({
             aria-label="Remote video"
             className={
               remoteOn
-                ? "absolute inset-0 h-full w-full rounded-2xl object-cover"
+                ? "absolute inset-0 h-full w-full rounded-2xl object-contain"
                 : "hidden"
             }
           />
@@ -568,11 +651,12 @@ export const CallScreen = memo(function CallScreen({
             aria-label="Local video"
             className={
               bothOn
-                ? "absolute bottom-4 right-4 z-10 aspect-[3/4] w-[28%] max-w-32 rounded-xl border-2 border-white/20 object-cover shadow-lg"
+                ? `absolute bottom-4 right-4 z-10 rounded-xl border-2 border-white/20 object-cover shadow-lg ${pipSizing}`
                 : localOn
-                  ? "absolute inset-0 h-full w-full rounded-2xl object-cover"
+                  ? "absolute inset-0 h-full w-full rounded-2xl object-contain"
                   : "hidden"
             }
+            style={{ aspectRatio: `${localAspect}` }}
           />
         </div>
       ) : null}
@@ -580,7 +664,7 @@ export const CallScreen = memo(function CallScreen({
       {/* Controls */}
       <div
         className={`relative z-20 flex shrink-0 flex-col items-center gap-6 ${
-          callState === "connected" ? "pb-8 pt-6" : "pb-48"
+          callState === "connected" ? "pb-8 pt-6" : "pb-48 md:pb-12"
         }`}
       >
         {/* Incoming call: accept + reject with wide gap */}
@@ -605,66 +689,18 @@ export const CallScreen = memo(function CallScreen({
               <Phone size={26} className="rotate-[135deg]" />
             </button>
           </div>
+        ) : callState === "connected" && !isMobileViewport ? (
+          /* Desktop: all four controls in one row, End call to the right */
+          <div className="flex items-center gap-6">
+            {secondaryControls}
+            {endButton}
+          </div>
         ) : (
           <>
-            {/* Secondary controls row */}
-            {callState === "connected" ? (
-              <div className="flex items-center gap-6">
-                <button
-                  type="button"
-                  onClick={onToggleSpeaker}
-                  disabled={isEnding}
-                  className={`flex h-16 w-16 items-center justify-center rounded-full transition ${controlState} ${
-                    isSpeakerOn
-                      ? "bg-white/10 text-white hover:bg-white/20"
-                      : "bg-white text-gray-500 hover:bg-white/90"
-                  }`}
-                  aria-label={isSpeakerOn ? "Turn speaker off" : "Turn speaker on"}
-                >
-                  {isSpeakerOn ? <Volume2 size={26} /> : <VolumeX size={26} />}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={onToggleCamera}
-                  disabled={isEnding || cameraUnavailable}
-                  className={`flex h-16 w-16 items-center justify-center rounded-full transition ${controlState} ${
-                    isCameraOff
-                      ? "bg-white text-gray-500 hover:bg-white/90"
-                      : "bg-white/10 text-white hover:bg-white/20"
-                  } ${cameraUnavailable ? "opacity-40 cursor-not-allowed" : ""}`}
-                  aria-disabled={cameraUnavailable || undefined}
-                  aria-label={isCameraOff ? "Turn camera on" : "Turn camera off"}
-                >
-                  {isCameraOff ? <VideoOff size={26} /> : <Video size={26} />}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={onToggleMute}
-                  disabled={isEnding}
-                  className={`flex h-16 w-16 items-center justify-center rounded-full transition ${controlState} ${
-                    isMuted
-                      ? "bg-white text-gray-500 hover:bg-white/90"
-                      : "bg-white/10 text-white hover:bg-white/20"
-                  }`}
-                  aria-label={isMuted ? "Unmute" : "Mute"}
-                >
-                  {isMuted ? <MicOff size={26} /> : <Mic size={26} />}
-                </button>
-              </div>
+            {isConnected ? (
+              <div className="flex items-center gap-6">{secondaryControls}</div>
             ) : null}
-
-            {/* End button (centered) */}
-            <button
-              type="button"
-              onClick={onEnd}
-              disabled={isEnding}
-              className={`flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 transition hover:bg-red-400 ${controlState}`}
-              aria-label="End call"
-            >
-              <Phone size={26} className="rotate-[135deg]" />
-            </button>
+            {endButton}
           </>
         )}
       </div>

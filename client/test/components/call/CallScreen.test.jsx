@@ -93,7 +93,7 @@ describe("CallScreen controls layout", () => {
   });
 
   describe("connected video call", () => {
-    test("secondary buttons sit on their own row above the centered end button", async () => {
+    test("all four controls sit in one row with End call to their right", async () => {
       render(
         <CallScreen
           {...makeProps({ callState: "connected", callType: "video" })}
@@ -111,22 +111,17 @@ describe("CallScreen controls layout", () => {
         "End call",
       ]);
 
-      // End button is alone in its row (centered)
-      const endBtn = page.getByRole("button", { name: "End call" }).element();
-      const directButtons = [...endBtn.parentElement.children].filter(
-        (el) => el.tagName === "BUTTON",
-      );
-      expect(directButtons).toEqual([endBtn]);
-
-      // Speaker / mute / camera share the row above
-      const topRow = page.getByRole("button", { name: "Mute" }).element()
+      // Speaker / camera / mute / End call share one row, End call rightmost
+      const row = page.getByRole("button", { name: "End call" }).element()
         .parentElement;
-      expect(topRow.className).toContain("gap-6");
+      expect(row.className).toContain("gap-6");
       expect(
-        [...topRow.querySelectorAll("button")].map((b) =>
+        [...row.querySelectorAll("button")].map((b) =>
           b.getAttribute("aria-label"),
         ),
-      ).toEqual(["Turn speaker off", "Turn camera off", "Mute"]);
+      ).toEqual(["Turn speaker off", "Turn camera off", "Mute", "End call"]);
+      const endBtn = page.getByRole("button", { name: "End call" }).element();
+      expect(row.lastElementChild).toBe(endBtn);
     });
 
     test("speaker toggle fires its handler", async () => {
@@ -143,7 +138,7 @@ describe("CallScreen controls layout", () => {
   });
 
   describe("connected voice call", () => {
-    test("secondary row holds mute, camera, and speaker above the end button", async () => {
+    test("control row holds speaker, camera, mute, and End call in one row", async () => {
       const props = makeProps({
         callState: "connected",
         callType: "voice",
@@ -163,10 +158,11 @@ describe("CallScreen controls layout", () => {
         "End call",
       ]);
       const endBtn = page.getByRole("button", { name: "End call" }).element();
-      const directButtons = [...endBtn.parentElement.children].filter(
-        (el) => el.tagName === "BUTTON",
-      );
-      expect(directButtons).toEqual([endBtn]);
+      expect(
+        [...endBtn.parentElement.querySelectorAll("button")].map((b) =>
+          b.getAttribute("aria-label"),
+        ),
+      ).toEqual(["Turn speaker off", "Turn camera on", "Mute", "End call"]);
     });
 
     test("camera toggle fires its handler in voice calls", async () => {
@@ -180,6 +176,49 @@ describe("CallScreen controls layout", () => {
         page.getByRole("button", { name: "Turn camera on" }),
       );
       expect(props.onToggleCamera).toHaveBeenCalledTimes(1);
+    });
+
+    test("mobile viewport keeps the legacy two-row layout (End call centered below)", async () => {
+      const original = window.matchMedia;
+      window.matchMedia = (q) =>
+        q.includes("max-width: 767")
+          ? {
+              matches: true,
+              addEventListener() {},
+              removeEventListener() {},
+              addListener() {},
+              removeListener() {},
+            }
+          : original(q);
+      try {
+        render(
+          <CallScreen
+            {...makeProps({ callState: "connected", callType: "video" })}
+          />,
+        );
+        await expect
+          .element(page.getByRole("button", { name: "End call" }))
+          .toBeInTheDocument();
+
+        expect(buttonLabels()).toEqual([
+          "Chat",
+          "Turn speaker off",
+          "Turn camera off",
+          "Mute",
+          "End call",
+        ]);
+
+        // End button is alone in its flex-col slot (centered below the row)
+        const endBtn = page.getByRole("button", { name: "End call" }).element();
+        const row = endBtn.previousElementSibling;
+        expect(
+          [...row.querySelectorAll("button")].map((b) =>
+            b.getAttribute("aria-label"),
+          ),
+        ).toEqual(["Turn speaker off", "Turn camera off", "Mute"]);
+      } finally {
+        window.matchMedia = original;
+      }
     });
   });
 
@@ -264,9 +303,6 @@ describe("CallScreen controls layout", () => {
       return {
         remote: document.querySelector('video[aria-label="Remote video"]'),
         local: document.querySelector('video[aria-label="Local video"]'),
-        placeholder: document.querySelector(
-          '[data-testid="main-video-placeholder"]',
-        ),
       };
     }
 
@@ -284,13 +320,12 @@ describe("CallScreen controls layout", () => {
       await expect
         .element(page.getByRole("button", { name: "End call" }))
         .toBeInTheDocument();
-      const { remote, local, placeholder } = videos();
+      const { remote, local } = videos();
       expect(remote).not.toBeNull();
       expect(local).not.toBeNull();
       expect(remote.className).toContain("inset-0");
       expect(remote.className).toContain("rounded-2xl");
       expect(local.className).toContain("bottom-4 right-4");
-      expect(placeholder).not.toBeNull();
     });
 
     test("only remote camera on: remote fullscreen, local hidden", async () => {
@@ -311,6 +346,7 @@ describe("CallScreen controls layout", () => {
       expect(remote).not.toBeNull();
       expect(local).not.toBeNull();
       expect(remote.className).toContain("inset-0");
+      expect(remote.className).toContain("object-contain");
       expect(local.className).toContain("hidden");
     });
 
@@ -336,7 +372,7 @@ describe("CallScreen controls layout", () => {
       expect(local.className).toContain("rounded-2xl");
     });
 
-    test("both cameras off: no video elements", async () => {
+    test("both cameras off: no visible video, element stays mounted hidden", async () => {
       render(
         <CallScreen
           {...makeProps({
@@ -350,10 +386,83 @@ describe("CallScreen controls layout", () => {
       await expect
         .element(page.getByRole("button", { name: "End call" }))
         .toBeInTheDocument();
-      const { remote, local, placeholder } = videos();
-      expect(remote).toBeNull();
-      expect(local).toBeNull();
-      expect(placeholder).toBeNull();
+      const { remote, local } = videos();
+      expect(remote).not.toBeNull();
+      expect(remote.className).toContain("hidden");
+      expect(local).not.toBeNull();
+      expect(local.className).toContain("hidden");
+    });
+
+    test("PiP scales up for landscape (laptop) cameras", async () => {
+      render(
+        <CallScreen
+          {...makeProps({
+            callState: "connected",
+            callType: "video",
+            isCameraOff: false,
+            isRemoteCameraOff: false,
+          })}
+        />,
+      );
+      await expect
+        .element(page.getByRole("button", { name: "End call" }))
+        .toBeInTheDocument();
+
+      // Fake a 16:9 laptop camera for the local stream
+      const local = document.querySelector('video[aria-label="Local video"]');
+      Object.defineProperty(local, "videoWidth", { value: 1280 });
+      Object.defineProperty(local, "videoHeight", { value: 720 });
+      local.dispatchEvent(new Event("loadedmetadata"));
+
+      // style.aspectRatio is CSS-serialized ("0.75 / 1"-style), so compare
+      // resolved numbers instead of raw strings.
+      const styleRatio = (el) => {
+        const [w, h = "1"] = el.style.aspectRatio
+          .split("/")
+          .map((s) => parseFloat(s));
+        return w / h;
+      };
+      await expect
+        .poll(() => styleRatio(local))
+        .toBeCloseTo(1280 / 720, 5);
+      expect(local.className).toContain("md:w-80");
+      expect(local.className).toContain("w-[45%]");
+    });
+
+    test("vertical (mobile) cameras keep portrait dimensions on the floating box", async () => {
+      render(
+        <CallScreen
+          {...makeProps({
+            callState: "connected",
+            callType: "video",
+            isCameraOff: true,
+            isRemoteCameraOff: false,
+          })}
+        />,
+      );
+      await expect
+        .element(page.getByRole("button", { name: "End call" }))
+        .toBeInTheDocument();
+
+      const remote = document.querySelector('video[aria-label="Remote video"]');
+      Object.defineProperty(remote, "videoWidth", { value: 720 });
+      Object.defineProperty(remote, "videoHeight", { value: 1280 });
+      remote.dispatchEvent(new Event("loadedmetadata"));
+
+      // Minimize into the floating box and check it follows the remote ratio
+      await userEvent.click(page.getByRole("button", { name: "Chat" }));
+      const box = page.getByTestId("floating-call-box");
+      await expect.element(box).toBeInTheDocument();
+      const styleRatio = (el) => {
+        const [w, h = "1"] = el.style.aspectRatio
+          .split("/")
+          .map((s) => parseFloat(s));
+        return w / h;
+      };
+      await expect
+        .poll(() => styleRatio(box.element()))
+        .toBeCloseTo(720 / 1280, 5);
+      expect(box.element().className).toContain("w-36");
     });
   });
 
@@ -789,6 +898,38 @@ describe("CallScreen controls layout", () => {
       const box = page.getByTestId("floating-call-box");
       expect(box.element().querySelector('[aria-label="Verified"]')).not.toBeNull();
       expect(box.element().querySelector('[aria-label="Server Owner"]')).not.toBeNull();
+    });
+  });
+
+  describe("desktop fullscreen vs square modal", () => {
+    test("answered call renders fullscreen on desktop", async () => {
+      render(
+        <CallScreen
+          {...makeProps({ callState: "connected", callType: "video" })}
+        />,
+      );
+      await expect.element(page.getByRole("dialog")).toBeInTheDocument();
+      const dialog = page.getByRole("dialog").element();
+      expect(dialog.className).toContain("md:rounded-none");
+      expect(dialog.className).not.toContain("md:aspect-square");
+      expect(dialog.className).not.toContain("md:w-[400px]");
+      // No desktop backdrop padding around the fullscreen dialog
+      expect(dialog.parentElement.className).not.toContain("md:px-5");
+      expect(dialog.parentElement.className).not.toContain("md:bg-black/45");
+    });
+
+    test("unanswered call renders a square modal on desktop", async () => {
+      render(
+        <CallScreen {...makeProps({ callState: "calling", callType: "voice" })} />,
+      );
+      await expect.element(page.getByRole("dialog")).toBeInTheDocument();
+      const dialog = page.getByRole("dialog").element();
+      expect(dialog.className).toContain("md:aspect-square");
+      expect(dialog.className).toContain("md:h-auto");
+      expect(dialog.className).toContain("md:w-[400px]");
+      expect(dialog.className).toContain("md:rounded-3xl");
+      expect(dialog.parentElement.className).toContain("md:px-5");
+      expect(dialog.parentElement.className).toContain("md:bg-black/45");
     });
   });
 });
