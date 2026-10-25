@@ -62,7 +62,7 @@
     "https-proxy-agent": "^9.1.0",
     "ioredis": "^6.0.0",
     "knex": "^3.3.0",
-    "multer": "^2.3.0",
+    "multer": "^2.5.0",
     "pg": "^8.23.1",
     "sql.js": "^1.15.1",
     "telegram": "^2.26.22",
