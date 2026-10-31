@@ -10,6 +10,8 @@ import {
   Volume2,
   VolumeX,
   Lock,
+  ScreenShare,
+  ScreenShareOff,
   SignalHigh,
   SignalMedium,
   SignalLow,
@@ -77,6 +79,9 @@ export const CallScreen = memo(function CallScreen({
   cameraUnavailable = false,
   isRemoteCameraOff,
   isSpeakerOn,
+  isScreenSharing = false,
+  isRemoteScreenSharing = false,
+  screenShareSupported = false,
   localVideoRef,
   remoteVideoRef,
   remoteAudioRef,
@@ -86,6 +91,7 @@ export const CallScreen = memo(function CallScreen({
   onToggleMute,
   onToggleCamera,
   onToggleSpeaker,
+  onToggleScreenShare,
   minimized: controlledMinimized,
   onMinimizeChange,
 }) {
@@ -115,8 +121,13 @@ export const CallScreen = memo(function CallScreen({
   const isVideo = callType === "video";
   const remoteCameraOff =
     isRemoteCameraOff === undefined ? !isVideo : isRemoteCameraOff;
-  const localOn = !isCameraOff;
-  const remoteOn = !remoteCameraOff;
+  // While sharing, the camera is not being sent, so its preview is hidden.
+  const localOn = !isCameraOff && !isScreenSharing;
+  // A shared screen arrives on the remote video track even when the peer's
+  // camera is off.
+  const remoteOn = !remoteCameraOff || isRemoteScreenSharing;
+  const canShareScreen =
+    screenShareSupported && typeof onToggleScreenShare === "function";
   const isConnected = callState === "connected";
   const bothOn = isConnected && localOn && remoteOn;
   const pipSizing =
@@ -438,6 +449,27 @@ export const CallScreen = memo(function CallScreen({
         {isCameraOff ? <VideoOff size={26} /> : <Video size={26} />}
       </button>
 
+      {canShareScreen ? (
+        <button
+          type="button"
+          onClick={onToggleScreenShare}
+          disabled={isEnding}
+          className={`flex h-16 w-16 items-center justify-center rounded-full transition ${controlState} ${
+            isScreenSharing
+              ? "bg-emerald-500 text-white hover:bg-emerald-400"
+              : "bg-white/10 text-white hover:bg-white/20"
+          }`}
+          aria-label={isScreenSharing ? "Stop sharing screen" : "Share screen"}
+          aria-pressed={isScreenSharing}
+        >
+          {isScreenSharing ? (
+            <ScreenShareOff size={26} />
+          ) : (
+            <ScreenShare size={26} />
+          )}
+        </button>
+      ) : null}
+
       <button
         type="button"
         onClick={onToggleMute}
@@ -660,6 +692,17 @@ export const CallScreen = memo(function CallScreen({
             }
             style={{ aspectRatio: `${localAspect}` }}
           />
+          {isScreenSharing || isRemoteScreenSharing ? (
+            <div
+              role="status"
+              className="absolute left-1/2 top-3 z-20 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/55 px-3 py-1 text-xs font-medium text-white"
+            >
+              <ScreenShare size={14} className="text-emerald-400" />
+              {isScreenSharing
+                ? "You're sharing your screen"
+                : `${peerName} is sharing their screen`}
+            </div>
+          ) : null}
         </div>
       ) : null}
 

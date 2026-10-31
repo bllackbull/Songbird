@@ -933,3 +933,91 @@ describe("CallScreen controls layout", () => {
     });
   });
 });
+
+describe("CallScreen screen sharing", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "Audio",
+      vi.fn(function MockAudio() {
+        return { loop: false, play: () => Promise.resolve(), pause: () => {} };
+      }),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  test("hides the share button when the browser cannot share its screen", async () => {
+    render(
+      <CallScreen
+        {...makeProps({
+          callState: "connected",
+          onToggleScreenShare: vi.fn(),
+          screenShareSupported: false,
+        })}
+      />,
+    );
+    await expect.element(page.getByRole("button", { name: "Mute" })).toBeInTheDocument();
+    expect(buttonLabels()).not.toContain("Share screen");
+  });
+
+  test("shows the share button next to the other controls and fires its handler", async () => {
+    const onToggleScreenShare = vi.fn();
+    render(
+      <CallScreen
+        {...makeProps({
+          callState: "connected",
+          onToggleScreenShare,
+          screenShareSupported: true,
+        })}
+      />,
+    );
+    const button = page.getByRole("button", { name: "Share screen" });
+    await expect.element(button).toHaveAttribute("aria-pressed", "false");
+    await userEvent.click(button);
+    expect(onToggleScreenShare).toHaveBeenCalledTimes(1);
+  });
+
+  test("while sharing, the button stops the share and a status shows it", async () => {
+    render(
+      <CallScreen
+        {...makeProps({
+          callState: "connected",
+          callType: "video",
+          isScreenSharing: true,
+          onToggleScreenShare: vi.fn(),
+          screenShareSupported: true,
+        })}
+      />,
+    );
+    await expect
+      .element(page.getByRole("button", { name: "Stop sharing screen" }))
+      .toHaveAttribute("aria-pressed", "true");
+    await expect
+      .element(page.getByRole("status"))
+      .toHaveTextContent("You're sharing your screen");
+    // The camera is not being sent while sharing, so its preview is hidden.
+    expect(page.getByLabelText("Local video").element().className).toContain("hidden");
+  });
+
+  test("shows the peer's shared screen even when their camera is off", async () => {
+    render(
+      <CallScreen
+        {...makeProps({
+          callState: "connected",
+          callType: "voice",
+          isCameraOff: true,
+          isRemoteCameraOff: true,
+          isRemoteScreenSharing: true,
+        })}
+      />,
+    );
+    await expect
+      .element(page.getByRole("status"))
+      .toHaveTextContent("Alice is sharing their screen");
+    expect(page.getByLabelText("Remote video").element().className).not.toContain(
+      "hidden",
+    );
+  });
+});
