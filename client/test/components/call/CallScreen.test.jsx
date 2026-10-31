@@ -1001,6 +1001,107 @@ describe("CallScreen screen sharing", () => {
     expect(page.getByLabelText("Local video").element().className).toContain("hidden");
   });
 
+  describe("fullscreen for a shared screen", () => {
+    function stubFullscreen() {
+      let current = null;
+      vi.spyOn(document, "fullscreenElement", "get").mockImplementation(() => current);
+      const change = () => document.dispatchEvent(new Event("fullscreenchange"));
+      const request = vi
+        .spyOn(Element.prototype, "requestFullscreen")
+        .mockImplementation(async function requestFullscreen() {
+          current = this;
+          change();
+        });
+      const exit = vi.spyOn(document, "exitFullscreen").mockImplementation(async () => {
+        current = null;
+        change();
+      });
+      return { request, exit };
+    }
+
+    const sharingProps = {
+      callState: "connected",
+      callType: "voice",
+      isCameraOff: true,
+      isRemoteCameraOff: true,
+      isRemoteScreenSharing: true,
+    };
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    test("only offers fullscreen while the peer is sharing", async () => {
+      const { rerender } = await render(
+        <CallScreen {...makeProps({ ...sharingProps, isRemoteScreenSharing: false })} />,
+      );
+      expect(buttonLabels()).not.toContain("Enter fullscreen");
+
+      await rerender(<CallScreen {...makeProps(sharingProps)} />);
+      await expect
+        .element(page.getByRole("button", { name: "Enter fullscreen" }))
+        .toBeInTheDocument();
+    });
+
+    test("does not offer fullscreen for your own share", async () => {
+      await render(
+        <CallScreen
+          {...makeProps({
+            ...sharingProps,
+            isRemoteScreenSharing: false,
+            isScreenSharing: true,
+          })}
+        />,
+      );
+      expect(buttonLabels()).not.toContain("Enter fullscreen");
+    });
+
+    test("toggles fullscreen on the video stage and hides the banner", async () => {
+      const { request, exit } = stubFullscreen();
+      await render(<CallScreen {...makeProps(sharingProps)} />);
+
+      await userEvent.click(page.getByRole("button", { name: "Enter fullscreen" }));
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(request.mock.instances[0].contains(page.getByLabelText("Remote video").element())).toBe(true);
+      await expect
+        .element(page.getByRole("button", { name: "Exit fullscreen" }))
+        .toBeInTheDocument();
+      expect(document.querySelector('[role="status"]')).toBeNull();
+
+      await userEvent.click(page.getByRole("button", { name: "Exit fullscreen" }));
+      expect(exit).toHaveBeenCalledTimes(1);
+      await expect
+        .element(page.getByRole("button", { name: "Enter fullscreen" }))
+        .toBeInTheDocument();
+    });
+
+    test("leaves fullscreen when the peer stops sharing", async () => {
+      const { exit } = stubFullscreen();
+      const { rerender } = await render(<CallScreen {...makeProps(sharingProps)} />);
+      await userEvent.click(page.getByRole("button", { name: "Enter fullscreen" }));
+
+      await rerender(
+        <CallScreen {...makeProps({ ...sharingProps, isRemoteScreenSharing: false })} />,
+      );
+      await vi.waitFor(() => expect(exit).toHaveBeenCalledTimes(1));
+    });
+
+    test("falls back to native video fullscreen on iPhone Safari", async () => {
+      const original = Element.prototype.requestFullscreen;
+      Element.prototype.requestFullscreen = undefined;
+      const webkitEnterFullscreen = vi.fn();
+      HTMLVideoElement.prototype.webkitEnterFullscreen = webkitEnterFullscreen;
+      try {
+        await render(<CallScreen {...makeProps(sharingProps)} />);
+        await userEvent.click(page.getByRole("button", { name: "Enter fullscreen" }));
+        expect(webkitEnterFullscreen).toHaveBeenCalledTimes(1);
+      } finally {
+        Element.prototype.requestFullscreen = original;
+        delete HTMLVideoElement.prototype.webkitEnterFullscreen;
+      }
+    });
+  });
+
   test("shows the peer's shared screen even when their camera is off", async () => {
     render(
       <CallScreen

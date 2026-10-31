@@ -190,7 +190,7 @@ Restart your Songbird server to apply changes.
 - **Voice Calls:** Crystal clear audio calling with microphone mute/unmute control.
 - **Video Calls:** High-definition video calling with camera toggle and picture-in-picture local preview.
 - **In-Call Controls:** Real-time call duration timer, mute button, camera toggle, screen share, and immediate call hangup.
-- **Screen Sharing:** Share your entire screen, an application window, or (in browsers that support it) a browser tab during a voice or video call. Sharing starts and stops without interrupting the call; while you share, the screen takes the place of your camera, and the camera comes back when you stop. Both sides see a banner while a screen is being shared. You can stop from the call screen or from the browser's own "Stop sharing" control.
+- **Screen Sharing:** Share your entire screen, an application window, or (in browsers that support it) a browser tab during a voice or video call. Sharing starts and stops without interrupting the call; while you share, the screen takes the place of your camera, and the camera comes back when you stop. Both sides see a banner while a screen is being shared. You can stop from the call screen or from the browser's own "Stop sharing" control. The viewer can open the shared screen in fullscreen with the button on the video, and it closes by itself when the share stops.
 - **Incoming Call Notifications:** In-app incoming call alerts with Accept and Decline buttons, plus a system push notification when the app is in the background.
 
 :::info Screen sharing support
