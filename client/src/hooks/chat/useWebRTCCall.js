@@ -87,6 +87,20 @@ export async function attachOutgoingVideoTrack(pc, track, stream) {
 }
 
 /**
+ * True when a local send was left out of the last negotiation, which happens
+ * when an offer collision rolled back the offer that carried it.
+ */
+export function hasUnnegotiatedSend(pc) {
+  const transceivers =
+    typeof pc.getTransceivers === "function" ? pc.getTransceivers() : [];
+  return transceivers.some((t) => {
+    if (t.stopped || t.currentDirection === "stopped") return false;
+    if (!t.direction?.includes("send")) return false;
+    return !t.mid || !t.currentDirection?.includes("send");
+  });
+}
+
+/**
  * Call states: idle | calling | ringing | connected
  */
 export function useWebRTCCall({ realtimeSenderRef } = {}) {
@@ -127,6 +141,11 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   // (camera or screen) so the two can be swapped without renegotiating.
   const screenTrackRef = useRef(null);
   const videoSenderRef = useRef(null);
+  // Offer collisions: both peers may renegotiate at once. The callee is the
+  // polite peer and yields; the caller ignores the colliding offer.
+  const isPolitePeerRef = useRef(false);
+  const isMakingOfferRef = useRef(false);
+  const isSettingRemoteAnswerRef = useRef(false);
 
   // Mirrors of state used inside stable callbacks so they never read stale values
   const callStateRef = useRef(callState);
@@ -249,6 +268,9 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     }
 
     pendingCandidatesRef.current = [];
+    isPolitePeerRef.current = false;
+    isMakingOfferRef.current = false;
+    isSettingRemoteAnswerRef.current = false;
     releaseScreenShare();
     setIsScreenSharing(false);
     setIsRemoteScreenSharing(false);
@@ -391,6 +413,22 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     return pc;
   }, [postSignal, failCall]);
 
+  const sendOffer = useCallback(
+    async (pc) => {
+      isMakingOfferRef.current = true;
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        // A colliding remote offer may have rolled this one back already.
+        if (pc.signalingState !== "have-local-offer") return;
+        await postSignal("offer", { chatId: callChatIdRef.current, sdp: offer });
+      } finally {
+        isMakingOfferRef.current = false;
+      }
+    },
+    [postSignal],
+  );
+
   // Start a call (caller)
   const startCall = useCallback(
     async ({
@@ -415,6 +453,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       callEndReasonRef.current = null;
       setCallEndReason(null);
       setIsCallClosing(false);
+      isPolitePeerRef.current = false;
       setCallState("calling");
       callStateRef.current = "calling";
       setCallType(type);
@@ -648,12 +687,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
           await videoSenderRef.current.replaceTrack(videoTrack);
         } else if (pc && pc.signalingState !== "closed") {
           pc.addTrack(videoTrack, stream);
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          await postSignal("offer", {
-            chatId: callChatIdRef.current,
-            sdp: offer,
-          });
+          await sendOffer(pc);
         }
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
@@ -683,7 +717,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       chatId: callChatIdRef.current,
       cameraOff: nextOff,
     });
-  }, [postSignal]);
+  }, [postSignal, sendOffer]);
 
   const stopScreenShare = useCallback(async () => {
     const track = screenTrackRef.current;
@@ -754,11 +788,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
         localStreamRef.current,
       );
       videoSenderRef.current = sender;
-      if (needsNegotiation) {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        await postSignal("offer", { chatId: callChatIdRef.current, sdp: offer });
-      }
+      if (needsNegotiation) await sendOffer(pc);
     } catch (err) {
       console.error("Failed to send screen share:", err);
       screenTrackRef.current = null;
@@ -777,7 +807,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       chatId: callChatIdRef.current,
       sharing: true,
     });
-  }, [postSignal, stopScreenShare]);
+  }, [postSignal, sendOffer, stopScreenShare]);
 
   const toggleScreenShare = useCallback(() => {
     if (screenTrackRef.current) return stopScreenShare();
@@ -805,6 +835,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
             void postSignal("reject", { chatId: payload.chatId });
             return;
           }
+          isPolitePeerRef.current = true;
           setCallState("ringing");
           callStateRef.current = "ringing";
           setCallType(payload.callType || "voice");
@@ -843,12 +874,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
             if (!localStreamRef.current?.getVideoTracks().length) {
               pc.addTransceiver("video", { direction: "recvonly" });
             }
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            await postSignal("offer", {
-              chatId: callChatIdRef.current,
-              sdp: offer,
-            });
+            await sendOffer(pc);
           } catch (err) {
             console.error("Failed to create offer:", err);
             finishCall("failed");
@@ -876,6 +902,12 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
                   );
               }
             }
+            const isReadyForOffer =
+              !isMakingOfferRef.current &&
+              (pc.signalingState === "stable" ||
+                isSettingRemoteAnswerRef.current);
+            if (!isReadyForOffer && !isPolitePeerRef.current) break;
+            // For the polite peer this implicitly rolls back its own offer.
             await pc.setRemoteDescription(new RTCSessionDescription(sdpOffer));
 
             // Flush queued ICE candidates
@@ -892,6 +924,10 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
               chatId: callChatIdRef.current,
               sdp: answer,
             });
+            // Whatever the rolled-back offer carried still has to go out.
+            if (!isReadyForOffer && hasUnnegotiatedSend(pc)) {
+              await sendOffer(pc);
+            }
           } catch (err) {
             console.error("Failed to handle offer:", err);
             finishCall("failed");
@@ -911,7 +947,12 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
           try {
             const pc = peerConnectionRef.current;
             if (pc && pc.signalingState !== "closed") {
-              await pc.setRemoteDescription(new RTCSessionDescription(sdpAnswer));
+              isSettingRemoteAnswerRef.current = true;
+              try {
+                await pc.setRemoteDescription(new RTCSessionDescription(sdpAnswer));
+              } finally {
+                isSettingRemoteAnswerRef.current = false;
+              }
               while (pendingCandidatesRef.current.length > 0) {
                 const cand = pendingCandidatesRef.current.shift();
                 try {
@@ -1022,7 +1063,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
           break;
       }
     },
-    [createPeerConnection, postSignal, finishCall]
+    [createPeerConnection, postSignal, finishCall, sendOffer]
   );
 
   // Recover a call that started while this app was closed.

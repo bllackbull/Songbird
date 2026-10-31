@@ -108,6 +108,9 @@ function TwoPeerHarness() {
       <button type="button" onClick={alice.toggleCamera}>
         alice toggles camera
       </button>
+      <button type="button" onClick={bob.toggleCamera}>
+        bob toggles camera
+      </button>
       <button type="button" onClick={bob.acceptCall}>
         bob accepts
       </button>
@@ -234,6 +237,34 @@ describe("useWebRTCCall screen sharing between two peers", () => {
 
     await expect.element(page.getByTestId("bob-sharing")).toHaveTextContent("false");
     await expect.element(page.getByTestId("alice-remote-sharing")).toHaveTextContent("false");
+  });
+
+  test("both peers sharing at the same moment still receive each other's screen", async () => {
+    await connectVoiceCall();
+
+    page.getByRole("button", { name: "alice toggles share" }).element().click();
+    page.getByRole("button", { name: "bob toggles share" }).element().click();
+
+    await expect.element(page.getByTestId("alice-sharing")).toHaveTextContent("true");
+    await expect.element(page.getByTestId("bob-sharing")).toHaveTextContent("true");
+    const aliceRemote = page.getByTestId("alice-remote-video").element();
+    const bobRemote = page.getByTestId("bob-remote-video").element();
+    await waitFor(() => aliceRemote.videoWidth === 320 && bobRemote.videoWidth === 320, 8000);
+    await expect.element(page.getByTestId("alice-state")).toHaveTextContent("connected");
+    await expect.element(page.getByTestId("bob-state")).toHaveTextContent("connected");
+  });
+
+  test("both peers turning the camera on at the same moment still receive each other's video", async () => {
+    await connectVoiceCall();
+
+    page.getByRole("button", { name: "alice toggles camera" }).element().click();
+    page.getByRole("button", { name: "bob toggles camera" }).element().click();
+
+    const aliceRemote = page.getByTestId("alice-remote-video").element();
+    const bobRemote = page.getByTestId("bob-remote-video").element();
+    await waitFor(() => aliceRemote.videoWidth === 160 && bobRemote.videoWidth === 160, 8000);
+    await expect.element(page.getByTestId("alice-state")).toHaveTextContent("connected");
+    await expect.element(page.getByTestId("bob-state")).toHaveTextContent("connected");
   });
 
   test("closing the share picker leaves the call untouched", async () => {
