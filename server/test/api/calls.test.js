@@ -341,6 +341,32 @@ describe("/api/calls endpoints", () => {
         cameraOff: true,
       });
     });
+
+    it("POST /api/calls/screen-share-state relays sharing flag to peer", async () => {
+      const res = await request(app)
+        .post("/api/calls/screen-share-state")
+        .set("Cookie", "sid=alice-token")
+        .send({ chatId: CHAT_ID, sharing: true });
+      expect(res.status).toBe(200);
+      expect(emitSseEvent).toHaveBeenCalledWith("bob", {
+        type: "call:screen-share-state",
+        chatId: CHAT_ID,
+        sharing: true,
+      });
+    });
+
+    it("POST /api/calls/screen-share-state treats anything but true as not sharing", async () => {
+      const res = await request(app)
+        .post("/api/calls/screen-share-state")
+        .set("Cookie", "sid=bob-token")
+        .send({ chatId: CHAT_ID, sharing: "yes" });
+      expect(res.status).toBe(200);
+      expect(emitSseEvent).toHaveBeenCalledWith("alice", {
+        type: "call:screen-share-state",
+        chatId: CHAT_ID,
+        sharing: false,
+      });
+    });
   });
 
   describe("GET /api/calls/history", () => {

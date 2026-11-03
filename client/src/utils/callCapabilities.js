@@ -20,3 +20,13 @@ export function isCallSupported() {
     typeof navigator.mediaDevices.getUserMedia === "function",
   );
 }
+
+/**
+ * Checks whether the current browser can share its screen during a call.
+ * Desktop browsers expose getDisplayMedia; most mobile browsers (Android
+ * Chrome, iOS Safari) do not, so the share control stays hidden there.
+ */
+export function isScreenShareSupported() {
+  if (!isCallSupported()) return false;
+  return typeof navigator.mediaDevices.getDisplayMedia === "function";
+}

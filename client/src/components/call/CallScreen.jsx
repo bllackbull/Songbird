@@ -10,6 +10,10 @@ import {
   Volume2,
   VolumeX,
   Lock,
+  Maximize,
+  Minimize,
+  ScreenShare,
+  ScreenShareOff,
   SignalHigh,
   SignalMedium,
   SignalLow,
@@ -77,6 +81,9 @@ export const CallScreen = memo(function CallScreen({
   cameraUnavailable = false,
   isRemoteCameraOff,
   isSpeakerOn,
+  isScreenSharing = false,
+  isRemoteScreenSharing = false,
+  screenShareSupported = false,
   localVideoRef,
   remoteVideoRef,
   remoteAudioRef,
@@ -86,6 +93,7 @@ export const CallScreen = memo(function CallScreen({
   onToggleMute,
   onToggleCamera,
   onToggleSpeaker,
+  onToggleScreenShare,
   minimized: controlledMinimized,
   onMinimizeChange,
 }) {
@@ -111,12 +119,20 @@ export const CallScreen = memo(function CallScreen({
   const isDraggingRef = useRef(false);
   const remoteStreamRef = useRef(null);
   const localStreamRef = useRef(null);
+  const stageRef = useRef(null);
+  const remoteVideoNodeRef = useRef(null);
+  const [isStageFullscreen, setIsStageFullscreen] = useState(false);
 
   const isVideo = callType === "video";
   const remoteCameraOff =
     isRemoteCameraOff === undefined ? !isVideo : isRemoteCameraOff;
-  const localOn = !isCameraOff;
-  const remoteOn = !remoteCameraOff;
+  // While sharing, the camera is not being sent, so its preview is hidden.
+  const localOn = !isCameraOff && !isScreenSharing;
+  // A shared screen arrives on the remote video track even when the peer's
+  // camera is off.
+  const remoteOn = !remoteCameraOff || isRemoteScreenSharing;
+  const canShareScreen =
+    screenShareSupported && typeof onToggleScreenShare === "function";
   const isConnected = callState === "connected";
   const bothOn = isConnected && localOn && remoteOn;
   const pipSizing =
@@ -146,6 +162,40 @@ export const CallScreen = memo(function CallScreen({
       setPosition(null);
     }
   }, [callState, isEnding, setMinimized]);
+
+  // Follows every way out of fullscreen, including the browser's Esc key.
+  useEffect(() => {
+    const handleChange = () => {
+      setIsStageFullscreen(
+        Boolean(stageRef.current) &&
+          document.fullscreenElement === stageRef.current,
+      );
+    };
+    document.addEventListener("fullscreenchange", handleChange);
+    return () => document.removeEventListener("fullscreenchange", handleChange);
+  }, []);
+
+  // Nothing is left to watch once the peer stops sharing or the call ends.
+  const canFullscreenShare = isRemoteScreenSharing && !isEnding;
+  useEffect(() => {
+    if (canFullscreenShare) return;
+    if (stageRef.current && document.fullscreenElement === stageRef.current) {
+      void document.exitFullscreen().catch(() => {});
+    }
+  }, [canFullscreenShare]);
+
+  const toggleStageFullscreen = () => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    if (document.fullscreenElement === stage) {
+      void document.exitFullscreen().catch(() => {});
+    } else if (typeof stage.requestFullscreen === "function") {
+      void stage.requestFullscreen().catch(() => {});
+    } else {
+      // iPhone Safari can only put a video element in fullscreen.
+      remoteVideoNodeRef.current?.webkitEnterFullscreen?.();
+    }
+  };
 
   // Prevent body scroll only while call screen is in fullscreen mode
   useEffect(() => {
@@ -200,6 +250,7 @@ export const CallScreen = memo(function CallScreen({
   };
 
   const handleRemoteVideoRef = (node) => {
+    remoteVideoNodeRef.current = node;
     if (remoteVideoRef) {
       if (typeof remoteVideoRef === "function") {
         remoteVideoRef(node);
@@ -438,6 +489,27 @@ export const CallScreen = memo(function CallScreen({
         {isCameraOff ? <VideoOff size={26} /> : <Video size={26} />}
       </button>
 
+      {canShareScreen ? (
+        <button
+          type="button"
+          onClick={onToggleScreenShare}
+          disabled={isEnding}
+          className={`flex h-16 w-16 items-center justify-center rounded-full transition ${controlState} ${
+            isScreenSharing
+              ? "bg-emerald-500 text-white hover:bg-emerald-400"
+              : "bg-white/10 text-white hover:bg-white/20"
+          }`}
+          aria-label={isScreenSharing ? "Stop sharing screen" : "Share screen"}
+          aria-pressed={isScreenSharing}
+        >
+          {isScreenSharing ? (
+            <ScreenShareOff size={26} />
+          ) : (
+            <ScreenShare size={26} />
+          )}
+        </button>
+      ) : null}
+
       <button
         type="button"
         onClick={onToggleMute}
@@ -633,7 +705,12 @@ export const CallScreen = memo(function CallScreen({
       {/* Video stage - always shown once connected; main video letterboxes
           to its stream orientation. */}
       {isConnected ? (
-        <div className="relative z-0 mx-2 min-h-0 w-[calc(100%-1rem)] flex-1 overflow-hidden rounded-2xl">
+        <div
+          ref={stageRef}
+          className={`relative z-0 mx-2 min-h-0 w-[calc(100%-1rem)] flex-1 overflow-hidden [container-type:size] ${
+            isStageFullscreen ? "bg-black" : "rounded-2xl"
+          }`}
+        >
           <video
             ref={handleRemoteVideoRef}
             autoPlay
@@ -641,7 +718,9 @@ export const CallScreen = memo(function CallScreen({
             aria-label="Remote video"
             className={
               remoteOn
-                ? "absolute inset-0 h-full w-full rounded-2xl object-contain"
+                ? `absolute inset-0 h-full w-full object-contain ${
+                    isStageFullscreen ? "" : "rounded-2xl"
+                  }`
                 : "hidden"
             }
           />
@@ -652,7 +731,9 @@ export const CallScreen = memo(function CallScreen({
             muted
             aria-label="Local video"
             className={
-              bothOn
+              isStageFullscreen
+                ? "hidden"
+                : bothOn
                 ? `absolute bottom-4 right-4 z-10 rounded-xl border-2 border-white/20 object-cover shadow-lg ${pipSizing}`
                 : localOn
                   ? "absolute inset-0 h-full w-full rounded-2xl object-contain"
@@ -660,6 +741,38 @@ export const CallScreen = memo(function CallScreen({
             }
             style={{ aspectRatio: `${localAspect}` }}
           />
+          {canFullscreenShare ? (
+            // Matches the letterboxed picture so the button sits on its corner.
+            <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
+              <div
+                className="relative"
+                style={{
+                  width: `min(100cqw, calc(100cqh * ${remoteAspect}))`,
+                  aspectRatio: `${remoteAspect}`,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={toggleStageFullscreen}
+                  className="pointer-events-auto absolute right-3 top-3 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full bg-black/55 text-white transition hover:bg-black/75"
+                  aria-label={isStageFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                >
+                  {isStageFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {(isScreenSharing || isRemoteScreenSharing) && !isStageFullscreen ? (
+            <div
+              role="status"
+              className="absolute left-1/2 top-3 z-20 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/55 px-3 py-1 text-xs font-medium text-white"
+            >
+              <ScreenShare size={14} className="text-emerald-400" />
+              {isScreenSharing
+                ? "You're sharing your screen"
+                : `${peerName} is sharing their screen`}
+            </div>
+          ) : null}
         </div>
       ) : null}
 

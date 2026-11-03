@@ -259,7 +259,7 @@ export function createWebSocketGateway({
                       user: currentSession,
                       chatId,
                     });
-                  } else if (["offer", "answer", "ice-candidate", "camera-state"].includes(signalType)) {
+                  } else if (["offer", "answer", "ice-candidate", "camera-state", "screen-share-state"].includes(signalType)) {
                     await callManager.relaySignal({
                       user: currentSession,
                       chatId,
