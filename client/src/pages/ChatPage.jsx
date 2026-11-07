@@ -35,7 +35,10 @@ import { usePerfTelemetry } from "../hooks/chat/usePerfTelemetry.js";
 import { useResumeRefresh } from "../hooks/chat/useResumeRefresh.js";
 import { useMessageVisibility } from "../hooks/chat/useMessageVisibility.js";
 import { useWebRTCCall } from "../hooks/chat/useWebRTCCall.js";
-import { isCallSupported } from "../utils/callCapabilities.js";
+import {
+  isCallSupported,
+  isScreenShareSupported,
+} from "../utils/callCapabilities.js";
 import { useAppReleaseInfo } from "../hooks/useAppReleaseInfo.js";
 import { Bookmark } from "../icons/lucide.js";
 import { CLIPBOARD_COPY_EVENT } from "../utils/clipboard.js";
@@ -1065,9 +1068,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     isCameraUnavailable,
     isRemoteCameraOff,
     isSpeakerOn,
+    isScreenSharing,
+    isRemoteScreenSharing,
     localVideoRef,
     remoteVideoRef,
     remoteAudioRef,
+    screenAudioRef,
+    screenAudioStreamRef,
     startCall,
     acceptCall,
     rejectCall,
@@ -1075,8 +1082,16 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     toggleMute,
     toggleCamera,
     toggleSpeaker,
+    toggleScreenShare,
+    toggleScreenAudio,
+    isScreenAudioMuted,
     handleSignal: handleCallSignal,
   } = useWebRTCCall({ realtimeSenderRef });
+  // Screen sharing sends video, so it follows the video-call setting.
+  const screenShareSupported =
+    Boolean(CHAT_PAGE_CONFIG.callsEnabled) &&
+    Boolean(CHAT_PAGE_CONFIG.videoCallsEnabled) &&
+    isScreenShareSupported();
 
   const resolvedCallPeer = useMemo(() => {
     if (!callPeer) return null;
@@ -7114,6 +7129,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           }
           isRemoteCameraOff={isRemoteCameraOff}
           isSpeakerOn={isSpeakerOn}
+          isScreenSharing={isScreenSharing}
+          isRemoteScreenSharing={isRemoteScreenSharing}
+          isScreenAudioMuted={isScreenAudioMuted}
+          screenAudioRef={screenAudioRef}
+          screenAudioStreamRef={screenAudioStreamRef}
+          screenShareSupported={screenShareSupported}
           localVideoRef={localVideoRef}
           remoteVideoRef={remoteVideoRef}
           remoteAudioRef={remoteAudioRef}
@@ -7123,6 +7144,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           onToggleMute={toggleMute}
           onToggleCamera={toggleCamera}
           onToggleSpeaker={toggleSpeaker}
+          onToggleScreenShare={toggleScreenShare}
+          onToggleScreenAudio={toggleScreenAudio}
         />
       ) : null}
 
