@@ -3,6 +3,7 @@ import { fetchIceServers, fetchIncomingCall, sendCallSignal } from "../../api/ch
 import {
   isCallSupported,
   isScreenShareSupported,
+  foldIncomingRemoteStream,
 } from "../../utils/callCapabilities.js";
 
 /**
@@ -140,6 +141,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   // Active screen capture track, and the RTP sender carrying outgoing video
   // (camera or screen) so the two can be swapped without renegotiating.
   const screenTrackRef = useRef(null);
+  const screenAudioSenderRef = useRef(null);
   const videoSenderRef = useRef(null);
   // Offer collisions: both peers may renegotiate at once. The callee is the
   // polite peer and yields; the caller ignores the colliding offer.
@@ -363,13 +365,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     pc.ontrack = (event) => {
       // A video sender reused for screen sharing may arrive without a stream
       // association; fold its track into the current remote stream.
-      let stream = event.streams?.[0];
-      if (!stream) {
-        stream = remoteStreamRef.current || new MediaStream();
-        if (event.track && !stream.getTracks().includes(event.track)) {
-          stream.addTrack(event.track);
-        }
-      }
+      const stream = foldIncomingRemoteStream(event, remoteStreamRef.current);
       remoteStreamRef.current = stream;
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = stream;
@@ -722,11 +718,15 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   const stopScreenShare = useCallback(async () => {
     const track = screenTrackRef.current;
     if (!track) return;
+    const audioTrack = screenAudioSenderRef.current?.track;
     const sender = videoSenderRef.current;
     screenTrackRef.current = null;
     track.onended = null;
     try {
       track.stop();
+    } catch (_) {}
+    try {
+      audioTrack?.stop();
     } catch (_) {}
     setIsScreenSharing(false);
     const pc = peerConnectionRef.current;
@@ -758,7 +758,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     try {
       displayStream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
-        audio: false,
+        audio: true,
       });
     } catch (err) {
       // NotAllowedError: the user closed the picker; nothing to report.
@@ -788,7 +788,27 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
         localStreamRef.current,
       );
       videoSenderRef.current = sender;
-      if (needsNegotiation) await sendOffer(pc);
+      let audioNeedsNegotiation = false;
+      const [screenAudio] = displayStream.getAudioTracks();
+      if (screenAudio) {
+        try {
+          if (screenAudioSenderRef.current) {
+            // A silent audio m-line was left by an earlier share.
+            await screenAudioSenderRef.current.replaceTrack(screenAudio);
+          } else {
+            // Screen audio is a second audio track; it needs a new m-line.
+            screenAudioSenderRef.current = pc.addTrack(
+              screenAudio,
+              displayStream,
+            );
+            audioNeedsNegotiation = true;
+          }
+        } catch (err) {
+          console.error("Failed to send screen audio:", err);
+          screenAudioSenderRef.current = null;
+        }
+      }
+      if (needsNegotiation || audioNeedsNegotiation) await sendOffer(pc);
     } catch (err) {
       console.error("Failed to send screen share:", err);
       screenTrackRef.current = null;
