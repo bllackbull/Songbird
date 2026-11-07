@@ -496,7 +496,7 @@ export const CallScreen = memo(function CallScreen({
           disabled={isEnding}
           className={`flex h-16 w-16 items-center justify-center rounded-full transition ${controlState} ${
             isScreenSharing
-              ? "bg-emerald-500 text-white hover:bg-emerald-400"
+              ? "bg-white text-gray-500 hover:bg-white/90"
               : "bg-white/10 text-white hover:bg-white/20"
           }`}
           aria-label={isScreenSharing ? "Stop sharing screen" : "Share screen"}
