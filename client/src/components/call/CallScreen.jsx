@@ -83,10 +83,13 @@ export const CallScreen = memo(function CallScreen({
   isSpeakerOn,
   isScreenSharing = false,
   isRemoteScreenSharing = false,
+  isScreenAudioMuted = false,
   screenShareSupported = false,
   localVideoRef,
   remoteVideoRef,
   remoteAudioRef,
+  screenAudioRef,
+  screenAudioStreamRef,
   onAccept,
   onReject,
   onEnd,
@@ -94,6 +97,7 @@ export const CallScreen = memo(function CallScreen({
   onToggleCamera,
   onToggleSpeaker,
   onToggleScreenShare,
+  onToggleScreenAudio,
   minimized: controlledMinimized,
   onMinimizeChange,
 }) {
@@ -270,7 +274,6 @@ export const CallScreen = memo(function CallScreen({
       trackVideoAspect(node, setRemoteAspect);
     }
   };
-
   const handleRemoteAudioRef = (node) => {
     if (remoteAudioRef) {
       if (typeof remoteAudioRef === "function") {
@@ -289,6 +292,22 @@ export const CallScreen = memo(function CallScreen({
       node.muted = !isSpeakerOn;
       node.play?.().catch(() => {});
     }
+  };
+
+  // Re-attaches the shared-screen audio stream whenever its element mounts.
+  const handleScreenAudioRef = (node) => {
+    if (!node) return;
+    if (screenAudioRef && typeof screenAudioRef === "object") {
+      screenAudioRef.current = node;
+    }
+    if (
+      screenAudioStreamRef?.current &&
+      node.srcObject !== screenAudioStreamRef.current
+    ) {
+      node.srcObject = screenAudioStreamRef.current;
+    }
+    node.muted = !isSpeakerOn || isScreenAudioMuted;
+    node.play?.().catch(() => {});
   };
 
   const handleLocalVideoRef = (node) => {
@@ -584,6 +603,7 @@ export const CallScreen = memo(function CallScreen({
         {!remoteOn ? (
           <audio ref={handleRemoteAudioRef} autoPlay playsInline className="hidden" />
         ) : null}
+        <audio ref={handleScreenAudioRef} autoPlay playsInline className="hidden" />
       </div>
     ) : (
       <div
@@ -608,6 +628,9 @@ export const CallScreen = memo(function CallScreen({
         >
         {isConnected && !remoteOn ? (
           <audio ref={handleRemoteAudioRef} autoPlay playsInline className="hidden" />
+        ) : null}
+        {isConnected ? (
+          <audio ref={handleScreenAudioRef} autoPlay playsInline className="hidden" />
         ) : null}
 
         {/* Secure badge - very top */}
@@ -758,6 +781,17 @@ export const CallScreen = memo(function CallScreen({
                   aria-label={isStageFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
                 >
                   {isStageFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
+                </button>
+                {/* Mute the audio riding the shared screen, not the mic. */}
+                <button
+                  type="button"
+                  onClick={onToggleScreenAudio}
+                  disabled={isEnding}
+                  className={`pointer-events-auto absolute bottom-3 right-3 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full bg-black/55 text-white transition hover:bg-black/75 ${controlState}`}
+                  aria-label={isScreenAudioMuted ? "Unmute screen audio" : "Mute screen audio"}
+                  aria-pressed={isScreenAudioMuted}
+                >
+                  {isScreenAudioMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
                 </button>
               </div>
             </div>

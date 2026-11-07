@@ -124,6 +124,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   const [callQuality, setCallQuality] = useState(UNKNOWN_QUALITY);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [isRemoteScreenSharing, setIsRemoteScreenSharing] = useState(false);
+  const [isScreenAudioMuted, setIsScreenAudioMuted] = useState(false);
 
   const peerConnectionRef = useRef(null);
   const localStreamRef = useRef(null);
@@ -131,6 +132,8 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const remoteAudioRef = useRef(null);
+  const screenAudioRef = useRef(null);
+  const screenAudioStreamRef = useRef(null);
   const durationTimerRef = useRef(null);
   const disconnectTimerRef = useRef(null);
   const endNoticeTimerRef = useRef(null);
@@ -261,6 +264,11 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     if (remoteVideoRef.current) {
       remoteVideoRef.current.muted = false;
     }
+    screenAudioStreamRef.current = null;
+    if (screenAudioRef.current) {
+      screenAudioRef.current.srcObject = null;
+      screenAudioRef.current.muted = false;
+    }
 
     if (peerConnectionRef.current) {
       try {
@@ -289,6 +297,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     setIsCameraUnavailable(false);
     setIsRemoteCameraOff(true);
     setIsSpeakerOn(true);
+    setIsScreenAudioMuted(false);
     setIsCallClosing(false);
   }, [clearEndTimers, releaseScreenShare]);
 
@@ -363,6 +372,23 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     };
 
     pc.ontrack = (event) => {
+      // Screen-share audio arrives on its own display stream; route it to a
+      // dedicated element so it can be muted independently from the mic.
+      const ownStream = event.streams?.[0];
+      if (
+        event.track?.kind === "audio" &&
+        ownStream &&
+        remoteStreamRef.current &&
+        ownStream !== remoteStreamRef.current
+      ) {
+        screenAudioStreamRef.current = ownStream;
+        if (screenAudioRef.current) {
+          screenAudioRef.current.srcObject = ownStream;
+          screenAudioRef.current.play?.().catch(() => {});
+        }
+        setRemoteStreamTick((t) => t + 1);
+        return;
+      }
       // A video sender reused for screen sharing may arrive without a stream
       // association; fold its track into the current remote stream.
       const stream = foldIncomingRemoteStream(event, remoteStreamRef.current);
@@ -516,7 +542,12 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       remoteAudioRef.current.srcObject = remoteStreamRef.current;
       remoteAudioRef.current.play?.().catch(() => {});
     }
-  }, [callState, callType, remoteStreamTick]);
+    if (screenAudioRef.current && screenAudioStreamRef.current) {
+      screenAudioRef.current.srcObject = screenAudioStreamRef.current;
+      screenAudioRef.current.muted = !isSpeakerOn || isScreenAudioMuted;
+      screenAudioRef.current.play?.().catch(() => {});
+    }
+  }, [callState, callType, remoteStreamTick, isSpeakerOn, isScreenAudioMuted]);
 
   // Speaker toggle flips mute on the remote media elements.
   useEffect(() => {
@@ -526,7 +557,10 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     if (remoteAudioRef.current) {
       remoteAudioRef.current.muted = !isSpeakerOn;
     }
-  }, [isSpeakerOn, callState, callType, remoteStreamTick]);
+    if (screenAudioRef.current) {
+      screenAudioRef.current.muted = !isSpeakerOn || isScreenAudioMuted;
+    }
+  }, [isSpeakerOn, isScreenAudioMuted, callState, callType, remoteStreamTick]);
 
   // Sample WebRTC stats while connected to derive signal bars from
   // round-trip time (ping) and packet loss. Resets when the call ends.
@@ -659,6 +693,11 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   // the remote peer is audible through the remote media elements.
   const toggleSpeaker = useCallback(() => {
     setIsSpeakerOn((prev) => !prev);
+  }, []);
+
+  // Mute only the shared-screen audio, not the peer's voice.
+  const toggleScreenAudio = useCallback(() => {
+    setIsScreenAudioMuted((prev) => !prev);
   }, []);
 
   const toggleCamera = useCallback(async () => {
@@ -1122,9 +1161,12 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     isSpeakerOn,
     isScreenSharing,
     isRemoteScreenSharing,
+    isScreenAudioMuted,
     localVideoRef,
     remoteVideoRef,
     remoteAudioRef,
+    screenAudioRef,
+    screenAudioStreamRef,
     startCall,
     acceptCall,
     rejectCall,
@@ -1132,6 +1174,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     toggleMute,
     toggleCamera,
     toggleSpeaker,
+    toggleScreenAudio,
     startScreenShare,
     stopScreenShare,
     toggleScreenShare,

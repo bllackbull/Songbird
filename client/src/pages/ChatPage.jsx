@@ -1073,6 +1073,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     localVideoRef,
     remoteVideoRef,
     remoteAudioRef,
+    screenAudioRef,
+    screenAudioStreamRef,
     startCall,
     acceptCall,
     rejectCall,
@@ -1081,6 +1083,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     toggleCamera,
     toggleSpeaker,
     toggleScreenShare,
+    toggleScreenAudio,
+    isScreenAudioMuted,
     handleSignal: handleCallSignal,
   } = useWebRTCCall({ realtimeSenderRef });
   // Screen sharing sends video, so it follows the video-call setting.
@@ -7127,6 +7131,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           isSpeakerOn={isSpeakerOn}
           isScreenSharing={isScreenSharing}
           isRemoteScreenSharing={isRemoteScreenSharing}
+          isScreenAudioMuted={isScreenAudioMuted}
+          screenAudioRef={screenAudioRef}
+          screenAudioStreamRef={screenAudioStreamRef}
           screenShareSupported={screenShareSupported}
           localVideoRef={localVideoRef}
           remoteVideoRef={remoteVideoRef}
@@ -7138,6 +7145,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           onToggleCamera={toggleCamera}
           onToggleSpeaker={toggleSpeaker}
           onToggleScreenShare={toggleScreenShare}
+          onToggleScreenAudio={toggleScreenAudio}
         />
       ) : null}
 
