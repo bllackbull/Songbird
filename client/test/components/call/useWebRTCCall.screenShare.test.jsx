@@ -73,6 +73,9 @@ function TwoPeerHarness() {
     bobSignalRef.current = bob.handleSignal;
   }, [alice.handleSignal, bob.handleSignal]);
 
+  // Test handle: lets tests reach hook refs and media state directly.
+  window.__peers = { alice, bob };
+
   return (
     <div>
       <Peer
@@ -110,6 +113,9 @@ function TwoPeerHarness() {
       </button>
       <button type="button" onClick={bob.toggleCamera}>
         bob toggles camera
+      </button>
+      <button type="button" onClick={alice.toggleMute}>
+        alice toggles mic
       </button>
       <button type="button" onClick={bob.acceptCall}>
         bob accepts
@@ -269,6 +275,67 @@ describe.skipIf(isPlaywrightFirefox)("useWebRTCCall screen sharing between two p
     await waitFor(() => aliceRemote.videoWidth === 160 && bobRemote.videoWidth === 160, 8000);
     await expect.element(page.getByTestId("alice-state")).toHaveTextContent("connected");
     await expect.element(page.getByTestId("bob-state")).toHaveTextContent("connected");
+  });
+
+  // Regression guard: muting the mic must not silence the shared-screen
+  // audio at the peer — it is a separate track with its own sender.
+  function useMockScreenWithAudio() {
+    const screen = makeScreenStream();
+    screen.stream.addTrack(makeMicStream().getAudioTracks()[0]);
+    navigator.mediaDevices.getDisplayMedia.mockResolvedValueOnce(screen.stream);
+    return screen;
+  }
+
+  async function shareScreen() {
+    await userEvent.click(page.getByRole("button", { name: "alice toggles share" }));
+    await expect
+      .element(page.getByTestId("bob-remote-sharing"))
+      .toHaveTextContent("true");
+  }
+
+  async function expectScreenAudioFlowing() {
+    const { bob } = window.__peers;
+    await waitFor(() => bob.screenAudioStreamRef.current);
+    const track = bob.screenAudioStreamRef.current.getAudioTracks()[0];
+    expect(track).toBeTruthy();
+    // Receiver track unmutes while RTP packets for it keep flowing.
+    await waitFor(() => !track.muted);
+    return track;
+  }
+
+  test("muting the mic mid-share keeps the shared-screen audio streaming", async () => {
+    await connectVoiceCall();
+    const screen = useMockScreenWithAudio();
+    try {
+      await shareScreen();
+      const track = await expectScreenAudioFlowing();
+
+      await userEvent.click(page.getByRole("button", { name: "alice toggles mic" }));
+      expect(window.__peers.alice.isMuted).toBe(true);
+
+      await new Promise((r) => setTimeout(r, 800));
+      await waitFor(() => !track.muted, 3000);
+      expect(track.muted).toBe(false);
+    } finally {
+      screen.stopPainting();
+    }
+  });
+
+  test("muting the mic before sharing keeps the shared-screen audio streaming", async () => {
+    await connectVoiceCall();
+    await userEvent.click(page.getByRole("button", { name: "alice toggles mic" }));
+    expect(window.__peers.alice.isMuted).toBe(true);
+
+    const screen = useMockScreenWithAudio();
+    try {
+      await shareScreen();
+      const track = await expectScreenAudioFlowing();
+      await new Promise((r) => setTimeout(r, 800));
+      await waitFor(() => !track.muted, 3000);
+      expect(track.muted).toBe(false);
+    } finally {
+      screen.stopPainting();
+    }
   });
 
   test("closing the share picker leaves the call untouched", async () => {

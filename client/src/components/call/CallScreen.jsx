@@ -787,7 +787,7 @@ export const CallScreen = memo(function CallScreen({
                   type="button"
                   onClick={onToggleScreenAudio}
                   disabled={isEnding}
-                  className={`pointer-events-auto absolute bottom-3 right-3 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full bg-black/55 text-white transition hover:bg-black/75 ${controlState}`}
+                  className={`pointer-events-auto absolute left-3 top-3 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full bg-black/55 text-white transition hover:bg-black/75 ${controlState}`}
                   aria-label={isScreenAudioMuted ? "Unmute screen audio" : "Mute screen audio"}
                   aria-pressed={isScreenAudioMuted}
                 >
@@ -799,7 +799,7 @@ export const CallScreen = memo(function CallScreen({
           {(isScreenSharing || isRemoteScreenSharing) && !isStageFullscreen ? (
             <div
               role="status"
-              className="absolute left-1/2 top-3 z-20 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/55 px-3 py-1 text-xs font-medium text-white"
+              className="absolute left-1/2 top-3 z-20 inline-flex max-w-full -translate-x-1/2 items-center gap-1.5 truncate rounded-full bg-black/55 px-3 py-1 text-xs font-medium text-white whitespace-nowrap"
             >
               <ScreenShare size={14} className="text-emerald-400" />
               {isScreenSharing
