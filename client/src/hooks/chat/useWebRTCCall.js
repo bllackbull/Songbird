@@ -544,10 +544,9 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     }
     if (screenAudioRef.current && screenAudioStreamRef.current) {
       screenAudioRef.current.srcObject = screenAudioStreamRef.current;
-      screenAudioRef.current.muted = !isSpeakerOn || isScreenAudioMuted;
       screenAudioRef.current.play?.().catch(() => {});
     }
-  }, [callState, callType, remoteStreamTick, isSpeakerOn, isScreenAudioMuted]);
+  }, [callState, callType, remoteStreamTick]);
 
   // Speaker toggle flips mute on the remote media elements.
   useEffect(() => {
