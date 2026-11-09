@@ -565,7 +565,7 @@ export function MobileSettingsPanel({
             settingsPanel ? "-translate-x-full" : "translate-x-0"
           }`}
         >
-          <div className="grid w-full h-[72px] shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-slate-300/80 bg-white px-4 py-4 dark:border-emerald-500/20 dark:bg-slate-900">
+          <div className="grid w-full h-[72px] shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-slate-300/80 bg-white px-6 py-4 dark:border-emerald-500/20 dark:bg-slate-900">
             <div className="flex items-center gap-2">
               <div className="hidden md:inline-flex">
                 <UserMenuButton
