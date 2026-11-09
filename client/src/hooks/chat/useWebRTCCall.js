@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchIceServers, fetchIncomingCall, sendCallSignal } from "../../api/chatApi.js";
-import { isCallSupported } from "../../utils/callCapabilities.js";
+import {
+  isCallSupported,
+  isScreenShareSupported,
+  foldIncomingRemoteStream,
+} from "../../utils/callCapabilities.js";
 
 /**
  * Grade connection quality from WebRTC stats into signal bars.
@@ -43,6 +47,61 @@ export async function acquireLocalMedia(wantsVideo) {
 }
 
 /**
+ * Put an outgoing video track on the peer connection. An existing video
+ * sender (the camera, or a sender left over from an earlier share) is reused
+ * with replaceTrack so no renegotiation is needed. Otherwise the video
+ * transceiver negotiated at call setup is switched to sending, or a new
+ * track is added. Returns { sender, needsNegotiation }.
+ */
+export async function attachOutgoingVideoTrack(pc, track, stream) {
+  const senders = typeof pc.getSenders === "function" ? pc.getSenders() : [];
+  const activeSender = senders.find((s) => s.track?.kind === "video");
+  if (activeSender) {
+    await activeSender.replaceTrack(track);
+    return { sender: activeSender, needsNegotiation: false };
+  }
+
+  const transceivers =
+    typeof pc.getTransceivers === "function" ? pc.getTransceivers() : [];
+  const videoTransceiver = transceivers.find(
+    (t) =>
+      !t.stopped &&
+      t.currentDirection !== "stopped" &&
+      t.receiver?.track?.kind === "video",
+  );
+  if (videoTransceiver) {
+    await videoTransceiver.sender.replaceTrack(track);
+    if (stream && typeof videoTransceiver.sender.setStreams === "function") {
+      videoTransceiver.sender.setStreams(stream);
+    }
+    const direction = videoTransceiver.direction;
+    if (direction === "sendrecv" || direction === "sendonly") {
+      return { sender: videoTransceiver.sender, needsNegotiation: false };
+    }
+    videoTransceiver.direction =
+      direction === "inactive" ? "sendonly" : "sendrecv";
+    return { sender: videoTransceiver.sender, needsNegotiation: true };
+  }
+
+  const sender = stream ? pc.addTrack(track, stream) : pc.addTrack(track);
+  return { sender, needsNegotiation: true };
+}
+
+/**
+ * True when a local send was left out of the last negotiation, which happens
+ * when an offer collision rolled back the offer that carried it.
+ */
+export function hasUnnegotiatedSend(pc) {
+  const transceivers =
+    typeof pc.getTransceivers === "function" ? pc.getTransceivers() : [];
+  return transceivers.some((t) => {
+    if (t.stopped || t.currentDirection === "stopped") return false;
+    if (!t.direction?.includes("send")) return false;
+    return !t.mid || !t.currentDirection?.includes("send");
+  });
+}
+
+/**
  * Call states: idle | calling | ringing | connected
  */
 export function useWebRTCCall({ realtimeSenderRef } = {}) {
@@ -63,6 +122,9 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [remoteStreamTick, setRemoteStreamTick] = useState(0);
   const [callQuality, setCallQuality] = useState(UNKNOWN_QUALITY);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [isRemoteScreenSharing, setIsRemoteScreenSharing] = useState(false);
+  const [isScreenAudioMuted, setIsScreenAudioMuted] = useState(false);
 
   const peerConnectionRef = useRef(null);
   const localStreamRef = useRef(null);
@@ -70,6 +132,8 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const remoteAudioRef = useRef(null);
+  const screenAudioRef = useRef(null);
+  const screenAudioStreamRef = useRef(null);
   const durationTimerRef = useRef(null);
   const disconnectTimerRef = useRef(null);
   const endNoticeTimerRef = useRef(null);
@@ -77,6 +141,16 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   const callEndReasonRef = useRef(null);
   const iceServersRef = useRef([]);
   const pendingCandidatesRef = useRef([]);
+  // Active screen capture track, and the RTP sender carrying outgoing video
+  // (camera or screen) so the two can be swapped without renegotiating.
+  const screenTrackRef = useRef(null);
+  const screenAudioSenderRef = useRef(null);
+  const videoSenderRef = useRef(null);
+  // Offer collisions: both peers may renegotiate at once. The callee is the
+  // polite peer and yields; the caller ignores the colliding offer.
+  const isPolitePeerRef = useRef(false);
+  const isMakingOfferRef = useRef(false);
+  const isSettingRemoteAnswerRef = useRef(false);
 
   // Mirrors of state used inside stable callbacks so they never read stale values
   const callStateRef = useRef(callState);
@@ -143,6 +217,18 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     }
   }, []);
 
+  const releaseScreenShare = useCallback(() => {
+    const track = screenTrackRef.current;
+    screenTrackRef.current = null;
+    if (track) {
+      track.onended = null;
+      try {
+        track.stop();
+      } catch (_) {}
+    }
+    videoSenderRef.current = null;
+  }, []);
+
   const resetCallState = useCallback(() => {
     if (durationTimerRef.current) {
       clearInterval(durationTimerRef.current);
@@ -178,6 +264,11 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     if (remoteVideoRef.current) {
       remoteVideoRef.current.muted = false;
     }
+    screenAudioStreamRef.current = null;
+    if (screenAudioRef.current) {
+      screenAudioRef.current.srcObject = null;
+      screenAudioRef.current.muted = false;
+    }
 
     if (peerConnectionRef.current) {
       try {
@@ -187,6 +278,12 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     }
 
     pendingCandidatesRef.current = [];
+    isPolitePeerRef.current = false;
+    isMakingOfferRef.current = false;
+    isSettingRemoteAnswerRef.current = false;
+    releaseScreenShare();
+    setIsScreenSharing(false);
+    setIsRemoteScreenSharing(false);
     cameraUnavailableRef.current = false;
     setCallQuality(UNKNOWN_QUALITY);
     setCallState("idle");
@@ -200,8 +297,9 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     setIsCameraUnavailable(false);
     setIsRemoteCameraOff(true);
     setIsSpeakerOn(true);
+    setIsScreenAudioMuted(false);
     setIsCallClosing(false);
-  }, [clearEndTimers]);
+  }, [clearEndTimers, releaseScreenShare]);
 
   // Fade the call screen out, then clear all call state.
   const beginCallExit = useCallback(() => {
@@ -238,6 +336,9 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
         localStreamRef.current.getTracks().forEach((t) => t.stop());
         localStreamRef.current = null;
       }
+      releaseScreenShare();
+      setIsScreenSharing(false);
+      setIsRemoteScreenSharing(false);
       if (remoteAudioRef.current) remoteAudioRef.current.muted = true;
       if (remoteVideoRef.current) remoteVideoRef.current.muted = true;
       if (peerConnectionRef.current) {
@@ -248,7 +349,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       }
       endNoticeTimerRef.current = setTimeout(beginCallExit, CALL_END_NOTICE_MS);
     },
-    [beginCallExit],
+    [beginCallExit, releaseScreenShare],
   );
 
   // Media path broke locally: tell the peer/server the call is over too.
@@ -271,12 +372,32 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     };
 
     pc.ontrack = (event) => {
-      remoteStreamRef.current = event.streams[0];
+      // Screen-share audio arrives on its own display stream; route it to a
+      // dedicated element so it can be muted independently from the mic.
+      const ownStream = event.streams?.[0];
+      if (
+        event.track?.kind === "audio" &&
+        ownStream &&
+        remoteStreamRef.current &&
+        ownStream !== remoteStreamRef.current
+      ) {
+        screenAudioStreamRef.current = ownStream;
+        if (screenAudioRef.current) {
+          screenAudioRef.current.srcObject = ownStream;
+          screenAudioRef.current.play?.().catch(() => {});
+        }
+        setRemoteStreamTick((t) => t + 1);
+        return;
+      }
+      // A video sender reused for screen sharing may arrive without a stream
+      // association; fold its track into the current remote stream.
+      const stream = foldIncomingRemoteStream(event, remoteStreamRef.current);
+      remoteStreamRef.current = stream;
       if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = event.streams[0];
+        remoteVideoRef.current.srcObject = stream;
       }
       if (remoteAudioRef.current) {
-        remoteAudioRef.current.srcObject = event.streams[0];
+        remoteAudioRef.current.srcObject = stream;
         remoteAudioRef.current.play?.().catch(() => {});
       }
       setRemoteStreamTick((t) => t + 1);
@@ -314,6 +435,22 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     return pc;
   }, [postSignal, failCall]);
 
+  const sendOffer = useCallback(
+    async (pc) => {
+      isMakingOfferRef.current = true;
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        // A colliding remote offer may have rolled this one back already.
+        if (pc.signalingState !== "have-local-offer") return;
+        await postSignal("offer", { chatId: callChatIdRef.current, sdp: offer });
+      } finally {
+        isMakingOfferRef.current = false;
+      }
+    },
+    [postSignal],
+  );
+
   // Start a call (caller)
   const startCall = useCallback(
     async ({
@@ -338,6 +475,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       callEndReasonRef.current = null;
       setCallEndReason(null);
       setIsCallClosing(false);
+      isPolitePeerRef.current = false;
       setCallState("calling");
       callStateRef.current = "calling";
       setCallType(type);
@@ -404,6 +542,10 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       remoteAudioRef.current.srcObject = remoteStreamRef.current;
       remoteAudioRef.current.play?.().catch(() => {});
     }
+    if (screenAudioRef.current && screenAudioStreamRef.current) {
+      screenAudioRef.current.srcObject = screenAudioStreamRef.current;
+      screenAudioRef.current.play?.().catch(() => {});
+    }
   }, [callState, callType, remoteStreamTick]);
 
   // Speaker toggle flips mute on the remote media elements.
@@ -414,7 +556,10 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     if (remoteAudioRef.current) {
       remoteAudioRef.current.muted = !isSpeakerOn;
     }
-  }, [isSpeakerOn, callState, callType, remoteStreamTick]);
+    if (screenAudioRef.current) {
+      screenAudioRef.current.muted = !isSpeakerOn || isScreenAudioMuted;
+    }
+  }, [isSpeakerOn, isScreenAudioMuted, callState, callType, remoteStreamTick]);
 
   // Sample WebRTC stats while connected to derive signal bars from
   // round-trip time (ping) and packet loss. Resets when the call ends.
@@ -549,6 +694,11 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     setIsSpeakerOn((prev) => !prev);
   }, []);
 
+  // Mute only the shared-screen audio, not the peer's voice.
+  const toggleScreenAudio = useCallback(() => {
+    setIsScreenAudioMuted((prev) => !prev);
+  }, []);
+
   const toggleCamera = useCallback(async () => {
     const stream = localStreamRef.current;
     if (!stream) return;
@@ -563,14 +713,15 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
         if (!videoTrack) return;
         stream.addTrack(videoTrack);
         const pc = peerConnectionRef.current;
-        if (pc && pc.signalingState !== "closed") {
+        if (screenTrackRef.current) {
+          // The screen is on the video sender; the camera takes over when
+          // sharing stops.
+        } else if (videoSenderRef.current && pc && pc.signalingState !== "closed") {
+          // Reuse the sender an earlier screen share already negotiated.
+          await videoSenderRef.current.replaceTrack(videoTrack);
+        } else if (pc && pc.signalingState !== "closed") {
           pc.addTrack(videoTrack, stream);
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          await postSignal("offer", {
-            chatId: callChatIdRef.current,
-            sdp: offer,
-          });
+          await sendOffer(pc);
         }
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
@@ -600,7 +751,126 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       chatId: callChatIdRef.current,
       cameraOff: nextOff,
     });
+  }, [postSignal, sendOffer]);
+
+  const stopScreenShare = useCallback(async () => {
+    const track = screenTrackRef.current;
+    if (!track) return;
+    const audioTrack = screenAudioSenderRef.current?.track;
+    const sender = videoSenderRef.current;
+    screenTrackRef.current = null;
+    track.onended = null;
+    try {
+      track.stop();
+    } catch (_) {}
+    try {
+      audioTrack?.stop();
+    } catch (_) {}
+    setIsScreenSharing(false);
+    const pc = peerConnectionRef.current;
+    if (sender && pc && pc.signalingState !== "closed") {
+      // Hand the video sender back to the camera (or send nothing).
+      const cameraTrack = localStreamRef.current?.getVideoTracks()[0] || null;
+      try {
+        await sender.replaceTrack(cameraTrack);
+      } catch (err) {
+        console.error("Failed to restore camera after screen share:", err);
+      }
+    }
+    if (callChatIdRef.current) {
+      void postSignal("screen-share-state", {
+        chatId: callChatIdRef.current,
+        sharing: false,
+      });
+    }
   }, [postSignal]);
+
+  const startScreenShare = useCallback(async () => {
+    if (screenTrackRef.current) return;
+    if (callStateRef.current !== "connected") return;
+    if (!isScreenShareSupported()) return;
+    const pc = peerConnectionRef.current;
+    if (!pc || pc.signalingState === "closed") return;
+
+    let displayStream;
+    try {
+      displayStream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: true,
+      });
+    } catch (err) {
+      // NotAllowedError: the user closed the picker; nothing to report.
+      if (err?.name !== "NotAllowedError") {
+        console.error("Failed to start screen share:", err);
+      }
+      return;
+    }
+    const [screenTrack] = displayStream.getVideoTracks();
+    if (!screenTrack) return;
+    // The call may have ended while the picker was open.
+    if (
+      peerConnectionRef.current !== pc ||
+      pc.signalingState === "closed" ||
+      screenTrackRef.current
+    ) {
+      displayStream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    if ("contentHint" in screenTrack) screenTrack.contentHint = "detail";
+    screenTrackRef.current = screenTrack;
+
+    try {
+      const { sender, needsNegotiation } = await attachOutgoingVideoTrack(
+        pc,
+        screenTrack,
+        localStreamRef.current,
+      );
+      videoSenderRef.current = sender;
+      let audioNeedsNegotiation = false;
+      const [screenAudio] = displayStream.getAudioTracks();
+      if (screenAudio) {
+        try {
+          if (screenAudioSenderRef.current) {
+            // A silent audio m-line was left by an earlier share.
+            await screenAudioSenderRef.current.replaceTrack(screenAudio);
+          } else {
+            // Screen audio is a second audio track; it needs a new m-line.
+            screenAudioSenderRef.current = pc.addTrack(
+              screenAudio,
+              displayStream,
+            );
+            audioNeedsNegotiation = true;
+          }
+        } catch (err) {
+          console.error("Failed to send screen audio:", err);
+          screenAudioSenderRef.current = null;
+        }
+      }
+      if (needsNegotiation || audioNeedsNegotiation) await sendOffer(pc);
+    } catch (err) {
+      console.error("Failed to send screen share:", err);
+      screenTrackRef.current = null;
+      try {
+        screenTrack.stop();
+      } catch (_) {}
+      return;
+    }
+
+    // The browser's own "Stop sharing" control ends the track.
+    screenTrack.onended = () => {
+      void stopScreenShare();
+    };
+    setIsScreenSharing(true);
+    void postSignal("screen-share-state", {
+      chatId: callChatIdRef.current,
+      sharing: true,
+    });
+  }, [postSignal, sendOffer, stopScreenShare]);
+
+  const toggleScreenShare = useCallback(() => {
+    if (screenTrackRef.current) return stopScreenShare();
+    return startScreenShare();
+  }, [startScreenShare, stopScreenShare]);
 
   // Handle incoming signaling messages
   const handleSignal = useCallback(
@@ -623,6 +893,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
             void postSignal("reject", { chatId: payload.chatId });
             return;
           }
+          isPolitePeerRef.current = true;
           setCallState("ringing");
           callStateRef.current = "ringing";
           setCallType(payload.callType || "voice");
@@ -661,12 +932,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
             if (!localStreamRef.current?.getVideoTracks().length) {
               pc.addTransceiver("video", { direction: "recvonly" });
             }
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            await postSignal("offer", {
-              chatId: callChatIdRef.current,
-              sdp: offer,
-            });
+            await sendOffer(pc);
           } catch (err) {
             console.error("Failed to create offer:", err);
             finishCall("failed");
@@ -694,6 +960,12 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
                   );
               }
             }
+            const isReadyForOffer =
+              !isMakingOfferRef.current &&
+              (pc.signalingState === "stable" ||
+                isSettingRemoteAnswerRef.current);
+            if (!isReadyForOffer && !isPolitePeerRef.current) break;
+            // For the polite peer this implicitly rolls back its own offer.
             await pc.setRemoteDescription(new RTCSessionDescription(sdpOffer));
 
             // Flush queued ICE candidates
@@ -710,6 +982,10 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
               chatId: callChatIdRef.current,
               sdp: answer,
             });
+            // Whatever the rolled-back offer carried still has to go out.
+            if (!isReadyForOffer && hasUnnegotiatedSend(pc)) {
+              await sendOffer(pc);
+            }
           } catch (err) {
             console.error("Failed to handle offer:", err);
             finishCall("failed");
@@ -729,7 +1005,12 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
           try {
             const pc = peerConnectionRef.current;
             if (pc && pc.signalingState !== "closed") {
-              await pc.setRemoteDescription(new RTCSessionDescription(sdpAnswer));
+              isSettingRemoteAnswerRef.current = true;
+              try {
+                await pc.setRemoteDescription(new RTCSessionDescription(sdpAnswer));
+              } finally {
+                isSettingRemoteAnswerRef.current = false;
+              }
               while (pendingCandidatesRef.current.length > 0) {
                 const cand = pendingCandidatesRef.current.shift();
                 try {
@@ -789,6 +1070,17 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
           break;
         }
 
+        case "call:screen-share-state": {
+          if (
+            callChatIdRef.current &&
+            String(payload.chatId) !== String(callChatIdRef.current)
+          ) {
+            return;
+          }
+          setIsRemoteScreenSharing(payload.sharing === true);
+          break;
+        }
+
         case "call:rejected": {
           if (
             callChatIdRef.current &&
@@ -829,7 +1121,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
           break;
       }
     },
-    [createPeerConnection, postSignal, finishCall]
+    [createPeerConnection, postSignal, finishCall, sendOffer]
   );
 
   // Recover a call that started while this app was closed.
@@ -866,9 +1158,14 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     isCameraUnavailable,
     isRemoteCameraOff,
     isSpeakerOn,
+    isScreenSharing,
+    isRemoteScreenSharing,
+    isScreenAudioMuted,
     localVideoRef,
     remoteVideoRef,
     remoteAudioRef,
+    screenAudioRef,
+    screenAudioStreamRef,
     startCall,
     acceptCall,
     rejectCall,
@@ -876,6 +1173,10 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     toggleMute,
     toggleCamera,
     toggleSpeaker,
+    toggleScreenAudio,
+    startScreenShare,
+    stopScreenShare,
+    toggleScreenShare,
     handleSignal,
   };
 }

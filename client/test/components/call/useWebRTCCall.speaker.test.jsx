@@ -1,4 +1,4 @@
-import { describe, test, expect, vi } from "vitest";
+import { describe, test, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-react";
 import { page, userEvent } from "vitest/browser";
 import { useEffect, useRef, useState } from "react";
@@ -12,6 +12,10 @@ vi.mock("../../../src/api/chatApi.js", () => ({
   fetchIncomingCall: vi.fn(async () => ({})),
   sendCallSignal: vi.fn(async () => ({ ok: true })),
 }));
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 function SpeakerHarness() {
   const { isSpeakerOn, toggleSpeaker } = useWebRTCCall({});

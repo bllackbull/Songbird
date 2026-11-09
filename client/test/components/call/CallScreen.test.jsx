@@ -107,11 +107,12 @@ describe("CallScreen controls layout", () => {
         "Chat",
         "Turn speaker off",
         "Turn camera off",
+        "Share screen",
         "Mute",
         "End call",
       ]);
 
-      // Speaker / camera / mute / End call share one row, End call rightmost
+      // Speaker / camera / share / mute / End call share one row, End call rightmost
       const row = page.getByRole("button", { name: "End call" }).element()
         .parentElement;
       expect(row.className).toContain("gap-6");
@@ -119,7 +120,13 @@ describe("CallScreen controls layout", () => {
         [...row.querySelectorAll("button")].map((b) =>
           b.getAttribute("aria-label"),
         ),
-      ).toEqual(["Turn speaker off", "Turn camera off", "Mute", "End call"]);
+      ).toEqual([
+        "Turn speaker off",
+        "Turn camera off",
+        "Share screen",
+        "Mute",
+        "End call",
+      ]);
       const endBtn = page.getByRole("button", { name: "End call" }).element();
       expect(row.lastElementChild).toBe(endBtn);
     });
@@ -154,6 +161,7 @@ describe("CallScreen controls layout", () => {
         "Chat",
         "Turn speaker off",
         "Turn camera on",
+        "Share screen",
         "Mute",
         "End call",
       ]);
@@ -162,7 +170,13 @@ describe("CallScreen controls layout", () => {
         [...endBtn.parentElement.querySelectorAll("button")].map((b) =>
           b.getAttribute("aria-label"),
         ),
-      ).toEqual(["Turn speaker off", "Turn camera on", "Mute", "End call"]);
+      ).toEqual([
+        "Turn speaker off",
+        "Turn camera on",
+        "Share screen",
+        "Mute",
+        "End call",
+      ]);
     });
 
     test("camera toggle fires its handler in voice calls", async () => {
@@ -204,6 +218,7 @@ describe("CallScreen controls layout", () => {
           "Chat",
           "Turn speaker off",
           "Turn camera off",
+          "Share screen",
           "Mute",
           "End call",
         ]);
@@ -215,7 +230,12 @@ describe("CallScreen controls layout", () => {
           [...row.querySelectorAll("button")].map((b) =>
             b.getAttribute("aria-label"),
           ),
-        ).toEqual(["Turn speaker off", "Turn camera off", "Mute"]);
+        ).toEqual([
+          "Turn speaker off",
+          "Turn camera off",
+          "Share screen",
+          "Mute",
+        ]);
       } finally {
         window.matchMedia = original;
       }
@@ -261,6 +281,7 @@ describe("CallScreen controls layout", () => {
         "Chat",
         "Turn speaker off",
         "Turn camera off",
+        "Share screen",
         "Mute",
         "End call",
       ]);
@@ -931,5 +952,196 @@ describe("CallScreen controls layout", () => {
       expect(dialog.parentElement.className).toContain("md:px-5");
       expect(dialog.parentElement.className).toContain("md:bg-black/45");
     });
+  });
+});
+
+describe("CallScreen screen sharing", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "Audio",
+      vi.fn(function MockAudio() {
+        return { loop: false, play: () => Promise.resolve(), pause: () => {} };
+      }),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  test("disables the share button when the device cannot share its screen", async () => {
+    render(
+      <CallScreen
+        {...makeProps({
+          callState: "connected",
+          onToggleScreenShare: vi.fn(),
+          screenShareSupported: false,
+        })}
+      />,
+    );
+    const button = page.getByRole("button", { name: "Share screen" });
+    await expect.element(button).toBeInTheDocument();
+    await expect.element(button).toBeDisabled();
+    await expect.element(button).toHaveAttribute("aria-disabled", "true");
+  });
+
+  test("shows the share button next to the other controls and fires its handler", async () => {
+    const onToggleScreenShare = vi.fn();
+    render(
+      <CallScreen
+        {...makeProps({
+          callState: "connected",
+          onToggleScreenShare,
+          screenShareSupported: true,
+        })}
+      />,
+    );
+    const button = page.getByRole("button", { name: "Share screen" });
+    await expect.element(button).toHaveAttribute("aria-pressed", "false");
+    await userEvent.click(button);
+    expect(onToggleScreenShare).toHaveBeenCalledTimes(1);
+  });
+
+  test("while sharing, the button stops the share and a status shows it", async () => {
+    render(
+      <CallScreen
+        {...makeProps({
+          callState: "connected",
+          callType: "video",
+          isScreenSharing: true,
+          onToggleScreenShare: vi.fn(),
+          screenShareSupported: true,
+        })}
+      />,
+    );
+    await expect
+      .element(page.getByRole("button", { name: "Stop sharing screen" }))
+      .toHaveAttribute("aria-pressed", "true");
+    await expect
+      .element(page.getByRole("status"))
+      .toHaveTextContent("You're sharing your screen");
+    // The camera is not being sent while sharing, so its preview is hidden.
+    expect(page.getByLabelText("Local video").element().className).toContain("hidden");
+  });
+
+  describe("fullscreen for a shared screen", () => {
+    function stubFullscreen() {
+      let current = null;
+      vi.spyOn(document, "fullscreenElement", "get").mockImplementation(() => current);
+      const change = () => document.dispatchEvent(new Event("fullscreenchange"));
+      const request = vi
+        .spyOn(Element.prototype, "requestFullscreen")
+        .mockImplementation(async function requestFullscreen() {
+          current = this;
+          change();
+        });
+      const exit = vi.spyOn(document, "exitFullscreen").mockImplementation(async () => {
+        current = null;
+        change();
+      });
+      return { request, exit };
+    }
+
+    const sharingProps = {
+      callState: "connected",
+      callType: "voice",
+      isCameraOff: true,
+      isRemoteCameraOff: true,
+      isRemoteScreenSharing: true,
+    };
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    test("only offers fullscreen while the peer is sharing", async () => {
+      const { rerender } = await render(
+        <CallScreen {...makeProps({ ...sharingProps, isRemoteScreenSharing: false })} />,
+      );
+      expect(buttonLabels()).not.toContain("Enter fullscreen");
+
+      await rerender(<CallScreen {...makeProps(sharingProps)} />);
+      await expect
+        .element(page.getByRole("button", { name: "Enter fullscreen" }))
+        .toBeInTheDocument();
+    });
+
+    test("does not offer fullscreen for your own share", async () => {
+      await render(
+        <CallScreen
+          {...makeProps({
+            ...sharingProps,
+            isRemoteScreenSharing: false,
+            isScreenSharing: true,
+          })}
+        />,
+      );
+      expect(buttonLabels()).not.toContain("Enter fullscreen");
+    });
+
+    test("toggles fullscreen on the video stage and hides the banner", async () => {
+      const { request, exit } = stubFullscreen();
+      await render(<CallScreen {...makeProps(sharingProps)} />);
+
+      await userEvent.click(page.getByRole("button", { name: "Enter fullscreen" }));
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(request.mock.instances[0].contains(page.getByLabelText("Remote video").element())).toBe(true);
+      await expect
+        .element(page.getByRole("button", { name: "Exit fullscreen" }))
+        .toBeInTheDocument();
+      expect(document.querySelector('[role="status"]')).toBeNull();
+
+      await userEvent.click(page.getByRole("button", { name: "Exit fullscreen" }));
+      expect(exit).toHaveBeenCalledTimes(1);
+      await expect
+        .element(page.getByRole("button", { name: "Enter fullscreen" }))
+        .toBeInTheDocument();
+    });
+
+    test("leaves fullscreen when the peer stops sharing", async () => {
+      const { exit } = stubFullscreen();
+      const { rerender } = await render(<CallScreen {...makeProps(sharingProps)} />);
+      await userEvent.click(page.getByRole("button", { name: "Enter fullscreen" }));
+
+      await rerender(
+        <CallScreen {...makeProps({ ...sharingProps, isRemoteScreenSharing: false })} />,
+      );
+      await vi.waitFor(() => expect(exit).toHaveBeenCalledTimes(1));
+    });
+
+    test("falls back to native video fullscreen on iPhone Safari", async () => {
+      const original = Element.prototype.requestFullscreen;
+      Element.prototype.requestFullscreen = undefined;
+      const webkitEnterFullscreen = vi.fn();
+      HTMLVideoElement.prototype.webkitEnterFullscreen = webkitEnterFullscreen;
+      try {
+        await render(<CallScreen {...makeProps(sharingProps)} />);
+        await userEvent.click(page.getByRole("button", { name: "Enter fullscreen" }));
+        expect(webkitEnterFullscreen).toHaveBeenCalledTimes(1);
+      } finally {
+        Element.prototype.requestFullscreen = original;
+        delete HTMLVideoElement.prototype.webkitEnterFullscreen;
+      }
+    });
+  });
+
+  test("shows the peer's shared screen even when their camera is off", async () => {
+    render(
+      <CallScreen
+        {...makeProps({
+          callState: "connected",
+          callType: "voice",
+          isCameraOff: true,
+          isRemoteCameraOff: true,
+          isRemoteScreenSharing: true,
+        })}
+      />,
+    );
+    await expect
+      .element(page.getByRole("status"))
+      .toHaveTextContent("Alice is sharing their screen");
+    expect(page.getByLabelText("Remote video").element().className).not.toContain(
+      "hidden",
+    );
   });
 });
