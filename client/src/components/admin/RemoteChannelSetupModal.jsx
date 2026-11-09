@@ -11,6 +11,7 @@ import {
 } from "../../icons/lucide.js";
 import { btnDanger, btnPrimary, btnSecondary } from "./adminShared.js";
 import { Field, Modal } from "./AdminCommon.jsx";
+import { useOverlayBack } from "../../hooks/chat/useOverlayBack.js";
 
 const BASE = "/api/admin/remote-channel";
 
@@ -43,6 +44,8 @@ function PwToggle({ show, onToggle }) {
 }
 
 export default function RemoteChannelSetupModal({ open, onClose, onChanged }) {
+  // System back cancels the setup instead of exiting.
+  useOverlayBack(Boolean(open), onClose, "sbRemoteChannelSetupModal");
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState("credentials"); // credentials | code | password | done | success

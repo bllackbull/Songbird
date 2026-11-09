@@ -8,6 +8,7 @@ import Avatar from "../common/Avatar.jsx";
 import UserRoleBadge from "../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../common/VerifiedBadge.jsx";
 import Tooltip from "../common/Tooltip.jsx";
+import { useOverlayBack } from "../../hooks/chat/useOverlayBack.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 
 const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMutated, onStatsChange }, ref) {
@@ -27,6 +28,9 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
   const [createOpen, setCreateOpen]   = useState(false);
   // Pending action for confirmation modals. Shape: { type, user } or null.
   const [pending, setPending]         = useState(null);
+  // System back dismisses the create/edit modal instead of exiting.
+  useOverlayBack(Boolean(createOpen), () => setCreateOpen(false), "sbAdminUserModalCreate");
+  useOverlayBack(Boolean(editUser), () => setEditUser(null), "sbAdminUserModalEdit");
   const debounceRef = useRef(null);
   // Guards against out-of-order responses clobbering newer results.
   const requestIdRef = useRef(0);

@@ -27,6 +27,7 @@ import { useActiveChatState } from "../hooks/chat/useActiveChatState.js";
 import { useAppActivity } from "../hooks/chat/useAppActivity.js";
 import { useDmUsernames } from "../hooks/chat/useDmUsernames.js";
 import { useHealthCheck } from "../hooks/chat/useHealthCheck.js";
+import { useOverlayBack } from "../hooks/chat/useOverlayBack.js";
 import { useMessagesLoader } from "../hooks/chat/useMessagesLoader.js";
 import { useMobileViewport } from "../hooks/chat/useMobileViewport.js";
 import { useNewChatSearch } from "../hooks/chat/useNewChatSearch.js";
@@ -3304,6 +3305,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       setActivePeer(null);
     }, MOBILE_CLOSE_ANIMATION_MS);
   };
+
+  // System back closes the open chat instead of exiting the app.
+  useOverlayBack(Boolean(activeChatId), closeChat, "sbChatOpen");
 
   // Deselect active chat on Escape key
   useEffect(() => {
@@ -6815,6 +6819,92 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       microphone: readPermissionDismissed("microphone"),
     });
   }, [isAppActive, notificationPermission, microphonePermission]);
+
+  useOverlayBack(
+    Boolean(chatsSearchFocused || String(chatsSearchQuery || "").trim()),
+    exitSearchMode,
+    "sbSearchMode",
+  );
+  useOverlayBack(Boolean(editMode), handleExitEdit, "sbEditMode");
+  useOverlayBack(mobileTab === "calls", () => setMobileTab("chats"), "sbTabCalls");
+  useOverlayBack(
+    mobileTab === "settings",
+    () => setMobileTab("chats"),
+    "sbTabSettings",
+  );
+  useOverlayBack(
+    Boolean(settingsPanel),
+    () => setSettingsPanel(null),
+    "sbSettingsPanel",
+  );
+  useOverlayBack(Boolean(newChatOpen), closeNewChatModal, "sbNewChatModal");
+  useOverlayBack(
+    Boolean(newGroupOpen),
+    closeNewGroupModal,
+    "sbNewGroupModal",
+  );
+  useOverlayBack(
+    Boolean(confirmDeleteOpen),
+    () => setConfirmDeleteOpen(false),
+    "sbDeleteChatsModal",
+  );
+  useOverlayBack(
+    Boolean(confirmDeleteCallOpen),
+    () => setConfirmDeleteCallOpen(false),
+    "sbDeleteCallsModal",
+  );
+  useOverlayBack(
+    Boolean(newCallOpen),
+    () => setNewCallOpen(false),
+    "sbNewCallModal",
+  );
+  useOverlayBack(
+    Boolean(messageDeleteScopeOpen),
+    () => {
+      setMessageDeleteScopeOpen(false);
+      setPendingDeleteMessage(null);
+    },
+    "sbDeleteScopeModal",
+  );
+  useOverlayBack(
+    Boolean(forwardMessageTarget),
+    () => {
+      setForwardMessageTarget(null);
+      setForwardSavedChat(null);
+    },
+    "sbForwardModal",
+  );
+  useOverlayBack(
+    Boolean(confirmLeaveOpen),
+    () => {
+      setConfirmLeaveOpen(false);
+      setPendingLeaveChatId(null);
+    },
+    "sbLeaveGroupModal",
+  );
+  useOverlayBack(
+    Boolean(groupInviteOpen),
+    () => {
+      setGroupInviteOpen(false);
+      setCreatedGroupInviteType("group");
+    },
+    "sbGroupInviteModal",
+  );
+  useOverlayBack(
+    Boolean(profileModalOpen),
+    closeProfileModal,
+    "sbChatProfileModal",
+  );
+  useOverlayBack(
+    Boolean(notificationsModalOpen),
+    () => setNotificationsModalOpen(false),
+    "sbNotificationsModal",
+  );
+  useOverlayBack(
+    Boolean(whatsNewOpen),
+    () => dismissWhatsNew(true),
+    "sbWhatsNewModal",
+  );
 
   return (
     <div

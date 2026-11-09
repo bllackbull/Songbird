@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Close, Eye, EyeOff } from "../../icons/lucide.js";
 import { useFocusTrap } from "../../hooks/useFocusTrap.js";
+import { useOverlayBack } from "../../hooks/chat/useOverlayBack.js";
 
 export default function ConfirmPasswordModal({
   open,
@@ -18,6 +19,8 @@ export default function ConfirmPasswordModal({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const dialogRef = useRef(null);
+  // System back cancels the dialog instead of exiting.
+  useOverlayBack(Boolean(open), onClose, "sbConfirmPasswordModal");
   useFocusTrap(dialogRef, open);
 
   useEffect(() => {

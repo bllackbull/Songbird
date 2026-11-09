@@ -13,6 +13,7 @@ import {
 import { labelCls, PAGE_SIZE_OPTIONS, PAGE_LOCK_THRESHOLD, inputSmCls, searchIconCls } from "./adminShared.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import Tooltip from "../common/Tooltip.jsx";
+import { useOverlayBack } from "../../hooks/chat/useOverlayBack.js";
 
 // ─── Loading / empty states ─────────────────────────────────────────────────
 
@@ -429,6 +430,8 @@ export function Field({ label, hint, children }) {
 export function TypedConfirmModal({ open, title, message, phrase, busy = false, onConfirm, onClose }) {
   const [text, setText] = useState("");
   useEffect(() => { if (open) setText(""); }, [open]);
+  // System back cancels the dialog instead of exiting.
+  useOverlayBack(Boolean(open), onClose, "sbTypedConfirmModal");
   if (!open) return null;
   const matched = text.trim() === phrase;
   if (typeof document === "undefined") return null;
