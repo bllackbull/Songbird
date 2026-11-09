@@ -206,6 +206,16 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     };
   }, []);
 
+  // Call flows must never build a peer connection without ICE servers.
+  const ensureIceServers = useCallback(async () => {
+    if (iceServersRef.current.length) return iceServersRef.current;
+    const servers = await fetchIceServers();
+    if (Array.isArray(servers) && servers.length) {
+      iceServersRef.current = servers;
+    }
+    return iceServersRef.current;
+  }, []);
+
   const clearEndTimers = useCallback(() => {
     if (endNoticeTimerRef.current) {
       clearTimeout(endNoticeTimerRef.current);
@@ -359,8 +369,8 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     if (chatId) void postSignal("end", { chatId });
   }, [finishCall, postSignal]);
 
-  const createPeerConnection = useCallback(() => {
-    const pc = new RTCPeerConnection({ iceServers: iceServersRef.current });
+  const createPeerConnection = useCallback(async () => {
+    const pc = new RTCPeerConnection({ iceServers: await ensureIceServers() });
 
     pc.onicecandidate = (event) => {
       if (event.candidate && callChatIdRef.current) {
@@ -433,7 +443,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
 
     peerConnectionRef.current = pc;
     return pc;
-  }, [postSignal, failCall]);
+  }, [postSignal, failCall, ensureIceServers]);
 
   const sendOffer = useCallback(
     async (pc) => {
@@ -629,7 +639,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       setIsCameraOff(!hasVideo);
       setIsCameraUnavailable(acceptedType === "video" && !hasVideo);
 
-      const pc = createPeerConnection();
+      const pc = await createPeerConnection();
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
       // Process queued candidates
@@ -922,7 +932,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
             return;
           }
           try {
-            const pc = createPeerConnection();
+            const pc = await createPeerConnection();
             if (localStreamRef.current) {
               localStreamRef.current
                 .getTracks()
@@ -951,7 +961,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
           try {
             let pc = peerConnectionRef.current;
             if (!pc) {
-              pc = createPeerConnection();
+              pc = await createPeerConnection();
               if (localStreamRef.current) {
                 localStreamRef.current
                   .getTracks()
