@@ -143,10 +143,6 @@ const loadGroupInviteLinkModal = () => import("../components/modals/GroupInviteL
 const loadNewChatModal = () => import("../components/modals/NewChatModal.jsx");
 const loadNewCallModal = () => import("../components/modals/NewCallModal.jsx");
 const loadNewGroupModal = () => import("../components/modals/NewGroupModal.jsx");
-const loadDesktopSettingsModal = () =>
-  import("../components/settings/modals/DesktopSettingsModal.jsx").then((mod) => ({
-    default: mod.DesktopSettingsModal,
-  }));
 const loadNotificationsSettingsModal = () =>
   import("../components/settings/modals/NotificationsSettingsModal.jsx").then((mod) => ({
     default: mod.NotificationsSettingsModal,
@@ -162,7 +158,6 @@ const GroupInviteLinkModal = lazy(loadGroupInviteLinkModal);
 const NewChatModal = lazy(loadNewChatModal);
 const NewCallModal = lazy(loadNewCallModal);
 const NewGroupModal = lazy(loadNewGroupModal);
-const DesktopSettingsModal = lazy(loadDesktopSettingsModal);
 const NotificationsSettingsModal = lazy(loadNotificationsSettingsModal);
 const WhatsNewModal = lazy(loadWhatsNewModal);
 
@@ -171,7 +166,6 @@ const preloadChatPageCriticalChunks = () =>
     loadNewChatModal(),
     loadNewCallModal(),
     loadNewGroupModal(),
-    loadDesktopSettingsModal(),
     loadNotificationsSettingsModal(),
     loadWhatsNewModal(),
   ]);
@@ -187,7 +181,6 @@ const preloadChatPageLazyChunks = () =>
     loadNewChatModal(),
     loadNewCallModal(),
     loadNewGroupModal(),
-    loadDesktopSettingsModal(),
     loadNotificationsSettingsModal(),
     loadWhatsNewModal(),
   ]);
@@ -345,7 +338,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [messages, setMessages] = useState([]);
   const [channelSeenCounts, setChannelSeenCounts] = useState({});
   const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
   const [mobileTab, setMobileTab] = useState("chats");
   const [calls, setCalls] = useState([]);
   const [loadingCalls, setLoadingCalls] = useState(false);
@@ -529,9 +521,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   useEffect(() => {
     if (typeof document === "undefined") return;
     const root = document.documentElement;
-    const hasTopLayerModal = Boolean(
-      profileModalOpen || (settingsPanel && mobileTab !== "settings"),
-    );
+    const hasTopLayerModal = Boolean(profileModalOpen);
     if (hasTopLayerModal) {
       root.style.setProperty("--app-z", "90");
     } else if (isMobileViewport && activeChatId) {
@@ -542,7 +532,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     return () => {
       root.style.setProperty("--app-z", "20");
     };
-  }, [activeChatId, isMobileViewport, mobileTab, profileModalOpen, settingsPanel]);
+  }, [activeChatId, isMobileViewport, profileModalOpen]);
 
   const { dmUsernamesRef } = useDmUsernames({ chats, user });
   const {
@@ -818,8 +808,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   });
   const [typingByChat, setTypingByChat] = useState({});
 
-  const settingsMenuRef = useRef(null);
-  const settingsButtonRef = useRef(null);
   const activeChatIdRef = useRef(null);
   const activeChatTypeRef = useRef(null);
   const sseReconnectRef = useRef(null);
@@ -2198,11 +2186,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setEditMode(true);
   };
   const handleDeleteChats = () => requestDeleteChats(selectedChats);
-  const handleOpenSettings = () => setShowSettings((prev) => !prev);
-  const handleOpenWhatsNew = () => {
-    setShowSettings(false);
-    openWhatsNew();
-  };
+  const handleOpenWhatsNew = () => openWhatsNew();
 
   const displayName = user.nickname || user.username;
   const displayInitials = getAvatarInitials(displayName);
@@ -3551,23 +3535,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       pendingScrollToUnreadRef.current = null;
     };
   }, [activeChatId, user, canMarkReadInCurrentView]);
-
-  useEffect(() => {
-    if (!showSettings || settingsPanel) return;
-    const handleOutside = (event) => {
-      const target = event.target;
-      if (settingsMenuRef.current && settingsMenuRef.current.contains(target))
-        return;
-      if (
-        settingsButtonRef.current &&
-        settingsButtonRef.current.contains(target)
-      )
-        return;
-      setShowSettings(false);
-    };
-    document.addEventListener("mousedown", handleOutside);
-    return () => document.removeEventListener("mousedown", handleOutside);
-  }, [showSettings, settingsPanel]);
 
   useEffect(() => {
     if (!isAppActive) return;
@@ -5864,7 +5831,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   function handleLogout() {
     logout().catch(() => null);
     setUser(null);
-    setShowSettings(false);
     setMobileTab("chats");
   }
 
@@ -6120,16 +6086,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   const openSelfProfileEditor = () => {
     closeProfileModal();
-    setShowSettings(false);
     setSettingsPanel("profile");
-    if (isMobileViewport) {
-      setMobileTab("settings");
-    }
+    setMobileTab("settings");
   };
 
   const openSavedMessages = async () => {
     try {
-      setShowSettings(false);
       setSettingsPanel(null);
       let savedChat = chats.find((chat) => chat.type === "saved");
       let chatId = normalizeUuid(savedChat?.id) || null;
@@ -6675,7 +6637,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       throw new Error(data?.error || "Unable to delete account.");
     }
     setSettingsPanel(null);
-    setShowSettings(false);
     handleLogout();
   }
 
@@ -6931,8 +6892,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         onOpenUserProfileContext={openMemberProfileFromList}
         onOpenUserContextMenu={openContextMenu}
         onOpenChatContextMenu={openContextMenu}
-        showSettings={showSettings}
-        settingsMenuRef={settingsMenuRef}
         setSettingsPanel={setSettingsPanel}
         toggleTheme={toggleTheme}
         setIsDark={setIsDark}
@@ -6977,9 +6936,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         onExitEdit={handleExitEdit}
         onEnterEdit={handleEnterEdit}
         onDeleteChats={handleDeleteChats}
-        onOpenSettings={handleOpenSettings}
         onOpenOwnProfile={openOwnProfileModal}
-        settingsButtonRef={settingsButtonRef}
         displayInitials={displayInitials}
         onOpenWhatsNew={handleOpenWhatsNew}
         adminPanelEnabled={adminPanelEnabled}
@@ -7438,38 +7395,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             messagePreviewEnabled={messagePreviewEnabled}
             onToggleMessagePreview={handleToggleMessagePreview}
             debugLine={notificationsDebugLine}
-          />
-        </Suspense>
-      ) : null}
-
-      {settingsPanel && mobileTab !== "settings" ? (
-        <Suspense fallback={null}>
-          <DesktopSettingsModal
-            settingsPanel={settingsPanel}
-            setSettingsPanel={setSettingsPanel}
-            handleProfileSave={handleProfileSave}
-            avatarPreview={avatarPreview}
-            profileForm={profileForm}
-            handleAvatarChange={handleAvatarChange}
-            handleAvatarRemove={handleAvatarRemove}
-            setProfileForm={setProfileForm}
-            statusSelection={statusSelection}
-            setStatusSelection={setStatusSelection}
-            handlePasswordSave={handlePasswordSave}
-            passwordForm={passwordForm}
-            setPasswordForm={setPasswordForm}
-            userColor={userColor}
-            profileError={profileError}
-            passwordError={passwordError}
-            fileUploadEnabled={CHAT_PAGE_CONFIG.fileUploadEnabled}
-            onClearCache={handleClearCache}
-            dataCacheStats={dataCacheStats}
-            currentUser={user}
-            onDeleteAccount={handleDeleteAccount}
-            appInfo={appInfo}
-            appInfoLoading={appInfoLoading}
-            appInfoError={appInfoError}
-            onOpenWhatsNew={handleOpenWhatsNew}
           />
         </Suspense>
       ) : null}
