@@ -508,26 +508,26 @@ export const CallScreen = memo(function CallScreen({
         {isCameraOff ? <VideoOff size={26} /> : <Video size={26} />}
       </button>
 
-      {canShareScreen ? (
-        <button
-          type="button"
-          onClick={onToggleScreenShare}
-          disabled={isEnding}
-          className={`flex h-16 w-16 items-center justify-center rounded-full transition ${controlState} ${
-            isScreenSharing
-              ? "bg-white text-gray-500 hover:bg-white/90"
-              : "bg-white/10 text-white hover:bg-white/20"
-          }`}
-          aria-label={isScreenSharing ? "Stop sharing screen" : "Share screen"}
-          aria-pressed={isScreenSharing}
-        >
-          {isScreenSharing ? (
-            <ScreenShareOff size={26} />
-          ) : (
-            <ScreenShare size={26} />
-          )}
-        </button>
-      ) : null}
+      <button
+        type="button"
+        onClick={onToggleScreenShare}
+        disabled={isEnding || !canShareScreen}
+        className={`flex h-16 w-16 items-center justify-center rounded-full transition ${controlState} ${
+          isScreenSharing
+            ? "bg-white text-gray-500 hover:bg-white/90"
+            : "bg-white/10 text-white hover:bg-white/20"
+        } ${canShareScreen ? "" : "opacity-40 cursor-not-allowed"}`}
+        aria-disabled={!canShareScreen || undefined}
+        aria-label={isScreenSharing ? "Stop sharing screen" : "Share screen"}
+        aria-pressed={isScreenSharing}
+        title={canShareScreen ? undefined : "Screen sharing is not supported on this device"}
+      >
+        {isScreenSharing ? (
+          <ScreenShareOff size={26} />
+        ) : (
+          <ScreenShare size={26} />
+        )}
+      </button>
 
       <button
         type="button"

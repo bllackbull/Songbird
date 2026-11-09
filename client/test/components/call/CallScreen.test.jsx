@@ -107,11 +107,12 @@ describe("CallScreen controls layout", () => {
         "Chat",
         "Turn speaker off",
         "Turn camera off",
+        "Share screen",
         "Mute",
         "End call",
       ]);
 
-      // Speaker / camera / mute / End call share one row, End call rightmost
+      // Speaker / camera / share / mute / End call share one row, End call rightmost
       const row = page.getByRole("button", { name: "End call" }).element()
         .parentElement;
       expect(row.className).toContain("gap-6");
@@ -119,7 +120,13 @@ describe("CallScreen controls layout", () => {
         [...row.querySelectorAll("button")].map((b) =>
           b.getAttribute("aria-label"),
         ),
-      ).toEqual(["Turn speaker off", "Turn camera off", "Mute", "End call"]);
+      ).toEqual([
+        "Turn speaker off",
+        "Turn camera off",
+        "Share screen",
+        "Mute",
+        "End call",
+      ]);
       const endBtn = page.getByRole("button", { name: "End call" }).element();
       expect(row.lastElementChild).toBe(endBtn);
     });
@@ -154,6 +161,7 @@ describe("CallScreen controls layout", () => {
         "Chat",
         "Turn speaker off",
         "Turn camera on",
+        "Share screen",
         "Mute",
         "End call",
       ]);
@@ -162,7 +170,13 @@ describe("CallScreen controls layout", () => {
         [...endBtn.parentElement.querySelectorAll("button")].map((b) =>
           b.getAttribute("aria-label"),
         ),
-      ).toEqual(["Turn speaker off", "Turn camera on", "Mute", "End call"]);
+      ).toEqual([
+        "Turn speaker off",
+        "Turn camera on",
+        "Share screen",
+        "Mute",
+        "End call",
+      ]);
     });
 
     test("camera toggle fires its handler in voice calls", async () => {
@@ -204,6 +218,7 @@ describe("CallScreen controls layout", () => {
           "Chat",
           "Turn speaker off",
           "Turn camera off",
+          "Share screen",
           "Mute",
           "End call",
         ]);
@@ -215,7 +230,12 @@ describe("CallScreen controls layout", () => {
           [...row.querySelectorAll("button")].map((b) =>
             b.getAttribute("aria-label"),
           ),
-        ).toEqual(["Turn speaker off", "Turn camera off", "Mute"]);
+        ).toEqual([
+          "Turn speaker off",
+          "Turn camera off",
+          "Share screen",
+          "Mute",
+        ]);
       } finally {
         window.matchMedia = original;
       }
@@ -261,6 +281,7 @@ describe("CallScreen controls layout", () => {
         "Chat",
         "Turn speaker off",
         "Turn camera off",
+        "Share screen",
         "Mute",
         "End call",
       ]);
@@ -948,7 +969,7 @@ describe("CallScreen screen sharing", () => {
     vi.unstubAllGlobals();
   });
 
-  test("hides the share button when the browser cannot share its screen", async () => {
+  test("disables the share button when the device cannot share its screen", async () => {
     render(
       <CallScreen
         {...makeProps({
@@ -958,8 +979,10 @@ describe("CallScreen screen sharing", () => {
         })}
       />,
     );
-    await expect.element(page.getByRole("button", { name: "Mute" })).toBeInTheDocument();
-    expect(buttonLabels()).not.toContain("Share screen");
+    const button = page.getByRole("button", { name: "Share screen" });
+    await expect.element(button).toBeInTheDocument();
+    await expect.element(button).toBeDisabled();
+    await expect.element(button).toHaveAttribute("aria-disabled", "true");
   });
 
   test("shows the share button next to the other controls and fires its handler", async () => {

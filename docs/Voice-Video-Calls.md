@@ -194,5 +194,5 @@ Restart your Songbird server to apply changes.
 - **Incoming Call Notifications:** In-app incoming call alerts with Accept and Decline buttons, plus a system push notification when the app is in the background.
 
 :::info Screen sharing support
-Screen sharing uses the browser's `getDisplayMedia` API, which desktop browsers (Chrome, Edge, Firefox, Safari) provide. Most mobile browsers (Chrome on Android, Safari on iOS) do not offer it yet, so the share button is hidden there. Mobile users can still watch a screen that someone else shares. Because screen sharing sends video, it is unavailable when `CALL_VIDEO` is off.
+Screen sharing uses the browser's `getDisplayMedia` API, which desktop browsers (Chrome, Edge, Firefox, Safari) provide. Most mobile browsers (Chrome on Android, Safari on iOS) do not offer it yet, so the share button is disabled there. Mobile users can still watch a screen that someone else shares. Because screen sharing sends video, it is unavailable when `CALL_VIDEO` is off.
 :::
