@@ -858,6 +858,13 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
           newTrack.stop();
           return;
         }
+        // State changed during acquisition: a screen share owns the video
+        // sender now, or the user turned the camera off mid-flip. Backing out
+        // keeps the peer's picture in sync with the local UI.
+        if (screenTrackRef.current || !stream.getVideoTracks()[0]?.enabled) {
+          newTrack.stop();
+          return;
+        }
       } catch (err) {
         console.warn("Failed to switch camera:", err);
         return;
