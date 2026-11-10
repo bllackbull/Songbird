@@ -88,6 +88,38 @@ export async function attachOutgoingVideoTrack(pc, track, stream) {
 }
 
 /**
+ * Swap the outgoing camera to a newly acquired track: replace the track in
+ * the local preview stream, retarget the video sender (no renegotiation when
+ * one exists), and stop the old track.
+ */
+export async function swapCameraTrack({ pc, stream, newTrack, videoEl }) {
+  const oldTrack = stream.getVideoTracks()[0];
+  if (!oldTrack) return null;
+  stream.removeTrack(oldTrack);
+  stream.addTrack(newTrack);
+  if (videoEl) videoEl.srcObject = stream;
+  try {
+    const result = await attachOutgoingVideoTrack(pc, newTrack, stream);
+    oldTrack.stop();
+    return result;
+  } catch (err) {
+    // Put the old camera back: the stream must match what the sender still
+    // carries, or the local preview and the peer's picture disagree.
+    try {
+      stream.removeTrack(newTrack);
+    } catch (_) {}
+    try {
+      stream.addTrack(oldTrack);
+    } catch (_) {}
+    if (videoEl) videoEl.srcObject = stream;
+    try {
+      newTrack.stop();
+    } catch (_) {}
+    throw err;
+  }
+}
+
+/**
  * True when a local send was left out of the last negotiation, which happens
  * when an offer collision rolled back the offer that carried it.
  */
@@ -125,6 +157,8 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [isRemoteScreenSharing, setIsRemoteScreenSharing] = useState(false);
   const [isScreenAudioMuted, setIsScreenAudioMuted] = useState(false);
+  // True when the local device exposes more than one camera (front/back flip).
+  const [hasMultipleCameras, setHasMultipleCameras] = useState(false);
 
   const peerConnectionRef = useRef(null);
   const localStreamRef = useRef(null);
@@ -146,6 +180,11 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   const screenTrackRef = useRef(null);
   const screenAudioSenderRef = useRef(null);
   const videoSenderRef = useRef(null);
+  // Current capture facing ("user" | "environment") and in-flight flip guard,
+  // plus a ref mirror of the multi-camera check used inside stable callbacks.
+  const facingModeRef = useRef("user");
+  const isFlippingRef = useRef(false);
+  const hasMultipleCamerasRef = useRef(false);
   // Offer collisions: both peers may renegotiate at once. The callee is the
   // polite peer and yields; the caller ignores the colliding offer.
   const isPolitePeerRef = useRef(false);
@@ -161,6 +200,30 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   useEffect(() => {
     cameraUnavailableRef.current = isCameraUnavailable;
   }, [isCameraUnavailable]);
+
+  useEffect(() => {
+    hasMultipleCamerasRef.current = hasMultipleCameras;
+  }, [hasMultipleCameras]);
+
+  // Count cameras once permission exists (a connected call has granted it);
+  // labels are only reliable after getUserMedia.
+  useEffect(() => {
+    if (callState !== "connected") return undefined;
+    let isCancelled = false;
+    navigator.mediaDevices
+      ?.enumerateDevices?.()
+      .then((devices) => {
+        if (!isCancelled) {
+          setHasMultipleCameras(
+            devices.filter((d) => d.kind === "videoinput").length > 1,
+          );
+        }
+      })
+      .catch(() => {});
+    return () => {
+      isCancelled = true;
+    };
+  }, [callState]);
 
   useEffect(() => {
     callStateRef.current = callState;
@@ -308,6 +371,8 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     setIsRemoteCameraOff(true);
     setIsSpeakerOn(true);
     setIsScreenAudioMuted(false);
+    setHasMultipleCameras(false);
+    facingModeRef.current = "user";
     setIsCallClosing(false);
   }, [clearEndTimers, releaseScreenShare]);
 
@@ -763,6 +828,62 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     });
   }, [postSignal, sendOffer]);
 
+  // Swap between front and back cameras mid-call: acquire the other camera's
+  // track and hand it to the existing video sender (no renegotiation).
+  const flipCamera = useCallback(async () => {
+    if (isFlippingRef.current || !hasMultipleCamerasRef.current) return;
+    // The video sender carries the screen while sharing; do not swap it.
+    if (screenTrackRef.current) return;
+    const stream = localStreamRef.current;
+    const pc = peerConnectionRef.current;
+    if (!stream || !pc || pc.signalingState === "closed") return;
+    const [oldTrack] = stream.getVideoTracks();
+    if (!oldTrack || !oldTrack.enabled) return;
+
+    const next = facingModeRef.current === "environment" ? "user" : "environment";
+    isFlippingRef.current = true;
+    try {
+      let newTrack;
+      try {
+        const videoStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: next },
+        });
+        [newTrack] = videoStream.getVideoTracks();
+        if (!newTrack) return;
+        // The call may have ended while the camera was acquired.
+        if (
+          localStreamRef.current !== stream ||
+          peerConnectionRef.current !== pc
+        ) {
+          newTrack.stop();
+          return;
+        }
+      } catch (err) {
+        console.warn("Failed to switch camera:", err);
+        return;
+      }
+      try {
+        const { sender, needsNegotiation } = await swapCameraTrack({
+          pc,
+          stream,
+          newTrack,
+          videoEl: localVideoRef.current,
+        });
+        if (sender) videoSenderRef.current = sender;
+        facingModeRef.current = next;
+        if (needsNegotiation && peerConnectionRef.current === pc) {
+          await sendOffer(pc);
+        }
+      } catch (err) {
+        // Swap failed: keep running on the old camera (it was not stopped,
+        // and remains in the stream unless the throw came after the swap).
+        console.warn("Failed to switch camera:", err);
+      }
+    } finally {
+      isFlippingRef.current = false;
+    }
+  }, [sendOffer]);
+
   const stopScreenShare = useCallback(async () => {
     const track = screenTrackRef.current;
     if (!track) return;
@@ -1187,6 +1308,13 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     startScreenShare,
     stopScreenShare,
     toggleScreenShare,
+    flipCamera,
+    canFlipCamera:
+      hasMultipleCameras &&
+      callState === "connected" &&
+      !isCameraOff &&
+      !isCameraUnavailable &&
+      !isScreenSharing,
     handleSignal,
   };
 }
