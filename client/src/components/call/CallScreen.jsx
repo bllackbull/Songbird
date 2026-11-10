@@ -18,6 +18,7 @@ import {
   SignalMedium,
   SignalLow,
   SignalZero,
+  SwitchCamera,
 } from "../../icons/lucide.js";
 import Avatar from "../common/Avatar.jsx";
 import Tooltip from "../common/Tooltip.jsx";
@@ -85,6 +86,8 @@ export const CallScreen = memo(function CallScreen({
   isRemoteScreenSharing = false,
   isScreenAudioMuted = false,
   screenShareSupported = false,
+  canFlipCamera = false,
+  onFlipCamera,
   localVideoRef,
   remoteVideoRef,
   remoteAudioRef,
@@ -747,23 +750,41 @@ export const CallScreen = memo(function CallScreen({
                 : "hidden"
             }
           />
-          <video
-            ref={handleLocalVideoRef}
-            autoPlay
-            playsInline
-            muted
-            aria-label="Local video"
+          <div
             className={
               isStageFullscreen
                 ? "hidden"
                 : bothOn
-                ? `absolute bottom-4 right-4 z-10 rounded-xl border-2 border-white/20 object-cover shadow-lg ${pipSizing}`
-                : localOn
-                  ? "absolute inset-0 h-full w-full rounded-2xl object-contain"
-                  : "hidden"
+                  ? `absolute bottom-4 right-4 z-10 overflow-hidden rounded-xl border-2 border-white/20 shadow-lg ${pipSizing}`
+                  : localOn
+                    ? "absolute inset-0 h-full w-full rounded-2xl"
+                    : "hidden"
             }
             style={{ aspectRatio: `${localAspect}` }}
-          />
+          >
+            <video
+              ref={handleLocalVideoRef}
+              autoPlay
+              playsInline
+              muted
+              aria-label="Local video"
+              className={
+                bothOn
+                  ? "h-full w-full object-cover"
+                  : "h-full w-full rounded-2xl object-contain"
+              }
+            />
+            {canFlipCamera && !isStageFullscreen ? (
+              <button
+                type="button"
+                onClick={onFlipCamera}
+                className="pointer-events-auto absolute right-3 top-3 z-10 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full bg-black/55 text-white transition hover:bg-black/75"
+                aria-label="Flip camera"
+              >
+                <SwitchCamera size={20} />
+              </button>
+            ) : null}
+          </div>
           {canFullscreenShare ? (
             // Matches the letterboxed picture so the button sits on its corner.
             <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">

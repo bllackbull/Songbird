@@ -346,7 +346,8 @@ describe("CallScreen controls layout", () => {
       expect(local).not.toBeNull();
       expect(remote.className).toContain("inset-0");
       expect(remote.className).toContain("rounded-2xl");
-      expect(local.className).toContain("bottom-4 right-4");
+      // Positioning lives on the tile wrapper that contains the local video.
+      expect(local.parentElement.className).toContain("bottom-4 right-4");
     });
 
     test("only remote camera on: remote fullscreen, local hidden", async () => {
@@ -368,7 +369,7 @@ describe("CallScreen controls layout", () => {
       expect(local).not.toBeNull();
       expect(remote.className).toContain("inset-0");
       expect(remote.className).toContain("object-contain");
-      expect(local.className).toContain("hidden");
+      expect(local.parentElement.className).toContain("hidden");
     });
 
     test("only local camera on: local fullscreen, remote hidden", async () => {
@@ -389,8 +390,9 @@ describe("CallScreen controls layout", () => {
       expect(remote).not.toBeNull();
       expect(local).not.toBeNull();
       expect(remote.className).toContain("hidden");
-      expect(local.className).toContain("inset-0");
-      expect(local.className).toContain("rounded-2xl");
+      // Positioning lives on the tile wrapper that contains the local video.
+      expect(local.parentElement.className).toContain("inset-0");
+      expect(local.parentElement.className).toContain("rounded-2xl");
     });
 
     test("both cameras off: no visible video, element stays mounted hidden", async () => {
@@ -411,7 +413,7 @@ describe("CallScreen controls layout", () => {
       expect(remote).not.toBeNull();
       expect(remote.className).toContain("hidden");
       expect(local).not.toBeNull();
-      expect(local.className).toContain("hidden");
+      expect(local.parentElement.className).toContain("hidden");
     });
 
     test("PiP scales up for landscape (laptop) cameras", async () => {
@@ -444,10 +446,10 @@ describe("CallScreen controls layout", () => {
         return w / h;
       };
       await expect
-        .poll(() => styleRatio(local))
+        .poll(() => styleRatio(local.parentElement))
         .toBeCloseTo(1280 / 720, 5);
-      expect(local.className).toContain("md:w-80");
-      expect(local.className).toContain("w-[45%]");
+      expect(local.parentElement.className).toContain("md:w-80");
+      expect(local.parentElement.className).toContain("w-[45%]");
     });
 
     test("vertical (mobile) cameras keep portrait dimensions on the floating box", async () => {
@@ -1020,8 +1022,9 @@ describe("CallScreen screen sharing", () => {
     await expect
       .element(page.getByRole("status"))
       .toHaveTextContent("You're sharing your screen");
-    // The camera is not being sent while sharing, so its preview is hidden.
-    expect(page.getByLabelText("Local video").element().className).toContain("hidden");
+    // The camera is not being sent while sharing, so its preview is hidden
+    // (the "hidden" class sits on the tile wrapper).
+    expect(page.getByLabelText("Local video").element().parentElement.className).toContain("hidden");
   });
 
   describe("fullscreen for a shared screen", () => {
@@ -1143,5 +1146,42 @@ describe("CallScreen screen sharing", () => {
     expect(page.getByLabelText("Remote video").element().className).not.toContain(
       "hidden",
     );
+  });
+});
+
+describe("camera flip button", () => {
+  test("shows overlay button on local preview and calls onFlipCamera", async () => {
+    const onFlipCamera = vi.fn();
+    const props = makeProps({
+      callState: "connected",
+      callType: "video",
+      isCameraOff: false,
+      isRemoteCameraOff: true, // local video takes the full stage
+      canFlipCamera: true,
+      onFlipCamera,
+    });
+    render(<CallScreen {...props} />);
+    const flip = page.getByRole("button", { name: "Flip camera" });
+    await expect.element(flip).toBeInTheDocument();
+    // Same 40px family as the other stage overlay buttons (touch target).
+    expect(flip.element().className).toContain("h-10 w-10");
+    await userEvent.click(flip);
+    expect(onFlipCamera).toHaveBeenCalledTimes(1);
+  });
+
+  test("hidden when canFlipCamera is false", async () => {
+    render(
+      <CallScreen
+        {...makeProps({
+          callState: "connected",
+          callType: "video",
+          isCameraOff: false,
+          isRemoteCameraOff: true,
+        })}
+      />,
+    );
+    await expect
+      .element(page.getByRole("button", { name: "Flip camera" }))
+      .not.toBeInTheDocument();
   });
 });

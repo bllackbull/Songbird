@@ -1073,6 +1073,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     toggleSpeaker,
     toggleScreenShare,
     toggleScreenAudio,
+    flipCamera,
+    canFlipCamera,
     isScreenAudioMuted,
     handleSignal: handleCallSignal,
   } = useWebRTCCall({ realtimeSenderRef });
@@ -7182,6 +7184,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           screenAudioRef={screenAudioRef}
           screenAudioStreamRef={screenAudioStreamRef}
           screenShareSupported={screenShareSupported}
+          canFlipCamera={canFlipCamera}
+          onFlipCamera={flipCamera}
           localVideoRef={localVideoRef}
           remoteVideoRef={remoteVideoRef}
           remoteAudioRef={remoteAudioRef}
