@@ -770,7 +770,7 @@ export const CallScreen = memo(function CallScreen({
               aria-label="Local video"
               className={
                 bothOn
-                  ? "h-full w-full object-cover"
+                  ? "absolute inset-0 h-full w-full object-cover"
                   : "h-full w-full rounded-2xl object-contain"
               }
             />

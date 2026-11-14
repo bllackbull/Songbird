@@ -16,17 +16,19 @@ function makeTrack(id) {
 }
 
 describe("swapCameraTrack", () => {
-  it("swaps the stream and sender to the new track and stops the old one", async () => {
-    const oldTrack = makeTrack("cam-front");
+  // The caller stops and removes the outgoing camera before acquiring the new
+  // one (iOS Safari cannot hold two captures at once), so the stream may have
+  // no video track when the swap starts.
+  it("adds the new track to the stream and retargets the sender", async () => {
     const newTrack = makeTrack("cam-back");
-    const cameraSender = makeSender(oldTrack);
+    const cameraSender = makeSender(makeTrack("cam-front"));
     const pc = {
       getSenders: () => [makeSender({ kind: "audio" }), cameraSender],
       getTransceivers: () => [],
       addTrack: vi.fn(),
     };
     const stream = {
-      getVideoTracks: () => [oldTrack],
+      getVideoTracks: () => [],
       removeTrack: vi.fn(),
       addTrack: vi.fn(),
     };
@@ -34,39 +36,36 @@ describe("swapCameraTrack", () => {
 
     const result = await swapCameraTrack({ pc, stream, newTrack, videoEl });
 
-    expect(stream.removeTrack).toHaveBeenCalledWith(oldTrack);
     expect(stream.addTrack).toHaveBeenCalledWith(newTrack);
     expect(videoEl.srcObject).toBe(stream);
     expect(cameraSender.replaceTrack).toHaveBeenCalledWith(newTrack);
-    expect(oldTrack.stop).toHaveBeenCalled();
+    expect(newTrack.stop).not.toHaveBeenCalled();
     expect(result).toEqual({ sender: cameraSender, needsNegotiation: false });
     expect(pc.addTrack).not.toHaveBeenCalled();
   });
 
-  it("returns null when the stream has no video track", async () => {
+  it("adds the track to the pc when no sender or transceiver exists", async () => {
+    const newTrack = makeTrack("cam-back");
+    const pc = {
+      getSenders: () => [],
+      getTransceivers: () => [],
+      addTrack: vi.fn(),
+    };
     const stream = {
       getVideoTracks: () => [],
       removeTrack: vi.fn(),
       addTrack: vi.fn(),
     };
-    const result = await swapCameraTrack({
-      pc: {
-        getSenders: () => [],
-        getTransceivers: () => [],
-        addTrack: vi.fn(),
-      },
-      stream,
-      newTrack: makeTrack("x"),
-      videoEl: null,
-    });
-    expect(result).toBeNull();
-    expect(stream.removeTrack).not.toHaveBeenCalled();
+
+    const result = await swapCameraTrack({ pc, stream, newTrack, videoEl: null });
+
+    expect(pc.addTrack).toHaveBeenCalledWith(newTrack, stream);
+    expect(result).toEqual({ sender: undefined, needsNegotiation: true });
   });
 
-  it("restores the stream and stops the new track when the sender swap fails", async () => {
-    const oldTrack = makeTrack("cam-front");
+  it("removes and stops the new track when the sender swap fails", async () => {
     const newTrack = makeTrack("cam-back");
-    const failingSender = makeSender(oldTrack);
+    const failingSender = makeSender(makeTrack("cam-front"));
     failingSender.replaceTrack = vi.fn(async () => {
       throw new Error("InvalidStateError");
     });
@@ -77,7 +76,7 @@ describe("swapCameraTrack", () => {
     };
     const videoEl = { srcObject: null };
     const stream = {
-      getVideoTracks: () => [oldTrack],
+      getVideoTracks: () => [],
       removeTrack: vi.fn(),
       addTrack: vi.fn(),
     };
@@ -86,11 +85,10 @@ describe("swapCameraTrack", () => {
       swapCameraTrack({ pc, stream, newTrack, videoEl }),
     ).rejects.toThrow("InvalidStateError");
 
-    // The stream must match what the sender still carries (the old camera).
+    // The sender still carries the stopped previous camera, so the stream
+    // must not advertise a track it is not sending.
     expect(stream.removeTrack).toHaveBeenCalledWith(newTrack);
-    expect(stream.addTrack).toHaveBeenCalledWith(oldTrack);
     expect(videoEl.srcObject).toBe(stream);
     expect(newTrack.stop).toHaveBeenCalled();
-    expect(oldTrack.stop).not.toHaveBeenCalled();
   });
 });

@@ -88,28 +88,21 @@ export async function attachOutgoingVideoTrack(pc, track, stream) {
 }
 
 /**
- * Swap the outgoing camera to a newly acquired track: replace the track in
- * the local preview stream, retarget the video sender (no renegotiation when
- * one exists), and stop the old track.
+ * Attach a freshly acquired camera track: add it to the local preview stream,
+ * retarget the video sender (no renegotiation when one exists). The caller
+ * has already stopped and removed the outgoing camera — iOS Safari cannot
+ * hold two captures at once, so the stream may have no video track here.
  */
 export async function swapCameraTrack({ pc, stream, newTrack, videoEl }) {
-  const oldTrack = stream.getVideoTracks()[0];
-  if (!oldTrack) return null;
-  stream.removeTrack(oldTrack);
   stream.addTrack(newTrack);
   if (videoEl) videoEl.srcObject = stream;
   try {
-    const result = await attachOutgoingVideoTrack(pc, newTrack, stream);
-    oldTrack.stop();
-    return result;
+    return await attachOutgoingVideoTrack(pc, newTrack, stream);
   } catch (err) {
-    // Put the old camera back: the stream must match what the sender still
-    // carries, or the local preview and the peer's picture disagree.
+    // The sender still carries the stopped previous camera, so the stream
+    // must not advertise a track it is not sending.
     try {
       stream.removeTrack(newTrack);
-    } catch (_) {}
-    try {
-      stream.addTrack(oldTrack);
     } catch (_) {}
     if (videoEl) videoEl.srcObject = stream;
     try {
@@ -775,6 +768,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   }, []);
 
   const toggleCamera = useCallback(async () => {
+    if (isFlippingRef.current) return;
     const stream = localStreamRef.current;
     if (!stream) return;
     const videoTracks = stream.getVideoTracks();
@@ -828,8 +822,9 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     });
   }, [postSignal, sendOffer]);
 
-  // Swap between front and back cameras mid-call: acquire the other camera's
-  // track and hand it to the existing video sender (no renegotiation).
+  // Swap between front and back cameras mid-call: free the outgoing camera,
+  // acquire the other one, and hand it to the existing video sender (no
+  // renegotiation).
   const flipCamera = useCallback(async () => {
     if (isFlippingRef.current || !hasMultipleCamerasRef.current) return;
     // The video sender carries the screen while sharing; do not swap it.
@@ -840,33 +835,57 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     const [oldTrack] = stream.getVideoTracks();
     if (!oldTrack || !oldTrack.enabled) return;
 
-    const next = facingModeRef.current === "environment" ? "user" : "environment";
+    const previousFacing = facingModeRef.current;
+    const next = previousFacing === "environment" ? "user" : "environment";
     isFlippingRef.current = true;
     try {
-      let newTrack;
+      oldTrack.stop();
+      stream.removeTrack(oldTrack);
+      let newTrack = null;
+      let flipped = false;
       try {
         const videoStream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: next },
         });
         [newTrack] = videoStream.getVideoTracks();
-        if (!newTrack) return;
-        // The call may have ended while the camera was acquired.
-        if (
-          localStreamRef.current !== stream ||
-          peerConnectionRef.current !== pc
-        ) {
-          newTrack.stop();
-          return;
-        }
-        // State changed during acquisition: a screen share owns the video
-        // sender now, or the user turned the camera off mid-flip. Backing out
-        // keeps the peer's picture in sync with the local UI.
-        if (screenTrackRef.current || !stream.getVideoTracks()[0]?.enabled) {
-          newTrack.stop();
-          return;
-        }
+        flipped = Boolean(newTrack);
       } catch (err) {
         console.warn("Failed to switch camera:", err);
+      }
+      if (!newTrack) {
+        // The other camera could not be opened: fall back to the previous
+        // one so the sender keeps a live picture instead of a dead one.
+        try {
+          const fallbackStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: previousFacing },
+          });
+          [newTrack] = fallbackStream.getVideoTracks();
+        } catch (err) {
+          console.warn("Failed to switch camera:", err);
+        }
+        if (!newTrack) {
+          // Camera is gone entirely: mirror the camera-off state for the peer.
+          if (localStreamRef.current === stream && peerConnectionRef.current === pc) {
+            setIsCameraOff(true);
+            void postSignal("camera-state", {
+              chatId: callChatIdRef.current,
+              cameraOff: true,
+            });
+          }
+          return;
+        }
+      }
+      // The call may have ended while the camera was acquired.
+      if (localStreamRef.current !== stream || peerConnectionRef.current !== pc) {
+        newTrack.stop();
+        return;
+      }
+      if (screenTrackRef.current) {
+        // A screen share claimed the video sender mid-flip: the camera waits
+        // in the stream; stopScreenShare hands the sender back to it.
+        stream.addTrack(newTrack);
+        if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+        if (flipped) facingModeRef.current = next;
         return;
       }
       try {
@@ -877,19 +896,17 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
           videoEl: localVideoRef.current,
         });
         if (sender) videoSenderRef.current = sender;
-        facingModeRef.current = next;
+        if (flipped) facingModeRef.current = next;
         if (needsNegotiation && peerConnectionRef.current === pc) {
           await sendOffer(pc);
         }
       } catch (err) {
-        // Swap failed: keep running on the old camera (it was not stopped,
-        // and remains in the stream unless the throw came after the swap).
         console.warn("Failed to switch camera:", err);
       }
     } finally {
       isFlippingRef.current = false;
     }
-  }, [sendOffer]);
+  }, [sendOffer, postSignal]);
 
   const stopScreenShare = useCallback(async () => {
     const track = screenTrackRef.current;

@@ -1184,4 +1184,23 @@ describe("camera flip button", () => {
       .element(page.getByRole("button", { name: "Flip camera" }))
       .not.toBeInTheDocument();
   });
+
+  test("local video fills its PiP box", async () => {
+    render(
+      <CallScreen
+        {...makeProps({
+          callState: "connected",
+          callType: "video",
+          isCameraOff: false,
+          isRemoteCameraOff: false,
+        })}
+      />,
+    );
+    // WebKit does not resolve height:100% inside an aspect-ratio box, which
+    // left a gap between the preview and the PiP border; the video must fill
+    // the box via insets instead.
+    const video = page.getByLabelText("Local video");
+    await expect.element(video).toBeInTheDocument();
+    expect(video.element().className).toContain("absolute inset-0");
+  });
 });
