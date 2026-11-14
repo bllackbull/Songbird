@@ -5,6 +5,7 @@ import {
   isScreenShareSupported,
   foldIncomingRemoteStream,
 } from "../../utils/callCapabilities.js";
+import { logIceDiagnostics } from "../../utils/iceDiagnostics.js";
 
 /**
  * Grade connection quality from WebRTC stats into signal bars.
@@ -267,9 +268,10 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     };
   }, []);
 
-  // Call flows must never build a peer connection without ICE servers.
+  // Re-fetch ICE servers per call: the server config and credentials can
+  // change while the app stays open. The cached list is only a fallback for
+  // when the re-fetch fails or comes back empty.
   const ensureIceServers = useCallback(async () => {
-    if (iceServersRef.current.length) return iceServersRef.current;
     const servers = await fetchIceServers();
     if (Array.isArray(servers) && servers.length) {
       iceServersRef.current = servers;
@@ -433,7 +435,12 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   }, [finishCall, postSignal]);
 
   const createPeerConnection = useCallback(async () => {
-    const pc = new RTCPeerConnection({ iceServers: await ensureIceServers() });
+    const iceServers = await ensureIceServers();
+    if (!iceServers.length) {
+      // Diagnoses the cached-IceServers bug: this PC gets no STUN/TURN at all.
+      console.warn("[call] creating peer connection with no ICE servers");
+    }
+    const pc = new RTCPeerConnection({ iceServers });
 
     pc.onicecandidate = (event) => {
       if (event.candidate && callChatIdRef.current) {
@@ -492,6 +499,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       }
       if (pc.connectionState === "disconnected") {
         // Transient ICE blips are common; only hang up if it persists.
+        void logIceDiagnostics(pc, "disconnected");
         if (!disconnectTimerRef.current) {
           disconnectTimerRef.current = setTimeout(() => {
             disconnectTimerRef.current = null;
@@ -500,6 +508,9 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
         }
       }
       if (pc.connectionState === "failed" || pc.connectionState === "closed") {
+        if (pc.connectionState === "failed") {
+          void logIceDiagnostics(pc, "failed");
+        }
         failCall();
       }
     };
