@@ -8,6 +8,7 @@ import Avatar from "../common/Avatar.jsx";
 import VerifiedBadge from "../common/VerifiedBadge.jsx";
 import Tooltip from "../common/Tooltip.jsx";
 import { hasPersian } from "../../utils/fontUtils.js";
+import { useOverlayBack } from "../../hooks/chat/useOverlayBack.js";
 
 const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStatsChange }, ref) {
   const [chats, setChats]             = useState([]);
@@ -31,6 +32,9 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
   const createMenuRef = useRef(null);
   const debounceRef = useRef(null);
   const requestIdRef = useRef(0);
+  // System back dismisses the create/edit modal instead of exiting.
+  useOverlayBack(Boolean(createType), () => setCreateType(null), "sbAdminGroupModalCreate");
+  useOverlayBack(Boolean(editChat), () => setEditChat(null), "sbAdminGroupModalEdit");
 
   useEffect(() => {
     if (!createMenuOpen) return undefined;

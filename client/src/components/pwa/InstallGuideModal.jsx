@@ -1,4 +1,5 @@
 import { Close } from "../../icons/lucide.js";
+import { useOverlayBack } from "../../hooks/chat/useOverlayBack.js";
 
 export default function InstallGuideModal({
   open,
@@ -6,6 +7,8 @@ export default function InstallGuideModal({
   iconSrc = "/icons/icon-192.png",
   isDesktop = false,
 }) {
+  // System back closes the guide instead of exiting.
+  useOverlayBack(Boolean(open), onClose, "sbInstallGuideModal");
   if (!open) return null;
 
   return (

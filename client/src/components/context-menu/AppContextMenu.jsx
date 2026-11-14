@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useOverlayBack } from "../../hooks/chat/useOverlayBack.js";
 
 const SCREEN_GAP = 12;
 
@@ -8,6 +9,8 @@ export default function AppContextMenu({ menu, onClose }) {
   const [desktopPosition, setDesktopPosition] = useState({ x: 0, y: 0 });
   const [verticalPlacement, setVerticalPlacement] = useState("below");
   const [focusedIndex, setFocusedIndex] = useState(-1);
+  // System back dismisses the menu instead of exiting.
+  useOverlayBack(Boolean(menu), onClose, "sbContextMenu");
 
   useEffect(() => {
     if (!menu) return undefined;

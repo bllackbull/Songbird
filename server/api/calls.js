@@ -183,6 +183,23 @@ export function registerCallRoutes(app, deps) {
     res.json({ ok: true });
   });
 
+  // POST /api/calls/screen-share-state
+  app.post("/api/calls/screen-share-state", async (req, res) => {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    const { chatId, sharing } = req.body || {};
+    const result = await callManager.relaySignal({
+      user,
+      chatId,
+      signalType: "screen-share-state",
+      payload: { sharing: sharing === true },
+    });
+    if (result.error) {
+      return res.status(result.status || 400).json({ error: result.error });
+    }
+    res.json({ ok: true });
+  });
+
   // GET /api/calls/history — call-log entries across the user's DM chats.
   app.get("/api/calls/history", async (req, res) => {
     const user = await requireUser(req, res);

@@ -1,6 +1,7 @@
 import { createPortal } from "react-dom";
 import { useRef } from "react";
 import { useFocusTrap } from "../../hooks/useFocusTrap.js";
+import { useOverlayBack } from "../../hooks/chat/useOverlayBack.js";
 
 export default function ConfirmModal({
   open,
@@ -12,6 +13,8 @@ export default function ConfirmModal({
   busy = false,
 }) {
   const dialogRef = useRef(null);
+  // System back dismisses the dialog instead of exiting.
+  useOverlayBack(Boolean(open), onClose, "sbConfirmModal");
   useFocusTrap(dialogRef, open);
 
   if (!open) return null;

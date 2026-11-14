@@ -1,10 +1,10 @@
-import { describe, test, expect, vi } from "vitest";
+import { describe, test, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-react";
 import { page, userEvent } from "vitest/browser";
 import { useEffect, useRef, useState } from "react";
 import { useWebRTCCall } from "../../../src/hooks/chat/useWebRTCCall.js";
 import { CallScreen } from "../../../src/components/call/CallScreen.jsx";
-import { sendCallSignal } from "../../../src/api/chatApi.js";
+import { sendCallSignal, fetchIceServers } from "../../../src/api/chatApi.js";
 
 // No network in tests: the hook fetches ICE servers on mount.
 vi.mock("../../../src/api/chatApi.js", () => ({
@@ -12,6 +12,10 @@ vi.mock("../../../src/api/chatApi.js", () => ({
   fetchIncomingCall: vi.fn(async () => ({})),
   sendCallSignal: vi.fn(async () => ({ ok: true })),
 }));
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 function SpeakerHarness() {
   const { isSpeakerOn, toggleSpeaker } = useWebRTCCall({});
@@ -772,5 +776,102 @@ describe("CallScreen local reject timing", () => {
         timeout: 2000,
       })
       .toBe(false);
+  });
+});
+
+function IceServerTimingHarness() {
+  const { acceptCall, handleSignal } = useWebRTCCall({});
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() =>
+          handleSignal({ type: "call:incoming", chatId: "c1", callType: "voice" })
+        }
+      >
+        simulate incoming
+      </button>
+      <button type="button" onClick={acceptCall}>
+        accept
+      </button>
+    </div>
+  );
+}
+
+describe("useWebRTCCall ice server timing", () => {
+  test("re-fetches ICE servers per call instead of trusting the mount cache", async () => {
+    // Regression: a non-empty mount-time cache was reused forever, so calls
+    // kept stale servers after the TURN config changed on the server.
+    const RealPC = window.RTCPeerConnection;
+    const constructed = [];
+    window.RTCPeerConnection = class extends RealPC {
+      constructor(config) {
+        constructed.push(config);
+        super(config);
+      }
+    };
+    vi.spyOn(navigator.mediaDevices, "getUserMedia").mockResolvedValue(
+      new MediaStream(),
+    );
+    let fetchCount = 0;
+    fetchIceServers.mockImplementation(() => {
+      fetchCount += 1;
+      // First call is the mount-time fetch with the config from page load.
+      // The server config changed by the time the first call is placed.
+      return Promise.resolve(
+        fetchCount === 1
+          ? [{ urls: "stun:mount-time-config" }]
+          : [{ urls: "stun:fresh-per-call" }],
+      );
+    });
+    try {
+      render(<IceServerTimingHarness />);
+      await userEvent.click(page.getByRole("button", { name: "simulate incoming" }));
+      await userEvent.click(page.getByRole("button", { name: "accept" }));
+
+      await expect
+        .poll(() => constructed.at(-1)?.iceServers?.[0]?.urls, { timeout: 5000 })
+        .toBe("stun:fresh-per-call");
+    } finally {
+      window.RTCPeerConnection = RealPC;
+      fetchIceServers.mockReset();
+      fetchIceServers.mockImplementation(async () => []);
+    }
+  });
+
+  test("waits for the ICE server fetch before creating the peer connection", async () => {
+    const RealPC = window.RTCPeerConnection;
+    const constructed = [];
+    window.RTCPeerConnection = class extends RealPC {
+      constructor(config) {
+        constructed.push(config);
+        super(config);
+      }
+    };
+    vi.spyOn(navigator.mediaDevices, "getUserMedia").mockResolvedValue(
+      new MediaStream(),
+    );
+    let fetchCount = 0;
+    fetchIceServers.mockImplementation(() => {
+      fetchCount += 1;
+      // First call is the mount-time fetch; hang it like a slow page load.
+      // A later fetch issued by the call flow itself succeeds.
+      return fetchCount === 1
+        ? new Promise(() => {})
+        : Promise.resolve([{ urls: "stun:test-server" }]);
+    });
+    try {
+      render(<IceServerTimingHarness />);
+      await userEvent.click(page.getByRole("button", { name: "simulate incoming" }));
+      await userEvent.click(page.getByRole("button", { name: "accept" }));
+
+      await expect
+        .poll(() => constructed.at(-1)?.iceServers?.[0]?.urls, { timeout: 5000 })
+        .toBe("stun:test-server");
+    } finally {
+      window.RTCPeerConnection = RealPC;
+      fetchIceServers.mockReset();
+      fetchIceServers.mockImplementation(async () => []);
+    }
   });
 });

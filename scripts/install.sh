@@ -3421,6 +3421,8 @@ configure_coturn() {
   fi
   COTURN_USER="${COTURN_USER:-songbird}"
 
+  replace_env_value "${INSTALL_DIR}/.env" "TURN_CREDENTIAL" "$COTURN_PASSWORD" || true
+
   if run_as_root test -f "$default_file"; then
     if run_as_root grep -q "TURNSERVER_ENABLED" "$default_file"; then
       run_silent run_as_root sed -i 's/^#*TURNSERVER_ENABLED=.*/TURNSERVER_ENABLED=1/' "$default_file" || true

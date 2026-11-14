@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useOverlayBack } from "./useOverlayBack.js";
 
 export function useFocusedMedia({ isDesktop, isMobileTouchDevice }) {
   const [focusedMedia, setFocusedMedia] = useState(null);
@@ -154,8 +155,6 @@ export function useFocusedMedia({ isDesktop, isMobileTouchDevice }) {
     return `${mins}:${String(secs).padStart(2, "0")}`;
   }, []);
 
-  const historyPushedRef = useRef(false);
-
   const openFocusMedia = useCallback((media) => {
     if (focusUnmountTimerRef.current) {
       clearTimeout(focusUnmountTimerRef.current);
@@ -179,16 +178,9 @@ export function useFocusedMedia({ isDesktop, isMobileTouchDevice }) {
     focusEnterRafRef.current = requestAnimationFrame(() => {
       setFocusVisible(true);
     });
-
-    // Push a history entry so the Android back button closes the modal
-    // instead of navigating away from the PWA.
-    if (typeof window !== "undefined" && window.history) {
-      window.history.pushState({ sbMediaModal: true }, "");
-      historyPushedRef.current = true;
-    }
   }, []);
 
-  const closeFocusMedia = useCallback((opts = {}) => {
+  const closeFocusMedia = useCallback(() => {
     if (!focusedMedia) return;
     setFocusVisible(false);
     if (focusUnmountTimerRef.current) {
@@ -199,42 +191,11 @@ export function useFocusedMedia({ isDesktop, isMobileTouchDevice }) {
       setFocusedVideoDecodeIssue("");
       focusUnmountTimerRef.current = null;
     }, 230);
-
-    // If we pushed a history entry and the close was NOT triggered by a
-    // popstate event (i.e. the user tapped the close button), go back so
-    // the history stack stays clean.
-    if (historyPushedRef.current && !opts._fromPopState) {
-      historyPushedRef.current = false;
-      if (typeof window !== "undefined" && window.history) {
-        window.history.back();
-      }
-    } else {
-      historyPushedRef.current = false;
-    }
   }, [focusedMedia]);
 
-  // Listen for the Android hardware back button (popstate) and close the modal.
-  useEffect(() => {
-    if (typeof window === "undefined") return undefined;
-    const handlePopState = (event) => {
-      if (!historyPushedRef.current) return;
-      // Only intercept if this looks like our modal state being popped.
-      if (event.state?.sbMediaModal) return; // navigating forward into our state — ignore
-      historyPushedRef.current = false;
-      // Close without calling history.back() again (we're already handling popstate).
-      setFocusVisible(false);
-      if (focusUnmountTimerRef.current) {
-        clearTimeout(focusUnmountTimerRef.current);
-      }
-      focusUnmountTimerRef.current = setTimeout(() => {
-        setFocusedMedia(null);
-        setFocusedVideoDecodeIssue("");
-        focusUnmountTimerRef.current = null;
-      }, 230);
-    };
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, []);
+  // System back closes the focused media viewer instead of
+  // navigating away from the PWA (see useOverlayBack).
+  useOverlayBack(Boolean(focusedMedia), closeFocusMedia, "sbMediaModal");
 
   const handleFocusTouchStart = useCallback(
     (event) => {

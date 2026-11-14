@@ -147,4 +147,44 @@ describe("WebSocket Gateway Call Signaling", () => {
     ws.emit("close");
     gateway.close();
   });
+
+  test("relays screen-share-state over the socket", async () => {
+    const callManager = {
+      startCall: vi.fn(async () => ({ status: 200, call: {} })),
+      acceptCall: vi.fn(async () => ({ status: 200, call: {} })),
+      rejectCall: vi.fn(async () => ({ status: 200 })),
+      endCall: vi.fn(async () => ({ status: 200 })),
+      relaySignal: vi.fn(async () => ({ status: 200 })),
+      cleanupUserCalls: vi.fn(),
+    };
+    const gateway = createWebSocketGateway({ callManager });
+    const ws = new EventEmitter();
+    ws.isAlive = true;
+    ws.readyState = 1;
+    ws.send = vi.fn();
+    gateway.wss.emit("connection", ws, {}, { id: "user-1", username: "alice" });
+
+    ws.emit(
+      "message",
+      Buffer.from(
+        JSON.stringify({
+          action: "call_signal",
+          signalType: "screen-share-state",
+          chatId: "chat-uuid-1",
+          data: { sharing: true },
+        }),
+      ),
+    );
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(callManager.relaySignal).toHaveBeenCalledWith({
+      user: { id: "user-1", username: "alice" },
+      chatId: "chat-uuid-1",
+      signalType: "screen-share-state",
+      payload: { sharing: true },
+    });
+
+    ws.emit("close");
+    gateway.close();
+  });
 });
