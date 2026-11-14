@@ -1,3 +1,19 @@
+## 0.13.3
+
+### New Features
+
+- 🖥️ Screen sharing in voice and video calls with fullscreen view and independent screen audio
+- 🔄 Flip front/back camera mid-call without interrupting the connection
+
+### Bug Fixes
+
+- 📱 System back navigation across modals and overlays
+- 📞 Re-fetch ICE servers per call so no peer connection is built without TURN
+- 🧊 Handle simultaneous WebRTC renegotiation offers
+- 🛠️ Sync TURN credential to the environment file during installation
+- 🎨 Adjust menu position for improved visibility
+- 🧹 Removed deprecated desktop settings modal and popup menu
+
 ## 0.13.2
 
 ### New Features
