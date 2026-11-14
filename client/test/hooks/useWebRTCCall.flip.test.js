@@ -15,6 +15,23 @@ function makeTrack(id) {
   return { kind: "video", id, stop: vi.fn() };
 }
 
+// Video element spy that counts srcObject assignments (reassigning srcObject
+// on iOS Safari reloads the element and resets object-fit).
+function makeVideoEl(initial = null) {
+  const el = {};
+  let value = initial;
+  let assignments = 0;
+  Object.defineProperty(el, "srcObject", {
+    get: () => value,
+    set: (next) => {
+      assignments += 1;
+      value = next;
+    },
+  });
+  el.assignmentCount = () => assignments;
+  return el;
+}
+
 describe("swapCameraTrack", () => {
   // The caller stops and removes the outgoing camera before acquiring the new
   // one (iOS Safari cannot hold two captures at once), so the stream may have
@@ -32,12 +49,15 @@ describe("swapCameraTrack", () => {
       removeTrack: vi.fn(),
       addTrack: vi.fn(),
     };
-    const videoEl = { srcObject: null };
+    const videoEl = makeVideoEl();
+    videoEl.srcObject = stream;
 
     const result = await swapCameraTrack({ pc, stream, newTrack, videoEl });
 
     expect(stream.addTrack).toHaveBeenCalledWith(newTrack);
+    // Already playing this stream: the element must not be reloaded.
     expect(videoEl.srcObject).toBe(stream);
+    expect(videoEl.assignmentCount()).toBe(1);
     expect(cameraSender.replaceTrack).toHaveBeenCalledWith(newTrack);
     expect(newTrack.stop).not.toHaveBeenCalled();
     expect(result).toEqual({ sender: cameraSender, needsNegotiation: false });
@@ -90,5 +110,26 @@ describe("swapCameraTrack", () => {
     expect(stream.removeTrack).toHaveBeenCalledWith(newTrack);
     expect(videoEl.srcObject).toBe(stream);
     expect(newTrack.stop).toHaveBeenCalled();
+  });
+
+  it("binds the element when it was not playing the stream", async () => {
+    const newTrack = makeTrack("cam-back");
+    const cameraSender = makeSender(makeTrack("cam-front"));
+    const pc = {
+      getSenders: () => [cameraSender],
+      getTransceivers: () => [],
+      addTrack: vi.fn(),
+    };
+    const stream = {
+      getVideoTracks: () => [],
+      removeTrack: vi.fn(),
+      addTrack: vi.fn(),
+    };
+    const videoEl = makeVideoEl(); // unbound
+
+    await swapCameraTrack({ pc, stream, newTrack, videoEl });
+
+    expect(videoEl.srcObject).toBe(stream);
+    expect(videoEl.assignmentCount()).toBe(1);
   });
 });

@@ -92,10 +92,13 @@ export async function attachOutgoingVideoTrack(pc, track, stream) {
  * retarget the video sender (no renegotiation when one exists). The caller
  * has already stopped and removed the outgoing camera — iOS Safari cannot
  * hold two captures at once, so the stream may have no video track here.
+ * Do not reassign srcObject when the element already plays this stream: iOS
+ * Safari reloads the element on reassignment, which resets object-fit and
+ * re-introduces the letterbox gap in the PiP box. Track swaps render live.
  */
 export async function swapCameraTrack({ pc, stream, newTrack, videoEl }) {
   stream.addTrack(newTrack);
-  if (videoEl) videoEl.srcObject = stream;
+  if (videoEl && videoEl.srcObject !== stream) videoEl.srcObject = stream;
   try {
     return await attachOutgoingVideoTrack(pc, newTrack, stream);
   } catch (err) {
@@ -104,7 +107,7 @@ export async function swapCameraTrack({ pc, stream, newTrack, videoEl }) {
     try {
       stream.removeTrack(newTrack);
     } catch (_) {}
-    if (videoEl) videoEl.srcObject = stream;
+    if (videoEl && videoEl.srcObject !== stream) videoEl.srcObject = stream;
     try {
       newTrack.stop();
     } catch (_) {}
@@ -199,7 +202,9 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   }, [hasMultipleCameras]);
 
   // Count cameras once permission exists (a connected call has granted it);
-  // labels are only reliable after getUserMedia.
+  // labels are only reliable after getUserMedia. Re-run when the camera turns
+  // on: iOS Safari lists no video devices before camera permission is
+  // granted, and a voice call may grant it mid-call (camera opened later).
   useEffect(() => {
     if (callState !== "connected") return undefined;
     let isCancelled = false;
@@ -216,7 +221,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     return () => {
       isCancelled = true;
     };
-  }, [callState]);
+  }, [callState, isCameraOff]);
 
   useEffect(() => {
     callStateRef.current = callState;
@@ -884,7 +889,12 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
         // A screen share claimed the video sender mid-flip: the camera waits
         // in the stream; stopScreenShare hands the sender back to it.
         stream.addTrack(newTrack);
-        if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+        if (
+          localVideoRef.current &&
+          localVideoRef.current.srcObject !== stream
+        ) {
+          localVideoRef.current.srcObject = stream;
+        }
         if (flipped) facingModeRef.current = next;
         return;
       }
