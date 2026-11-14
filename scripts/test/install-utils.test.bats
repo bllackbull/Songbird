@@ -1998,6 +1998,43 @@ setup_test_git_repo() {
   [ "$output" = "3479" ]
 }
 
+@test "configure_coturn: syncs generated TURN_CREDENTIAL into the .env" {
+  # Regression: the .env is written before configure_coturn runs, so the
+  # generated password never reached it and TURN_CREDENTIAL stayed empty,
+  # causing 401s against coturn for every browser.
+  COTURN_PORT="3478"
+  COTURN_MIN_PORT="49152"
+  COTURN_MAX_PORT="65535"
+  COTURN_EXTERNAL_IP="203.0.113.1"
+  COTURN_REALM="chat.example.com"
+  COTURN_USER="songbird"
+  COTURN_PASSWORD=""
+
+  COTURN_CONF_FILE="$TEST_DIR/turnserver.conf"
+  COTURN_DEFAULT_FILE="$TEST_DIR/coturn_default"
+  printf "#TURNSERVER_ENABLED=1\n" > "$COTURN_DEFAULT_FILE"
+  INSTALL_DIR="$TEST_DIR/install"
+  mkdir -p "$INSTALL_DIR"
+  printf 'TURN_URL="turn:203.0.113.1:3478"\nTURN_CREDENTIAL=""\n' > "$INSTALL_DIR/.env"
+
+  local restarted_service=""
+  systemctl() { restarted_service="$2"; return 0; }
+  export -f systemctl
+  export COTURN_PORT COTURN_MIN_PORT COTURN_MAX_PORT COTURN_EXTERNAL_IP COTURN_REALM COTURN_USER COTURN_PASSWORD COTURN_CONF_FILE COTURN_DEFAULT_FILE INSTALL_DIR
+
+  run configure_coturn
+  [ "$status" -eq 0 ]
+
+  local env_credential
+  env_credential="$(sed -n 's/^TURN_CREDENTIAL=//p' "$INSTALL_DIR/.env")"
+  local conf_credential
+  conf_credential="$(sed -n 's/^user=songbird://p' "$COTURN_CONF_FILE")"
+
+  # .env must carry the same generated credential as the conf file, non-empty.
+  [ -n "$env_credential" ]
+  [ "$env_credential" = "$conf_credential" ]
+}
+
 @test "configure_coturn: generates turnserver.conf and enables systemd service" {
   COTURN_PORT="3478"
   COTURN_MIN_PORT="49152"
