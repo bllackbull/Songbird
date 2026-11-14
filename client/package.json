@@ -30,8 +30,8 @@
   "dependencies": {
     "dompurify": "^3.4.15",
     "highlight.js": "^11.12.0",
-    "lucide-react": "^1.49.0",
-    "marked": "^18.0.14",
+    "lucide-react": "^1.64.0",
+    "marked": "^18.1.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },
@@ -49,7 +49,7 @@
     "eslint-plugin-react-refresh": "^0.5.7",
     "fast-check": "^4.10.2",
     "globals": "^17.12.0",
-    "postcss": "^8.5.28",
+    "postcss": "^8.5.32",
     "playwright": "1.62.1",
     "rollup-plugin-visualizer": "^7.1.1",
     "tailwindcss": "^4.3.2",
