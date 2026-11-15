@@ -540,7 +540,17 @@ export function createUploadTools({
         res.setHeader("X-Content-Type-Options", "nosniff");
         res.setHeader("ETag", etag);
         res.setHeader("Last-Modified", stat.mtime.toUTCString());
-        res.type(inferMimeFromFilename(storedName) || "application/octet-stream");
+        const inferredAvatarMime = inferMimeFromFilename(storedName);
+        if (ALLOWED_AVATAR_MIME_TYPES.has(inferredAvatarMime)) {
+          res.type(inferredAvatarMime);
+        } else {
+          // Avatar validation only checks the client-supplied MIME, so a file
+          // can be stored with a renderable extension (e.g. .svg). Never serve
+          // such types inline: force a non-renderable type and download so a
+          // crafted SVG/XML/HTML cannot execute script in the app origin.
+          res.type("application/octet-stream");
+          res.setHeader("Content-Disposition", "attachment");
+        }
 
         if (
           ifNoneMatch === etag ||

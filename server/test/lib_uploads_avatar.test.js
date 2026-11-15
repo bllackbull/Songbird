@@ -4,6 +4,8 @@ import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
 import multer from "multer";
+import express from "express";
+import request from "supertest";
 import { createUploadTools } from "../lib/uploads.js";
 
 describe("server/lib/uploads.js avatar storage enhancements", () => {
@@ -191,6 +193,65 @@ describe("server/lib/uploads.js avatar storage enhancements", () => {
       );
       expect(url).toBeNull();
       expect(adminRun).toHaveBeenCalled();
+    });
+  });
+
+  describe("GET /api/uploads/avatars content-type hardening", () => {
+    let uploadTools;
+    let serveStorageEncryption;
+    let serveApp;
+
+    beforeEach(() => {
+      serveStorageEncryption = {
+        encryptFileInPlace: vi.fn().mockReturnValue(true),
+        decryptBuffer: vi.fn((buf) => buf),
+        decryptFileToBuffer: vi.fn(() => Buffer.from("avatar-bytes")),
+        getDecryptedFileSize: vi.fn(() => 12),
+      };
+
+      const localTools = createUploadTools({
+        fs,
+        path,
+        crypto,
+        multer,
+        adminGetRow: () => null,
+        adminRun: () => null,
+        adminSave: () => null,
+        uploadRootDir: tmpDir,
+        avatarUploadRootDir,
+        fileUploadMaxSize: 10 * 1024 * 1024,
+        fileUploadMaxFiles: 1,
+        fileUploadMaxTotalSize: 10 * 1024 * 1024,
+        storageEncryption: serveStorageEncryption,
+        storageProvider: mockLocalProvider,
+      });
+      uploadTools = localTools;
+
+      serveApp = express();
+      localTools.registerUploadRoutes(serveApp, { adminGetRow: () => null });
+    });
+
+    test("serves raster avatars inline with their inferred image type", async () => {
+      const storedName = "avatar-inline-test.png";
+      fs.writeFileSync(path.join(avatarUploadRootDir, storedName), "png-bytes");
+
+      const res = await request(serveApp).get(`/api/uploads/avatars/${storedName}`);
+
+      expect(res.status).toBe(200);
+      expect(res.headers["content-type"]).toMatch(/^image\/png/);
+      expect(res.headers["content-disposition"]).toBeUndefined();
+    });
+
+    test("never serves stored SVG avatars inline even when the upload MIME was a raster type", async () => {
+      const storedName = "avatar-xss.svg";
+      fs.writeFileSync(path.join(avatarUploadRootDir, storedName), "<svg/>");
+
+      const res = await request(serveApp).get(`/api/uploads/avatars/${storedName}`);
+
+      expect(res.status).toBe(200);
+      expect(res.headers["content-type"]).toBe("application/octet-stream");
+      expect(res.headers["content-disposition"]).toBe("attachment");
+      expect(serveStorageEncryption.decryptFileToBuffer).toHaveBeenCalled();
     });
   });
 
