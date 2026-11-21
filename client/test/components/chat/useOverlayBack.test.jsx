@@ -138,4 +138,126 @@ describe("useOverlayBack (Android system back)", () => {
       );
     });
   });
+
+  test("confirming an overlay opened over a closing overlay keeps the chat open", async () => {
+    function DeleteFlowHarness() {
+      const [chatOpen, setChatOpen] = useState(false);
+      const [menuOpen, setMenuOpen] = useState(false);
+      const [modalOpen, setModalOpen] = useState(false);
+      const [chatClosedByBack, setChatClosedByBack] = useState(false);
+
+      // Order matches ChatPage: modal is declared before AppContextMenu.
+      useOverlayBack(
+        chatOpen,
+        () => {
+          setChatClosedByBack(true);
+          setChatOpen(false);
+        },
+        "sbChatOpen",
+      );
+      useOverlayBack(modalOpen, () => setModalOpen(false), "sbDeleteScopeModal");
+      useOverlayBack(menuOpen, () => setMenuOpen(false), "sbContextMenu");
+
+      return (
+        <>
+          <button data-testid="open-chat" onClick={() => setChatOpen(true)}>
+            open chat
+          </button>
+          <button data-testid="open-menu" onClick={() => setMenuOpen(true)}>
+            open menu
+          </button>
+          <button
+            data-testid="delete-click"
+            onClick={() => {
+              setModalOpen(true);
+              setMenuOpen(false);
+            }}
+          >
+            delete
+          </button>
+          <button
+            data-testid="confirm-delete"
+            onClick={() => setModalOpen(false)}
+          >
+            confirm delete
+          </button>
+          {chatOpen && <div data-testid="chat-view">chat</div>}
+          {chatClosedByBack && <div data-testid="closed-by-back">closed</div>}
+        </>
+      );
+    }
+
+    render(<DeleteFlowHarness />);
+    await userEvent.click(page.getByTestId("open-chat"));
+    await vi.waitFor(() => {
+      expect(window.history.state?.sbChatOpen).toBe(true);
+    });
+    await userEvent.click(page.getByTestId("open-menu"));
+    await vi.waitFor(() => {
+      expect(window.history.state?.sbContextMenu).toBe(true);
+    });
+
+    // Clicking "Delete" in the menu opens the modal and closes the menu at once.
+    await userEvent.click(page.getByTestId("delete-click"));
+    await vi.waitFor(() => {
+      expect(window.history.state?.sbDeleteScopeModal).toBe(true);
+    });
+
+    await userEvent.click(page.getByTestId("confirm-delete"));
+
+    await expect.element(page.getByTestId("chat-view")).toBeInTheDocument();
+    await expect
+      .element(page.getByTestId("closed-by-back"))
+      .not.toBeInTheDocument();
+  });
+
+  // Same flow for every ChatPage modal opened straight from the context menu:
+  // the menu's queued back() lands after the new modal pushes its sentinel,
+  // so the popstate must close neither the new modal nor the chat (issue #188).
+  test.each([
+    ["delete message", "sbDeleteScopeModal"],
+    ["chat profile", "sbChatProfileModal"],
+    ["delete chats", "sbDeleteChatsModal"],
+    ["forward message", "sbForwardModal"],
+  ])("%s modal opened from a closing context menu stays open", async (_label, modalKey) => {
+    function ContextMenuModalHarness() {
+      const [chatOpen, setChatOpen] = useState(true);
+      const [menuOpen, setMenuOpen] = useState(false);
+      const [modalOpen, setModalOpen] = useState(false);
+
+      // Menu effect runs before the new modal's effect, matching ChatPage.
+      useOverlayBack(chatOpen, () => setChatOpen(false), "sbChatOpen");
+      useOverlayBack(menuOpen, () => setMenuOpen(false), "sbContextMenu");
+      useOverlayBack(modalOpen, () => setModalOpen(false), modalKey);
+
+      return (
+        <>
+          <button data-testid="open-menu" onClick={() => setMenuOpen(true)}>
+            open menu
+          </button>
+          <button
+            data-testid="open-modal"
+            onClick={() => {
+              setModalOpen(true);
+              setMenuOpen(false);
+            }}
+          >
+            open modal
+          </button>
+          {chatOpen && <div data-testid="chat-view">chat</div>}
+          {modalOpen && <div data-testid="modal-view">modal</div>}
+        </>
+      );
+    }
+
+    render(<ContextMenuModalHarness />);
+    await userEvent.click(page.getByTestId("open-menu"));
+    await vi.waitFor(() => {
+      expect(window.history.state?.sbContextMenu).toBe(true);
+    });
+    await userEvent.click(page.getByTestId("open-modal"));
+
+    await expect.element(page.getByTestId("modal-view")).toBeInTheDocument();
+    await expect.element(page.getByTestId("chat-view")).toBeInTheDocument();
+  });
 });

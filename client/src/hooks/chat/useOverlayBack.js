@@ -1,5 +1,10 @@
 import { useEffect, useRef } from "react";
 
+// Shared by every hook instance: a back we trigger ourselves when an overlay
+// closes via its UI is not a user's system-back gesture. All instances must
+// ignore the resulting popstate.
+let programmaticBack = false;
+
 // When `isOpen` becomes true, pushes a sentinel history entry; when the
 // system back gesture pops that entry (popstate), calls onClose;
 // when the overlay closes by other means, pops the sentinel to keep the
@@ -26,6 +31,7 @@ export function useOverlayBack(isOpen, onClose, stateKey = "sbOverlayBack") {
       // drain it and our entry no-ops in the popstate handler.
       if (window.history.state?.[stateKey] === true) {
         pushedRef.current = false;
+        programmaticBack = true;
         window.history.back();
       }
     }
@@ -33,6 +39,13 @@ export function useOverlayBack(isOpen, onClose, stateKey = "sbOverlayBack") {
 
   useEffect(() => {
     const handlePopState = (event) => {
+      // A back we triggered must be ignored by *every* listener.
+      if (programmaticBack) {
+        setTimeout(() => {
+          programmaticBack = false;
+        }, 0);
+        return;
+      }
       if (!pushedRef.current) return;
       if (event.state?.[stateKey]) return; // moving forward into our entry
       pushedRef.current = false;
