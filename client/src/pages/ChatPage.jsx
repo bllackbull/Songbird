@@ -71,7 +71,11 @@ import {
   isMessageFromOtherUser,
   isRemoteChannelMessage,
 } from "../utils/messageOwnership.js";
-import { normalizeUuid, isValidUuid } from "../utils/uuidUtils.js";
+import {
+  normalizeUuid,
+  isValidUuid,
+  resolveServerMessageId,
+} from "../utils/uuidUtils.js";
 import {
   createDmChat,
   discoverUsersAndGroups,
@@ -3715,7 +3719,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   );
 
   async function performDeleteMessage(message, scope = "self") {
-    const messageId = normalizeUuid(message?.id || message?._serverId) || null;
+    const messageId = resolveServerMessageId(message);
     if (!activeChatId || !messageId || !user?.username) return;
     setMessageDeleteScopeOpen(false);
     setPendingDeleteMessage(null);
