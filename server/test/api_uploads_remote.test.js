@@ -740,7 +740,12 @@ describe("Remote Uploads & File Management Routes", () => {
         storageEncryption: { decryptFileToBuffer: () => null, getDecryptedFileSize: () => 0 },
         storageProvider: mockRemoteProvider,
       });
-      uploadTools.registerUploadRoutes(customApp.app, { adminGetRow: () => fileRecord });
+      uploadTools.registerUploadRoutes(customApp.app, {
+        adminGetRow: () => ({ ...fileRecord, chat_id: "chat-1" }),
+        adminGetAll: () => [{ ...fileRecord, chat_id: "chat-1" }],
+        requireSession: async () => ({ id: "user-1" }),
+        isMember: async () => true,
+      });
 
       const res = await request(customApp.app).get(`/api/uploads/messages/${storedName}`);
 

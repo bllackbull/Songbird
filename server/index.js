@@ -815,7 +815,7 @@ async function backfillStorageEncryption() {
   }
 }
 
-registerUploadRoutes(app, { adminGetRow, storageProvider });
+registerUploadRoutes(app, { adminGetRow, adminGetAll, storageProvider, requireSession, isMember });
 
 const apiDeps = {
   dbConfig: readDbConfig(),

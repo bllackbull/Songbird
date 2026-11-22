@@ -228,7 +228,12 @@ describe("server/lib/uploads.js avatar storage enhancements", () => {
       uploadTools = localTools;
 
       serveApp = express();
-      localTools.registerUploadRoutes(serveApp, { adminGetRow: () => null });
+      localTools.registerUploadRoutes(serveApp, {
+        adminGetRow: () => null,
+        adminGetAll: () => [],
+        requireSession: async () => ({ id: "test-user" }),
+        isMember: async () => true,
+      });
     });
 
     test("serves raster avatars inline with their inferred image type", async () => {

@@ -390,11 +390,14 @@ export function createUploadTools({
     );
   };
 
-  const registerUploadRoutes = (app, { adminGetRow }) => {
+  const registerUploadRoutes = (app, { adminGetRow, adminGetAll, requireSession, isMember }) => {
     app.get(
       "/api/uploads/messages/:storedName",
       uploadDownloadLimiter,
       async (req, res) => {
+        const session = await requireSession(req, res);
+        if (!session) return;
+
         const storedName = path.basename(
           String(req.params?.storedName || "").trim(),
         );
@@ -402,16 +405,40 @@ export function createUploadTools({
 
         const filePath = path.join(uploadRootDir, storedName);
 
-        let row = null;
+        let rows = [];
         try {
-          const rawRow = adminGetRow(
-            dbKnex("chat_message_files")
-              .select("original_name", "mime_type", "storage_key", "storage_driver")
-              .where("stored_name", storedName)
-              .first(),
+          const rawRows = adminGetAll(
+            dbKnex("chat_message_files as cmf")
+              .join("chat_messages as m", "m.id", "cmf.message_id")
+              .select(
+                "cmf.original_name",
+                "cmf.mime_type",
+                "cmf.storage_key",
+                "cmf.storage_driver",
+                "m.chat_id",
+              )
+              .where("cmf.stored_name", storedName),
           );
-          row = (rawRow && typeof rawRow.then === "function") ? await rawRow : rawRow;
+          rows = (rawRows && typeof rawRows.then === "function") ? await rawRows : rawRows || [];
         } catch (_) {}
+
+        if (!rows.length) return res.status(404).end();
+
+        // A bare download URL must not grant access: only chat members may read
+        // files sent in that chat, even if someone shares the link externally.
+        // Forwarded copies reuse the stored name, so check every chat that has
+        // this file rather than trusting a single row.
+        const userId = session.id ?? session.userId ?? session.user?.id ?? session.user_id;
+        let row = null;
+        for (const candidate of rows) {
+          const rawMember = isMember(candidate.chat_id, userId);
+          const member = rawMember && typeof rawMember.then === "function" ? await rawMember : rawMember;
+          if (member) {
+            row = candidate;
+            break;
+          }
+        }
+        if (!row) return res.status(403).end();
 
         const driver = row?.storage_driver || row?.storageDriver;
         if (
