@@ -209,7 +209,7 @@ export class RemoteStorageProvider extends StorageProvider {
   async getDownloadUrl(fileKey, options = {}) {
     const cleanKey = String(fileKey || "").replace(/^\//, "");
 
-    if (this.publicUrl) {
+    if (this.publicUrl && !options?.forcePresigned) {
       const base = this.publicUrl.replace(/\/$/, "");
       return `${base}/${cleanKey}`;
     }

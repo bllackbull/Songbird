@@ -412,27 +412,14 @@ function registerChatRoutes(app, deps) {
       const messageId = file.message_id;
       if (!filesByMessageId[messageId]) filesByMessageId[messageId] = [];
 
-      const driver = file.storage_driver;
-      const storageKey = file.storage_key;
+      const fileUrl = `/api/uploads/messages/${file.stored_name}`;
       const thumbKey = file.thumb_storage_key || file.thumbStorageKey;
-      let fileUrl = `/api/uploads/messages/${file.stored_name}`;
-      let thumbUrl = await resolveThumbUrl({
+      const thumbUrl = await resolveThumbUrl({
         storageProvider: deps.storageProvider,
         file,
         thumbKey,
         fileId: file.id,
       });
-      if (
-        (driver === "remote" || driver === "s3") &&
-        deps.storageProvider &&
-        typeof deps.storageProvider.getDownloadUrl === "function"
-      ) {
-        if (storageKey) {
-          try {
-            fileUrl = await deps.storageProvider.getDownloadUrl(storageKey);
-          } catch (_) {}
-        }
-      }
 
       filesByMessageId[messageId].push({
         id: file.id,

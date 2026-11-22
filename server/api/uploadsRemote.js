@@ -686,24 +686,13 @@ export function registerRemoteUploadRoutes(app, deps) {
               ? thumbStorageKey
               : (f.thumb_storage_key || f.thumbStorageKey);
             const storedName = f.stored_name || f.storedName || "";
-            let fileUrl = storedName ? `/api/uploads/messages/${storedName}` : null;
-            let thumbUrl = await resolveThumbUrl({
+            const fileUrl = storedName ? `/api/uploads/messages/${storedName}` : null;
+            const thumbUrl = await resolveThumbUrl({
               storageProvider,
               file: f,
               thumbKey,
               fileId: f?.id ?? fileId,
             });
-            if (
-              (driver === "remote" || driver === "s3") &&
-              storageProvider &&
-              typeof storageProvider.getDownloadUrl === "function"
-            ) {
-              if (sKey) {
-                try {
-                  fileUrl = await storageProvider.getDownloadUrl(sKey);
-                } catch (_) {}
-              }
-            }
             const isThisPending = isTargetFile
               ? finalStatus === "pending"
               : (f.processing_status || f.processingStatus) === "pending";

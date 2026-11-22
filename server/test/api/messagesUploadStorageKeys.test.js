@@ -68,9 +68,9 @@ describe("POST /api/messages/upload with storageKeys", () => {
     expect(res.body.id).toBeDefined();
     expect(res.body.files).toHaveLength(1);
     expect(res.body.files[0].name).toBe("doc123.pdf");
-    expect(res.body.files[0].url).toContain("https://test-bucket.s3.amazonaws.com/uploads/doc123.pdf");
+    expect(res.body.files[0].url).toBe("/api/uploads/messages/doc123.pdf");
     expect(emittedEvents.length).toBeGreaterThan(0);
-    expect(emittedEvents[0].files[0].url).toContain("uploads/doc123.pdf");
+    expect(emittedEvents[0].files[0].url).toBe("/api/uploads/messages/doc123.pdf");
   });
 
   test("accepts storageKeys as JSON stringified array or object array", async () => {
@@ -99,7 +99,7 @@ describe("POST /api/messages/upload with storageKeys", () => {
     expect(res.body.files[0].name).toBe("image.png");
     expect(res.body.files[0].width).toBe(800);
     expect(res.body.files[0].height).toBe(600);
-    expect(res.body.files[0].url).toContain("https://test-bucket.s3.amazonaws.com/uploads/image.png");
+    expect(res.body.files[0].url).toBe("/api/uploads/messages/image.png");
   });
 
   test("rejects when no files or storageKeys are provided", async () => {

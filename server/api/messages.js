@@ -365,10 +365,8 @@ function registerMessageRoutes(app, deps) {
       const messageId = file.message_id;
       if (!filesByMessageId[messageId]) filesByMessageId[messageId] = [];
 
-      let fileUrl = `/api/uploads/messages/${file.stored_name}`;
+      const fileUrl = `/api/uploads/messages/${file.stored_name}`;
       let thumbUrl = null;
-      const driver = file.storage_driver;
-      const storageKey = file.storage_key;
       const thumbKey = file.thumb_storage_key || file.thumbStorageKey;
       thumbUrl = await resolveThumbUrl({
         storageProvider: deps.storageProvider,
@@ -376,17 +374,6 @@ function registerMessageRoutes(app, deps) {
         thumbKey,
         fileId: file.id,
       });
-      if (
-        (driver === "remote" || driver === "s3") &&
-        deps.storageProvider &&
-        typeof deps.storageProvider.getDownloadUrl === "function"
-      ) {
-        if (storageKey) {
-          try {
-            fileUrl = await deps.storageProvider.getDownloadUrl(storageKey);
-          } catch (_) {}
-        }
-      }
 
       filesByMessageId[messageId].push({
         id: file.id,
@@ -1486,20 +1473,8 @@ function registerMessageRoutes(app, deps) {
           : insertedFiles;
         const sourceFilesForResponse = hydratedFiles.length ? hydratedFiles : normalizedFiles;
 
-        const resolveFileUrl = async (file) => {
+        const resolveFileUrl = (file) => {
           const storedName = file.stored_name || file.storedName || "";
-          const driver = file.storage_driver || file.storageDriver;
-          const storageKey = file.storage_key || file.storageKey;
-          if (
-            (driver === "remote" || driver === "s3") &&
-            storageKey &&
-            deps.storageProvider &&
-            typeof deps.storageProvider.getDownloadUrl === "function"
-          ) {
-            try {
-              return await deps.storageProvider.getDownloadUrl(storageKey);
-            } catch (_) {}
-          }
           return storedName ? `/api/uploads/messages/${storedName}` : null;
         };
 

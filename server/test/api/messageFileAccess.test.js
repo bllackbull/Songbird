@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import express from "express";
 import request from "supertest";
 import fs from "node:fs";
@@ -18,7 +18,7 @@ const FILE_ROW = {
   chat_id: CHAT_ID,
 };
 
-function buildApp({ session = null, isMemberResult = true, rows = null } = {}) {
+function buildApp({ session = null, isMemberResult = true, rows = null, storageProvider = null } = {}) {
   const uploadRootDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "songbird-access-"),
   );
@@ -44,7 +44,7 @@ function buildApp({ session = null, isMemberResult = true, rows = null } = {}) {
       decryptFileToBuffer: () => Buffer.from("photo-bytes"),
       getDecryptedFileSize: () => 11,
     },
-    storageProvider: null,
+    storageProvider,
   });
 
   const app = express();
@@ -126,5 +126,26 @@ describe("GET /api/uploads/messages/:storedName access control", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers["content-length"]).toBe("11");
+  });
+
+  it("redirects remote files to a short-lived presigned URL, not the public CDN URL", async () => {
+    const getDownloadUrl = vi.fn(async () => "https://signed.example.com/photo?sig=abc");
+    const built = buildApp({
+      session: { id: "user-b" },
+      rows: [{ ...FILE_ROW, storage_driver: "remote" }],
+      storageProvider: { type: "remote", getDownloadUrl },
+    });
+    uploadRootDir = built.uploadRootDir;
+
+    const res = await request(built.app)
+      .get(`/api/uploads/messages/${STORED_NAME}`)
+      .set("Cookie", ["sid=user-b"]);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe("https://signed.example.com/photo?sig=abc");
+    expect(getDownloadUrl).toHaveBeenCalledWith(
+      `uploads/messages/${STORED_NAME}`,
+      { expiresIn: 300, forcePresigned: true },
+    );
   });
 });

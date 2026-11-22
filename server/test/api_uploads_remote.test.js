@@ -463,6 +463,7 @@ describe("Remote Uploads & File Management Routes", () => {
         message_id: messageUuid,
         storage_driver: "s3",
         storage_key: "uploads/raw.mp4",
+        stored_name: "raw.mp4",
         processing_status: "pending",
         mime_type: "video/mp4",
       };
@@ -520,7 +521,7 @@ describe("Remote Uploads & File Management Routes", () => {
               height: 720,
               durationSeconds: 15.4,
               thumbUrl: "https://cdn.example.com/thumbs/thumb21.jpg",
-              url: "https://cdn.example.com/transcoded/video21.mp4",
+              url: "/api/uploads/messages/raw.mp4",
             }),
           ]),
         }),

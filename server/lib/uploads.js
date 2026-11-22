@@ -449,7 +449,10 @@ export function createUploadTools({
         ) {
           try {
             const key = row?.storage_key || `uploads/messages/${storedName}`;
-            const url = await storageProvider.getDownloadUrl(key);
+            const url = await storageProvider.getDownloadUrl(key, {
+              expiresIn: 300,
+              forcePresigned: true,
+            });
             if (url && url !== `/api/uploads/messages/${storedName}`) {
               return res.redirect(302, url);
             }

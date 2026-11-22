@@ -126,6 +126,15 @@ describe("RemoteStorageProvider", () => {
     });
     const cdnUrl = await cdnProvider.getDownloadUrl("uploads/file.png");
     expect(cdnUrl).toBe("https://cdn.example.com/uploads/file.png");
+
+    // Authenticated downloads force a short-lived presigned URL even when a
+    // public CDN URL is configured, so the link cannot be shared permanently.
+    const forcedUrl = await cdnProvider.getDownloadUrl("uploads/file.png", {
+      forcePresigned: true,
+      expiresIn: 300,
+    });
+    expect(forcedUrl).not.toContain("cdn.example.com");
+    expect(forcedUrl).toContain("my-bucket");
   });
 
   it("deletes file using DeleteObjectCommand", async () => {
