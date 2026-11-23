@@ -11,7 +11,7 @@ const JPEG_HEAD = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
 const originalKey = process.env.STORAGE_ENCRYPTION_KEY;
 
 describe("resolveThumbUrl", () => {
-  test("routes app-encrypted remote thumbs through the server proxy", async () => {
+  test("routes remote thumbs through the gated app endpoint", async () => {
     const getDownloadUrl = vi.fn(async (k) => `https://cdn.example.com/${k}`);
     for (const enc of ["local", "aes-256-gcm", "app"]) {
       const url = await resolveThumbUrl({
@@ -24,14 +24,15 @@ describe("resolveThumbUrl", () => {
     expect(getDownloadUrl).not.toHaveBeenCalled();
   });
 
-  test("keeps presigned redirects for plaintext remote thumbs", async () => {
+  test("routes plaintext remote thumbs through the gated app endpoint too", async () => {
     const getDownloadUrl = vi.fn(async (k) => `https://cdn.example.com/${k}`);
     const url = await resolveThumbUrl({
       storageProvider: { getDownloadUrl },
       file: { id: 7, storage_driver: "s3", encryption_type: "remote" },
       thumbKey: "thumbs/t.jpg",
     });
-    expect(url).toBe("https://cdn.example.com/thumbs/t.jpg");
+    expect(url).toBe("/api/uploads/thumbs/7");
+    expect(getDownloadUrl).not.toHaveBeenCalled();
   });
 
   test("returns null for local driver and missing keys", async () => {
@@ -93,6 +94,8 @@ describe("GET /api/uploads/thumbs/:fileId", () => {
         storageEncryption,
         findMessageFileById: (id) =>
           String(id) === String(fileRecord.id) ? fileRecord : null,
+        requireSession: async () => ({ id: "user-1" }),
+        isMember: () => true,
       },
     });
   }
@@ -177,6 +180,54 @@ describe("GET /api/uploads/thumbs/:fileId", () => {
     expect(
       (await request(appObj.app).get("/api/uploads/thumbs/14")).status,
     ).toBe(404);
+  });
+
+  test("rejects anonymous thumbnail requests", async () => {
+    const appObj = makeApp({
+      deps: {
+        isMember: () => true,
+        findMessageFileById: () => ({ id: 15, chat_id: "chat-1", thumb_storage_key: "t.jpg" }),
+      },
+    });
+    expect((await request(appObj.app).get("/api/uploads/thumbs/15")).status).toBe(401);
+  });
+
+  test("rejects a non-member even when the file exists", async () => {
+    const appObj = makeApp({
+      deps: {
+        requireSession: async () => ({ id: "user-c" }),
+        isMember: () => false,
+        findMessageFileById: () => ({ id: 16, chat_id: "chat-1", thumb_storage_key: "t.jpg" }),
+      },
+    });
+    expect((await request(appObj.app).get("/api/uploads/thumbs/16")).status).toBe(403);
+  });
+
+  test("redirects a member to a short-lived storage URL for plaintext remote thumbs", async () => {
+    const getDownloadUrl = vi.fn(async () => "https://signed.example.com/thumb");
+    const appObj = makeApp({
+      deps: {
+        storageProvider: { getDownloadUrl },
+        requireSession: async () => ({ id: "user-b" }),
+        isMember: () => true,
+        findMessageFileById: () => ({
+          id: 17,
+          chat_id: "chat-1",
+          storage_driver: "s3",
+          encryption_type: "remote",
+          thumb_storage_key: "thumbs/t.jpg",
+        }),
+      },
+    });
+
+    const res = await request(appObj.app).get("/api/uploads/thumbs/17");
+
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe("https://signed.example.com/thumb");
+    expect(getDownloadUrl).toHaveBeenCalledWith("thumbs/t.jpg", {
+      expiresIn: 300,
+      forcePresigned: true,
+    });
   });
 });
 

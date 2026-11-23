@@ -6,7 +6,7 @@ import { dbKnex } from "../db/knex.js";
 import { dispatchMediaWorkerJob } from "../lib/mediaWorker.js";
 import { ensureBucketCorsForRequest } from "../lib/bucketCors.js";
 import { resolveWebhookCallbackUrl } from "../lib/webhookUrl.js";
-import { resolveThumbUrl } from "../lib/thumbUrl.js";
+import { resolveThumbUrl, isAppEncryptedType } from "../lib/thumbUrl.js";
 import { readEnvBool } from "../settings/env.js";
 
 export function registerRemoteUploadRoutes(app, deps) {
@@ -38,6 +38,7 @@ export function registerRemoteUploadRoutes(app, deps) {
       null,
     requireSession,
     getSessionFromRequest,
+    isMember,
     storageEncryption = defaultStorageEncryption,
     enqueueVideoTranscodeJob = deps.enqueueVideoTranscodeJob,
     listMessageFilesByMessageIds = deps.listMessageFilesByMessageIds,
@@ -510,6 +511,9 @@ export function registerRemoteUploadRoutes(app, deps) {
     const fileId = req.params?.fileId;
     if (!fileId) return res.status(404).end();
 
+    const session = await authenticateSession(req, res);
+    if (!session) return;
+
     let file = null;
     if (typeof findMessageFileById === "function") {
       const raw = findMessageFileById(fileId);
@@ -520,6 +524,22 @@ export function registerRemoteUploadRoutes(app, deps) {
       file = raw && typeof raw.then === "function" ? await raw : raw;
     }
     if (!file) return res.status(404).end();
+
+    const userId = session.id ?? session.userId ?? session.user?.id ?? session.user_id;
+    let chatId = file.chat_id || file.chatId || null;
+    if (!chatId && file.message_id) {
+      const rawChat = callAdminGetRow(
+        dbKnex("chat_messages")
+          .select("chat_id")
+          .where("id", file.message_id)
+          .first(),
+      );
+      const resolvedChat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
+      chatId = resolvedChat?.chat_id || null;
+    }
+    const rawMember = typeof isMember === "function" ? isMember(chatId, userId) : false;
+    const member = rawMember && typeof rawMember.then === "function" ? await rawMember : rawMember;
+    if (!member) return res.status(403).end();
 
     const thumbKey = file.thumb_storage_key || file.thumbStorageKey;
     if (!thumbKey) return res.status(404).end();
@@ -569,7 +589,16 @@ export function registerRemoteUploadRoutes(app, deps) {
       ) {
         return res.status(404).end();
       }
-      const url = await storageProvider.getDownloadUrl(thumbKey);
+      const url = await storageProvider.getDownloadUrl(thumbKey, {
+        expiresIn: 300,
+        forcePresigned: true,
+      });
+      if (!isAppEncryptedType(file.encryption_type || file.encryptionType)) {
+        // Plaintext thumbs go straight to storage; no server-side buffering.
+        // Don't cache the redirect — its target expires in five minutes.
+        res.setHeader("Cache-Control", "no-store");
+        return res.redirect(302, url);
+      }
       const fetchImpl = deps.fetch || globalThis.fetch;
       const resp = await fetchImpl(url);
       if (!resp || !resp.ok) return res.status(502).end();

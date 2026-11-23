@@ -520,7 +520,7 @@ describe("Remote Uploads & File Management Routes", () => {
               width: 1280,
               height: 720,
               durationSeconds: 15.4,
-              thumbUrl: "https://cdn.example.com/thumbs/thumb21.jpg",
+              thumbUrl: `/api/uploads/thumbs/${fileUuid}`,
               url: "/api/uploads/messages/raw.mp4",
             }),
           ]),

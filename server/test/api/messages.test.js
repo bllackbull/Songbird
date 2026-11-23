@@ -725,6 +725,6 @@ describe("GET /api/messages — replyTo shape", () => {
     expect(res.body.messages[0].files[0].url).toBe("/api/uploads/messages/test-file.png");
     expect(res.body.messages[0].files[0].thumbUrl).toBeNull();
     expect(res.body.messages[0].files[1].url).toBe("/api/uploads/messages/video.mp4");
-    expect(res.body.messages[0].files[1].thumbUrl).toBe("https://s3.example.com/thumbs/video-thumb.jpg");
+    expect(res.body.messages[0].files[1].thumbUrl).toBe("/api/uploads/thumbs/file-uuid-2");
   });
 });
