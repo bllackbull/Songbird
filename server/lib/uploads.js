@@ -404,6 +404,9 @@ export function createUploadTools({
         if (!storedName) return res.status(404).end();
 
         const filePath = path.join(uploadRootDir, storedName);
+        const forceDownload =
+          String(req.query?.download || "").toLowerCase() === "1" ||
+          String(req.query?.download || "").toLowerCase() === "true";
 
         let rows = [];
         try {
@@ -440,6 +443,11 @@ export function createUploadTools({
         }
         if (!row) return res.status(403).end();
 
+        const originalName = buildDownloadFilename(row?.original_name);
+        const fallbackName = buildAsciiFallbackFilename(originalName);
+        const contentDisposition =
+          `attachment; filename="${fallbackName}"; filename*=UTF-8''${encodeURIComponent(originalName)}`;
+
         const driver = row?.storage_driver || row?.storageDriver;
         if (
           (driver === "s3" || driver === "remote" || !fs.existsSync(filePath)) &&
@@ -452,6 +460,11 @@ export function createUploadTools({
             const url = await storageProvider.getDownloadUrl(key, {
               expiresIn: 300,
               forcePresigned: true,
+              // Let the storage server force a download; a cross-origin 302
+              // would otherwise make browsers ignore <a download> and navigate.
+              ...(forceDownload
+                ? { responseContentDisposition: contentDisposition }
+                : {}),
             });
             if (url && url !== `/api/uploads/messages/${storedName}`) {
               return res.redirect(302, url);
@@ -460,8 +473,6 @@ export function createUploadTools({
         }
 
         if (!fs.existsSync(filePath)) return res.status(404).end();
-        const originalName = buildDownloadFilename(row?.original_name);
-        const fallbackName = buildAsciiFallbackFilename(originalName);
         const mimeType = String(row?.mime_type || "").trim();
         const ext = path.extname(storedName).toLowerCase();
 
@@ -474,15 +485,8 @@ export function createUploadTools({
           res.type(mimeType);
         }
 
-        const forceDownload =
-          String(req.query?.download || "").toLowerCase() === "1" ||
-          String(req.query?.download || "").toLowerCase() === "true";
         if (forceDownload || !SAFE_INLINE_MESSAGE_EXTENSIONS.has(ext)) {
-          const encoded = encodeURIComponent(originalName);
-          res.setHeader(
-            "Content-Disposition",
-            `attachment; filename="${fallbackName}"; filename*=UTF-8''${encoded}`,
-          );
+          res.setHeader("Content-Disposition", contentDisposition);
         }
 
         const totalSize = storageEncryption.getDecryptedFileSize(filePath);

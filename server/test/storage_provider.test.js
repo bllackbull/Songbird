@@ -135,6 +135,14 @@ describe("RemoteStorageProvider", () => {
     });
     expect(forcedUrl).not.toContain("cdn.example.com");
     expect(forcedUrl).toContain("my-bucket");
+
+    const downloadUrl = await cdnProvider.getDownloadUrl("uploads/file.png", {
+      forcePresigned: true,
+      responseContentDisposition: 'attachment; filename="file.png"',
+    });
+    expect(decodeURIComponent(downloadUrl)).toContain(
+      'response-content-disposition=attachment; filename="file.png"',
+    );
   });
 
   it("deletes file using DeleteObjectCommand", async () => {

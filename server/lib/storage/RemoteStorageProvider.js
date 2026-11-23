@@ -218,6 +218,9 @@ export class RemoteStorageProvider extends StorageProvider {
     const command = new GetObjectCommand({
       Bucket: this.bucket,
       Key: cleanKey,
+      ...(options?.responseContentDisposition
+        ? { ResponseContentDisposition: options.responseContentDisposition }
+        : {}),
     });
 
     return await getSignedUrl(this.client, command, { expiresIn });

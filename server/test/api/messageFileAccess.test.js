@@ -148,4 +148,29 @@ describe("GET /api/uploads/messages/:storedName access control", () => {
       { expiresIn: 300, forcePresigned: true },
     );
   });
+
+  it("redirects download requests with an attachment disposition in the presigned URL", async () => {
+    const getDownloadUrl = vi.fn(async () => "https://signed.example.com/photo?sig=abc");
+    const built = buildApp({
+      session: { id: "user-b" },
+      rows: [{ ...FILE_ROW, storage_driver: "remote", original_name: "photo.png" }],
+      storageProvider: { type: "remote", getDownloadUrl },
+    });
+    uploadRootDir = built.uploadRootDir;
+
+    const res = await request(built.app)
+      .get(`/api/uploads/messages/${STORED_NAME}?download=1`)
+      .set("Cookie", ["sid=user-b"]);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe("https://signed.example.com/photo?sig=abc");
+    expect(getDownloadUrl).toHaveBeenCalledWith(
+      `uploads/messages/${STORED_NAME}`,
+      expect.objectContaining({
+        expiresIn: 300,
+        forcePresigned: true,
+        responseContentDisposition: expect.stringContaining("attachment"),
+      }),
+    );
+  });
 });
