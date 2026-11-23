@@ -40,6 +40,8 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
         deps: {
           storageProvider: localProvider,
           storageProcessingMode: "local",
+          isMember: () => true,
+          isPendingUploadOwner: () => true,
           createMessageFiles: createMessageFilesMock,
           findMessageFileById: (id) =>
             filesStore.find((f) => String(f.id) === String(id)) || null,
@@ -110,9 +112,9 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
       expect(completeRes.body.status).toBe("ready");
 
       // 3. Download call
-      const downloadRes = await request(appObj.app).get(
-        `/api/uploads/file/${fileId}`,
-      );
+      const downloadRes = await request(appObj.app)
+        .get(`/api/uploads/file/${fileId}`)
+        .set("Cookie", [`sid=${sessionToken}`]);
 
       expect(downloadRes.status).toBe(200);
     });
@@ -136,6 +138,8 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
       const appObj = makeApp({
         deps: {
           storageProvider: localProvider,
+          isMember: () => true,
+          isPendingUploadOwner: () => true,
           createMessageFiles: createMessageFilesMock,
           findMessageFileById: (id) =>
             filesStore.find((f) => String(f.id) === String(id)) || null,
@@ -177,9 +181,9 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
       );
 
       // Verify download endpoint
-      const downloadRes = await request(appObj.app).get(
-        `/api/uploads/file/${uploadRes.body.fileId}`,
-      );
+      const downloadRes = await request(appObj.app)
+        .get(`/api/uploads/file/${uploadRes.body.fileId}`)
+        .set("Cookie", [`sid=${sessionToken}`]);
 
       expect(downloadRes.status).toBe(200);
     });
@@ -238,6 +242,8 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
         deps: {
           storageProvider: mockRemoteProvider,
           storageProcessingMode: "remote",
+          isMember: () => true,
+          isPendingUploadOwner: () => true,
           webhookSecret: "super-secret-webhook-key",
           createMessageFiles: createMessageFilesMock,
           findMessageFileById: (id) =>
@@ -333,9 +339,9 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
       expect(updatedFile.storage_key).toBe("transcoded/video_720p.mp4");
 
       // 4. Download URL resolution (302 redirect)
-      const downloadRes = await request(appObj.app).get(
-        `/api/uploads/file/${fileId}`,
-      );
+      const downloadRes = await request(appObj.app)
+        .get(`/api/uploads/file/${fileId}`)
+        .set("Cookie", [`sid=${sessionToken}`]);
 
       expect(downloadRes.status).toBe(302);
       expect(downloadRes.headers.location).toBe(

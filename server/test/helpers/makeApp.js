@@ -237,6 +237,7 @@ export function makeApp(overrides = {}) {
       pendingUploadsStore.push(rec);
       return rec;
     },
+    isPendingUploadOwner: () => false,
     removePendingPresignedUploads: (keys = []) => {
       const keySet = new Set((Array.isArray(keys) ? keys : [keys]).map((k) => (typeof k === "string" ? k : k?.storageKey || k?.storage_key)));
       for (let i = pendingUploadsStore.length - 1; i >= 0; i--) {

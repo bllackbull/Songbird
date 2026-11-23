@@ -21,6 +21,7 @@ export function registerRemoteUploadRoutes(app, deps) {
     findMessageFileById,
     emitChatEvent,
     recordPendingPresignedUpload,
+    isPendingUploadOwner,
     storageProcessingMode = "auto",
     s3ProcessingMode = "auto",
     webhookSecret,
@@ -348,7 +349,7 @@ export function registerRemoteUploadRoutes(app, deps) {
         try {
           recordPendingPresignedUpload({
             storageKey: finalStorageKey,
-            userId: session?.userId || null,
+            userId: session?.id || session?.userId || null,
           });
         } catch (_) {}
       } else if (typeof adminRun === "function") {
@@ -356,7 +357,7 @@ export function registerRemoteUploadRoutes(app, deps) {
           callAdminRun(
             dbKnex("pending_presigned_uploads").insert({
               storage_key: finalStorageKey,
-              user_id: session?.userId || null,
+              user_id: session?.id || session?.userId || null,
               created_at: new Date().toISOString(),
             }),
           );
@@ -873,6 +874,17 @@ export function registerRemoteUploadRoutes(app, deps) {
       fileId = 1;
     }
 
+    // The file row is still unattached (message_id 0). Record who uploaded it
+    // so only they can preview it until a message claims it.
+    if (typeof recordPendingPresignedUpload === "function") {
+      try {
+        recordPendingPresignedUpload({
+          storageKey: generatedKey,
+          userId: session?.id || session?.userId || null,
+        });
+      } catch (_) {}
+    }
+
     return res.json({
       success: true,
       fileId,
@@ -889,6 +901,9 @@ export function registerRemoteUploadRoutes(app, deps) {
   app.get("/api/uploads/file/:id", async (req, res) => {
     const idParam = req.params?.id;
     if (!idParam) return res.status(404).end();
+
+    const session = await authenticateSession(req, res);
+    if (!session) return;
 
     let file = null;
     if (typeof findMessageFileById === "function") {
@@ -908,6 +923,33 @@ export function registerRemoteUploadRoutes(app, deps) {
 
     if (!file) return res.status(404).end();
 
+    const userId = session.id ?? session.userId ?? session.user?.id ?? session.user_id;
+    let chatId = file.chat_id || file.chatId || null;
+    if (!chatId && file.message_id && String(file.message_id) !== "0") {
+      const rawChat = callAdminGetRow(
+        dbKnex("chat_messages")
+          .select("chat_id")
+          .where("id", file.message_id)
+          .first(),
+      );
+      const resolvedChat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
+      chatId = resolvedChat?.chat_id || null;
+    }
+
+    let allowed = false;
+    if (chatId && typeof isMember === "function") {
+      const rawMember = isMember(chatId, userId);
+      allowed = rawMember && typeof rawMember.then === "function" ? await rawMember : rawMember;
+    } else if (typeof isPendingUploadOwner === "function") {
+      // Unattached uploads are previews: only the uploader may read them.
+      const rawOwner = isPendingUploadOwner(
+        file.storage_key || file.storageKey,
+        userId,
+      );
+      allowed = rawOwner && typeof rawOwner.then === "function" ? await rawOwner : rawOwner;
+    }
+    if (!allowed) return res.status(403).end();
+
     const driver = file.storage_driver || file.storageDriver;
     if (driver === "s3" || driver === "remote") {
       if (
@@ -922,6 +964,7 @@ export function registerRemoteUploadRoutes(app, deps) {
       try {
         const downloadUrl = await storageProvider.getDownloadUrl(
           file.storage_key,
+          { expiresIn: 300, forcePresigned: true },
         );
 
         const encType = file.encryption_type || "remote";

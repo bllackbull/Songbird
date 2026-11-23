@@ -604,6 +604,8 @@ describe("Remote Uploads & File Management Routes", () => {
       const customApp = makeApp({
         deps: {
           storageProvider: mockRemoteProvider,
+          requireSession: async () => ({ id: "user-1" }),
+          isPendingUploadOwner: () => true,
           findMessageFileById: (id) => (String(id) === fileUuid ? fileRecord : null),
           adminGetRow: () => fileRecord,
         },
@@ -630,6 +632,8 @@ describe("Remote Uploads & File Management Routes", () => {
       const customApp = makeApp({
         deps: {
           storageProvider: mockRemoteProvider,
+          requireSession: async () => ({ id: "user-1" }),
+          isPendingUploadOwner: () => true,
           findMessageFileById: (id) => (String(id) === fileUuid ? fileRecord : null),
           adminGetRow: () => fileRecord,
         },
@@ -675,6 +679,8 @@ describe("Remote Uploads & File Management Routes", () => {
           deps: {
             storageProvider: mockRemoteProvider,
             storageEncryption: enc,
+            requireSession: async () => ({ id: "user-1" }),
+            isPendingUploadOwner: () => true,
             findMessageFileById: (id) =>
               String(id) === fileUuid ? fileRecord : null,
             adminGetRow: () => fileRecord,

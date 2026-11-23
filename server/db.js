@@ -2994,6 +2994,20 @@ export function recordPendingPresignedUpload({ storageKey, userId = null, expire
   return { storage_key: key, user_id: userId, created_at: nowIso, expires_at: expiresAt };
 }
 
+export function isPendingUploadOwner(storageKey, userId) {
+  const key = String(storageKey || "").trim();
+  const user = String(userId || "").trim();
+  if (!key || !user) return false;
+  const raw = getRow(
+    dbKnex("pending_presigned_uploads")
+      .select("user_id")
+      .where({ storage_key: key, user_id: user })
+      .first(),
+  );
+  if (raw && typeof raw.then === "function") return raw.then((row) => Boolean(row));
+  return Boolean(raw);
+}
+
 export function removePendingPresignedUploads(storageKeys = []) {
   const keys = (Array.isArray(storageKeys) ? storageKeys : [storageKeys])
     .map((k) => (typeof k === "string" ? k.trim() : (k?.storageKey || k?.storage_key || k?.key || "")))
