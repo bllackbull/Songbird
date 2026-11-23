@@ -66,6 +66,37 @@ export function createMediaQueueManager({
         return readEnvBool("FILE_UPLOAD_TRANSCODE_VIDEOS", true);
       };
 
+      if (isVideo) {
+        // A worker can upload the transcoded file and then die before its
+        // webhook lands. Reconcile from storage before retrying the job.
+        if (storageProvider && typeof storageProvider.listObjects === "function") {
+          try {
+            const base = String(row.storage_key || storageKey || "").replace(/\.[^.]*$/, "");
+            const objects = base
+              ? await storageProvider.listObjects(`${base}-h264-`)
+              : [];
+            const transcoded = objects
+              .filter((entry) => /\.mp4$/i.test(entry?.key || ""))
+              .sort((a, b) => Number(b?.lastModified || 0) - Number(a?.lastModified || 0))[0];
+            if (transcoded) {
+              if (adminRun) {
+                const { sql: updateSql, params: updateParams } = toSql(
+                  dbKnex("chat_message_files")
+                    .where("id", fileId)
+                    .update({
+                      processing_status: "ready",
+                      storage_key: transcoded.key,
+                      stored_name: String(transcoded.key).split("/").pop(),
+                    }),
+                );
+                adminRun(updateSql, updateParams);
+              }
+              return;
+            }
+          } catch (_) {}
+        }
+      }
+
       if (isVideo && isTranscodeEnabled() && typeof enqueueVideoTranscodeJob === "function") {
         enqueueVideoTranscodeJob({
           fileId,

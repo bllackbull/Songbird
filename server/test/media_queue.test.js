@@ -126,6 +126,45 @@ describe("MediaQueueManager (BullMQ / In-Process Fallback)", () => {
     await manager.close();
   });
 
+  it("reconciles a pending video from the transcoded object when the worker callback was lost", async () => {
+    const updates = [];
+    const enqueueJobMock = vi.fn();
+    const transcodedKey = "uploads/messages/123-h264-ab12cd34.mp4";
+    const manager = createMediaQueueManager({
+      s3ProcessingMode: "auto",
+      transcodeVideosToH264: true,
+      storageProvider: {
+        type: "remote",
+        listObjects: vi.fn().mockResolvedValue([
+          { key: transcodedKey, lastModified: new Date("2026-01-01"), size: 99 },
+        ]),
+      },
+      enqueueVideoTranscodeJob: enqueueJobMock,
+      adminGetRow: () => ({
+        id: FILE_ID_1,
+        mime_type: "video/mp4",
+        processing_status: "pending",
+        storage_key: "uploads/messages/123.mp4",
+        stored_name: "123.mp4",
+        message_id: "20000000-0000-4000-8000-000000000010",
+      }),
+      adminRun: (sql, params) => updates.push({ sql, params }),
+      emitChatEvent: vi.fn(),
+    });
+
+    await manager.processMediaJob({
+      fileId: FILE_ID_1,
+      storageKey: "uploads/messages/123.mp4",
+    });
+
+    expect(enqueueJobMock).not.toHaveBeenCalled();
+    expect(updates).toHaveLength(1);
+    expect(updates[0].sql).toContain("processing_status");
+    expect(updates[0].params).toEqual(
+      expect.arrayContaining(["ready", transcodedKey]),
+    );
+  });
+
   it("respects process.env.STORAGE_PROCESSING_TIMEOUT_MS when s3ProcessingTimeoutMs is omitted", async () => {
     const originalEnv = process.env.STORAGE_PROCESSING_TIMEOUT_MS;
     process.env.STORAGE_PROCESSING_TIMEOUT_MS = "60";

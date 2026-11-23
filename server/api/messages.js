@@ -1463,6 +1463,13 @@ function registerMessageRoutes(app, deps) {
                 });
               transcodeJobsQueued += 1;
             }
+
+            if (deps.mediaQueueManager?.scheduleFallbackCheck) {
+              deps.mediaQueueManager.scheduleFallbackCheck({
+                fileId,
+                storageKey: file.storageKey || file.storage_key || storedName,
+              });
+            }
           });
         }
 

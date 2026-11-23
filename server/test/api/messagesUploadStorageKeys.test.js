@@ -179,6 +179,58 @@ describe("POST /api/messages/upload with storageKeys", () => {
     expect(res.body.error).toContain("security reasons");
   });
 
+  test("schedules a fallback check for a presigned video so a lost worker callback can be reconciled", async () => {
+    const scheduleFallbackCheck = vi.fn();
+    const createdFiles = [];
+    const customApp = makeApp({
+      deps: {
+        isMember: () => true,
+        findChatById: () => ({ id: chatId, name: "test-chat", type: "group" }),
+        storageProvider: mockRemoteProvider,
+        enqueueVideoTranscodeJob: vi.fn(),
+        mediaQueueManager: { scheduleFallbackCheck },
+        createMessageFiles: (msgId, rows) => {
+          const created = rows.map((row, index) => ({
+            id: `file-${index}`,
+            message_id: msgId,
+            storage_key: row.storageKey,
+            stored_name: row.storedName,
+            mime_type: row.mimeType,
+            processing_status: row.processingStatus || "pending",
+          }));
+          createdFiles.push(...created);
+          return created;
+        },
+        listMessageFilesByMessageIds: () => createdFiles,
+      },
+    });
+    const uId = customApp.userStore.createUser("videouser", "pass", "Video User", null, "#fff");
+    customApp.sessionStore.createSession(uId, sessionToken);
+
+    const res = await request(customApp.app)
+      .post("/api/messages/upload")
+      .set("Cookie", [`sid=${sessionToken}`])
+      .send({
+        chatId,
+        username: "videouser",
+        body: "Here is a video",
+        storageKeys: [
+          {
+            storageKey: "uploads/clip.mp4",
+            originalName: "clip.mp4",
+            mimeType: "video/mp4",
+            sizeBytes: 1024 * 1024,
+          },
+        ],
+      });
+
+    expect(res.status).toBe(200);
+    expect(scheduleFallbackCheck).toHaveBeenCalledWith({
+      fileId: expect.anything(),
+      storageKey: "uploads/clip.mp4",
+    });
+  });
+
   test("does not enqueue video transcode job or call worker when FILE_UPLOAD_TRANSCODE_VIDEOS is false", async () => {
     const enqueueJobMock = vi.fn();
     const customApp = makeApp({
