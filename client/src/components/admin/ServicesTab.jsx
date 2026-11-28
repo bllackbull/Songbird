@@ -14,6 +14,7 @@ import Tooltip from "../common/Tooltip.jsx";
 import { api } from "./adminShared.js";
 import { SectionHeading } from "./AdminCommon.jsx";
 import RemoteChannelSetupModal from "./RemoteChannelSetupModal.jsx";
+import TurnSetupModal from "./TurnSetupModal.jsx";
 
 // ─── Status badge — mirrors ActionsTab ───────────────────────────────────────
 
@@ -96,6 +97,7 @@ const ServicesTab = forwardRef(function ServicesTab(
 ) {
   const [rowStatus, setRowStatus] = useState({});
   const [setupOpen, setSetupOpen] = useState(false);
+  const [turnSetupOpen, setTurnSetupOpen] = useState(false);
   const statusTimers = useRef({});
 
   const flashStatus = (key, type, label, ms = 3000) => {
@@ -200,12 +202,17 @@ const ServicesTab = forwardRef(function ServicesTab(
 
   const isTurnConfigured = Boolean(turn?.configured);
   const turnReachable = turn?.reachable;
-  const turnDescription = !isTurnConfigured
-    ? "STUN only — no TURN relay configured."
-    : turnReachable === false
-      ? "Configured but unreachable."
-      : (turn?.managed ? "Cloudflare TURN" : "TURN relay") +
-        (turnReachable && turn?.latencyMs != null ? ` · ${turn.latencyMs}ms` : "");
+  const turnEnvManaged = Boolean(
+    turn?.managedByEnv && Object.values(turn.managedByEnv).some(Boolean),
+  );
+  const turnDescription = turnEnvManaged
+    ? "TURN settings are set in .env"
+    : !isTurnConfigured
+      ? "STUN only — no TURN relay configured."
+      : turnReachable === false
+        ? "Configured but unreachable."
+        : (turn?.managed ? "Cloudflare TURN" : "TURN relay") +
+          (turnReachable && turn?.latencyMs != null ? ` · ${turn.latencyMs}ms` : "");
 
   const handleTurnCheck = async () => {
     flashStatus("turn", "busy", "Checking…");
@@ -301,17 +308,18 @@ const ServicesTab = forwardRef(function ServicesTab(
             iconAnim="icon-anim-sway"
             label="TURN server"
             description={turnDescription}
-            onClick={handleTurnCheck}
-            disabled={!isTurnConfigured}
+            onClick={() => setTurnSetupOpen(true)}
             status={
-              !isTurnConfigured
-                ? { type: "error", label: "Disabled" }
-                : rowStatus.turn ||
-                  (turn
-                    ? turnReachable === false
-                      ? { type: "error", label: "Unreachable" }
-                      : { type: "success", label: "Active" }
-                    : null)
+              turnEnvManaged
+                ? { type: "env" }
+                : !isTurnConfigured
+                  ? { type: "error", label: "Disabled" }
+                  : rowStatus.turn ||
+                    (turn
+                      ? turnReachable === false
+                        ? { type: "error", label: "Unreachable" }
+                        : { type: "success", label: "Active" }
+                      : null)
             }
           />
         </div>
@@ -319,6 +327,11 @@ const ServicesTab = forwardRef(function ServicesTab(
       <RemoteChannelSetupModal
         open={setupOpen}
         onClose={() => setSetupOpen(false)}
+        onChanged={() => onMutated?.()}
+      />
+      <TurnSetupModal
+        open={turnSetupOpen}
+        onClose={() => setTurnSetupOpen(false)}
         onChanged={() => onMutated?.()}
       />
     </div>

@@ -15,6 +15,7 @@ export function createCallManager(deps) {
     updateCallMessageBody,
     emitChatEvent,
     env = process.env,
+    resolveTurnConfig = null,
     maxCallDurationMs = 0,
   } = deps;
   const MAX_CALL_DURATION_MS = Math.max(0, Math.trunc(Number(maxCallDurationMs) || 0));
@@ -27,34 +28,56 @@ export function createCallManager(deps) {
   const TURN_USERNAME = env.TURN_USERNAME || "";
   const TURN_CREDENTIAL = env.TURN_CREDENTIAL || "";
 
-  function getIceServers() {
-    const servers = [{ urls: TURN_STUN_URL }];
-    if (TURN_URL) {
-      servers.push({
-        urls: TURN_URL,
-        username: TURN_USERNAME,
-        credential: TURN_CREDENTIAL,
-      });
+  function buildIceServers(stunUrl, turnUrl, username, credential) {
+    const servers = [{ urls: stunUrl || TURN_STUN_URL }];
+    if (turnUrl) {
+      servers.push({ urls: turnUrl, username, credential });
     }
     return servers;
+  }
+
+  function getIceServers() {
+    return buildIceServers(TURN_STUN_URL, TURN_URL, TURN_USERNAME, TURN_CREDENTIAL);
+  }
+
+  function serversFromConfig(config) {
+    return buildIceServers(
+      config.stunUrl,
+      config.turnUrl,
+      config.username,
+      config.credential,
+    );
   }
 
   /**
    * Cloudflare TURN cannot use static credentials: short-lived ones are minted
    * per session via their API (deps.fetch injected for tests). Falls back to
    * the static STUN/TURN config when keys are unset or the request fails.
+   * When a runtime resolver is injected (admin-panel config), values are read
+   * per request so panel edits apply to calls started afterwards.
    */
   async function resolveIceServers() {
-    if (!(env.TURN_TOKEN_ID && env.TURN_API_TOKEN)) return getIceServers();
+    let config = null;
+    if (typeof resolveTurnConfig === "function") {
+      try {
+        config = await resolveTurnConfig();
+      } catch (_) {
+        config = null;
+      }
+    }
+    const fallback = config ? () => serversFromConfig(config) : getIceServers;
+    const tokenId = config ? config.tokenId : env.TURN_TOKEN_ID;
+    const apiToken = config ? config.apiToken : env.TURN_API_TOKEN;
+    if (!(tokenId && apiToken)) return fallback();
     try {
       const res = await (
         deps.fetch || fetch
       )(
-        `https://rtc.live.cloudflare.com/v1/turn/keys/${env.TURN_TOKEN_ID}/credentials/generate-ice-servers`,
+        `https://rtc.live.cloudflare.com/v1/turn/keys/${tokenId}/credentials/generate-ice-servers`,
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${env.TURN_API_TOKEN}`,
+            Authorization: `Bearer ${apiToken}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ ttl: 86400 }),
@@ -67,7 +90,7 @@ export function createCallManager(deps) {
         }
       }
     } catch (_) {}
-    return getIceServers();
+    return fallback();
   }
 
   function sendCallPush(userIds, payload) {

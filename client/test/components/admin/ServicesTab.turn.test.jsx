@@ -1,12 +1,12 @@
 /**
  * TURN server card tests for the admin ServicesTab.
  *
- * The TURN server card displays health and latency when configured,
- * and stays disabled when only default STUN fallback is available.
+ * The card opens the setup modal (even when unconfigured), and shows an
+ * "environment" badge when TURN values are set in .env.
  */
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-react";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import ServicesTab from "../../../src/components/admin/ServicesTab.jsx";
 
 function makeData(turn) {
@@ -19,8 +19,37 @@ function makeData(turn) {
   };
 }
 
+function mockFetch() {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url) => {
+      if (String(url).endsWith("/status")) {
+        return {
+          ok: true,
+          json: async () => ({
+            mode: "stun-only",
+            stunUrl: "",
+            turnUrl: "",
+            username: "",
+            tokenId: "",
+            hasCredential: false,
+            hasApiToken: false,
+            managedByEnv: {},
+          }),
+        };
+      }
+      return { ok: true, json: async () => ({}) };
+    }),
+  );
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 describe("ServicesTab TURN server card", () => {
-  test("unconfigured renders a disabled TURN server card", async () => {
+  test("unconfigured card opens the setup modal when clicked", async () => {
+    mockFetch();
     render(
       <ServicesTab
         data={makeData({
@@ -33,12 +62,38 @@ describe("ServicesTab TURN server card", () => {
     );
     const card = page.getByRole("button", { name: /turn server/i });
     await expect.element(card).toBeInTheDocument();
-    await expect.element(card).toBeDisabled();
+    await expect.element(card).not.toBeDisabled();
     await expect
       .element(card.getByText("STUN only — no TURN relay configured."))
       .toBeInTheDocument();
     await expect
       .element(card.getByText("Disabled", { exact: true }))
+      .toBeInTheDocument();
+
+    await userEvent.click(card);
+    await expect
+      .element(page.getByRole("button", { name: "Save" }))
+      .toBeInTheDocument();
+  });
+
+  test("env-managed TURN config shows an environment badge", async () => {
+    mockFetch();
+    render(
+      <ServicesTab
+        data={makeData({
+          configured: true,
+          managed: false,
+          reachable: true,
+          latencyMs: 8,
+          mode: "self-hosted",
+          managedByEnv: { turnUrl: true },
+        })}
+      />,
+    );
+    const card = page.getByRole("button", { name: /turn server/i });
+    await expect.element(card.getByText("environment")).toBeInTheDocument();
+    await expect
+      .element(card.getByText("TURN settings are set in .env"))
       .toBeInTheDocument();
   });
 

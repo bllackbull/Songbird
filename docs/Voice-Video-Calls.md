@@ -18,6 +18,8 @@ WebRTC establishes an encrypted direct peer-to-peer connection between two parti
 
 ## Configuration
 
+You can set these in your `.env` file, or configure them from **Admin Panel → Services → TURN server** (see below). Env vars take precedence over panel values.
+
 Add the following environment variables to your `.env` file:
 
 ```txt
@@ -41,8 +43,8 @@ There are two ways to provide TURN relaying; pick **one** of them:
 
 If neither is configured, calls use the default STUN server only.
 
-:::tip Health check
-When configured, you can verify your TURN server's health, latency, and reachability at any time from the **Services** tab in the Admin Panel.
+:::tip Configure TURN in the Admin Panel
+Owners and admins can open **Admin Panel → Services → TURN server** to configure TURN without editing `.env` or restarting.
 :::
 
 ### Disabling calls
