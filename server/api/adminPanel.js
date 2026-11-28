@@ -12,6 +12,7 @@ import path from "node:path";
 import multer from "multer";
 import { execFile } from "node:child_process";
 import { checkTurnHealth } from "../lib/turnHealth.js";
+import { getTurnMode } from "../lib/turnConfig.js";
 
 // Recursive uploads sizing is expensive; serve a short-lived cache so dashboard
 // gauges (and bursty admin traffic) do not walk the tree on every request.
@@ -622,7 +623,20 @@ function registerAdminPanelRoutes(app, deps) {
     }
     let turn = { configured: false, managed: false, reachable: null, latencyMs: null };
     try {
-      turn = await checkTurnHealth(deps.env || process.env, deps.fetch);
+      let healthEnv = deps.env || process.env;
+      if (typeof deps.resolveTurnConfig === "function") {
+        const config = await deps.resolveTurnConfig();
+        if (config) {
+          healthEnv = {
+            TURN_TOKEN_ID: config.tokenId || "",
+            TURN_API_TOKEN: config.apiToken || "",
+            TURN_URL: config.turnUrl || "",
+          };
+          turn.mode = getTurnMode(config);
+          turn.managedByEnv = config.managedByEnv || {};
+        }
+      }
+      turn = { ...turn, ...(await checkTurnHealth(healthEnv, deps.fetch)) };
     } catch {
       turn = { configured: true, managed: false, reachable: false, latencyMs: null };
     }

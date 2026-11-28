@@ -208,6 +208,48 @@ describe("admin services status", () => {
     });
   });
 
+  test("GET /api/admin/services probes saved TURN config and reports env locks", async () => {
+    const sessionStore = makeSessionStore();
+    const userStore = makeUserStore([
+      {
+        id: "u-admin",
+        username: "admin",
+        nickname: "Admin",
+        role: "admin",
+        status: "online",
+      },
+    ]);
+    sessionStore.createSession("u-admin", "sid-admin");
+    const fetchSpy = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ iceServers: [{ urls: "turn:cf.example.com" }] }),
+    }));
+    const { app } = makeApp({
+      sessionStore,
+      userStore,
+      deps: {
+        isUserAdmin: () => true,
+        fetch: fetchSpy,
+        resolveTurnConfig: async () => ({
+          stunUrl: "stun:stun.l.google.com:19302",
+          turnUrl: "turn:relay.example.com:3478",
+          username: "u",
+          credential: "c",
+          tokenId: "saved-key",
+          apiToken: "saved-token",
+          managedByEnv: { tokenId: true },
+        }),
+      },
+    });
+    const res = await request(app)
+      .get("/api/admin/services")
+      .set("Cookie", "sid=sid-admin");
+    expect(res.status).toBe(200);
+    expect(res.body.turn.mode).toBe("cloudflare");
+    expect(res.body.turn.managedByEnv).toEqual({ tokenId: true });
+    expect(fetchSpy.mock.calls[0][0]).toContain("/keys/saved-key/");
+  });
+
   test("GET /api/admin/services reports storage reachability from checkHealth", async () => {
     const sessionStore = makeSessionStore();
     const userStore = makeUserStore([
