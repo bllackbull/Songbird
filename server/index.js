@@ -17,6 +17,8 @@ import { createSseHub } from "./lib/sse.js";
 import { createWebSocketGateway } from "./lib/websocketGateway.js";
 import { createPresenceTracker } from "./lib/presenceTracker.js";
 import { createCallManager } from "./lib/callManager.js";
+import { resolveTurnConfig as resolveTurnConfigLib } from "./lib/turnConfig.js";
+import { redactDebugSecrets } from "./lib/debugRedaction.js";
 import { createPushService } from "./lib/push.js";
 import { createUploadTools } from "./lib/uploads.js";
 import { resolveAppOrigins, ensureBucketCors } from "./lib/bucketCors.js";
@@ -308,10 +310,10 @@ app.use((req, res, next) => {
       path: req.originalUrl || req.url || "",
       query: req.query || {},
       params: req.params || {},
-      body: req.body || {},
+      body: redactDebugSecrets(req.body || {}),
       status: Number(res.statusCode || 0),
       durationMs: Date.now() - startedAt,
-      response: responseBody,
+      response: redactDebugSecrets(responseBody),
     });
   });
   next();
@@ -567,7 +569,10 @@ const presenceTracker = createPresenceTracker({
   },
 });
 
+const resolveRuntimeTurnConfig = () => resolveTurnConfigLib({ dbGetSetting });
+
 const callManager = createCallManager({
+  resolveTurnConfig: resolveRuntimeTurnConfig,
   isMember,
   findChatById,
   listChatMembers,
@@ -1045,6 +1050,7 @@ const apiDeps = {
   dbGetSetting,
   dbSetSetting,
   dbDeleteSetting,
+  resolveTurnConfig: resolveRuntimeTurnConfig,
   dbRun: adminRun,
   dbSave: adminSave,
 };
