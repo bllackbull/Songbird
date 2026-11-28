@@ -104,6 +104,58 @@ describe("callManager", () => {
       expect(fetchIce).toHaveBeenCalledOnce();
     });
 
+    it("uses config saved in the admin panel when a resolver is injected", async () => {
+      const savedManager = createCallManager({
+        ...mockDeps,
+        resolveTurnConfig: async () => ({
+          stunUrl: "stun:saved.stun.org:19302",
+          turnUrl: "turn:saved.turn.org:3478",
+          username: "saved-user",
+          credential: "saved-pass",
+          tokenId: "",
+          apiToken: "",
+          managedByEnv: {},
+        }),
+      });
+      expect(await savedManager.resolveIceServers()).toEqual([
+        { urls: "stun:saved.stun.org:19302" },
+        {
+          urls: "turn:saved.turn.org:3478",
+          username: "saved-user",
+          credential: "saved-pass",
+        },
+      ]);
+    });
+
+    it("mints Cloudflare credentials with keys saved in the admin panel", async () => {
+      const fetchIce = vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              iceServers: [{ urls: "turn:cf.example.com", username: "u", credential: "c" }],
+            }),
+        }),
+      );
+      const savedCfManager = createCallManager({
+        ...mockDeps,
+        fetch: fetchIce,
+        resolveTurnConfig: async () => ({
+          stunUrl: "stun:stun.l.google.com:19302",
+          turnUrl: "",
+          username: "",
+          credential: "",
+          tokenId: "saved-key",
+          apiToken: "saved-token",
+          managedByEnv: {},
+        }),
+      });
+      expect(await savedCfManager.resolveIceServers()).toEqual([
+        { urls: "turn:cf.example.com", username: "u", credential: "c" },
+      ]);
+      expect(fetchIce.mock.calls[0][0]).toContain("/keys/saved-key/");
+    });
+
     it("falls back to static config when the Cloudflare request fails", async () => {
       const cfManager = createCallManager({
         ...mockDeps,
