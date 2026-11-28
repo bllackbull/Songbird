@@ -67,13 +67,19 @@ afterEach(() => {
 });
 
 describe("TurnSetupModal", () => {
-  test("switches between self-hosted and Cloudflare fields", async () => {
+  test("switches between self-hosted and Cloudflare via the mode dropdown", async () => {
     mockFetch();
     render(<TurnSetupModal open onClose={vi.fn()} />);
     await expect.element(page.getByLabelText("TURN URL")).toBeInTheDocument();
     await expect.element(page.getByLabelText("Credential")).toBeInTheDocument();
 
-    await userEvent.click(page.getByRole("button", { name: "Cloudflare" }));
+    const trigger = page.getByRole("button", { name: /^TURN mode/ });
+    await expect.element(trigger).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(trigger);
+    await expect
+      .element(page.getByRole("option", { name: "Cloudflare" }))
+      .toBeInTheDocument();
+    await userEvent.click(page.getByRole("option", { name: "Cloudflare" }));
     await expect
       .element(page.getByLabelText("Cloudflare key ID"))
       .toBeInTheDocument();
@@ -81,6 +87,30 @@ describe("TurnSetupModal", () => {
     await expect
       .element(page.getByLabelText("TURN URL"))
       .not.toBeInTheDocument();
+    await expect
+      .element(trigger)
+      .toHaveAttribute("aria-expanded", "false");
+  });
+
+  test("uses the Server lucide icon and Cloudflare brand icon in the mode selector", async () => {
+    mockFetch();
+    render(<TurnSetupModal open onClose={vi.fn()} />);
+    const trigger = page.getByRole("button", { name: /^TURN mode/ });
+    await expect
+      .element(trigger.locator("svg.lucide-server"))
+      .toBeInTheDocument();
+
+    await userEvent.click(trigger);
+    const cloudflareOption = page.getByRole("option", { name: "Cloudflare" });
+    await expect
+      .element(cloudflareOption.locator("svg:not(.lucide)"))
+      .toBeInTheDocument();
+    await userEvent.click(cloudflareOption);
+    await expect
+      .element(trigger.locator("svg:not(.lucide)"))
+      .toBeInTheDocument();
+    await expect.element(trigger.locator("svg circle[mask]")).toBeInTheDocument();
+    await expect.element(trigger.locator("svg mask")).toBeInTheDocument();
   });
 
   test("saves the edited fields as a camelCase patch", async () => {
@@ -142,10 +172,10 @@ describe("TurnSetupModal", () => {
       .element(page.getByRole("button", { name: "Test connection" }))
       .toBeInTheDocument();
     await expect
-      .element(page.getByRole("button", { name: "Clear" }))
+      .element(page.getByRole("button", { name: "Disconnect" }))
       .toBeInTheDocument();
     await expect
-      .element(page.getByRole("button", { name: "Cloudflare" }))
+      .element(page.getByRole("button", { name: /^TURN mode/ }))
       .not.toBeInTheDocument();
   });
 
@@ -170,11 +200,9 @@ describe("TurnSetupModal", () => {
     });
     vi.stubGlobal("fetch", fetchSpy);
     render(<TurnSetupModal open onClose={vi.fn()} />);
-    await userEvent.click(page.getByRole("button", { name: "Clear" }));
-    await expect
-      .element(page.getByRole("button", { name: "Self-hosted" }))
-      .toBeInTheDocument();
-    await userEvent.click(page.getByRole("button", { name: "Self-hosted" }));
+    await userEvent.click(page.getByRole("button", { name: "Disconnect" }));
+    await userEvent.click(page.getByRole("button", { name: /^TURN mode/ }));
+    await userEvent.click(page.getByRole("option", { name: "Self-hosted" }));
     await userEvent.type(
       page.getByLabelText("TURN URL"),
       "turn:relay.example.com:3478",
@@ -205,7 +233,7 @@ describe("TurnSetupModal", () => {
       },
     });
     render(<TurnSetupModal open onClose={vi.fn()} />);
-    await userEvent.click(page.getByRole("button", { name: "Clear" }));
+    await userEvent.click(page.getByRole("button", { name: "Disconnect" }));
 
     expect(deleteCall(fetchSpy)).toBeDefined();
     expect(putCall(fetchSpy)).toBeUndefined();
@@ -221,7 +249,7 @@ describe("TurnSetupModal", () => {
       .element(page.getByRole("button", { name: "Test connection" }))
       .not.toBeInTheDocument();
     await expect
-      .element(page.getByRole("button", { name: "Clear" }))
+      .element(page.getByRole("button", { name: "Disconnect" }))
       .not.toBeInTheDocument();
   });
 
@@ -238,13 +266,13 @@ describe("TurnSetupModal", () => {
       .element(page.getByRole("button", { name: "Test connection" }))
       .toBeInTheDocument();
     await expect
-      .element(page.getByRole("button", { name: "Clear" }))
+      .element(page.getByRole("button", { name: "Disconnect" }))
       .toBeInTheDocument();
     await expect
       .element(page.getByRole("button", { name: "Save" }))
       .not.toBeInTheDocument();
     await expect
-      .element(page.getByRole("button", { name: "Cloudflare" }))
+      .element(page.getByRole("button", { name: /^TURN mode/ }))
       .not.toBeInTheDocument();
     await expect
       .element(page.getByLabelText("TURN URL"))

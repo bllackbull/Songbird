@@ -1,14 +1,17 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../../api/chatApi.js";
 import {
   AlertCircle,
   Check,
+  ChevronDown,
   Eye,
   EyeOff,
   LoaderCircle,
+  Server,
   Unplug,
   Zap,
 } from "../../icons/lucide.js";
+import { CloudflareIcon } from "../../icons/BrandIcons.jsx";
 import { btnDanger, btnPrimary, btnSecondary } from "./adminShared.js";
 import { Field, Modal } from "./AdminCommon.jsx";
 import { useOverlayBack } from "../../hooks/chat/useOverlayBack.js";
@@ -82,6 +85,10 @@ export default function TurnSetupModal({ open, onClose, onChanged }) {
   });
   const [showCredential, setShowCredential] = useState(false);
   const [showApiToken, setShowApiToken] = useState(false);
+  const [modeMenuOpen, setModeMenuOpen] = useState(false);
+  const modeButtonRef = useRef(null);
+  const modeMenuRef = useRef(null);
+  const ignoreModeButtonClickRef = useRef(false);
 
   const fetchStatus = useCallback(async () => {
     const res = await apiFetch(`${BASE}/status`);
@@ -109,6 +116,31 @@ export default function TurnSetupModal({ open, onClose, onChanged }) {
       .catch((e) => setError(e.message || "Failed to load status."))
       .finally(() => setLoading(false));
   }, [open, fetchStatus]);
+
+  useEffect(() => {
+    if (!open || !modeMenuOpen) return undefined;
+    const ownerDocument = modeMenuRef.current?.ownerDocument || document;
+    const handleOutsideInteraction = (event) => {
+      const menu = modeMenuRef.current;
+      const button = modeButtonRef.current;
+      const path =
+        typeof event.composedPath === "function" ? event.composedPath() : [];
+      if (menu && (menu.contains(event.target) || path.includes(menu))) return;
+      if (button && (button.contains(event.target) || path.includes(button))) {
+        ignoreModeButtonClickRef.current = true;
+      }
+      setModeMenuOpen(false);
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") setModeMenuOpen(false);
+    };
+    ownerDocument.addEventListener("pointerdown", handleOutsideInteraction, true);
+    ownerDocument.addEventListener("keydown", handleKeyDown);
+    return () => {
+      ownerDocument.removeEventListener("pointerdown", handleOutsideInteraction, true);
+      ownerDocument.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open, modeMenuOpen]);
 
   const locked = (field) => Boolean(status?.managedByEnv?.[field]);
   const configured =
@@ -245,31 +277,83 @@ export default function TurnSetupModal({ open, onClose, onChanged }) {
             </div>
           ) : (
             <>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="relative">
+            <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+              Mode
+            </label>
             <button
+              ref={modeButtonRef}
               type="button"
+              onClick={() => {
+                if (ignoreModeButtonClickRef.current) {
+                  ignoreModeButtonClickRef.current = false;
+                  return;
+                }
+                setModeMenuOpen((current) => !current);
+              }}
               disabled={busy}
-              onClick={() => setMode("self-hosted")}
-              className={
-                mode === "self-hosted"
-                  ? btnPrimary + " justify-center"
-                  : btnSecondary + " justify-center"
-              }
+              className="relative mt-2 flex w-full items-center rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-12 text-left text-sm font-semibold text-slate-700 outline-hidden transition hover:border-emerald-300 hover:bg-emerald-50 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 disabled:opacity-50 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-emerald-500/10"
+              aria-expanded={modeMenuOpen}
+              aria-haspopup="listbox"
+              aria-label={`TURN mode: ${mode === "cloudflare" ? "Cloudflare" : "Self-hosted"}`}
             >
-              Self-hosted
+              <span className="flex items-center gap-2">
+                {mode === "cloudflare" ? (
+                  <CloudflareIcon size={16} />
+                ) : (
+                  <Server size={16} />
+                )}
+                {mode === "cloudflare" ? "Cloudflare" : "Self-hosted"}
+              </span>
+              <ChevronDown
+                size={16}
+                className={`absolute right-4 top-1/2 -translate-y-1/2 text-emerald-500 transition-transform ${
+                  modeMenuOpen ? "rotate-180" : ""
+                }`}
+              />
             </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => setMode("cloudflare")}
-              className={
-                mode === "cloudflare"
-                  ? btnPrimary + " justify-center"
-                  : btnSecondary + " justify-center"
-              }
-            >
-              Cloudflare
-            </button>
+            {modeMenuOpen ? (
+              <div
+                ref={modeMenuRef}
+                role="listbox"
+                className="absolute left-0 right-0 z-50 mt-2 overflow-hidden rounded-2xl border border-emerald-200 bg-white p-1 text-sm font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
+              >
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={mode === "self-hosted"}
+                  onClick={() => {
+                    setModeMenuOpen(false);
+                    setMode("self-hosted");
+                  }}
+                  className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
+                >
+                  <span className="flex items-center gap-2">
+                    <Server size={16} /> Self-hosted
+                  </span>
+                  {mode === "self-hosted" ? (
+                    <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                  ) : null}
+                </button>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={mode === "cloudflare"}
+                  onClick={() => {
+                    setModeMenuOpen(false);
+                    setMode("cloudflare");
+                  }}
+                  className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
+                >
+                  <span className="flex items-center gap-2">
+                    <CloudflareIcon size={16} /> Cloudflare
+                  </span>
+                  {mode === "cloudflare" ? (
+                    <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                  ) : null}
+                </button>
+              </div>
+            ) : null}
           </div>
 
           <Field
