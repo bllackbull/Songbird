@@ -112,7 +112,6 @@ describe("TurnSetupModal", () => {
     const fetchSpy = mockFetch({
       status: {
         ...baseStatus,
-        mode: "self-hosted",
         hasCredential: true,
       },
     });
@@ -129,7 +128,7 @@ describe("TurnSetupModal", () => {
     expect(Object.values(body).every((value) => value !== "")).toBe(true);
   });
 
-  test("mode toggles stay usable when another field is env-managed", async () => {
+  test("configured env-managed TURN still shows only Test and Clear", async () => {
     mockFetch({
       status: {
         ...baseStatus,
@@ -140,20 +139,41 @@ describe("TurnSetupModal", () => {
     });
     render(<TurnSetupModal open onClose={vi.fn()} />);
     await expect
+      .element(page.getByRole("button", { name: "Test connection" }))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: "Clear" }))
+      .toBeInTheDocument();
+    await expect
       .element(page.getByRole("button", { name: "Cloudflare" }))
-      .not.toBeDisabled();
+      .not.toBeInTheDocument();
   });
 
   test("switching to self-hosted clears the stale Cloudflare keys", async () => {
-    const fetchSpy = mockFetch({
-      status: {
-        ...baseStatus,
-        mode: "cloudflare",
-        tokenId: "saved-key",
-        hasApiToken: true,
-      },
+    let configured = true;
+    const fetchSpy = vi.fn(async (url, options = {}) => {
+      if (String(url).endsWith("/status")) {
+        return {
+          ok: true,
+          json: async () => ({
+            ...baseStatus,
+            mode: configured ? "cloudflare" : "stun-only",
+            tokenId: configured ? "saved-key" : "",
+            hasApiToken: configured,
+          }),
+        };
+      }
+      if (String(url).endsWith("/config") && options?.method === "DELETE") {
+        configured = false;
+      }
+      return { ok: true, json: async () => ({ ok: true }) };
     });
+    vi.stubGlobal("fetch", fetchSpy);
     render(<TurnSetupModal open onClose={vi.fn()} />);
+    await userEvent.click(page.getByRole("button", { name: "Clear" }));
+    await expect
+      .element(page.getByRole("button", { name: "Self-hosted" }))
+      .toBeInTheDocument();
     await userEvent.click(page.getByRole("button", { name: "Self-hosted" }));
     await userEvent.type(
       page.getByLabelText("TURN URL"),
@@ -220,19 +240,26 @@ describe("TurnSetupModal", () => {
     await expect
       .element(page.getByRole("button", { name: "Clear" }))
       .toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: "Save" }))
+      .not.toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: "Cloudflare" }))
+      .not.toBeInTheDocument();
+    await expect
+      .element(page.getByLabelText("TURN URL"))
+      .not.toBeInTheDocument();
   });
 
   test("env-managed fields are locked and show the environment badge", async () => {
     mockFetch({
       status: {
         ...baseStatus,
-        mode: "self-hosted",
-        turnUrl: "turn:env.example.com:3478",
-        managedByEnv: { ...baseStatus.managedByEnv, turnUrl: true },
+        managedByEnv: { ...baseStatus.managedByEnv, stunUrl: true },
       },
     });
     render(<TurnSetupModal open onClose={vi.fn()} />);
-    await expect.element(page.getByLabelText("TURN URL")).toBeDisabled();
+    await expect.element(page.getByLabelText("STUN URL")).toBeDisabled();
     await expect
       .element(page.getByText("environment").first())
       .toBeInTheDocument();
@@ -250,16 +277,15 @@ describe("TurnSetupModal", () => {
     await userEvent.click(
       page.getByRole("button", { name: "Test connection" }),
     );
-    await expect.element(page.getByText(/Reachable/)).toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: /Reachable/ }))
+      .toBeInTheDocument();
   });
 
   test("never renders saved secret values", async () => {
     mockFetch({
       status: {
         ...baseStatus,
-        mode: "self-hosted",
-        turnUrl: "turn:relay.example.com:3478",
-        username: "songbird",
         hasCredential: true,
       },
     });

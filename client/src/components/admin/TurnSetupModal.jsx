@@ -6,6 +6,7 @@ import {
   Eye,
   EyeOff,
   LoaderCircle,
+  Unplug,
   Zap,
 } from "../../icons/lucide.js";
 import { btnDanger, btnPrimary, btnSecondary } from "./adminShared.js";
@@ -200,6 +201,50 @@ export default function TurnSetupModal({ open, onClose, onChanged }) {
             </p>
           )}
 
+          {configured ? (
+            <div className="flex flex-col items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={testConnection}
+                disabled={busy}
+                title={testState?.reachable ? `Latency ${testState.latencyMs}ms` : undefined}
+                className={
+                  testState?.reachable
+                    ? "inline-flex h-9 w-44 items-center justify-center gap-1.5 truncate rounded-xl bg-emerald-500 px-3 text-xs font-semibold text-white transition hover:bg-emerald-400"
+                    : testState
+                      ? "inline-flex h-9 w-44 items-center justify-center gap-1.5 rounded-xl bg-rose-500 px-3 text-xs font-semibold text-white transition hover:bg-rose-400"
+                      : btnSecondary + BTN_INLINE
+                }
+              >
+                {busy ? (
+                  <LoaderCircle size={13} className="animate-spin" />
+                ) : testState?.reachable ? (
+                  <Check size={14} className="icon-anim-pop" />
+                ) : testState ? (
+                  <AlertCircle size={14} className="icon-anim-pop" />
+                ) : (
+                  <Zap size={14} className="icon-anim-beat" />
+                )}
+                {busy
+                  ? "Testing…"
+                  : testState?.reachable
+                    ? `Reachable · ${testState.latencyMs}ms`
+                    : testState
+                      ? "Failed"
+                      : "Test connection"}
+              </button>
+              <button
+                type="button"
+                onClick={clear}
+                disabled={busy}
+                className={btnDanger + BTN_INLINE}
+              >
+                <Unplug size={14} className="icon-anim-slide" />
+                Disconnect
+              </button>
+            </div>
+          ) : (
+            <>
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
@@ -361,36 +406,6 @@ export default function TurnSetupModal({ open, onClose, onChanged }) {
             )}
             Save
           </button>
-          {configured && (
-            <>
-              {testState && (
-                <p
-                  className={`text-center text-xs font-semibold ${testState.reachable ? "text-emerald-600 dark:text-emerald-300" : "text-rose-600 dark:text-rose-300"}`}
-                >
-                  {testState.reachable
-                    ? `Reachable${testState.latencyMs != null ? ` · ${testState.latencyMs}ms` : ""}`
-                    : "Unreachable"}
-                </p>
-              )}
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={testConnection}
-                  disabled={busy}
-                  className={btnSecondary + BTN_INLINE}
-                >
-                  <Zap size={14} className="icon-anim-beat" />
-                  Test connection
-                </button>
-                <button
-                  type="button"
-                  onClick={clear}
-                  disabled={busy}
-                  className={btnDanger + BTN_INLINE}
-                >
-                  Clear
-                </button>
-              </div>
             </>
           )}
         </div>
